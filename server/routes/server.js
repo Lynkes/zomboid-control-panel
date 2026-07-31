@@ -502,8 +502,17 @@ function generateStartupScripts(options) {
   // generous max quietly turns into the resident set. SoftMaxHeapSize is the
   // pressure valve: GC aims to stay under it and only spends the rest of -Xmx
   // on real spikes, which keeps PZ from crowding out everything else on the
-  // host. 60% of max leaves a wide burst margin.
-  const softMaxMemory = Math.max(1, Math.round(normalizedMaxMemory * 0.6));
+  // host. A flat 1GB gap (rather than a percentage of max) keeps a
+  // fixed, always-available burst allowance for the GC to draw on quickly
+  // regardless of how large -Xmx is configured -- a percentage-based margin
+  // scales the same way as -Xmx itself, which either wastes most of a large
+  // allocation as permanently-idle headroom or leaves almost none on a small
+  // one. Floored at 1GB so an -Xmx of 1-2GB doesn't collapse the target to 0.
+  const SOFT_MAX_HEADROOM_GB = 1;
+  const softMaxMemory = Math.max(
+    1,
+    normalizedMaxMemory - SOFT_MAX_HEADROOM_GB,
+  );
 
   // Build JVM arguments (shared between both platforms)
   // IgnoreUnrecognizedVMOptions first: the Linux script falls back to a system
