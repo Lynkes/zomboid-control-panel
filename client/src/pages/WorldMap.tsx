@@ -178,35 +178,52 @@ interface MapConfig {
   isoHalfSqr: number
   isoQuarterSqr: number
   defaultCenter: { x: number; y: number }
+  defaultScale: number
   label: string
 }
 
 const MAP_B42: MapConfig = {
   tileUrl: '/api/map/tiles',
-  // Verified directly against the live layer0.dzi descriptor
-  // (map.projectzomboid.com/maps/<version>/base/layer0.dzi), which reports
-  // TileSize="2048" — this was previously hardcoded to 1024 (correct for
-  // B41, wrong for B42), which computed up to 2x too many tile
-  // columns/rows per level. That mismatch only became visible once a
-  // level's viewport genuinely spans more than one tile (mid-to-high
-  // zoom): the extra requested tiles legitimately don't exist upstream
-  // (404), and the ones that do exist were drawn at the wrong on-screen
-  // position — together producing the reported "tiles offline" banner
-  // and visible view jump/snap on zoom.
-  tileSize: 2048,
-  // Also refreshed from the same live descriptor (Size Width/Height) —
-  // these drift slightly release to release as the underlying map image
-  // is regenerated; this is a point-in-time snapshot, not resolved
-  // dynamically like the server already does for the version directory.
-  fullWidth: 2318656,
-  fullHeight: 1019040,
-  maxLevel: 22,
-  isoX0: 1036288,
-  isoY0: -139296,
-  isoHalfSqr: 64,
-  isoQuarterSqr: 32,
-  defaultCenter: { x: 1280000, y: 410000 },
+  tileSize: 1024,
+  fullWidth: 1157312,
+  fullHeight: 509520,
+  maxLevel: 21,
+  isoX0: 518144,
+  isoY0: -69648,
+  isoHalfSqr: 32,
+  isoQuarterSqr: 16,
+  defaultCenter: { x: 640000, y: 205000 },
+  defaultScale: 0.002,
   label: 'B42',
+}
+
+// PZ renders each map build at its own resolution — 42.19.0 is 1157312 wide
+// with 1024px tiles, 42.20.0 doubled to 2318656 with 2048px tiles. The
+// projection constants above are expressed against MAP_B42.fullWidth, so
+// rescale them by whatever the backend reports it is actually proxying.
+function b42ConfigFor(info: {
+  tileSize: number
+  width: number
+  height: number
+  maxLevel: number
+}): MapConfig {
+  const k = info.width / MAP_B42.fullWidth
+  return {
+    ...MAP_B42,
+    tileSize: info.tileSize,
+    fullWidth: info.width,
+    fullHeight: info.height,
+    maxLevel: info.maxLevel,
+    isoX0: MAP_B42.isoX0 * k,
+    isoY0: MAP_B42.isoY0 * k,
+    isoHalfSqr: MAP_B42.isoHalfSqr * k,
+    isoQuarterSqr: MAP_B42.isoQuarterSqr * k,
+    defaultCenter: {
+      x: MAP_B42.defaultCenter.x * k,
+      y: MAP_B42.defaultCenter.y * k,
+    },
+    defaultScale: MAP_B42.defaultScale / k,
+  }
 }
 
 const MAP_B41: MapConfig = {
@@ -222,6 +239,7 @@ const MAP_B41: MapConfig = {
   isoHalfSqr: 64,  // 32 * multiply(2)
   isoQuarterSqr: 32, // 16 * multiply(2)
   defaultCenter: { x: 1100000, y: 400000 },
+  defaultScale: 0.001,
   label: 'B41',
 }
 
@@ -479,7 +497,7 @@ export default function WorldMap() {
   const [players, setPlayers] = useState<MapPlayer[]>([])
   const [mapCfg, setMapCfg] = useState<MapConfig>(MAP_B42)
   const mapCfgRef = useRef<MapConfig>(MAP_B42)
-  const [scale, setScale] = useState(0.001)
+  const [scale, setScale] = useState(MAP_B42.defaultScale)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 })
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null)
@@ -614,8 +632,19 @@ export default function WorldMap() {
         if (branch && /b41/i.test(branch)) isB41 = true
       }
 
-      const targetCfg = isB41 ? MAP_B41 : MAP_B42
-      if (mapCfgRef.current === targetCfg) return // already on the right config
+      // B42 geometry depends on which map build the backend resolved, so it
+      // can only be built once that's known.
+      const targetCfg = isB41 ? MAP_B41 : b42ConfigFor(await mapApi.resolve())
+      if (cancelledRef.current) return
+      // Compare geometry, not just B41/B42: the initial state is a B42
+      // placeholder, so a label check alone would skip applying the
+      // resolved build's real dimensions.
+      const cur = mapCfgRef.current
+      if (
+        cur.label === targetCfg.label &&
+        cur.tileSize === targetCfg.tileSize &&
+        cur.fullWidth === targetCfg.fullWidth
+      ) return
 
       setMapCfg(targetCfg)
       mapCfgRef.current = targetCfg
@@ -638,8 +667,9 @@ export default function WorldMap() {
       // Re-center on the new config's default center
       const el = containerRef.current
       if (el) {
-        const s = 0.001
+        const s = targetCfg.defaultScale
         const c = targetCfg.defaultCenter
+        setScale(s)
         setOffset({
           x: el.clientWidth / 2 - c.x * s,
           y: el.clientHeight / 2 - c.y * s,
@@ -1086,13 +1116,12 @@ export default function WorldMap() {
     const visMaxDziY = (H - off.y) / s
 
     // Convert to level-pixel tile indices. Tile size is per-map-config, not
-    // a shared constant — B42's actual DZI TileSize (2048, per the live
-    // layer0.dzi descriptor) differs from B41's (1024). Using the wrong
-    // value here doesn't just misplace tiles, it computes an entirely wrong
-    // column/row count — e.g. assuming 1024 against a real 2048 tile grid
-    // requests up to 2x as many columns/rows as actually exist, hitting
-    // real 404s past the true edge and drawing the ones that do exist at
-    // the wrong position (visible as tiles jumping/snapping on zoom).
+    // a shared constant — it varies by map build (42.19.0 is 1024, 42.20.0
+    // is 2048) as well as between B41 and B42. Using the wrong value here
+    // doesn't just misplace tiles, it computes an entirely wrong column/row
+    // count — assuming 1024 against a real 2048 tile grid requests up to 2x
+    // as many columns/rows as exist, hitting real 404s past the true edge
+    // and drawing the ones that do exist at the wrong position.
     const tileSize = mc.tileSize
     const minCol = Math.max(0, Math.floor(visMinDziX / levelScale / tileSize))
     const maxCol = Math.min(Math.ceil(levelW / tileSize) - 1, Math.floor(visMaxDziX / levelScale / tileSize))
@@ -1726,7 +1755,7 @@ export default function WorldMap() {
     if (hasInitRef.current || canvasSize.width === 0) return
     hasInitRef.current = true
     const c = mapCfgRef.current.defaultCenter
-    const s = 0.001
+    const s = mapCfgRef.current.defaultScale
     setOffset({
       x: canvasSize.width / 2 - c.x * s,
       y: canvasSize.height / 2 - c.y * s,
@@ -1742,7 +1771,7 @@ export default function WorldMap() {
     if (players.length === 0) {
       // Reset to default Knox County view
       const c = mapCfgRef.current.defaultCenter
-      const s = 0.001
+      const s = mapCfgRef.current.defaultScale
       setScale(s)
       setOffset({
         x: W / 2 - c.x * s,
@@ -2351,7 +2380,7 @@ export default function WorldMap() {
     const H = canvasSize.height
     if (W === 0) return
     const dzi = gameTileToDzi(p.x, p.y, mapCfgRef.current)
-    const viewScale = Math.max(scale, 0.01) // zoom in if too far out
+    const viewScale = Math.max(scale, mapCfgRef.current.defaultScale * 10) // zoom in if too far out
     setScale(viewScale)
     setOffset({ x: W / 2 - dzi.x * viewScale, y: H / 2 - dzi.y * viewScale })
     setSelectedPlayer(p)
@@ -2597,7 +2626,7 @@ export default function WorldMap() {
             </div>
             <div className="flex items-center gap-1 px-2.5 py-1.5">
               <span className="text-muted-foreground/50 text-[9px] uppercase tracking-[0.22em]">zm</span>
-              <span className="text-muted-foreground/80">{(scale / 0.001 * 100).toFixed(0)}%</span>
+              <span className="text-muted-foreground/80">{(scale / mapCfg.defaultScale * 100).toFixed(0)}%</span>
             </div>
           </div>
         </div>

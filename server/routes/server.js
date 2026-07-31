@@ -644,6 +644,19 @@ router.get("/status", async (req, res) => {
   }
 });
 
+// List every non-internal IPv4 address the host currently has (one per
+// network adapter/VPN mesh) so Settings can offer a picker instead of the
+// dashboard guessing which one to show.
+router.get("/network-interfaces", async (req, res) => {
+  try {
+    const serverManager = req.app.get("serverManager");
+    res.json({ interfaces: serverManager.listNetworkInterfaces() });
+  } catch (error) {
+    log.error(`Failed to list network interfaces: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
 // Start server
 router.post("/start", async (req, res) => {
   try {

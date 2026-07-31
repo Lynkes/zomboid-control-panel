@@ -1,12 +1,12 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { reportClientError } from '@/lib/client-errors'
-import { 
-  Users, 
-  UserX, 
-  Ban, 
-  Shield, 
-  UserPlus, 
+import {
+  Users,
+  UserX,
+  Ban,
+  Shield,
+  UserPlus,
   UserMinus,
   Car,
   Package,
@@ -43,12 +43,14 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
-import { 
-  Select, 
-  SelectContent, 
-  SelectItem, 
-  SelectTrigger, 
-  SelectValue 
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue
 } from '@/components/ui/select'
 import {
   Dialog,
@@ -85,6 +87,12 @@ import { SpawnBrowser } from '@/components/SpawnBrowser'
 import { playersApi, panelBridgeApi, configApi } from '@/lib/api'
 import { PageHeader } from '@/components/PageHeader'
 import { cn, copyText } from '@/lib/utils'
+
+interface PerkChoice {
+  id: string
+  label: string
+  category: string
+}
 
 interface Player {
   name: string
@@ -242,7 +250,7 @@ function ActionTile({
 
 export default function Players() {
   const [players, setPlayers] = useState<Player[]>([])
-  const [perks, setPerks] = useState<string[]>([])
+  const [perks, setPerks] = useState<PerkChoice[]>([])
   const [selectedPlayer, setSelectedPlayer] = useState<string>('')
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
@@ -276,31 +284,31 @@ export default function Players() {
   const [unbanSteamId, setUnbanSteamId] = useState('')
   const [bannedSteamIds, setBannedSteamIds] = useState<Array<{ steamId: string; banned_at: string; reason?: string }>>([])
   const [loadingBans, setLoadingBans] = useState(false)
-  
+
   // Add User states
   const [addUserUsername, setAddUserUsername] = useState('')
   const [addUserPassword, setAddUserPassword] = useState('')
-  
+
   // Teleport states
   const [teleportX, setTeleportX] = useState('')
   const [teleportY, setTeleportY] = useState('')
   const [teleportZ, setTeleportZ] = useState('0')
   const [teleportTarget, setTeleportTarget] = useState('')
-  
+
   // SteamID Ban states
   const [banSteamId, setBanSteamId] = useState('')
   const [steamBanReason, setSteamBanReason] = useState('')
-  
+
   // Voice Ban states
   const [voiceBanUsername, setVoiceBanUsername] = useState('')
   const [voiceBanEnabled, setVoiceBanEnabled] = useState(true)
-  
+
   // Power states (local tracking since server doesn't report these)
   const [playerPowers, setPlayerPowers] = useState<Record<string, { godMode: boolean; invisible: boolean; noclip: boolean }>>({})
-  
+
   // Player search filter
   const [playerSearchFilter, setPlayerSearchFilter] = useState('')
-  
+
   // Character Export/Import states
   const [characterData, setCharacterData] = useState<string>('')
   const [importCharacterData, setImportCharacterData] = useState('')
@@ -308,18 +316,18 @@ export default function Players() {
   const [importing, setImporting] = useState(false)
   const [copied, setCopied] = useState(false)
   const [importExportOpen, setImportExportOpen] = useState(false)
-  
+
   // Bridge status for character export/import
   const [bridgeConnected, setBridgeConnected] = useState(false)
 
   // Auto-export on login
   const [autoExportEnabled, setAutoExportEnabled] = useState(false)
   const [savedExports, setSavedExports] = useState<Array<{ username: string; filename: string; size: number; timestamp: string }>>([])
-  
+
   // Ref for copy timeout cleanup
   const copiedTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
-  
+
   // Cleanup copy timeout on unmount
   useEffect(() => {
     return () => {
@@ -328,7 +336,7 @@ export default function Players() {
       }
     }
   }, [])
-  
+
   // Activity Log states
   interface ActivityLog {
     id: number
@@ -340,7 +348,7 @@ export default function Players() {
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
   const [logPlayerFilter, setLogPlayerFilter] = useState('')
-  
+
   // Player Notes & Tags states
   interface PlayerNote {
     playerName: string
@@ -370,10 +378,10 @@ export default function Players() {
 
   const getErrorMessage = (error: unknown, fallback: string) =>
     error instanceof Error ? error.message : fallback
-  
+
   // Filter players by search term (memoized to avoid recalculation on every render)
-  const filteredPlayers = useMemo(() => 
-    players.filter(player => 
+  const filteredPlayers = useMemo(() =>
+    players.filter(player =>
       player.name.toLowerCase().includes(playerSearchFilter.toLowerCase())
     ),
     [players, playerSearchFilter]
@@ -431,7 +439,7 @@ export default function Players() {
       setPlayersLoadError(getErrorMessage(error, 'Failed to load players.'))
     }
   }, [])
-  
+
   const fetchActivityLogs = useCallback(async (playerFilter?: string) => {
     setLogsLoading(true)
     try {
@@ -447,7 +455,7 @@ export default function Players() {
       setLogsLoading(false)
     }
   }, [])
-  
+
   const fetchNotesAndStats = useCallback(async () => {
     setNotesLoading(true)
     try {
@@ -482,7 +490,7 @@ export default function Players() {
       setNotesLoading(false)
     }
   }, [])
-  
+
   const handleSaveNote = async () => {
     if (!selectedPlayer) return
     const normalizedNote = currentNote.trim()
@@ -514,7 +522,7 @@ export default function Players() {
       setSavingNote(false)
     }
   }
-  
+
   const handleDeleteNote = async () => {
     if (!selectedPlayer) return
     setSavingNote(true)
@@ -543,7 +551,7 @@ export default function Players() {
       setSavingNote(false)
     }
   }
-  
+
   const addTag = () => {
     const tag = newTag.trim().toLowerCase().slice(0, 24)
     if (tag && !currentTags.includes(tag) && currentTags.length < 10) {
@@ -551,11 +559,11 @@ export default function Players() {
     }
     setNewTag('')
   }
-  
+
   const removeTag = (tag: string) => {
     setCurrentTags(currentTags.filter(t => t !== tag))
   }
-  
+
   // Format playtime in human-readable format
   const formatPlaytime = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600)
@@ -566,10 +574,24 @@ export default function Players() {
     return `${minutes}m`
   }
 
+  const perkGroups = useMemo(() => {
+    const byCategory = new Map<string, PerkChoice[]>()
+    for (const perk of perks) {
+      const group = byCategory.get(perk.category)
+      if (group) group.push(perk)
+      else byCategory.set(perk.category, [perk])
+    }
+    return [...byCategory.entries()]
+  }, [perks])
+
   const fetchData = useCallback(async () => {
     try {
       const perksData = await playersApi.getPerks()
-      setPerks(perksData.perks || [])
+      // `catalog` carries the in-game skill names; older backends only send ids.
+      setPerks(
+        perksData.catalog ??
+          (perksData.perks || []).map((id: string) => ({ id, label: id, category: 'Skills' })),
+      )
       setToolsLoadError(null)
     } catch (error) {
       reportClientError('Failed to fetch player data.', error)
@@ -619,7 +641,7 @@ export default function Players() {
       clearInterval(interval)
     }
   }, [fetchPlayers, fetchData, fetchNotesAndStats, fetchBannedSteamIds])
-  
+
   // Load note/tags when selected player changes
   useEffect(() => {
     if (selectedPlayer && playerNotes[selectedPlayer]) {
@@ -722,7 +744,7 @@ export default function Players() {
 
   const handleVoiceBan = () => {
     if (!voiceBanUsername) return
-    handleAction(voiceBanEnabled ? 'Voice ban' : 'Voice unban', 
+    handleAction(voiceBanEnabled ? 'Voice ban' : 'Voice unban',
       () => playersApi.voiceBan(voiceBanUsername, voiceBanEnabled), () => {
         setVoiceBanDialogOpen(false)
         setVoiceBanUsername('')
@@ -815,7 +837,7 @@ export default function Players() {
   const handleGodMode = (enabled: boolean) => {
     const player = selectedPlayer
     if (!player) return
-    handleAction(enabled ? 'Enable god mode' : 'Disable god mode', 
+    handleAction(enabled ? 'Enable god mode' : 'Disable god mode',
       async () => {
         await panelBridgeApi.sendCommand('setGodMode', { username: player, enabled })
         setPlayerPowers(prev => ({
@@ -861,7 +883,7 @@ export default function Players() {
   }
 
   // Get selected player's current powers
-  const selectedPlayerPowers = useMemo(() => 
+  const selectedPlayerPowers = useMemo(() =>
     selectedPlayer ? playerPowers[selectedPlayer] : null,
     [selectedPlayer, playerPowers]
   )
@@ -1077,7 +1099,7 @@ export default function Players() {
                       const hasPowers = powers && (powers.godMode || powers.invisible || powers.noclip)
                       const note = playerNotes[player.name]
                       const stat = playerStats[player.name]
-                      
+
                       return (
                         <button
                           key={player.name}
@@ -1255,7 +1277,7 @@ export default function Players() {
                 )
               )}
             </ScrollArea>
-            
+
             {/* Manual entry — for offline or unlisted usernames */}
             <div className="space-y-1.5 border-t border-border/40 pt-3">
               <Label className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground/80">
@@ -1651,7 +1673,7 @@ export default function Players() {
                             placeholder="Player to teleport"
                           />
                         </div>
-                        
+
                         {/* Quick Location Presets */}
                         <div>
                           <Label className="text-xs text-muted-foreground mb-2 block">Quick Locations</Label>
@@ -1673,7 +1695,7 @@ export default function Players() {
                             ))}
                           </div>
                         </div>
-                        
+
                         <div className="grid grid-cols-3 gap-2">
                           <div>
                             <Label htmlFor="teleport-x">X</Label>
@@ -1714,8 +1736,8 @@ export default function Players() {
                         </div>
                       </div>
                       <DialogFooter>
-                        <Button 
-                          onClick={() => handleTeleport(teleportTarget || selectedPlayer)} 
+                        <Button
+                          onClick={() => handleTeleport(teleportTarget || selectedPlayer)}
                           disabled={loading || !teleportX || !teleportY || !(teleportTarget || selectedPlayer)}
                         >
                           {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
@@ -1770,7 +1792,7 @@ export default function Players() {
                         </div>
                       </div>
                       <DialogFooter>
-                        <Button 
+                        <Button
                           onClick={() => {
                             if (!voiceBanUsername) setVoiceBanUsername(selectedPlayer)
                             handleVoiceBan()
@@ -1827,8 +1849,8 @@ export default function Players() {
                         <Button variant="outline" onClick={() => setSteamIdBanDialogOpen(false)}>
                           Cancel
                         </Button>
-                        <Button 
-                          variant="destructive" 
+                        <Button
+                          variant="destructive"
                           onClick={handleSteamIdBan}
                           disabled={loading || !banSteamId}
                         >
@@ -1878,7 +1900,7 @@ export default function Players() {
                         <Button variant="outline" onClick={() => setAddUserDialogOpen(false)}>
                           Cancel
                         </Button>
-                        <Button 
+                        <Button
                           onClick={handleAddUser}
                           disabled={loading || !addUserUsername.trim() || addUserPassword.length < 4}
                         >
@@ -2091,10 +2113,15 @@ export default function Players() {
                           <SelectValue placeholder="Select perk..." />
                         </SelectTrigger>
                         <SelectContent>
-                          {perks.map((perk) => (
-                            <SelectItem key={perk} value={perk}>
-                              {perk}
-                            </SelectItem>
+                          {perkGroups.map(([category, items]) => (
+                            <SelectGroup key={category}>
+                              <SelectLabel>{category}</SelectLabel>
+                              {items.map((perk) => (
+                                <SelectItem key={perk.id} value={perk.id}>
+                                  {perk.label}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
                           ))}
                         </SelectContent>
                       </Select>
@@ -2109,8 +2136,8 @@ export default function Players() {
                         max={10000}
                       />
                     </div>
-                    <Button 
-                      onClick={handleAddXp} 
+                    <Button
+                      onClick={handleAddXp}
                       disabled={loading || !selectedPlayer || !selectedPerk}
                       size="sm"
                       className="shrink-0 sm:min-w-[100px]"
@@ -2155,7 +2182,7 @@ export default function Players() {
                       </Button>
                     </div>
                   </div>
-                  
+
                   {/* Invisible */}
                   <div className="flex items-center justify-between rounded-xl border border-border/60 bg-card/50 p-4 transition-colors hover:bg-accent/30">
                     <div className="flex items-center gap-3">
@@ -2183,7 +2210,7 @@ export default function Players() {
                       </Button>
                     </div>
                   </div>
-                  
+
                   {/* Noclip */}
                   <div className="flex items-center justify-between rounded-xl border border-border/60 bg-card/50 p-4 transition-colors hover:bg-accent/30">
                     <div className="flex items-center gap-3">
@@ -2276,7 +2303,7 @@ export default function Players() {
                         </CardContent>
                       </Card>
                     )}
-                    
+
                     {/* Tags */}
                     <div className="space-y-2">
                       <Label className="text-sm font-medium flex items-center gap-2">
@@ -2320,7 +2347,7 @@ export default function Players() {
                         Common tags: trusted, suspicious, new, vip, builder, griefer, afk. Up to 10 tags, 24 characters each.
                       </p>
                     </div>
-                    
+
                     {/* Note */}
                     <div className="space-y-2">
                       {notesError && (
@@ -2348,7 +2375,7 @@ export default function Players() {
                       />
                       <p className="text-xs text-muted-foreground">{currentNote.length}/1000 characters</p>
                     </div>
-                    
+
                     {/* Actions */}
                     <div className="flex justify-between items-center pt-2">
                       <div className="text-xs text-muted-foreground">
@@ -2426,7 +2453,7 @@ export default function Players() {
                       {logsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                     </Button>
                   </div>
-                  
+
                   <div className="rounded-md border max-h-[280px] overflow-auto">
                     <table className="w-full text-sm">
                       <thead className="bg-muted/50 sticky top-0">
@@ -2548,7 +2575,7 @@ export default function Players() {
                 )}
                 Export {selectedPlayer || 'Player'}
               </Button>
-              
+
               {characterData && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -2592,7 +2619,7 @@ export default function Players() {
                 </div>
               )}
             </div>
-            
+
             {/* Import */}
             <div className="space-y-3">
               <h4 className="text-sm font-medium flex items-center gap-2">
@@ -2621,7 +2648,7 @@ export default function Players() {
                       })
                       return
                     }
-                    
+
                     setImporting(true)
                     try {
                       const { panelBridgeApi } = await import('@/lib/api')

@@ -609,10 +609,16 @@ export default function Dashboard() {
         },
       }
     }
-    if (pzMemoryRatio != null && pzMemoryRatio >= 0.9 && pzMemoryGB != null) {
+    /* A JVM sits at its -Xmx ceiling by design: the GC grows the heap to the
+       cap and does not hand it back. "PZ at 95% of max" is therefore the
+       normal steady state, not an incident, and alerting on it fires forever.
+       Only flag genuinely abnormal growth PAST the cap, which means off-heap
+       native allocation the -Xmx does not bound and which can OOM the box.
+       Real memory pressure is covered by the host memory check below. */
+    if (pzMemoryRatio != null && pzMemoryRatio >= 1.05 && pzMemoryGB != null) {
       return {
         level: 'critical',
-        headline: `PZ memory ${pzMemoryGB.toFixed(1)} / ${maxMemoryGB} GB`,
+        headline: `PZ memory ${pzMemoryGB.toFixed(1)} GB, over its ${maxMemoryGB} GB limit`,
         action: {
           label: 'Restart',
           onClick: () => setConfirmAction({

@@ -1325,46 +1325,88 @@ router.post("/collection/extension-push", async (req, res) => {
   }
 });
 
-// Serves the panel's bundled browser extension as a zip so the user can
-// install it without round-tripping to GitHub. Resolves the zip relative to
-// the panel's install directory (next to the .exe in production, project
-// root in dev).
+// Serves the panel's browser extension as a zip. Prefers a prebuilt zip next
+// to the install, but falls back to zipping `browser-extension/` on the fly —
+// Docker images and pkg builds ship the source folder, not the zip, so
+// relying on a prebuilt artifact made this endpoint 404 for most installs.
+const EXTENSION_SOURCE_FILES = [
+  "manifest.json",
+  "popup.html",
+  "popup.css",
+  "popup.js",
+  "README.md",
+];
+
+function resolveExtensionPaths() {
+  const isPkg = typeof process.pkg !== "undefined";
+  const baseDir = isPkg
+    ? path.dirname(process.execPath)
+    : path.resolve(process.cwd());
+  const zipCandidates = [
+    path.join(baseDir, "zomboid-panel-extension.zip"),
+    path.join(baseDir, "release", "zomboid-panel-extension.zip"),
+    path.join(baseDir, "..", "release", "zomboid-panel-extension.zip"),
+  ];
+  const dirCandidates = [
+    path.join(baseDir, "browser-extension"),
+    path.join(baseDir, "..", "browser-extension"),
+  ];
+  return { zipCandidates, dirCandidates };
+}
+
+function firstExisting(candidates) {
+  for (const c of candidates) {
+    try {
+      if (fs.existsSync(c)) return c;
+    } catch {
+      /* ignore */
+    }
+  }
+  return null;
+}
+
 router.get("/collection/extension-bundle", async (req, res) => {
   try {
-    const isPkg = typeof process.pkg !== "undefined";
-    const baseDir = isPkg
-      ? path.dirname(process.execPath)
-      : path.resolve(process.cwd());
-    const candidates = [
-      path.join(baseDir, "zomboid-panel-extension.zip"),
-      path.join(baseDir, "release", "zomboid-panel-extension.zip"),
-      path.join(baseDir, "..", "release", "zomboid-panel-extension.zip"),
-    ];
-    let zipPath = null;
-    for (const c of candidates) {
-      try {
-        if (fs.existsSync(c)) {
-          zipPath = c;
-          break;
-        }
-      } catch {
-        /* ignore */
-      }
+    const { zipCandidates, dirCandidates } = resolveExtensionPaths();
+
+    const zipPath = firstExisting(zipCandidates);
+    if (zipPath) {
+      const stat = fs.statSync(zipPath);
+      res.setHeader("Content-Type", "application/zip");
+      res.setHeader(
+        "Content-Disposition",
+        'attachment; filename="zomboid-panel-extension.zip"',
+      );
+      res.setHeader("Content-Length", String(stat.size));
+      fs.createReadStream(zipPath).pipe(res);
+      return;
     }
-    if (!zipPath) {
+
+    const srcDir = firstExisting(dirCandidates);
+    if (!srcDir) {
       return res.status(404).json({
         error:
-          "Extension bundle not found next to the panel install. Re-run the panel build, or grab the zip from GitHub releases.",
+          "Browser extension files are missing from this panel install. Download zomboid-panel-extension.zip from the GitHub release instead.",
       });
     }
-    const stat = fs.statSync(zipPath);
+
+    const { default: archiver } = await import("archiver");
+    const archive = archiver("zip", { zlib: { level: 9 } });
     res.setHeader("Content-Type", "application/zip");
     res.setHeader(
       "Content-Disposition",
       'attachment; filename="zomboid-panel-extension.zip"',
     );
-    res.setHeader("Content-Length", String(stat.size));
-    fs.createReadStream(zipPath).pipe(res);
+    archive.on("error", (err) => {
+      log.error(`Extension bundle zip failed: ${err.message}`);
+      res.destroy();
+    });
+    archive.pipe(res);
+    for (const name of EXTENSION_SOURCE_FILES) {
+      const filePath = path.join(srcDir, name);
+      if (fs.existsSync(filePath)) archive.file(filePath, { name });
+    }
+    await archive.finalize();
   } catch (error) {
     log.error(`Extension bundle serve failed: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });

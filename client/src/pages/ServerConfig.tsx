@@ -1062,6 +1062,28 @@ export default function ServerConfig() {
           return updated
         })
         toast({ title: 'Option Updated', description: `${optName} set successfully` })
+
+        // The bridge only changes the live value. Without this the option
+        // reverts to whatever SandboxVars.lua still says on the next restart.
+        try {
+          const saved = await serverFilesApi.saveSandboxOption(
+            optName,
+            confirmedVal as string | number | boolean,
+          )
+          if (!saved.persisted) {
+            toast({
+              title: 'Applied, but not saved',
+              description: `${optName} is not in SandboxVars.lua, so it will reset when the server restarts.`,
+              variant: 'destructive',
+            })
+          }
+        } catch (error) {
+          toast({
+            title: 'Applied, but not saved',
+            description: getUserErrorMessage(error, `${optName} will reset when the server restarts.`),
+            variant: 'destructive',
+          })
+        }
       } else {
         toast({ title: 'Failed to Update', description: response?.error || 'Unknown error', variant: 'destructive' })
       }
@@ -3236,7 +3258,10 @@ export default function ServerConfig() {
                                           defaultValue={displayValue}
                                           min={opt.min}
                                           max={opt.max}
-                                          step={typeLabel === 'double' ? 0.01 : 1}
+                                          // The browser counts valid values up from `min` in `step`
+                                          // increments, so a fractional min like 0.001 with step 1
+                                          // rejects every whole number the user types.
+                                          step={typeLabel === 'integer' && Number.isInteger(opt.min ?? 0) ? 1 : 'any'}
                                           disabled={isSaving}
                                           aria-label={displayName}
                                           onBlur={(e) => {

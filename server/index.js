@@ -1041,7 +1041,7 @@ app.get("/api/health", (req, res) => {
 app.get("/api/panel-info", async (req, res) => {
   const savedPort = await getSetting("panelPort");
   const PORT = process.env.PORT || savedPort || 3001;
-  const localIp = serverManager.getLocalIp();
+  const localIp = await serverManager.getLocalIp();
   res.json({
     localIp,
     port: parseInt(PORT, 10),
@@ -2423,7 +2423,7 @@ async function start() {
     let listenRetries = 0;
     const maxListenRetries = 5;
     const listenWithRetry = () => {
-      httpServer.listen(PORT, () => {
+      httpServer.listen(PORT, async () => {
         logSection("Ready");
         const urls = [{ label: "Local: ", url: `http://localhost:${PORT}` }];
         if (httpsServer) {
@@ -2434,7 +2434,7 @@ async function start() {
         }
 
         // Use the configured host address in Docker rather than its bridge IP.
-        const localIp = serverManager.getLocalIp();
+        const localIp = await serverManager.getLocalIp();
         if (localIp !== "127.0.0.1") {
           urls.push({
             label: "Network:",

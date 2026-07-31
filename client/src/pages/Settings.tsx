@@ -153,6 +153,10 @@ interface AppSettings {
 
   // Privacy
   enablePublicIpLookup: boolean;
+
+  // Which detected network interface's IPv4 the dashboard displays.
+  // Empty string = auto-detect (first non-internal interface found).
+  lanIpAddress: string;
 }
 
 interface CorsDiagnostics {
@@ -227,6 +231,7 @@ export default function Settings() {
     corsAllowPrivateNetworks: true,
     corsDebug: false,
     enablePublicIpLookup: false,
+    lanIpAddress: "",
   });
   const [originalSettings, setOriginalSettings] = useState<AppSettings | null>(
     null,
@@ -517,6 +522,16 @@ export default function Settings() {
   useEffect(() => {
     fetchCorsDiagnostics();
   }, [fetchCorsDiagnostics]);
+
+  const [networkInterfaces, setNetworkInterfaces] = useState<
+    { name: string; address: string }[]
+  >([]);
+  useEffect(() => {
+    serverApi
+      .getNetworkInterfaces()
+      .then((data) => setNetworkInterfaces(data.interfaces || []))
+      .catch(() => setNetworkInterfaces([]));
+  }, []);
 
   // Reload settings when active server changes
   useEffect(() => {
@@ -2056,6 +2071,43 @@ export default function Settings() {
                       }
                       aria-label="Enable public IP lookup"
                     />
+                  </div>
+
+                  <div className="space-y-2 rounded-lg border border-border/60 bg-muted/25 p-3">
+                    <div>
+                      <Label className="text-sm font-medium">
+                        Dashboard LAN Address
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Which network interface's address the dashboard
+                        shows. Useful when this host has more than one, e.g.
+                        Tailscale and ZeroTier at once — pick the one you
+                        actually want to share with players.
+                      </p>
+                    </div>
+                    <Select
+                      value={settings.lanIpAddress || "auto"}
+                      onValueChange={(value) =>
+                        updateSetting(
+                          "lanIpAddress",
+                          value === "auto" ? "" : value,
+                        )
+                      }
+                    >
+                      <SelectTrigger aria-label="Dashboard LAN address">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">
+                          Auto-detect (default)
+                        </SelectItem>
+                        {networkInterfaces.map((iface) => (
+                          <SelectItem key={iface.address} value={iface.address}>
+                            {iface.name} — {iface.address}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   <div className="space-y-2">
@@ -4818,8 +4870,9 @@ function WorkshopCollectionSyncCard({
     if (!raw || !raw.trim()) return { error: "Nothing to parse" };
     const text = raw.replace(/\r/g, "");
     // Accept any of: full cURL command, raw `Cookie:` header line,
-    // a `sessionid=...; steamLoginSecure=...` snippet, or DevTools
-    // "Copy → Response Cookies" tab-separated values.
+    // a `sessionid=...; steamLoginSecure=...` snippet, DevTools
+    // "Copy → Response Cookies" tab-separated values, or a Netscape
+    // cookies.txt export (name and value separated by a tab).
     const sessionMatch = text.match(
       /(?:^|[;\s'"])sessionid\s*[=:\t]\s*([A-Za-z0-9_%-]+)/i,
     );
@@ -5649,6 +5702,23 @@ function WorkshopCollectionSyncCard({
                   Easiest path: copy any logged-in Steam request and let us
                   extract the cookies.
                 </p>
+                <p className="text-xs text-muted-foreground">
+                  Prefer a cookie exporter?{" "}
+                  <a
+                    href="https://github.com/kairi003/Get-cookies.txt-LOCALLY"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-primary hover:underline"
+                  >
+                    Get cookies.txt LOCALLY
+                    <ExternalLink className="w-3 h-3" />
+                  </a>{" "}
+                  (Chrome/Firefox, open source) works well on Steam. Open{" "}
+                  <code>steamcommunity.com</code> while signed in, click its
+                  icon, copy, and paste the result below — both its{" "}
+                  <em>Netscape</em> and <em>Header String</em> formats are
+                  understood.
+                </p>
               </div>
             </div>
 
@@ -5695,7 +5765,7 @@ function WorkshopCollectionSyncCard({
                     setPasteText(e.target.value);
                     setPasteError(null);
                   }}
-                  placeholder='Paste a "Copy as cURL" command, a Cookie header, or "sessionid=...; steamLoginSecure=..."'
+                  placeholder='Paste a "Copy as cURL" command, a Cookie header, a cookies.txt export, or "sessionid=...; steamLoginSecure=..."'
                   rows={4}
                   className="font-mono text-xs"
                 />

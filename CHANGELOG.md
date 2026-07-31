@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.15] - 2026-07-31
+
+### Fixed
+
+- **Mod settings did not survive a restart**: changing a setting on the Mod Settings tab only set the value on the running server. Nothing ever wrote `<server>_SandboxVars.lua`, which is the file the server reads at boot, so every mod option silently reverted on the next restart. Each edit is now written to that file as well.
+- **Mod settings often had no effect at all**: PanelBridge set the value on the Java option but left the `SandboxVars` table stale, and that table is what mod code actually reads. The bridge now refreshes it (PanelBridge 1.7.15).
+- **Numeric mod settings rejecting valid input**: options whose minimum was a fraction, such as `0.001`, refused whole numbers, because browsers count valid values up from the minimum in step increments. Only genuine integer options are constrained now.
+- **Add XP was missing nine B42 skills**: Blacksmithing, Carving, Glassmaking, Knapping, Masonry, Pottery, Animal Care, Butchering and Tracking could not be selected at all.
+- **Add XP silently doing nothing**: the perk name was quoted, which the server tokenises as two arguments and then rejects without an error.
+- **God mode and invisibility**: these commands have no form that targets another player, so over RCON they were always a no-op. They now go through PanelBridge, which sets the flag on the player.
+- **World Map tiles failing to load ("signal.lost / tiles offline")**: an earlier merge's map fallback and geometry-resolution logic had been committed but never actually deployed to the live server, so the client called a resolve endpoint the running backend didn't have. Redeployed; tiles load again.
+
+### Added
+
+- **Settings > Network: Dashboard LAN Address**: pick which detected network interface's IPv4 the dashboard displays, for hosts running more than one network (e.g. Tailscale and ZeroTier at once).
+
+### Changed
+
+- **Add XP perk list**: perks are now grouped by category and labelled the way the in-game skills screen labels them, rather than by internal id. Twelve differ, including Carpentry, Foraging, Welding and First Aid.
+
+## [1.1.14] - 2026-07-30
+
+### Fixed
+
+- **World Map tiles**: the fallback that switches to a fully-rendered older B42 map build when the newest one isn't rendered upstream yet was deployed live in v1.1.12/v1.1.13 but never actually committed — this release includes it for real. If tiles were still failing to load on 1.1.13, this fixes it.
+- **Public IP**: the address shown on the dashboard now expires its cache after 6 hours instead of indefinitely, so a residential ISP rotating your WAN IP no longer leaves a stale, no-longer-yours address displayed forever.
+
+## [1.1.13] - 2026-07-30
+
+### Fixed
+
+- **World Map vehicle layer stuck at "0 loaded"**: `vehicles:get(i)` was called with no safety check, unlike the `.size` lookup right above it. On this game version that call threw "Object tried to call nil in pcall" for every vehicle every ~5s, flooding the server console. Now guarded the same way, along with a third call site that had the identical issue. PanelBridge bumped to 1.7.13, which also folds in the fork's parallel 1.7.11/1.7.12 work.
+
+## [1.1.12] - 2026-07-30
+
+### Fixed
+
+- **"Remove from server" leaving mods active**: the action could report success and ignore-list a mod while silently leaving it in `Mods=`/`WorkshopItems=`. Ignore-list writes are now gated on the INI edit actually running, and `delete-disk-mod` got the same fix.
+
 ## [1.1.11] - 2026-07-29
 
 ### Docker
