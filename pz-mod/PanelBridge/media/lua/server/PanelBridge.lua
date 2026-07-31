@@ -1,10 +1,21 @@
 ---@diagnostic disable: undefined-global, deprecated
 --[[
     PanelBridge - Server-side mod for Zomboid Control Panel
-    Version: 1.7.13
+    Version: 1.7.15
 
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
+
+    v1.7.15 Changes:
+    - setSandboxOption now calls toLua() after setting the value. setValue only
+      updates the Java object; mod code reads the global SandboxVars table,
+      which stayed stale, so a changed mod option had no visible effect.
+
+    v1.7.14 Changes:
+    - teleportPlayer now reports which position-sync APIs actually exist on
+      this build. Live results from 42.20.0 showed setNetworkTeleportEnabled
+      and setLx are absent, so the server moved the player authoritatively
+      but no client was ever told, and the client's own position won.
 
     v1.7.13 Changes:
     - Merge of two independent fixes that landed under different version
@@ -238,7 +249,7 @@
 local json
 
 local PanelBridge = {
-    VERSION = "1.7.13",
+    VERSION = "1.7.15",
     PROTOCOL_VERSION = "queue-v1",
     CHECK_INTERVAL = 250, -- milliseconds (fast command polling)
     lastCheck = 0,
@@ -3361,6 +3372,27 @@ handlers.teleportPlayer = function(args)
     local verifyZ = player:getZ()
     table.insert(debugInfo, "verify pos: " .. verifyX .. "," .. verifyY .. "," .. verifyZ)
 
+    -- Step 6: Record which sync APIs this build actually exposes. Everything
+    -- above is wrapped in pcall, so a missing method looks identical to a
+    -- successful one in the result; without this the reason a teleport does
+    -- not reach the client is invisible.
+    pcall(function()
+        local probe = {}
+        for _, name in ipairs({
+            "setNetworkTeleportEnabled", "setLx", "setPosition", "teleportTo",
+            "setForceUpdate", "sendObjectChange", "getOnlineID",
+        }) do
+            if player[name] then table.insert(probe, name) end
+        end
+        for _, name in ipairs({
+            "sendPlayerExtraInfo", "syncPlayerFields", "NetworkTeleport",
+            "sendServerCommand", "getPlayerInfo", "updatePlayerPosition",
+        }) do
+            if _G[name] then table.insert(probe, "_G." .. name) end
+        end
+        table.insert(debugInfo, "available: " .. table.concat(probe, ","))
+    end)
+
     local debugStr = table.concat(debugInfo, " | ")
     PanelBridge.debug("teleportPlayer: " .. username .. " from " .. oldX .. "," .. oldY .. "," .. oldZ
         .. " to " .. x .. "," .. y .. "," .. z .. " — " .. debugStr)
@@ -3813,6 +3845,12 @@ handlers.setSandboxOption = function(args)
     end)
 
     PanelBridge.info("Sandbox option set", { name = optName, value = tostring(newValue), confirmed = tostring(confirmed) })
+
+    -- setValue only touches the Java object. Mod code reads the global
+    -- SandboxVars table, which stays stale until toLua() rebuilds it.
+    pcall(function()
+        if sandbox.toLua then sandbox:toLua() end
+    end)
 
     -- Trigger a world save so the changed option persists across restarts
     pcall(function()

@@ -1094,8 +1094,13 @@ export class RconService extends EventEmitter {
   async addXp(username, perk, amount) {
     const n = Number(amount);
     if (!Number.isFinite(n)) throw new Error("amount must be a number");
+    // The perk must NOT be quoted: PZ tokenises `"Axe"=100` as two arguments
+    // and then fails to split it on `=`, so it silently prints usage instead.
+    if (!/^[A-Za-z]+$/.test(String(perk))) {
+      throw new Error("Perk must be alphabetic");
+    }
     return this.execute(
-      `addxp "${this.sanitizeQuotedArg(username, "Username", 64)}" "${this.sanitizeQuotedArg(perk, "Perk", 64)}"=${n}`,
+      `addxp "${this.sanitizeQuotedArg(username, "Username", 64)}" ${perk}=${n}`,
     );
   }
 

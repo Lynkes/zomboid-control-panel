@@ -374,35 +374,54 @@ export const VEHICLES = [
   'Base.TrailerAdvert'
 ];
 
-// Perks for XP
-export const PERKS = [
-  'Fitness',
-  'Strength',
-  'Sprinting',
-  'Lightfoot',
-  'Nimble',
-  'Sneak',
-  'Axe',
-  'Blunt',
-  'SmallBlunt',
-  'LongBlade',
-  'SmallBlade',
-  'Spear',
-  'Maintenance',
-  'Woodwork',
-  'Cooking',
-  'Farming',
-  'Doctor',
-  'Electricity',
-  'MetalWelding',
-  'Mechanics',
-  'Tailoring',
-  'Aiming',
-  'Reloading',
-  'Fishing',
-  'Trapping',
-  'PlantScavenging'
+// Perks for XP. Ids are what `addxp` accepts and are case-sensitive; several
+// differ from the name the skills screen shows. Verified against a live
+// 42.20.0 server by probing every candidate with `addxp "<user>" <id>=0`.
+export const PERK_CATALOG = [
+  { id: 'Aiming', label: 'Aiming', category: 'Combat - Firearms' },
+  { id: 'Reloading', label: 'Reloading', category: 'Combat - Firearms' },
+
+  { id: 'Axe', label: 'Axe', category: 'Combat - Melee' },
+  { id: 'LongBlade', label: 'Long Blade', category: 'Combat - Melee' },
+  { id: 'Blunt', label: 'Long Blunt', category: 'Combat - Melee' },
+  { id: 'Maintenance', label: 'Maintenance', category: 'Combat - Melee' },
+  { id: 'SmallBlade', label: 'Short Blade', category: 'Combat - Melee' },
+  { id: 'SmallBlunt', label: 'Short Blunt', category: 'Combat - Melee' },
+  { id: 'Spear', label: 'Spear', category: 'Combat - Melee' },
+
+  { id: 'Blacksmith', label: 'Blacksmithing', category: 'Crafting' },
+  { id: 'Woodwork', label: 'Carpentry', category: 'Crafting' },
+  { id: 'Carving', label: 'Carving', category: 'Crafting' },
+  { id: 'Cooking', label: 'Cooking', category: 'Crafting' },
+  { id: 'Electricity', label: 'Electrical', category: 'Crafting' },
+  { id: 'Glassmaking', label: 'Glassmaking', category: 'Crafting' },
+  { id: 'FlintKnapping', label: 'Knapping', category: 'Crafting' },
+  { id: 'Masonry', label: 'Masonry', category: 'Crafting' },
+  { id: 'Mechanics', label: 'Mechanics', category: 'Crafting' },
+  { id: 'Pottery', label: 'Pottery', category: 'Crafting' },
+  { id: 'Tailoring', label: 'Tailoring', category: 'Crafting' },
+  { id: 'MetalWelding', label: 'Welding', category: 'Crafting' },
+
+  { id: 'Farming', label: 'Agriculture', category: 'Farming' },
+  { id: 'Husbandry', label: 'Animal Care', category: 'Farming' },
+  { id: 'Butchering', label: 'Butchering', category: 'Farming' },
+
+  { id: 'Fitness', label: 'Fitness', category: 'Physical' },
+  { id: 'Lightfoot', label: 'Lightfooted', category: 'Physical' },
+  { id: 'Nimble', label: 'Nimble', category: 'Physical' },
+  { id: 'Sprinting', label: 'Running', category: 'Physical' },
+  { id: 'Sneak', label: 'Sneaking', category: 'Physical' },
+  { id: 'Strength', label: 'Strength', category: 'Physical' },
+
+  { id: 'Doctor', label: 'First Aid', category: 'Survival' },
+  { id: 'Fishing', label: 'Fishing', category: 'Survival' },
+  { id: 'PlantScavenging', label: 'Foraging', category: 'Survival' },
+  { id: 'Tracking', label: 'Tracking', category: 'Survival' },
+  { id: 'Trapping', label: 'Trapping', category: 'Survival' },
 ];
+
+export const PERKS = PERK_CATALOG.map((perk) => perk.id);
+
 
 // Access levels accepted by PZ's setaccesslevel command.
 // Per the official PZ Admin Commands wiki (Build 42.17.0): admin, moderator,

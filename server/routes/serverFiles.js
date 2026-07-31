@@ -931,6 +931,58 @@ router.put("/sandbox", async (req, res) => {
   }
 });
 
+// Write one option into SandboxVars.lua. Mod options live in blocks the
+// sandbox schema knows nothing about, so they are addressed as "Block.Key" and
+// rewritten in place; a key that is not already in the file is left alone,
+// since PZ regenerates those from the mod's own defaults.
+router.put("/sandbox-option", async (req, res) => {
+  try {
+    const { name, value } = req.body || {};
+
+    if (typeof name !== "string" || !name) {
+      return res.status(400).json({ error: "Option name required" });
+    }
+    if (!["string", "number", "boolean"].includes(typeof value)) {
+      return res.status(400).json({ error: "Option value must be a primitive" });
+    }
+
+    const parts = name.split(".");
+    const isIdentifier = (p) => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(p);
+    if (parts.length > 2 || !parts.every(isIdentifier)) {
+      return res.status(400).json({ error: "Invalid option name" });
+    }
+    const block = parts.length === 2 ? parts[0] : null;
+    const key = parts.length === 2 ? parts[1] : parts[0];
+
+    const configPath = await getServerConfigPath();
+    const serverName = await getServerName();
+    const filePath = path.join(configPath, `${serverName}_SandboxVars.lua`);
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({
+        error:
+          "SandboxVars file not found. Start the server once to generate it.",
+      });
+    }
+
+    let persisted = false;
+    await withFileLock(filePath, async () => {
+      const originalContent = fs.readFileSync(filePath, "utf-8");
+      const newContent = modifySandboxValue(originalContent, key, value, block);
+      if (newContent === originalContent) return;
+      await createBackup(`${serverName}_SandboxVars.lua`);
+      writeFileAtomic(filePath, newContent, "utf-8");
+      persisted = true;
+    });
+
+    log.info(`Sandbox option ${name} persisted: ${persisted}`);
+    res.json({ success: true, persisted });
+  } catch (error) {
+    log.error("Failed to save sandbox option:", error);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
 // Check whether SandboxVars.lua is syntactically well-formed (brace balance
 // only — we don't have a real Lua parser). A corrupt file here is a classic
 // cause of "server won't boot, no obvious reason" reports.

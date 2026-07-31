@@ -485,6 +485,9 @@ export interface CharacterImportResponse {
 // Server API
 export const serverApi = {
   getStatus: () => apiGet("/server/status"),
+  getNetworkInterfaces: (): Promise<{
+    interfaces: { name: string; address: string }[];
+  }> => apiGet("/server/network-interfaces"),
   start: () => apiPost("/server/start"),
   stop: () => apiPost("/server/stop"),
   forceStop: () => apiPost("/server/force-stop"),
@@ -1642,6 +1645,12 @@ export const serverFilesApi = {
   // Reload options
   saveAndReload: () => apiPost("/server-files/save-and-reload"),
 
+  saveSandboxOption: (
+    name: string,
+    value: string | number | boolean,
+  ): Promise<{ success: boolean; persisted: boolean }> =>
+    apiPut("/server-files/sandbox-option", { name, value }),
+
   // Config Templates
   getTemplates: () =>
     apiGet("/server-files/templates") as Promise<{
@@ -2539,11 +2548,19 @@ export const updateApi = {
 };
 
 export const mapApi = {
-  // Just enough for the client to build direct-to-upstream tile URLs and
-  // load them from the browser instead of through this server's proxy —
-  // see the /api/map/resolve route for why.
-  resolve: (): Promise<{ root: string; b42Dir: string; b41Path: string }> =>
-    apiGet("/map/resolve"),
+  // The B42 map build the backend resolved: its geometry, which the client
+  // needs to address tiles at all, plus enough to build direct-to-upstream
+  // tile URLs and load them from the browser instead of through this
+  // server's proxy — see the /api/map/resolve route for why.
+  resolve: (): Promise<{
+    root: string;
+    b42Dir: string;
+    b41Path: string;
+    tileSize: number;
+    width: number;
+    height: number;
+    maxLevel: number;
+  }> => apiGet("/map/resolve"),
 };
 
 export const panelUpdateApi = {

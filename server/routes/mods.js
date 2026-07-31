@@ -210,13 +210,33 @@ router.get("/tracked", async (req, res) => {
             const workshopMatch = content.match(/^WorkshopItems=(.*)$/m);
             const workshopIds =
               workshopMatch?.[1]?.split(";").filter(Boolean) || [];
-            if (workshopIds.length > 0) {
-              const trackedNow = await getTrackedMods();
-              const trackedSet = new Set(trackedNow.map((m) => m.workshop_id));
+            const configuredIds = new Set(
+              workshopIds.filter((id) => /^\d{1,15}$/.test(id)),
+            );
+            const trackedNow = await getTrackedMods();
+
+            // The INI is the source of truth. Earlier versions only added
+            // IDs here, so a mod removed from WorkshopItems= lived forever
+            // in tracked_mods and kept appearing in the panel.
+            let removed = 0;
+            for (const mod of trackedNow) {
+              if (configuredIds.has(mod.workshop_id)) continue;
+              if (await removeTrackedMod(mod.workshop_id)) removed++;
+            }
+            if (removed > 0) {
+              log.info(`Pruned ${removed} stale tracked mods missing from INI`);
+            }
+
+            if (configuredIds.size > 0) {
+              const activeTracked = removed > 0
+                ? await getTrackedMods()
+                : trackedNow;
+              const trackedSet = new Set(
+                activeTracked.map((m) => m.workshop_id),
+              );
               const modChecker = req.app.get("modChecker");
               let added = 0;
-              for (const wsId of workshopIds) {
-                if (!/^\d{1,15}$/.test(wsId)) continue;
+              for (const wsId of configuredIds) {
                 if (trackedSet.has(wsId)) continue;
                 if (await isModIgnored(wsId)) continue;
                 const nameFromDisk = modChecker?.resolveModNameFromDisk(wsId);
@@ -1325,46 +1345,88 @@ router.post("/collection/extension-push", async (req, res) => {
   }
 });
 
-// Serves the panel's bundled browser extension as a zip so the user can
-// install it without round-tripping to GitHub. Resolves the zip relative to
-// the panel's install directory (next to the .exe in production, project
-// root in dev).
+// Serves the panel's browser extension as a zip. Prefers a prebuilt zip next
+// to the install, but falls back to zipping `browser-extension/` on the fly —
+// Docker images and pkg builds ship the source folder, not the zip, so
+// relying on a prebuilt artifact made this endpoint 404 for most installs.
+const EXTENSION_SOURCE_FILES = [
+  "manifest.json",
+  "popup.html",
+  "popup.css",
+  "popup.js",
+  "README.md",
+];
+
+function resolveExtensionPaths() {
+  const isPkg = typeof process.pkg !== "undefined";
+  const baseDir = isPkg
+    ? path.dirname(process.execPath)
+    : path.resolve(process.cwd());
+  const zipCandidates = [
+    path.join(baseDir, "zomboid-panel-extension.zip"),
+    path.join(baseDir, "release", "zomboid-panel-extension.zip"),
+    path.join(baseDir, "..", "release", "zomboid-panel-extension.zip"),
+  ];
+  const dirCandidates = [
+    path.join(baseDir, "browser-extension"),
+    path.join(baseDir, "..", "browser-extension"),
+  ];
+  return { zipCandidates, dirCandidates };
+}
+
+function firstExisting(candidates) {
+  for (const c of candidates) {
+    try {
+      if (fs.existsSync(c)) return c;
+    } catch {
+      /* ignore */
+    }
+  }
+  return null;
+}
+
 router.get("/collection/extension-bundle", async (req, res) => {
   try {
-    const isPkg = typeof process.pkg !== "undefined";
-    const baseDir = isPkg
-      ? path.dirname(process.execPath)
-      : path.resolve(process.cwd());
-    const candidates = [
-      path.join(baseDir, "zomboid-panel-extension.zip"),
-      path.join(baseDir, "release", "zomboid-panel-extension.zip"),
-      path.join(baseDir, "..", "release", "zomboid-panel-extension.zip"),
-    ];
-    let zipPath = null;
-    for (const c of candidates) {
-      try {
-        if (fs.existsSync(c)) {
-          zipPath = c;
-          break;
-        }
-      } catch {
-        /* ignore */
-      }
+    const { zipCandidates, dirCandidates } = resolveExtensionPaths();
+
+    const zipPath = firstExisting(zipCandidates);
+    if (zipPath) {
+      const stat = fs.statSync(zipPath);
+      res.setHeader("Content-Type", "application/zip");
+      res.setHeader(
+        "Content-Disposition",
+        'attachment; filename="zomboid-panel-extension.zip"',
+      );
+      res.setHeader("Content-Length", String(stat.size));
+      fs.createReadStream(zipPath).pipe(res);
+      return;
     }
-    if (!zipPath) {
+
+    const srcDir = firstExisting(dirCandidates);
+    if (!srcDir) {
       return res.status(404).json({
         error:
-          "Extension bundle not found next to the panel install. Re-run the panel build, or grab the zip from GitHub releases.",
+          "Browser extension files are missing from this panel install. Download zomboid-panel-extension.zip from the GitHub release instead.",
       });
     }
-    const stat = fs.statSync(zipPath);
+
+    const { default: archiver } = await import("archiver");
+    const archive = archiver("zip", { zlib: { level: 9 } });
     res.setHeader("Content-Type", "application/zip");
     res.setHeader(
       "Content-Disposition",
       'attachment; filename="zomboid-panel-extension.zip"',
     );
-    res.setHeader("Content-Length", String(stat.size));
-    fs.createReadStream(zipPath).pipe(res);
+    archive.on("error", (err) => {
+      log.error(`Extension bundle zip failed: ${err.message}`);
+      res.destroy();
+    });
+    archive.pipe(res);
+    for (const name of EXTENSION_SOURCE_FILES) {
+      const filePath = path.join(srcDir, name);
+      if (fs.existsSync(filePath)) archive.file(filePath, { name });
+    }
+    await archive.finalize();
   } catch (error) {
     log.error(`Extension bundle serve failed: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });

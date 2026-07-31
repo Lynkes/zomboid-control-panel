@@ -385,10 +385,8 @@ export class PanelUpdateChecker {
       };
     }
 
-    // Find the right asset — MUST be the raw binary, not the archive.
-    // Release assets include both ZomboidControlPanel.exe (the binary, ~40MB) and
-    // ZomboidControlPanel-windows.zip (the full package, ~18MB). Using a loose
-    // `.includes('windows')` match would grab the zip and corrupt the install.
+    // Stage the executable separately and refresh client/dist from the matching
+    // archive. Standalone builds serve that directory beside the binary.
     const assetName = isWindows
       ? "ZomboidControlPanel.exe"
       : "ZomboidControlPanel";
@@ -418,6 +416,19 @@ export class PanelUpdateChecker {
       };
     }
 
+    const archiveName = isWindows
+      ? "ZomboidControlPanel-windows.zip"
+      : "ZomboidControlPanel-linux.tar.gz";
+    const clientArchive = this.latestRelease.assets.find(
+      (candidate) => candidate.name === archiveName,
+    );
+    if (!clientArchive) {
+      return {
+        success: false,
+        error: `Release is missing ${archiveName}, required to update the web interface safely.`,
+      };
+    }
+
     this.isDownloading = true;
     this.downloadProgress = 0;
     this.lastError = null;
@@ -431,6 +442,10 @@ export class PanelUpdateChecker {
     // we're running from, otherwise we'd try to overwrite our own binary.
     const stagedPath = this.getStageSlotPath();
     const tmpDownloadPath = `${stagedPath}.partial.${process.pid}`;
+    const tmpClientArchivePath = path.join(
+      exeDir,
+      `.client-dist-${this.latestRelease.version}.partial.${process.pid}`,
+    );
 
     try {
       log.info(
@@ -490,6 +505,23 @@ export class PanelUpdateChecker {
         throw verifyErr;
       }
 
+      await this.downloadFile(
+        clientArchive.downloadUrl,
+        tmpClientArchivePath,
+        clientArchive.size,
+      );
+      const archiveVerified = await this.verifyChecksum(
+        tmpClientArchivePath,
+        clientArchive.name,
+      );
+      if (archiveVerified !== true) {
+        throw new Error(
+          `Could not verify ${clientArchive.name}; refusing to replace the web interface`,
+        );
+      }
+      await this.replaceClientDist(tmpClientArchivePath, isWindows);
+      fs.unlinkSync(tmpClientArchivePath);
+
       // Promote .partial → .new atomically. If a stale .new exists, drop it first.
       try {
         if (fs.existsSync(stagedPath)) fs.unlinkSync(stagedPath);
@@ -548,6 +580,11 @@ export class PanelUpdateChecker {
         if (fs.existsSync(tmpDownloadPath)) fs.unlinkSync(tmpDownloadPath);
       } catch (delErr) {
         log.debug(`Failed to clean partial after error: ${delErr.message}`);
+      }
+      try {
+        if (fs.existsSync(tmpClientArchivePath)) fs.unlinkSync(tmpClientArchivePath);
+      } catch (delErr) {
+        log.debug(`Failed to clean client archive after error: ${delErr.message}`);
       }
       return { success: false, error: error.message };
     } finally {
@@ -959,6 +996,67 @@ export class PanelUpdateChecker {
   /**
    * Download a file with progress tracking
    */
+  async replaceClientDist(archivePath, isWindows) {
+    const exeDir = path.dirname(process.execPath);
+    const extractDir = fs.mkdtempSync(path.join(os.tmpdir(), "zpanel-update-"));
+    const escapePowerShellLiteral = (value) => String(value).replace(/'/g, "''");
+
+    try {
+      if (isWindows) {
+        await this.runUpdateCommand("powershell.exe", [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          `Expand-Archive -LiteralPath '${escapePowerShellLiteral(archivePath)}' -DestinationPath '${escapePowerShellLiteral(extractDir)}' -Force`,
+        ]);
+      } else {
+        await this.runUpdateCommand("tar", ["-xzf", archivePath, "-C", extractDir]);
+      }
+
+      const incoming = path.join(extractDir, "client", "dist");
+      if (!fs.existsSync(path.join(incoming, "index.html"))) {
+        throw new Error("Release archive does not contain client/dist/index.html");
+      }
+
+      const clientDir = path.join(exeDir, "client");
+      const liveDist = path.join(clientDir, "dist");
+      const nextDist = path.join(clientDir, "dist.new");
+      const backupDist = path.join(clientDir, "dist.previous");
+      fs.mkdirSync(clientDir, { recursive: true });
+      fs.rmSync(nextDist, { recursive: true, force: true });
+      fs.cpSync(incoming, nextDist, { recursive: true });
+      fs.rmSync(backupDist, { recursive: true, force: true });
+      if (fs.existsSync(liveDist)) fs.renameSync(liveDist, backupDist);
+      try {
+        fs.renameSync(nextDist, liveDist);
+      } catch (error) {
+        if (fs.existsSync(backupDist) && !fs.existsSync(liveDist)) {
+          fs.renameSync(backupDist, liveDist);
+        }
+        throw error;
+      }
+      fs.rmSync(backupDist, { recursive: true, force: true });
+      log.info("Updated client/dist from verified release archive");
+    } finally {
+      fs.rmSync(extractDir, { recursive: true, force: true });
+    }
+  }
+
+  runUpdateCommand(command, args) {
+    return new Promise((resolve, reject) => {
+      const child = spawn(command, args, { windowsHide: true });
+      let stderr = "";
+      child.stderr?.on("data", (chunk) => {
+        stderr += chunk.toString();
+      });
+      child.on("error", reject);
+      child.on("close", (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`${command} exited with code ${code}: ${stderr.trim()}`));
+      });
+    });
+  }
+
   downloadFile(url, destPath, expectedSize) {
     return new Promise((resolve, reject) => {
       let settled = false;

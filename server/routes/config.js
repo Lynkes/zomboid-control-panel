@@ -3,6 +3,7 @@ import { createLogger } from "../utils/logger.js";
 const log = createLogger("API:Config");
 import { getAllSettings, setSetting } from "../database/init.js";
 import { sanitizeError } from "../utils/sanitize.js";
+import net from "net";
 import {
   MOD_CHECK_INTERVAL_MINUTES_MAX,
   MOD_CHECK_INTERVAL_MINUTES_MIN,
@@ -59,6 +60,10 @@ const VALID_SETTINGS_KEYS = [
   "steamLoginSecure",
   // Chat page Quick Messages presets — array of strings.
   "chatPresets",
+  // Dashboard LAN IP override — pick which detected interface to display
+  // when the host has more than one (multiple VPN meshes, etc). Empty
+  // string clears it back to auto-detect.
+  "lanIpAddress",
 ];
 
 const OPTION_NAME_REGEX = /^[a-zA-Z0-9_]{1,64}$/;
@@ -278,6 +283,12 @@ router.put("/app-settings", async (req, res) => {
         return res.status(400).json({
           error: `modCheckInterval must be a whole number of minutes from ${MOD_CHECK_INTERVAL_MINUTES_MIN} to ${MOD_CHECK_INTERVAL_MINUTES_MAX}`,
         });
+      }
+
+      if (key === "lanIpAddress" && value !== "" && net.isIP(value) !== 4) {
+        return res
+          .status(400)
+          .json({ error: "lanIpAddress must be an IPv4 address or empty" });
       }
 
       if (

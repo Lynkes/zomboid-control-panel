@@ -1129,25 +1129,47 @@ export class ServerManager {
       serverPath: this.serverPath,
       configured: !!this.serverPath,
       publicIp: this.publicIp,
-      localIp: this.getLocalIp(),
+      localIp: await this.getLocalIp(),
       port: this.gamePort,
     };
   }
 
-  getLocalIp() {
-    const configuredLanIp = getConfiguredIpv4Address("PANEL_LAN_IP");
-    if (configuredLanIp) return configuredLanIp;
-
+  // All non-internal IPv4 addresses currently present on the host, e.g. one
+  // per VPN mesh (Tailscale, ZeroTier) plus the real LAN adapter — so the
+  // Settings UI can offer a choice instead of the panel guessing.
+  listNetworkInterfaces() {
     const interfaces = os.networkInterfaces();
+    const result = [];
     for (const name of Object.keys(interfaces)) {
       for (const iface of interfaces[name]) {
-        // Skip internal (i.e. 127.0.0.1) and non-ipv4
         if (iface.family === "IPv4" && !iface.internal) {
-          return iface.address;
+          result.push({ name, address: iface.address });
         }
       }
     }
-    return "127.0.0.1";
+    return result;
+  }
+
+  async getLocalIp() {
+    const interfaces = this.listNetworkInterfaces();
+
+    // A user-picked interface (Settings > Network) wins over the env var:
+    // it's the more recent, explicit choice. But only while that address is
+    // still actually present, so an unplugged VPN doesn't leave the
+    // dashboard stuck showing a dead IP forever.
+    try {
+      const selected = await getSetting("lanIpAddress");
+      if (selected && interfaces.some((iface) => iface.address === selected)) {
+        return selected;
+      }
+    } catch (err) {
+      log.debug(`lanIpAddress setting lookup failed: ${err.message}`);
+    }
+
+    const configuredLanIp = getConfiguredIpv4Address("PANEL_LAN_IP");
+    if (configuredLanIp) return configuredLanIp;
+
+    return interfaces[0]?.address || "127.0.0.1";
   }
 
   async loadGamePort() {
