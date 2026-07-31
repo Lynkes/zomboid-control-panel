@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.17] - 2026-07-31
+
+### Fixed
+
+- **Standalone auto-updates left the web UI behind**: the updater downloaded only the executable, while the dashboard is served from the adjacent `client/dist` directory. It now verifies the matching platform archive and refreshes that directory too, without touching `data/`.
+
+## [1.1.16] - 2026-07-31
+
+### Added
+
+- **Dashboard LAN Address picker**: Settings > Panel Settings now lists each non-internal IPv4 interface, so hosts running Tailscale, ZeroTier and a physical LAN can choose the address shown on the dashboard.
+
+### Fixed
+
+- **Dashboard React crash**: the LAN-address change accidentally returned an unresolved Promise as `{}` from panel-info. The dashboard now receives a real IP address.
+- **Removed mods remained tracked**: tracking added IDs from `WorkshopItems=` but never removed old records. Opening Mod Manager now reconciles the list with the active server INI and prunes IDs no longer configured there.
+
 ## [1.1.15] - 2026-07-31
 
 ### Fixed

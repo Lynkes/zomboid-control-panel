@@ -210,13 +210,33 @@ router.get("/tracked", async (req, res) => {
             const workshopMatch = content.match(/^WorkshopItems=(.*)$/m);
             const workshopIds =
               workshopMatch?.[1]?.split(";").filter(Boolean) || [];
-            if (workshopIds.length > 0) {
-              const trackedNow = await getTrackedMods();
-              const trackedSet = new Set(trackedNow.map((m) => m.workshop_id));
+            const configuredIds = new Set(
+              workshopIds.filter((id) => /^\d{1,15}$/.test(id)),
+            );
+            const trackedNow = await getTrackedMods();
+
+            // The INI is the source of truth. Earlier versions only added
+            // IDs here, so a mod removed from WorkshopItems= lived forever
+            // in tracked_mods and kept appearing in the panel.
+            let removed = 0;
+            for (const mod of trackedNow) {
+              if (configuredIds.has(mod.workshop_id)) continue;
+              if (await removeTrackedMod(mod.workshop_id)) removed++;
+            }
+            if (removed > 0) {
+              log.info(`Pruned ${removed} stale tracked mods missing from INI`);
+            }
+
+            if (configuredIds.size > 0) {
+              const activeTracked = removed > 0
+                ? await getTrackedMods()
+                : trackedNow;
+              const trackedSet = new Set(
+                activeTracked.map((m) => m.workshop_id),
+              );
               const modChecker = req.app.get("modChecker");
               let added = 0;
-              for (const wsId of workshopIds) {
-                if (!/^\d{1,15}$/.test(wsId)) continue;
+              for (const wsId of configuredIds) {
                 if (trackedSet.has(wsId)) continue;
                 if (await isModIgnored(wsId)) continue;
                 const nameFromDisk = modChecker?.resolveModNameFromDisk(wsId);
