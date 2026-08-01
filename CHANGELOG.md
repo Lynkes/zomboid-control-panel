@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.18] - 2026-07-31
+
+### Fixed
+
+- **Mod-update auto-restart could leave the server offline**: Settings saved the toggle and delay under different keys from the mod checker. After a panel restart it restored auto-restart as disabled, detected updates, and never scheduled the server restart. Existing values now migrate automatically, and saving the settings applies them to the running checker immediately.
+
 ## [1.1.17] - 2026-07-31
 
 ### Fixed

@@ -136,8 +136,29 @@ export class ModChecker extends EventEmitter {
 
     // Restore all saved settings from database
     try {
-      const savedAutoRestart = await getSetting("modAutoRestartEnabled");
-      const savedWarningMinutes = await getSetting("modRestartWarningMinutes");
+      let savedAutoRestart = await getSetting("modAutoRestartEnabled");
+      let savedWarningMinutes = await getSetting("modRestartWarningMinutes");
+      // Settings.tsx historically persisted these values under shorter names.
+      // Accept and migrate them so existing installs do not silently lose
+      // mod-update restart behavior after a panel restart.
+      if (savedAutoRestart === null) {
+        const legacyAutoRestart = await getSetting("modAutoRestart");
+        if (typeof legacyAutoRestart === "boolean") {
+          savedAutoRestart = legacyAutoRestart;
+          await setSetting("modAutoRestartEnabled", legacyAutoRestart);
+        }
+      }
+      if (savedWarningMinutes === null) {
+        const legacyWarningMinutes = await getSetting("modRestartDelay");
+        const normalizedWarningMinutes = Number(legacyWarningMinutes);
+        if (Number.isFinite(normalizedWarningMinutes)) {
+          savedWarningMinutes = normalizedWarningMinutes;
+          await setSetting(
+            "modRestartWarningMinutes",
+            normalizedWarningMinutes,
+          );
+        }
+      }
       const savedDelayIfPlayers = await getSetting("modDelayIfPlayersOnline");
       const savedMaxDelay = await getSetting("modMaxDelayMinutes");
       const savedCheckInterval = await getSetting("modCheckInterval");

@@ -360,6 +360,27 @@ router.put("/app-settings", async (req, res) => {
       }
     }
 
+    const modChecker = req.app.get("modChecker");
+    const autoRestartEntry = filtered.find(
+      ([key]) => key === "modAutoRestart",
+    );
+    if (autoRestartEntry && modChecker?.setUpdateCallback) {
+      const [, enabled] = autoRestartEntry;
+      await modChecker.setUpdateCallback(
+        enabled
+          ? async (updatedMods) => modChecker.handleModUpdate(updatedMods)
+          : null,
+      );
+    }
+
+    const restartDelayEntry = filtered.find(
+      ([key]) => key === "modRestartDelay",
+    );
+    if (restartDelayEntry && modChecker?.setRestartOptions) {
+      const [, warningMinutes] = restartDelayEntry;
+      await modChecker.setRestartOptions({ warningMinutes });
+    }
+
     // Reload serverManager and rconService configs after settings change
     const serverManager = req.app.get("serverManager");
     const rconService = req.app.get("rconService");
