@@ -2539,7 +2539,7 @@ export default function Players() {
                 <Download className="w-4 h-4" />
                 Export Character
               </h4>
-              <p className="text-xs text-muted-foreground">Export player's XP, perks, and skills</p>
+              <p className="text-xs text-muted-foreground">Export XP, perks, skills, and inventory</p>
               <Button
                 variant="outline"
                 disabled={!selectedPlayer || exporting}
@@ -2626,7 +2626,7 @@ export default function Players() {
                 <Upload className="w-4 h-4" />
                 Import Character
               </h4>
-              <p className="text-xs text-muted-foreground">Restore XP, perks, and skills</p>
+              <p className="text-xs text-muted-foreground">Restore XP, perks, skills, and exported inventory</p>
               <Textarea
                 value={importCharacterData}
                 onChange={(e) => setImportCharacterData(e.target.value)}
@@ -2652,10 +2652,11 @@ export default function Players() {
                     setImporting(true)
                     try {
                       const { panelBridgeApi } = await import('@/lib/api')
-                      await panelBridgeApi.importCharacter(selectedPlayer, data)
+                      const response = await panelBridgeApi.importCharacter(selectedPlayer, data)
+                      const restored = response.data?.restored
                       toast({
                         title: 'Character Imported',
-                        description: `Applied character data to ${selectedPlayer}`,
+                        description: `Applied ${restored?.perks ?? 0} skills and ${restored?.items ?? 0} items to ${selectedPlayer}`,
                       })
                       setImportCharacterData('')
                     } catch (error) {

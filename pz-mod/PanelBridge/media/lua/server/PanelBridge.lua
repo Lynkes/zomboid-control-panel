@@ -1,12 +1,31 @@
 ---@diagnostic disable: undefined-global, deprecated
 --[[
     PanelBridge - Server-side mod for Zomboid Control Panel
-    Version: 1.7.15
+    Version: 1.7.19
 
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
 
-    v1.7.15 Changes:
+                v1.7.19 Changes:
+                - Character imports now preserve the invariant that cumulative XP is
+                    at least the threshold for the restored skill level. This prevents
+                    invalid states such as level 5 with 0 XP, which render in-game as
+                    negative XP progress.
+
+                v1.7.18 Changes:
+                - Item validation now accepts valid Build 42 IDs that include numbers
+                    or documented punctuation, including Base.556Clip and
+                    Base.3030Bullets.
+                - Vehicle spawning on Build 42 now uses the panel's supported RCON
+                    command path instead of unavailable Lua map APIs.
+
+                v1.7.17 Changes:
+        - Fixed character inventory, worn-item, and trait exports on Build 42.
+            Java collection methods can be invoked with `:size()` but do not always
+            appear as Lua fields, so the previous field-existence guard reported
+            every collection as empty before attempting to read it.
+
+        v1.7.15 Changes:
     - setSandboxOption now calls toLua() after setting the value. setValue only
       updates the Java object; mod code reads the global SandboxVars table,
       which stayed stale, so a changed mod option had no visible effect.
@@ -249,7 +268,7 @@
 local json
 
 local PanelBridge = {
-    VERSION = "1.7.15",
+    VERSION = "1.7.18",
     PROTOCOL_VERSION = "queue-v1",
     CHECK_INTERVAL = 250, -- milliseconds (fast command polling)
     lastCheck = 0,
@@ -2816,10 +2835,9 @@ local function serializeInventory(container, depth, maxItems, currentCount)
 
     if not itemList then return {}, "no items method (tried: getItems, getAllItems)" end
 
-    local listSize = 0
-    if itemList.size then
-        local ok, sz = pcall(function() return itemList:size() end)
-        if ok then listSize = sz end
+    local sizeOk, listSize = pcall(function() return itemList:size() end)
+    if not sizeOk or type(listSize) ~= "number" then
+        return {}, method .. " size() failed"
     end
 
     if listSize == 0 then return {}, method .. " returned size 0" end
@@ -2939,10 +2957,9 @@ local function getPlayerTraits(player)
     if not traitList then return {}, "no trait method worked (tried: desc:getTraitList, desc:getTraits, player:getTraits)" end
 
     -- Get size safely
-    local listSize = 0
-    if traitList.size then
-        local ok, sz = pcall(function() return traitList:size() end)
-        if ok then listSize = sz end
+    local sizeOk, listSize = pcall(function() return traitList:size() end)
+    if not sizeOk or type(listSize) ~= "number" then
+        return {}, method .. " size() failed"
     end
 
     if listSize == 0 then return {}, method .. " returned size 0" end
@@ -2994,10 +3011,9 @@ local function getWornItems(player)
 
     if not wornItems then return {}, "getWornItems returned nil or failed" end
 
-    local listSize = 0
-    if wornItems.size then
-        local ok, sz = pcall(function() return wornItems:size() end)
-        if ok then listSize = sz end
+    local sizeOk, listSize = pcall(function() return wornItems:size() end)
+    if not sizeOk or type(listSize) ~= "number" then
+        return {}, method .. " size() failed"
     end
 
     if listSize == 0 then return {}, method .. " returned size 0" end
@@ -3175,12 +3191,12 @@ handlers.importPlayerData = function(args)
                     for lvl = 1, perkData.level do
                         player:LevelPerk(perk, false)
                     end
-                    -- Set XP last -- level and xp are independently tracked
-                    -- fields (level isn't derived from xp or vice versa), so
-                    -- this authoritative final write is safe regardless of
-                    -- any xp side effects from the LevelPerk loop above.
-                    if xp and perkData.xp then
-                        xp:setXP(perk, perkData.xp)
+                    -- Set XP last. Level and cumulative XP are independently
+                    -- tracked, but XP must never be below the level threshold:
+                    -- an imported level 5 with XP 0 renders as -1275 / 1500.
+                    if xp and type(perkData.xp) == "number" then
+                        local minimumXP = perk:getTotalXpForLevel(perkData.level)
+                        xp:setXP(perk, math.max(perkData.xp, minimumXP))
                     end
                     restored.perks = restored.perks + 1
                 end)
@@ -4130,8 +4146,6 @@ handlers.getUtilitiesStatus = function(args)
     local currentDay = 0
     local nightsSurvived = 0
     local timeSinceApo = 1
-    local elecShutStart = nil
-    local waterShutStart = nil
     -- Power: Use the same formula the game uses (ISButtonPrompt.lua line 421):
     --   if (ElecShutModifier > -1 AND worldAgeDays < ElecShutModifier) OR square:haveElectricity()
     -- isHydroPowerOn() is NOT used by the game's Lua gameplay code.
@@ -4160,11 +4174,6 @@ handlers.getUtilitiesStatus = function(args)
             currentHour = gameTime:getWorldAgeHours()
             currentDay = currentHour / 24
             nightsSurvived = gameTime:getNightsSurvived()
-            local modData = gameTime:getModData()
-            if modData then
-                elecShutStart = modData.ElecShutStart
-                waterShutStart = modData.WaterShutStart
-            end
         end
 
         -- Water has no Java flag like isHydroPowerOn().
@@ -4191,8 +4200,6 @@ handlers.getUtilitiesStatus = function(args)
         currentWorldDay = currentDay,
         nightsSurvived = nightsSurvived,
         timeSinceApo = timeSinceApo,
-        elecShutStart = elecShutStart,
-        waterShutStart = waterShutStart,
         elecShut = elecShut,
         waterShut = waterShut,
         elecShutModifier = elecModifier,
@@ -4587,28 +4594,12 @@ handlers.restoreUtilities = function(args, cmdId)
             SandboxVars.ElecShut = 9        -- 9 = Disabled (sandbox UI label)
             SandboxVars.ElecShutModifier = restoreDays
             table.insert(debugInfo, "Lua ElecShut=9(Disabled) ElecShutModifier=" .. tostring(restoreDays))
-
-            -- Clear ElecShutStart in GameTime modData
-            local gameTimeModData = gameTime and gameTime:getModData() or nil
-            if gameTimeModData then
-                local oldVal = gameTimeModData.ElecShutStart
-                gameTimeModData.ElecShutStart = -1
-                table.insert(debugInfo, "ElecShutStart: " .. tostring(oldVal) .. " -> -1")
-            end
         end
 
         if restoreWater then
             SandboxVars.WaterShut = 9       -- 9 = Disabled (sandbox UI label)
             SandboxVars.WaterShutModifier = restoreDays
             table.insert(debugInfo, "Lua WaterShut=9(Disabled) WaterShutModifier=" .. tostring(restoreDays))
-
-            -- Clear WaterShutStart in GameTime modData
-            local gameTimeModData = gameTime and gameTime:getModData() or nil
-            if gameTimeModData then
-                local oldVal = gameTimeModData.WaterShutStart
-                gameTimeModData.WaterShutStart = -1
-                table.insert(debugInfo, "WaterShutStart: " .. tostring(oldVal) .. " -> -1")
-            end
         end
 
         -- Step 2: Sync Lua -> Java via updateFromLua, then apply
@@ -4674,7 +4665,9 @@ handlers.restoreUtilities = function(args, cmdId)
     -- path below regardless of whether the grid scan ran synchronously,
     -- was skipped (water-only), or ran as a background job.
     local function finishRestoreUtilities()
-        -- Step 6: /reloadoptions — the in-game admin panel uses this to push sandbox changes
+        -- Step 6: /reloadoptions only re-reads ServerOptions.ini; sandbox vars are
+        -- not in that file, so this is a nudge for connected clients, not the
+        -- mechanism that moves ElecShutModifier across the wire.
         pcall(function()
             if executeCommand then
                 executeCommand("/reloadoptions")
@@ -4772,24 +4765,12 @@ handlers.shutOffUtilities = function(args, cmdId)
             SandboxVars.ElecShut = 1        -- 1 = Instant
             SandboxVars.ElecShutModifier = 0   -- 0 = shut off at day 0
             table.insert(debugInfo, "Lua ElecShut=1(Instant) ElecShutModifier=0")
-
-            local gameTimeModData = gameTime and gameTime:getModData() or nil
-            if gameTimeModData then
-                gameTimeModData.ElecShutStart = nightsSurvived * 24
-                table.insert(debugInfo, "ElecShutStart=" .. tostring(nightsSurvived * 24))
-            end
         end
 
         if shutWater then
             SandboxVars.WaterShut = 1       -- 1 = Instant
             SandboxVars.WaterShutModifier = 0  -- 0 = shut off at day 0
             table.insert(debugInfo, "Lua WaterShut=1(Instant) WaterShutModifier=0")
-
-            local gameTimeModData = gameTime and gameTime:getModData() or nil
-            if gameTimeModData then
-                gameTimeModData.WaterShutStart = nightsSurvived * 24
-                table.insert(debugInfo, "WaterShutStart=" .. tostring(nightsSurvived * 24))
-            end
         end
 
         -- Step 2: Sync Lua -> Java and apply
@@ -4798,6 +4779,26 @@ handlers.shutOffUtilities = function(args, cmdId)
             pcall(function()
                 if sandboxOptions.updateFromLua then sandboxOptions:updateFromLua() end
             end)
+            pcall(function()
+                if sandboxOptions.applySettings then sandboxOptions:applySettings() end
+            end)
+            table.insert(debugInfo, "Java getElecShutModifier=" .. tostring(sandboxOptions:getElecShutModifier()))
+            table.insert(debugInfo, "Java getWaterShutModifier=" .. tostring(sandboxOptions:getWaterShutModifier()))
+            -- applySettings can re-roll the modifier from the enum, so pin it back
+            if shutPower and sandboxOptions:getElecShutModifier() ~= 0 then
+                pcall(function()
+                    local opt = sandboxOptions:getOptionByName("ElecShutModifier")
+                    if opt and opt.setValue then opt:setValue(0) end
+                end)
+                table.insert(debugInfo, "FORCED Java ElecShutModifier=0")
+            end
+            if shutWater and sandboxOptions:getWaterShutModifier() ~= 0 then
+                pcall(function()
+                    local opt = sandboxOptions:getOptionByName("WaterShutModifier")
+                    if opt and opt.setValue then opt:setValue(0) end
+                end)
+                table.insert(debugInfo, "FORCED Java WaterShutModifier=0")
+            end
             pcall(function()
                 if sandboxOptions.applySettings then sandboxOptions:applySettings() end
             end)
@@ -4822,7 +4823,7 @@ handlers.shutOffUtilities = function(args, cmdId)
     -- below regardless of whether the grid scan ran synchronously, was
     -- skipped (water-only), or ran as a background job.
     local function finishShutOffUtilities()
-        -- Step 6: /reloadoptions pushes sandbox changes to clients
+        -- Step 6: /reloadoptions only re-reads ServerOptions.ini, not sandbox vars.
         pcall(function()
             if executeCommand then
                 executeCommand("/reloadoptions")
@@ -5243,11 +5244,11 @@ handlers.giveItem = function(args)
     if not username then
         return false, nil, "Username required"
     end
-    if not itemType then
+    if type(itemType) ~= "string" then
         return false, nil, "Item type required (e.g., 'Base.Axe')"
     end
     -- Basic format validation: must look like "Module.ItemName"
-    if not itemType:match("^%a[%w_]*%.[%w_]+$") then
+    if not itemType:match("^[%w_]+%.[%w_&%#%+%.%-]+$") then
         return false, nil, "Invalid item type format (expected Module.ItemName): " .. tostring(itemType)
     end
 
@@ -5376,7 +5377,7 @@ handlers.airdrop = function(args)
         for _, entry in ipairs(customItems) do
             if entry.itemType and type(entry.itemType) == "string" then
                 -- Validate item type format: must be "Module.ItemName" pattern
-                if not entry.itemType:match("^%a[%w_]*%.[%w_]+$") then
+                if not entry.itemType:match("^[%w_]+%.[%w_&%#%+%.%-]+$") then
                     return false, nil, "Invalid item type format: " .. tostring(entry.itemType) .. " (expected Module.ItemName)"
                 end
                 local count = math.min(math.max(tonumber(entry.count) or 1, 1), 20)
@@ -6452,54 +6453,7 @@ handlers.removeVehiclesInArea = function(args)
 end
 
 handlers.spawnVehicleAt = function(args)
-    local scriptName = args.vehicle or args.scriptName
-    if not scriptName or scriptName == "" then
-        return false, nil, "Vehicle script name required (e.g. Base.CarNormal)"
-    end
-    local x = math.floor(tonumber(args.x) or 0)
-    local y = math.floor(tonumber(args.y) or 0)
-    local z = math.floor(tonumber(args.z) or 0)
-    if x == 0 and y == 0 then
-        return false, nil, "Valid x, y coordinates required"
-    end
-
-    local vehicle = nil
-    local ok, err = pcall(function()
-        local world = getWorld()
-        local cell = world and world:getCell() or nil
-        if not cell then error("World cell not available") end
-
-        -- Find a valid square at the target position
-        local sq = cell:getGridSquare(x, y, z)
-        if not sq then
-            error("Grid square not loaded at " .. x .. "," .. y .. "," .. z .. " — area must be loaded")
-        end
-
-        -- Use addVehicle API (B42+)
-        if cell.addVehicle then
-            vehicle = cell:addVehicle(scriptName, sq)
-        elseif addVehicleToWorld then
-            vehicle = addVehicleToWorld(scriptName, sq)
-        else
-            error("No vehicle spawn API available")
-        end
-
-        if not vehicle then
-            error("Failed to create vehicle '" .. scriptName .. "' — check script name")
-        end
-    end)
-
-    if not ok then
-        return false, nil, "Spawn failed: " .. tostring(err)
-    end
-
-    local vId = vehicle and vehicle.getId and vehicle:getId() or nil
-    return true, {
-        message = "Vehicle spawned",
-        vehicleId = vId,
-        scriptName = scriptName,
-        x = x, y = y, z = z
-    }
+    return false, nil, "Vehicle spawning is handled by the panel through RCON on Build 42"
 end
 
 handlers.vehicleHotwire = function(args)

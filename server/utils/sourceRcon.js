@@ -55,7 +55,7 @@ function encodePacket(id, type, body) {
  * this buffers raw bytes and yields complete { id, type, body } packets as
  * they become available.
  */
-class PacketReader {
+export class PacketReader {
   constructor() {
     this._buf = Buffer.alloc(0);
   }
@@ -66,7 +66,9 @@ class PacketReader {
     for (;;) {
       if (this._buf.length < 4) break;
       const size = this._buf.readInt32LE(0);
-      if (size <= 0 || size > MAX_PACKET_SIZE) {
+      // 10 = id(4) + type(4) + two terminators. Anything smaller would make the
+      // readInt32LE calls below run off the end of the buffer and throw.
+      if (size < 10 || size > MAX_PACKET_SIZE) {
         // Corrupt/unexpected framing -- drop everything buffered so far
         // rather than getting stuck reading a bogus length forever.
         this._buf = Buffer.alloc(0);

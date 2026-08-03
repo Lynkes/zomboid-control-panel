@@ -17,6 +17,26 @@ export interface IniSetting {
   fileExtensions?: string[]
 }
 
+const ANTI_CHEAT_POLICY_OPTIONS = [
+  { value: '1', label: '1 - Ban' },
+  { value: '2', label: '2 - Kick' },
+  { value: '3', label: '3 - Log' },
+  { value: '4', label: '4 - Disabled' },
+]
+
+const B42_ANTI_CHEAT_SETTINGS: IniSetting[] = [
+  { key: 'AntiCheatSafety', label: 'Safety System', description: 'Anti-cheat protection for the safety system.', type: 'select', options: ANTI_CHEAT_POLICY_OPTIONS, default: '2', category: 'anticheat' },
+  { key: 'AntiCheatSpeed', label: 'Speed', description: 'Anti-cheat protection for player speed.', type: 'select', options: ANTI_CHEAT_POLICY_OPTIONS, default: '2', category: 'anticheat' },
+  { key: 'AntiCheatNoClip', label: 'No Clip', description: 'Anti-cheat protection against moving through solid objects.', type: 'select', options: ANTI_CHEAT_POLICY_OPTIONS, default: '4', category: 'anticheat' },
+  { key: 'AntiCheatHit', label: 'Hit Detection', description: 'Anti-cheat protection for character hits.', type: 'select', options: ANTI_CHEAT_POLICY_OPTIONS, default: '2', category: 'anticheat' },
+  { key: 'AntiCheatPacketException', label: 'Packet Exceptions', description: 'Anti-cheat protection for invalid network packets.', type: 'select', options: ANTI_CHEAT_POLICY_OPTIONS, default: '4', category: 'anticheat' },
+  { key: 'AntiCheatPermission', label: 'Permissions', description: 'Anti-cheat protection for player permissions.', type: 'select', options: ANTI_CHEAT_POLICY_OPTIONS, default: '2', category: 'anticheat' },
+  { key: 'AntiCheatXP', label: 'XP Validation', description: 'Anti-cheat protection for player XP.', type: 'select', options: ANTI_CHEAT_POLICY_OPTIONS, default: '2', category: 'anticheat' },
+  { key: 'AntiCheatSafeHouse', label: 'Safehouse Protection', description: 'Anti-cheat protection for safehouses.', type: 'select', options: ANTI_CHEAT_POLICY_OPTIONS, default: '2', category: 'anticheat' },
+  { key: 'AntiCheatPlayer', label: 'Player Validation', description: 'Anti-cheat protection for player actions.', type: 'select', options: ANTI_CHEAT_POLICY_OPTIONS, default: '2', category: 'anticheat' },
+  { key: 'AntiCheatChecksum', label: 'Checksum Validation', description: 'Anti-cheat protection for file checksums.', type: 'select', options: ANTI_CHEAT_POLICY_OPTIONS, default: '2', category: 'anticheat' },
+]
+
 // Super-groups for the rail. Order here drives render order.
 export const INI_CATEGORY_GROUPS = [
   { id: 'identity', label: 'Identity' },
@@ -913,33 +933,6 @@ export const INI_SCHEMA: IniSetting[] = [
     category: 'general'
   },
   {
-    key: 'ServerImageLoginScreen',
-    label: 'Login Screen Image',
-    description: 'Custom image displayed on the login screen. PNG file, recommended 1920×1080. Path relative to the server folder or absolute.',
-    type: 'filepath',
-    default: '',
-    category: 'general',
-    fileExtensions: ['.png']
-  },
-  {
-    key: 'ServerImageLoadingScreen',
-    label: 'Loading Screen Image',
-    description: 'Custom image displayed while loading into the server. PNG file, recommended 1920×1080. Path relative to the server folder or absolute.',
-    type: 'filepath',
-    default: '',
-    category: 'general',
-    fileExtensions: ['.png']
-  },
-  {
-    key: 'ServerImageIcon',
-    label: 'Server Icon',
-    description: 'Custom server icon shown in the server browser. Square PNG, recommended 256×256. Displayed in a circular mask at 42×42px in the list and ~87×87px in the detail panel.',
-    type: 'filepath',
-    default: '',
-    category: 'general',
-    fileExtensions: ['.png']
-  },
-  {
     key: 'Seed',
     label: 'World Seed',
     description: 'The worldgen seed used to generate the world. Changing this requires deleting map_worldgen.bin.',
@@ -1392,189 +1385,8 @@ export const INI_SCHEMA: IniSetting[] = [
     category: 'moderation'
   },
 
-  // Anti-Cheat
-  {
-    key: 'AntiCheatSafety',
-    label: 'Safety System',
-    description: 'Anti-cheat protection for the safety system.',
-    type: 'select',
-    options: [
-      { value: '1', label: '1 - Disabled' },
-      { value: '2', label: '2 - Log Only' },
-      { value: '3', label: '3 - Log + Kick' },
-      { value: '4', label: '4 - Full Protection' }
-    ],
-    default: '4',
-    category: 'anticheat'
-  },
-  {
-    key: 'AntiCheatMovement',
-    label: 'Movement',
-    description: 'Anti-cheat protection for player movement.',
-    type: 'select',
-    options: [
-      { value: '1', label: '1 - Disabled' },
-      { value: '2', label: '2 - Log Only' },
-      { value: '3', label: '3 - Log + Kick' },
-      { value: '4', label: '4 - Full Protection' }
-    ],
-    default: '4',
-    category: 'anticheat'
-  },
-  {
-    key: 'AntiCheatHit',
-    label: 'Hit Detection',
-    description: 'Anti-cheat protection for character hits.',
-    type: 'select',
-    options: [
-      { value: '1', label: '1 - Disabled' },
-      { value: '2', label: '2 - Log Only' },
-      { value: '3', label: '3 - Log + Kick' },
-      { value: '4', label: '4 - Full Protection' }
-    ],
-    default: '4',
-    category: 'anticheat'
-  },
-  {
-    key: 'AntiCheatPacket',
-    label: 'Packet Validation',
-    description: 'Anti-cheat protection for network packets.',
-    type: 'select',
-    options: [
-      { value: '1', label: '1 - Disabled' },
-      { value: '2', label: '2 - Log Only' },
-      { value: '3', label: '3 - Log + Kick' },
-      { value: '4', label: '4 - Full Protection' }
-    ],
-    default: '4',
-    category: 'anticheat'
-  },
-  {
-    key: 'AntiCheatPermission',
-    label: 'Permissions',
-    description: 'Anti-cheat protection for player permissions.',
-    type: 'select',
-    options: [
-      { value: '1', label: '1 - Disabled' },
-      { value: '2', label: '2 - Log Only' },
-      { value: '3', label: '3 - Log + Kick' },
-      { value: '4', label: '4 - Full Protection' }
-    ],
-    default: '4',
-    category: 'anticheat'
-  },
-  {
-    key: 'AntiCheatXP',
-    label: 'XP Validation',
-    description: 'Anti-cheat protection for player XP.',
-    type: 'select',
-    options: [
-      { value: '1', label: '1 - Disabled' },
-      { value: '2', label: '2 - Log Only' },
-      { value: '3', label: '3 - Log + Kick' },
-      { value: '4', label: '4 - Full Protection' }
-    ],
-    default: '4',
-    category: 'anticheat'
-  },
-  {
-    key: 'AntiCheatFire',
-    label: 'Fire Checks',
-    description: 'Anti-cheat protection for fire actions.',
-    type: 'select',
-    options: [
-      { value: '1', label: '1 - Disabled' },
-      { value: '2', label: '2 - Log Only' },
-      { value: '3', label: '3 - Log + Kick' },
-      { value: '4', label: '4 - Full Protection' }
-    ],
-    default: '4',
-    category: 'anticheat'
-  },
-  {
-    key: 'AntiCheatSafeHouse',
-    label: 'Safehouse Protection',
-    description: 'Anti-cheat protection for safehouses.',
-    type: 'select',
-    options: [
-      { value: '1', label: '1 - Disabled' },
-      { value: '2', label: '2 - Log Only' },
-      { value: '3', label: '3 - Log + Kick' },
-      { value: '4', label: '4 - Full Protection' }
-    ],
-    default: '4',
-    category: 'anticheat'
-  },
-  {
-    key: 'AntiCheatRecipe',
-    label: 'Recipe Checks',
-    description: 'Anti-cheat protection for crafting recipes.',
-    type: 'select',
-    options: [
-      { value: '1', label: '1 - Disabled' },
-      { value: '2', label: '2 - Log Only' },
-      { value: '3', label: '3 - Log + Kick' },
-      { value: '4', label: '4 - Full Protection' }
-    ],
-    default: '4',
-    category: 'anticheat'
-  },
-  {
-    key: 'AntiCheatPlayer',
-    label: 'Player Validation',
-    description: 'Anti-cheat protection for player actions.',
-    type: 'select',
-    options: [
-      { value: '1', label: '1 - Disabled' },
-      { value: '2', label: '2 - Log Only' },
-      { value: '3', label: '3 - Log + Kick' },
-      { value: '4', label: '4 - Full Protection' }
-    ],
-    default: '4',
-    category: 'anticheat'
-  },
-  {
-    key: 'AntiCheatChecksum',
-    label: 'Checksum Validation',
-    description: 'Anti-cheat protection for file checksums.',
-    type: 'select',
-    options: [
-      { value: '1', label: '1 - Disabled' },
-      { value: '2', label: '2 - Log Only' },
-      { value: '3', label: '3 - Log + Kick' },
-      { value: '4', label: '4 - Full Protection' }
-    ],
-    default: '4',
-    category: 'anticheat'
-  },
-  {
-    key: 'AntiCheatItem',
-    label: 'Item Checks',
-    description: 'Anti-cheat protection for items.',
-    type: 'select',
-    options: [
-      { value: '1', label: '1 - Disabled' },
-      { value: '2', label: '2 - Log Only' },
-      { value: '3', label: '3 - Log + Kick' },
-      { value: '4', label: '4 - Full Protection' }
-    ],
-    default: '4',
-    category: 'anticheat'
-  },
-  {
-    key: 'AntiCheatServerCustomization',
-    label: 'Server Customization',
-    description: 'Anti-cheat protection for server customization.',
-    type: 'select',
-    options: [
-      { value: '1', label: '1 - Disabled' },
-      { value: '2', label: '2 - Log Only' },
-      { value: '3', label: '3 - Log + Kick' },
-      { value: '4', label: '4 - Full Protection' }
-    ],
-    default: '4',
-    category: 'anticheat'
-  },
+  // Anti-Cheat (Build 42.20)
+  ...B42_ANTI_CHEAT_SETTINGS,
 
   // Logging
   {

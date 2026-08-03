@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
-import { 
-  Clock, 
-  Plus, 
-  Trash2, 
+import {
+  Clock,
+  Plus,
+  Trash2,
   RotateCcw,
   Calendar,
   History,
@@ -114,7 +114,7 @@ export default function Scheduler() {
   const [newTaskCommand, setNewTaskCommand] = useState('')
   const [newTaskServerId, setNewTaskServerId] = useState<string>('')
   const [dialogOpen, setDialogOpen] = useState(false)
-  
+
   // Simple Scheduler State
   const [scheduleMode, setScheduleMode] = useState<'simple' | 'advanced'>('simple')
   const [simpleIntervalType, setSimpleIntervalType] = useState<'hourly' | 'daily' | 'interval'>('daily')
@@ -197,18 +197,26 @@ export default function Scheduler() {
     return parts.every(p => /^[\d*,\/-]+$/.test(p))
   }
 
+  // Shared by the submit path and the preview so they cannot disagree.
+  const buildSimpleCron = (): string => {
+    const clamp = (raw: string, min: number, max: number, fallback: number) => {
+      const parsed = parseInt(raw, 10)
+      if (!Number.isFinite(parsed)) return fallback
+      return Math.min(Math.max(parsed, min), max)
+    }
+    if (simpleIntervalType === 'daily') {
+      return `${clamp(simpleMinute, 0, 59, 0)} ${clamp(simpleHour, 0, 23, 0)} * * *`
+    }
+    if (simpleIntervalType === 'hourly') return `0 * * * *`
+    return `0 */${clamp(simpleHoursInterval, 1, 23, 1)} * * *`
+  }
+
   const handleCreateTask = async () => {
     let cronToUse = newTaskCron
-    
+
     // Calculate cron if in simple mode
     if (scheduleMode === 'simple') {
-      if (simpleIntervalType === 'daily') {
-        cronToUse = `${parseInt(simpleMinute)} ${parseInt(simpleHour)} * * *`
-      } else if (simpleIntervalType === 'hourly') {
-        cronToUse = `0 * * * *`
-      } else if (simpleIntervalType === 'interval') {
-         cronToUse = `0 */${parseInt(simpleHoursInterval)} * * *`
-      }
+      cronToUse = buildSimpleCron()
     }
 
     if (!newTaskName || !cronToUse || !newTaskCommand) {
@@ -352,7 +360,7 @@ export default function Scheduler() {
       setLoading(false)
     }
   }
-  
+
   const handleRestartWithWarning = async (minutes: number) => {
     setLoading(true)
     try {
@@ -372,7 +380,7 @@ export default function Scheduler() {
       setLoading(false)
     }
   }
-  
+
   const handleBroadcast = async (message: string) => {
     setLoading(true)
     try {
@@ -478,7 +486,7 @@ export default function Scheduler() {
                     <TabsTrigger value="simple">Simple Builder</TabsTrigger>
                     <TabsTrigger value="advanced">Advanced (Cron)</TabsTrigger>
                   </TabsList>
-                  
+
                   <TabsContent value="simple" className="space-y-4 pt-4 border rounded-md p-4 mt-0 border-t-0 rounded-t-none">
                     <div className="space-y-2">
                       <Label>Frequency</Label>
@@ -498,22 +506,22 @@ export default function Scheduler() {
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label>Hour (0-23)</Label>
-                          <Input 
-                            type="number" 
-                            min={0} 
-                            max={23} 
-                            value={simpleHour} 
-                            onChange={e => setSimpleHour(e.target.value)} 
+                          <Input
+                            type="number"
+                            min={0}
+                            max={23}
+                            value={simpleHour}
+                            onChange={e => setSimpleHour(e.target.value)}
                           />
                         </div>
                         <div className="space-y-2">
                           <Label>Minute (0-59)</Label>
-                          <Input 
-                            type="number" 
-                            min={0} 
-                            max={59} 
-                            value={simpleMinute} 
-                            onChange={e => setSimpleMinute(e.target.value)} 
+                          <Input
+                            type="number"
+                            min={0}
+                            max={59}
+                            value={simpleMinute}
+                            onChange={e => setSimpleMinute(e.target.value)}
                           />
                         </div>
                       </div>
@@ -522,25 +530,21 @@ export default function Scheduler() {
                     {simpleIntervalType === 'interval' && (
                       <div className="space-y-2">
                         <Label>Every X Hours</Label>
-                        <Input 
-                          type="number" 
-                          min={1} 
-                          max={23} 
-                          value={simpleHoursInterval} 
-                          onChange={e => setSimpleHoursInterval(e.target.value)} 
+                        <Input
+                          type="number"
+                          min={1}
+                          max={23}
+                          value={simpleHoursInterval}
+                          onChange={e => setSimpleHoursInterval(e.target.value)}
                           placeholder="e.g. 4 for every 4 hours"
                         />
                       </div>
                     )}
-                    
+
                     <div className="bg-muted p-3 rounded text-xs flex items-center justify-between">
                       <span className="text-muted-foreground">Generated Cron:</span>
                       <code className="font-mono bg-background px-2 py-1 rounded border">
-                        {
-                           simpleIntervalType === 'daily' ? `${parseInt(simpleMinute || '0')} ${parseInt(simpleHour || '0')} * * *` :
-                           simpleIntervalType === 'hourly' ? `0 * * * *` :
-                           `0 */${parseInt(simpleHoursInterval || '1')} * * *`
-                        }
+                        {buildSimpleCron()}
                       </code>
                     </div>
                   </TabsContent>
@@ -561,7 +565,7 @@ export default function Scheduler() {
                         </SelectContent>
                       </Select>
                     </div>
-                    
+
                     <div className="space-y-2">
                       <Label>Custom Expression</Label>
                       <Input
@@ -838,7 +842,7 @@ export default function Scheduler() {
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-2">
-            <Button 
+            <Button
               onClick={() => handleBroadcast('Server entering MAINTENANCE MODE - Please save and disconnect')}
               variant="outline"
               size="sm"
@@ -846,7 +850,7 @@ export default function Scheduler() {
             >
               Maintenance Start
             </Button>
-            <Button 
+            <Button
               onClick={() => handleBroadcast('Maintenance complete - Server is back online!')}
               variant="outline"
               size="sm"
@@ -854,7 +858,7 @@ export default function Scheduler() {
             >
               Maintenance End
             </Button>
-            <Button 
+            <Button
               onClick={() => handleBroadcast('Server will save in 30 seconds - Brief lag expected')}
               variant="outline"
               size="sm"
@@ -862,7 +866,7 @@ export default function Scheduler() {
             >
               Save Warning
             </Button>
-            <Button 
+            <Button
               onClick={() => handleBroadcast('Welcome! Please read the rules at spawn')}
               variant="outline"
               size="sm"

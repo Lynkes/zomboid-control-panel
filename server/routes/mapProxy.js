@@ -74,12 +74,51 @@ const B42_DIR_FALLBACK = "42.19.0";
 const B42_DIR_TTL_MS = 24 * 60 * 60 * 1000; // re-resolve at most once per 24 h
 const B42_DIR_RETRY_MS = 5 * 60 * 1000; // ...but retry a failed resolve sooner
 // Geometry of B42_DIR_FALLBACK, used only when layer0.dzi can't be fetched.
+// x0/y0/sqr/scale are the isometric projection origin, copied from 42.19.0's
+// own base/map_info.json (skip:1 => scale 1<<1 = 2).
 const B42_GEOMETRY_FALLBACK = {
   tileSize: 1024,
   width: 1157312,
   height: 509520,
   maxLevel: 21,
+  x0: 1036288,
+  y0: -139296,
+  sqr: 128,
+  scale: 2,
 };
+
+// The projection origin is NOT derivable from the image dimensions: 42.20.0 is
+// exactly 2x the height of 42.19.0 but 4032 px wider, because the renderer
+// crops/pads each build independently. map.projectzomboid.com publishes the
+// real origin per build in base/map_info.json and its own viewer projects with
+//   imageX = (x0 + (sx - sy) * sqr / 2) / scale
+//   imageY = (y0 + (sx + sy) * sqr / 4) / scale
+// where scale = 1 << skip. Scaling a previous build's origin by the width
+// ratio instead puts markers ~2300 px (~36 tiles) west of where they are.
+async function fetchMapProjection(directory) {
+  try {
+    const resp = await fetch(
+      `${PZ_MAP_ROOT}/maps/${directory}/base/map_info.json`,
+      {
+        signal: AbortSignal.timeout(5000),
+        headers: {
+          "User-Agent":
+            "ZomboidControlPanel/1.0 (+https://github.com/fpsacha/zomboid-control-panel)",
+        },
+      },
+    );
+    if (!resp.ok) return null;
+    const info = await resp.json();
+    const x0 = Number(info?.x0);
+    const y0 = Number(info?.y0);
+    const sqr = Number(info?.sqr);
+    if (!Number.isFinite(x0) || !Number.isFinite(y0) || !sqr) return null;
+    const skip = Number(info?.skip);
+    return { x0, y0, sqr, scale: 1 << (Number.isFinite(skip) ? skip : 0) };
+  } catch {
+    return null;
+  }
+}
 // Map builds are not all rendered at the same resolution: 42.19.0 is
 // TileSize=1024 / 1157312x509520, while 42.20.0 doubled to TileSize=2048 /
 // 2318656x1019040. Nothing about the geometry can be assumed, so read it from
@@ -107,6 +146,7 @@ async function fetchMapGeometry(directory) {
       width,
       height,
       maxLevel: Math.ceil(Math.log2(Math.max(width, height))),
+      ...((await fetchMapProjection(directory)) || {}),
     };
   } catch {
     return null;
@@ -388,6 +428,10 @@ router.get("/resolve", async (req, res) => {
     width: map.width,
     height: map.height,
     maxLevel: map.maxLevel,
+    x0: map.x0,
+    y0: map.y0,
+    sqr: map.sqr,
+    scale: map.scale,
   });
 });
 

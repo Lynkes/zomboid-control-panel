@@ -66,6 +66,7 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.archive_file }}
           if-no-files-found: error
+          retention-days: 1
 
       - name: Upload raw binary
         uses: actions/upload-artifact@v4
@@ -73,6 +74,7 @@ jobs:
           name: ${{ matrix.binary_artifact_name }}
           path: release/${{ matrix.binary_file }}
           if-no-files-found: error
+          retention-days: 1
 
   publish:
     needs: build

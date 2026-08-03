@@ -201,6 +201,44 @@ The Compose files use named volumes for panel state, so do not replace them with
 host `./panel-data` or `./data` mounts unless those directories are owned by
 UID/GID `1000:1000`.
 
+#### Shared PZ folders: Docker permissions
+
+When the panel bind-mounts Project Zomboid folders, set `PUID` and `PGID` in
+`.env` to the numeric Linux user and group that own those folders:
+
+```env
+PUID=1000
+PGID=1000
+```
+
+Find the values with `id -u` and `id -g`, then restart the panel:
+
+```bash
+docker compose up -d
+```
+
+This works with the published image; rebuilding is not required. The panel
+changes ownership only of its own `/app/data` and `/app/logs` directories,
+never of PZ game or save mounts.
+
+#### Separate PZ and panel containers
+
+The panel can manage a PZ server in another container. Put both containers on
+the same Docker network and set `RCON_HOST` to the PZ service name, not
+`127.0.0.1`. For PanelBridge features, choose one of these file-access methods:
+
+- Bind-mount the same PZ save directory into the panel and give both containers
+  compatible numeric UID/GID access.
+- In **Settings → PanelBridge**, enable **Remote server via SFTP**, enter the
+  PZ host credentials and the absolute bridge folder, for example
+  `/home/pz/Zomboid/Lua/panelbridge/MyServer`, then select **Test SFTP** and
+  **Start SFTP bridge**.
+
+Shared folders and SFTP enable configuration edits and PanelBridge actions.
+They do not let the panel start or stop a separate Docker container. Keep PZ
+lifecycle management in your container manager, unless you deliberately grant
+the panel Docker socket access.
+
 ### Linux: installing a new PZ server through the panel
 
 If you installed the panel as the bundled `zomboid-panel.service`, use this install folder in the setup wizard:
@@ -251,6 +289,11 @@ Prebuilt images are published to GHCR: `ghcr.io/fpsacha/zomboid-panel:latest` an
 PanelBridge is a server-side Lua drop-in that enables features RCON can't reach — teleport, heal, weather control, character export/import, inventory editing, sound triggers.
 
 There is no client-side component. Players don't install anything. The panel copies `PanelBridge.lua` into your server's `Install/media/lua/server/` folder, then you set `DoLuaChecksum=false` in the server INI, restart the PZ server, and enable it in **Settings → PanelBridge**.
+
+For a remote server without a shared filesystem, use the **Remote server via
+SFTP** option in the same panel. It syncs the bridge command and result files
+through a local cache; it does not expose the server's full filesystem to the
+panel.
 
 ---
 

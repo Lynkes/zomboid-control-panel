@@ -42,6 +42,9 @@ Thumbs.db
 # Release builds
 release/
 
+# GitHub Releases are the canonical release notes
+release-notes-*.md
+
 # Backup files
 *.bak
 

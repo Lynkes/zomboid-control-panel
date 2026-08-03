@@ -247,7 +247,10 @@ async function main() {
     target: "node22",
     format: "cjs",
     outfile: "./dist-exe/server.cjs",
-    external: ["@aws-sdk/client-s3"],
+    // ssh2's optional native addons are loaded behind try/catch and have
+    // JavaScript fallbacks. Keeping .node files external avoids esbuild trying
+    // to bundle architecture-specific binaries for the standalone packages.
+    external: ["@aws-sdk/client-s3", "*.node"],
     define: {
       "import.meta.url": "import_meta_url",
       PANEL_VERSION: JSON.stringify(panelVersion),

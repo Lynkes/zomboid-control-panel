@@ -1796,7 +1796,7 @@ export default function Discord() {
                 maxLength={20}
               />
               <p className="text-xs text-muted-foreground">
-                Full access — can use all commands
+                Full access for role-protected commands. Server owners and Discord Administrators always retain access.
               </p>
               {hasAdminRoleIdError && (
                 <p className="text-xs text-destructive">
@@ -1820,7 +1820,7 @@ export default function Discord() {
                 maxLength={20}
               />
               <p className="text-xs text-muted-foreground">
-                Can use "moderator" tier commands
+                Can use "moderator" tier commands. Without a configured role, role-protected commands remain locked.
               </p>
               {hasModRoleIdError && (
                 <p className="text-xs text-destructive">
@@ -1869,8 +1869,8 @@ export default function Discord() {
                   maxLength={20}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Send chat to a different channel than notifications. Leave
-                  empty to use the main channel above.
+                  Relay game chat and Discord messages through a separate channel.
+                  Leave empty to use the main channel above.
                 </p>
                 {hasChatRelayChannelIdError && (
                   <p className="text-xs text-destructive">

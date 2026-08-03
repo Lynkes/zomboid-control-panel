@@ -14,11 +14,13 @@ import {
   getActiveServer,
   getServer,
   getAllSettings,
+  setSetting,
   getDb,
   commitNow,
   logBridgeCommand,
 } from "../database/init.js";
 import { sanitizeError } from "../utils/sanitize.js";
+import { persistSandboxValues } from "./serverFiles.js";
 import { requireRole } from "../services/auth.js";
 import {
   getEmbeddedPanelBridgeLua,
@@ -26,6 +28,7 @@ import {
   writeLuaAtomic,
 } from "../utils/embeddedLua.js";
 import { createLogger } from "../utils/logger.js";
+import { getSftpCachePath, testSftpBridge, validateSftpBridgeConfig } from "../services/panelBridgeSftp.js";
 const log = createLogger("API:PanelBridge");
 
 // ES Module __dirname equivalent
@@ -33,6 +36,38 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const router = express.Router();
+
+const ITEM_TYPE_REGEX = /^[A-Za-z0-9_]+\.[A-Za-z0-9_&#+.\-]+$/;
+const VEHICLE_SCRIPT_REGEX = /^[A-Za-z0-9_]+\.[A-Za-z0-9_&#+.\-]+$/;
+
+const SFTP_SETTING_KEYS = {
+  enabled: "panelBridgeSftpEnabled",
+  host: "panelBridgeSftpHost",
+  port: "panelBridgeSftpPort",
+  username: "panelBridgeSftpUsername",
+  password: "panelBridgeSftpPassword",
+  bridgePath: "panelBridgeSftpBridgePath",
+  pollIntervalSeconds: "panelBridgeSftpPollIntervalSeconds",
+};
+
+function isMaskedSecret(value) {
+  return typeof value === "string" && value.startsWith("••••••••");
+}
+
+async function resolveSftpConfig(input = {}) {
+  const settings = await getAllSettings();
+  const password = input.password && !isMaskedSecret(input.password)
+    ? input.password
+    : settings[SFTP_SETTING_KEYS.password] || "";
+  return validateSftpBridgeConfig({
+    host: input.host ?? settings[SFTP_SETTING_KEYS.host],
+    port: input.port ?? settings[SFTP_SETTING_KEYS.port],
+    username: input.username ?? settings[SFTP_SETTING_KEYS.username],
+    password,
+    bridgePath: input.bridgePath ?? settings[SFTP_SETTING_KEYS.bridgePath],
+    pollIntervalSeconds: input.pollIntervalSeconds ?? settings[SFTP_SETTING_KEYS.pollIntervalSeconds],
+  });
+}
 
 // Valid PanelBridge actions (defense-in-depth — Lua side also validates)
 const VALID_ACTIONS = new Set([
@@ -618,7 +653,7 @@ router.get("/scan-server/:serverId", async (req, res) => {
 });
 
 // Auto-detect bridge path from server name
-router.post("/auto-detect", (req, res) => {
+router.post("/auto-detect", async (req, res) => {
   const { serverName, zomboidUserFolder } = req.body;
 
   if (!serverName) {
@@ -626,6 +661,7 @@ router.post("/auto-detect", (req, res) => {
   }
 
   try {
+    await bridge.stopSftp();
     // Stop bridge first if already running so watcher/poller restarts on new path
     if (bridge.isRunning) {
       bridge.stop();
@@ -643,7 +679,7 @@ router.post("/auto-detect", (req, res) => {
 });
 
 // Configure the bridge with Zomboid save path
-router.post("/configure", (req, res) => {
+router.post("/configure", async (req, res) => {
   const { zomboidSavePath } = req.body;
 
   if (!zomboidSavePath) {
@@ -651,6 +687,7 @@ router.post("/configure", (req, res) => {
   }
 
   try {
+    await bridge.stopSftp();
     // Stop bridge first if already running so watcher/poller restarts on new path
     if (bridge.isRunning) {
       bridge.stop();
@@ -669,7 +706,7 @@ router.post("/configure", (req, res) => {
 });
 
 // Configure the bridge with a direct panelbridge folder path (manual override)
-router.post("/configure-direct", (req, res) => {
+router.post("/configure-direct", async (req, res) => {
   const { bridgePath: reqPath } = req.body;
 
   if (!reqPath || typeof reqPath !== "string") {
@@ -696,6 +733,7 @@ router.post("/configure-direct", (req, res) => {
   }
 
   try {
+    await bridge.stopSftp();
     if (bridge.isRunning) {
       bridge.stop();
     }
@@ -711,6 +749,31 @@ router.post("/configure-direct", (req, res) => {
   }
 });
 
+router.post("/sftp/test", requireRole("admin"), async (req, res) => {
+  try {
+    const config = await resolveSftpConfig(req.body);
+    const result = await testSftpBridge(config);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: sanitizeError(error.message) });
+  }
+});
+
+router.post("/sftp/configure", requireRole("admin"), async (req, res) => {
+  try {
+    const config = await resolveSftpConfig(req.body);
+    for (const [field, key] of Object.entries(SFTP_SETTING_KEYS)) {
+      const value = field === "enabled" ? true : config[field];
+      if (value !== undefined) await setSetting(key, value);
+    }
+    const cachePath = getSftpCachePath(config);
+    await bridge.configureSftp(config, cachePath);
+    res.json({ success: true, bridgePath: cachePath, transport: bridge.getStatus().transport });
+  } catch (error) {
+    res.status(400).json({ error: sanitizeError(error.message) });
+  }
+});
+
 // Start the bridge polling
 router.post("/start", (req, res) => {
   try {
@@ -722,8 +785,9 @@ router.post("/start", (req, res) => {
 });
 
 // Stop the bridge
-router.post("/stop", (req, res) => {
+router.post("/stop", async (req, res) => {
   try {
+    await bridge.stopSftp();
     bridge.stop();
     res.json({ success: true, message: "Bridge stopped" });
   } catch (error) {
@@ -917,10 +981,10 @@ router.get("/ping", async (req, res) => {
 // the route safe if a lower-privilege role is ever introduced.
 router.post("/command", requireRole("admin"), async (req, res) => {
   const activeServer = await getActiveServer();
-  if (activeServer?.isRemote) {
+  if (activeServer?.isRemote && !bridge.isSftpRunning() && !bridge.isRunning) {
     return res.status(400).json({
       error:
-        "PanelBridge is not available for remote servers. This feature requires the Lua mod running on the same machine as the panel.",
+        "PanelBridge requires a configured mapped drive or a running SFTP bridge transport for remote servers.",
     });
   }
 
@@ -941,6 +1005,44 @@ router.post("/command", requireRole("admin"), async (req, res) => {
     (typeof args !== "object" || args === null || Array.isArray(args))
   ) {
     return res.status(400).json({ error: "args must be an object" });
+  }
+
+  // Build 42 does not expose a Lua vehicle-spawn API. The RCON command is
+  // the supported server path and returns its result directly to the map.
+  if (action === "spawnVehicleAt") {
+    const vehicle = args?.vehicle ?? args?.scriptName;
+    const x = Number(args?.x);
+    const y = Number(args?.y);
+    const z = Number(args?.z ?? 0);
+    if (typeof vehicle !== "string" || !VEHICLE_SCRIPT_REGEX.test(vehicle)) {
+      return res.status(400).json({ error: "Invalid vehicle script name" });
+    }
+    if (
+      !Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z) ||
+      x < 0 || x > 24000 || y < 0 || y > 24000 || z < 0 || z > 8 ||
+      (x === 0 && y === 0)
+    ) {
+      return res.status(400).json({ error: "Invalid coordinates (x/y: 0-24000, z: 0-8)" });
+    }
+
+    try {
+      const result = await req.app.get("rconService").addVehicleAt(vehicle, x, y, z);
+      logBridgeCommand(action, args, result, result.success, 0).catch(() => {});
+      return res.json({
+        ...result,
+        data: result.success ? {
+          message: "Vehicle spawn requested",
+          scriptName: vehicle,
+          x: Math.floor(x),
+          y: Math.floor(y),
+          z: Math.floor(z),
+        } : undefined,
+      });
+    } catch (error) {
+      const message = sanitizeError(error?.message || "Vehicle spawn failed");
+      logBridgeCommand(action, args, { error: message }, false, 0).catch(() => {});
+      return res.status(500).json({ success: false, error: message });
+    }
   }
 
   if (!bridge.bridgePath) {
@@ -999,7 +1101,7 @@ router.post("/command", requireRole("admin"), async (req, res) => {
         }
         if (
           typeof entry.itemType !== "string" ||
-          !/^[A-Za-z]\w*\.\w+$/.test(entry.itemType)
+          !ITEM_TYPE_REGEX.test(entry.itemType)
         ) {
           return res.status(400).json({
             error: `Invalid item type format: ${String(entry.itemType).slice(0, 60)}`,
@@ -2648,6 +2750,34 @@ router.post("/sound/noise", async (req, res) => {
 // V1.4.0 INFRASTRUCTURE (POWER/WATER) ENDPOINTS
 // =============================================
 
+// The bridge only moves SandboxOptions in memory, so mirror the same values
+// into SandboxVars.lua or the next server start silently undoes the change.
+// 9 = "Disabled"/never shuts off, 1 = "Instant"; the modifier is what the game
+// actually compares world age against.
+async function persistUtilities(power, water, on) {
+  const values = {};
+  if (power) {
+    values.ElecShut = on ? 9 : 1;
+    values.ElecShutModifier = on ? 2147483647 : 0;
+  }
+  if (water) {
+    values.WaterShut = on ? 9 : 1;
+    values.WaterShutModifier = on ? 2147483647 : 0;
+  }
+  try {
+    const { persisted, reason } = await persistSandboxValues(values);
+    if (!persisted) {
+      log.warn(`Utilities not persisted to SandboxVars.lua: ${reason}`);
+    }
+    return { persisted, persistReason: reason };
+  } catch (error) {
+    log.error(
+      `Failed to persist utilities to SandboxVars.lua: ${error.message}`,
+    );
+    return { persisted: false, persistReason: sanitizeError(error.message) };
+  }
+}
+
 // Get utilities (power/water) status
 router.get("/utilities/status", async (req, res) => {
   if (!bridge.isRunning) {
@@ -2683,7 +2813,10 @@ router.post("/utilities/restore", async (req, res) => {
       `Utilities restored successfully`,
       result?.debug ? { debug: result.debug } : {},
     );
-    res.json(result);
+    res.json({
+      ...result,
+      ...(await persistUtilities(power !== false, water !== false, true)),
+    });
   } catch (error) {
     log.error(`Failed to restore utilities: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -2710,7 +2843,10 @@ router.post("/utilities/shutoff", async (req, res) => {
       `Utilities shut off successfully`,
       result?.debug ? { debug: result.debug } : {},
     );
-    res.json(result);
+    res.json({
+      ...result,
+      ...(await persistUtilities(power !== false, water !== false, false)),
+    });
   } catch (error) {
     log.error(`Failed to shut off utilities: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });

@@ -569,6 +569,7 @@ router.post("/", async (req, res) => {
       rconHost: config.rconHost,
       rconPort: rconPort,
       rconPassword: config.rconPassword,
+      adminPassword: config.adminPassword || "",
       serverPort: parseInt(config.serverPort, 10) || 16261,
       minMemory: normalizeMemoryGb(config.minMemory, 4),
       maxMemory: normalizeMemoryGb(config.maxMemory, 8),

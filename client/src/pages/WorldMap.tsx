@@ -197,33 +197,88 @@ const MAP_B42: MapConfig = {
   label: 'B42',
 }
 
+// The game tile MAP_B42.defaultCenter points at, so the default view stays put
+// no matter which build's projection is resolved.
+const B42_DEFAULT_CENTER_TILE = { x: 10486.75, y: 6678.75 }
+
 // PZ renders each map build at its own resolution — 42.19.0 is 1157312 wide
-// with 1024px tiles, 42.20.0 doubled to 2318656 with 2048px tiles. The
-// projection constants above are expressed against MAP_B42.fullWidth, so
-// rescale them by whatever the backend reports it is actually proxying.
+// with 1024px tiles, 42.20.0 doubled to 2318656 with 2048px tiles.
+//
+// The projection origin CANNOT be recovered by rescaling: 42.20.0 is exactly
+// 2x the height of 42.19.0 but 4032 px wider, because each build is cropped
+// and padded independently. So the backend reads the real origin out of the
+// build's own base/map_info.json, matching what map.projectzomboid.com's own
+// viewer does:
+//   imageX = (x0 + (gx - gy) * sqr / 2) / scale
+//   imageY = (y0 + (gx + gy) * sqr / 4) / scale
+// The MAP_B42 constants above are exactly 42.19.0's values under that formula
+// (1036288/2 = 518144, -139296/2 = -69648, 128/2/2 = 32, 128/4/2 = 16).
+//
+// Only when the backend can't supply the origin do we fall back to the old
+// width-ratio guess, which is ~2300 px (~36 tiles) west on 42.20.0.
+// Origins for builds we've already read map_info.json for. Lets an older
+// panel backend (which doesn't forward the origin yet) still project 42.20.0
+// correctly, and keeps the map right if map.projectzomboid.com is briefly
+// unreachable. Values are verbatim from <build>/base/map_info.json.
+const B42_KNOWN_ORIGINS: Record<
+  string,
+  { x0: number; y0: number; sqr: number; scale: number }
+> = {
+  // skip:1 -> scale 1<<1 = 2
+  '42.19.0': { x0: 1036288, y0: -139296, sqr: 128, scale: 2 },
+  // skip:0 -> scale 1<<0 = 1
+  '42.20.0': { x0: 1040384, y0: -139296, sqr: 128, scale: 1 },
+}
+
 function b42ConfigFor(info: {
   tileSize: number
   width: number
   height: number
   maxLevel: number
+  b42Dir?: string
+  x0?: number
+  y0?: number
+  sqr?: number
+  scale?: number
 }): MapConfig {
+  const origin =
+    Number.isFinite(info.x0) &&
+    Number.isFinite(info.y0) &&
+    !!info.sqr &&
+    !!info.scale
+      ? { x0: info.x0!, y0: info.y0!, sqr: info.sqr!, scale: info.scale! }
+      : B42_KNOWN_ORIGINS[info.b42Dir ?? ''] || null
+
   const k = info.width / MAP_B42.fullWidth
-  return {
+
+  const isoX0 = origin ? origin.x0 / origin.scale : MAP_B42.isoX0 * k
+  const isoY0 = origin ? origin.y0 / origin.scale : MAP_B42.isoY0 * k
+  const isoHalfSqr = origin
+    ? origin.sqr / 2 / origin.scale
+    : MAP_B42.isoHalfSqr * k
+  const isoQuarterSqr = origin
+    ? origin.sqr / 4 / origin.scale
+    : MAP_B42.isoQuarterSqr * k
+
+  const cfg: MapConfig = {
     ...MAP_B42,
     tileSize: info.tileSize,
     fullWidth: info.width,
     fullHeight: info.height,
     maxLevel: info.maxLevel,
-    isoX0: MAP_B42.isoX0 * k,
-    isoY0: MAP_B42.isoY0 * k,
-    isoHalfSqr: MAP_B42.isoHalfSqr * k,
-    isoQuarterSqr: MAP_B42.isoQuarterSqr * k,
-    defaultCenter: {
-      x: MAP_B42.defaultCenter.x * k,
-      y: MAP_B42.defaultCenter.y * k,
-    },
-    defaultScale: MAP_B42.defaultScale / k,
+    isoX0,
+    isoY0,
+    isoHalfSqr,
+    isoQuarterSqr,
+    defaultScale: (MAP_B42.defaultScale * MAP_B42.isoHalfSqr) / isoHalfSqr,
+    defaultCenter: MAP_B42.defaultCenter,
   }
+  cfg.defaultCenter = gameTileToDzi(
+    B42_DEFAULT_CENTER_TILE.x,
+    B42_DEFAULT_CENTER_TILE.y,
+    cfg,
+  )
+  return cfg
 }
 
 const MAP_B41: MapConfig = {
@@ -643,7 +698,9 @@ export default function WorldMap() {
       if (
         cur.label === targetCfg.label &&
         cur.tileSize === targetCfg.tileSize &&
-        cur.fullWidth === targetCfg.fullWidth
+        cur.fullWidth === targetCfg.fullWidth &&
+        cur.isoX0 === targetCfg.isoX0 &&
+        cur.isoY0 === targetCfg.isoY0
       ) return
 
       setMapCfg(targetCfg)
@@ -796,6 +853,8 @@ export default function WorldMap() {
   const tileFailRef = useRef<Record<string, { count: number; nextAt: number }>>({})
   const tileFailureCountRef = useRef(0)
   const [tileLoadFailing, setTileLoadFailing] = useState(false)
+  const [tileFailureKind, setTileFailureKind] = useState<'network' | 'coverage'>('network')
+  const tileCoverageFailRef = useRef(0)
 
   const loadDziTile = useCallback((level: number, col: number, row: number) => {
     const f = floorRef.current
@@ -808,7 +867,7 @@ export default function WorldMap() {
     tileCacheRef.current[key] = null
     pendingTileLoadsRef.current++
 
-    const markFailed = () => {
+    const markFailed = (reason: 'network' | 'coverage' = 'network') => {
       if (floorRef.current !== f) return
       // Drop the pending entry so the per-tile backoff guard above is what
       // gates the next retry (rather than the "key in cache" check).
@@ -820,7 +879,15 @@ export default function WorldMap() {
       // Surface a user-visible warning if many distinct tiles are failing.
       if (count === 1) {
         tileFailureCountRef.current++
-        if (tileFailureCountRef.current >= 6) setTileLoadFailing(true)
+        if (reason === 'coverage') tileCoverageFailRef.current++
+        if (tileFailureCountRef.current >= 6) {
+          setTileFailureKind(
+            tileCoverageFailRef.current * 2 >= tileFailureCountRef.current
+              ? 'coverage'
+              : 'network',
+          )
+          setTileLoadFailing(true)
+        }
       }
     }
 
@@ -832,7 +899,10 @@ export default function WorldMap() {
         delete tileFailRef.current[key]
         if (tileFailureCountRef.current > 0) {
           tileFailureCountRef.current = Math.max(0, tileFailureCountRef.current - 1)
-          if (tileFailureCountRef.current === 0) setTileLoadFailing(false)
+          if (tileFailureCountRef.current === 0) {
+            tileCoverageFailRef.current = 0
+            setTileLoadFailing(false)
+          }
         }
       }
     }
@@ -863,7 +933,11 @@ export default function WorldMap() {
             markRecovered()
             return null
           }
-          if (!res.ok) throw new Error(`HTTP ${res.status}`)
+          if (!res.ok) {
+            const err = new Error(`HTTP ${res.status}`) as Error & { status?: number }
+            err.status = res.status
+            throw err
+          }
           return res.blob()
         })
         .then((blob) => {
@@ -884,13 +958,17 @@ export default function WorldMap() {
           img.onerror = () => {
             URL.revokeObjectURL(objectUrl)
             pendingTileLoadsRef.current--
-            markFailed()
+            // Bytes arrived and only the decode failed, so the network is fine.
+            markFailed('coverage')
           }
           img.src = objectUrl
         })
-        .catch(() => {
+        .catch((err) => {
           pendingTileLoadsRef.current--
-          markFailed()
+          const status = (err as { status?: number } | undefined)?.status
+          // A readable 4xx means we reached upstream and it has no tile there;
+          // 5xx or a rejected fetch means we could not reach it at all.
+          markFailed(status && status >= 400 && status < 500 ? 'coverage' : 'network')
         })
     }
 
@@ -2543,11 +2621,24 @@ export default function WorldMap() {
                 <span className="text-warning/70">tiles offline</span>
               </div>
               <div className="px-3 py-2 text-xs leading-snug">
-                <div className="font-semibold text-foreground">Map tiles aren't loading</div>
-                <div className="text-muted-foreground mt-0.5">
-                  Panel can't reach <span className="font-mono text-warning/90">map.projectzomboid.com</span>.
-                  Check outbound HTTPS access and try Refresh.
-                </div>
+                {tileFailureKind === 'coverage' ? (
+                  <>
+                    <div className="font-semibold text-foreground">No map tiles at this zoom</div>
+                    <div className="text-muted-foreground mt-0.5">
+                      <span className="font-mono text-warning/90">map.projectzomboid.com</span> is
+                      reachable but hasn't rendered this area at this detail level. Zoom out, or
+                      try Refresh later.
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="font-semibold text-foreground">Map tiles aren't loading</div>
+                    <div className="text-muted-foreground mt-0.5">
+                      Panel can't reach <span className="font-mono text-warning/90">map.projectzomboid.com</span>.
+                      Check outbound HTTPS access and try Refresh.
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>

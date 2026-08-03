@@ -56,6 +56,27 @@ export function normalizeStoredCheckInterval(value) {
   return null;
 }
 
+// Legacy mod-restart settings were persisted with mixed types (real booleans
+// alongside strings like "5"), so migration has to accept both shapes.
+export function parseLegacyBoolean(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(normalized)) return true;
+  if (["false", "0", "no", "off"].includes(normalized)) return false;
+  return null;
+}
+
+// Number(null) and Number("") are both 0, which would silently migrate an
+// unset warning delay into "restart with no countdown".
+export function parseLegacyMinutes(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string" && value.trim() === "") return null;
+  const minutes = Number(value);
+  if (!Number.isFinite(minutes) || minutes < 0) return null;
+  return minutes;
+}
+
 function parseModInfoVersionFolder(folderName) {
   if (!/^\d+(?:\.\d+)*$/.test(folderName)) return null;
   return folderName.split(".").map((part) => Number.parseInt(part, 10));
@@ -142,21 +163,21 @@ export class ModChecker extends EventEmitter {
       // Accept and migrate them so existing installs do not silently lose
       // mod-update restart behavior after a panel restart.
       if (savedAutoRestart === null) {
-        const legacyAutoRestart = await getSetting("modAutoRestart");
-        if (typeof legacyAutoRestart === "boolean") {
+        const legacyAutoRestart = parseLegacyBoolean(
+          await getSetting("modAutoRestart"),
+        );
+        if (legacyAutoRestart !== null) {
           savedAutoRestart = legacyAutoRestart;
           await setSetting("modAutoRestartEnabled", legacyAutoRestart);
         }
       }
       if (savedWarningMinutes === null) {
-        const legacyWarningMinutes = await getSetting("modRestartDelay");
-        const normalizedWarningMinutes = Number(legacyWarningMinutes);
-        if (Number.isFinite(normalizedWarningMinutes)) {
-          savedWarningMinutes = normalizedWarningMinutes;
-          await setSetting(
-            "modRestartWarningMinutes",
-            normalizedWarningMinutes,
-          );
+        const legacyWarningMinutes = parseLegacyMinutes(
+          await getSetting("modRestartDelay"),
+        );
+        if (legacyWarningMinutes !== null) {
+          savedWarningMinutes = legacyWarningMinutes;
+          await setSetting("modRestartWarningMinutes", legacyWarningMinutes);
         }
       }
       const savedDelayIfPlayers = await getSetting("modDelayIfPlayersOnline");
@@ -741,9 +762,10 @@ export class ModChecker extends EventEmitter {
     }
   }
 
-  // Get online player count
+  // Get online player count. Returns null when the count is unknown, which is
+  // NOT the same as an empty server.
   async getOnlinePlayerCount() {
-    if (!this.scheduler?.rconService) return 0;
+    if (!this.scheduler?.rconService) return null;
 
     try {
       const result = await this.scheduler.rconService.getPlayers();
@@ -753,7 +775,7 @@ export class ModChecker extends EventEmitter {
     } catch (error) {
       log.debug(`Failed to get player count: ${error.message}`);
     }
-    return 0;
+    return null;
   }
 
   // Monitor player count and restart when empty
@@ -787,7 +809,12 @@ export class ModChecker extends EventEmitter {
         // Check player count
         const playerCount = await this.getOnlinePlayerCount();
 
-        if (playerCount === 0) {
+        if (playerCount === null) {
+          const remainingMin = Math.round((maxWaitMs - elapsed) / 60000);
+          log.warn(
+            `Player count unavailable (RCON); keeping restart on hold, ${remainingMin} min remaining`,
+          );
+        } else if (playerCount === 0) {
           log.info("No players online, triggering restart");
           clearInterval(this.playerCheckInterval);
           this.playerCheckInterval = null;

@@ -932,17 +932,24 @@ export async function getPlayerLogs(playerName = null, limit = 100) {
 // ============================================
 
 export async function logServerEvent(eventType, message = null) {
-  const db = await getDb();
-  const entry = {
-    id: generateId(),
-    event_type: eventType,
-    message,
-    created_at: new Date().toISOString(),
-  };
+  // Several callers fire this without awaiting; an unhandled rejection here
+  // reaches process.on("unhandledRejection") and kills the panel.
+  try {
+    const db = await getDb();
+    const entry = {
+      id: generateId(),
+      event_type: eventType,
+      message,
+      created_at: new Date().toISOString(),
+    };
 
-  appendCapped(db.data.server_events, entry, RETENTION.server_events);
-  scheduleWrite();
-  return entry;
+    appendCapped(db.data.server_events, entry, RETENTION.server_events);
+    scheduleWrite();
+    return entry;
+  } catch (error) {
+    log.warn(`Could not record server event ${eventType}: ${error.message}`);
+    return null;
+  }
 }
 
 // ============================================

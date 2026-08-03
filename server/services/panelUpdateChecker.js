@@ -509,6 +509,7 @@ export class PanelUpdateChecker {
         clientArchive.downloadUrl,
         tmpClientArchivePath,
         clientArchive.size,
+        "archive",
       );
       const archiveVerified = await this.verifyChecksum(
         tmpClientArchivePath,
@@ -1057,7 +1058,7 @@ export class PanelUpdateChecker {
     });
   }
 
-  downloadFile(url, destPath, expectedSize) {
+  downloadFile(url, destPath, expectedSize, expectedKind = "binary") {
     return new Promise((resolve, reject) => {
       let settled = false;
 
@@ -1175,9 +1176,13 @@ export class PanelUpdateChecker {
                     ),
                   );
                 }
-                // Validate the file is a real binary, not HTML from a hijacked
-                // redirect, a JSON error page, or a partially-written blob.
-                const magicErr = this.validateBinaryMagic(destPath);
+                // Reject HTML/JSON error pages and partially-written blobs.
+                // Standalone updates download both an executable and the
+                // matching client archive, which have different signatures.
+                const magicErr =
+                  expectedKind === "archive"
+                    ? this.validateArchiveMagic(destPath)
+                    : this.validateBinaryMagic(destPath);
                 if (magicErr) {
                   return fail(
                     new Error(
@@ -1468,6 +1473,30 @@ export class PanelUpdateChecker {
       return null;
     } catch (err) {
       return `could not read downloaded file: ${err.message}`;
+    }
+  }
+
+  /** Validate the ZIP (Windows) or gzip (Linux) release package signature. */
+  validateArchiveMagic(filePath) {
+    try {
+      const header = fs.readFileSync(filePath, { encoding: null }).subarray(0, 4);
+      if (header.length < 2) return "file is shorter than an archive header";
+
+      if (process.platform === "win32") {
+        // ZIP: PK followed by a local header, empty archive, or data descriptor.
+        if (
+          header[0] !== 0x50 ||
+          header[1] !== 0x4b ||
+          ![0x03, 0x05, 0x07].includes(header[2])
+        ) {
+          return "not a ZIP archive";
+        }
+      } else if (header[0] !== 0x1f || header[1] !== 0x8b) {
+        return "not a gzip archive";
+      }
+      return null;
+    } catch (err) {
+      return `could not read downloaded archive: ${err.message}`;
     }
   }
 

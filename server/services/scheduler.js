@@ -258,6 +258,28 @@ export class Scheduler {
     }
   }
 
+  // Re-point a ServerManager at the server a restart began on, in case the
+  // active server was switched while the countdown was running.
+  async _ensureRestartTarget(serverManager, pinnedServerId) {
+    if (pinnedServerId == null) return;
+
+    let current = serverManager._serverId ?? null;
+    if (current == null) {
+      try {
+        current = (await getActiveServer())?.id ?? null;
+      } catch (error) {
+        log.debug(`Could not verify restart target: ${error.message}`);
+        return;
+      }
+    }
+    if (String(current) === String(pinnedServerId)) return;
+
+    log.warn(
+      `Auto-restart: active server changed mid-restart — re-targeting server ${pinnedServerId} so the restart finishes on the server it began on`,
+    );
+    await serverManager.reloadConfig(pinnedServerId);
+  }
+
   // Picks the RconService/ServerManager pair a task should run against.
   // Returns the shared singletons (cleanup: null) for a task with no
   // server_id (legacy) or one that targets the currently-active server.
@@ -585,6 +607,19 @@ export class Scheduler {
       (parseInt(process.env.RESTART_WARNING_MINUTES, 10) || 5);
     const restartStartTime = Date.now();
 
+    // Pin the restart to the server it starts against. The shared
+    // ServerManager otherwise re-reads "whichever server is active" when it
+    // starts, so switching servers mid-countdown would stop one server and
+    // bring a different one up in its place.
+    let pinnedServerId = serverManager._serverId ?? null;
+    if (pinnedServerId == null) {
+      try {
+        pinnedServerId = (await getActiveServer())?.id ?? null;
+      } catch (error) {
+        log.debug(`Could not pin restart target: ${error.message}`);
+      }
+    }
+
     try {
       // Check if server is actually running - use multiple methods
       let wasRunning = await serverManager.checkServerRunning();
@@ -817,6 +852,7 @@ export class Scheduler {
 
       // Start server — skip the running check since we just confirmed the server stopped
       log.info("Auto-restart: Starting server...");
+      await this._ensureRestartTarget(serverManager, pinnedServerId);
       await serverManager.startServer({ skipRunningCheck: true });
 
       // Wait for server process to be running (up to 60 seconds)

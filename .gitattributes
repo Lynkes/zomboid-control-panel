@@ -4,3 +4,4 @@
 # "exec /entrypoint.sh: no such file or directory".
 *.sh text eol=lf
 entrypoint.sh text eol=lf
+Start.bat text eol=crlf

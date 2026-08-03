@@ -1198,19 +1198,24 @@ router.post("/collection/sync", async (req, res) => {
       }
       await sleep(300);
     }
+    const failedTitles = await fetchPublishedFileTitles(errors.map(({ id }) => id));
+    const detailedErrors = errors.map((entry) => ({
+      ...entry,
+      title: failedTitles.get(entry.id) || null,
+    }));
     res.json({
-      success: errors.length === 0,
+      success: detailedErrors.length === 0,
       collectionId,
       added,
       removed: [],
-      errors,
+      errors: detailedErrors,
       staleSession,
       message:
-        errors.length === 0
+        detailedErrors.length === 0
           ? `Synced \u2014 added ${added.length}`
           : staleSession
             ? "Steam session expired \u2014 paste fresh cookies and try again"
-            : `Partial sync \u2014 ${errors.length} error${errors.length !== 1 ? "s" : ""}`,
+            : `Steam rejected ${detailedErrors.length} item${detailedErrors.length !== 1 ? "s" : ""}`,
     });
   } catch (error) {
     log.error(`Collection sync failed: ${error.message}`);

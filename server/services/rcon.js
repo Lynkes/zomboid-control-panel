@@ -1114,6 +1114,17 @@ export class RconService extends EventEmitter {
     return this.execute(`addvehicle "${safeVehicle}"`);
   }
 
+  async addVehicleAt(vehicle, x, y, z = 0) {
+    const safeVehicle = this.sanitizeQuotedArg(vehicle, "Vehicle ID", 128);
+    const coordinates = [x, y, z].map(Number);
+    if (!coordinates.every(Number.isFinite)) {
+      throw new Error("Coordinates must be valid numbers");
+    }
+    return this.execute(
+      `addvehicle "${safeVehicle}" "${coordinates.map(Math.floor).join(",")}"`,
+    );
+  }
+
   // Weather
   async startRain(intensity = null) {
     if (intensity !== null && intensity !== undefined) {

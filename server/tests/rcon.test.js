@@ -1,6 +1,32 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import { RconService } from '../services/rcon.js';
+import { PacketReader } from '../utils/sourceRcon.js';
+
+describe('RCON packet framing', () => {
+  const packet = (id, type, body) => {
+    const bodyBuf = Buffer.from(body, 'utf8');
+    const buf = Buffer.alloc(4 + 4 + 4 + bodyBuf.length + 2);
+    buf.writeInt32LE(4 + 4 + bodyBuf.length + 2, 0);
+    buf.writeInt32LE(id, 4);
+    buf.writeInt32LE(type, 8);
+    bodyBuf.copy(buf, 12);
+    return buf;
+  };
+
+  it('reads a well-formed packet', () => {
+    const [pkt] = new PacketReader().push(packet(7, 0, 'hello'));
+    expect(pkt).toEqual({ id: 7, type: 0, body: 'hello' });
+  });
+
+  it('discards an undersized length header instead of reading out of bounds', () => {
+    const buf = Buffer.alloc(5);
+    buf.writeInt32LE(1, 0);
+    const reader = new PacketReader();
+    expect(() => reader.push(buf)).not.toThrow();
+    expect(reader.push(buf)).toEqual([]);
+  });
+});
 
 // Test RCON service logic by creating a lightweight mock
 // This tests the key behaviors without requiring a live RCON connection

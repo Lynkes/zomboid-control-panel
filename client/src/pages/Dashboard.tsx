@@ -68,6 +68,7 @@ function getDashboardSuccessCopy(action: string) {
   switch (action) {
     case 'Start server':   return { title: 'Server starting',     description: 'Watch the dashboard for live status.' }
     case 'Stop server':    return { title: 'Server stopped',      description: 'Session closed cleanly.' }
+    case 'Force stop server': return { title: 'Server force stopped', description: 'The game process was terminated without RCON.' }
     case 'Restart server': return { title: 'Restart scheduled',   description: 'The server will restart shortly.' }
     case 'Restart server now': return { title: 'Restart triggered', description: 'Hard restart command sent.' }
     case 'Save world':     return { title: 'World saved',         description: 'Current state written to disk.' }
@@ -541,8 +542,6 @@ export default function Dashboard() {
   /* Thresholds drive the verdict. Colour follows a crossed threshold, never a palette slot. */
   const latestPerf = performanceHistory[performanceHistory.length - 1]
   const maxMemoryGB = activeServer?.maxMemory
-  const pzMemoryGB = latestPerf ? (latestPerf.pzMemMB ?? latestPerf.memoryMB) / 1024 : null
-  const pzMemoryRatio = pzMemoryGB != null && maxMemoryGB ? pzMemoryGB / maxMemoryGB : null
   const hostMemoryRatio = latestPerf?.hostMemUsedGB != null && latestPerf?.hostMemTotalGB
     ? latestPerf.hostMemUsedGB / latestPerf.hostMemTotalGB
     : null
@@ -606,27 +605,6 @@ export default function Dashboard() {
           onClick: () => { void handleConnect() },
           busy: loading === 'Connect RCON',
           disabled: loading !== null,
-        },
-      }
-    }
-    /* A JVM sits at its -Xmx ceiling by design: the GC grows the heap to the
-       cap and does not hand it back. "PZ at 95% of max" is therefore the
-       normal steady state, not an incident, and alerting on it fires forever.
-       Only flag genuinely abnormal growth PAST the cap, which means off-heap
-       native allocation the -Xmx does not bound and which can OOM the box.
-       Real memory pressure is covered by the host memory check below. */
-    if (pzMemoryRatio != null && pzMemoryRatio >= 1.05 && pzMemoryGB != null) {
-      return {
-        level: 'critical',
-        headline: `PZ memory ${pzMemoryGB.toFixed(1)} GB, over its ${maxMemoryGB} GB limit`,
-        action: {
-          label: 'Restart',
-          onClick: () => setConfirmAction({
-            title: 'Restart server',
-            description: 'This will send a 5-minute warning to all players, then restart the server.',
-            action: () => serverApi.restart(5),
-            variant: 'warning',
-          }),
         },
       }
     }
@@ -875,6 +853,22 @@ export default function Dashboard() {
               >
                 {loading === 'Stop server' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
                 Stop
+              </Button>
+              <Button
+                onClick={() => setConfirmAction({
+                  title: 'Force stop server',
+                  description: `This will immediately kill the game process without saving.${players.length > 0 ? ` ${players.length} player(s) will be disconnected!` : ''}`,
+                  action: serverApi.forceStop,
+                  variant: 'destructive',
+                })}
+                disabled={loading !== null || activeServer?.isRemote}
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1.5 rounded-md border border-red-500/30 px-2.5 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-300 disabled:border-border/50 disabled:text-muted-foreground"
+                title={activeServer?.isRemote ? 'Not available for remote (RCON-only) servers' : 'Immediately stops the game without saving'}
+              >
+                {loading === 'Force stop server' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Skull className="h-3.5 w-3.5" />}
+                Force stop
               </Button>
               <Button
                 onClick={() => setConfirmAction({

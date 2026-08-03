@@ -128,6 +128,13 @@ const VANILLA_SANDBOX_GROUPS = new Set([
   'Basement',
 ])
 
+// These were shown by older panel releases but Build 42 does not support them.
+const UNSUPPORTED_INI_KEYS = new Set([
+  'ServerImageLoginScreen',
+  'ServerImageLoadingScreen',
+  'ServerImageIcon',
+])
+
 /** Merge schema defaults into parsed INI settings so schema-defined keys always exist.
  *  Also warns to the console when a stored value doesn't parse for the schema type — helps
  *  catch a corrupted INI without changing behaviour. */
@@ -149,6 +156,26 @@ function mergeSchemaDefaults(parsed: Record<string, string>): Record<string, str
     }
   }
   return merged
+}
+
+function createSandboxDefaults(): SandboxData {
+  const sandbox: SandboxData = {
+    VERSION: 4,
+    settings: {},
+    ZombieLore: {},
+    ZombieConfig: {},
+    MultiplierConfig: {},
+    Map: {},
+    Basement: {},
+  }
+  for (const setting of SANDBOX_SCHEMA) {
+    const section = (setting.section || 'settings') as keyof SandboxData
+    const values = sandbox[section]
+    if (typeof values === 'object' && values !== null) {
+      values[setting.key] = setting.default ?? ''
+    }
+  }
+  return sandbox
 }
 
 // Auth-aware image preview (img tags can't send Bearer tokens)
@@ -839,11 +866,11 @@ export default function ServerConfig() {
         setOriginalIniSettings(merged)
       }
 
-      if (paths.exists.sandbox) {
-        const sandboxRes = await serverFilesApi.getSandbox()
-        setSandboxData(sandboxRes.sandbox)
-        setOriginalSandboxData(sandboxRes.sandbox)
-      }
+      const sandboxRes = paths.exists.sandbox
+        ? await serverFilesApi.getSandbox()
+        : { sandbox: createSandboxDefaults() }
+      setSandboxData(sandboxRes.sandbox)
+      setOriginalSandboxData(sandboxRes.sandbox)
 
       if (paths.exists.spawnpoints) {
         const spawnRes = await serverFilesApi.getSpawnPoints()
@@ -1382,7 +1409,7 @@ export default function ServerConfig() {
     const lower = deferredSearchQuery.toLowerCase()
     const out: { key: string; value: string }[] = []
     for (const [key, value] of Object.entries(iniSettings)) {
-      if (schemaKeys.has(key)) continue
+      if (schemaKeys.has(key) || UNSUPPORTED_INI_KEYS.has(key)) continue
       if (deferredSearchQuery && !(
         key.toLowerCase().includes(lower) ||
         String(value).toLowerCase().includes(lower)

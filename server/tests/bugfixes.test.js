@@ -15,7 +15,10 @@ import {
   ModChecker,
   minutesToCheckIntervalMs,
   normalizeStoredCheckInterval,
+  parseLegacyBoolean,
+  parseLegacyMinutes,
 } from "../services/modChecker.js";
+import { BackupService } from "../services/backupService.js";
 
 // Test the restart timeout pattern fix
 // Verifies that the Promise.race + clearTimeout pattern doesn't leak unhandled rejections
@@ -335,5 +338,98 @@ describe("workshop dependency search ranking", () => {
     expect(exact.matchType).toBe("exact-id");
     expect(exact.score).toBeGreaterThan(texture.score);
     expect(exact.score).toBeGreaterThan(custom.score);
+  });
+});
+
+describe("legacy mod auto-restart settings migration", () => {
+  it("migrates a real boolean, as written by Settings", () => {
+    expect(parseLegacyBoolean(true)).toBe(true);
+    expect(parseLegacyBoolean(false)).toBe(false);
+  });
+
+  it("migrates string booleans", () => {
+    expect(parseLegacyBoolean("true")).toBe(true);
+    expect(parseLegacyBoolean(" On ")).toBe(true);
+    expect(parseLegacyBoolean("0")).toBe(false);
+  });
+
+  it("reports an unset or unrecognised value instead of guessing", () => {
+    expect(parseLegacyBoolean(null)).toBeNull();
+    expect(parseLegacyBoolean("maybe")).toBeNull();
+  });
+
+  it("migrates the warning delay stored as a string", () => {
+    expect(parseLegacyMinutes("5")).toBe(5);
+    expect(parseLegacyMinutes(0)).toBe(0);
+  });
+
+  it("does not turn an unset delay into a zero-minute countdown", () => {
+    expect(parseLegacyMinutes(null)).toBeNull();
+    expect(parseLegacyMinutes("")).toBeNull();
+    expect(parseLegacyMinutes("abc")).toBeNull();
+  });
+});
+
+describe("online player count when RCON is unavailable", () => {
+  const withRcon = (rconService) => {
+    const checker = new ModChecker();
+    checker.scheduler = rconService ? { rconService } : null;
+    return checker;
+  };
+
+  it("counts players when RCON answers", async () => {
+    const checker = withRcon({
+      getPlayers: async () => ({ success: true, players: ["a", "b"] }),
+    });
+    await expect(checker.getOnlinePlayerCount()).resolves.toBe(2);
+  });
+
+  it("reports unknown rather than empty when RCON throws", async () => {
+    const checker = withRcon({
+      getPlayers: async () => {
+        throw new Error("connection reset");
+      },
+    });
+    await expect(checker.getOnlinePlayerCount()).resolves.toBeNull();
+  });
+
+  it("reports unknown rather than empty when RCON fails softly", async () => {
+    const checker = withRcon({
+      getPlayers: async () => ({ success: false }),
+    });
+    await expect(checker.getOnlinePlayerCount()).resolves.toBeNull();
+  });
+
+  it("reports unknown when there is no RCON service at all", async () => {
+    await expect(withRcon(null).getOnlinePlayerCount()).resolves.toBeNull();
+  });
+});
+
+describe("backup restore guards against a running server", () => {
+  it("refuses to restore while the server is running", async () => {
+    const service = new BackupService();
+    service.setServerManager({ checkServerRunning: async () => true });
+
+    const result = await service.restoreBackup("world.zip", {
+      createPreRestoreBackup: false,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.message).toMatch(/still running/i);
+    expect(service.restoreInProgress).toBe(false);
+  });
+
+  it("refuses to restore when the running state cannot be confirmed", async () => {
+    const service = new BackupService();
+    service.setServerManager({
+      checkServerRunning: async () => {
+        throw new Error("ps failed");
+      },
+    });
+
+    const result = await service.restoreBackup("world.zip");
+
+    expect(result.success).toBe(false);
+    expect(result.message).toMatch(/could not confirm/i);
   });
 });

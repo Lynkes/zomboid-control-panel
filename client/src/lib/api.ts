@@ -433,13 +433,25 @@ export interface CharacterStats {
   unhappyness?: number;
 }
 
+export interface CharacterInventoryItem {
+  fullType: string;
+  count?: number;
+  condition?: number;
+  uses?: number;
+  delta?: number;
+  contents?: CharacterInventoryItem[];
+}
+
 export interface CharacterExportData {
   username: string;
-  exportedAt: string;
+  exportTime?: number;
   perks: Record<string, PerkData>;
-  stats: CharacterStats;
+  stats?: CharacterStats;
   recipes: string[];
   traits?: string[];
+  inventory?: CharacterInventoryItem[];
+  wornItems?: Array<{ location: string; fullType: string; condition?: number }>;
+  bagInventory?: Record<string, CharacterInventoryItem[]>;
   health?: {
     overall: number;
     infection?: number;
@@ -466,6 +478,7 @@ export interface CharacterImportData {
   perks?: Record<string, PerkData>;
   stats?: CharacterStats;
   recipes?: string[];
+  inventory?: CharacterInventoryItem[];
 }
 
 export interface CharacterImportResponse {
@@ -474,10 +487,8 @@ export interface CharacterImportResponse {
     message: string;
     restored: {
       perks: number;
-      stats: boolean;
-      recipes: number;
+      items: number;
     };
-    note: string;
   };
   error?: string;
 }
@@ -1109,6 +1120,11 @@ export const modsApi = {
       notes?: string[];
       error?: string | null;
     }>,
+  collectionSaveCookies: (sessionid: string, steamLoginSecure: string) =>
+    apiPost("/mods/collection/extension-push", { sessionid, steamLoginSecure }) as Promise<{
+      ok: boolean;
+      message: string;
+    }>,
 
   // Sync mod IDs from downloaded workshop mods - reads mod.info files and updates Mods= in ini
   syncModIds: () => apiPost("/mods/sync-mod-ids"),
@@ -1527,6 +1543,18 @@ export interface SandboxData {
   Basement: Record<string, string | number | boolean>;
 }
 
+export interface UtilitiesChangeResult {
+  message?: string;
+  power?: boolean;
+  water?: boolean;
+  hydroPowerOn?: boolean;
+  debug?: string[];
+  // false when the in-game change could not be mirrored into SandboxVars.lua,
+  // which means a server restart will undo it.
+  persisted?: boolean;
+  persistReason?: string | null;
+}
+
 export interface BackupFile {
   filename: string;
   size: number;
@@ -1720,6 +1748,15 @@ export const panelBridgeApi = {
       modConnected: boolean;
       consecutiveFailures?: number;
       hasFileWatcher?: boolean;
+      transport?: {
+        type: "local" | "sftp";
+        running: boolean;
+        cachePath?: string | null;
+        lastSyncAt?: number | null;
+        lastLatencyMs?: number | null;
+        lastError?: string | null;
+        pollIntervalSeconds?: number | null;
+      };
       config?: {
         statusStaleMs: number;
         pollIntervalMs: number;
@@ -1823,6 +1860,32 @@ export const panelBridgeApi = {
       bridgePath: string;
       error?: string;
     }>,
+
+  configureSftp: (config: {
+    host: string;
+    port: string;
+    username: string;
+    password: string;
+    bridgePath: string;
+    pollIntervalSeconds: string;
+  }) => apiPost("/panel-bridge/sftp/configure", config) as Promise<{
+    success: boolean;
+    bridgePath: string;
+    transport: { type: "sftp"; running: boolean; lastLatencyMs?: number | null };
+  }>,
+
+  testSftp: (config: {
+    host: string;
+    port: string;
+    username: string;
+    password: string;
+    bridgePath: string;
+    pollIntervalSeconds: string;
+  }) => apiPost("/panel-bridge/sftp/test", config) as Promise<{
+    success: boolean;
+    statusExists: boolean;
+    latencyMs: number;
+  }>,
 
   // Start the bridge
   start: () => apiPost("/panel-bridge/start"),
@@ -2120,14 +2183,14 @@ export const panelBridgeApi = {
     apiPost("/panel-bridge/utilities/restore", {
       power: power !== false,
       water: water !== false,
-    }),
+    }) as Promise<UtilitiesChangeResult>,
 
   // Shut off utilities
   shutOffUtilities: (power?: boolean, water?: boolean) =>
     apiPost("/panel-bridge/utilities/shutoff", {
       power: power !== false,
       water: water !== false,
-    }),
+    }) as Promise<UtilitiesChangeResult>,
 
   // =============================================
   // V1.5.0 CHARACTER EXPORT/IMPORT
@@ -2560,6 +2623,12 @@ export const mapApi = {
     width: number;
     height: number;
     maxLevel: number;
+    // Isometric projection origin from the build's own map_info.json.
+    // Absent if map.projectzomboid.com couldn't be reached.
+    x0?: number;
+    y0?: number;
+    sqr?: number;
+    scale?: number;
   }> => apiGet("/map/resolve"),
 };
 

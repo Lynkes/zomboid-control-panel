@@ -30,6 +30,7 @@ export class BackupService {
     this.lastBackup = null;
     this.backupHistory = [];
     this.discordBot = null;
+    this.serverManager = null;
   }
 
   /**
@@ -38,6 +39,10 @@ export class BackupService {
 
   setDiscordBot(discordBot) {
     this.discordBot = discordBot;
+  }
+
+  setServerManager(serverManager) {
+    this.serverManager = serverManager;
   }
 
   /**
@@ -615,6 +620,28 @@ export class BackupService {
 
     if (this.backupInProgress) {
       return { success: false, message: "Backup in progress, please wait" };
+    }
+
+    // Restoring under a live server destroys the save: the running process
+    // holds the map files open, and writes its in-memory world back over
+    // whatever we extract.
+    if (this.serverManager && options.force !== true) {
+      try {
+        const running = await this.serverManager.checkServerRunning();
+        if (running) {
+          return {
+            success: false,
+            message:
+              "Server is still running. Stop the server before restoring a backup, otherwise the running world will overwrite the restored save.",
+          };
+        }
+      } catch (error) {
+        log.warn(`Could not confirm server is stopped: ${error.message}`);
+        return {
+          success: false,
+          message: `Could not confirm the server is stopped (${error.message}). Stop the server and try again.`,
+        };
+      }
     }
 
     this.restoreInProgress = true;

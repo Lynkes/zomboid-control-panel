@@ -11,6 +11,7 @@ import {
   setSetting,
   getActiveServer,
   getServer,
+  getServers,
 } from "../database/init.js";
 import { withFileLock, writeFileAtomic } from "../utils/fileWriteQueue.js";
 import { escapeRegExp } from "../utils/regex.js";
@@ -119,6 +120,71 @@ export function isWindowsDedicatedServerCommandLine(commandLine) {
   return false;
 }
 
+// Pull the value of a PZ launch argument (`-servername X`, `-cachedir="Y"`)
+// out of a raw command line.
+function extractLaunchArgValue(commandLine, flag) {
+  const pattern = new RegExp(
+    `(?:^|\\s)-${flag}(?:\\s*=\\s*|\\s+)("[^"]*"|'[^']*'|\\S+)`,
+    "i",
+  );
+  const match = String(commandLine || "").match(pattern);
+  if (!match) return null;
+  const value = match[1].replace(/^["']|["']$/g, "").trim();
+  return value || null;
+}
+
+function normalizePathForCompare(value) {
+  const normalized = String(value || "")
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .replace(/[\\/]+/g, "/")
+    .replace(/\/+$/, "");
+  return isWindows ? normalized.toLowerCase() : normalized;
+}
+
+/**
+ * How strongly a running process looks like it belongs to a given server.
+ * Returns -1 when a launch argument proves it belongs to a DIFFERENT server,
+ * 0 when the command line carries no identifying argument at all (so it
+ * can't be attributed either way), and a positive score when it matches.
+ *
+ * This is what lets one host run several dedicated servers: the panel writes
+ * `-servername` (and usually `-cachedir`) into every startup script it
+ * generates, so each process names the server it belongs to.
+ */
+export function scoreServerProcessOwnership(commandLine, descriptor = {}) {
+  const cmd = String(commandLine || "");
+  if (!cmd) return 0;
+
+  let score = 0;
+
+  const nameArg = extractLaunchArgValue(cmd, "servername");
+  if (nameArg && descriptor.serverName) {
+    if (nameArg.toLowerCase() !== String(descriptor.serverName).toLowerCase()) {
+      return -1;
+    }
+    score += 3;
+  }
+
+  const cacheArg = extractLaunchArgValue(cmd, "cachedir");
+  if (cacheArg && descriptor.savePath) {
+    if (
+      normalizePathForCompare(cacheArg) !==
+      normalizePathForCompare(descriptor.savePath)
+    ) {
+      return -1;
+    }
+    score += 2;
+  }
+
+  const installPath = normalizePathForCompare(descriptor.serverPath);
+  if (installPath && normalizePathForCompare(cmd).includes(installPath)) {
+    score += 1;
+  }
+
+  return score;
+}
+
 export class ServerManager {
   constructor() {
     this.serverProcess = null;
@@ -127,6 +193,8 @@ export class ServerManager {
     this.savePath = process.env.PZ_SAVE_PATH || "";
     this.serverName = "servertest";
     this.startCommand = "";
+    this.rconHost = null;
+    this.rconPort = null;
     this.isRunning = false;
     this.startTime = null;
     this.configLoaded = false;
@@ -149,6 +217,8 @@ export class ServerManager {
     this.savePath = process.env.PZ_SAVE_PATH || "";
     this.serverName = "servertest";
     this.startCommand = "";
+    this.rconHost = null;
+    this.rconPort = null;
     this.configLoaded = false;
     await this.loadConfig(serverId);
   }
@@ -228,6 +298,10 @@ export class ServerManager {
           this.startCommand = activeServer.startCommand;
           log.debug(`Using custom start command: ${this.startCommand}`);
         }
+        // Kept per-server so the "is the port already taken?" preflight can
+        // check THIS server's port instead of the global default.
+        this.rconHost = activeServer.rconHost || this.rconHost;
+        this.rconPort = activeServer.rconPort || this.rconPort;
         this.configLoaded = true;
         log.debug(`Loaded config from active server: ${activeServer.name}`);
         return;
@@ -258,6 +332,8 @@ export class ServerManager {
         if (dbZomboidPath) {
           this.savePath = dbZomboidPath;
         }
+        this.rconHost = (await getSetting("rconHost")) || this.rconHost;
+        this.rconPort = (await getSetting("rconPort")) || this.rconPort;
       } else {
         log.warn(`No server config found for server ${serverId}`);
       }
@@ -272,37 +348,85 @@ export class ServerManager {
     return details.running;
   }
 
+  // The identifying traits of the server this instance represents.
+  _getOwnershipDescriptor() {
+    return {
+      serverName: this.serverName,
+      savePath: this.savePath,
+      serverPath: this.serverPath,
+    };
+  }
+
   /**
    * Like `checkServerRunning` but returns *which* processes the OS scan
-   * matched. Used by chunk-cleanup endpoints (issue #5) so the UI can show
-   * the user exactly which process the panel thinks is the dedicated server,
-   * and offer a "force delete anyway" override when the detection is a
-   * false positive (e.g. an unrelated java process matched, or a custom
-   * launcher script the panel doesn't recognise).
+   * matched, narrowed to the processes belonging to THIS server. Used by
+   * chunk-cleanup endpoints (issue #5) so the UI can show the user exactly
+   * which process the panel thinks is the dedicated server, and offer a
+   * "force delete anyway" override when the detection is a false positive
+   * (e.g. an unrelated java process matched, or a custom launcher script the
+   * panel doesn't recognise).
    *
-   * Resolves to: `{ running: boolean, matched: Array<{ pid?: string, cmd: string }> }`.
-   * `matched` is truncated to the first 3 entries and each cmd is capped at
-   * 240 chars to keep the JSON payload sane.
+   * Resolves to `{ running, matched, owned, scanFailed }`. `matched` is
+   * truncated to the first 3 entries with each cmd capped at 240 chars to
+   * keep the JSON payload sane; `owned` is the untruncated list force-stop
+   * uses to pick which PIDs it may kill.
    */
   async getServerProcessDetails() {
+    await this.loadConfig(this._serverId);
+    const scan = await this._scanDedicatedServerProcesses();
+    const descriptor = this._getOwnershipDescriptor();
+
+    const owned = [];
+    const unattributable = [];
+    for (const candidate of scan.matched) {
+      const score = scoreServerProcessOwnership(candidate.cmd, descriptor);
+      if (score > 0) owned.push(candidate);
+      else if (score === 0) unattributable.push(candidate);
+    }
+
+    // A command line carrying no -servername/-cachedir can't be attributed to
+    // any particular server, so only claim those when nothing positively
+    // matched this one — that keeps detection working for single-server
+    // installs launched from a stock StartServer64.bat.
+    const resolved = owned.length > 0 ? owned : unattributable;
+    if (scan.matched.length !== resolved.length) {
+      log.debug(
+        `getServerProcessDetails: ${scan.matched.length} PZ server process(es) on this host, ${resolved.length} belong to "${this.serverName}"`,
+      );
+    }
+
+    this.isRunning = resolved.length > 0;
+    return {
+      running: resolved.length > 0,
+      matched: resolved.slice(0, 3).map((entry) => ({
+        ...(entry.pid ? { pid: String(entry.pid) } : {}),
+        cmd: String(entry.cmd || "").slice(0, 240),
+      })),
+      owned: resolved,
+      scanFailed: Boolean(scan.scanFailed),
+    };
+  }
+
+  // Raw OS scan: every Project Zomboid dedicated server process on this host,
+  // regardless of which configured server it belongs to.
+  async _scanDedicatedServerProcesses() {
     return new Promise((resolve) => {
       log.debug(
         `getServerProcessDetails: starting detection (platform=${process.platform})`,
       );
       const matched = [];
       const pushMatch = (cmd, pid) => {
-        if (matched.length >= 3) return;
-        const trimmed = String(cmd || "").slice(0, 240);
-        matched.push(
-          pid ? { pid: String(pid), cmd: trimmed } : { cmd: trimmed },
-        );
+        // Keep the command line intact: ownership matching needs the
+        // -servername / -cachedir arguments, which sit well past 240 chars.
+        const full = String(cmd || "");
+        matched.push(pid ? { pid: String(pid), cmd: full } : { cmd: full });
       };
 
       const timeout = setTimeout(() => {
         log.warn(
           "getServerProcessDetails: process detection timed out, assuming server is not running",
         );
-        resolve({ running: false, matched: [] });
+        resolve({ running: false, matched: [], scanFailed: true });
       }, 10000);
 
       if (isWindows) {
@@ -312,7 +436,7 @@ export class ServerManager {
           clearTimeout(timeout);
           if (psError || !psStdout) {
             this.isRunning = false;
-            resolve({ running: false, matched: [] });
+            resolve({ running: false, matched: [], scanFailed: true });
             return;
           }
 
@@ -406,7 +530,7 @@ export class ServerManager {
               clearTimeout(timeout);
               if (err || !stdout) {
                 this.isRunning = false;
-                resolve({ running: false, matched: [] });
+                resolve({ running: false, matched: [], scanFailed: true });
                 return;
               }
               for (const line of stdout.split(/\r?\n/)) {
@@ -438,7 +562,6 @@ export class ServerManager {
                 const cmd = m ? m[2] : line.trim();
                 if (!isLinuxDedicatedServerCommandLine(cmd)) continue;
                 pushMatch(cmd, pid);
-                if (matched.length >= 3) break;
               }
               this.isRunning = matched.length > 0;
               resolve({ running: matched.length > 0, matched });
@@ -503,8 +626,14 @@ export class ServerManager {
         // check if the RCON port is already occupied. If something is listening
         // on it, a PZ server is almost certainly running and starting another
         // would crash on port conflict (RakNet Code 5).
-        const rconPort = parseInt(await getSetting("rconPort"), 10) || 27015;
-        const rconHost = (await getSetting("rconHost")) || "127.0.0.1";
+        // Uses THIS server's RCON port — checking the global default would
+        // abort a second server's start just because the first one is up.
+        const rconPort =
+          parseInt(this.rconPort, 10) ||
+          parseInt(await getSetting("rconPort"), 10) ||
+          27015;
+        const rconHost =
+          this.rconHost || (await getSetting("rconHost")) || "127.0.0.1";
         const portInUse = await new Promise((resolve) => {
           const socket = new net.Socket();
           socket.setTimeout(2000);
@@ -810,166 +939,117 @@ export class ServerManager {
 
     // Block overlapping starts while kill/state-clear is pending.
     this._stopping = true;
-    const clearStopping = () => {
-      this._stopping = false;
-    };
+    try {
+      // Only PIDs this server owns: a host can run several dedicated servers
+      // and killing every PZ process would take the others down with it.
+      const details = await this.getServerProcessDetails();
+      const pids = (details.owned || [])
+        .map((entry) => entry.pid)
+        .filter((pid) => /^\d+$/.test(String(pid ?? "")))
+        .map(String);
 
-    return new Promise((resolve, reject) => {
-      // Ensure the flag is always cleared even on early returns inside the
-      // branch logic below.
-      const done = (result) => {
-        clearStopping();
-        resolve(result);
-      };
-      const fail = (err) => {
-        clearStopping();
-        reject(err);
-      };
-      if (isWindows) {
-        // Windows: Accurately identify and kill PZ server processes to respect wrapper edge-cases like WinGSM
-        log.debug(
-          "stopServer: Identifying Windows dedicated server processes...",
+      if (pids.length > 0) {
+        log.info(
+          `stopServer: force killing PID(s) for "${this.serverName}": ${pids.join(", ")}`,
         );
-        exec(
-          "powershell -Command \"Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(java\\.exe|ProjectZomboid64\\.exe|ProjectZomboid32\\.exe)$' } | Select-Object ProcessId, CommandLine | ConvertTo-Csv -NoTypeInformation\"",
-          (err, stdout) => {
-            let fallback = false;
-            let pidsToKill = [];
-
-            if (!err && stdout) {
-              const lines = stdout.split("\n");
-              for (let line of lines) {
-                line = line.trim();
-                if (!line || line.startsWith('"ProcessId"')) continue;
-                // Parse CSV format like: "1234","java -jar ..."
-                const parts = line.match(/^"(\d+)",\s*"(.*)"$/);
-                if (parts) {
-                  const pid = parseInt(parts[1], 10);
-                  const cmdLine = parts[2];
-                  if (isWindowsDedicatedServerCommandLine(cmdLine)) {
-                    pidsToKill.push(pid);
-                  }
-                }
-              }
-            } else {
-              fallback = true;
-            }
-
-            if (pidsToKill.length === 0 && !fallback) {
-              log.debug("stopServer: No matching PZ server processes found.");
-              done({ success: true, message: "Server was not running" });
-              return;
-            }
-
-            if (fallback) {
-              log.warn(
-                "stopServer: WMI process detection failed. Falling back to generic force stop.",
-              );
-              // Clear state fields so getServerStatus doesn't report a stale
-              // startTime / old serverProcess handle after a fallback kill.
-              this.isRunning = false;
-              this.serverProcess = null;
-              this.startTime = null;
-              exec("taskkill /IM ProjectZomboid64.exe /F", () =>
-                done({
-                  success: true,
-                  message: "Forced fallback kill executed",
-                }),
-              );
-              exec(
-                "powershell -Command \"Get-CimInstance Win32_Process -Filter \\\"Name='java.exe'\\\" | Where-Object { $_.CommandLine -like '*zombie.network.gameserver*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }\"",
-              );
-              return;
-            }
-
-            log.info(
-              `stopServer: Force killing matched PIDs: ${pidsToKill.join(", ")}`,
-            );
-            let killedAny = false;
-            for (const pid of pidsToKill) {
-              exec(`taskkill /PID ${pid} /F`, (killErr) => {
-                if (!killErr) killedAny = true;
-              });
-            }
-
-            // Wait briefly for taskkills to dispatch
-            setTimeout(() => {
-              this.isRunning = false;
-              this.serverProcess = null;
-              this.startTime = null;
-
-              logServerEvent("server_stop", "Server force stopped").catch((e) =>
-                log.warn(`Failed to log event: ${e.message}`),
-              );
-              done({ success: true, message: "Server stopped" });
-            }, 1000);
-          },
-        );
-      } else {
-        // Linux: Find and kill the PZ server process
-        // Use pgrep for reliable process matching (avoids false grep matches)
-        log.debug("stopServer: looking for PZ server PIDs via pgrep...");
-        exec(
-          "pgrep -f 'zombie.network.[Gg]ame[Ss]erver|[Pp]roject[Zz]omboid64|[Pp]roject[Zz]omboid32'",
-          (pgrepErr, pgrepOut) => {
-            let pids = (pgrepOut || "")
-              .trim()
-              .split("\n")
-              .filter((p) => /^\d+$/.test(p));
-            log.debug(
-              `stopServer: pgrep returned ${pids.length} PIDs: [${pids.join(", ")}]`,
-            );
-
-            // Fallback to ps+grep if pgrep not available
-            if (pids.length === 0) {
-              exec(
-                "ps aux -ww | grep -iE '[z]ombie.network.GameServer|[p]rojectzomboid64|[p]rojectzomboid32' | awk '{print $2}'",
-                (err, stdout) => {
-                  pids = (stdout || "")
-                    .trim()
-                    .split("\n")
-                    .filter((p) => /^\d+$/.test(p));
-                  killPids(pids);
-                },
-              );
-              return;
-            }
-
-            killPids(pids);
-          },
-        );
-
-        const killPids = (pids) => {
-          if (pids.length === 0) {
-            done({ success: true, message: "Server was not running" });
-            return;
-          }
-
-          log.info(`Killing PZ server PIDs: ${pids.join(", ")}`);
-
-          // Kill each matching PID using execFile to avoid shell injection
-          execFile("kill", ["-9", ...pids], (killErr) => {
-            if (killErr) {
-              log.warn(
-                `Kill returned error (may be normal if process already exited): ${killErr.message}`,
-              );
-            }
-            this.isRunning = false;
-            this.serverProcess = null;
-            this.startTime = null;
-
-            logServerEvent(
-              "server_stop",
-              `Server force stopped (killed PIDs: ${pids.join(", ")})`,
-            ).catch((e) => log.warn(`Failed to log event: ${e.message}`));
-            log.info(
-              `Server force stopped (killed ${pids.length} process(es): ${pids.join(", ")})`,
-            );
-
-            done({ success: true, message: "Server stopped" });
-          });
-        };
+        await this._killPids(pids);
+        this._clearRunState();
+        await logServerEvent(
+          "server_stop",
+          `Server force stopped (killed PIDs: ${pids.join(", ")})`,
+        ).catch((e) => log.warn(`Failed to log event: ${e.message}`));
+        return { success: true, message: "Server stopped" };
       }
+
+      if (!details.scanFailed) {
+        log.debug(
+          `stopServer: no running process belongs to "${this.serverName}"`,
+        );
+        this._clearRunState();
+        return { success: true, message: "Server was not running" };
+      }
+
+      // Detection itself failed, so this server's process can't be told apart
+      // from any other. Only fall back to the blunt kill-everything path when
+      // there is no other local server that could be caught in the blast.
+      if (!(await this._isOnlyLocalServer())) {
+        throw new Error(
+          "Process detection failed and more than one server is configured on this host — force stop aborted rather than risk killing the wrong server. Stop it from its own console window.",
+        );
+      }
+
+      log.warn(
+        "stopServer: process detection failed. Falling back to generic force stop.",
+      );
+      this._clearRunState();
+      await this._genericForceStop();
+      await logServerEvent("server_stop", "Server force stopped").catch((e) =>
+        log.warn(`Failed to log event: ${e.message}`),
+      );
+      return { success: true, message: "Forced fallback kill executed" };
+    } finally {
+      this._stopping = false;
+    }
+  }
+
+  // Clear state fields so getServerStatus doesn't report a stale startTime /
+  // old serverProcess handle after a kill.
+  _clearRunState() {
+    this.isRunning = false;
+    this.serverProcess = null;
+    this.startTime = null;
+  }
+
+  async _isOnlyLocalServer() {
+    try {
+      const servers = await getServers();
+      return (servers || []).filter((entry) => !entry.isRemote).length <= 1;
+    } catch (error) {
+      log.debug(`Could not count configured servers: ${error.message}`);
+      return false;
+    }
+  }
+
+  _killPids(pids) {
+    return new Promise((resolve) => {
+      if (isWindows) {
+        let remaining = pids.length;
+        for (const pid of pids) {
+          execFile("taskkill", ["/PID", pid, "/F"], (killErr) => {
+            if (killErr) log.debug(`taskkill ${pid}: ${killErr.message}`);
+            if (--remaining === 0) resolve();
+          });
+        }
+        return;
+      }
+
+      execFile("kill", ["-9", ...pids], (killErr) => {
+        if (killErr) {
+          log.warn(
+            `Kill returned error (may be normal if process already exited): ${killErr.message}`,
+          );
+        }
+        resolve();
+      });
+    });
+  }
+
+  _genericForceStop() {
+    return new Promise((resolve) => {
+      if (isWindows) {
+        exec("taskkill /IM ProjectZomboid64.exe /F", () => {
+          exec(
+            "powershell -Command \"Get-CimInstance Win32_Process -Filter \\\"Name='java.exe'\\\" | Where-Object { $_.CommandLine -like '*zombie.network.gameserver*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }\"",
+            () => resolve(),
+          );
+        });
+        return;
+      }
+
+      exec(
+        "pkill -9 -f 'zombie.network.[Gg]ame[Ss]erver|[Pp]roject[Zz]omboid64|[Pp]roject[Zz]omboid32'",
+        () => resolve(),
+      );
     });
   }
 

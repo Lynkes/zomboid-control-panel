@@ -28,6 +28,7 @@ import {
   Check,
   CheckCircle2,
   ExternalLink,
+  KeyRound,
   Library,
   Loader2,
   Minus,
@@ -42,7 +43,15 @@ import {
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -71,6 +80,23 @@ function formatAgo(date: Date | null): string {
   return date.toLocaleTimeString()
 }
 
+function parseSteamCookieBlob(raw: string): { sessionid?: string; steamLoginSecure?: string; error?: string } {
+  const text = raw.replace(/\r/g, '')
+  const sessionMatch = text.match(/(?:^|[;\s'"])sessionid\s*[=:\t]\s*([A-Za-z0-9_%-]+)/i)
+  const loginMatch = text.match(/(?:^|[;\s'"])steamLoginSecure\s*[=:\t]\s*([A-Za-z0-9_%|+/=.-]+)/i)
+  if (!sessionMatch || !loginMatch) {
+    return { error: 'Paste both sessionid and steamLoginSecure.' }
+  }
+  try {
+    return {
+      sessionid: decodeURIComponent(sessionMatch[1]),
+      steamLoginSecure: decodeURIComponent(loginMatch[1]),
+    }
+  } catch {
+    return { sessionid: sessionMatch[1], steamLoginSecure: loginMatch[1] }
+  }
+}
+
 export function WorkshopCollectionPanel() {
   const { toast } = useToast()
   const [diff, setDiff] = useState<DiffResponse | null>(null)
@@ -79,6 +105,10 @@ export function WorkshopCollectionPanel() {
   const [diffCheckedAt, setDiffCheckedAt] = useState<Date | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [bulkBusy, setBulkBusy] = useState<RowAction | null>(null)
+  const [cookieDialogOpen, setCookieDialogOpen] = useState(false)
+  const [cookiePaste, setCookiePaste] = useState('')
+  const [cookieSaving, setCookieSaving] = useState(false)
+  const [cookieError, setCookieError] = useState<string | null>(null)
 
   const [filter, setFilter] = useState<FilterKey>('mismatch')
   const [search, setSearch] = useState('')
@@ -175,6 +205,27 @@ export function WorkshopCollectionPanel() {
     })
   }
   const clearSelection = () => setSelected(new Set())
+
+  const saveCookies = async () => {
+    const parsed = parseSteamCookieBlob(cookiePaste)
+    if (!parsed.sessionid || !parsed.steamLoginSecure) {
+      setCookieError(parsed.error || 'Paste both Steam cookies.')
+      return
+    }
+    setCookieSaving(true)
+    setCookieError(null)
+    try {
+      await modsApi.collectionSaveCookies(parsed.sessionid, parsed.steamLoginSecure)
+      setCookiePaste('')
+      setCookieDialogOpen(false)
+      toast({ title: 'Steam cookies saved' })
+      await refresh()
+    } catch (err: any) {
+      setCookieError(err?.message || 'Could not save Steam cookies.')
+    } finally {
+      setCookieSaving(false)
+    }
+  }
 
   // ── Mutations ────────────────────────────────────────────────────────
   const runRowAction = async (workshopId: string, action: RowAction) => {
@@ -415,6 +466,19 @@ export function WorkshopCollectionPanel() {
           <div className="flex items-center gap-2 shrink-0">
             <Button
               variant="ghost"
+              size="icon"
+              onClick={() => {
+                setCookieError(null)
+                setCookieDialogOpen(true)
+              }}
+              className="h-8 w-8 text-muted-foreground"
+              title="Paste Steam cookies"
+            >
+              <KeyRound className="w-3.5 h-3.5" />
+              <span className="sr-only">Paste Steam cookies</span>
+            </Button>
+            <Button
+              variant="ghost"
               size="sm"
               onClick={refresh}
               disabled={diffLoading}
@@ -449,6 +513,29 @@ export function WorkshopCollectionPanel() {
           </div>
         </div>
       </CardHeader>
+
+      <Dialog open={cookieDialogOpen} onOpenChange={setCookieDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Steam cookies</DialogTitle>
+          </DialogHeader>
+          <Textarea
+            value={cookiePaste}
+            onChange={(event) => setCookiePaste(event.target.value)}
+            placeholder="sessionid=...; steamLoginSecure=..."
+            className="min-h-28 font-mono text-xs"
+            autoFocus
+          />
+          {cookieError && <p className="text-xs text-destructive">{cookieError}</p>}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCookieDialogOpen(false)} disabled={cookieSaving}>Cancel</Button>
+            <Button onClick={saveCookies} disabled={cookieSaving || !cookiePaste.trim()}>
+              {cookieSaving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <CardContent className="space-y-4">
         {/* Error banner */}

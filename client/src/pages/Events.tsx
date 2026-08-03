@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { 
+import {
   Zap,
   Crosshair,
   Volume2,
@@ -411,7 +411,7 @@ const bridgeOperationForms: Record<string, BridgeOperationForm> = {
         return {
           steps: [
             { kind: 'chat', message, channel: 'general' },
-            { kind: 'utilities', power: false, water: false },
+            { kind: 'utilities', mode: 'off', power: true, water: true },
           ],
         }
       }
@@ -817,34 +817,34 @@ export default function Events() {
   const [players, setPlayers] = useState<Player[]>([])
   const [selectedPlayer, setSelectedPlayer] = useState<string>('')
   const [targetAll, setTargetAll] = useState(true)
-  
+
   // Weather controls
   const [rainIntensity, setRainIntensity] = useState(50)
   const [stormDuration, setStormDuration] = useState(1)
-  
+
   // Horde controls
   const [hordeCount, setHordeCount] = useState(50)
-  
+
   // Time controls
   const [timeSpeed, setTimeSpeed] = useState(1)
-  
+
   // Teleport coordinates
   const [teleportX, setTeleportX] = useState('')
   const [teleportY, setTeleportY] = useState('')
   const [teleportZ, setTeleportZ] = useState('0')
-  
+
   // Vehicle spawning
   const [selectedVehicle, setSelectedVehicle] = useState('Base.VanAmbulance')
-  
+
   // Announcements
   const [announcement, setAnnouncement] = useState('')
-  
+
   // Panel Bridge state
   const [bridgeConnected, setBridgeConnected] = useState(false)
   const [bridgeLoading, setBridgeLoading] = useState<string | null>(null)
   const [blizzardDuration, setBlizzardDuration] = useState(2)
   const [tropicalDuration, setTropicalDuration] = useState(2)
-  
+
   // Climate controls
   const [fogIntensity, setFogIntensity] = useState(0)
   const [windIntensity, setWindIntensity] = useState(0)
@@ -852,12 +852,12 @@ export default function Events() {
   const [cloudIntensity, setCloudIntensity] = useState(0)
   const [humidity, setHumidity] = useState(50)
   const [precipitationIntensity, setPrecipitationIntensity] = useState(0)
-  
+
   // Game time controls
   const [gameHour, setGameHour] = useState(12)
   const [gameDay, setGameDay] = useState(1)
   const [gameMonth, setGameMonth] = useState(7)
-  
+
   // Sound controls
   const [soundRadius, setSoundRadius] = useState(100)
   const [soundVolume, setSoundVolume] = useState(100)
@@ -885,7 +885,7 @@ export default function Events() {
   const [bridgeOptionsLastUpdated, setBridgeOptionsLastUpdated] = useState<string | null>(null)
   const [bridgeOptionsRefreshTick, setBridgeOptionsRefreshTick] = useState(0)
   const [bridgeConnectionSummary, setBridgeConnectionSummary] = useState<string | null>(null)
-  
+
   // Utilities status
   const [utilitiesStatus, setUtilitiesStatus] = useState<{
     hydroPowerOn: boolean
@@ -894,7 +894,7 @@ export default function Events() {
     elecShut: string
     waterShut: string
   } | null>(null)
-  
+
   const { toast } = useToast()
 
   type EventSectionKey = 'atmosphere' | 'world' | 'signal' | 'dispatch' | 'console'
@@ -928,7 +928,7 @@ export default function Events() {
       if (!mountedRef.current) return
       setBridgeConnected(status.modConnected)
       setBridgeConnectionSummary(status.connection?.summary || null)
-      
+
       // If connected, fetch secondary data in parallel
       if (status.modConnected) {
         const [floatsRes, timeRes, utilitiesRes] = await Promise.allSettled([
@@ -1167,7 +1167,36 @@ export default function Events() {
     }
   }, [toast])
 
+  const handleUtilities = useCallback(async (action: string, on: boolean, power: boolean, water: boolean) => {
+    setLoading(action)
+    try {
+      const result = on
+        ? await panelBridgeApi.restoreUtilities(power, water)
+        : await panelBridgeApi.shutOffUtilities(power, water)
+      await checkBridgeStatus()
+      const successCopy = getEventSuccessCopy(action)
+      const notPersisted = result?.persisted === false
+      toast({
+        title: successCopy.title,
+        description: notPersisted
+          ? `Applied to the running world only — SandboxVars.lua was not updated (${result.persistReason || 'unknown reason'}), so a server restart will undo this.`
+          : successCopy.description,
+        variant: notPersisted ? 'default' : ('success' as const),
+      })
+    } catch (error) {
+      const message = getUserErrorMessage(error, 'Command failed.')
+      toast({
+        title: `${action} failed`,
+        description: `${message}. Verify command settings and try again.`,
+        variant: 'destructive',
+      })
+    } finally {
+      setLoading(null)
+    }
+  }, [toast, checkBridgeStatus])
+
   const getTargetPlayer = useCallback(() => targetAll ? undefined : selectedPlayer || undefined, [targetAll, selectedPlayer])
+
   const parseCoord = (value: string): number | null => {
     const n = Number(value)
     return Number.isFinite(n) ? Math.floor(n) : null
@@ -1187,7 +1216,7 @@ export default function Events() {
   const stopRain = () => serverApi.stopRain()
   const startStorm = () => serverApi.startStorm(stormDuration)
   const stopWeather = () => serverApi.stopWeather()
-  
+
   // Sound/Event commands
   // Note: chopper and gunshot target a RANDOM online player, not the selected player
   const triggerChopper = () => serverApi.triggerChopper()
@@ -1206,26 +1235,26 @@ export default function Events() {
     if (players.length === 0) throw new Error('No players online')
     return players[Math.floor(Math.random() * players.length)].name
   }
-  
+
   // Zombie commands — use PanelBridge (CreateSwarm) for proper distance control
   const createHorde = (count: number, username?: string) => {
     if (!username) throw new Error('Target player required for horde spawn')
     return panelBridgeApi.spawnHordeNear(username, count)
   }
-  
+
   // Spawn horde behind the player based on their facing direction
   const createHorde2 = (count: number, username?: string) => {
     if (!username) throw new Error('Target player required for horde spawn')
     return panelBridgeApi.spawnHordeBehind(username, count)
   }
-  
+
   // Clear all zombies from loaded cells
   const removeZombies = () => panelBridgeApi.clearAllZombies()
-  
+
   // Time commands
   // PZ has no `setTimeSpeed` RCON command — route through the bridge.
   const setGameTimeSpeed = () => panelBridgeApi.sendCommand('setTimeSpeed', { multiplier: timeSpeed })
-  
+
   // Teleport commands
   // teleportto only works if admin is in-game and teleports themselves
   // For teleporting other players, use teleport command with player name and coordinates
@@ -1239,11 +1268,11 @@ export default function Events() {
   }
   const teleportPlayerToPlayer = (player1: string, player2: string) =>
     executeCommand(`teleport "${player1}" "${player2}"`)
-    
+
   // Vehicle commands
   const spawnVehicle = (vehicleId: string, username: string) =>
     executeCommand(`addvehicle "${vehicleId}" "${username}"`)
-  
+
   // Announcement
   const sendAnnouncement = () => serverApi.sendMessage(announcement)
 
@@ -1972,10 +2001,10 @@ export default function Events() {
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-1.5">
-                    <Button variant="outline" size="sm" disabled={!bridgeConnected || loading !== null} onClick={() => handleAction('Restore Power', async () => { await panelBridgeApi.restoreUtilities(true, false); await checkBridgeStatus() })} className="h-8 text-xs font-medium text-emerald-400/90 hover:text-emerald-400 hover:border-emerald-400/40">
+                    <Button variant="outline" size="sm" disabled={!bridgeConnected || loading !== null} onClick={() => handleUtilities('Restore Power', true, true, false)} className="h-8 text-xs font-medium text-emerald-400/90 hover:text-emerald-400 hover:border-emerald-400/40">
                       restore
                     </Button>
-                    <Button variant="outline" size="sm" disabled={!bridgeConnected || loading !== null} onClick={() => handleAction('Shut Off Power', async () => { await panelBridgeApi.shutOffUtilities(true, false); await checkBridgeStatus() })} className="h-8 text-xs font-medium text-destructive/90 hover:text-destructive hover:border-destructive/40">
+                    <Button variant="outline" size="sm" disabled={!bridgeConnected || loading !== null} onClick={() => handleUtilities('Shut Off Power', false, true, false)} className="h-8 text-xs font-medium text-destructive/90 hover:text-destructive hover:border-destructive/40">
                       shut off
                     </Button>
                   </div>
@@ -1999,10 +2028,10 @@ export default function Events() {
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-1.5">
-                    <Button variant="outline" size="sm" disabled={!bridgeConnected || loading !== null} onClick={() => handleAction('Restore Water', async () => { await panelBridgeApi.restoreUtilities(false, true); await checkBridgeStatus() })} className="h-8 text-xs font-medium text-emerald-400/90 hover:text-emerald-400 hover:border-emerald-400/40">
+                    <Button variant="outline" size="sm" disabled={!bridgeConnected || loading !== null} onClick={() => handleUtilities('Restore Water', true, false, true)} className="h-8 text-xs font-medium text-emerald-400/90 hover:text-emerald-400 hover:border-emerald-400/40">
                       restore
                     </Button>
-                    <Button variant="outline" size="sm" disabled={!bridgeConnected || loading !== null} onClick={() => handleAction('Shut Off Water', async () => { await panelBridgeApi.shutOffUtilities(false, true); await checkBridgeStatus() })} className="h-8 text-xs font-medium text-destructive/90 hover:text-destructive hover:border-destructive/40">
+                    <Button variant="outline" size="sm" disabled={!bridgeConnected || loading !== null} onClick={() => handleUtilities('Shut Off Water', false, false, true)} className="h-8 text-xs font-medium text-destructive/90 hover:text-destructive hover:border-destructive/40">
                       shut off
                     </Button>
                   </div>

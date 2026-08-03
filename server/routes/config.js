@@ -64,6 +64,13 @@ const VALID_SETTINGS_KEYS = [
   // when the host has more than one (multiple VPN meshes, etc). Empty
   // string clears it back to auto-detect.
   "lanIpAddress",
+  "panelBridgeSftpEnabled",
+  "panelBridgeSftpHost",
+  "panelBridgeSftpPort",
+  "panelBridgeSftpUsername",
+  "panelBridgeSftpPassword",
+  "panelBridgeSftpBridgePath",
+  "panelBridgeSftpPollIntervalSeconds",
 ];
 
 const OPTION_NAME_REGEX = /^[a-zA-Z0-9_]{1,64}$/;
@@ -209,6 +216,7 @@ const SENSITIVE_KEYS = [
   "steamApiKey",
   "steamSessionId",
   "steamLoginSecure",
+  "panelBridgeSftpPassword",
 ];
 
 // Detect a value that is just the bullet-mask we send to the client.

@@ -116,6 +116,13 @@ import {
 interface AppSettings {
   // Bridge Settings
   panelBridgeAutoUpdate: boolean;
+  panelBridgeSftpEnabled: boolean;
+  panelBridgeSftpHost: string;
+  panelBridgeSftpPort: string;
+  panelBridgeSftpUsername: string;
+  panelBridgeSftpPassword: string;
+  panelBridgeSftpBridgePath: string;
+  panelBridgeSftpPollIntervalSeconds: string;
 
   // Mod Checker Settings
   modCheckInterval: string;
@@ -210,6 +217,13 @@ export default function Settings() {
   const socket = useSocket();
   const [settings, setSettings] = useState<AppSettings>({
     panelBridgeAutoUpdate: true,
+    panelBridgeSftpEnabled: false,
+    panelBridgeSftpHost: "",
+    panelBridgeSftpPort: "22",
+    panelBridgeSftpUsername: "",
+    panelBridgeSftpPassword: "",
+    panelBridgeSftpBridgePath: "",
+    panelBridgeSftpPollIntervalSeconds: "3",
     modCheckInterval: "5",
     modAutoRestart: true,
     modRestartDelay: "5",
@@ -295,6 +309,12 @@ export default function Settings() {
     modConnected: boolean;
     consecutiveFailures?: number;
     hasFileWatcher?: boolean;
+    transport?: {
+      type: "local" | "sftp";
+      running: boolean;
+      lastLatencyMs?: number | null;
+      lastError?: string | null;
+    };
     config?: {
       statusStaleMs: number;
       pollIntervalMs: number;
@@ -337,6 +357,7 @@ export default function Settings() {
   const [bridgeError, setBridgeError] = useState<string | null>(null);
   const [pinging, setPinging] = useState(false);
   const [manualBridgePath, setManualBridgePath] = useState("");
+  const [testingSftp, setTestingSftp] = useState(false);
 
   // Server list for install dropdown
   const [servers, setServers] = useState<ServerInstance[]>([]);
@@ -1500,6 +1521,48 @@ export default function Settings() {
           ? error.message
           : "Failed to configure bridge with manual path",
       );
+    } finally {
+      setBridgeLoading(false);
+    }
+  };
+
+  const sftpConfig = () => ({
+    host: settings.panelBridgeSftpHost,
+    port: settings.panelBridgeSftpPort,
+    username: settings.panelBridgeSftpUsername,
+    password: settings.panelBridgeSftpPassword,
+    bridgePath: settings.panelBridgeSftpBridgePath,
+    pollIntervalSeconds: settings.panelBridgeSftpPollIntervalSeconds,
+  });
+
+  const handleTestSftp = async () => {
+    setTestingSftp(true);
+    try {
+      const result = await panelBridgeApi.testSftp(sftpConfig());
+      toast({
+        title: "SFTP Connected",
+        description: result.statusExists
+          ? `Bridge status found, ${result.latencyMs} ms round trip.`
+          : `Connected in ${result.latencyMs} ms. Start the PZ server to create status.json.`,
+        variant: "success" as const,
+      });
+    } catch (error) {
+      toast({ title: "SFTP Test Failed", description: error instanceof Error ? error.message : "Could not connect to SFTP.", variant: "destructive" });
+    } finally {
+      setTestingSftp(false);
+    }
+  };
+
+  const handleConfigureSftp = async () => {
+    setBridgeLoading(true);
+    setBridgeError(null);
+    try {
+      await panelBridgeApi.configureSftp(sftpConfig());
+      updateSetting("panelBridgeSftpEnabled", true);
+      toast({ title: "SFTP Bridge Started", description: "PanelBridge is syncing through the local cache.", variant: "success" as const });
+      await fetchBridgeStatus();
+    } catch (error) {
+      setBridgeError(error instanceof Error ? error.message : "Could not start the SFTP bridge.");
     } finally {
       setBridgeLoading(false);
     }
@@ -3392,6 +3455,26 @@ export default function Settings() {
                         </Button>
                       </div>
                     </div>
+
+                    <div className="border-t border-border/50 pt-4 space-y-3">
+                      <div>
+                        <p className="text-sm font-medium">Remote server via SFTP</p>
+                        <p className="text-xs text-muted-foreground">Syncs only bridge status, queue state, and command result files. Command delivery runs every 2 to 10 seconds.</p>
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="space-y-1.5"><Label htmlFor="sftp-host">Host</Label><Input id="sftp-host" value={settings.panelBridgeSftpHost} onChange={(event) => updateSetting("panelBridgeSftpHost", event.target.value)} placeholder="pz.example.net" /></div>
+                        <div className="space-y-1.5"><Label htmlFor="sftp-port">Port</Label><Input id="sftp-port" inputMode="numeric" value={settings.panelBridgeSftpPort} onChange={(event) => updateSetting("panelBridgeSftpPort", event.target.value)} /></div>
+                        <div className="space-y-1.5"><Label htmlFor="sftp-user">Username</Label><Input id="sftp-user" autoComplete="username" value={settings.panelBridgeSftpUsername} onChange={(event) => updateSetting("panelBridgeSftpUsername", event.target.value)} /></div>
+                        <div className="space-y-1.5"><Label htmlFor="sftp-password">Password</Label><Input id="sftp-password" type="password" autoComplete="current-password" value={settings.panelBridgeSftpPassword} onChange={(event) => updateSetting("panelBridgeSftpPassword", event.target.value)} placeholder="Stored securely" /></div>
+                      </div>
+                      <div className="space-y-1.5"><Label htmlFor="sftp-bridge-path">Remote absolute bridge folder</Label><Input id="sftp-bridge-path" value={settings.panelBridgeSftpBridgePath} onChange={(event) => updateSetting("panelBridgeSftpBridgePath", event.target.value)} placeholder="/home/pz/Zomboid/Lua/panelbridge/MyServer" /></div>
+                      <div className="flex flex-wrap items-end gap-3">
+                        <div className="w-36 space-y-1.5"><Label htmlFor="sftp-poll">Sync interval (seconds)</Label><Input id="sftp-poll" inputMode="numeric" value={settings.panelBridgeSftpPollIntervalSeconds} onChange={(event) => updateSetting("panelBridgeSftpPollIntervalSeconds", event.target.value)} /></div>
+                        <Button type="button" variant="outline" onClick={handleTestSftp} disabled={testingSftp || bridgeLoading}>{testingSftp ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link className="mr-2 h-4 w-4" />}Test SFTP</Button>
+                        <Button type="button" onClick={handleConfigureSftp} disabled={bridgeLoading}>{bridgeLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Cloud className="mr-2 h-4 w-4" />}Start SFTP bridge</Button>
+                      </div>
+                      {bridgeStatus?.transport?.type === "sftp" && <p className="text-xs text-muted-foreground">SFTP {bridgeStatus.transport.running ? "running" : "stopped"}{bridgeStatus.transport.lastLatencyMs != null ? `, last sync ${bridgeStatus.transport.lastLatencyMs} ms` : ""}{bridgeStatus.transport.lastError ? `, last error: ${bridgeStatus.transport.lastError}` : ""}</p>}
+                    </div>
                   </div>
                 )}
 
@@ -5205,10 +5288,13 @@ function WorkshopCollectionSyncCard({
       if (r.success) {
         toast({ title: "Collection synced", description: r.message });
       } else {
+        const failedItems = Array.isArray(r.errors)
+          ? r.errors.map((entry: { title?: string | null; id?: string }) => entry.title || entry.id).filter(Boolean)
+          : [];
         toast({
           variant: "destructive",
-          title: "Partial sync",
-          description: r.message,
+          title: "Steam rejected items",
+          description: failedItems.length > 0 ? `${r.message}: ${failedItems.join(", ")}` : r.message,
         });
       }
       await refreshDiff();

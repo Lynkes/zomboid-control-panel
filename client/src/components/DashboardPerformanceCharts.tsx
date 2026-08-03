@@ -81,7 +81,6 @@ function DashboardPerformanceCharts({
   const pzRatio = maxMemoryGB != null ? pzMemoryGB / maxMemoryGB : null
   const hostRatio = hostUsed != null && hostTotal != null ? hostUsed / hostTotal : null
   const diskRatio = diskUsed != null && diskTotal != null && diskTotal > 0 ? diskUsed / diskTotal : null
-  const pzAlert = serverRunning && pzRatio != null && pzRatio >= 0.9
   const cpuAlert = cpu >= 90
   const hostRamAlert = hostRatio != null && hostRatio > 0.9
   const diskAlert = diskRatio != null && diskRatio >= 0.9
@@ -99,8 +98,7 @@ function DashboardPerformanceCharts({
           : pzMem > 1024 ? pzMemoryGB.toFixed(1) : pzMem,
         unit: maxMemoryGB != null || pzMem > 1024 ? 'GB' : 'MB',
         dataKey: pzDataKey,
-        alert: pzAlert,
-        tone: loadTone(pzRatio),
+        tone: 'neutral',
         ratio: pzRatio,
       })
 
@@ -157,7 +155,7 @@ function DashboardPerformanceCharts({
     }
 
     return m
-  }, [performanceHistory, serverRunning, maxMemoryGB, latest, pzMem, pzMemoryGB, cpu, hostUsed, hostTotal, diskUsed, diskTotal, pzAlert, cpuAlert, hostRamAlert, diskAlert, pzRatio, hostRatio, diskRatio])
+  }, [performanceHistory, serverRunning, maxMemoryGB, latest, pzMem, pzMemoryGB, cpu, hostUsed, hostTotal, diskUsed, diskTotal, cpuAlert, hostRamAlert, diskAlert, pzRatio, hostRatio, diskRatio])
 
   /* Collapsed: every metric is a fraction of a ceiling, so the bar is the
      reading and the number is the detail. Rows use the full width. */
@@ -201,7 +199,7 @@ function DashboardPerformanceCharts({
             </div>
 
             <span className="text-right font-mono text-[11px] tabular-nums text-muted-foreground/50">
-              {pct != null && m.unit !== '%' ? `${Math.round(pct)}%` : ''}
+              {m.key === 'pzMem' ? 'normal' : pct != null && m.unit !== '%' ? `${Math.round(pct)}%` : ''}
             </span>
           </div>
         )

@@ -12,6 +12,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { EventEmitter } from 'events';
 import { logPlayerAction, recordPlayerSession } from '../database/init.js';
 import { createLogger } from '../utils/logger.js';
+import { PanelBridgeSftpTransport } from './panelBridgeSftp.js';
 const log = createLogger('Bridge');
 
 // Build 42 (buildid 24449161) only lets Lua write files whose name ends in
@@ -41,6 +42,7 @@ class PanelBridge extends EventEmitter {
     this.pollInterval = null;
     this.statusInterval = null;
     this.fileWatcher = null;
+    this.sftpTransport = null;
     this.pendingCommands = new Map(); // id -> { resolve, reject, timeout, timestamp }
     this.processedResults = new Map(); // id -> timestamp (for deduplication)
     this.protocolVersion = 'queue-v1';
@@ -109,6 +111,36 @@ class PanelBridge extends EventEmitter {
     this.emit('configured', { path: this.bridgePath });
 
     return this.bridgePath;
+  }
+
+  async configureSftp(config, cachePath) {
+    if (this.isRunning) this.stop();
+    if (this.sftpTransport) await this.sftpTransport.stop();
+    this.configure(cachePath, true);
+    // A remote sync can take longer than the local file transport's 15s
+    // command limit. Allow the upload, Lua tick, result download, and one
+    // retry interval to complete before reporting a timeout.
+    this.config.commandTimeoutMs = 60000;
+    const transport = new PanelBridgeSftpTransport();
+    try {
+      await transport.start(config, cachePath);
+    } catch (error) {
+      await transport.stop();
+      throw error;
+    }
+    this.sftpTransport = transport;
+    this.start();
+    return this.bridgePath;
+  }
+
+  async stopSftp() {
+    if (this.sftpTransport) await this.sftpTransport.stop();
+    this.sftpTransport = null;
+    this.config.commandTimeoutMs = 15000;
+  }
+
+  isSftpRunning() {
+    return Boolean(this.sftpTransport?.running);
   }
 
   /**
@@ -1216,6 +1248,7 @@ class PanelBridge extends EventEmitter {
       },
       statusFile: fileInfo,
       hasFileWatcher: !!this.fileWatcher
+      ,transport: this.sftpTransport?.getStatus() || { type: 'local', running: this.isRunning }
     };
   }
 

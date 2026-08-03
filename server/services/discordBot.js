@@ -150,6 +150,11 @@ export class DiscordBot {
   async handleGameChat(data) {
     if (!this.chatRelayEnabled || !this.isRunning || !this.client) return;
 
+    // Discord messages reach PZ through RCON as "[Discord] user: message".
+    // The server logs that broadcast as chat, so relaying it back would create
+    // an immediate duplicate in the originating Discord channel.
+    if (String(data?.message || "").startsWith("[Discord] ")) return;
+
     // Use dedicated chat relay channel if set, otherwise fall back to main channel
     const targetChannelId = this.chatRelayChannelId || this.channelId;
     if (!targetChannelId) return;
@@ -159,7 +164,8 @@ export class DiscordBot {
 
     const cleanMessage = String(data.message || "")
       .replace(/@everyone/g, "(everyone)")
-      .replace(/@here/g, "(here)");
+      .replace(/@here/g, "(here)")
+      .slice(0, 1850);
     const cleanAuthor = String(data.author || "unknown")
       .replace(/[\r\n]+/g, " ")
       .slice(0, 80);
@@ -598,7 +604,7 @@ export class DiscordBot {
 
     if (level === "moderator") {
       // Moderator commands: need mod role or admin role
-      if (!this.modRoleId && !this.adminRoleId) return true; // No roles configured, allow all
+      if (!this.modRoleId && !this.adminRoleId) return false;
       if (this.modRoleId && this.hasRole(interaction, this.modRoleId))
         return true;
       return false;
@@ -606,7 +612,7 @@ export class DiscordBot {
 
     if (level === "admin") {
       // Admin commands: need admin role
-      if (!this.adminRoleId) return true; // No admin role configured, allow all
+      if (!this.adminRoleId) return false;
       return false; // Already checked above
     }
 
@@ -1027,9 +1033,10 @@ export class DiscordBot {
 
     try {
       const channel = await this.client.channels.fetch(channelId);
-      if (channel && channel.isTextBased()) {
-        await channel.send(message);
+      if (!channel?.isTextBased?.() || typeof channel.send !== "function") {
+        throw new Error("Configured channel is not a sendable text channel");
       }
+      await channel.send(message);
       if (this._notifyFailures > 0 || this._notifySuppressedCount > 0) {
         if (this._notifySuppressedCount > 0) {
           log.info(
@@ -1123,14 +1130,16 @@ export class DiscordBot {
     const chatBridgeRate = new Map(); // userId -> [timestamps]
     this.client.on("messageCreate", async (message) => {
       // Ignore stats from bots (including self) or if bot is stopped
-      if (!this.isRunning || !this.channelId || message.author.bot) return;
+      if (!this.isRunning || message.author.bot) return;
       // Ignore Discord system messages (pin notifications, member joins,
       // boost messages, etc.) — these have empty content and would relay
       // as `<username>: ` to in-game chat.
       if (message.system) return;
 
-      // Check if message is in the bridge channel
-      if (message.channelId === this.channelId) {
+      // Use the dedicated relay channel in both directions when configured.
+      const relayChannelId = this.chatRelayChannelId || this.channelId;
+      if (!relayChannelId) return;
+      if (message.channelId === relayChannelId) {
         try {
           // Check if RCON is connected
           if (this.rconService && this.rconService.connected) {
@@ -1235,11 +1244,11 @@ export class DiscordBot {
     } catch (error) {
       log.error(`Failed to start Discord bot: ${error.message}`);
       if (this.client) {
-        this.client
-          .destroy()
-          .catch((err) =>
-            log.debug(`Discord client destroy failed: ${err.message}`),
-          );
+        try {
+          this.client.destroy();
+        } catch (destroyError) {
+          log.debug(`Discord client destroy failed: ${destroyError.message}`);
+        }
         this.client = null;
       }
       this.isRunning = false;

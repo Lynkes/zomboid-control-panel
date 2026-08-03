@@ -5,6 +5,87 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.1.27] - 2026-08-03
+
+### Fixed
+
+- **Negative skill XP after character restore**: PanelBridge now ensures restored cumulative XP is never below the restored skill level's threshold. This prevents invalid states such as Welding level 5 with 0 XP, which Build 42 displays as negative progress.
+
+## [1.1.26] - 2026-08-03
+
+### Fixed
+
+- **Sandbox configuration before first launch**: the Sandbox editor now opens with Project Zomboid defaults and creates a valid `SandboxVars.lua` on its first save, instead of requiring an administrator to manually create the file.
+- **Build 42 anti-cheat settings**: replaced stale Build 41 controls with the current Build 42.20 anti-cheat keys and their correct Ban, Kick, Log, and Disabled values.
+- **Valid item IDs**: item actions now accept Build 42 IDs that start with digits or contain documented punctuation, including `Base.556Clip` and `Base.3030Bullets`.
+- **Vehicle map spawning**: map vehicle spawns now use the supported RCON `addvehicle` command on Build 42, returning a direct success or failure result instead of relying on unavailable Lua APIs.
+- **Windows launcher line endings**: `Start.bat` is now always distributed with CRLF line endings, preventing `^M` command failures on Windows.
+
+## [1.1.25] - 2026-08-03
+
+### Fixed
+
+- **Obsolete image settings**: removed the login, loading, and server-icon image controls. These INI options existed in Build 42.13, but Project Zomboid later made them obsolete and now discards them during `reloadoptions`, making the panel appear not to save the selected files.
+- **Character inventory restore**: PanelBridge 1.7.17 now exports Build 42 inventory and worn-item Java lists correctly, so imported characters recover their saved items.
+- **Discord relay and permissions**: Discord-to-game messages no longer echo back as duplicates, dedicated relay channels work both ways, and role-protected slash commands stay locked when no role is configured.
+- **Discord delivery resilience**: invalid or non-text channels now report failed sends, oversized game-chat messages are capped below Discord's limit, and failed bot login cleanup no longer throws.
+- **World map alignment**: custom map tiles and proxy bounds now remain centered with the game world.
+
+## [1.1.24] - 2026-08-03
+
+### Added
+
+- **Docker runtime PUID/PGID**: prebuilt panel images now accept `PUID` and `PGID` environment variables, so bind-mounted PZ directories can use their existing owner without rebuilding the image. Startup re-owns only panel state and logs, never game or save mounts.
+
+## [1.1.23] - 2026-08-02
+
+### Fixed
+
+- **Linux release artifacts**: the standalone Linux build no longer attempts to bundle SSH2's optional architecture-specific native addons. SSH2 uses its built-in JavaScript fallback, allowing GitHub Actions to create Linux binaries and archives again.
+
+## [1.1.22] - 2026-08-02
+
+### Fixed
+
+- **First server startup**: the setup wizard now persists the configured admin password. New servers launch with `-adminpassword` instead of Project Zomboid attempting an unavailable interactive stdin prompt and exiting immediately.
+
+## [1.1.21] - 2026-08-02
+
+### Fixed
+
+- **Remote server status**: remote servers are now considered online when RCON is connected or PanelBridge has a fresh heartbeat. The dashboard no longer marks a healthy hosted server inactive just because there is no local Java process to inspect.
+- **SFTP PanelBridge commands**: queued commands upload before remote status/result reads and have a 60-second timeout, preventing high-latency VPS SFTP syncs from timing out before the game mod can respond.
+
+## [1.1.20] - 2026-08-02
+
+### Added
+
+- **Remote PanelBridge over SFTP**: VPS and hosted-server operators can connect PanelBridge with SFTP credentials and an absolute remote bridge path. The panel synchronizes only the small status, queue-state, command-result, and queued-command files through a local cache. The Settings flow tests connectivity, reports round-trip latency, masks the saved password, and offers a configurable 2-10 second sync interval.
+- **Mapped-drive support for remote PanelBridge**: an explicitly configured read/write path, including an SFTP-mounted drive such as RaiDrive, can now power PanelBridge for a remote server.
+- **Force Stop**: Dashboard now provides a confirmation-gated emergency stop that kills the managed PZ process without requiring RCON. It refuses ambiguous multi-server process detection rather than risking the wrong server.
+- **Collection cookie shortcut**: Workshop Collection now has a compact paste action for a Steam `Cookie:` header or copied cURL request. It extracts and stores `sessionid` and `steamLoginSecure` without navigating to Settings.
+- **Utility controls**: Events has direct restore/shutoff actions for server electricity and water.
+
+### Changed
+
+- **PZ memory reporting**: normal JVM heap allocation is now shown as `normal` instead of being treated as a host-memory alert. Actual host RAM pressure remains monitored.
+- **Scheduled restarts**: a restart stays pinned to the server it started against, even if the active server changes in the panel.
+
+### Fixed
+
+- **Sandbox and utility persistence**: edits to top-level sandbox values now write `<server>_SandboxVars.lua`, so changes survive restart. PanelBridge 1.7.16 also applies electricity/water changes correctly in the running world.
+- **Unsafe backup restore**: restore is blocked while the target server is still running, preventing the running world from overwriting the restored save.
+- **Mod-update restart settings**: legacy settings are normalized on load, and unknown player count keeps an automatic restart on hold instead of restarting blindly.
+- **Workshop sync feedback**: Steam-rejected collection items now return their resolved titles rather than opaque IDs alone.
+
+## [1.1.19] - 2026-08-01
+
+### Fixed
+
+- **Standalone update download failed with `expected MZ header, got 0x504b`**: the updater correctly downloaded the Windows ZIP needed to refresh `client/dist`, but incorrectly validated it as an executable. ZIP and gzip package signatures are now validated separately from executable signatures.
+
 ## [1.1.18] - 2026-07-31
 
 ### Fixed
