@@ -4,6 +4,7 @@ import path from "path";
 import { createLogger } from "../utils/logger.js";
 const log = createLogger("API:Servers");
 import { sanitizeError } from "../utils/sanitize.js";
+import { normalizeRconHost } from "../services/rcon.js";
 import {
   getServers,
   getServer,
@@ -566,7 +567,7 @@ router.post("/", async (req, res) => {
       zomboidDataPath: config.zomboidDataPath || null,
       serverConfigPath: config.serverConfigPath || null,
       branch: config.branch || "stable",
-      rconHost: config.rconHost,
+      rconHost: normalizeRconHost(config.rconHost),
       rconPort: rconPort,
       rconPassword: config.rconPassword,
       adminPassword: config.adminPassword || "",
@@ -627,6 +628,10 @@ router.put("/:id", async (req, res) => {
       if (req.body[key] !== undefined) {
         updates[key] = req.body[key];
       }
+    }
+
+    if (updates.rconHost !== undefined) {
+      updates.rconHost = normalizeRconHost(updates.rconHost);
     }
 
     // Validate RCON port if provided

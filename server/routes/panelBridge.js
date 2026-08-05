@@ -28,7 +28,13 @@ import {
   writeLuaAtomic,
 } from "../utils/embeddedLua.js";
 import { createLogger } from "../utils/logger.js";
-import { getSftpCachePath, testSftpBridge, validateSftpBridgeConfig } from "../services/panelBridgeSftp.js";
+import {
+  getSftpCachePath,
+  testSftpBridge,
+  validateSftpBridgeConfig,
+  listSftpLogs,
+  readSftpLogTail,
+} from "../services/panelBridgeSftp.js";
 const log = createLogger("API:PanelBridge");
 
 // ES Module __dirname equivalent
@@ -50,6 +56,8 @@ const SFTP_SETTING_KEYS = {
   pollIntervalSeconds: "panelBridgeSftpPollIntervalSeconds",
 };
 
+const SFTP_LOG_PATH_KEY = "panelBridgeSftpLogPath";
+
 function isMaskedSecret(value) {
   return typeof value === "string" && value.startsWith("••••••••");
 }
@@ -67,6 +75,22 @@ async function resolveSftpConfig(input = {}) {
     bridgePath: input.bridgePath ?? settings[SFTP_SETTING_KEYS.bridgePath],
     pollIntervalSeconds: input.pollIntervalSeconds ?? settings[SFTP_SETTING_KEYS.pollIntervalSeconds],
   });
+}
+
+// The log transport reuses the bridge credentials but has its own remote path
+// and does not require a configured bridgePath.
+async function resolveSftpLogConfig(input = {}) {
+  const settings = await getAllSettings();
+  const password = input.password && !isMaskedSecret(input.password)
+    ? input.password
+    : settings[SFTP_SETTING_KEYS.password] || "";
+  return {
+    host: input.host ?? settings[SFTP_SETTING_KEYS.host],
+    port: input.port ?? settings[SFTP_SETTING_KEYS.port],
+    username: input.username ?? settings[SFTP_SETTING_KEYS.username],
+    password,
+    logPath: input.logPath ?? settings[SFTP_LOG_PATH_KEY],
+  };
 }
 
 // Valid PanelBridge actions (defense-in-depth — Lua side also validates)
@@ -386,7 +410,7 @@ router.post("/auto-configure", async (req, res) => {
     }
 
     // Configure and start bridge - foundPath IS the complete panelbridge folder
-    const bridgePath = bridge.configure(foundPath.path, true); // true = direct path
+    bridge.configure(foundPath.path, true); // true = direct path
     bridge.start();
 
     // Auto-install or update PanelBridge mod
@@ -774,6 +798,27 @@ router.post("/sftp/configure", requireRole("admin"), async (req, res) => {
   }
 });
 
+router.post("/sftp/logs/list", requireRole("admin"), async (req, res) => {
+  try {
+    const config = await resolveSftpLogConfig(req.body);
+    const result = await listSftpLogs(config);
+    if (req.body?.logPath) await setSetting(SFTP_LOG_PATH_KEY, config.logPath);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(400).json({ error: sanitizeError(error.message) });
+  }
+});
+
+router.post("/sftp/logs/tail", requireRole("admin"), async (req, res) => {
+  try {
+    const config = await resolveSftpLogConfig(req.body);
+    const result = await readSftpLogTail(config, req.body?.name, req.body?.maxBytes);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(400).json({ error: sanitizeError(error.message) });
+  }
+});
+
 // Start the bridge polling
 router.post("/start", (req, res) => {
   try {
@@ -799,7 +844,6 @@ router.post("/stop", async (req, res) => {
 router.get("/scan-paths", async (req, res) => {
   try {
     const activeServer = await getActiveServer();
-    const allSettings = await getAllSettings();
     const foundBridges = [];
     const scannedDirs = [];
 

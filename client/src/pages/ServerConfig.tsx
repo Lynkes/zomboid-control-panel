@@ -518,7 +518,7 @@ function StatChip({
     >
       <span className={muted ? 'text-muted-foreground/50' : 'text-primary/70'}>{icon}</span>
       <span className={`font-mono text-sm font-semibold tabular-nums ${muted ? 'text-muted-foreground' : 'text-foreground'}`}>{value}</span>
-      <span className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</span>
+      <span className="text-xs text-muted-foreground">{label}</span>
       {ok === false && (
         <AlertCircle className="h-3 w-3 text-warning" aria-label="Not found" />
       )}
@@ -572,8 +572,7 @@ function CategoryIcon({ name, isActive, className }: { name?: string; isActive?:
 
 // ──────────────────────────────────────────────────────────────────────────
 // Visual primitives — mirror the Events page so the whole control surface
-// reads with the same cadence: corner-bracketed panels with terse mono
-// section headers. The aesthetic is operational, not theatrical.
+// reads with the same cadence.
 // ──────────────────────────────────────────────────────────────────────────
 type PanelTone = 'primary' | 'warning' | 'destructive' | 'info' | 'success' | 'muted'
 
@@ -608,16 +607,12 @@ function TacticalPanel({
   tone?: PanelTone
   className?: string
 }) {
-  const corner = toneBorder(tone)
   return (
     <div className={cn(
-      'relative rounded-md border border-border/55 bg-card/85 backdrop-blur-md shadow-lg overflow-hidden',
+      'overflow-hidden rounded-md border bg-card shadow-sm',
+      toneBorder(tone),
       className
     )}>
-      <div aria-hidden className={cn('absolute top-1 left-1 w-2.5 h-2.5 border-l-2 border-t-2 pointer-events-none z-10', corner)} />
-      <div aria-hidden className={cn('absolute top-1 right-1 w-2.5 h-2.5 border-r-2 border-t-2 pointer-events-none z-10', corner)} />
-      <div aria-hidden className={cn('absolute bottom-1 left-1 w-2.5 h-2.5 border-l-2 border-b-2 pointer-events-none z-10', corner)} />
-      <div aria-hidden className={cn('absolute bottom-1 right-1 w-2.5 h-2.5 border-r-2 border-b-2 pointer-events-none z-10', corner)} />
       {children}
     </div>
   )
@@ -637,15 +632,15 @@ function SectionHeader({
   tone?: PanelTone
 }) {
   return (
-    <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border/50 bg-muted/25 select-none">
-      <span className={cn('flex items-center gap-1.5 text-xs font-semibold tracking-normal min-w-0', toneText(tone))}>
-        {Icon && <Icon className="w-3 h-3 shrink-0" />}
-        <span className="truncate">{label}</span>
+    <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3 select-none">
+      <span className="flex min-w-0 items-center gap-2">
+        {Icon && <Icon className={cn('h-4 w-4 shrink-0', toneText(tone))} />}
+        <span className="truncate text-sm font-semibold text-foreground">{label}</span>
         {sublabel && (
-          <>
-            <span className="text-muted-foreground/40">·</span>
-            <span className="truncate normal-case tracking-[0.12em] text-muted-foreground/65">{sublabel}</span>
-          </>
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="text-muted-foreground/35">/</span>
+            <span className="truncate text-xs font-normal text-muted-foreground/65">{sublabel}</span>
+          </span>
         )}
       </span>
       {action && <div className="flex items-center gap-1.5 shrink-0">{action}</div>}
@@ -1749,17 +1744,17 @@ export default function ServerConfig() {
             {(hasIniChanges || hasSandboxChanges) && (
               <Badge variant="warning" className="motion-safe:animate-pulse text-xs font-medium">
                 <AlertTriangle className="mr-1 h-3 w-3" />
-                unsaved
+                Unsaved changes
               </Badge>
             )}
             <Button variant="command" size="sm" className="h-9 gap-1.5 text-xs font-medium" onClick={loadTemplates}>
-              <Bookmark className="h-3.5 w-3.5" /> templates
+              <Bookmark className="h-3.5 w-3.5" /> Templates
             </Button>
             <Button variant="command" size="sm" className="h-9 gap-1.5 text-xs font-medium" onClick={loadBackups}>
-              <History className="h-3.5 w-3.5" /> backups
+              <History className="h-3.5 w-3.5" /> Backups
             </Button>
             <Button variant="command" size="sm" className="h-9 gap-1.5 text-xs font-medium" onClick={loadData}>
-              <RefreshCw className="h-3.5 w-3.5" /> refresh
+              <RefreshCw className="h-3.5 w-3.5" /> Refresh
             </Button>
           </div>
         }
@@ -1769,18 +1764,18 @@ export default function ServerConfig() {
       <TacticalPanel tone="primary">
         <div className="px-3 py-2.5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.22em] text-primary/60 whitespace-nowrap">
-              <FolderOpen className="w-3 h-3" />
-              <span>active</span>
+            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground whitespace-nowrap">
+              <FolderOpen className="w-3.5 h-3.5" />
+              <span>Active server</span>
             </div>
             {pathsInfo ? (
               <div className="flex items-center gap-2 min-w-0">
-                <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-foreground/90">
+                <span className="text-sm font-semibold text-foreground">
                   {pathsInfo.serverName}
                 </span>
                 <span className="text-muted-foreground/40">·</span>
                 <span
-                  className="min-w-0 truncate font-mono text-[11px] text-muted-foreground"
+                  className="min-w-0 truncate font-mono text-xs text-muted-foreground"
                   title={pathsInfo.configPath}
                   dir="ltr"
                 >
@@ -1788,34 +1783,34 @@ export default function ServerConfig() {
                 </span>
               </div>
             ) : (
-              <span className="font-mono text-[11px] text-muted-foreground/60">no server selected</span>
+              <span className="text-xs text-muted-foreground/60">No server selected</span>
             )}
           </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] uppercase tracking-wider text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-muted-foreground">
             <StatChip
               icon={<Settings className="h-3 w-3" />}
               value={iniSettingsCount}
-              label="ini"
+              label="INI"
               ok={pathsInfo?.exists.ini}
             />
             <span className="h-3 w-px bg-border/60" aria-hidden />
             <StatChip
               icon={<FileText className="h-3 w-3" />}
               value={sandboxSettingsCount}
-              label="sandbox"
+              label="Sandbox"
               ok={pathsInfo?.exists.sandbox}
             />
             <span className="h-3 w-px bg-border/60" aria-hidden />
             <StatChip
               icon={<MapPin className="h-3 w-3" />}
               value={spawnPointsCount}
-              label={`spawns · ${professionsCount} prof${professionsCount === 1 ? '' : 's'}`}
+              label={`Spawns · ${professionsCount} prof${professionsCount === 1 ? '' : 's'}`}
             />
             <span className="h-3 w-px bg-border/60" aria-hidden />
             <StatChip
               icon={<Map className="h-3 w-3" />}
               value={spawnRegions.length}
-              label="regions"
+              label="Regions"
             />
           </div>
         </div>
@@ -1868,8 +1863,8 @@ export default function ServerConfig() {
         <TabsContent value="ini" className="mt-4">
           <TacticalPanel tone={hasIniChanges ? 'warning' : 'primary'}>
             <SectionHeader
-              label="ini"
-              sublabel="server behavior, network, players"
+              label="Server settings"
+              sublabel="INI · behavior, network, players"
               icon={FileText}
               tone={hasIniChanges ? 'warning' : 'primary'}
               action={
@@ -1888,7 +1883,7 @@ export default function ServerConfig() {
                       className="h-7 gap-1.5 px-2 text-xs font-medium"
                       aria-pressed={editorMode === 'structured'}
                     >
-                      <FormInput className="h-3 w-3" /> form
+                      <FormInput className="h-3 w-3" /> Form
                     </Button>
                     <Button
                       variant={editorMode === 'raw' ? 'secondary' : 'ghost'}
@@ -1900,7 +1895,7 @@ export default function ServerConfig() {
                       className="h-7 gap-1.5 px-2 text-xs font-medium"
                       aria-pressed={editorMode === 'raw'}
                     >
-                      <Code className="h-3 w-3" /> raw
+                      <Code className="h-3 w-3" /> Raw
                     </Button>
                   </div>
                   <TooltipProvider>
@@ -1919,7 +1914,7 @@ export default function ServerConfig() {
                     rel="noopener noreferrer"
                     className="flex h-7 items-center gap-1 rounded border border-border/60 bg-muted/30 px-2 text-xs font-medium text-muted-foreground hover:border-primary/40 hover:text-primary"
                   >
-                    <ExternalLink className="h-3 w-3" /> wiki
+                    <ExternalLink className="h-3 w-3" /> Wiki
                   </a>
                   <Button onClick={handleSaveIni} disabled={saving || !hasIniChanges} variant="command" size="sm" className="h-7 gap-1.5 text-xs font-medium">
                     {saving ? (
@@ -1927,7 +1922,7 @@ export default function ServerConfig() {
                     ) : (
                       <Save className="h-3 w-3" />
                     )}
-                    save &amp; reload
+                    Save &amp; reload
                   </Button>
                 </div>
               }
@@ -2286,7 +2281,7 @@ export default function ServerConfig() {
         <TabsContent value="sandbox" className="mt-4">
           <TacticalPanel tone={hasSandboxChanges ? 'warning' : 'primary'}>
             <SectionHeader
-              label="sandbox"
+              label="Sandbox"
               sublabel="world, zombies, survival"
               icon={Code}
               tone={hasSandboxChanges ? 'warning' : 'primary'}
@@ -2306,7 +2301,7 @@ export default function ServerConfig() {
                       className="h-7 gap-1.5 px-2 text-xs font-medium"
                       aria-pressed={editorMode === 'structured'}
                     >
-                      <FormInput className="h-3 w-3" /> form
+                      <FormInput className="h-3 w-3" /> Form
                     </Button>
                     <Button
                       variant={editorMode === 'raw' ? 'secondary' : 'ghost'}
@@ -2318,7 +2313,7 @@ export default function ServerConfig() {
                       className="h-7 gap-1.5 px-2 text-xs font-medium"
                       aria-pressed={editorMode === 'raw'}
                     >
-                      <Code className="h-3 w-3" /> raw
+                      <Code className="h-3 w-3" /> Raw
                     </Button>
                   </div>
                   <TooltipProvider>
@@ -2337,7 +2332,7 @@ export default function ServerConfig() {
                     rel="noopener noreferrer"
                     className="flex h-7 items-center gap-1 rounded border border-border/60 bg-muted/30 px-2 text-xs font-medium text-muted-foreground hover:border-primary/40 hover:text-primary"
                   >
-                    <ExternalLink className="h-3 w-3" /> wiki
+                    <ExternalLink className="h-3 w-3" /> Wiki
                   </a>
                   <Button onClick={handleSaveSandbox} disabled={saving || !hasSandboxChanges} variant="command" size="sm" className="h-7 gap-1.5 text-xs font-medium">
                     {saving ? (
@@ -2345,7 +2340,7 @@ export default function ServerConfig() {
                     ) : (
                       <Save className="h-3 w-3" />
                     )}
-                    save &amp; reload
+                    Save &amp; reload
                   </Button>
                 </div>
               }
@@ -2721,7 +2716,7 @@ export default function ServerConfig() {
         <TabsContent value="spawnpoints" className="mt-4">
           <TacticalPanel tone="muted">
             <SectionHeader
-              label="spawn points"
+              label="Spawn points"
               sublabel="mod-managed · player start locations"
               icon={MapPin}
               tone="muted"
@@ -2747,7 +2742,7 @@ export default function ServerConfig() {
                       className="h-7 gap-1.5 px-2 text-xs font-medium"
                       aria-pressed={editorMode === 'raw'}
                     >
-                      <Code className="h-3 w-3" /> raw
+                      <Code className="h-3 w-3" /> Raw
                     </Button>
                   </div>
                   <TooltipProvider>
@@ -2842,7 +2837,7 @@ export default function ServerConfig() {
         <TabsContent value="spawnregions" className="mt-4">
           <TacticalPanel tone="primary">
             <SectionHeader
-              label="spawn regions"
+              label="Spawn regions"
               sublabel={`${spawnRegions.length} region${spawnRegions.length === 1 ? '' : 's'} · cities & towns`}
               icon={Map}
               action={
@@ -2855,7 +2850,7 @@ export default function ServerConfig() {
                       className="h-7 gap-1.5 px-2 text-xs font-medium"
                       aria-pressed={editorMode === 'structured'}
                     >
-                      <FormInput className="h-3 w-3" /> form
+                      <FormInput className="h-3 w-3" /> Form
                     </Button>
                     <Button
                       variant={editorMode === 'raw' ? 'secondary' : 'ghost'}
@@ -2867,7 +2862,7 @@ export default function ServerConfig() {
                       className="h-7 gap-1.5 px-2 text-xs font-medium"
                       aria-pressed={editorMode === 'raw'}
                     >
-                      <Code className="h-3 w-3" /> raw
+                      <Code className="h-3 w-3" /> Raw
                     </Button>
                   </div>
                   <TooltipProvider>
@@ -2998,7 +2993,7 @@ export default function ServerConfig() {
         <TabsContent value="modsettings" className="mt-4">
           <TacticalPanel tone={modifiedModSettingsCount > 0 ? 'warning' : 'info'}>
             <SectionHeader
-              label="mod sandbox options"
+              label="Mod sandbox options"
               sublabel={modSettings ? `${modSettingsGroups.length} mod${modSettingsGroups.length === 1 ? '' : 's'} · live from bridge` : 'panelbridge · live'}
               icon={Puzzle}
               tone={modifiedModSettingsCount > 0 ? 'warning' : 'info'}
@@ -3081,7 +3076,7 @@ export default function ServerConfig() {
                     className="shrink-0 gap-1.5 text-xs font-medium"
                   >
                     {filteredModGroups.length > 0 && filteredModGroups.every(g => expandedModGroups.has(g.name)) ? (
-                      <><ChevronDown className="w-3.5 h-3.5" /> collapse all</>
+                      <><ChevronDown className="w-3.5 h-3.5" /> Collapse all</>
                     ) : (
                       <><ChevronRight className="w-3.5 h-3.5" /> expand all</>
                     )}

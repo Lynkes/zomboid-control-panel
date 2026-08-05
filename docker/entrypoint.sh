@@ -11,6 +11,21 @@ case "$puid:$pgid" in
     ;;
 esac
 
+# Orchestrators such as Kubernetes can pin a non-root UID/GID through the pod
+# securityContext. The container is then already at its target identity and has
+# neither CAP_CHOWN nor CAP_SETGID, so chown and setpriv would both fail.
+if [ "$(id -u)" != "0" ]; then
+  current_uid="$(id -u)"
+  current_gid="$(id -g)"
+  if [ "$current_uid:$current_gid" != "$puid:$pgid" ]; then
+    echo "Running as $current_uid:$current_gid; ignoring PUID/PGID $puid:$pgid" >&2
+  fi
+  echo "Not running as root: skipping chown and privilege drop." >&2
+  echo "Ensure /app/data and /app/logs are writable by $current_uid:$current_gid." >&2
+  mkdir -p /app/data /app/logs 2>/dev/null || true
+  exec "$@"
+fi
+
 mkdir -p /app/data /app/logs
 chown -R "$puid:$pgid" /app/data /app/logs
 

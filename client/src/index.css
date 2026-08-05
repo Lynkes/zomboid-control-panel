@@ -66,11 +66,11 @@ input[type="number"] {
     --chart-3: 36 82% 52%;
     --chart-4: 200 36% 42%;
     --chart-5: 30 18% 56%;
-    
+
     /* PZ-specific font stacks */
     --font-display: 'Arial Narrow', 'Oswald', 'Arial Black', sans-serif;
     --font-mono: 'Consolas', 'SFMono-Regular', 'Liberation Mono', monospace;
-    
+
     /* Shared ease-out-expo for all motion */
     --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 
@@ -79,13 +79,13 @@ input[type="number"] {
     --severity-medium: var(--warning);
     --severity-low: var(--primary);
   }
-  
+
   /* ==========================================
      THEME: SURVIVAL (Project Zomboid Authentic)
      Grungy, post-apocalyptic, worn aesthetic
      ========================================== */
   /* Survival colors are identical to :root — no overrides needed. */
-  
+
   /* Fallback: .dark without a theme class inherits :root base tokens.
      No overrides needed — :root already defines the survival palette. */
 }
@@ -180,8 +180,8 @@ input[type="number"] {
 
 /* Header styling - emergency broadcast feel */
 .theme-survival .sidebar-header {
-  background: linear-gradient(180deg, 
-    hsl(var(--accent)) 0%, 
+  background: linear-gradient(180deg,
+    hsl(var(--accent)) 0%,
     hsl(var(--background)) 52%,
     hsl(var(--background)) 100%
   );
@@ -224,7 +224,7 @@ input[type="number"] {
 .theme-survival .card-zomboid {
   position: relative;
   border: 1px solid hsl(var(--border));
-  box-shadow: 
+  box-shadow:
     0 2px 8px hsl(var(--background) / 0.6),
     inset 0 1px 0 hsl(var(--foreground) / 0.02);
 }
@@ -260,8 +260,8 @@ input[type="number"] {
   right: -5px;
   width: 20px;
   height: 20px;
-  background: radial-gradient(ellipse at center, 
-    hsl(0 60% 25%) 0%, 
+  background: radial-gradient(ellipse at center,
+    hsl(0 60% 25%) 0%,
     transparent 70%
   );
   opacity: 0.6;
@@ -375,8 +375,8 @@ input[type="number"] {
 /* Terminal/console styling */
 .theme-survival .terminal-output {
   font-family: var(--font-mono);
-  background: linear-gradient(180deg, 
-    hsl(var(--background)) 0%, 
+  background: linear-gradient(180deg,
+    hsl(var(--background)) 0%,
     hsl(var(--input)) 100%
   );
   border: 1px solid hsl(var(--primary) / 0.25);
@@ -399,14 +399,14 @@ input[type="number"] {
   html {
     scroll-behavior: smooth;
   }
-  
+
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
-  
+
   /* Scoped transitions — only on interactive elements, not every DOM node */
   a, button, input, textarea, select, label,
   [role="button"], [role="tab"], [role="menuitem"],
@@ -1414,27 +1414,6 @@ input[type="number"] {
 .settings-tab-trigger {
   transition: color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
 }
-.settings-tab-trigger::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  width: 0;
-  height: 2px;
-  background: hsl(var(--primary));
-  border-radius: 1px;
-  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1), left 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.settings-tab-trigger:hover::after {
-  width: 40%;
-  left: 30%;
-}
-.settings-tab-trigger[data-state="active"]::after {
-  width: 60%;
-  left: 20%;
-  background: hsl(var(--primary));
-  box-shadow: 0 0 6px hsl(var(--primary) / 0.4);
-}
 .settings-tab-trigger[data-state="active"] svg {
   filter: drop-shadow(0 0 3px hsl(var(--primary) / 0.5));
   transform: scale(1.1);
@@ -2044,7 +2023,7 @@ tr:hover td {
 .theme-survival .btn-primary,
 .theme-survival [data-slot="button"][data-variant="default"] {
   text-shadow: 0 1px 2px rgba(0,0,0,0.3);
-  box-shadow: 
+  box-shadow:
     0 1px 2px rgba(0,0,0,0.22),
     inset 0 1px 0 rgba(255,255,255,0.1);
 }
@@ -2083,7 +2062,7 @@ tr:hover td {
 
 /* Map/chunk styling */
 .theme-survival .map-grid {
-  background: 
+  background:
     linear-gradient(90deg, hsl(30 16% 15% / 0.3) 1px, transparent 1px),
     linear-gradient(hsl(30 16% 15% / 0.3) 1px, transparent 1px),
     hsl(28 12% 6%);

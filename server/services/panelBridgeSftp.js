@@ -39,6 +39,101 @@ export function getSftpCachePath(config) {
   return path.join(process.cwd(), 'data', 'panelbridge-sftp-cache', key);
 }
 
+// ─── Read-only remote log access ────────────────────────────────────────────
+// Separate from the bridge sync loop on purpose: this never writes to the
+// remote host and never mirrors whole files to disk. Callers get a directory
+// listing or a size-capped tail, fetched on demand, so a multi-GB console log
+// on a remote host can be inspected without downloading it.
+const LOG_TAIL_MAX_BYTES = 1024 * 1024;
+const LOG_TAIL_DEFAULT_BYTES = 256 * 1024;
+const LOG_LIST_MAX = 200;
+const LOG_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const LOG_EXTENSIONS = ['.txt', '.log'];
+
+export function validateSftpLogConfig(config) {
+  const host = typeof config?.host === 'string' ? config.host.trim() : '';
+  const username = typeof config?.username === 'string' ? config.username.trim() : '';
+  const port = Number(config?.port || 22);
+  if (!host || host.length > 253 || /[\s/\\]/.test(host)) throw new Error('A valid SFTP host is required');
+  if (!username || username.length > 128 || /[\r\n]/.test(username)) throw new Error('A valid SFTP username is required');
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('SFTP port must be between 1 and 65535');
+  if (!config?.logPath) throw new Error('A remote log folder is required');
+  return {
+    host,
+    port,
+    username,
+    password: typeof config?.password === 'string' ? config.password : '',
+    logPath: safeRemotePath(config.logPath),
+  };
+}
+
+async function withLogClient(config, handler) {
+  const client = new SftpClient('PanelBridgeSftpLogs');
+  try {
+    await client.connect({
+      host: config.host,
+      port: config.port,
+      username: config.username,
+      password: config.password,
+      readyTimeout: 10000,
+    });
+    return await handler(client);
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
+export async function listSftpLogs(rawConfig) {
+  const config = validateSftpLogConfig(rawConfig);
+  return withLogClient(config, async (client) => {
+    const entries = await client.list(config.logPath);
+    const files = entries
+      .filter((entry) => entry.type === '-')
+      .filter((entry) => LOG_EXTENSIONS.some((ext) => entry.name.toLowerCase().endsWith(ext)))
+      .map((entry) => ({
+        name: entry.name,
+        size: entry.size,
+        modifiedAt: entry.modifyTime ? new Date(entry.modifyTime).toISOString() : null,
+      }))
+      .sort((a, b) => (b.modifiedAt || '').localeCompare(a.modifiedAt || ''))
+      .slice(0, LOG_LIST_MAX);
+    return { logPath: config.logPath, files };
+  });
+}
+
+export async function readSftpLogTail(rawConfig, fileName, requestedBytes) {
+  const config = validateSftpLogConfig(rawConfig);
+  if (typeof fileName !== 'string' || !LOG_NAME_PATTERN.test(fileName)) {
+    throw new Error('Invalid log file name');
+  }
+  if (!LOG_EXTENSIONS.some((ext) => fileName.toLowerCase().endsWith(ext))) {
+    throw new Error('Only .txt and .log files can be read');
+  }
+  const maxBytes = Math.min(
+    Math.max(Number(requestedBytes) || LOG_TAIL_DEFAULT_BYTES, 1024),
+    LOG_TAIL_MAX_BYTES,
+  );
+  const remotePath = `${config.logPath}/${fileName}`;
+  return withLogClient(config, async (client) => {
+    const stats = await client.stat(remotePath);
+    const size = Number(stats?.size) || 0;
+    const start = Math.max(0, size - maxBytes);
+    const buffer = size === 0
+      ? Buffer.alloc(0)
+      : await client.get(remotePath, undefined, {
+          readStreamOptions: { start, end: Math.max(start, size - 1) },
+        });
+    const text = Buffer.isBuffer(buffer) ? buffer.toString('utf8') : String(buffer ?? '');
+    return {
+      name: fileName,
+      size,
+      truncated: start > 0,
+      bytesReturned: Buffer.byteLength(text),
+      content: text,
+    };
+  });
+}
+
 export class PanelBridgeSftpTransport {
   constructor() {
     this.config = null;

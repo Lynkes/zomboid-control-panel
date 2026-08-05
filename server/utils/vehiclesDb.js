@@ -99,6 +99,58 @@ async function withDatabase(dbPath, fn) {
   }
 }
 
+async function withReadOnlyDatabase(dbPath, fn) {
+  const SQL = await getSQL();
+  const buffer = await fs.promises.readFile(dbPath);
+  const db = new SQL.Database(buffer);
+  try {
+    return await fn(db);
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * List persisted vehicle positions without modifying the live save database.
+ * Runtime bridge data only includes currently loaded cells; this covers parked
+ * vehicles while no player is near them.
+ *
+ * @param {string} savePath Absolute path to the save directory
+ * @param {number} [limit]
+ * @returns {Promise<Array<{id:number,x:number,y:number}>>}
+ */
+export async function listPersistedVehicles(savePath, limit = 10000) {
+  const dbPath = path.join(savePath, 'vehicles.db');
+  if (!fs.existsSync(dbPath)) return [];
+  const safeLimit = Math.max(1, Math.min(50000, Math.floor(limit) || 10000));
+  try {
+    return await withReadOnlyDatabase(dbPath, (db) => {
+      const stmt = db.prepare(
+        'SELECT id, x, y FROM vehicles WHERE x IS NOT NULL AND y IS NOT NULL LIMIT ?'
+      );
+      const vehicles = [];
+      try {
+        stmt.bind([safeLimit]);
+        while (stmt.step()) {
+          const row = stmt.getAsObject();
+          const id = Number(row.id);
+          const x = Number(row.x);
+          const y = Number(row.y);
+          if (Number.isFinite(id) && Number.isFinite(x) && Number.isFinite(y)) {
+            vehicles.push({ id, x, y });
+          }
+        }
+      } finally {
+        stmt.free();
+      }
+      return vehicles;
+    });
+  } catch (err) {
+    log.warn(`listPersistedVehicles failed on ${dbPath}: ${err.message}`);
+    return [];
+  }
+}
+
 /**
  * Count vehicles in vehicles.db whose tile coords fall inside any of the
  * provided tile bounding boxes. Read-only.

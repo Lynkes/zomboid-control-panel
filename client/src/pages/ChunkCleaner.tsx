@@ -882,7 +882,7 @@ export default function ChunkCleaner() {
     img.onerror = () => {
       /* tile missing */
     };
-    img.src = `${B42_DZI_CDN}/layer0_files/${level}/${col}_${row}.webp`;
+    img.src = `${B42_DZI_CDN}/${level}/${col}_${row}.webp`;
   }, []);
 
   // ─── Canvas draw (extracted to callable function for rAF use) ───

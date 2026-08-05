@@ -92,12 +92,12 @@ router.post('/validate-cron', async (req, res) => {
     if (!cronExpression) {
       return res.status(400).json({ valid: false, error: 'cronExpression is required' });
     }
-    
+
     const isValid = cron.validate(cronExpression);
     if (!isValid) {
       return res.json({ valid: false, error: 'Invalid cron expression format' });
     }
-    
+
     res.json({ valid: true });
   } catch (error) {
     res.status(500).json({ valid: false, error: sanitizeError(error.message) });
@@ -158,7 +158,7 @@ router.post('/tasks', async (req, res) => {
       server_id: resolvedServerId,
       enabled: 1
     };
-    
+
     // Schedule the task — rollback DB entry if scheduling fails
     try {
       scheduler.scheduleTask(task);
@@ -167,7 +167,7 @@ router.post('/tasks', async (req, res) => {
       await deleteScheduledTask(result.id);
       return res.status(500).json({ error: 'Failed to schedule task: ' + sanitizeError(schedErr.message) });
     }
-    
+
     res.json({ success: true, task });
   } catch (error) {
     log.error(`Failed to create scheduled task: ${error.message}`);
@@ -214,29 +214,34 @@ router.put('/tasks/:id', async (req, res) => {
       }
     }
 
-    await updateScheduledTask(taskId, name, cronExpression, command, enabled, serverId);
+    const updated = await updateScheduledTask(taskId, name, cronExpression, command, enabled, serverId);
+    if (!updated) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
 
-    // Reschedule or cancel the task — rollback DB entry if scheduling fails
+    // Reschedule from the merged record, not the request body: a partial update
+    // (e.g. the enable/disable toggle) would otherwise re-arm the job without
+    // its pinned server and run it against whichever server is active.
     if (enabled) {
       try {
         scheduler.scheduleTask({
           id: taskId,
-          name,
-          cron_expression: cronExpression,
-          command,
-          server_id: serverId,
+          name: updated.name,
+          cron_expression: updated.cron_expression,
+          command: updated.command,
+          server_id: updated.server_id,
           enabled: 1
         });
       } catch (schedErr) {
         log.error(`Failed to reschedule task ${taskId}, reverting DB: ${schedErr.message}`);
         // Revert: re-save the old enabled state to avoid phantom active task in DB
-        await updateScheduledTask(taskId, name, cronExpression, command, 0).catch(err => log.debug(`Failed to revert task ${taskId}: ${err.message}`));
+        await updateScheduledTask(taskId, undefined, undefined, undefined, 0).catch(err => log.debug(`Failed to revert task ${taskId}: ${err.message}`));
         return res.status(500).json({ error: 'Failed to reschedule task: ' + sanitizeError(schedErr.message) });
       }
     } else {
       scheduler.cancelTask(taskId);
     }
-    
+
     res.json({ success: true, message: 'Task updated' });
   } catch (error) {
     log.error(`Failed to update scheduled task: ${error.message}`);
@@ -250,18 +255,51 @@ router.delete('/tasks/:id', async (req, res) => {
     const scheduler = req.app.get('scheduler');
     const { id } = req.params;
     log.info(`DELETE /tasks/${id}`);
-    
+
     const taskId = parseInt(id, 10);
     if (isNaN(taskId)) {
       return res.status(400).json({ error: 'Invalid task ID' });
     }
-    
+
     scheduler.cancelTask(taskId);
     await deleteScheduledTask(taskId);
-    
+
     res.json({ success: true, message: 'Task deleted' });
   } catch (error) {
     log.error(`Failed to delete scheduled task: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Run a scheduled task on demand. Goes through Scheduler.runTaskNow() — the
+// same dispatch a cron fire uses — so special commands (restart/save/
+// servermsg/bridge:) are handled correctly instead of being sent to RCON as
+// a literal string. A restart can run for several minutes (warning
+// countdown), so this fires in the background and returns immediately;
+// completion shows up in the schedule history.
+router.post('/tasks/:id/run', async (req, res) => {
+  try {
+    const scheduler = req.app.get('scheduler');
+    const { id } = req.params;
+    const taskId = parseInt(id, 10);
+    if (isNaN(taskId)) {
+      return res.status(400).json({ error: 'Invalid task ID' });
+    }
+
+    const tasks = await getScheduledTasks();
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    log.info(`POST /tasks/${taskId}/run: ${task.name}`);
+    scheduler.runTaskNow(task).catch(err => {
+      log.error(`Manual run of task ${taskId} failed: ${err.message}`);
+    });
+
+    res.json({ success: true, message: 'Task triggered' });
+  } catch (error) {
+    log.error(`Failed to run scheduled task: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
   }
 });
@@ -276,7 +314,7 @@ router.post('/restart-now', async (req, res) => {
 
     const scheduler = req.app.get('scheduler');
     const { warningMinutes } = req.body;
-    
+
     // Parse and validate warningMinutes (0-60 range)
     let parsedWarningMinutes = parseInt(warningMinutes, 10);
     log.info(`POST /restart-now: warningMinutes=${warningMinutes}`);
@@ -285,12 +323,12 @@ router.post('/restart-now', async (req, res) => {
     } else if (parsedWarningMinutes > 60) {
       parsedWarningMinutes = 60; // Cap at 60 minutes
     }
-    
+
     // Run restart in background, passing warningMinutes directly
     scheduler.performRestart(parsedWarningMinutes).catch(err => {
       log.error(`Restart failed: ${err.message}`);
     });
-    
+
     res.json({ success: true, message: 'Restart initiated' });
   } catch (error) {
     log.error(`Failed to trigger restart: ${error.message}`);

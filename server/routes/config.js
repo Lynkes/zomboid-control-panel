@@ -21,6 +21,7 @@ const VALID_SETTINGS_KEYS = [
   "serverConfigPath",
   "zomboidDataPath",
   "steamcmdPath",
+  "steamUpdateAccount",
   "steamApiKey",
   "serverName",
   "minMemory",
@@ -29,13 +30,16 @@ const VALID_SETTINGS_KEYS = [
   "modCheckInterval",
   "modAutoRestart",
   "modRestartDelay",
+  "serverAutoUpdate",
+  "serverAutoUpdateWarningMinutes",
   "darkMode",
   "autoReconnect",
   "reconnectInterval",
-  "discordEnabled",
-  "discordToken",
+  // Discord config is owned by /api/discord (discordBotToken,
+  // discordAdminRoleId, ...). The old discordEnabled/discordToken/
+  // discordAdminRole keys are deliberately NOT listed: nothing reads them, so
+  // allowing them here would accept a write that silently never takes effect.
   "discordGuildId",
-  "discordAdminRole",
   "autoStartServer",
   "panelPort",
   "httpsEnabled",
@@ -71,6 +75,7 @@ const VALID_SETTINGS_KEYS = [
   "panelBridgeSftpPassword",
   "panelBridgeSftpBridgePath",
   "panelBridgeSftpPollIntervalSeconds",
+  "panelBridgeSftpLogPath",
 ];
 
 const OPTION_NAME_REGEX = /^[a-zA-Z0-9_]{1,64}$/;
@@ -147,7 +152,12 @@ router.put("/", async (req, res) => {
       return res.status(400).json({ error: "Config is required" });
     }
 
-    await serverManager.saveServerConfig(config);
+    const saved = await serverManager.saveServerConfig(config);
+    if (!saved?.success) {
+      return res.status(500).json({
+        error: sanitizeError(saved?.error || "Configuration could not be written"),
+      });
+    }
     res.json({ success: true, message: "Configuration saved" });
   } catch (error) {
     log.error(`Failed to save config: ${error.message}`);
@@ -212,6 +222,8 @@ router.post("/option", async (req, res) => {
 // Sensitive keys that should be masked in API responses
 const SENSITIVE_KEYS = [
   "rconPassword",
+  // Retained so any value left in an existing db.json stays masked, even
+  // though this key is no longer writable.
   "discordToken",
   "steamApiKey",
   "steamSessionId",
@@ -615,7 +627,19 @@ router.post("/test-rcon", async (req, res) => {
       // Try a lightweight command to verify the connection is alive
       // Avoid 'help' — PZ dumps a huge response that can overflow RCON packets and hang
       try {
-        await rconService.execute("players", { skipLog: true });
+        // execute() reports a failed command by return value, so the catch
+        // below only ever saw transport-level errors.
+        const probe = await rconService.execute("players", { skipLog: true });
+        if (!probe?.success) {
+          res.json({
+            success: true,
+            message:
+              "Connected but command failed: " + sanitizeError(probe?.error),
+            connected: true,
+            warning: true,
+          });
+          return;
+        }
         res.json({
           success: true,
           message: "RCON connection successful",

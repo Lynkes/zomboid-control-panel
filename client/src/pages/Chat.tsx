@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { 
+import {
   MessagesSquare,
   Send,
   Users,
@@ -126,11 +126,18 @@ export default function Chat() {
              const incomingTs = Number.isFinite(parsedTs) ? parsedTs : Date.now()
              const recent = prev.slice(-20)
              const hasSameSocketId = data.id ? recent.some(m => m.id === data.id) : false
+             const bracketedServerEcho = (data.type === 'server' || !data.type)
+               ? msg.match(/^\[([^\]]+)\]\s+(.+)$/)
+               : null
              const isOptimisticEcho = recent.some(m =>
                m.id.startsWith('local-') &&
-               m.message === msg &&
-               m.author === data.author &&
-               Math.abs(m.timestamp.getTime() - incomingTs) < 15000
+               Math.abs(m.timestamp.getTime() - incomingTs) < 15000 &&
+               (
+                 (m.message === msg && m.author?.toLowerCase() === data.author?.toLowerCase()) ||
+                 (bracketedServerEcho !== null &&
+                   m.message === bracketedServerEcho[2] &&
+                   m.author?.toLowerCase() === bracketedServerEcho[1].toLowerCase())
+               )
              )
              if (hasSameSocketId || isOptimisticEcho) return prev
 

@@ -10,6 +10,7 @@ import {
   XCircle,
   RefreshCw,
   Play,
+  Pencil,
   Loader2,
   AlertCircle,
   ChevronDown,
@@ -114,6 +115,7 @@ export default function Scheduler() {
   const [newTaskCommand, setNewTaskCommand] = useState('')
   const [newTaskServerId, setNewTaskServerId] = useState<string>('')
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingTask, setEditingTask] = useState<ScheduledTask | null>(null)
 
   // Simple Scheduler State
   const [scheduleMode, setScheduleMode] = useState<'simple' | 'advanced'>('simple')
@@ -240,27 +242,86 @@ export default function Scheduler() {
 
     setLoading(true)
     try {
-      await schedulerApi.createTask(newTaskName, cronToUse, newTaskCommand, newTaskServerId || undefined)
+      if (editingTask) {
+        await schedulerApi.updateTask(
+          editingTask.id,
+          newTaskName,
+          cronToUse,
+          newTaskCommand,
+          !!editingTask.enabled,
+          newTaskServerId || undefined,
+        )
+      } else {
+        await schedulerApi.createTask(newTaskName, cronToUse, newTaskCommand, newTaskServerId || undefined)
+      }
       toast({
         title: 'Success',
-        description: 'Task created successfully',
+        description: editingTask ? 'Task updated successfully' : 'Task created successfully',
         variant: 'success' as const,
       })
-      setNewTaskName('')
-      setNewTaskCron('')
-      setNewTaskCommand('')
-      setNewTaskServerId('')
+      resetTaskForm()
       setDialogOpen(false)
       fetchData()
     } catch (error) {
       toast({
         title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to create task',
+        description: error instanceof Error
+          ? error.message
+          : `Failed to ${editingTask ? 'update' : 'create'} task`,
         variant: 'destructive',
       })
     } finally {
       setLoading(false)
     }
+  }
+
+  const resetTaskForm = () => {
+    setEditingTask(null)
+    setNewTaskName('')
+    setNewTaskCron('')
+    setNewTaskCommand('')
+    setNewTaskServerId('')
+    setScheduleMode('simple')
+    setSimpleIntervalType('daily')
+    setSimpleHour('06')
+    setSimpleMinute('00')
+    setSimpleHoursInterval('4')
+  }
+
+  // Reopen an existing schedule in the builder when its cron matches one the
+  // simple tab can express; anything else falls back to the raw cron field.
+  const applyCronToForm = (cronExpression: string) => {
+    setNewTaskCron(cronExpression)
+    const daily = /^(\d{1,2}) (\d{1,2}) \* \* \*$/.exec(cronExpression)
+    if (daily) {
+      setScheduleMode('simple')
+      setSimpleIntervalType('daily')
+      setSimpleMinute(daily[1])
+      setSimpleHour(daily[2])
+      return
+    }
+    if (/^0 \* \* \* \*$/.test(cronExpression)) {
+      setScheduleMode('simple')
+      setSimpleIntervalType('hourly')
+      return
+    }
+    const interval = /^0 \*\/(\d{1,2}) \* \* \*$/.exec(cronExpression)
+    if (interval) {
+      setScheduleMode('simple')
+      setSimpleIntervalType('interval')
+      setSimpleHoursInterval(interval[1])
+      return
+    }
+    setScheduleMode('advanced')
+  }
+
+  const handleEditTask = (task: ScheduledTask) => {
+    setEditingTask(task)
+    setNewTaskName(task.name)
+    setNewTaskCommand(task.command)
+    setNewTaskServerId(task.server_id != null ? String(task.server_id) : '')
+    applyCronToForm(task.cron_expression)
+    setDialogOpen(true)
   }
 
   const handleToggleTask = async (task: ScheduledTask) => {
@@ -271,7 +332,8 @@ export default function Scheduler() {
         task.name,
         task.cron_expression,
         task.command,
-        !task.enabled
+        !task.enabled,
+        task.server_id != null ? task.server_id : undefined
       )
       toast({
         title: 'Success',
@@ -315,21 +377,15 @@ export default function Scheduler() {
     if (runningTaskId !== null) return // Prevent double-click
     setRunningTaskId(task.id)
     try {
-      const result = await rconApi.execute(task.command)
-      if (result.success) {
-        toast({
-          title: 'Task Executed',
-          description: `"${task.name}" ran successfully`,
-          variant: 'success' as const,
-        })
-        fetchData() // Refresh to update history
-      } else {
-        toast({
-          title: 'Execution Failed',
-          description: result.response || 'Command failed',
-          variant: 'destructive',
-        })
-      }
+      // Goes through the same restart/save/servermsg/bridge: dispatch as a
+      // cron fire, instead of sending task.command to RCON as a raw string.
+      await schedulerApi.runTask(task.id)
+      toast({
+        title: 'Task Triggered',
+        description: `"${task.name}" is running`,
+        variant: 'success' as const,
+      })
+      fetchData() // Refresh to update history
     } catch (error) {
       toast({
         title: 'Error',
@@ -446,7 +502,13 @@ export default function Scheduler() {
           </AlertDescription>
         </Alert>
       )}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open)
+          if (!open) resetTaskForm()
+        }}
+      >
         <PageHeader
           title="Scheduler"
           description="Automate server tasks and restarts"
@@ -455,7 +517,7 @@ export default function Scheduler() {
           icon={<Clock className="w-5 h-5" />}
           actions={
             <DialogTrigger asChild>
-              <Button variant="command">
+              <Button variant="command" onClick={resetTaskForm}>
                 <Plus className="w-4 h-4 mr-2" />
                 New Task
               </Button>
@@ -464,9 +526,11 @@ export default function Scheduler() {
         />
         <DialogContent>
             <DialogHeader>
-              <DialogTitle>Create Scheduled Task</DialogTitle>
+              <DialogTitle>{editingTask ? 'Edit Scheduled Task' : 'Create Scheduled Task'}</DialogTitle>
               <DialogDescription>
-                Run a command on a schedule.
+                {editingTask
+                  ? `Change the schedule, command, or target server for "${editingTask.name}".`
+                  : 'Run a command on a schedule.'}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
@@ -636,7 +700,7 @@ export default function Scheduler() {
             </div>
             <DialogFooter>
               <Button onClick={handleCreateTask} disabled={loading}>
-                Create Task
+                {editingTask ? 'Save Changes' : 'Create Task'}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -952,6 +1016,16 @@ export default function Scheduler() {
                           ) : (
                             <Play className="w-4 h-4" />
                           )}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleEditTask(task)}
+                          disabled={loading}
+                          title="Edit task"
+                          aria-label={`Edit ${task.name}`}
+                        >
+                          <Pencil className="w-4 h-4" />
                         </Button>
                         <Switch
                           checked={!!task.enabled}

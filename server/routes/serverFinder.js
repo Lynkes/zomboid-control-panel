@@ -2,7 +2,7 @@ import express from 'express';
 import dgram from 'dgram';
 import { createLogger } from '../utils/logger.js';
 const log = createLogger('API:Finder');
-import { getSetting } from '../database/init.js';
+import { getSteamApiKey } from '../services/steamApiKey.js';
 import { sanitizeError } from '../utils/sanitize.js';
 
 const router = express.Router();
@@ -93,16 +93,16 @@ async function queryServerInfo(ip, port) {
  */
 function parseA2SInfoResponse(buffer) {
   let offset = 4; // Skip header (0xFFFFFFFF)
-  
+
   const header = buffer.readUInt8(offset++);
-  
+
   // Check for challenge response (0x41 = 'A')
   if (header === 0x41) {
     // Server sent a challenge, we'd need to resend with the challenge
     // For simplicity, we'll skip servers that require challenges
     throw new Error('Challenge required');
   }
-  
+
   // 'I' (0x49) = Source server info response
   // 'm' (0x6D) = Obsolete GoldSource response
   if (header !== 0x49 && header !== 0x6D) {
@@ -156,31 +156,31 @@ function parseA2SInfoResponse(buffer) {
   // Extra data flag (EDF)
   if (offset < buffer.length) {
     const edf = buffer.readUInt8(offset++);
-    
+
     // Port
     if (edf & 0x80) {
       info.gamePort = buffer.readUInt16LE(offset);
       offset += 2;
     }
-    
+
     // Steam ID
     if (edf & 0x10) {
       // 64-bit Steam ID
       offset += 8;
     }
-    
+
     // SourceTV
     if (edf & 0x40) {
       info.sourceTvPort = buffer.readUInt16LE(offset);
       offset += 2;
       info.sourceTvName = readString();
     }
-    
+
     // Keywords/Tags
     if (edf & 0x20) {
       info.keywords = readString();
     }
-    
+
     // Game ID
     if (edf & 0x01) {
       // 64-bit Game ID
@@ -250,21 +250,21 @@ async function queryMasterServer(masterHost, masterPort, region = 0xFF, filters 
       // Filter string
       const seedAddr = `${seedIp}:${seedPort}`;
       const filterStr = filters + '\0';
-      
+
       const packet = Buffer.alloc(2 + seedAddr.length + 1 + filterStr.length);
       let offset = 0;
-      
+
       packet.writeUInt8(0x31, offset++); // Query type
       packet.writeUInt8(region, offset++); // Region
-      
+
       // Seed address
       Buffer.from(seedAddr).copy(packet, offset);
       offset += seedAddr.length;
       packet.writeUInt8(0, offset++); // Null terminator
-      
+
       // Filter
       Buffer.from(filterStr).copy(packet, offset);
-      
+
       socket.send(packet, masterPort, masterHost);
     };
 
@@ -296,7 +296,7 @@ async function getServersFromSteamAPI(apiKey, useCache = true) {
   }
 
   const allServers = new Map(); // Use Map to deduplicate by addr
-  
+
   // Different filters to maximize server coverage (run in parallel)
   const baseFilters = [
     `\\appid\\${PZ_APP_ID}`, // All servers (up to limit)
@@ -322,7 +322,7 @@ async function getServersFromSteamAPI(apiKey, useCache = true) {
 
   // Fetch all filters in parallel
   const results = await Promise.all(baseFilters.map(fetchWithFilter));
-  
+
   // Merge and deduplicate
   for (const servers of results) {
     for (const server of servers) {
@@ -331,9 +331,9 @@ async function getServersFromSteamAPI(apiKey, useCache = true) {
       }
     }
   }
-  
+
   log.info(`Steam API returned ${allServers.size} unique servers`);
-  
+
   // Update cache
   const serverArray = Array.from(allServers.values());
   serverCache = {
@@ -353,7 +353,7 @@ router.get('/', async (req, res) => {
     log.info(`GET / (server finder): refresh=${req.query.refresh || 'false'}`);
     let servers = [];
     let source = 'steam_api';
-    const steamApiKey = await getSetting('steamApiKey');
+    const steamApiKey = await getSteamApiKey();
     let apiKeyConfigured = !!steamApiKey;
     const forceRefresh = req.query.refresh === 'true';
     let cached = false;
@@ -373,13 +373,13 @@ router.get('/', async (req, res) => {
           const tags = gametype.split(';').filter(t => t && !t.startsWith('VERSION:'));
           const versionMatch = gametype.match(/VERSION:([0-9.]+)/);
           const gameVersion = versionMatch ? versionMatch[1] : '';
-          
+
           // Safely parse IP and port from addr (format: "ip:port")
           const addrParts = s.addr?.split(':') || [];
           const ip = addrParts[0] || '';
           const portFromAddr = addrParts[1] ? parseInt(addrParts[1], 10) : NaN;
           const port = !isNaN(portFromAddr) ? portFromAddr : (s.gameport || 16261);
-          
+
           return {
             name: s.name || 'Unknown',
             ip,
@@ -401,7 +401,7 @@ router.get('/', async (req, res) => {
             ping: null, // Not available from API
           };
         });
-        
+
         log.info(`Found ${servers.length} PZ servers via Steam API`);
       } catch (apiError) {
         log.warn('Steam API failed, trying master server query:', apiError.message);
@@ -415,11 +415,11 @@ router.get('/', async (req, res) => {
       try {
         // Query master server for Project Zomboid servers
         const filter = `\\appid\\${PZ_APP_ID}`;
-        
+
         for (const master of MASTER_SERVERS) {
           try {
             const masterServers = await queryMasterServer(master.host, master.port, 0xFF, filter);
-            
+
             // Query each server for details (limit concurrent queries)
             const batchSize = 50;
             for (let i = 0; i < masterServers.length; i += batchSize) {
@@ -427,16 +427,16 @@ router.get('/', async (req, res) => {
               const results = await Promise.all(
                 batch.map(s => queryServerInfo(s.ip, s.port))
               );
-              
+
               servers.push(...results.filter(Boolean));
             }
-            
+
             if (servers.length > 0) break;
           } catch (e) {
             log.warn(`Master server ${master.host} query failed:`, e.message);
           }
         }
-        
+
         log.info(`Found ${servers.length} PZ servers via master server`);
       } catch (masterError) {
         log.error('Master server query failed:', masterError.message);
@@ -477,7 +477,7 @@ router.get('/', async (req, res) => {
 router.get('/query', async (req, res) => {
   const { ip, port } = req.query;
   log.info(`GET /query: ip=${ip}, port=${port}`);
-  
+
   if (!ip || !port) {
     return res.status(400).json({
       success: false,
@@ -504,7 +504,7 @@ router.get('/query', async (req, res) => {
 
   try {
     const info = await queryServerInfo(ip, portNum);
-    
+
     if (!info) {
       return res.status(504).json({
         success: false,
@@ -530,7 +530,7 @@ router.get('/query', async (req, res) => {
  */
 router.get('/ping', async (req, res) => {
   const { ip, port } = req.query;
-  
+
   if (!ip || !port) {
     return res.status(400).json({
       success: false,
@@ -556,11 +556,11 @@ router.get('/ping', async (req, res) => {
   }
 
   const startTime = Date.now();
-  
+
   try {
     const info = await queryServerInfo(ip, portNum);
     const ping = Date.now() - startTime;
-    
+
     if (!info) {
       return res.json({
         success: true,
@@ -588,14 +588,14 @@ router.get('/ping', async (req, res) => {
  */
 router.get('/debug', async (req, res) => {
   try {
-    const steamApiKey = await getSetting('steamApiKey');
+    const steamApiKey = await getSteamApiKey();
     if (!steamApiKey) {
       return res.status(400).json({ error: 'Steam API key not configured' });
     }
 
     // Get just a few servers with raw data
     const url = `https://api.steampowered.com/IGameServersService/GetServerList/v1/?key=${steamApiKey}&filter=\\appid\\${PZ_APP_ID}\\noplayers\\0&limit=10`;
-    
+
     const response = await fetch(url);
     if (!response.ok) {
       return res.status(500).json({ error: `Steam API error: ${response.status}` });

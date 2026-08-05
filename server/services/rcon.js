@@ -9,6 +9,15 @@ import {
   getServer,
 } from "../database/init.js";
 import { SourceRconClient } from "../utils/sourceRcon.js";
+import { readSecret } from "../utils/secrets.js";
+
+// Hosts pasted from a game-server-provider panel routinely carry surrounding
+// whitespace, which makes DNS resolution fail with ENOTFOUND and looks exactly
+// like an unreachable server.
+export function normalizeRconHost(host) {
+  if (typeof host !== "string") return "127.0.0.1";
+  return host.trim() || "127.0.0.1";
+}
 
 export class RconService extends EventEmitter {
   constructor() {
@@ -20,10 +29,11 @@ export class RconService extends EventEmitter {
     this.connected = false;
     this.connecting = false; // Mutex to prevent concurrent connection attempts
     this.connectPromise = null; // Store ongoing connection promise
+    this.passwordFromSecretFile = Boolean(process.env.RCON_PASSWORD_FILE);
     this.config = {
       host: process.env.RCON_HOST || "127.0.0.1",
       port: parseInt(process.env.RCON_PORT, 10) || 27015,
-      password: process.env.RCON_PASSWORD || "",
+      password: readSecret("RCON_PASSWORD") || "",
     };
     this.reconnectAttempts = 0;
     this.maxReconnectAttempts = 5;
@@ -243,8 +253,10 @@ export class RconService extends EventEmitter {
         ? await getServer(serverId)
         : await getActiveServer();
       if (targetServer?.rconPassword) {
-        this.config.password = targetServer.rconPassword;
-        this.config.host = targetServer.rconHost || "127.0.0.1";
+        if (!this.passwordFromSecretFile) {
+          this.config.password = targetServer.rconPassword;
+        }
+        this.config.host = normalizeRconHost(targetServer.rconHost);
         this.config.port = parseInt(targetServer.rconPort, 10) || 27015;
         log.info(
           serverId
@@ -264,7 +276,7 @@ export class RconService extends EventEmitter {
         const dbPort = await getSetting("rconPort");
         const dbPassword = await getSetting("rconPassword");
 
-        if (dbPassword) {
+        if (dbPassword && !this.passwordFromSecretFile) {
           this.config.password = dbPassword;
           log.info("password loaded from legacy settings");
         }
@@ -272,7 +284,7 @@ export class RconService extends EventEmitter {
           this.config.port = parseInt(dbPort, 10);
         }
         if (dbHost) {
-          this.config.host = dbHost;
+          this.config.host = normalizeRconHost(dbHost);
         }
       } else {
         log.warn(`No RCON config found for server ${serverId}`);
@@ -468,11 +480,15 @@ export class RconService extends EventEmitter {
         this.config.port,
       );
       if (!isOpen) {
-        log.debug(
-          `Skipping connection - Port ${this.config.host}:${this.config.port} is not listening yet`,
-        );
-        // We consider this a "soft" failure - don't increment failure counters too aggressively?
-        // Actually, returning false here just means "try again later" in auto-reconnect loop
+        // Throttled to one line a minute: this used to be debug-only, so a
+        // wrong host or a closed port produced no diagnosis at all.
+        const now = Date.now();
+        if (now - this.lastConnectionErrorLog > this.connectionErrorLogCooldown) {
+          this.lastConnectionErrorLog = now;
+          log.warn(
+            `RCON ${this.config.host}:${this.config.port} is not reachable - check the host, port, and that RCON is enabled on the server`,
+          );
+        }
         return false;
       }
     } catch (e) {
@@ -759,6 +775,20 @@ export class RconService extends EventEmitter {
       }
 
       log.debug(`response: ${response}`);
+
+      // The server answers an unrecognised command with a normal RCON reply, so
+      // without this check a command removed by a game update looks like it
+      // succeeded. Build 42 dropped several Build 41 commands this way.
+      if (typeof response === "string" && /^\s*Unknown command\b/i.test(response)) {
+        const unknown = response.trim();
+        log.warn(`Server rejected command as unknown: ${command}`);
+        return {
+          success: false,
+          error: `${unknown}. This command is not available on this server build.`,
+          response: unknown,
+        };
+      }
+
       return {
         success: true,
         response: response || "Command executed successfully",
@@ -1047,10 +1077,17 @@ export class RconService extends EventEmitter {
     );
   }
 
-  async addToWhitelist(username) {
-    return this.execute(
-      `addusertowhitelist "${this.sanitizeQuotedArg(username, "Username", 64)}"`,
-    );
+  async addToWhitelist(username, password) {
+    // Build 41's `addusertowhitelist` was removed in Build 42; the replacement
+    // creates the account outright and therefore needs a password.
+    const safeUser = this.sanitizeQuotedArg(username, "Username", 64);
+    if (!password || typeof password !== "string") {
+      throw new Error(
+        "Build 42 requires a password to add a whitelist user. Provide one, or add the account with /adduser on the server console.",
+      );
+    }
+    const safePassword = this.sanitizeQuotedArg(password, "Password", 128);
+    return this.execute(`adduser "${safeUser}" "${safePassword}"`);
   }
 
   async removeFromWhitelist(username) {
@@ -1280,7 +1317,11 @@ export class RconService extends EventEmitter {
   }
 
   async addAllToWhitelist() {
-    return this.execute("addalltowhitelist");
+    // No Build 42 equivalent exists; fail loudly instead of sending a command
+    // the server will silently reject.
+    throw new Error(
+      "Build 42 removed the bulk whitelist command. Add players individually with a username and password.",
+    );
   }
 
   // Events
@@ -1331,7 +1372,7 @@ export class RconService extends EventEmitter {
 
     try {
       // Use 'players' command as a lightweight health check (with timeout)
-      const response = await Promise.race([
+      await Promise.race([
         this.client.execute("players"),
         new Promise((_, reject) =>
           setTimeout(() => reject(new Error("Health check timed out")), 10000),

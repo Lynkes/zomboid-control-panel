@@ -1,10 +1,26 @@
 ---@diagnostic disable: undefined-global, deprecated
 --[[
     PanelBridge - Server-side mod for Zomboid Control Panel
-    Version: 1.7.19
+    Version: 1.7.21
 
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
+
+                v1.7.21 Changes:
+                - Loaded vehicles reach the panel again. The vehicle list reports
+                    its size correctly but does not expose get as a Lua field, so the
+                    field-existence guard discarded every vehicle: a live server with
+                    21 loaded vehicles returned count 0 and skipped 21. The World Map
+                    then showed only vehicles read from vehicles.db, which have no
+                    telemetry and no repair or battery controls, even when a player
+                    was standing next to the car. Same root cause as the collection
+                    guard fixed in v1.7.17. Also restores vehicle lookup by id, so
+                    repair, battery, and area removal work again.
+
+                v1.7.20 Changes:
+                - Repair and battery controls now use Build 42 vehicle-part APIs.
+                - Corrected the runtime version constant so automatic updates
+                    recognize this bridge as newer than v1.7.19.
 
                 v1.7.19 Changes:
                 - Character imports now preserve the invariant that cumulative XP is
@@ -268,7 +284,7 @@
 local json
 
 local PanelBridge = {
-    VERSION = "1.7.18",
+    VERSION = "1.7.21",
     PROTOCOL_VERSION = "queue-v1",
     CHECK_INTERVAL = 250, -- milliseconds (fast command polling)
     lastCheck = 0,
@@ -6157,6 +6173,15 @@ local function getVehiclesList()
     return nil
 end
 
+-- Some builds expose the vehicle list's get(i) only as a callable method and
+-- not as an indexable property, so testing `vehicles.get` first discarded
+-- every loaded vehicle. Call it protected instead of probing for it.
+local function vehicleAt(vehicles, i)
+    local ok, v = pcall(function() return vehicles:get(i) end)
+    if ok then return v end
+    return nil
+end
+
 local function findVehicleById(vehicleId)
     local vehicles = getVehiclesList()
     if not vehicles then return nil end
@@ -6165,7 +6190,7 @@ local function findVehicleById(vehicleId)
     if not targetId then return nil end
 
     for i = 0, vehicles:size() - 1 do
-        local v = vehicles.get and vehicles:get(i) or nil
+        local v = vehicleAt(vehicles, i)
         if v and v.getId and tonumber(v:getId()) == targetId then
             return v
         end
@@ -6199,11 +6224,7 @@ handlers.getVehiclesDetailed = function(args)
         -- must not bring down the whole detail query, otherwise the panel
         -- loses visibility of every vehicle on the server.
         local ok, entry = pcall(function()
-            -- .get isn't guaranteed to exist on every vehicle-list
-            -- implementation (varies by PZ build/API) — guard it the same
-            -- way .size is guarded above, or this throws "call nil" on
-            -- every single vehicle, every tick.
-            local v = vehicles.get and vehicles:get(i) or nil
+            local v = vehicleAt(vehicles, i)
             if not v then return nil end
             -- Each getter is independently guarded so one broken accessor
             -- (e.g. a missing battery part on a modded vehicle) doesn't
@@ -6243,13 +6264,35 @@ handlers.vehicleRepair = function(args)
     local vehicle = findVehicleById(args.vehicleId)
     if not vehicle then return false, nil, "Vehicle not found" end
 
-    local ok, err = pcall(function()
-        if vehicle.repair then vehicle:repair() end
+    local ok, repairedOrErr = pcall(function()
+        local partCount = vehicle.getPartCount and vehicle:getPartCount() or 0
+        local repaired = 0
+        for i = 0, partCount - 1 do
+            local part = vehicle.getPartByIndex and vehicle:getPartByIndex(i) or nil
+            if part and part.setCondition then
+                local item = part.getInventoryItem and part:getInventoryItem() or nil
+                local condition = item and item.getConditionMax and item:getConditionMax() or 100
+                part:setCondition(condition)
+                if item then
+                    if item.setCondition then item:setCondition(condition) end
+                    if part.doInventoryItemStats then
+                        part:doInventoryItemStats(item, part:getMechanicSkillInstaller())
+                    end
+                end
+                if vehicle.transmitPartCondition then vehicle:transmitPartCondition(part) end
+                if item and vehicle.transmitPartItem then vehicle:transmitPartItem(part) end
+                if vehicle.transmitPartModData then vehicle:transmitPartModData(part) end
+                repaired = repaired + 1
+            end
+        end
+        if repaired == 0 then error("No repairable vehicle parts available") end
         if vehicle.updatePartStats then vehicle:updatePartStats() end
+        if vehicle.updateBulletStats then vehicle:updateBulletStats() end
+        return repaired
     end)
-    if not ok then return false, nil, "Vehicle repair failed: " .. tostring(err) end
+    if not ok then return false, nil, "Vehicle repair failed: " .. tostring(repairedOrErr) end
 
-    return true, { message = "Vehicle repaired", vehicleId = tonumber(args.vehicleId) }
+    return true, { message = "Vehicle repaired", vehicleId = tonumber(args.vehicleId), parts = repairedOrErr }
 end
 
 handlers.vehicleSetAlarm = function(args)
@@ -6346,17 +6389,12 @@ handlers.vehicleSetBattery = function(args)
     charge = math.min(math.max(charge, 0), 100)
 
     local ok, err = pcall(function()
-        -- B42: battery charge is set via the battery part's inventory item
-        -- Pattern from VehicleUtils.chargeBattery in Vehicles.lua
         local battery = vehicle.getBattery and vehicle:getBattery() or nil
         if battery and battery.getInventoryItem then
             local item = battery:getInventoryItem()
-            if item and item.setUsedDelta then
-                item:setUsedDelta(charge / 100)
-                if vehicle.transmitPartUsedDelta then
-                    vehicle:transmitPartUsedDelta(battery)
-                end
-                return -- B42 success
+            if item and item.getCurrentUsesFloat and VehicleUtils and VehicleUtils.chargeBattery then
+                VehicleUtils.chargeBattery(vehicle, charge / 100 - item:getCurrentUsesFloat())
+                return
             end
         end
         -- B41 fallback (also used if B42 battery has no inventory item)
@@ -6427,7 +6465,7 @@ handlers.removeVehiclesInArea = function(args)
     local removed = 0
     local removedList = {}
     for i = vehicles:size() - 1, 0, -1 do
-        local v = vehicles.get and vehicles:get(i) or nil
+        local v = vehicleAt(vehicles, i)
         if v then
             local vx = v.getX and v:getX() or 0
             local vy = v.getY and v:getY() or 0

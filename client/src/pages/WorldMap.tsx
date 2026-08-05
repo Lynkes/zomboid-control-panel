@@ -66,7 +66,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { panelBridgeApi, updateApi, serversApi, mapApi } from '@/lib/api'
+import { panelBridgeApi, updateApi, serversApi, mapApi, playersApi } from '@/lib/api'
 import { useToast } from '@/components/ui/use-toast'
 import { cn } from '@/lib/utils'
 
@@ -129,15 +129,16 @@ interface MapVehicle {
   id: number
   x: number
   y: number
-  z: number
-  scriptName: string
-  type: string
-  speedKmh: number
-  batteryCharge: number
-  fuelPct: number
-  alarmed: boolean
-  sirening: boolean
-  trunkLocked: boolean
+  persisted?: boolean
+  z?: number
+  scriptName?: string
+  type?: string
+  speedKmh?: number
+  batteryCharge?: number
+  fuelPct?: number
+  alarmed?: boolean
+  sirening?: boolean
+  trunkLocked?: boolean
 }
 
 interface MapSafehouse {
@@ -482,6 +483,9 @@ function resolveCanvasColors() {
     shadowOpaque: 'rgba(0,0,0,1)',
     // Player markers
     headHighlight: 'rgba(255,255,255,0.3)',
+    playerRim: 'rgba(10,12,16,0.92)',
+    playerGlyph: 'rgba(10,12,16,0.85)',
+    playerInfectedRing: hslToken('--destructive', 0.85),
     adminStar: hslToken('--warning', 0.9),
     healthBarBg: 'rgba(0,0,0,0.5)',
     healthGood: hslToken('--success', 0.8),
@@ -535,6 +539,10 @@ const PZ_LANDMARKS = [
   { name: 'March Ridge',    gx: 10100, gy: 12700 },
   { name: 'Valley Station', gx: 13200, gy:  5300 },
   { name: 'Fallas Lake',    gx:  7460, gy:  9050 },
+  { name: 'Ekron',          gx:   550, gy:  9750 },
+  { name: 'Brandenburg',    gx:  2100, gy:  6080 },
+  { name: 'Irvington',      gx:  2500, gy: 14250 },
+  { name: 'Echo Creek',     gx:  3520, gy: 10930 },
 ]
 
 // ─── Component ────────────────────────────────────────────
@@ -629,7 +637,7 @@ export default function WorldMap() {
       // localStorage full / unavailable — silent
     }
   }, [])
-  const [floor, setFloor] = useState(0)    // PZ floor: 0 = ground, 1+ = upper, -1 = basement
+  const [floor, setFloor] = useState(0)    // Published B42 map layers: -1 = basement, 0 = ground, 1-7 = upper floors
   const floorRef = useRef(0)
   const { toast } = useToast()
 
@@ -639,7 +647,7 @@ export default function WorldMap() {
 
   // Change floor — clears tile cache since tiles differ per floor
   const changeFloor = useCallback((newFloor: number) => {
-    const clamped = Math.max(-17, Math.min(29, newFloor))
+    const clamped = Math.max(-1, Math.min(7, newFloor))
     setFloor(clamped)
     floorRef.current = clamped
     // Mark all in-flight loads as orphaned so their callbacks are no-ops
@@ -907,7 +915,8 @@ export default function WorldMap() {
       }
     }
 
-    const ext = f === 0 ? 'jpg' : 'webp'
+    // Every B42 layer DZI declares JPEG tiles, including upper floors.
+    const ext = 'jpg'
     const proxyFloorParam = f !== 0 ? `?floor=${f}` : ''
     const proxyUrl = `${mapCfgRef.current.tileUrl}/${level}/${col}_${row}.${ext}${proxyFloorParam}`
 
@@ -1101,16 +1110,30 @@ export default function WorldMap() {
   const fetchOverlays = useCallback(async () => {
     if (!mountedRef.current || !hasActiveServer) return
     try {
-      const [vRes, sRes] = await Promise.allSettled([
+      const [vRes, persistedRes, sRes] = await Promise.allSettled([
         panelBridgeApi.sendCommand('getVehiclesDetailed'),
+        mapApi.vehicles(),
         panelBridgeApi.sendCommand('getSafehouses'),
       ])
       if (!mountedRef.current) return
+      const vehicleById = new Map<number, MapVehicle>()
+      if (persistedRes.status === 'fulfilled') {
+        for (const vehicle of persistedRes.value.vehicles) {
+          if (Number.isFinite(vehicle.id) && Number.isFinite(vehicle.x) && Number.isFinite(vehicle.y)) {
+            vehicleById.set(vehicle.id, { ...vehicle, persisted: true })
+          }
+        }
+      }
       if (vRes.status === 'fulfilled' && vRes.value.success && vRes.value.data) {
         const vData = vRes.value.data as Record<string, unknown>
         const vList = Array.isArray(vData) ? vData : Array.isArray(vData.vehicles) ? vData.vehicles : []
-        setVehicles((vList as MapVehicle[]).filter(v => typeof v.x === 'number' && typeof v.y === 'number' && isFinite(v.x) && isFinite(v.y)))
+        for (const vehicle of vList as MapVehicle[]) {
+          if (typeof vehicle.id === 'number' && typeof vehicle.x === 'number' && typeof vehicle.y === 'number' && isFinite(vehicle.x) && isFinite(vehicle.y)) {
+            vehicleById.set(vehicle.id, vehicle)
+          }
+        }
       }
+      setVehicles([...vehicleById.values()])
       if (sRes.status === 'fulfilled' && sRes.value.success && sRes.value.data) {
         const sData = sRes.value.data as Record<string, unknown>
         const sList = Array.isArray(sData) ? sData : Array.isArray(sData.safehouses) ? sData.safehouses : []
@@ -1402,7 +1425,7 @@ export default function WorldMap() {
 
     // ── Player markers ──
     const currentPlayers = playersRef.current
-    const mRadius = Math.max(5, Math.min(9, s * 1400))
+    const mRadius = Math.max(5, Math.min(16, s * 1400))
 
     for (const player of currentPlayers) {
       // Interpolate position (skip if reduced motion)
@@ -1424,19 +1447,16 @@ export default function WorldMap() {
       const isInfected = !!player.isInfected && !isDead
       const pinScale = isHovered || isSelected ? 1.2 : 1
 
-      // Pin geometry — a refined teardrop anchored at p.x, p.y
-      const tipX = p.x
-      const tipY = p.y
-      const headR = mRadius * 1.0 * pinScale
-      const headCenterY = tipY - headR * 2.2 // head sits above the tip
-      const shoulderOffset = headR * 0.85 // where the teardrop sides meet the head
+      // Top-down survivor token, centred on the real tile position so players
+      // read the same way as the top-down vehicle icons.
+      const r = mRadius * pinScale
       const color = getPlayerColor(player, 0.95)
 
-      // 1. Ground shadow — soft ellipse beneath the tip to anchor the pin
+      // 1. Ground shadow
       ctx.save()
       ctx.fillStyle = 'rgba(0,0,0,0.35)'
       ctx.beginPath()
-      ctx.ellipse(tipX, tipY + 1.5, headR * 0.9, headR * 0.3, 0, 0, Math.PI * 2)
+      ctx.ellipse(p.x, p.y + r * 0.8, r * 0.8, r * 0.3, 0, 0, Math.PI * 2)
       ctx.fill()
       ctx.restore()
 
@@ -1444,11 +1464,9 @@ export default function WorldMap() {
       if (!prefersReducedMotion.current && !isDead) {
         const seed = player.username.charCodeAt(0) / 26
         const pulsePhase = (now / 1800 + seed) % 1
-        const pulseRadius = headR + 2 + pulsePhase * 10
-        const pulseAlpha = 0.32 * (1 - pulsePhase)
         ctx.beginPath()
-        ctx.arc(p.x, headCenterY, pulseRadius, 0, Math.PI * 2)
-        ctx.strokeStyle = getPlayerColor(player, pulseAlpha)
+        ctx.arc(p.x, p.y, r + 1 + pulsePhase * 9, 0, Math.PI * 2)
+        ctx.strokeStyle = getPlayerColor(player, 0.3 * (1 - pulsePhase))
         ctx.lineWidth = 1.5
         ctx.stroke()
       }
@@ -1456,147 +1474,87 @@ export default function WorldMap() {
       // 3. Selection / hover halo
       if (isHovered || isSelected) {
         ctx.beginPath()
-        ctx.arc(p.x, headCenterY, headR + 4, 0, Math.PI * 2)
-        ctx.fillStyle = getPlayerColor(player, 0.2)
+        ctx.arc(p.x, p.y, r + 4.5, 0, Math.PI * 2)
+        ctx.fillStyle = getPlayerColor(player, 0.18)
         ctx.fill()
-      }
-
-      // 4. Teardrop body — rounded top, tapered to tip
-      // Using bezier curves from tip → left shoulder → top arc → right shoulder → back to tip.
-      ctx.save()
-      ctx.shadowColor = 'rgba(0,0,0,0.45)'
-      ctx.shadowBlur = 4
-      ctx.shadowOffsetX = 0
-      ctx.shadowOffsetY = 2
-
-      ctx.beginPath()
-      ctx.moveTo(tipX, tipY)
-      // Left side: tip → left shoulder
-      ctx.quadraticCurveTo(
-        tipX - shoulderOffset * 0.4,
-        tipY - headR * 1.2,
-        tipX - shoulderOffset,
-        headCenterY + headR * 0.55
-      )
-      // Top arc: left shoulder → over the head → right shoulder
-      ctx.arc(p.x, headCenterY, headR * 1.05, Math.PI + 0.55, -0.55, false)
-      // Right side: right shoulder → tip
-      ctx.quadraticCurveTo(
-        tipX + shoulderOffset * 0.4,
-        tipY - headR * 1.2,
-        tipX,
-        tipY
-      )
-      ctx.closePath()
-      ctx.fillStyle = color
-      ctx.fill()
-      ctx.restore()
-
-      // 5. Pin outline for crispness
-      ctx.beginPath()
-      ctx.moveTo(tipX, tipY)
-      ctx.quadraticCurveTo(
-        tipX - shoulderOffset * 0.4,
-        tipY - headR * 1.2,
-        tipX - shoulderOffset,
-        headCenterY + headR * 0.55
-      )
-      ctx.arc(p.x, headCenterY, headR * 1.05, Math.PI + 0.55, -0.55, false)
-      ctx.quadraticCurveTo(
-        tipX + shoulderOffset * 0.4,
-        tipY - headR * 1.2,
-        tipX,
-        tipY
-      )
-      ctx.closePath()
-      ctx.strokeStyle = 'rgba(0,0,0,0.7)'
-      ctx.lineWidth = 1.2
-      ctx.stroke()
-
-      // 6. Inner head disc — a darker plate that the 'face' sits on
-      ctx.beginPath()
-      ctx.arc(p.x, headCenterY, headR * 0.72, 0, Math.PI * 2)
-      ctx.fillStyle = 'rgba(0,0,0,0.32)'
-      ctx.fill()
-
-      // 7. Face disc — solid head in the player color, with rim
-      ctx.beginPath()
-      ctx.arc(p.x, headCenterY, headR * 0.58, 0, Math.PI * 2)
-      ctx.fillStyle = color
-      ctx.fill()
-      ctx.strokeStyle = 'rgba(0,0,0,0.45)'
-      ctx.lineWidth = 0.8
-      ctx.stroke()
-
-      // 8. Specular highlight on the head
-      ctx.beginPath()
-      ctx.arc(p.x - headR * 0.22, headCenterY - headR * 0.25, headR * 0.2, 0, Math.PI * 2)
-      ctx.fillStyle = 'rgba(255,255,255,0.38)'
-      ctx.fill()
-
-      // 9. Infected indicator — a jagged viral ring
-      if (isInfected && !prefersReducedMotion.current) {
-        const spikes = 8
-        const innerR = headR * 0.85
-        const outerR = headR * 1.15 + Math.sin(now / 400) * 0.8
         ctx.beginPath()
-        for (let i = 0; i < spikes * 2; i++) {
-          const angle = (i / (spikes * 2)) * Math.PI * 2 - Math.PI / 2
-          const r = i % 2 === 0 ? outerR : innerR
-          const x = p.x + Math.cos(angle) * r
-          const y = headCenterY + Math.sin(angle) * r
-          if (i === 0) ctx.moveTo(x, y)
-          else ctx.lineTo(x, y)
-        }
-        ctx.closePath()
-        ctx.strokeStyle = hslToken('--destructive', 0.75)
+        ctx.arc(p.x, p.y, r + 4.5, 0, Math.PI * 2)
+        ctx.strokeStyle = getPlayerColor(player, 0.9)
         ctx.lineWidth = 1.2
         ctx.stroke()
       }
 
-      // 10. Dead overlay — X through the pin
-      if (isDead) {
-        const xLen = headR * 0.65
-        ctx.save()
-        ctx.strokeStyle = 'rgba(255,255,255,0.9)'
-        ctx.lineWidth = 1.5
-        ctx.lineCap = 'round'
-        ctx.beginPath()
-        ctx.moveTo(p.x - xLen, headCenterY - xLen)
-        ctx.lineTo(p.x + xLen, headCenterY + xLen)
-        ctx.moveTo(p.x + xLen, headCenterY - xLen)
-        ctx.lineTo(p.x - xLen, headCenterY + xLen)
-        ctx.stroke()
-        ctx.restore()
-      }
+      // 4. Token disc — dark rim keeps the marker legible over any terrain
+      ctx.save()
+      ctx.shadowColor = 'rgba(0,0,0,0.5)'
+      ctx.shadowBlur = 4
+      ctx.shadowOffsetY = 1
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2)
+      ctx.fillStyle = C.playerRim
+      ctx.fill()
+      ctx.restore()
 
-      // 11. Admin crown badge — replaces the old 5-point star
-      if (isAdmin) {
-        const bx = p.x + headR * 0.95
-        const by = headCenterY - headR * 0.85
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, r * 0.84, 0, Math.PI * 2)
+      ctx.fillStyle = color
+      ctx.fill()
+
+      // 5. Survivor glyph — head over shoulders, dropped when it would blur
+      if (r >= 6.5) {
         ctx.save()
-        ctx.fillStyle = C.adminStar
-        ctx.strokeStyle = 'rgba(0,0,0,0.6)'
-        ctx.lineWidth = 0.8
-        // Tiny crown shape (3 points + base)
-        const crownH = headR * 0.55
-        const crownW = headR * 0.8
+        ctx.fillStyle = C.playerGlyph
         ctx.beginPath()
-        ctx.moveTo(bx - crownW / 2, by + crownH / 2)
-        ctx.lineTo(bx - crownW / 2, by - crownH / 4)
-        ctx.lineTo(bx - crownW / 4, by + crownH / 4)
-        ctx.lineTo(bx, by - crownH / 2)
-        ctx.lineTo(bx + crownW / 4, by + crownH / 4)
-        ctx.lineTo(bx + crownW / 2, by - crownH / 4)
-        ctx.lineTo(bx + crownW / 2, by + crownH / 2)
+        ctx.arc(p.x, p.y - r * 0.28, r * 0.3, 0, Math.PI * 2)
+        ctx.fill()
+        // Shoulders are a dome so the pair never reads as a face
+        ctx.beginPath()
+        ctx.arc(p.x, p.y + r * 0.58, r * 0.56, Math.PI, 0)
         ctx.closePath()
         ctx.fill()
+        ctx.restore()
+      }
+
+      // 6. Infected ring
+      if (isInfected) {
+        const wobble = prefersReducedMotion.current ? 0 : Math.sin(now / 400) * 0.6
+        ctx.save()
+        ctx.setLineDash([2.5, 2.5])
+        ctx.beginPath()
+        ctx.arc(p.x, p.y, r + 3.2 + wobble, 0, Math.PI * 2)
+        ctx.strokeStyle = C.playerInfectedRing
+        ctx.lineWidth = 1.4
         ctx.stroke()
         ctx.restore()
       }
 
-      // 12. Username label above the pin
-      const labelY = headCenterY - headR - 6
+      // 7. Dead overlay
+      if (isDead) {
+        const xLen = r * 0.44
+        ctx.save()
+        ctx.strokeStyle = 'rgba(255,255,255,0.9)'
+        ctx.lineWidth = 1.6
+        ctx.lineCap = 'round'
+        ctx.beginPath()
+        ctx.moveTo(p.x - xLen, p.y - xLen)
+        ctx.lineTo(p.x + xLen, p.y + xLen)
+        ctx.moveTo(p.x + xLen, p.y - xLen)
+        ctx.lineTo(p.x - xLen, p.y + xLen)
+        ctx.stroke()
+        ctx.restore()
+      }
+
+      // 8. Admin ring
+      if (isAdmin) {
+        ctx.beginPath()
+        ctx.arc(p.x, p.y, r + 1.6, 0, Math.PI * 2)
+        ctx.strokeStyle = C.adminStar
+        ctx.lineWidth = 1.6
+        ctx.stroke()
+      }
+
+      // 9. Username label above the token
+      const labelY = p.y - r - 7
       const labelAlpha = isHovered || isSelected ? 1 : 0.85
       ctx.font = `600 ${Math.max(10, Math.min(13, s * 2500))}px ui-sans-serif, system-ui, sans-serif`
       ctx.textAlign = 'center'
@@ -1608,12 +1566,12 @@ export default function WorldMap() {
       ctx.fillText(player.displayName || player.username, p.x, labelY)
       ctx.restore()
 
-      // 13. Health bar below the tip
+      // 10. Health bar below the token
       if (player.health !== undefined && s > 0.0005 && !isDead) {
         const barW = 26
         const barH = 3
         const barX = p.x - barW / 2
-        const barY = tipY + 4
+        const barY = p.y + r + 5
         const healthPct = Math.max(0, Math.min(100, player.health)) / 100
 
         // Backdrop
@@ -1955,18 +1913,12 @@ export default function WorldMap() {
       const wp = screenToTile(mx, my)
       setCursorWorldPos(wp)
 
-      // Hit test players — pin anchors at tip, head sits ~18px above; accept either.
+      // Hit test players — the token is centred on the tile position
       let found: string | null = null
       for (const player of playersRef.current) {
         const p = playerToScreen(player.x, player.y)
-        const pinR = Math.max(5, Math.min(9, scaleRef.current * 1400))
-        const headY = p.y - pinR * 2.2
-        // Closest vertical point on pin (tip or head)
-        const dxTip = mx - p.x, dyTip = my - p.y
-        const dxHead = mx - p.x, dyHead = my - headY
-        const distTip = Math.sqrt(dxTip * dxTip + dyTip * dyTip)
-        const distHead = Math.sqrt(dxHead * dxHead + dyHead * dyHead)
-        if (distTip < MARKER_HIT_RADIUS || distHead < MARKER_HIT_RADIUS) {
+        const hitR = Math.max(MARKER_HIT_RADIUS, Math.max(5, Math.min(16, scaleRef.current * 1400)) + 4)
+        if (Math.hypot(mx - p.x, my - p.y) < hitR) {
           found = player.username
           break
         }
@@ -2033,11 +1985,8 @@ export default function WorldMap() {
       let clickedPlayer: MapPlayer | undefined
       for (const player of playersRef.current) {
         const p = playerToScreen(player.x, player.y)
-        const pinR = Math.max(5, Math.min(9, scaleRef.current * 1400))
-        const headY = p.y - pinR * 2.2
-        const distTip = Math.sqrt((mx - p.x) ** 2 + (my - p.y) ** 2)
-        const distHead = Math.sqrt((mx - p.x) ** 2 + (my - headY) ** 2)
-        if (distTip < MARKER_HIT_RADIUS || distHead < MARKER_HIT_RADIUS) {
+        const hitR = Math.max(MARKER_HIT_RADIUS, Math.max(5, Math.min(16, scaleRef.current * 1400)) + 4)
+        if (Math.hypot(mx - p.x, my - p.y) < hitR) {
           clickedPlayer = player
           break
         }
@@ -2558,7 +2507,7 @@ export default function WorldMap() {
                 </button>
                 <button
                   onClick={() => changeFloor(floor - 1)}
-                  disabled={floor <= -17}
+                  disabled={floor <= -1}
                   aria-label="Floor down"
                   className="h-6 w-9 rounded-sm border border-transparent hover:border-border/50 hover:bg-muted/60 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:border-transparent"
                   title="Floor down"
@@ -2845,14 +2794,20 @@ export default function WorldMap() {
             }}
             role="menu"
             aria-label="Map actions"
-            className="absolute z-20 min-w-[220px] sm:min-w-[260px] rounded-md bg-card/95 backdrop-blur-md border border-border/55 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.6)] ring-1 ring-primary/10 overflow-hidden"
+            className="absolute z-20 min-w-[220px] sm:min-w-[260px] rounded-md bg-card/95 backdrop-blur-md border border-border/55 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.6)] ring-1 ring-primary/10 overflow-y-auto overscroll-contain"
             style={{
               left: contextMenu.screenX,
               top: contextMenu.screenY,
               transform: [
-                contextMenu.screenX > (canvasSize.width || 800) - 240 ? 'translateX(-100%)' : '',
-                contextMenu.screenY > (canvasSize.height || 600) - 420 ? 'translateY(-100%)' : '',
+                contextMenu.screenX > (canvasSize.width || 800) / 2 ? 'translateX(-100%)' : '',
+                contextMenu.screenY > (canvasSize.height || 600) / 2 ? 'translateY(-100%)' : '',
               ].filter(Boolean).join(' ') || undefined,
+              maxHeight: Math.max(
+                160,
+                (contextMenu.screenY > (canvasSize.height || 600) / 2
+                  ? contextMenu.screenY
+                  : (canvasSize.height || 600) - contextMenu.screenY) - 12,
+              ),
               animation: 'popoverEnter 0.15s ease-out',
             }}
             onKeyDown={(e) => {
@@ -2965,12 +2920,18 @@ export default function WorldMap() {
                     )}
                   </div>
                 </div>
-                <ContextMenuItem
-                  icon={<Wrench className="w-3.5 h-3.5 text-info" />}
-                  label="Repair vehicle"
-                  tone="info"
-                  loading={actionLoading === 'vehicle-repair'}
-                  onClick={() => {
+                {contextMenu.vehicle.persisted ? (
+                  <div className="px-2.5 py-2 text-[11px] text-muted-foreground/70 border-t border-border/30">
+                    Load this vehicle&apos;s area in-game before using vehicle controls.
+                  </div>
+                ) : (
+                  <>
+                    <ContextMenuItem
+                      icon={<Wrench className="w-3.5 h-3.5 text-info" />}
+                      label="Repair vehicle"
+                      tone="info"
+                      loading={actionLoading === 'vehicle-repair'}
+                      onClick={() => {
                     setActionLoading('vehicle-repair')
                     panelBridgeApi.sendCommand('vehicleRepair', { vehicleId: contextMenu.vehicle!.id })
                       .then((res) => {
@@ -2983,9 +2944,9 @@ export default function WorldMap() {
                       })
                       .catch(() => toast({ title: 'Error', variant: 'destructive' }))
                       .finally(() => { setActionLoading(null); setContextMenu(null) })
-                  }}
-                />
-                <ContextMenuItem
+                      }}
+                    />
+                    <ContextMenuItem
                   icon={<Fuel className="w-3.5 h-3.5 text-info" />}
                   label="Fill fuel"
                   tone="info"
@@ -3003,9 +2964,9 @@ export default function WorldMap() {
                       })
                       .catch(() => toast({ title: 'Error', variant: 'destructive' }))
                       .finally(() => { setActionLoading(null); setContextMenu(null) })
-                  }}
-                />
-                <ContextMenuItem
+                      }}
+                    />
+                    <ContextMenuItem
                   icon={<Battery className="w-3.5 h-3.5 text-info" />}
                   label="Charge battery"
                   tone="info"
@@ -3023,9 +2984,9 @@ export default function WorldMap() {
                       })
                       .catch(() => toast({ title: 'Error', variant: 'destructive' }))
                       .finally(() => { setActionLoading(null); setContextMenu(null) })
-                  }}
-                />
-                <ContextMenuItem
+                      }}
+                    />
+                    <ContextMenuItem
                   icon={<Trash2 className="w-3.5 h-3.5 text-destructive" />}
                   label="Remove vehicle"
                   tone="danger"
@@ -3043,9 +3004,9 @@ export default function WorldMap() {
                       })
                       .catch(() => toast({ title: 'Error', variant: 'destructive' }))
                       .finally(() => { setActionLoading(null); setContextMenu(null) })
-                  }}
-                />
-                <ContextMenuItem
+                      }}
+                    />
+                    <ContextMenuItem
                   icon={<Zap className="w-3.5 h-3.5 text-amber-400" />}
                   label="Hotwire & start engine"
                   tone="warning"
@@ -3062,8 +3023,10 @@ export default function WorldMap() {
                       })
                       .catch(() => toast({ title: 'Error', variant: 'destructive' }))
                       .finally(() => { setActionLoading(null); setContextMenu(null) })
-                  }}
-                />
+                      }}
+                    />
+                  </>
+                )}
               </>
             )}
 
@@ -3282,12 +3245,12 @@ export default function WorldMap() {
               onClick={() => {
                 if (!spawnDialog || !spawnVehicleId) return
                 setActionLoading('spawn-vehicle')
-                panelBridgeApi.sendCommand('spawnVehicleAt', {
-                  vehicle: spawnVehicleId,
-                  x: spawnDialog.x,
-                  y: spawnDialog.y,
-                  z: spawnDialog.z,
-                })
+                playersApi.addVehicleAt(
+                  spawnVehicleId,
+                  spawnDialog.x,
+                  spawnDialog.y,
+                  spawnDialog.z,
+                )
                   .then((res) => {
                     if (res.success) {
                       toast({ title: 'Vehicle spawned', description: `${spawnVehicleId.split('.').pop()} at ${spawnDialog.x}, ${spawnDialog.y}` })

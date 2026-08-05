@@ -5,7 +5,172 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.1.31] - 2026-08-05
+
+### Added
+
+#### Settings > Mods
+
+- **"Remove everywhere" for a mod you never want back**: every row in the collection table now has a single destructive action that takes the mod out of the Steam collection, the server config (`WorkshopItems`, `Mods` and `Map`), and the downloaded files on disk, then untracks it and adds it to the ignore list so a later scan can't quietly bring it back. Previously this took four separate steps across two pages, and nothing stopped the mod reappearing afterwards. Deleting a mod from disk now also clears its map folders from `Map=`, which it should always have done.
+- **Add and remove mods from the server straight out of the collection table**: rows in Settings > Mods only ever offered collection and tracking buttons, so a mod sitting in the collection but not on the server could be spotted there but not acted on. Each row now also carries "To server" or "From server", matching the Mods > Import collection panel.
+
+#### Documentation
+
+- **Unraid and Indifferent Broccoli deployment guide**: the README now separates the panel's own `/app/data` and `/app/logs` state from shared Project Zomboid `/pz-server` and `/zomboid` mounts, explains RCON networking and PanelBridge access for a separate PZ container, and includes an importable Unraid template. It also calls out that `/panel-data` and `/panel-logs` are unused paths.
+
+#### Project
+
+- **A lint rule that stops the panel from ignoring a failed command**: many services here report failure by returning `{ success: false }` rather than by raising an error, and a third of the bugs fixed in this release were a discarded result — the panel telling you an action had worked when nothing had checked. `local/require-result-handling` now fails the build when the result of one of those calls is thrown away. Deliberately ignoring one is still allowed, but has to be written as `void`, so it shows up in review.
+
+### Fixed
+
+#### Server control
+
+- **Stopping the server could lose progress, in three more places**: the panel's own Stop button, the automatic game-server update, and the pre-update shutdown before a Docker panel update all issued a save followed immediately by a quit without checking whether the save worked. A failed save meant quitting anyway and discarding everything since the last one. Each now refuses to shut down and says why. (The same fault was fixed in Discord's `/stop` earlier.)
+- **Actions reported success when the underlying command had failed**: saving the server configuration, testing the RCON connection, `/start` in Discord, restarting from the panel, and scheduled tasks all announced success without checking the result they were handed. A scheduled task whose RCON command failed was recorded in the history as having run.
+
+#### Discord
+
+- **`/restart` always claimed the restart was starting**: the scheduler reports a refusal or a failure by returning a result rather than by raising an error, so the command ignored it. Asking for a restart while one was already running, or when the server failed to come back, still answered "Server restart initiated". The command now reports what actually happened, falling back to the notification channel if the warning period outlasted Discord's reply window.
+- **Restart warnings were announced twice in game**: `/restart` sent its own warning immediately before the scheduler began its countdown with the same message. The duplicate is gone — and because it was the one countdown line without the `[SERVER]` prefix, it was also the only one still leaking into the chat relay.
+- **/stop shut the server down even when the save failed**: the world save and the shutdown were issued back to back without checking the first one, so a failed save quietly cost everyone their progress since the last one. It now stops and reports the failure instead.
+- **A cancelled restart was announced only in game**: Discord was told the restart was coming and then never told it had been called off, leaving anyone watching from Discord expecting the server to go down.
+- **The restart countdown flooded the chat relay**: every warning, including the final second-by-second ticks, was forwarded to Discord on top of the single restart notification. Those broadcasts now stay in game where they are aimed.
+- **In-game chat stopped reaching Discord**: v1.1.28 narrowed the relay to the General tab, but Build 42 records ordinary talking as `Say` and Q shouts as `Local`/`Shout`, so almost nothing was forwarded while server notifications kept arriving normally. All public chat is relayed again, and Discord > In-Game Chat Relay now has a "Which messages to forward" choice for anyone who wants the General tab only. Faction, safehouse, radio, whisper and admin chat are still never forwarded.
+- **Turning the chat relay off only stopped half of it**: messages still flowed from Discord into the game, including from the notification channel when no separate relay channel was set. The switch now covers both directions, and is labelled as such.
+- **Chat could arrive in Discord out of order**: relayed messages were sent in parallel, so Discord ordered them by whichever request finished first. They are now sent in the order the game logged them.
+- **Chat could pile up faster than Discord accepts it**: a busy server or an in-game spammer could queue relayed messages without limit. The queue is capped and reports what it dropped rather than falling further and further behind.
+- **In-game chat could inject formatting into Discord**: player names and messages were posted to Discord unescaped, so anything typed in game could apply Discord formatting — including a link with harmless-looking text pointing anywhere. Player text is now escaped, as it already was everywhere else.
+- **Messages typed in Discord vanished when the game server was unreachable**: they were dropped with no reply and nothing in the channel to say so. Discord now gets a short notice, at most once a minute.
+- **A broken chat channel silenced server notifications**: one circuit breaker covered all Discord sends, so three failures relaying chat to a deleted channel suppressed start/stop/backup notifications to a perfectly healthy channel for up to 30 minutes. Each channel now fails independently.
+- **Nobody was announced for joining an empty server**: join and leave notifications were held back until the panel had seen at least one player online, which it works out from the previous poll. On an empty server that condition is never met, so the first person to arrive after every restart — and after every time the server emptied out — joined silently. The panel now tracks that it has taken a first look, separately from whether anyone was in it.
+- **A blank notification template could silence Discord entirely**: an event enabled with an empty template, or one whose only placeholder resolved to nothing, sent an empty message. Discord rejects those, and three rejections in a row suppressed all notifications for half an hour. Blank templates can no longer be enabled, and a notification that renders to nothing is skipped instead of sent.
+- **Turning on an event notification saved a blank message**: the switch enabled the event without filling in the template, so it sent nothing. Each event now starts from a sensible default wording.
+- **Saving one notification could reset the others**: the events endpoint replaced the whole configuration with whatever was sent, so a partial update wiped every event it did not mention. Updates are merged now.
+- **Long notifications were rejected**: a template plus a long player name could exceed Discord's message limit, failing the send and counting against the same suppression that silences later notifications.
+- **Send Test Message always claimed success**: the result of the send was discarded, so the one button whose job is to prove Discord works reported "sent" even when the channel was wrong or the bot could not post. It now reports the failure.
+- **The Admin and Moderator role settings did nothing**: every command was also locked on Discord's side to members holding Discord's own Administrator permission, so a role named in the panel could not see the command at all, let alone run it. Discord-side locks are now only applied when no role is configured, and changing a role re-registers the commands immediately instead of waiting for a bot restart.
+- **Moderators could be refused their own commands**: the role check only understood a cached guild member, so an uncached one — whose roles arrive as a plain list — read as having no roles at all.
+- **Discord IDs of valid length were rejected by the setup form**: the page required 17 to 19 digits while the server accepts 15 to 21.
+- **A failed settings load looked like a fresh install**: if the configuration request failed, the page cleared everything and showed the first-time setup wizard, with no indication anything had gone wrong. It now keeps the last known values and says the read failed.
+- **Saving and starting in one step reported the wrong failure**: if the bot failed to start, the message claimed the configuration had not been saved, when it had.
+
+#### Chat
+
+- **Chat messages could vanish from the panel's Chat page**: every message was tagged with the current millisecond, and a single read of the log file often produces several lines within the same millisecond. The page treats a repeated tag as a duplicate delivery, so when two people spoke at once only one of them appeared.
+- **Players with an apostrophe in their name never appeared in Discord**: the chat log parser stopped reading the name at the first quote, so the whole line failed to match and every message from, say, O'Brien was dropped silently and permanently.
+- **Chat messages were dropped at log-read boundaries**: the log tailer discarded any line that straddled two polls, and re-read one byte each time, corrupting the line after it. Partial lines are now held until the rest arrives. A log burst larger than 1MB is still skipped, but it now says so in the panel log instead of vanishing.
+- **The first messages after a log rotation were missed**: when Project Zomboid started a new chat or user log, the tailer jumped to the end of it, skipping anything already written. It now reads a rotated file from the start, while still skipping history on panel startup.
+- **Chat never started on a server that had not run yet**: the log tailer gave up if `server-console.txt` and the `Logs` folder were missing when the panel booted, which is exactly the case on a first start, and never looked again. It now keeps watching and picks the logs up as soon as the game server creates them.
+
+#### Mods
+
+- **A failed mod-update restart could block every later one**: the pending-restart flag was only cleared when the restart threw, not when it reported failure by return value, leaving the panel convinced a restart was still in flight.
+- **Deactivated mods were silently deleted from tracking**: loading the mod list pruned every tracked mod missing from `WorkshopItems=` — exactly the set the Mods > Deactivated tab exists to show. The tab emptied itself on the next refresh, so a deactivated mod disappeared for good as soon as any other mod was removed. Deactivated mods are now kept until you re-enable or delete them.
+- **The collection compared itself against the wrong thing**: drift was measured against the locally tracked mod list rather than `WorkshopItems=`, so a mod removed from the server still counted as "in sync" for as long as it stayed tracked, and the "Mismatch" badge could read 0 above a list of 26 rows. Every row is now classified against what the server actually loads, and the counts match the list they filter.
+
+#### Mods > Conflicts
+
+- **Mods could be reported as conflicting with themselves**: a mod that ships the same file under both `media/` and a Build 42 `42/media/` folder was counted twice, producing a nonsensical "ModA vs ModA" pair and inflating the file counts of every real pair it appeared in.
+- **Translation files that failed to parse were silently treated as safe**: an unreadable or unparsable translation file now counts as a possible conflict instead of being skipped, matching how script and clothing files already behaved.
+- **Script and clothing files with no definitions were reported as conflicts**: an empty file cannot collide with anything, and is now treated as additive. Only files that genuinely could not be parsed still fail closed.
+- **A file was reported as identical when only one copy could actually be read**: the scan now requires every copy to be verified before calling a shared file safe.
+
+#### Mods > Load order
+
+- **A dependency cycle broke the load order of unrelated mods**: auto-sort used to give up on every mod it could not place and append them all in their old order, so a mod that merely required something caught in a cycle could still be sorted above it. Cycles are now detected precisely, and only the dependencies inside a cycle are ignored.
+- **Auto-sort disagreed with the Conflicts tab about missing dependencies**: a `require=` satisfied by a `<required>_<suffix>` fork was accepted on the Conflicts tab but reported as missing by auto-sort, which then failed to order against it. Both now use the same rule.
+- **Padded `require=` entries were treated as missing dependencies**: surrounding whitespace is now trimmed, and a requirement declared several times is only reported once.
+
+#### Backups
+
+- **Old backups were logged as cleaned up even when the deletion failed**, and a failed automatic update no longer reports nothing when the server does not come back.
+
+### Changed
+
+#### Mods > Conflicts
+
+- **Conflict scan is faster and uses far less memory**: file sizes are compared before hashing, so files that obviously differ are never read; hashing is streamed instead of loading whole files into memory; `sandbox-options.txt` and `fileGuidTable.xml` are skipped before being read rather than after; and Lua files are parsed once instead of once per scanning pass.
+- **Conflict scan progress no longer appears to stall**: the comparison phase reports progress instead of jumping from 60% to 85%, the stream sends a keep-alive so proxies do not drop long scans, and closing the page now stops the scan instead of letting it run to completion.
+
+#### Mods > Load order
+
+- **Load-order auto-sort reports each dependency cycle separately**: two unrelated circular dependencies used to be listed as one group of mods, which made it impossible to tell which mods were actually looping. Each cycle is now shown on its own, and the messages shown when there is nothing to sort explain whether the requirements are simply not enabled.
+
+#### Settings > Mods
+
+- **The Steam collection is now reconciled one mod at a time**: the "Sync all" / "Sync now" buttons are gone. Each row states plainly whether it is missing from the collection, in the collection but not on the server, or in sync, and carries its own buttons to add or remove it from the collection and from the server. Bulk operations are still available by ticking rows first.
+
+## [1.1.30] - 2026-08-05
+
+### Added
+
+- **Settings that were previously unreachable**: the game server can now be set to start with the panel from Settings → RCON, and automatic character exports (including how many copies to keep per player) moved into Settings → Backups. The export retention limit had no interface at all before.
+- **Where the rest of the settings live**: Settings → About now lists the pages that own their own configuration, such as server profiles, the Discord bot, scheduled tasks, game server config, and chat quick messages.
+- **Automatic game-server updates**: an opt-in Settings → Mods & Workshop control can announce an update, wait a configurable player-warning period (15 minutes by default), save and stop the server through RCON, update through SteamCMD, and start it again. It never stops a server without RCON, only schedules one job, and attempts to restart after a SteamCMD failure.
+- **Password recovery codes**: admins can generate one-time recovery codes in Settings → Security. The login page accepts a recovery code when normal access is unavailable, without requiring filesystem access.
+- **Read-only remote server logs over SFTP**: Settings → PanelBridge can list and safely read the tail of remote `.log` and `.txt` files without granting write access.
+- **Editable scheduled tasks**: existing scheduler tasks can be edited from the panel, including their schedule, command, and enabled state.
+
+### Changed
+
+- **Settings page reorganised**: the sections are grouped into Panel, Game server, Automation, and System in a sidebar instead of a single row of tabs that wrapped onto two lines. The former Panel tab held the port, remote access, and the updater in one long page; those are now separate sections, and the single-field API Keys tab was folded into Mods & Workshop. Existing links such as `?tab=rcon` still open the right section.
+- **Mods navigation and active-server workflow redesigned**: the former nested tab maze is now a flat grouped navigation rail. Installed Workshop items, what the server actually loads, conflict repair, collections, and maintenance actions are distinct destinations. The Active on server view adds an attention filter, compact/detailed density, an always-available inspector, honest enabled-state colour, and shared row primitives.
+- **Events and server configuration restyled**: Events now uses a searchable section rail and compact action groups; Server Configuration and Events no longer use the decorative corner-bracket treatment that made panels look misaligned.
+- **Conflicts view extracted**: the 1,400-line conflict surface now lives in its own component with shared mod types and row primitives, making further repair-workflow changes safer.
+
+### Fixed
+
+- **Container failed to start under a non-root Kubernetes securityContext** ([#34](https://github.com/fpsacha/zomboid-control-panel/issues/34)): a pod that pins `runAsUser`/`runAsGroup` with `runAsNonRoot: true` never starts as root, so the entrypoint's `chown` failed with "Operation not permitted" and killed the script, and `setpriv --clear-groups` would then have failed too because `setgroups()` needs `CAP_SETGID`. Adding the `CHOWN` capability does not help, since Kubernetes only places it in a non-root container's bounding set. The entrypoint now detects that it is already running as a non-root user, skips both the ownership fix and the privilege drop, and executes the panel directly; it prints a note when the running UID/GID differs from `PUID`/`PGID`. Plain Docker and Docker Compose are unaffected and keep the existing `PUID`/`PGID` behaviour. The init-container and `command` overrides previously needed as a workaround can be removed.
+- **Discord no longer reports the server online while it is still starting**: the Server Started notification now waits for an authenticated RCON connection instead of firing as soon as the Java process appears.
+- **Chat no longer duplicates panel-sent General messages**: the page now recognises the server log's `[Admin] message` echo as the matching optimistic local entry.
+- **Build 42 top-down map tiles load again**: the map proxy resolves the current upstream build and image format rather than assuming the old WebP endpoint.
+- **Build 42 RCON command failures are visible**: unsupported commands now return a failure instead of appearing successful.
+- **PanelBridge vehicle operations work with Build 42 Java collections**: live vehicle details, lookup, repair, battery, and area removal no longer discard valid loaded vehicles.
+- **Vehicles near a player showed "no telemetry"** (PanelBridge 1.7.21): the World Map listed cars read from `vehicles.db` rather than live ones, so a car parked beside a player reported no fuel or battery and offered no repair or battery controls. The mod checked whether the game's vehicle list had a `get` field before reading it; that list reports its size correctly but does not expose `get` as a field, so every loaded vehicle was discarded. A live server with 21 loaded vehicles returned none. Vehicle lookup by id failed the same way, which also broke repair, battery, and area removal. Restart the game server once to load the updated mod.
+- **Unresolved Workshop-mod review now opens the repair workflow**: the diagnostics action previously showed only a toast. It now opens Mods → Conflicts → Dependencies and starts the existing review scan, where each candidate can be checked and added individually.
+- **RCON-only hosted servers no longer appear stopped**: profiles without local install, server, or save paths are now identified as provider-managed. Diagnostics explain that local process monitoring is unavailable while RCON controls remain usable.
+- **RCON host with stray whitespace silently failed to connect**: a host copied from a game-server-provider panel often carries a leading or trailing space, which made the connection fail DNS resolution. The panel reported no players, Discord reported the server offline, and broadcasts failed, with nothing in the log to explain why. Whitespace is now stripped when the host is saved and when it is loaded, so existing configurations repair themselves.
+- **Unreachable RCON is now reported**: a host that cannot be reached was only logged at debug level, leaving no diagnosis in the normal log. It now logs a throttled warning naming the host and port.
+
+## [1.1.29] - 2026-08-04
+
+### Added
+
+- **Docker and Kubernetes secret files for credentials**: `RCON_PASSWORD_FILE` and `STEAM_API_KEY_FILE` read the value from a mounted secret file. The file takes precedence over the environment variable and over the value saved in Settings, so the credential is never written to the panel database.
+- **`STEAM_API_KEY` environment variable**: the variable was documented in `.env.example` but never read by the panel. The Steam Web API key can now be supplied by environment, secret file, or Settings.
+- **Support bundle server details**: the diagnostics bundle now includes a sanitized server configuration summary (selected INI settings, mod, workshop and map lists, and a sandbox integrity check) plus the installed Project Zomboid branch and Steam build ID.
+
+### Fixed
+
+- **Restoring a backup can no longer destroy the world** (#33): the archive is extracted to a staging folder and only swapped into place after it completes successfully. A corrupt or truncated backup now leaves the existing save untouched, and a failed swap restores the previous save automatically.
+- **Restoring a backup on Windows**: the restore reported completion before every extracted file had finished writing, which made the final step fail with an `EPERM` error. It now waits for all files to be flushed.
+- **Concurrent server wipes**: two wipe requests arriving at the same time could both pass the "wipe already in progress" check and delete the same save folder together.
+- **Mod preset updates reported a false failure**: the preset was saved correctly, but the panel returned an error afterwards, so the change appeared not to have applied.
+- **Network settings reported a false failure**: the server INI and panel settings were written correctly, but the response failed in the same way.
+- **Discord integration could not reach the Discord API**: a dependency version override forced the Discord REST client onto an unsupported release, so every request failed with a header type error. Discord requests now work again.
+- **Mod list loading failures are visible**: a failed mod list request previously left the page silently empty. The panel now reports the failure, retries once automatically, and explains how to retry manually if that also fails.
+- **Backups of large saves use less memory**: counting files for the progress bar no longer walks the entire save tree in parallel.
+- **Dashboard performance panel could break when telemetry first arrived**: the chart component changed its React hook count between renders, which React rejects. It now renders consistently whether or not history data is present.
+- **Two slow memory leaks**: the client-error rate limiter and the CORS origin cache both grew without bound from values supplied by callers, and never released old entries.
+
+### Security
+
+- **Support bundles no longer reveal parts of secrets**: masked values previously kept the last four characters of passwords, tokens, and API keys.
+- **Server wipe rate limiting**: the wipe endpoint is now covered by the same strict per-operation limit already applied to other destructive actions such as deleting server files and map regions.
+- **Updated vulnerable dependencies**: `ip-address` (address parsing that could bypass SSRF and trust-boundary checks), `socket.io-parser` (memory exhaustion from zero-attachment packets), and `undici` (cookie and cache-directive handling). `npm audit` now reports no known vulnerabilities.
+
+## [1.1.28] - 2026-08-03
+
+### Fixed
+
+- **Build 42 world-map floors**: map tiles now consistently use the upstream JPEG format, basement level B1 is selectable, and labels include Ekron, Brandenburg, Irvington, and Echo Creek.
+- **Persisted vehicle visibility and actions**: the map reads parked-car positions from `vehicles.db` when vehicles are not streamed into memory. Database-only markers no longer offer controls that need a loaded game vehicle. Loaded vehicles use Build 42-compatible repair and battery APIs.
+- **Map vehicle spawning**: coordinate-based map spawning now uses the supported Build 42 RCON `addvehicle` path instead of an unavailable PanelBridge command.
+- **Map interaction**: player markers scale at close zoom, and long player or vehicle context menus remain inside the map with scrolling instead of being clipped.
+- **Discord chat relay**: local Q shouts and Shout-channel messages remain visible in the panel but are no longer forwarded to Discord. Only public General chat is relayed.
+- **Windows self-update extraction**: staged client archives retain their `.zip` extension, so PowerShell `Expand-Archive` no longer rejects them after a successful download and checksum verification.
+- **Windows self-update recovery**: extraction now also makes a temporary `.zip` copy when an older staging path is extensionless, preventing the `Expand-Archive` format error reported in #30.
 
 ## [1.1.27] - 2026-08-03
 

@@ -40,9 +40,9 @@ import {
   ChevronUp,
   Check,
   X,
-  Info
+  Info,
+  Search
 } from 'lucide-react'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -95,16 +95,12 @@ function TacticalPanel({
   tone?: PanelTone
   className?: string
 }) {
-  const corner = toneBorder(tone)
   return (
     <div className={cn(
-      'relative rounded-md border border-border/55 bg-card/85 backdrop-blur-md shadow-lg overflow-hidden h-full flex flex-col',
+      'self-start overflow-hidden rounded-md border bg-card shadow-sm flex flex-col',
+      toneBorder(tone),
       className
     )}>
-      <div aria-hidden className={cn('absolute top-1 left-1 w-2.5 h-2.5 border-l-2 border-t-2 pointer-events-none z-10', corner)} />
-      <div aria-hidden className={cn('absolute top-1 right-1 w-2.5 h-2.5 border-r-2 border-t-2 pointer-events-none z-10', corner)} />
-      <div aria-hidden className={cn('absolute bottom-1 left-1 w-2.5 h-2.5 border-l-2 border-b-2 pointer-events-none z-10', corner)} />
-      <div aria-hidden className={cn('absolute bottom-1 right-1 w-2.5 h-2.5 border-r-2 border-b-2 pointer-events-none z-10', corner)} />
       {children}
     </div>
   )
@@ -125,18 +121,18 @@ function SectionHeader({
 }) {
   const isBridgeOffline = sublabel?.startsWith('bridge offline')
   return (
-    <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border/50 bg-muted/25 select-none">
-      <span className={cn('flex items-center gap-1.5 text-xs font-semibold tracking-normal min-w-0', toneText(tone))}>
-        {Icon && <Icon className="w-3 h-3 shrink-0" />}
-        <span className="truncate">{label}</span>
+    <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3 select-none">
+      <span className="flex min-w-0 items-center gap-2">
+        {Icon && <Icon className={cn('h-4 w-4 shrink-0', toneText(tone))} />}
+        <span className="truncate text-sm font-semibold text-foreground">{label}</span>
         {sublabel && (
-          <>
-            <span className="text-muted-foreground/40">·</span>
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="text-muted-foreground/35">/</span>
             <span className={cn(
-              'truncate normal-case tracking-[0.12em]',
+              'truncate text-xs font-normal',
               isBridgeOffline ? 'text-amber-400/70' : 'text-muted-foreground/65'
             )}>{sublabel}</span>
-          </>
+          </span>
         )}
       </span>
       {action && <div className="flex items-center gap-1.5 shrink-0">{action}</div>}
@@ -812,6 +808,85 @@ function ResultCard({ title, icon, timestamp, children }: { title: string; icon:
   )
 }
 
+type EventSectionKey =
+  | 'rain'
+  | 'severe'
+  | 'climate'
+  | 'clock'
+  | 'timespeed'
+  | 'utilities'
+  | 'quickSounds'
+  | 'targetedSounds'
+  | 'horde'
+  | 'vehicles'
+  | 'teleport'
+  | 'broadcast'
+  | 'bridgeOps'
+
+interface EventSectionMeta {
+  id: EventSectionKey
+  label: string
+  hint: string
+  keywords: string
+  icon: React.ComponentType<{ className?: string }>
+  needsBridge: boolean
+}
+
+const EVENT_SECTION_GROUPS: Array<{ group: string; items: EventSectionMeta[] }> = [
+  {
+    group: 'Weather',
+    items: [
+      { id: 'rain', label: 'Rain and storms', hint: 'Start or clear rain and storms over the whole map.', keywords: 'rain storm clear weather rcon', icon: CloudRain, needsBridge: false },
+      { id: 'severe', label: 'Severe weather', hint: 'Blizzards, tropical storms, and snowfall.', keywords: 'blizzard tropical snow severe', icon: Snowflake, needsBridge: true },
+      { id: 'climate', label: 'Climate trim', hint: 'Override fog, wind, temperature, clouds, humidity, and precipitation.', keywords: 'fog wind temperature clouds humidity precipitation climate', icon: Gauge, needsBridge: true },
+    ],
+  },
+  {
+    group: 'World',
+    items: [
+      { id: 'clock', label: 'Game clock', hint: 'Set the in-game hour, day, and month.', keywords: 'time hour day month date clock dawn noon dusk midnight', icon: Calendar, needsBridge: true },
+      { id: 'timespeed', label: 'Time speed', hint: 'Accelerate the in-game clock. Resets when the server restarts.', keywords: 'multiplier speed fast forward time', icon: Clock, needsBridge: true },
+      { id: 'utilities', label: 'Power and water', hint: 'Restore or shut off the electricity and water grid.', keywords: 'power water utilities electricity grid shut off restore', icon: Zap, needsBridge: true },
+    ],
+  },
+  {
+    group: 'Sounds',
+    items: [
+      { id: 'quickSounds', label: 'Quick sounds', hint: 'Helicopter, gunshot, lightning, thunder, and building alarm.', keywords: 'helicopter gunshot lightning thunder alarm noise', icon: Volume2, needsBridge: false },
+      { id: 'targetedSounds', label: 'Targeted sounds', hint: 'Place a sound lure on a player or at world coordinates.', keywords: 'noise radius volume coordinates lure targeted', icon: Megaphone, needsBridge: true },
+    ],
+  },
+  {
+    group: 'Players',
+    items: [
+      { id: 'horde', label: 'Spawn horde', hint: 'Spawn or clear zombies around a player in loaded cells.', keywords: 'horde zombies swarm spawn clear', icon: Skull, needsBridge: true },
+      { id: 'vehicles', label: 'Spawn vehicle', hint: 'Spawn a vehicle next to an online player.', keywords: 'vehicle car spawn', icon: Car, needsBridge: false },
+      { id: 'teleport', label: 'Teleport', hint: 'Move a player to another player or to coordinates.', keywords: 'teleport move coordinates warp', icon: MapPin, needsBridge: false },
+      { id: 'broadcast', label: 'Broadcast', hint: 'Send a server-wide announcement.', keywords: 'announcement broadcast message chat warning', icon: Bell, needsBridge: false },
+    ],
+  },
+  {
+    group: 'Advanced',
+    items: [
+      { id: 'bridgeOps', label: 'Bridge tools', hint: 'Safehouses, factions, vehicles, and moderation operations.', keywords: 'safehouse faction moderation kick ban operations advanced bridge', icon: Crosshair, needsBridge: true },
+    ],
+  },
+]
+
+const EVENT_SECTION_INDEX: Record<EventSectionKey, EventSectionMeta> = Object.fromEntries(
+  EVENT_SECTION_GROUPS.flatMap((group) => group.items.map((item) => [item.id, item]))
+) as Record<EventSectionKey, EventSectionMeta>
+
+// Sections whose commands act on a chosen player rather than the whole world.
+const TARGETED_SECTIONS: EventSectionKey[] = ['quickSounds', 'targetedSounds', 'horde', 'teleport']
+
+interface ActivityEntry {
+  key: number
+  label: string
+  ok: boolean
+  at: string
+}
+
 export default function Events() {
   const [loading, setLoading] = useState<string | null>(null)
   const [players, setPlayers] = useState<Player[]>([])
@@ -897,9 +972,9 @@ export default function Events() {
 
   const { toast } = useToast()
 
-  type EventSectionKey = 'atmosphere' | 'world' | 'signal' | 'dispatch' | 'console'
-
-  const [activeIntent, setActiveIntent] = useState<EventSectionKey>('atmosphere')
+  const [activeSection, setActiveSection] = useState<EventSectionKey>('rain')
+  const [sectionQuery, setSectionQuery] = useState('')
+  const [activity, setActivity] = useState<ActivityEntry[]>([])
 
   const fetchPlayers = useCallback(async () => {
     try {
@@ -1114,6 +1189,13 @@ export default function Events() {
     }
   }, [bridgeConnected, bridgeOptionsRefreshTick])
 
+  const pushActivity = useCallback((label: string, ok: boolean) => {
+    setActivity((prev) => [
+      { key: Date.now() + Math.random(), label, ok, at: formatPanelTimestamp(new Date()) },
+      ...prev,
+    ].slice(0, 6))
+  }, [])
+
   // Bridge weather commands
   const handleBridgeAction = useCallback(async (action: string, fn: () => Promise<unknown>) => {
     setBridgeLoading(action)
@@ -1125,6 +1207,7 @@ export default function Events() {
         description: successCopy.description,
         variant: 'success' as const,
       })
+      pushActivity(successCopy.title, true)
     } catch (error) {
       const message = getUserErrorMessage(error, 'Bridge command failed.')
       toast({
@@ -1132,10 +1215,11 @@ export default function Events() {
         description: `${message}. Check bridge/server connection and try again.`,
         variant: 'destructive',
       })
+      pushActivity(`${action} failed`, false)
     } finally {
       setBridgeLoading(null)
     }
-  }, [toast])
+  }, [toast, pushActivity])
 
   const executeCommand = useCallback(async (command: string) => {
     const result = await rconApi.execute(command)
@@ -1155,6 +1239,7 @@ export default function Events() {
         description: successCopy.description,
         variant: 'success' as const,
       })
+      pushActivity(successCopy.title, true)
     } catch (error) {
       const message = getUserErrorMessage(error, 'Command failed.')
       toast({
@@ -1162,10 +1247,11 @@ export default function Events() {
         description: `${message}. Verify command settings and try again.`,
         variant: 'destructive',
       })
+      pushActivity(`${action} failed`, false)
     } finally {
       setLoading(null)
     }
-  }, [toast])
+  }, [toast, pushActivity])
 
   const handleUtilities = useCallback(async (action: string, on: boolean, power: boolean, water: boolean) => {
     setLoading(action)
@@ -1183,6 +1269,7 @@ export default function Events() {
           : successCopy.description,
         variant: notPersisted ? 'default' : ('success' as const),
       })
+      pushActivity(successCopy.title, true)
     } catch (error) {
       const message = getUserErrorMessage(error, 'Command failed.')
       toast({
@@ -1190,10 +1277,11 @@ export default function Events() {
         description: `${message}. Verify command settings and try again.`,
         variant: 'destructive',
       })
+      pushActivity(`${action} failed`, false)
     } finally {
       setLoading(null)
     }
-  }, [toast, checkBridgeStatus])
+  }, [toast, checkBridgeStatus, pushActivity])
 
   const getTargetPlayer = useCallback(() => targetAll ? undefined : selectedPlayer || undefined, [targetAll, selectedPlayer])
 
@@ -1252,7 +1340,8 @@ export default function Events() {
   const removeZombies = () => panelBridgeApi.clearAllZombies()
 
   // Time commands
-  // PZ has no `setTimeSpeed` RCON command — route through the bridge.
+  // Routed through the bridge rather than RCON `setTimeSpeed` so the change is
+  // applied and read back with the rest of the climate/time state.
   const setGameTimeSpeed = () => panelBridgeApi.sendCommand('setTimeSpeed', { multiplier: timeSpeed })
 
   // Teleport commands
@@ -1499,8 +1588,21 @@ export default function Events() {
     }
   }
 
+  const normalizedQuery = sectionQuery.trim().toLowerCase()
+  const filteredGroups = EVENT_SECTION_GROUPS
+    .map((group) => ({
+      group: group.group,
+      items: normalizedQuery
+        ? group.items.filter((item) =>
+            `${item.label} ${item.hint} ${item.keywords} ${group.group}`.toLowerCase().includes(normalizedQuery)
+          )
+        : group.items,
+    }))
+    .filter((group) => group.items.length > 0)
+  const activeMeta = EVENT_SECTION_INDEX[activeSection]
+
   return (
-    <div className="space-y-4 page-transition">
+    <div className="mx-auto max-w-[1180px] space-y-5 pb-8 page-transition">
       <PageHeader
         title="Event Console"
         description="Weather, time, sounds, player actions, and bridge tools"
@@ -1515,14 +1617,17 @@ export default function Events() {
         }
       />
 
-      {/* TOP STATUS STRIP — bridge link + target picker */}
-      <TacticalPanel tone={bridgeConnected ? 'primary' : 'warning'} className="overflow-visible">
-        <div className="px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      {/* Scope and connection state stay visible before event controls. */}
+      <div className={cn(
+        'rounded-md border bg-card px-4 py-3',
+        bridgeConnected ? 'border-border/70' : 'border-amber-400/55'
+      )}>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           {/* Bridge status */}
           <div className="flex items-center gap-3 min-w-0">
-            <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.18em] text-primary/85 whitespace-nowrap">
+            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground whitespace-nowrap">
               <Zap className={cn('w-3.5 h-3.5', bridgeConnected ? 'text-primary' : 'text-amber-400')} />
-              <span>bridge</span>
+              <span>PanelBridge</span>
             </div>
             <div className={cn(
               'flex items-center gap-2 px-2.5 py-1 rounded-md border',
@@ -1535,7 +1640,7 @@ export default function Events() {
                 bridgeConnected ? 'bg-emerald-400 text-emerald-400 animate-pulse' : 'bg-amber-400 text-amber-400'
               )} />
               <span className={cn(
-                'text-sm font-semibold tracking-wide',
+                'text-sm font-semibold',
                 bridgeConnected ? 'text-emerald-300' : 'text-amber-300'
               )}>
                 {bridgeConnected ? 'online' : 'offline'}
@@ -1548,12 +1653,12 @@ export default function Events() {
             )}
           </div>
 
-          {/* Target picker — only relevant for sounds & player actions (atmosphere/world/console are world-wide) */}
+          {/* Target picker — only for sections whose commands act on a chosen player. */}
           <div className="flex flex-wrap items-center gap-3">
-            {(activeIntent === 'signal' || activeIntent === 'dispatch') && (
+            {TARGETED_SECTIONS.includes(activeSection) && (
               <>
-                <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-primary/85 whitespace-nowrap">
-                  target
+                <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
+                  Event target
             </span>
             <div className="inline-flex rounded-md border border-border/70 bg-background/60 p-0.5 shadow-sm">
               <button
@@ -1562,7 +1667,7 @@ export default function Events() {
                 className={cn(
                   'px-3 py-1.5 text-sm font-medium rounded-sm transition-colors',
                   targetAll
-                    ? 'bg-primary/20 text-primary shadow-inner'
+                    ? 'bg-primary text-primary-foreground'
                     : 'text-muted-foreground hover:text-foreground hover:bg-background/40'
                 )}
                 aria-pressed={targetAll}
@@ -1575,7 +1680,7 @@ export default function Events() {
                 className={cn(
                   'px-3 py-1.5 text-sm font-medium rounded-sm transition-colors',
                   !targetAll
-                    ? 'bg-primary/20 text-primary shadow-inner'
+                    ? 'bg-primary text-primary-foreground'
                     : 'text-muted-foreground hover:text-foreground hover:bg-background/40'
                 )}
                 aria-pressed={!targetAll}
@@ -1611,37 +1716,105 @@ export default function Events() {
             )}>
               <Users className="w-3.5 h-3.5" />
               <span className="text-sm font-bold tabular-nums">{players.length}</span>
-              <span className="text-xs font-medium uppercase tracking-wider opacity-80">connected</span>
+              <span className="text-xs font-medium opacity-80">online</span>
             </div>
           </div>
         </div>
-      </TacticalPanel>
+      </div>
 
-      {/* Tab Navigation */}
-      <Tabs value={activeIntent} onValueChange={(v) => setActiveIntent(v as EventSectionKey)}>
-        <TabsList className="flex h-auto flex-wrap gap-1 bg-muted/30 border border-border/50 p-1 rounded-md w-full">
-          {([
-            { value: 'atmosphere', label: 'weather', icon: CloudRain },
-            { value: 'world', label: 'world', icon: Clock },
-            { value: 'signal', label: 'sounds', icon: Volume2 },
-            { value: 'dispatch', label: 'players', icon: Skull },
-            { value: 'console', label: 'bridge', icon: Crosshair },
-          ] as const).map((t) => (
-            <TabsTrigger
-              key={t.value}
-              value={t.value}
-              className="flex-1 min-w-[110px] flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium data-[state=active]:bg-primary/15 data-[state=active]:text-primary data-[state=active]:shadow-none"
-            >
-              <t.icon className="w-3 h-3 shrink-0" />
-              {t.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
+      <div className="grid gap-4 lg:grid-cols-[250px_minmax(0,1fr)]">
+        <aside className="space-y-3 lg:sticky lg:top-4 lg:self-start">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={sectionQuery}
+              onChange={(e) => setSectionQuery(e.target.value)}
+              placeholder="Find a control"
+              aria-label="Find an event control"
+              className="h-9 pl-8 text-sm"
+            />
+          </div>
 
-        {/* ── ATMOSPHERE TAB ── */}
-        <TabsContent value="atmosphere" className="mt-4 space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Rain + Storm (RCON) */}
+          <nav aria-label="Event sections" className="space-y-3 rounded-md border border-border/60 bg-card p-2">
+            {filteredGroups.map((group) => (
+              <div key={group.group}>
+                <p className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/60">
+                  {group.group}
+                </p>
+                <div className="space-y-0.5">
+                  {group.items.map((item) => {
+                    const Icon = item.icon
+                    const isActive = item.id === activeSection
+                    const blocked = item.needsBridge && !bridgeConnected
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setActiveSection(item.id)}
+                        aria-current={isActive ? 'true' : undefined}
+                        className={cn(
+                          'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm transition-colors',
+                          isActive
+                            ? 'bg-primary text-primary-foreground'
+                            : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+                        )}
+                      >
+                        <Icon className="h-3.5 w-3.5 shrink-0" />
+                        <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                        {blocked && (
+                          <span
+                            className={cn('text-[10px] font-medium', isActive ? 'text-primary-foreground/80' : 'text-amber-400/80')}
+                            title="Needs PanelBridge"
+                          >
+                            bridge
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+            {filteredGroups.length === 0 && (
+              <p className="px-2 py-3 text-xs text-muted-foreground">No control matches that search.</p>
+            )}
+          </nav>
+
+          {activity.length > 0 && (
+            <div className="rounded-md border border-border/60 bg-card">
+              <p className="border-b border-border/60 px-3 py-2 text-xs font-semibold text-foreground">Recent actions</p>
+              <ul className="divide-y divide-border/40">
+                {activity.map((entry) => (
+                  <li key={entry.key} className="flex items-start gap-2 px-3 py-2">
+                    {entry.ok
+                      ? <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-400" />
+                      : <X className="mt-0.5 h-3 w-3 shrink-0 text-destructive" />}
+                    <span className="min-w-0 flex-1 truncate text-xs text-foreground/85">{entry.label}</span>
+                    <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{entry.at}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </aside>
+
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">{activeMeta.label}</h2>
+            <p className="mt-0.5 text-sm text-muted-foreground">{activeMeta.hint}</p>
+          </div>
+
+          {activeMeta.needsBridge && !bridgeConnected && (
+            <Alert className="border-warning/40 bg-warning/10">
+              <AlertTriangle className="h-4 w-4 text-warning" />
+              <AlertTitle className="text-warning">PanelBridge is offline</AlertTitle>
+              <AlertDescription>
+                These controls need the Lua bridge. Connect it in <Link to="/settings?tab=bridge" className="text-primary underline-offset-2 hover:underline">Settings</Link>, then start the PZ server.
+              </AlertDescription>
+            </Alert>
+          )}
+
+        {activeSection === 'rain' && (
             <TacticalPanel>
               <SectionHeader label="rain & storms" sublabel="rcon · always available" icon={CloudRain} />
               <div className="p-4 space-y-6">
@@ -1654,7 +1827,7 @@ export default function Events() {
                     <span className="font-mono text-[11px] tabular-nums text-info">{rainIntensity}%</span>
                   </div>
                   <Slider aria-label="Rain intensity" value={[rainIntensity]} onValueChange={([val]) => setRainIntensity(val)} min={1} max={100} step={1} />
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <Button variant="outline" onClick={() => handleAction('Start rain', startRain)} disabled={loading !== null} className="h-9 gap-2 text-xs font-medium">
                       {loading === 'Start rain' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CloudRain className="w-3.5 h-3.5" />}
                       start rain
@@ -1675,7 +1848,7 @@ export default function Events() {
                     <span className="font-mono text-[11px] tabular-nums text-amber-400">{stormDuration}h</span>
                   </div>
                   <Slider aria-label="Storm duration" value={[stormDuration]} onValueChange={([val]) => setStormDuration(val)} min={1} max={24} step={1} />
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <Button variant="outline" onClick={() => handleAction('Start storm', startStorm)} disabled={loading !== null} className="h-9 gap-2 text-xs font-medium">
                       {loading === 'Start storm' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CloudLightning className="w-3.5 h-3.5" />}
                       start storm
@@ -1688,11 +1861,12 @@ export default function Events() {
                 </div>
               </div>
             </TacticalPanel>
+        )}
 
-            {/* Severe weather (Bridge) */}
+        {activeSection === 'severe' && (
             <TacticalPanel tone={bridgeConnected ? 'primary' : 'warning'} className={!bridgeConnected ? 'opacity-60' : ''}>
               <SectionHeader
-                label="severe weather"
+                label="Severe weather"
                 sublabel={bridgeConnected ? 'bridge · advanced' : 'bridge offline'}
                 icon={Snowflake}
                 tone={bridgeConnected ? 'primary' : 'warning'}
@@ -1707,7 +1881,7 @@ export default function Events() {
                     <span className="font-mono text-[11px] tabular-nums text-info">{blizzardDuration}h</span>
                   </div>
                   <Slider aria-label="Blizzard duration" value={[blizzardDuration]} onValueChange={([val]) => setBlizzardDuration(val)} min={1} max={24} step={1} disabled={!bridgeConnected} />
-                  <Button variant="outline" onClick={() => handleBridgeAction('Blizzard', () => panelBridgeApi.triggerBlizzard(blizzardDuration))} disabled={bridgeLoading !== null || !bridgeConnected} className="w-full h-9 gap-2 text-xs font-medium">
+                  <Button variant="outline" onClick={() => handleBridgeAction('Blizzard', () => panelBridgeApi.triggerBlizzard(blizzardDuration))} disabled={bridgeLoading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium">
                     {bridgeLoading === 'Blizzard' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Snowflake className="w-3.5 h-3.5" />}
                     trigger blizzard
                   </Button>
@@ -1722,7 +1896,7 @@ export default function Events() {
                     <span className="font-mono text-[11px] tabular-nums text-amber-400">{tropicalDuration}h</span>
                   </div>
                   <Slider aria-label="Tropical storm duration" value={[tropicalDuration]} onValueChange={([val]) => setTropicalDuration(val)} min={1} max={24} step={1} disabled={!bridgeConnected} />
-                  <Button variant="outline" onClick={() => handleBridgeAction('Tropical Storm', () => panelBridgeApi.triggerTropicalStorm(tropicalDuration))} disabled={bridgeLoading !== null || !bridgeConnected} className="w-full h-9 gap-2 text-xs font-medium">
+                  <Button variant="outline" onClick={() => handleBridgeAction('Tropical Storm', () => panelBridgeApi.triggerTropicalStorm(tropicalDuration))} disabled={bridgeLoading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium">
                     {bridgeLoading === 'Tropical Storm' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wind className="w-3.5 h-3.5" />}
                     trigger tropical storm
                   </Button>
@@ -1733,7 +1907,7 @@ export default function Events() {
                     <Snowflake className="w-3.5 h-3.5 text-info" />
                     snow toggle
                   </Label>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <Button variant="outline" onClick={() => handleBridgeAction('Enable Snow', () => panelBridgeApi.setSnow(true))} disabled={bridgeLoading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium">
                       {bridgeLoading === 'Enable Snow' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Snowflake className="w-3.5 h-3.5" />}
                       enable snow
@@ -1743,19 +1917,19 @@ export default function Events() {
                       disable snow
                     </Button>
                   </div>
-                  <Button variant="outline" onClick={() => handleBridgeAction('Stop All Weather', () => panelBridgeApi.stopWeather())} disabled={bridgeLoading !== null || !bridgeConnected} className="w-full h-9 gap-2 text-xs font-medium text-destructive/85 hover:text-destructive hover:border-destructive/40">
+                  <Button variant="outline" onClick={() => handleBridgeAction('Stop All Weather', () => panelBridgeApi.stopWeather())} disabled={bridgeLoading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium text-destructive/85 hover:text-destructive hover:border-destructive/40">
                     {bridgeLoading === 'Stop All Weather' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Cloud className="w-3.5 h-3.5" />}
                     stop all weather
                   </Button>
                 </div>
               </div>
             </TacticalPanel>
-          </div>
+        )}
 
-          {/* Climate trim — full width */}
+        {activeSection === 'climate' && (
           <TacticalPanel tone={bridgeConnected ? 'primary' : 'warning'} className={!bridgeConnected ? 'opacity-60' : ''}>
             <SectionHeader
-              label="climate trim"
+              label="Climate trim"
               sublabel={bridgeConnected ? 'bridge · admin override' : 'bridge offline'}
               icon={Gauge}
               tone={bridgeConnected ? 'primary' : 'warning'}
@@ -1870,13 +2044,11 @@ export default function Events() {
               </div>
             </div>
           </TacticalPanel>
-        </TabsContent>
+        )}
 
-        {/* ── WORLD TAB (game time + time speed + utilities) ── */}
-        <TabsContent value="world" className="mt-4 space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {activeSection === 'clock' && (
             <TacticalPanel tone={bridgeConnected ? 'primary' : 'warning'} className={!bridgeConnected ? 'opacity-60' : ''}>
-              <SectionHeader label="game clock" sublabel="world time" icon={Calendar} tone={bridgeConnected ? 'primary' : 'warning'} />
+              <SectionHeader label="Game clock" sublabel="bridge · world date and time" icon={Calendar} tone={bridgeConnected ? 'primary' : 'warning'} />
               <div className="p-4 space-y-4">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -1889,7 +2061,7 @@ export default function Events() {
                   <Slider aria-label="Game hour" value={[gameHour]} onValueChange={([val]) => setGameHour(val)} min={0} max={23} step={1} disabled={!bridgeConnected} />
                 </div>
 
-                <div className="grid grid-cols-4 gap-1.5">
+                <div className="flex flex-wrap gap-1.5">
                   <Button variant={gameHour === 6 ? 'secondary' : 'outline'} size="sm" onClick={() => setGameHour(6)} disabled={!bridgeConnected} className="h-8 gap-1 text-xs font-medium"><Sunrise className="w-3 h-3" /> dawn</Button>
                   <Button variant={gameHour === 12 ? 'secondary' : 'outline'} size="sm" onClick={() => setGameHour(12)} disabled={!bridgeConnected} className="h-8 gap-1 text-xs font-medium"><Sun className="w-3 h-3" /> noon</Button>
                   <Button variant={gameHour === 18 ? 'secondary' : 'outline'} size="sm" onClick={() => setGameHour(18)} disabled={!bridgeConnected} className="h-8 gap-1 text-xs font-medium"><Sunset className="w-3 h-3" /> dusk</Button>
@@ -1929,15 +2101,17 @@ export default function Events() {
                   </div>
                 </div>
 
-                <Button variant="outline" onClick={() => handleBridgeAction('Set Time', () => panelBridgeApi.setGameTime({ hour: gameHour, day: gameDay, month: gameMonth }))} disabled={bridgeLoading !== null || !bridgeConnected} className="w-full h-9 gap-2 text-xs font-medium">
+                <Button variant="outline" onClick={() => handleBridgeAction('Set Time', () => panelBridgeApi.setGameTime({ hour: gameHour, day: gameDay, month: gameMonth }))} disabled={bridgeLoading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium">
                   {bridgeLoading === 'Set Time' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clock className="w-3.5 h-3.5" />}
                   apply time & date
                 </Button>
               </div>
             </TacticalPanel>
+        )}
 
+        {activeSection === 'timespeed' && (
             <TacticalPanel tone={bridgeConnected ? 'primary' : 'warning'} className={!bridgeConnected ? 'opacity-60' : ''}>
-              <SectionHeader label="time speed" sublabel="bridge · resets on restart" icon={Clock} tone={bridgeConnected ? 'primary' : 'warning'} />
+              <SectionHeader label="Time speed" sublabel="bridge · resets on restart" icon={Clock} tone={bridgeConnected ? 'primary' : 'warning'} />
               <div className="p-4 flex flex-col gap-4">
                 <p className="text-xs text-muted-foreground/75 leading-relaxed">
                   Accelerate the in-game clock. Useful for testing weather, day/night cycles, or fast-forwarding events. Resets to 1× when the server restarts.
@@ -1949,24 +2123,24 @@ export default function Events() {
                   </div>
                   <Slider aria-label="Time speed" value={[timeSpeed]} onValueChange={([val]) => setTimeSpeed(val)} min={1} max={100} step={1} />
                 </div>
-                <div className="grid grid-cols-4 gap-1.5">
+                <div className="flex flex-wrap gap-1.5">
                   <Button size="sm" onClick={() => setTimeSpeed(1)} variant={timeSpeed === 1 ? 'secondary' : 'outline'} className="h-8 text-xs font-medium tabular-nums">1×</Button>
                   <Button size="sm" onClick={() => setTimeSpeed(5)} variant={timeSpeed === 5 ? 'secondary' : 'outline'} className="h-8 text-xs font-medium tabular-nums">5×</Button>
                   <Button size="sm" onClick={() => setTimeSpeed(10)} variant={timeSpeed === 10 ? 'secondary' : 'outline'} className="h-8 text-xs font-medium tabular-nums">10×</Button>
                   <Button size="sm" onClick={() => setTimeSpeed(24)} variant={timeSpeed === 24 ? 'secondary' : 'outline'} className="h-8 text-xs font-medium tabular-nums">24×</Button>
                 </div>
-                <Button variant="outline" onClick={() => handleAction('Set time speed', setGameTimeSpeed)} disabled={loading !== null || !bridgeConnected} className="w-full h-9 gap-2 text-xs font-medium">
+                <Button variant="outline" onClick={() => handleAction('Set time speed', setGameTimeSpeed)} disabled={loading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium">
                   {loading === 'Set time speed' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clock className="w-3.5 h-3.5" />}
                   apply speed
                 </Button>
               </div>
             </TacticalPanel>
-          </div>
+        )}
 
-          {/* Utilities (power/water) */}
+        {activeSection === 'utilities' && (
           <TacticalPanel tone={bridgeConnected ? 'primary' : 'warning'} className={!bridgeConnected ? 'opacity-60' : ''}>
             <SectionHeader
-              label="utilities"
+              label="Power and water"
               sublabel="power & water grid"
               icon={Zap}
               tone={bridgeConnected ? 'primary' : 'warning'}
@@ -2039,18 +2213,16 @@ export default function Events() {
               </div>
             </div>
           </TacticalPanel>
-        </TabsContent>
+        )}
 
-        {/* ── SIGNAL TAB (sound triggers) ── */}
-        <TabsContent value="signal" className="mt-4 space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {activeSection === 'quickSounds' && (
             <TacticalPanel tone="warning">
-              <SectionHeader label="quick sounds" sublabel="rcon · attracts zombies" icon={Volume2} tone="warning" />
+              <SectionHeader label="Quick sounds" sublabel="RCON · attracts zombies" icon={Volume2} tone="warning" />
               <div className="p-4 space-y-3">
                 <p className="font-mono text-[11px] text-muted-foreground/75 leading-relaxed">
                   helicopter & gunshot pick a random online player · lightning & thunder strike the selected player (or random if “all online”) · alarm needs an admin in-game
                 </p>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button variant="outline" onClick={() => handleAction('Helicopter', triggerChopper)} disabled={loading !== null || players.length === 0} title={players.length === 0 ? 'No players online' : undefined} className="h-9 gap-2 text-xs font-medium">
                     {loading === 'Helicopter' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Crosshair className="w-3.5 h-3.5" />}
                     helicopter
@@ -2067,17 +2239,19 @@ export default function Events() {
                     {loading === 'Thunder' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CloudLightning className="w-3.5 h-3.5" />}
                     thunder
                   </Button>
-                  <Button variant="outline" onClick={() => handleAction('Alarm', triggerAlarm)} disabled={loading !== null} title="Requires admin character in-game — triggers at admin location" className="h-9 gap-2 text-xs font-medium col-span-2">
+                  <Button variant="outline" onClick={() => handleAction('Alarm', triggerAlarm)} disabled={loading !== null} title="Requires admin character in-game — triggers at admin location" className="h-9 gap-2 text-xs font-medium">
                     {loading === 'Alarm' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bell className="w-3.5 h-3.5" />}
                     building alarm · admin in-game
                   </Button>
                 </div>
               </div>
             </TacticalPanel>
+        )}
 
+        {activeSection === 'targetedSounds' && (
             <TacticalPanel tone={bridgeConnected ? 'primary' : 'warning'} className={!bridgeConnected ? 'opacity-60' : ''}>
               <SectionHeader
-                label="targeted sounds"
+                label="Targeted sounds"
                 sublabel={bridgeConnected ? 'bridge · custom noise' : 'bridge offline'}
                 icon={Megaphone}
                 tone={bridgeConnected ? 'primary' : 'warning'}
@@ -2113,7 +2287,7 @@ export default function Events() {
                       {targetAll || !selectedPlayer ? 'pick a specific player' : selectedPlayer}
                     </span>
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <Button variant="outline" onClick={() => handleBridgeAction('Gunshot Sound', () => panelBridgeApi.triggerGunshotBridge({ username: selectedPlayer || undefined }))} disabled={bridgeLoading !== null || !bridgeConnected || targetAll || !selectedPlayer} className="h-9 gap-2 text-xs font-medium">
                       {bridgeLoading === 'Gunshot Sound' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Volume2 className="w-3.5 h-3.5" />}
                       gunshot
@@ -2148,7 +2322,7 @@ export default function Events() {
                       <Input id="sound-world-y" aria-label="Sound world Y coordinate" type="number" placeholder="9800" value={soundY} onChange={(e) => setSoundY(e.target.value)} disabled={!bridgeConnected} className="h-9 font-mono text-[12px] tabular-nums" />
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <Button variant="outline" onClick={() => handleBridgeAction('Gunshot at Coords', () => panelBridgeApi.triggerGunshotBridge({ x: soundCoordX as number, y: soundCoordY as number }))} disabled={bridgeLoading !== null || !bridgeConnected || !hasValidSoundCoords} className="h-9 gap-2 text-xs font-medium">
                       {bridgeLoading === 'Gunshot at Coords' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Volume2 className="w-3.5 h-3.5" />}
                       gunshot
@@ -2165,14 +2339,11 @@ export default function Events() {
                 </div>
               </div>
             </TacticalPanel>
-          </div>
-        </TabsContent>
+        )}
 
-        {/* ── DISPATCH TAB (horde + vehicles + teleport + announcement) ── */}
-        <TabsContent value="dispatch" className="mt-4 space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {activeSection === 'horde' && (
             <TacticalPanel tone={bridgeConnected ? 'destructive' : 'warning'} className={!bridgeConnected ? 'opacity-60' : ''}>
-              <SectionHeader label="spawn horde" sublabel={bridgeConnected ? 'bridge · loaded cells only' : 'bridge offline'} icon={Skull} tone={bridgeConnected ? 'destructive' : 'warning'} />
+              <SectionHeader label="Spawn horde" sublabel={bridgeConnected ? 'bridge · loaded cells only' : 'bridge offline'} icon={Skull} tone={bridgeConnected ? 'destructive' : 'warning'} />
               <div className="p-4 space-y-3">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -2183,23 +2354,25 @@ export default function Events() {
                   </div>
                   <Slider aria-label="Horde size" value={[hordeCount]} onValueChange={([val]) => setHordeCount(val)} min={10} max={500} step={10} />
                 </div>
-                <Button variant="outline" onClick={() => handleAction('Create horde', () => createHorde(hordeCount, pickStrikeTarget()))} disabled={loading !== null || !bridgeConnected || players.length === 0 || (!targetAll && !selectedPlayer)} title={players.length === 0 ? 'No players online' : !bridgeConnected ? 'Bridge offline' : undefined} className="w-full h-9 gap-2 text-xs font-medium">
+                <Button variant="outline" onClick={() => handleAction('Create horde', () => createHorde(hordeCount, pickStrikeTarget()))} disabled={loading !== null || !bridgeConnected || players.length === 0 || (!targetAll && !selectedPlayer)} title={players.length === 0 ? 'No players online' : !bridgeConnected ? 'Bridge offline' : undefined} className="h-9 gap-2 text-xs font-medium">
                   {loading === 'Create horde' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Skull className="w-3.5 h-3.5" />}
                   spawn near {targetAll ? 'random' : selectedPlayer || 'target'}
                 </Button>
-                <Button variant="outline" onClick={() => handleAction('Create horde (behind)', () => createHorde2(hordeCount, pickStrikeTarget()))} disabled={loading !== null || !bridgeConnected || players.length === 0 || (!targetAll && !selectedPlayer)} title={players.length === 0 ? 'No players online' : !bridgeConnected ? 'Bridge offline' : undefined} className="w-full h-9 gap-2 text-xs font-medium">
+                <Button variant="outline" onClick={() => handleAction('Create horde (behind)', () => createHorde2(hordeCount, pickStrikeTarget()))} disabled={loading !== null || !bridgeConnected || players.length === 0 || (!targetAll && !selectedPlayer)} title={players.length === 0 ? 'No players online' : !bridgeConnected ? 'Bridge offline' : undefined} className="h-9 gap-2 text-xs font-medium">
                   {loading === 'Create horde (behind)' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Skull className="w-3.5 h-3.5" />}
                   spawn behind {targetAll ? 'random' : selectedPlayer || 'target'}
                 </Button>
-                <Button variant="outline" onClick={() => handleAction('Remove all zombies', removeZombies)} disabled={loading !== null || !bridgeConnected} title={!bridgeConnected ? 'Bridge offline' : undefined} className="w-full h-9 gap-2 text-xs font-medium text-destructive/95 hover:text-destructive hover:border-destructive/50 hover:bg-destructive/10">
+                <Button variant="outline" onClick={() => handleAction('Remove all zombies', removeZombies)} disabled={loading !== null || !bridgeConnected} title={!bridgeConnected ? 'Bridge offline' : undefined} className="h-9 gap-2 text-xs font-medium text-destructive/95 hover:text-destructive hover:border-destructive/50 hover:bg-destructive/10">
                   {loading === 'Remove all zombies' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <AlertTriangle className="w-3.5 h-3.5" />}
                   clear loaded zombies
                 </Button>
               </div>
             </TacticalPanel>
+        )}
 
+        {activeSection === 'vehicles' && (
             <TacticalPanel tone="info">
-              <SectionHeader label="spawn vehicle" sublabel="rcon · near player" icon={Car} tone="info" />
+              <SectionHeader label="Spawn vehicle" sublabel="RCON · spawns next to a player" icon={Car} tone="info" />
               <div className="p-4 space-y-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="vehicle-type-select" className="text-xs font-medium text-muted-foreground">vehicle</Label>
@@ -2228,10 +2401,11 @@ export default function Events() {
                 </div>
               </div>
             </TacticalPanel>
-          </div>
+        )}
 
+        {activeSection === 'teleport' && (
           <TacticalPanel tone="info">
-            <SectionHeader label="teleport" sublabel="rcon · move players in world space" icon={MapPin} tone="info" />
+            <SectionHeader label="Teleport" sublabel="RCON · move players in world space" icon={MapPin} tone="info" />
             <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-3">
                 <div className="text-xs font-medium text-foreground/85 flex items-center gap-1.5">
@@ -2285,7 +2459,7 @@ export default function Events() {
                     <Input id="teleport-z" aria-label="Teleport Z level" type="number" placeholder="0" value={teleportZ} onChange={(e) => setTeleportZ(e.target.value)} className="h-9 font-mono text-[12px] tabular-nums" />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button variant="outline" onClick={() => handleAction('Teleport self', () => teleportToCoords(teleportCoordX as number, teleportCoordY as number, teleportCoordZ as number))} disabled={loading !== null || !hasValidTeleportCoords} title="Teleport yourself (admin must be in-game)" className="h-9 gap-2 text-xs font-medium">
                     {loading === 'Teleport self' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MapPin className="w-3.5 h-3.5" />}
                     teleport self
@@ -2301,9 +2475,11 @@ export default function Events() {
               </div>
             </div>
           </TacticalPanel>
+        )}
 
+        {activeSection === 'broadcast' && (
           <TacticalPanel tone="warning">
-            <SectionHeader label="broadcast" sublabel="rcon · server-wide message" icon={Megaphone} tone="warning" />
+            <SectionHeader label="Broadcast" sublabel="RCON · server-wide message" icon={Megaphone} tone="warning" />
             <div className="p-4 space-y-3">
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
@@ -2328,19 +2504,18 @@ export default function Events() {
                   <Navigation className="h-3 w-3 text-destructive" /> horde alert
                 </Button>
               </div>
-              <Button variant="outline" onClick={() => handleAction('Send announcement', sendAnnouncement)} disabled={loading !== null || !announcement.trim()} className="w-full h-9 gap-2 text-xs font-medium">
+              <Button variant="outline" onClick={() => handleAction('Send announcement', sendAnnouncement)} disabled={loading !== null || !announcement.trim()} className="h-9 gap-2 text-xs font-medium">
                 {loading === 'Send announcement' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Megaphone className="w-3.5 h-3.5" />}
                 broadcast message
               </Button>
             </div>
           </TacticalPanel>
-        </TabsContent>
+        )}
 
-        {/* ── CONSOLE TAB (admin ops bridge) ── */}
-        <TabsContent value="console" className="mt-4">
+        {activeSection === 'bridgeOps' && (
           <TacticalPanel tone={bridgeConnected ? 'primary' : 'warning'} className={!bridgeConnected ? 'opacity-95' : ''}>
             <SectionHeader
-              label="bridge tools"
+              label="Bridge tools"
               sublabel={bridgeConnected ? `bridge · ${Object.keys(bridgeOperationTemplates).length} operations` : 'bridge offline · privileged'}
               icon={Zap}
               tone={bridgeConnected ? 'primary' : 'warning'}
@@ -2742,8 +2917,9 @@ export default function Events() {
                   )}
             </div>
           </TacticalPanel>
-        </TabsContent>
-      </Tabs>
+        )}
+        </div>
+      </div>
     </div>
   )
 }

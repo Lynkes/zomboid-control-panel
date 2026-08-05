@@ -764,14 +764,6 @@ router.post("/start", async (req, res) => {
           pollCleared = true;
           clearInterval(pollInterval);
           if (io) io.emit("server:status", { running: true });
-          req.app
-            .get("discordBot")
-            ?.sendEventNotification("serverStart", {})
-            .catch((err) =>
-              log.debug(
-                `Discord serverStart notification failed: ${err.message}`,
-              ),
-            );
           log.info("Server detected as running");
 
           // Wait for RCON to be ready (PZ takes 60-180s to fully start)
@@ -861,6 +853,14 @@ router.post("/start", async (req, res) => {
           // Log completion status
           if (rconConnected) {
             log.info("RCON startup sequence completed - connected");
+            req.app
+              .get("discordBot")
+              ?.sendEventNotification("serverStart", {})
+              .catch((err) =>
+                log.debug(
+                  `Discord serverStart notification failed: ${err.message}`,
+                ),
+              );
           } else {
             log.warn(
               "RCON startup sequence completed - NOT connected (auto-reconnect will keep trying every 30s)",
@@ -917,8 +917,14 @@ router.post("/stop", async (req, res) => {
         .json({ error: "RCON not connected. Cannot gracefully stop server." });
     }
 
-    // Save first
-    await rconService.save();
+    // Save first — quitting after a failed save discards everything since
+    // the last one.
+    const saved = await rconService.save();
+    if (!saved?.success) {
+      return res.status(502).json({
+        error: `Save failed, so the server was left running: ${sanitizeError(saved?.error)}`,
+      });
+    }
 
     // Then quit
     const result = await rconService.quit();
@@ -1398,6 +1404,11 @@ function getBetaArgs(branch) {
   return ["-beta", branch];
 }
 
+async function getSteamLoginArgs() {
+  const account = String((await getSetting("steamUpdateAccount")) || "").trim();
+  return ["+login", account || "anonymous"];
+}
+
 // SteamCMD Installation endpoint
 router.post("/install", async (req, res) => {
   try {
@@ -1528,11 +1539,11 @@ router.post("/install", async (req, res) => {
     // Build SteamCMD command
     // App ID 380870 is Project Zomboid Dedicated Server
     const betaArgs = getBetaArgs(selectedBranch);
+    const loginArgs = await getSteamLoginArgs();
     const steamcmdArgs = [
       "+force_install_dir",
       installPath,
-      "+login",
-      "anonymous",
+      ...loginArgs,
       "+app_update",
       "380870",
       ...betaArgs,
@@ -2206,7 +2217,7 @@ router.post("/configure-network", async (req, res) => {
     await setSetting("useUpnp", useUpnp);
 
     log.info(
-      `Network settings configured in ${iniPath}: port=${serverPort}, UPnP=${upnpValue}`,
+      `Network settings configured in ${iniPath}: port=${serverPort}, UPnP=${useUpnp ? "true" : "false"}`,
     );
     res.json({
       success: true,
@@ -2485,11 +2496,11 @@ router.post("/steam-update", async (req, res) => {
 
     // Build SteamCMD command
     const betaArgs = getBetaArgs(selectedBranch);
+    const loginArgs = await getSteamLoginArgs();
     const steamcmdArgs = [
       "+force_install_dir",
       installPath,
-      "+login",
-      "anonymous",
+      ...loginArgs,
       "+app_update",
       "380870",
       ...betaArgs,
@@ -2571,12 +2582,18 @@ router.post("/steam-update", async (req, res) => {
       activeSteamOperations.delete(normalizedPath);
 
       const success = code === 0;
+      const steamDepotAccessDenied =
+        /app ['"]?380870['"]? state is 0x6/i.test(output) ||
+        /manifest.*access denied/i.test(output);
+      const failureMessage = steamDepotAccessDenied
+        ? "SteamCMD could not access a Project Zomboid depot manifest. Your installed server files were not changed. Retry later; if it persists, update using a Steam account that owns Project Zomboid."
+        : `Server ${operation} failed with code ${code}`;
 
       io.emit("steam:complete", {
         success,
         message: success
           ? `Server ${operation} completed successfully`
-          : `Server ${operation} failed with code ${code}`,
+          : failureMessage,
       });
 
       // After successful update, re-check update status so banner clears
@@ -3885,14 +3902,17 @@ router.post("/wipe/preview", async (req, res) => {
 
 // Execute server wipe
 router.post("/wipe", requireRole("admin"), async (req, res) => {
-  try {
-    // Prevent concurrent wipes
-    if (wipeInProgress) {
-      return res.status(409).json({
-        error: "A wipe operation is already in progress. Please wait.",
-      });
-    }
+  // Claim the guard before the first await: awaiting between the check and the
+  // assignment lets a second concurrent request pass the check and run a
+  // parallel destructive wipe of the same save directory.
+  if (wipeInProgress) {
+    return res.status(409).json({
+      error: "A wipe operation is already in progress. Please wait.",
+    });
+  }
+  wipeInProgress = true;
 
+  try {
     const serverManager = req.app.get("serverManager");
     await serverManager.loadConfig();
 
@@ -3947,7 +3967,6 @@ router.post("/wipe", requireRole("admin"), async (req, res) => {
       return res.status(400).json({ error: "Invalid path" });
     }
 
-    wipeInProgress = true;
     const results = {};
 
     // Same directory/file lists as preview
@@ -4080,6 +4099,8 @@ router.post("/wipe", requireRole("admin"), async (req, res) => {
   } catch (error) {
     log.error(`Wipe failed: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
+  } finally {
+    wipeInProgress = false;
   }
 });
 

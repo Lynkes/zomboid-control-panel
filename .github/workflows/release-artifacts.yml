@@ -135,10 +135,21 @@ jobs:
           if gh release view "$release_tag" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             echo "Release $release_tag already exists; uploading assets."
           else
+            release_version="${release_tag#v}"
+            awk -v version="$release_version" '
+              $0 ~ "^## \\[" version "\\]" { in_section = 1; next }
+              in_section && /^## \\[/ { exit }
+              in_section { print }
+            ' CHANGELOG.md > release-notes.md
+
+            if [ ! -s release-notes.md ]; then
+              printf 'Release %s\n\nSee CHANGELOG.md for details.\n' "$release_tag" > release-notes.md
+            fi
+
             gh release create "$release_tag" \
               --repo "${GITHUB_REPOSITORY}" \
               --title "Release $release_tag" \
-              --generate-notes
+              --notes-file release-notes.md
           fi
 
       - name: Remove obsolete release-manifest.json from prior releases

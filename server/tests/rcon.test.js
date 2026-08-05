@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { EventEmitter } from 'events';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { RconService } from '../services/rcon.js';
 import { PacketReader } from '../utils/sourceRcon.js';
 
@@ -72,6 +75,23 @@ describe('RconService', () => {
 
   beforeEach(() => {
     rcon = new MockRconService();
+  });
+
+  describe('credential sources', () => {
+    it('loads RCON_PASSWORD from a Docker secret file', () => {
+      const secretPath = path.join(os.tmpdir(), `rcon-secret-${Date.now()}`);
+      fs.writeFileSync(secretPath, 'secret-password\n');
+      const previous = process.env.RCON_PASSWORD_FILE;
+      process.env.RCON_PASSWORD_FILE = secretPath;
+
+      try {
+        expect(new RconService().config.password).toBe('secret-password');
+      } finally {
+        if (previous === undefined) delete process.env.RCON_PASSWORD_FILE;
+        else process.env.RCON_PASSWORD_FILE = previous;
+        fs.rmSync(secretPath, { force: true });
+      }
+    });
   });
 
   describe('execute', () => {

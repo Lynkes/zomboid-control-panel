@@ -217,6 +217,13 @@ Find the values with `id -u` and `id -g`, then restart the panel:
 docker compose up -d
 ```
 
+`PUID` and `PGID` apply when the container starts as root, which is the default
+for Docker and Docker Compose. If the runtime already pins a non-root user — for
+example a Kubernetes pod with `runAsUser`, `runAsGroup`, and `runAsNonRoot: true`
+— the entrypoint skips the ownership fix and the privilege drop and runs the
+panel as the given user. In that case `PUID` and `PGID` are ignored, and the
+`/app/data` and `/app/logs` volumes must already be writable by that UID/GID.
+
 This works with the published image; rebuilding is not required. The panel
 changes ownership only of its own `/app/data` and `/app/logs` directories,
 never of PZ game or save mounts.
@@ -238,6 +245,44 @@ Shared folders and SFTP enable configuration edits and PanelBridge actions.
 They do not let the panel start or stop a separate Docker container. Keep PZ
 lifecycle management in your container manager, unless you deliberately grant
 the panel Docker socket access.
+
+#### Unraid and Indifferent Broccoli
+
+Use the panel-only image alongside an existing Indifferent Broccoli Project
+Zomboid container. The two applications have separate persistent state: the
+panel's own database and logs are **not** Project Zomboid's data or logs.
+
+| Unraid host path | Panel container path | Purpose |
+| --- | --- | --- |
+| `/mnt/user/appdata/zomboid-panel/data` | `/app/data` | Panel database, sessions, and backups |
+| `/mnt/user/appdata/zomboid-panel/logs` | `/app/logs` | Panel logs |
+| `/mnt/cache/appdata/projectzomboid/data` | `/pz-server` | PZ install; use the actual path from the PZ container's template |
+| `/mnt/user/appdata/projectzomboid/config` | `/zomboid` | PZ server config, saves, logs, and PanelBridge files |
+
+Do **not** use `/panel-data` or `/panel-logs`: the image never reads those
+paths. The panel paths are exactly `/app/data` and `/app/logs`.
+
+In Unraid's Docker page, add the four mappings above, set `PUID=99` and
+`PGID=100` (or the owner shown by the PZ container), and use bridge networking.
+Set `RCON_HOST` to the PZ container's name only when both containers share a
+user-defined Docker network. Otherwise use the PZ container's fixed LAN IP or
+host address and its exposed RCON port. Do not use `127.0.0.1`: inside the
+panel it means the panel container itself.
+
+After starting the panel, configure the container paths in the wizard or
+Settings as `/pz-server` and `/zomboid`, never the `/mnt/...` host paths. For
+PanelBridge, the shared `/zomboid` mount is enough. If your PZ container does
+not expose that directory to the panel, use **Settings → PanelBridge → Remote
+server via SFTP** instead.
+
+The panel can monitor and administer the game through RCON, but it cannot
+start, stop, or automatically update an independently managed Broccoli
+container. Leave lifecycle and game updates with Unraid/Indifferent Broccoli;
+the automatic server-update setting is for a PZ process managed by the panel.
+
+A ready-to-import Unraid template is available at
+[`docker/unraid/zomboid-panel.xml`](docker/unraid/zomboid-panel.xml). Edit the
+two PZ host paths and RCON values before importing it.
 
 ### Linux: installing a new PZ server through the panel
 

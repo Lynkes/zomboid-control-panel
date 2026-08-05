@@ -421,6 +421,30 @@ router.post('/add-vehicle', async (req, res) => {
   }
 });
 
+// Spawn a vehicle at a map coordinate (Build 42 uses RCON for this operation).
+router.post('/add-vehicle-at', async (req, res) => {
+  try {
+    const rconService = req.app.get('rconService');
+    const { vehicle, x, y, z = 0 } = req.body;
+
+    if (!vehicle || !/^[A-Za-z0-9_]+\.[A-Za-z0-9_]+$/.test(vehicle)) {
+      return res.status(400).json({ error: 'Invalid vehicle ID format' });
+    }
+
+    const coordinates = [x, y, z].map(Number);
+    if (!coordinates.every(Number.isFinite) || x < 0 || x > 24000 || y < 0 || y > 24000 || z < 0 || z > 8) {
+      return res.status(400).json({ error: 'Invalid map coordinates' });
+    }
+
+    const result = await rconService.addVehicleAt(vehicle, x, y, z);
+    log.info(`POST /add-vehicle-at: ${vehicle} at ${coordinates.map(Math.floor).join(',')}`);
+    res.json(result);
+  } catch (error) {
+    log.error(`Failed to spawn vehicle at coordinate: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
 // God mode
 router.post('/godmode', async (req, res) => {
   try {

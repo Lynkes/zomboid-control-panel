@@ -3,6 +3,8 @@ import fs from "fs";
 import path from "path";
 import { createLogger } from "../utils/logger.js";
 import { getDataPaths } from "../utils/paths.js";
+import { getActiveServer } from "../database/init.js";
+import { listPersistedVehicles } from "../utils/vehiclesDb.js";
 const log = createLogger("API:MapProxy");
 
 const router = express.Router();
@@ -197,6 +199,47 @@ async function hasTileCoverage(directory, geometry) {
     }
   }
   return false;
+}
+
+// The top-down (base_top) view is rendered separately from the isometric base
+// and does not use the same image format across builds: 42.19.0 publishes webp
+// while 42.20.0 publishes jpg. Requesting the wrong extension is a hard 404, so
+// read the format from the build's own base_top descriptor.
+const TOP_FORMAT_FALLBACK = "jpg";
+const TOP_CONTENT_TYPES = {
+  webp: "image/webp",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+};
+const _topFormatCache = new Map(); // directory -> format
+
+async function getB42TopFormat(directory) {
+  const cached = _topFormatCache.get(directory);
+  if (cached) return cached;
+  try {
+    const resp = await fetch(
+      `${PZ_MAP_ROOT}/maps/${directory}/base_top/layer0.dzi`,
+      {
+        signal: AbortSignal.timeout(5000),
+        headers: {
+          "User-Agent":
+            "ZomboidControlPanel/1.0 (+https://github.com/fpsacha/zomboid-control-panel)",
+        },
+      },
+    );
+    if (resp.ok) {
+      const xml = await resp.text();
+      const format = xml.match(/Format="(\w+)"/)?.[1]?.toLowerCase();
+      if (format && TOP_CONTENT_TYPES[format]) {
+        _topFormatCache.set(directory, format);
+        return format;
+      }
+    }
+  } catch {
+    // Fall through to the default below.
+  }
+  return TOP_FORMAT_FALLBACK;
 }
 
 async function getB42Map() {
@@ -423,7 +466,7 @@ router.get("/resolve", async (req, res) => {
   res.json({
     root: PZ_MAP_ROOT,
     b42Dir: map.directory,
-    b41Path: "maps/SurvivalB417812L0/map_files",
+    b41Path: "maps/41.78.16/base/layer0_files",
     tileSize: map.tileSize,
     width: map.width,
     height: map.height,
@@ -433,6 +476,32 @@ router.get("/resolve", async (req, res) => {
     sqr: map.sqr,
     scale: map.scale,
   });
+});
+
+let persistedVehicleCache = { key: null, expiresAt: 0, vehicles: [] };
+
+router.get("/vehicles", async (req, res) => {
+  try {
+    const activeServer = await getActiveServer();
+    if (!activeServer || activeServer.isRemote || !activeServer.zomboidDataPath) {
+      return res.json({ vehicles: [] });
+    }
+    const serverName = activeServer.serverName || activeServer.name;
+    if (!serverName) return res.json({ vehicles: [] });
+    const savePath = path.join(activeServer.zomboidDataPath, "Saves", "Multiplayer", serverName);
+    const cacheKey = `${savePath}`;
+    if (persistedVehicleCache.key !== cacheKey || Date.now() >= persistedVehicleCache.expiresAt) {
+      persistedVehicleCache = {
+        key: cacheKey,
+        expiresAt: Date.now() + 15000,
+        vehicles: await listPersistedVehicles(savePath),
+      };
+    }
+    res.json({ vehicles: persistedVehicleCache.vehicles });
+  } catch (err) {
+    log.warn(`Persisted vehicle lookup failed: ${err.message}`);
+    res.json({ vehicles: [] });
+  }
 });
 
 // Proxy DZI tiles from map.projectzomboid.com (migrated from b42map.com) to
@@ -456,15 +525,15 @@ router.get("/tiles/:level/:tile", async (req, res) => {
   if (isNaN(floor) || floor < -17 || floor > 29) {
     return res.status(400).json({ error: "Invalid floor" });
   }
-  // layer0 uses jpg, all other layers use webp
-  const ext = floor === 0 ? "jpg" : "webp";
+  // Every B42 layer DZI declares JPEG tiles, including basements and upper floors.
+  const ext = "jpg";
   if (!new RegExp(`^\\d+_\\d+\\.${ext}$`).test(tile)) {
     return res.status(400).json({ error: "Invalid tile" });
   }
 
   const dir = await getB42Dir();
   const url = `${PZ_MAP_ROOT}/maps/${dir}/base/layer${floor}_files/${level}/${tile}`;
-  const contentType = floor === 0 ? "image/jpeg" : "image/webp";
+  const contentType = "image/jpeg";
   const relPath = path.join("b42", dir, `layer${floor}`, String(level), tile);
   await serveTile(req, res, url, contentType, relPath);
 });
@@ -479,17 +548,22 @@ router.get("/toptiles/:level/:tile", async (req, res) => {
   if (isNaN(level) || level < 0 || level > 22) {
     return res.status(400).json({ error: "Invalid level" });
   }
-  if (!/^\d+_\d+\.webp$/.test(tile)) {
+  const parsed = /^(\d+_\d+)\.(webp|jpe?g|png)$/.exec(tile);
+  if (!parsed) {
     return res.status(400).json({ error: "Invalid tile" });
   }
 
   const dir = await getB42Dir();
-  const url = `${PZ_MAP_ROOT}/maps/${dir}/base_top/layer0_files/${level}/${tile}`;
-  const relPath = path.join("b42-top", dir, String(level), tile);
-  await serveTile(req, res, url, "image/webp", relPath);
+  // The requested extension is ignored: the client cannot know which format a
+  // given build was rendered in, so the upstream descriptor decides.
+  const format = await getB42TopFormat(dir);
+  const upstreamTile = `${parsed[1]}.${format}`;
+  const url = `${PZ_MAP_ROOT}/maps/${dir}/base_top/layer0_files/${level}/${upstreamTile}`;
+  const relPath = path.join("b42-top", dir, String(level), upstreamTile);
+  await serveTile(req, res, url, TOP_CONTENT_TYPES[format], relPath);
 });
 
-// Proxy B41 DZI tiles from map.projectzomboid.com
+// Proxy B41 DZI tiles from map.projectzomboid.com.
 router.get("/b41tiles/:level/:tile", async (req, res) => {
   const level = parseInt(req.params.level, 10);
   const tile = req.params.tile;
@@ -501,9 +575,13 @@ router.get("/b41tiles/:level/:tile", async (req, res) => {
     return res.status(400).json({ error: "Invalid tile" });
   }
 
-  const url = `https://map.projectzomboid.com/maps/SurvivalB417812L0/map_files/${level}/${tile}`;
+  const url = `${PZ_MAP_ROOT}/maps/41.78.16/base/layer0_files/${level}/${tile}`;
   const relPath = path.join("b41", String(level), tile);
   await serveTile(req, res, url, "image/jpeg", relPath);
 });
 
 export default router;
+
+// Exposed so the diagnostics route can probe the exact URLs this proxy would
+// request, instead of a hardcoded build that may not be the one in use.
+export { PZ_MAP_ROOT, getB42Dir, getB42TopFormat };

@@ -13,6 +13,13 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { discordApi } from "@/lib/api";
 import { useConfirm } from "@/contexts/ConfirmContext";
@@ -67,6 +74,7 @@ interface DiscordConfig {
   autoStart: boolean;
   chatRelayEnabled: boolean;
   chatRelayChannelId: string;
+  chatRelayScope: "public" | "general";
 }
 
 interface BotInfo {
@@ -144,42 +152,54 @@ function InlineFeedback({
 
 const eventLabels: Record<
   string,
-  { label: string; description: string; variables: string }
+  {
+    label: string;
+    description: string;
+    variables: string;
+    defaultTemplate: string;
+  }
 > = {
   serverStart: {
     label: "Server Start",
     description: "When server starts",
     variables: "None",
+    defaultTemplate: "🟢 **Server is online**",
   },
   serverStop: {
     label: "Server Stop",
     description: "When server stops",
     variables: "None",
+    defaultTemplate: "🔴 **Server is offline**",
   },
   playerJoin: {
     label: "Player Join",
     description: "When a player connects",
     variables: "{player}",
+    defaultTemplate: "👋 **{player}** joined the server",
   },
   playerLeave: {
     label: "Player Leave",
     description: "When a player disconnects",
     variables: "{player}",
+    defaultTemplate: "👋 **{player}** left the server",
   },
   scheduledRestart: {
     label: "Scheduled Restart",
     description: "Before scheduled restart",
     variables: "{minutes}",
+    defaultTemplate: "🔄 **Server restarting** in {minutes} minute(s)",
   },
   backupComplete: {
     label: "Backup Complete",
     description: "After backup finishes",
     variables: "None",
+    defaultTemplate: "💾 **Backup complete**",
   },
   playerDeath: {
     label: "Player Death",
     description: "When a player dies",
     variables: "{player}, {location}, {x}, {y}, {z}, {pvp}",
+    defaultTemplate: "💀 **{player}** died at {location}",
   },
 };
 
@@ -218,6 +238,9 @@ export default function Discord() {
   const [channelId, setChannelId] = useState("");
   const [chatRelayEnabled, setChatRelayEnabled] = useState(true);
   const [chatRelayChannelId, setChatRelayChannelId] = useState("");
+  const [chatRelayScope, setChatRelayScope] = useState<"public" | "general">(
+    "public",
+  );
 
   // Setup wizard state
   const [configMessage, setConfigMessage] = useState<FlashMessage | null>(null);
@@ -230,21 +253,37 @@ export default function Discord() {
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
+      let configFailed = false;
       const [statusData, configData, eventsData, permsData] = await Promise.all(
         [
           discordApi
             .getStatus()
             .catch(() => ({ running: false, configured: false })),
-          discordApi.getConfig().catch(() => null),
+          discordApi.getConfig().catch(() => {
+            configFailed = true;
+            return null;
+          }),
           discordApi.getWebhookEvents().catch(() => ({ events: {} })),
           discordApi.getPermissions().catch(() => ({ permissions: {} })),
         ],
       );
 
       setStatus(statusData);
-      setConfig(configData);
       setWebhookEvents(eventsData.events || {});
       setCommandPermissions(permsData.permissions || {});
+
+      // Keep the last known config on a failed read. Clearing it made a fully
+      // configured bot look like a first-time setup, inviting the user to
+      // retype everything.
+      if (configFailed) {
+        setConfigMessage({
+          type: "error",
+          text: "Could not read the Discord configuration. Nothing has been changed — refresh to try again.",
+        });
+        return;
+      }
+
+      setConfig(configData);
 
       if (configData) {
         setGuildId(configData.guildId || "");
@@ -253,6 +292,9 @@ export default function Discord() {
         setChannelId(configData.channelId || "");
         setChatRelayEnabled(configData.chatRelayEnabled !== false);
         setChatRelayChannelId(configData.chatRelayChannelId || "");
+        setChatRelayScope(
+          configData.chatRelayScope === "general" ? "general" : "public",
+        );
         setAutoStart(configData.autoStart !== false);
       }
     } catch {
@@ -284,10 +326,12 @@ export default function Discord() {
     return () => clearInterval(pollId);
   }, []);
 
-  // Discord ID validation (snowflake format - 17-19 digit number)
+  // Discord ID validation (snowflake format). The range matches the server's
+  // validator in routes/discord.js — a narrower one here rejects IDs the API
+  // would have accepted.
   const isValidDiscordId = (id: string): boolean => {
     if (!id) return true; // Empty is allowed for optional fields
-    return /^\d{17,19}$/.test(id);
+    return /^\d{15,21}$/.test(id);
   };
 
   const hasGuildIdError = Boolean(guildId && !isValidDiscordId(guildId));
@@ -367,10 +411,23 @@ export default function Discord() {
         modRoleId || undefined,
         chatRelayEnabled,
         chatRelayChannelId || undefined,
+        chatRelayScope,
       );
 
       if (andStart) {
-        await discordApi.start();
+        try {
+          await discordApi.start();
+        } catch (startError: unknown) {
+          // The config did save — say so, rather than implying it was lost.
+          const why =
+            startError instanceof Error ? startError.message : "unknown error";
+          setConfigMessage({
+            type: "error",
+            text: `Configuration saved, but the bot failed to start: ${why}`,
+          });
+          await loadData();
+          return;
+        }
         setConfigMessage({
           type: "success",
           text: "Configuration saved and bot started!",
@@ -500,6 +557,7 @@ export default function Discord() {
       setChannelId("");
       setChatRelayEnabled(true);
       setChatRelayChannelId("");
+      setChatRelayScope("public");
       setAutoStart(true);
       setBotInfo(null);
       setInviteUrl(null);
@@ -523,10 +581,14 @@ export default function Discord() {
   };
 
   const handleToggleEvent = (eventKey: string, enabled: boolean) => {
-    setWebhookEvents((prev) => ({
-      ...prev,
-      [eventKey]: { ...prev[eventKey], enabled },
-    }));
+    setWebhookEvents((prev) => {
+      // An enabled event with a blank template sends an empty message, which
+      // Discord rejects — fall back to the default wording instead.
+      const template =
+        prev[eventKey]?.template?.trim() ||
+        (enabled ? eventLabels[eventKey]?.defaultTemplate || "" : "");
+      return { ...prev, [eventKey]: { ...prev[eventKey], enabled, template } };
+    });
   };
 
   const handleUpdateTemplate = (eventKey: string, template: string) => {
@@ -1845,9 +1907,9 @@ export default function Discord() {
           <div className="space-y-4 p-4 rounded-lg border">
             <div className="flex items-center justify-between">
               <div>
-                <Label className="font-medium">In-Game Chat Relay</Label>
+                <Label className="font-medium">Chat Relay</Label>
                 <p className="text-sm text-muted-foreground">
-                  Forward player chat messages from the game server to Discord
+                  Bridge chat both ways between the game server and Discord
                 </p>
               </div>
               <Switch
@@ -1855,6 +1917,34 @@ export default function Discord() {
                 onCheckedChange={setChatRelayEnabled}
               />
             </div>
+            {chatRelayEnabled && (
+              <div className="space-y-2">
+                <Label htmlFor="chatRelayScope" className="text-sm">
+                  Which messages to forward
+                </Label>
+                <Select
+                  value={chatRelayScope}
+                  onValueChange={(v) =>
+                    setChatRelayScope(v as "public" | "general")
+                  }
+                >
+                  <SelectTrigger id="chatRelayScope">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="public">
+                      All public chat (Say, Shout, General)
+                    </SelectItem>
+                    <SelectItem value="general">General tab only</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Faction, safehouse, radio and admin chat are never forwarded.
+                  Build 42 records ordinary talking as Say, so "General tab
+                  only" relays very little.
+                </p>
+              </div>
+            )}
             {chatRelayEnabled && (
               <div className="space-y-2">
                 <Label htmlFor="chatRelayChannelId" className="text-sm">

@@ -442,9 +442,10 @@ export class PanelUpdateChecker {
     // we're running from, otherwise we'd try to overwrite our own binary.
     const stagedPath = this.getStageSlotPath();
     const tmpDownloadPath = `${stagedPath}.partial.${process.pid}`;
+    const clientArchiveExtension = isWindows ? ".zip" : ".tar.gz";
     const tmpClientArchivePath = path.join(
       exeDir,
-      `.client-dist-${this.latestRelease.version}.partial.${process.pid}`,
+      `.client-dist-${this.latestRelease.version}.partial.${process.pid}${clientArchiveExtension}`,
     );
 
     try {
@@ -854,7 +855,7 @@ export class PanelUpdateChecker {
       "",
       "rem === Wait up to 60s for panel process to exit. ===",
       "rem === Use findstr (not find) -- find can block on stdin in edge cases. ===",
-      ,
+      "",
       "set /a TRIES=0",
       ":waitloop",
       'tasklist /NH /FI "PID eq %PID_WATCH%" 2>nul | findstr /C:"%PID_WATCH%" >nul',
@@ -882,7 +883,7 @@ export class PanelUpdateChecker {
       '    start "" /D "%WORK_DIR%" "%EXE_PATH%"',
       "  ) else (",
       '    call :stamp "CRITICAL: previous .exe is also gone -- user must add AV exclusion and restore from .bak-*"',
-      ,
+      "",
       "  )",
       "  goto :end_fail",
       ")",
@@ -949,7 +950,7 @@ export class PanelUpdateChecker {
       "rem === Helpers ===",
       "rem === Goto-based branching avoids the cmd.exe IF/ELSE parens parser ===",
       'rem === bug that truncates messages containing ")".                   ===',
-      ,
+      "",
       ":stamp",
       'rem %~1 = message, %~2 = "NEW" to overwrite stable log, else append',
       'for /f "tokens=1-3 delims=:.," %%a in ("%time%") do set "NOW=%date% %%a:%%b:%%c"',
@@ -1001,17 +1002,26 @@ export class PanelUpdateChecker {
     const exeDir = path.dirname(process.execPath);
     const extractDir = fs.mkdtempSync(path.join(os.tmpdir(), "zpanel-update-"));
     const escapePowerShellLiteral = (value) => String(value).replace(/'/g, "''");
+    let extractArchivePath = archivePath;
+    let windowsArchiveCopy = null;
 
     try {
       if (isWindows) {
+        // Expand-Archive rejects a valid ZIP when its staging name lacks a
+        // .zip suffix. Keep this defensive copy for callers from older paths.
+        if (path.extname(extractArchivePath).toLowerCase() !== ".zip") {
+          windowsArchiveCopy = `${extractArchivePath}.zip`;
+          fs.copyFileSync(extractArchivePath, windowsArchiveCopy);
+          extractArchivePath = windowsArchiveCopy;
+        }
         await this.runUpdateCommand("powershell.exe", [
           "-NoProfile",
           "-NonInteractive",
           "-Command",
-          `Expand-Archive -LiteralPath '${escapePowerShellLiteral(archivePath)}' -DestinationPath '${escapePowerShellLiteral(extractDir)}' -Force`,
+          `Expand-Archive -LiteralPath '${escapePowerShellLiteral(extractArchivePath)}' -DestinationPath '${escapePowerShellLiteral(extractDir)}' -Force`,
         ]);
       } else {
-        await this.runUpdateCommand("tar", ["-xzf", archivePath, "-C", extractDir]);
+        await this.runUpdateCommand("tar", ["-xzf", extractArchivePath, "-C", extractDir]);
       }
 
       const incoming = path.join(extractDir, "client", "dist");
@@ -1039,6 +1049,9 @@ export class PanelUpdateChecker {
       fs.rmSync(backupDist, { recursive: true, force: true });
       log.info("Updated client/dist from verified release archive");
     } finally {
+      if (windowsArchiveCopy) {
+        fs.rmSync(windowsArchiveCopy, { force: true });
+      }
       fs.rmSync(extractDir, { recursive: true, force: true });
     }
   }

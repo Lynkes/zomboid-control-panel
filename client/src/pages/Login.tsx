@@ -50,6 +50,7 @@ export default function Login() {
   const [resetMode, setResetMode] = useState(false)
   const [resetAvailable, setResetAvailable] = useState(false)
   const [resetToken, setResetToken] = useState('')
+  const [recoveryCodesAvailable, setRecoveryCodesAvailable] = useState(false)
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [resetSuccess, setResetSuccess] = useState('')
@@ -85,6 +86,10 @@ export default function Login() {
         setResetAvailable(false)
         setLocalResetSupported(false)
       })
+    fetch('/api/auth/recovery-status', { signal: controller.signal })
+      .then((r) => r.json())
+      .then((d) => setRecoveryCodesAvailable(d?.recoveryCodesAvailable === true))
+      .catch(() => setRecoveryCodesAvailable(false))
     return () => controller.abort()
   }, [])
 
@@ -119,11 +124,21 @@ export default function Login() {
     }
     setLoading(true)
     try {
-      const res = await fetch('/api/auth/reset-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: resetToken, newPassword }),
-      })
+      // A token file, when present, stays the primary path; otherwise fall back
+      // to a saved recovery code so no host access is needed.
+      const useRecoveryCode = !resetAvailable && recoveryCodesAvailable
+      const res = await fetch(
+        useRecoveryCode ? '/api/auth/recover-with-code' : '/api/auth/reset-password',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(
+            useRecoveryCode
+              ? { code: resetToken, newPassword }
+              : { token: resetToken, newPassword },
+          ),
+        },
+      )
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Reset failed')
       setResetSuccess(data.message)
@@ -147,7 +162,7 @@ export default function Login() {
   const handleLostPassword = () => {
     setError('')
     setResetSuccess('')
-    if (resetAvailable) {
+    if (resetAvailable || recoveryCodesAvailable) {
       setShowRecoveryHelp(false)
       setResetMode(true)
       return
@@ -281,14 +296,14 @@ export default function Login() {
 
               <div className="space-y-1.5">
                 <Label htmlFor="resetToken" className="text-sm font-medium text-foreground">
-                  Recovery token
+                  {resetAvailable ? 'Recovery token' : 'Recovery code'}
                 </Label>
                 <Input
                   id="resetToken"
                   type="text"
                   value={resetToken}
                   onChange={(e) => setResetToken(e.target.value)}
-                  placeholder="Paste token"
+                  placeholder={resetAvailable ? 'Paste token' : 'XXXXX-XXXXX-XXXXX'}
                   autoFocus
                   disabled={loading}
                   required
@@ -296,7 +311,11 @@ export default function Login() {
                   maxLength={512}
                   className="text-sm"
                 />
-                <p className="text-xs text-muted-foreground">Stored at data/reset-token.txt on the panel host.</p>
+                <p className="text-xs text-muted-foreground">
+                  {resetAvailable
+                    ? 'Stored at data/reset-token.txt on the panel host.'
+                    : 'One of the recovery codes you saved from Settings → Security. Each code works once.'}
+                </p>
               </div>
 
               <div className="space-y-1.5">

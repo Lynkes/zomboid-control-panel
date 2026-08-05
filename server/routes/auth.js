@@ -213,7 +213,7 @@ router.post("/setup", setupLimiter, async (req, res) => {
         .status(400)
         .json({ error: "Username and password are required" });
     }
-    const user = await authService.createUser(username, password);
+    await authService.createUser(username, password);
 
     // Auto-login after setup — generate tokens
     const result = await authService.login(
@@ -326,7 +326,9 @@ router.post("/refresh", async (req, res) => {
     // Always clear stale cookie on any failure
     try {
       res.clearCookie("refreshToken", getRefreshCookieOptions(req, false));
-    } catch {}
+    } catch {
+      // Headers may already be sent; the 401 below is what matters.
+    }
     res.status(401).json({ error: "Token refresh failed" });
   }
 });
@@ -423,6 +425,64 @@ const localResetTokenLimiter = rateLimit({
 });
 
 /**
+ * Recovery codes — the no-filesystem-access path.
+ *
+ * Generated while signed in, redeemable from the login screen. Only hashes are
+ * stored, and each code works exactly once.
+ */
+router.get("/recovery-codes", async (req, res) => {
+  try {
+    const user = await getAuthenticatedUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    res.json(await authService.getRecoveryCodeStatus());
+  } catch (error) {
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+router.post("/recovery-codes", async (req, res) => {
+  try {
+    const user = await getAuthenticatedUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const result = await authService.generateRecoveryCodes(10);
+    log.info("New recovery codes generated");
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(400).json({ error: sanitizeError(error.message) });
+  }
+});
+
+router.get("/recovery-status", async (req, res) => {
+  try {
+    const status = await authService.getRecoveryCodeStatus();
+    res.json({ recoveryCodesAvailable: status.remaining > 0 });
+  } catch {
+    res.json({ recoveryCodesAvailable: false });
+  }
+});
+
+router.post("/recover-with-code", resetLimiter, async (req, res) => {
+  try {
+    const { code, newPassword } = req.body || {};
+    if (!isNonEmptyString(code) || !isNonEmptyString(newPassword)) {
+      return res
+        .status(400)
+        .json({ error: "A recovery code and a new password are required" });
+    }
+    const result = await authService.redeemRecoveryCode(code, newPassword);
+    log.info(`Password recovered via recovery code for ${result.username}`);
+    res.json({
+      success: true,
+      message: `Password reset for ${result.username}`,
+      remaining: result.remaining,
+    });
+  } catch (error) {
+    log.warn(`Recovery code redemption failed: ${error.message}`);
+    res.status(403).json({ error: sanitizeError(error.message) });
+  }
+});
+
+/**
  * POST /api/auth/reset-token/local
  * Create or reuse a reset token when the panel is opened locally on the server host.
  *
@@ -455,7 +515,11 @@ router.post("/reset-token/local", localResetTokenLimiter, async (req, res) => {
     ) {
       try {
         fs.unlinkSync(tokenState.tokenPath);
-      } catch {}
+      } catch (error) {
+        log.warn(
+          `Could not remove ${tokenState.reason} reset token file: ${error.message}`,
+        );
+      }
     }
 
     const token = crypto.randomBytes(24).toString("hex");
@@ -535,7 +599,9 @@ router.post("/reset-password", resetLimiter, async (req, res) => {
       log.warn("Password reset attempted with expired token file (>24h old)");
       try {
         fs.unlinkSync(tokenPath);
-      } catch {}
+      } catch (error) {
+        log.warn(`Could not remove expired reset token file: ${error.message}`);
+      }
       return res
         .status(403)
         .json({

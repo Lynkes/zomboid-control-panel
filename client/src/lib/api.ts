@@ -661,6 +661,8 @@ export const playersApi = {
     apiPost("/players/add-xp", { username, perk, amount }),
   addVehicle: (vehicle: string, username?: string) =>
     apiPost("/players/add-vehicle", { vehicle, username }),
+  addVehicleAt: (vehicle: string, x: number, y: number, z = 0) =>
+    apiPost("/players/add-vehicle-at", { vehicle, x, y, z }),
   setGodMode: (username: string | null, enabled: boolean) =>
     apiPost("/players/godmode", { username, enabled }),
   setInvisible: (username: string | null, enabled: boolean) =>
@@ -764,6 +766,7 @@ export const schedulerApi = {
       serverId,
     }),
   deleteTask: (id: number) => apiDelete(`/scheduler/tasks/${id}`),
+  runTask: (id: number) => apiPost(`/scheduler/tasks/${id}/run`),
   restartNow: (warningMinutes?: number) =>
     apiPost("/scheduler/restart-now", { warningMinutes }),
   getCronPresets: () => apiGet("/scheduler/cron-presets"),
@@ -1051,7 +1054,7 @@ export const modsApi = {
       items: Array<{
         workshopId: string;
         name: string | null;
-        status: "synced" | "to-add" | "collection-only";
+        status: "synced" | "to-add" | "collection-only" | "tracked-only";
         inTracked: boolean;
         inCollection: boolean;
         inServer: boolean;
@@ -1062,6 +1065,7 @@ export const modsApi = {
       tokenExpiry: number | null;
       tokenExpired: boolean;
       trackedCount: number;
+      serverConfigRead?: boolean;
     }>,
   collectionAddItem: (workshopId: string) =>
     apiPost("/mods/collection/items", { workshopId }) as Promise<{
@@ -1081,6 +1085,16 @@ export const modsApi = {
       workshopId: string;
       removed: boolean;
       message: string;
+    }>,
+  purgeMod: (workshopId: string, name?: string | null) =>
+    apiPost("/mods/purge", { workshopId, name }) as Promise<{
+      success: boolean;
+      workshopId: string;
+      name: string | null;
+      collection: { attempted: boolean; ok: boolean; error: string | null };
+      deletedFromDisk: boolean;
+      modIdsStripped: number;
+      mapFoldersStripped: number;
     }>,
   collectionSync: () =>
     apiPost("/mods/collection/sync", {}) as Promise<{
@@ -1388,6 +1402,7 @@ export const discordApi = {
     modRoleId?: string,
     chatRelayEnabled?: boolean,
     chatRelayChannelId?: string,
+    chatRelayScope?: "public" | "general",
   ) =>
     apiPut("/discord/config", {
       token,
@@ -1398,6 +1413,7 @@ export const discordApi = {
       autoStart,
       chatRelayEnabled,
       chatRelayChannelId,
+      chatRelayScope,
     }),
   resetConfig: () => apiPost("/discord/reset"),
   start: () => apiPost("/discord/start"),
@@ -1872,6 +1888,35 @@ export const panelBridgeApi = {
     success: boolean;
     bridgePath: string;
     transport: { type: "sftp"; running: boolean; lastLatencyMs?: number | null };
+  }>,
+
+  listSftpLogs: (config: {
+    host?: string;
+    port?: string;
+    username?: string;
+    password?: string;
+    logPath?: string;
+  }) => apiPost("/panel-bridge/sftp/logs/list", config) as Promise<{
+    success: boolean;
+    logPath: string;
+    files: Array<{ name: string; size: number; modifiedAt: string | null }>;
+  }>,
+
+  tailSftpLog: (config: {
+    name: string;
+    maxBytes?: number;
+    host?: string;
+    port?: string;
+    username?: string;
+    password?: string;
+    logPath?: string;
+  }) => apiPost("/panel-bridge/sftp/logs/tail", config) as Promise<{
+    success: boolean;
+    name: string;
+    size: number;
+    truncated: boolean;
+    bytesReturned: number;
+    content: string;
   }>,
 
   testSftp: (config: {
@@ -2477,6 +2522,19 @@ export const authApi = {
     newPassword: string,
   ): Promise<{ success: boolean; message?: string }> =>
     apiPost("/auth/change-password", { currentPassword, newPassword }),
+
+  getRecoveryCodes: (): Promise<{
+    configured: boolean;
+    remaining: number;
+    total: number;
+    createdAt: string | null;
+  }> => apiGet("/auth/recovery-codes"),
+
+  generateRecoveryCodes: (): Promise<{
+    success: boolean;
+    codes: string[];
+    createdAt: string;
+  }> => apiPost("/auth/recovery-codes", {}),
 };
 
 // Servers detection API helpers (added to serversApi)
@@ -2630,6 +2688,8 @@ export const mapApi = {
     sqr?: number;
     scale?: number;
   }> => apiGet("/map/resolve"),
+  vehicles: (): Promise<{ vehicles: Array<{ id: number; x: number; y: number }> }> =>
+    apiGet("/map/vehicles"),
 };
 
 export const panelUpdateApi = {

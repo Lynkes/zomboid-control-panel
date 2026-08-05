@@ -286,7 +286,12 @@ class AuthService {
       }
       try {
         await commitNow();
-      } catch {}
+      } catch (error) {
+        // Losing this write silently would let brute-force lockout state vanish.
+        log.error(
+          `Failed to persist failed-login state for ${user.username}: ${error.message}`,
+        );
+      }
       throw new Error("Invalid username or password");
     }
 
@@ -526,6 +531,90 @@ class AuthService {
 
     log.info(`Password reset for user: ${user.username}`);
     return { username: user.username };
+  }
+
+  /**
+   * Generate single-use recovery codes for the admin account.
+   *
+   * Only the hashes are stored, so a database copy cannot be turned back into
+   * usable codes. The plaintext is returned once and never recoverable after.
+   */
+  async generateRecoveryCodes(count = 10) {
+    const db = await getDb();
+    const users = db.data.users || [];
+    const user = users.find((u) => u.role === "admin") || users[0];
+    if (!user) throw new Error("No user accounts exist. Use setup instead.");
+
+    const codes = [];
+    const hashes = [];
+    for (let i = 0; i < count; i++) {
+      const raw = crypto.randomBytes(15).toString("base64url").slice(0, 20).toUpperCase();
+      const code = `${raw.slice(0, 5)}-${raw.slice(5, 10)}-${raw.slice(10, 15)}`;
+      codes.push(code);
+      hashes.push({
+        hash: crypto.createHash("sha256").update(code, "utf8").digest("hex"),
+        usedAt: null,
+      });
+    }
+
+    await setSetting("authRecoveryCodes", JSON.stringify(hashes));
+    await setSetting("authRecoveryCodesCreatedAt", new Date().toISOString());
+    log.info(`Generated ${count} recovery codes for user: ${user.username}`);
+    return { codes, createdAt: new Date().toISOString() };
+  }
+
+  async getRecoveryCodeStatus() {
+    const stored = await getSetting("authRecoveryCodes");
+    const createdAt = await getSetting("authRecoveryCodesCreatedAt");
+    let entries = [];
+    try {
+      entries = stored ? JSON.parse(stored) : [];
+    } catch {
+      entries = [];
+    }
+    const remaining = entries.filter((entry) => !entry.usedAt).length;
+    return { configured: entries.length > 0, remaining, total: entries.length, createdAt: createdAt || null };
+  }
+
+  /**
+   * Consume a recovery code and set a new password. The code is burned whether
+   * or not the caller knows the old password, so each one works exactly once.
+   */
+  async redeemRecoveryCode(code, newPassword) {
+    if (typeof code !== "string" || !code.trim()) {
+      throw new Error("A recovery code is required");
+    }
+    const stored = await getSetting("authRecoveryCodes");
+    let entries = [];
+    try {
+      entries = stored ? JSON.parse(stored) : [];
+    } catch {
+      entries = [];
+    }
+    if (entries.length === 0) {
+      throw new Error("No recovery codes have been generated for this panel.");
+    }
+
+    const candidate = crypto
+      .createHash("sha256")
+      .update(code.trim().toUpperCase(), "utf8")
+      .digest();
+    const match = entries.find((entry) => {
+      if (entry.usedAt) return false;
+      const storedDigest = Buffer.from(entry.hash, "hex");
+      if (storedDigest.length !== candidate.length) return false;
+      return crypto.timingSafeEqual(storedDigest, candidate);
+    });
+    if (!match) {
+      throw new Error("That recovery code is not valid or has already been used.");
+    }
+
+    const result = await this.resetPassword(newPassword);
+    match.usedAt = new Date().toISOString();
+    await setSetting("authRecoveryCodes", JSON.stringify(entries));
+    const remaining = entries.filter((entry) => !entry.usedAt).length;
+    log.info(`Recovery code redeemed for ${result.username}; ${remaining} remaining`);
+    return { ...result, remaining };
   }
 
   /**

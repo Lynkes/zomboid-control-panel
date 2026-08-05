@@ -3,7 +3,6 @@ import fs from "fs";
 import { createWriteStream } from "fs";
 import archiver from "archiver";
 import { createReadStream } from "fs";
-import { pipeline } from "stream/promises";
 import { createLogger } from "../utils/logger.js";
 const log = createLogger("Backup");
 import {
@@ -269,24 +268,33 @@ export class BackupService {
     // real upfront total requires a separate walk one way or another; this
     // one uses parallel readdir to keep it as cheap as reasonably possible.
     let totalFiles = 0;
-    const countFiles = async (dir) => {
-      try {
-        const entries = await fs.promises.readdir(dir, { withFileTypes: true });
-        // Use Promise.all to process directories in parallel
-        const counts = await Promise.all(
-          entries.map(async (entry) => {
-            if (entry.isDirectory()) {
-              return countFiles(path.join(dir, entry.name));
-            } else {
-              return 1;
-            }
-          }),
-        );
-        return counts.reduce((a, b) => a + b, 0);
-      } catch (e) {
-        // Ignore errors during counting (e.g. permission denied)
-        return 0;
+    // Iterative walk: recursing with Promise.all held one pending promise per
+    // entry for the whole tree at once, which on a large save is a needless
+    // heap and file-descriptor spike during an already memory-heavy operation.
+    const countFiles = async (rootDir) => {
+      let count = 0;
+      const pending = [rootDir];
+
+      while (pending.length > 0) {
+        const dir = pending.pop();
+        let entries;
+        try {
+          entries = await fs.promises.readdir(dir, { withFileTypes: true });
+        } catch {
+          // Unreadable directory (e.g. permission denied) - skip it.
+          continue;
+        }
+
+        for (const entry of entries) {
+          if (entry.isDirectory()) {
+            pending.push(path.join(dir, entry.name));
+          } else {
+            count++;
+          }
+        }
       }
+
+      return count;
     };
 
     try {
@@ -508,7 +516,13 @@ export class BackupService {
       // Delete oldest backups
       const toDelete = backups.slice(settings.maxBackups);
       for (const backup of toDelete) {
-        await this.deleteBackup(backup.name);
+        const deleted = await this.deleteBackup(backup.name);
+        if (!deleted?.success) {
+          log.warn(
+            `Could not clean up old backup ${backup.name}: ${deleted?.error || "unknown error"}`,
+          );
+          continue;
+        }
         log.info(`Cleaned up old backup: ${backup.name}`);
       }
     } catch (error) {
@@ -646,6 +660,7 @@ export class BackupService {
 
     this.restoreInProgress = true;
     const startTime = Date.now();
+    let stagingPath = null;
 
     try {
       const backupsPath = await this.getBackupsPath();
@@ -693,21 +708,25 @@ export class BackupService {
       const savesParentPath = path.dirname(savesPath);
       const expectedFolderName = path.basename(savesPath);
 
-      // Clear the existing saves folder
-      if (fs.existsSync(savesPath)) {
-        log.info("Removing existing saves folder...");
-        fs.rmSync(savesPath, { recursive: true, force: true });
-      }
-
       // Ensure parent directory exists
       if (!fs.existsSync(savesParentPath)) {
         fs.mkdirSync(savesParentPath, { recursive: true });
       }
 
+      // Extract into a staging sibling and only swap it in once extraction has
+      // fully succeeded. Deleting the live save first meant a truncated or
+      // corrupt archive destroyed the world with nothing to fall back to.
+      // A sibling keeps the swap on the same filesystem, so it stays a rename.
+      stagingPath = path.join(
+        savesParentPath,
+        `.restore-staging-${Date.now()}-${process.pid}`,
+      );
+      fs.mkdirSync(stagingPath, { recursive: true });
+
       // Extract the backup with zip-slip protection
-      log.info("Extracting backup...");
+      log.info("Extracting backup to staging area...");
       const unzip = await getUnzipper();
-      const resolvedParent = path.resolve(savesParentPath) + path.sep;
+      const resolvedParent = path.resolve(stagingPath) + path.sep;
 
       await new Promise((resolve, reject) => {
         // Settle exactly once. Without this, errors on the read stream AND on
@@ -723,6 +742,16 @@ export class BackupService {
           else resolve();
         };
 
+        // The parser emits 'close' as soon as it has read the archive, which
+        // can happen while entry files are still flushing. Resolving then
+        // leaves open handles in the staging folder, and renaming a directory
+        // that still has open handles fails with EPERM on Windows.
+        let pendingWrites = 0;
+        let parseClosed = false;
+        const settleIfComplete = () => {
+          if (parseClosed && pendingWrites === 0) settle();
+        };
+
         const readStream = createReadStream(backupPath);
         readStream.on("error", settle);
 
@@ -730,7 +759,7 @@ export class BackupService {
           .pipe(unzip.Parse())
           .on("entry", (entry) => {
             try {
-              const entryPath = path.join(savesParentPath, entry.path);
+              const entryPath = path.join(stagingPath, entry.path);
               const resolvedEntry = path.resolve(entryPath);
 
               // Block zip-slip: entry must resolve inside the target directory
@@ -752,11 +781,13 @@ export class BackupService {
                 // Ensure parent directory exists
                 fs.mkdirSync(path.dirname(resolvedEntry), { recursive: true });
                 const writeStream = createWriteStream(resolvedEntry);
+                pendingWrites++;
                 // Per-entry write failures (ENOSPC, EACCES, path too long on
                 // Windows) surface as 'error' on the WriteStream and are NOT
                 // forwarded by pipe(). Without this listener the event is
                 // unhandled and crashes the process.
                 writeStream.on("error", (err) => {
+                  pendingWrites--;
                   try {
                     entry.unpipe(writeStream);
                   } catch {
@@ -769,6 +800,10 @@ export class BackupService {
                   }
                   settle(err);
                 });
+                writeStream.on("close", () => {
+                  pendingWrites--;
+                  settleIfComplete();
+                });
                 entry.on("error", settle);
                 entry.pipe(writeStream);
               }
@@ -776,38 +811,60 @@ export class BackupService {
               settle(err);
             }
           })
-          .on("close", () => settle())
+          .on("close", () => {
+            parseClosed = true;
+            settleIfComplete();
+          })
           .on("error", settle);
       });
 
-      // Verify the restore
-      if (!fs.existsSync(savesPath)) {
-        // Check if it extracted with a different folder name
-        const extracted = fs
-          .readdirSync(savesParentPath)
-          .filter((f) =>
-            fs.statSync(path.join(savesParentPath, f)).isDirectory(),
-          );
+      // Extraction succeeded, so the archive is proven readable. Only now is
+      // it safe to touch the live save.
+      const stagedWorldPath = this._findExtractedWorld(
+        stagingPath,
+        expectedFolderName,
+      );
 
-        if (extracted.length > 0) {
-          // Find the newly extracted folder (the one that matches the backup pattern)
-          for (const folder of extracted) {
-            const folderPath = path.join(savesParentPath, folder);
-            // Check if this looks like a world save folder
-            if (
-              fs.existsSync(path.join(folderPath, "map_meta.bin")) ||
-              fs.existsSync(path.join(folderPath, "map_t.bin"))
-            ) {
-              // Rename to expected folder name if different
-              if (folder !== expectedFolderName) {
-                log.info(
-                  `Renaming extracted folder from ${folder} to ${expectedFolderName}`,
-                );
-                fs.renameSync(folderPath, savesPath);
-              }
-              break;
-            }
+      if (!stagedWorldPath) {
+        throw new Error(
+          "Backup did not contain a world save folder - live save left untouched",
+        );
+      }
+
+      const retiredPath = `${savesPath}.replaced-${Date.now()}`;
+      let retired = false;
+
+      if (fs.existsSync(savesPath)) {
+        fs.renameSync(savesPath, retiredPath);
+        retired = true;
+      }
+
+      try {
+        fs.renameSync(stagedWorldPath, savesPath);
+      } catch (swapError) {
+        // Put the original world back rather than leaving nothing in place.
+        if (retired) {
+          try {
+            fs.renameSync(retiredPath, savesPath);
+          } catch (rollbackError) {
+            log.error(
+              `Restore rollback failed - previous save is at ${retiredPath}: ${rollbackError.message}`,
+            );
+            throw new Error(
+              `Restore failed and the previous save could not be put back automatically. It is preserved at ${retiredPath}.`,
+            );
           }
+        }
+        throw swapError;
+      }
+
+      if (retired) {
+        try {
+          fs.rmSync(retiredPath, { recursive: true, force: true });
+        } catch (cleanupError) {
+          log.warn(
+            `Restored successfully but could not remove ${retiredPath}: ${cleanupError.message}`,
+          );
         }
       }
 
@@ -836,7 +893,43 @@ export class BackupService {
       // including the early return above when the pre-restore backup fails —
       // that path used to leak the flag permanently, locking out all future
       // restores until the process was restarted.
+      if (stagingPath) {
+        try {
+          fs.rmSync(stagingPath, { recursive: true, force: true });
+        } catch (cleanupError) {
+          log.warn(
+            `Could not remove restore staging folder ${stagingPath}: ${cleanupError.message}`,
+          );
+        }
+      }
       this.restoreInProgress = false;
     }
+  }
+
+  // A backup normally wraps the world in its server-name folder, but older or
+  // hand-made archives may use a different name or none at all.
+  _findExtractedWorld(stagingPath, expectedFolderName) {
+    const looksLikeWorld = (dir) =>
+      fs.existsSync(path.join(dir, "map_meta.bin")) ||
+      fs.existsSync(path.join(dir, "map_t.bin"));
+
+    const expected = path.join(stagingPath, expectedFolderName);
+    if (fs.existsSync(expected) && fs.statSync(expected).isDirectory()) {
+      return expected;
+    }
+
+    if (looksLikeWorld(stagingPath)) {
+      return stagingPath;
+    }
+
+    const directories = fs
+      .readdirSync(stagingPath, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => path.join(stagingPath, entry.name));
+
+    return (
+      directories.find(looksLikeWorld) ||
+      (directories.length === 1 ? directories[0] : null)
+    );
   }
 }

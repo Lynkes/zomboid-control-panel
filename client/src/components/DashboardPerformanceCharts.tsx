@@ -67,15 +67,17 @@ function DashboardPerformanceCharts({
   serverRunning = true,
   maxMemoryGB,
 }: DashboardPerformanceChartsProps) {
+  // Every hook must run on every render. Returning before the useMemo below
+  // changed the hook count from 0 to 1 the moment history arrived, which React
+  // rejects with "Rendered more hooks than during the previous render".
   const latest = performanceHistory[performanceHistory.length - 1]
-  if (!latest) return null
 
-  const pzMem = latest.pzMemMB ?? latest.memoryMB
-  const cpu = latest.cpuPercent ?? 0
-  const hostUsed = latest.hostMemUsedGB
-  const hostTotal = latest.hostMemTotalGB
-  const diskUsed = latest.hostDiskUsedGB
-  const diskTotal = latest.hostDiskTotalGB
+  const pzMem = latest?.pzMemMB ?? latest?.memoryMB ?? 0
+  const cpu = latest?.cpuPercent ?? 0
+  const hostUsed = latest?.hostMemUsedGB
+  const hostTotal = latest?.hostMemTotalGB
+  const diskUsed = latest?.hostDiskUsedGB
+  const diskTotal = latest?.hostDiskTotalGB
 
   const pzMemoryGB = pzMem / 1024
   const pzRatio = maxMemoryGB != null ? pzMemoryGB / maxMemoryGB : null
@@ -87,6 +89,7 @@ function DashboardPerformanceCharts({
 
   const metrics: Metric[] = useMemo(() => {
     const m: Metric[] = []
+    if (!latest) return m
 
     if (serverRunning) {
       const pzDataKey = latest.pzMemMB != null ? 'pzMemMB' : 'memoryMB'
@@ -156,6 +159,8 @@ function DashboardPerformanceCharts({
 
     return m
   }, [performanceHistory, serverRunning, maxMemoryGB, latest, pzMem, pzMemoryGB, cpu, hostUsed, hostTotal, diskUsed, diskTotal, cpuAlert, hostRamAlert, diskAlert, pzRatio, hostRatio, diskRatio])
+
+  if (!latest) return null
 
   /* Collapsed: every metric is a fraction of a ceiling, so the bar is the
      reading and the number is the detail. Rows use the full width. */
