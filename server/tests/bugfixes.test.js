@@ -584,6 +584,84 @@ describe("Discord chat relay scope", () => {
       }),
     ).toEqual([]);
   });
+
+  it("drops Q shouts but keeps the rest of public chat on the no-yell scope", async () => {
+    expect(
+      await relay(
+        { author: "A", message: "HEY!", sourceChatType: "Shout" },
+        "no-yell",
+      ),
+    ).toEqual([]);
+    for (const sourceChatType of ["General", "Say", "Local"]) {
+      expect(
+        await relay({ author: "A", message: "hi", sourceChatType }, "no-yell"),
+      ).toHaveLength(1);
+    }
+  });
+
+  it("falls back to the full public scope for an unknown stored value", async () => {
+    const { normalizeChatRelayScope } = await import(
+      "../services/discordBot.js"
+    );
+    expect(normalizeChatRelayScope("no-yell")).toBe("no-yell");
+    expect(normalizeChatRelayScope("general")).toBe("general");
+    expect(normalizeChatRelayScope(undefined)).toBe("public");
+    expect(normalizeChatRelayScope("nonsense")).toBe("public");
+  });
+});
+
+describe("PZ shout detection from the chat log", () => {
+  const line = (verb, chat, author, text, tail) =>
+    `[06-08-26 00:17:01.123][info] ${verb}ChatMessage{chat=${chat}, author='${author}', text='${text}'}${tail}`;
+  const received = (chat, author, text) =>
+    line("Got message:", chat, author, text, ".");
+  const delivered = (chat, author, text, id) =>
+    line("Message ", chat, author, text, ` sent to chat (id = ${id}) members.`);
+
+  const parse = async (lines) => {
+    const { LogTailer } = await import("../services/logTailer.js");
+    const tailer = Object.create(LogTailer.prototype);
+    tailer.chatRemainder = "";
+    const seen = [];
+    tailer.emit = (event, payload) => {
+      if (event === "chatMessage") seen.push(payload);
+    };
+    tailer.processChatLogData(lines.join("\n") + "\n");
+    return seen;
+  };
+
+  it("labels a Local message delivered to room 2 as a Shout", async () => {
+    const seen = await parse([
+      received("Local", "Max", "HEY!"),
+      delivered("Local", "Max", "HEY!", 2),
+    ]);
+    expect(seen).toHaveLength(1);
+    expect(seen[0].sourceChatType).toBe("Shout");
+  });
+
+  it("leaves ordinary Local talking alone", async () => {
+    const seen = await parse([
+      received("Local", "Max", "yeah"),
+      delivered("Local", "Max", "yeah", 1),
+    ]);
+    expect(seen[0].sourceChatType).toBe("Local");
+  });
+
+  it("pairs repeated identical messages in order", async () => {
+    const seen = await parse([
+      received("Local", "Max", "HEY!"),
+      delivered("Local", "Max", "HEY!", 1),
+      received("Local", "Max", "HEY!"),
+      delivered("Local", "Max", "HEY!", 2),
+    ]);
+    expect(seen.map((m) => m.sourceChatType)).toEqual(["Local", "Shout"]);
+  });
+
+  it("still emits when the delivery line is missing", async () => {
+    const seen = await parse([received("General", "Max", "hi")]);
+    expect(seen).toHaveLength(1);
+    expect(seen[0].sourceChatType).toBe("General");
+  });
 });
 
 describe("Discord circuit breaker is per channel", () => {
@@ -940,6 +1018,27 @@ describe("Discord chat relay escaping", () => {
     expect(sent).toEqual([]);
   });
 
+  it("relays the restart's actual outcome despite the [SERVER] prefix", async () => {
+    const { bot, sent } = await makeBot();
+    await bot.handleGameChat({
+      type: "server",
+      author: "Server",
+      message:
+        "[SERVER] *** RESTARTING NOW - please reconnect in a few minutes ***",
+    });
+    expect(sent).toHaveLength(1);
+  });
+
+  it("relays a cancelled restart despite the [SERVER] prefix", async () => {
+    const { bot, sent } = await makeBot();
+    await bot.handleGameChat({
+      type: "server",
+      author: "Server",
+      message: "[SERVER] Restart CANCELLED.",
+    });
+    expect(sent).toHaveLength(1);
+  });
+
   it("still relays ordinary server alerts", async () => {
     const { bot, sent } = await makeBot();
     await bot.handleGameChat({
@@ -1080,5 +1179,71 @@ describe("Discord /start", () => {
     });
     expect(replies.at(-1)).toMatch(/Failed to start/);
     expect(replies.at(-1)).toMatch(/port in use/);
+  });
+});
+
+describe("Remote server config over SFTP", () => {
+  const load = () => import("../services/remoteConfigFiles.js");
+
+  it("refuses a remote folder that is relative or escapes upward", async () => {
+    const { validateRemoteConfigTransport } = await load();
+    const base = { host: "h", port: 22, username: "u", password: "p" };
+    expect(() =>
+      validateRemoteConfigTransport({ ...base, configPath: "Zomboid/Server" }),
+    ).toThrow(/absolute POSIX path/);
+    expect(() =>
+      validateRemoteConfigTransport({ ...base, configPath: "/srv/../etc" }),
+    ).toThrow(/absolute POSIX path/);
+    expect(() =>
+      validateRemoteConfigTransport({ ...base, configPath: "" }),
+    ).toThrow(/config folder is required/);
+    expect(
+      validateRemoteConfigTransport({ ...base, configPath: "/srv/pz/Server/" })
+        .configPath,
+    ).toBe("/srv/pz/Server");
+  });
+
+  it("only ever names the four config files the editor touches", async () => {
+    const { mirroredFileNames } = await load();
+    expect(mirroredFileNames("DoomerZ")).toEqual([
+      "DoomerZ.ini",
+      "DoomerZ_SandboxVars.lua",
+      "DoomerZ_spawnpoints.lua",
+      "DoomerZ_spawnregions.lua",
+    ]);
+    expect(() => mirroredFileNames("../../etc/passwd")).toThrow();
+    expect(() => mirroredFileNames("")).toThrow();
+  });
+
+  it("treats the mirror as configured only when host and folder are both set", async () => {
+    const { isRemoteConfigConfigured } = await load();
+    expect(isRemoteConfigConfigured({})).toBe(false);
+    expect(isRemoteConfigConfigured({ panelBridgeSftpHost: "h" })).toBe(false);
+    expect(
+      isRemoteConfigConfigured({ panelBridgeSftpConfigPath: "/srv" }),
+    ).toBe(false);
+    expect(
+      isRemoteConfigConfigured({
+        panelBridgeSftpHost: "h",
+        panelBridgeSftpConfigPath: "/srv",
+      }),
+    ).toBe(true);
+  });
+
+  it("serializes overlapping requests so one pull cannot clobber another edit", async () => {
+    const { acquireMirrorLock } = await load();
+    const order = [];
+    const first = acquireMirrorLock().then(async (release) => {
+      order.push("a-start");
+      await new Promise((r) => setTimeout(r, 20));
+      order.push("a-end");
+      release();
+    });
+    const second = acquireMirrorLock().then((release) => {
+      order.push("b-start");
+      release();
+    });
+    await Promise.all([first, second]);
+    expect(order).toEqual(["a-start", "a-end", "b-start"]);
   });
 });

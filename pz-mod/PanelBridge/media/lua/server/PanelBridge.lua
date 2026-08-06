@@ -1,10 +1,19 @@
 ---@diagnostic disable: undefined-global, deprecated
 --[[
     PanelBridge - Server-side mod for Zomboid Control Panel
-    Version: 1.7.21
+    Version: 1.7.23
 
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
+
+                v1.7.23 Changes:
+                - World Map vehicle polling now skips Java collections that do
+                    not expose get as a Lua method. Calling the missing method
+                    inside pcall still produces a full PZ server stack trace.
+
+                v1.7.22 Changes:
+                - Game clock updates now fail when a Build 42 setter cannot apply
+                    the requested value, instead of reporting a false success.
 
                 v1.7.21 Changes:
                 - Loaded vehicles reach the panel again. The vehicle list reports
@@ -284,7 +293,7 @@
 local json
 
 local PanelBridge = {
-    VERSION = "1.7.21",
+    VERSION = "1.7.23",
     PROTOCOL_VERSION = "queue-v1",
     CHECK_INTERVAL = 250, -- milliseconds (fast command polling)
     lastCheck = 0,
@@ -2520,25 +2529,38 @@ handlers.setGameTime = function(args)
 
     local updated = {}
 
+    local function setAndVerify(methodName, value, getterName, expected)
+        if not gameTime[methodName] then
+            return false, methodName .. " is not available in this PZ build"
+        end
+
+        local ok, err = pcall(function()
+            gameTime[methodName](gameTime, value)
+        end)
+        if not ok then
+            return false, "Failed to call " .. methodName .. ": " .. tostring(err)
+        end
+
+        local actual = safeGetValue(gameTime, getterName, nil)
+        if actual ~= expected then
+            return false, methodName .. " did not apply (expected " .. tostring(expected) .. ", got " .. tostring(actual) .. ")"
+        end
+        return true
+    end
+
     if args.hour ~= nil then
         local hour = tonumber(args.hour) or 12
-        -- Set updated before pcall — B42 transmitSetTimeOfDay applies the change
-        -- but may throw a RuntimeException afterwards
+        local ok, err = setAndVerify("setTimeOfDay", hour, "getTimeOfDay", hour)
+        if not ok then return false, nil, err end
         updated.hour = hour
-        pcall(function()
-            if gameTime.transmitSetTimeOfDay then
-                gameTime:transmitSetTimeOfDay(hour)
-            else
-                gameTime:setTimeOfDay(hour)
-            end
-        end)
     end
 
     if args.day ~= nil then
         local day = tonumber(args.day)
         if day then
+            local ok, err = setAndVerify("setDay", day, "getDay", day)
+            if not ok then return false, nil, err end
             updated.day = day
-            pcall(function() gameTime:setDay(day) end)
         end
     end
 
@@ -2546,16 +2568,18 @@ handlers.setGameTime = function(args)
         local month = tonumber(args.month)
         if month then
             month = math.max(1, math.min(12, month))
+            local ok, err = setAndVerify("setMonth", month - 1, "getMonth", month - 1)
+            if not ok then return false, nil, err end
             updated.month = month
-            pcall(function() gameTime:setMonth(month - 1) end)
         end
     end
 
     if args.year ~= nil then
         local year = tonumber(args.year)
         if year then
+            local ok, err = setAndVerify("setYear", year, "getYear", year)
+            if not ok then return false, nil, err end
             updated.year = year
-            pcall(function() gameTime:setYear(year) end)
         end
     end
 
@@ -2606,27 +2630,7 @@ end
 
 -- Set time speed multiplier (1 = normal, higher = faster)
 handlers.setTimeSpeed = function(args)
-    local gt = getGameTime()
-    if not gt then
-        return false, nil, "GameTime not available"
-    end
-
-    local multiplier = tonumber(args.multiplier)
-    if not multiplier then
-        return false, nil, "multiplier required (number)"
-    end
-    -- Clamp to safe range: 1x to 100x
-    multiplier = math.min(math.max(math.floor(multiplier), 1), 100)
-
-    local ok, err = pcall(function()
-        gt:setMultiplier(multiplier)
-    end)
-    if not ok then
-        return false, nil, "Failed to set time speed: " .. tostring(err)
-    end
-
-    PanelBridge.info("Time speed set", { multiplier = multiplier })
-    return true, { message = "Time speed set to " .. multiplier .. "x", multiplier = multiplier }
+    return false, nil, "Time speed must use the server RCON command; PanelBridge cannot change the dedicated server clock multiplier"
 end
 
 -- Trigger helicopter event near a player
@@ -5856,8 +5860,10 @@ local function findSafehouseByRef(ref)
     for i = 0, list:size() - 1 do
         local sh = list:get(i)
         if sh then
-            local sid = sh.getId and sh:getId() or nil
-            local title = sh.getTitle and sh:getTitle() or nil
+            local idOk, sid = pcall(function() return sh:getId() end)
+            local titleOk, title = pcall(function() return sh:getTitle() end)
+            if not idOk then sid = nil end
+            if not titleOk then title = nil end
             if tostring(sid) == refStr or tostring(title) == refStr then
                 return sh
             end
@@ -5881,7 +5887,7 @@ handlers.getSafehouses = function(args)
                 -- Collect allowed players
                 local players = {}
                 pcall(function()
-                    local pList = sh.getPlayers and sh:getPlayers() or nil
+                    local pList = sh:getPlayers()
                     if pList then
                         for j = 0, pList:size() - 1 do
                             table.insert(players, tostring(pList:get(j)))
@@ -5890,16 +5896,16 @@ handlers.getSafehouses = function(args)
                 end)
 
                 table.insert(out, {
-                    id = sh.getId and sh:getId() or nil,
-                    title = sh.getTitle and sh:getTitle() or nil,
-                    owner = sh.getOwner and sh:getOwner() or nil,
-                    x = sh.getX and sh:getX() or nil,
-                    y = sh.getY and sh:getY() or nil,
-                    w = sh.getW and sh:getW() or nil,
-                    h = sh.getH and sh:getH() or nil,
+                    id = safeGetValue(sh, "getId", nil),
+                    title = safeGetValue(sh, "getTitle", nil),
+                    owner = safeGetValue(sh, "getOwner", nil),
+                    x = safeGetValue(sh, "getX", nil),
+                    y = safeGetValue(sh, "getY", nil),
+                    w = safeGetValue(sh, "getW", nil),
+                    h = safeGetValue(sh, "getH", nil),
                     players = players,
-                    playerConnected = sh.getPlayerConnected and sh:getPlayerConnected() or 0,
-                    lastVisited = sh.getLastVisited and sh:getLastVisited() or nil
+                    playerConnected = safeGetValue(sh, "getPlayerConnected", 0),
+                    lastVisited = safeGetValue(sh, "getLastVisited", nil)
                 })
             end
         end
@@ -5998,16 +6004,17 @@ handlers.getFactions = function(args)
             local f = factions:get(i)
             if f then
                 local players = {}
-                local fPlayers = f.getPlayers and f:getPlayers() or nil
+                local playersOk, fPlayers = pcall(function() return f:getPlayers() end)
+                if not playersOk then fPlayers = nil end
                 if fPlayers then
                     for j = 0, fPlayers:size() - 1 do
                         table.insert(players, tostring(fPlayers:get(j)))
                     end
                 end
                 table.insert(out, {
-                    name = f.getName and f:getName() or nil,
-                    owner = f.getOwner and f:getOwner() or nil,
-                    tag = f.getTag and f:getTag() or nil,
+                    name = safeGetValue(f, "getName", nil),
+                    owner = safeGetValue(f, "getOwner", nil),
+                    tag = safeGetValue(f, "getTag", nil),
                     players = players,
                     playerCount = #players
                 })
@@ -6174,9 +6181,10 @@ local function getVehiclesList()
 end
 
 -- Some builds expose the vehicle list's get(i) only as a callable method and
--- not as an indexable property, so testing `vehicles.get` first discarded
--- every loaded vehicle. Call it protected instead of probing for it.
+-- not as an indexable property. Others expose neither; invoking a missing Java
+-- method inside pcall still makes PZ emit a full server stack trace.
 local function vehicleAt(vehicles, i)
+    if not vehicles or not vehicles.get then return nil end
     local ok, v = pcall(function() return vehicles:get(i) end)
     if ok then return v end
     return nil
@@ -6590,6 +6598,15 @@ handlers.vehicleHotwire = function(args)
 
     if not ok then
         return false, nil, "Hotwire failed: " .. tostring(err) .. " (completed: " .. table.concat(actions, ", ") .. ")"
+    end
+
+    local failed = 0
+    for _, result in ipairs(results) do
+        if not result.success then failed = failed + 1 end
+    end
+    if failed > 0 then
+        return false, { executed = executed, failed = failed, results = results },
+            tostring(failed) .. " event sequence step(s) failed"
     end
 
     return true, {

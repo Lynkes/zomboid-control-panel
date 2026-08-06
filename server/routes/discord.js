@@ -1,6 +1,7 @@
 import express from "express";
 import { createLogger } from "../utils/logger.js";
 import { sanitizeError } from "../utils/sanitize.js";
+import { normalizeChatRelayScope } from "../services/discordBot.js";
 const log = createLogger("API:Discord");
 
 const router = express.Router();
@@ -49,8 +50,7 @@ router.get("/config", async (req, res) => {
       autoStart: autoStart !== false, // default true
       chatRelayEnabled: discordBot.chatRelayEnabled !== false,
       chatRelayChannelId: discordBot.chatRelayChannelId || "",
-      chatRelayScope:
-        discordBot.chatRelayScope === "general" ? "general" : "public",
+      chatRelayScope: normalizeChatRelayScope(discordBot.chatRelayScope),
     });
   } catch (error) {
     log.error(`Failed to get Discord config: ${error.message}`);
@@ -116,6 +116,7 @@ router.put("/config", async (req, res) => {
     if (
       chatRelayScope !== undefined &&
       chatRelayScope !== "public" &&
+      chatRelayScope !== "no-yell" &&
       chatRelayScope !== "general"
     ) {
       return res.status(400).json({ error: "Invalid Chat Relay Scope" });

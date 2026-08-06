@@ -6,6 +6,33 @@ import { createLogger } from '../utils/logger.js';
 const log = createLogger('LogTailer');
 import { getActiveServer, getSetting } from '../database/init.js';
 
+// Build 42 creates its built-in chat rooms in a fixed order, so the Q-shout
+// room is always id 2 (0 = General, 1 = Say). Both the say and the shout room
+// report `chat=Local` in the message payload, so the id is the only thing that
+// separates a yell from ordinary talking.
+const SHOUT_CHAT_ROOM_ID = 2;
+
+const DELIVERY_LINE = /Message ChatMessage\{chat=([^,]+),\s*author='(.*?)',\s*text='(.*)'\} sent to chat \(id = (\d+)\)/;
+
+export function chatMessageKey(chatType, author, text) {
+  return `${chatType}\u0000${author}\u0000${text}`;
+}
+
+// PZ logs a message twice: once on receipt (no room id) and once on delivery
+// (with the room id). Pair them up so the receipt line can be labelled.
+export function collectChatRoomIds(lines) {
+  const ids = new Map();
+  for (const line of lines) {
+    const m = line.match(DELIVERY_LINE);
+    if (!m) continue;
+    const key = chatMessageKey(m[1].trim(), m[2], m[3]);
+    const bucket = ids.get(key);
+    if (bucket) bucket.push(Number(m[4]));
+    else ids.set(key, [Number(m[4])]);
+  }
+  return ids;
+}
+
 export class LogTailer extends EventEmitter {
   constructor() {
     super();
@@ -334,9 +361,11 @@ export class LogTailer extends EventEmitter {
   // Parse B42 dedicated chat log lines
   // Formats:
   //   Player msg:  [DD-MM-YY HH:MM:SS.mmm][info] Got message:ChatMessage{chat=General, author='user', text='hello'}.
+  //   Delivery:    [DD-MM-YY HH:MM:SS.mmm][info] Message ChatMessage{chat=Local, author='user', text='HEY!'} sent to chat (id = 2) members.
   //   Server msg:  [DD-MM-YY HH:MM:SS.mmm] Server alert message: 'text' sent..
   processChatLogData(data) {
     const lines = this._splitLines(data, 'chatRemainder');
+    const chatIds = collectChatRoomIds(lines);
     for (const line of lines) {
         if (!line.trim()) continue;
 
@@ -348,6 +377,14 @@ export class LogTailer extends EventEmitter {
             const chatType = msgMatch[1].trim();
             const author = msgMatch[2];
             const text = msgMatch[3];
+            // PZ names both the say and the shout room "Local"; only the room
+            // id on the delivery line tells them apart.
+            const roomIds = chatIds.get(chatMessageKey(chatType, author, text));
+            const roomId = roomIds && roomIds.length ? roomIds.shift() : null;
+            const sourceChatType =
+                chatType === 'Local' && roomId === SHOUT_CHAT_ROOM_ID
+                    ? 'Shout'
+                    : chatType;
             // Map PZ chat types to our types
             let type = 'general';
             if (chatType === 'Admin chat') type = 'admin';
@@ -359,7 +396,7 @@ export class LogTailer extends EventEmitter {
                 author,
                 message: text,
                 type,
-                sourceChatType: chatType,
+                sourceChatType,
                 timestamp: new Date()
             });
             continue;

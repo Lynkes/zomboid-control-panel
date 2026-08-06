@@ -1,9 +1,9 @@
-import { useState, useEffect, useContext, useRef, useCallback } from 'react'
-import { 
-  Server, 
-  Plus, 
-  Trash2, 
-  Edit2, 
+import { useState, useEffect, useContext, useRef, useCallback, useMemo } from 'react'
+import {
+  Server,
+  Plus,
+  Trash2,
+  Edit2,
   Check,
   Power,
   MoreVertical,
@@ -40,13 +40,13 @@ import { reportClientError, reportClientWarning } from '@/lib/client-errors'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Checkbox } from '@/components/ui/checkbox'
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogFooter 
+  DialogFooter
 } from '@/components/ui/dialog'
 import {
   DropdownMenu,
@@ -176,25 +176,55 @@ export default function Servers() {
   const [deleteProgress, setDeleteProgress] = useState(0)
   const deleteProgressRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [activating, setActivating] = useState<string | number | null>(null)
-  
+
   // Add server dialog
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [newServer, setNewServer] = useState<NewServerForm>(defaultNewServer)
   const [addingServer, setAddingServer] = useState(false)
   const [addMode, setAddMode] = useState<'local' | 'remote'>('local')
-  
+
+  // Two PZ servers on one host must not share a save folder, a server name or
+  // a port. PZ binds serverPort and serverPort+1, so adjacent ports collide.
+  const samePath = (a?: string | null, b?: string | null) =>
+    !!a && !!b && a.replace(/[\\/]+$/, '').toLowerCase() === b.replace(/[\\/]+$/, '').toLowerCase()
+
+  const tandemConflicts = useMemo(() => {
+    if (addMode !== 'local') return []
+    const others = servers.filter(s => !s.isRemote)
+    if (others.length === 0) return []
+    const found: Array<{ label: string; detail: string }> = []
+    for (const other of others) {
+      if (newServer.serverName && other.serverName === newServer.serverName) {
+        found.push({ label: 'Config name', detail: `${other.name} already uses ${other.serverName}.ini` })
+      }
+      if (Math.abs(Number(other.serverPort) - Number(newServer.serverPort)) <= 1) {
+        found.push({ label: 'Game port', detail: `${other.name} uses ${other.serverPort} and ${Number(other.serverPort) + 1}` })
+      }
+      if (Number(other.rconPort) === Number(newServer.rconPort)) {
+        found.push({ label: 'RCON port', detail: `${other.name} uses ${other.rconPort}` })
+      }
+      if (samePath(other.zomboidDataPath, newServer.zomboidDataPath)) {
+        found.push({ label: 'Save folder', detail: `${other.name} uses the same Zomboid data folder` })
+      }
+      if (samePath(other.installPath, newServer.installPath)) {
+        found.push({ label: 'Install folder', detail: `shared with ${other.name} — a SteamCMD update or a Workshop download will hit both` })
+      }
+    }
+    return found
+  }, [addMode, servers, newServer.serverName, newServer.serverPort, newServer.rconPort, newServer.zomboidDataPath, newServer.installPath])
+
   // Detection state
   const [detecting, setDetecting] = useState(false)
   const [detectResult, setDetectResult] = useState<DetectResult | null>(null)
   const [detectError, setDetectError] = useState<string | null>(null)
   const [selectedServerConfig, setSelectedServerConfig] = useState<string>('')
-  
+
   // Auto-scan state
   const [autoScanning, setAutoScanning] = useState(false)
   const [autoScanPath, setAutoScanPath] = useState('')
   const [autoScanResult, setAutoScanResult] = useState<AutoScanResult | null>(null)
   const [showAutoScan, setShowAutoScan] = useState(false)
-  
+
   // Steam update/verify state
   const [steamOperation, setSteamOperation] = useState<{ server: ServerInstance; type: 'update' | 'verify'; branch: string } | null>(null)
   const [steamLogs, setSteamLogs] = useState<string[]>([])
@@ -210,7 +240,7 @@ export default function Servers() {
     { name: 'unstable', description: 'Unstable beta' }
   ])
   const [loadingBranches, setLoadingBranches] = useState(false)
-  
+
   const { toast } = useToast()
   const socket = useContext(SocketContext)
   const navigate = useNavigate()
@@ -295,7 +325,7 @@ export default function Servers() {
   // Fetch available Steam branches when steam operation dialog opens
   useEffect(() => {
     if (!steamOperation) return
-    
+
     const fetchBranches = async () => {
       setLoadingBranches(true)
       try {
@@ -353,18 +383,18 @@ export default function Servers() {
         setLoadingBranches(false)
       }
     }
-    
+
     fetchBranches()
   }, [steamOperation, steamcmdPath, updateInfo?.installed?.branch])
 
   // Listen for server changes
   useEffect(() => {
     if (!socket) return
-    
+
     const handleActiveServerChanged = () => {
       fetchServers()
     }
-    
+
     socket.on('activeServerChanged', handleActiveServerChanged)
     return () => {
       socket.off('activeServerChanged', handleActiveServerChanged)
@@ -374,16 +404,16 @@ export default function Servers() {
   // Listen for Steam update/verify events
   useEffect(() => {
     if (!socket) return
-    
+
     const handleSteamStart = (data: { type: string; message: string }) => {
       setSteamRunning(true)
       setSteamLogs([data.message])
     }
-    
+
     const handleSteamLog = (data: { type: string; text: string }) => {
       setSteamLogs(prev => [...prev.slice(-200), data.text]) // Keep last 200 lines
     }
-    
+
     const handleSteamComplete = (data: { success: boolean; message: string }) => {
       setSteamRunning(false)
       setSteamCompleted(data.success ? 'success' : 'error')
@@ -394,11 +424,11 @@ export default function Servers() {
         variant: data.success ? 'default' : 'destructive'
       })
     }
-    
+
     socket.on('steam:start', handleSteamStart)
     socket.on('steam:log', handleSteamLog)
     socket.on('steam:complete', handleSteamComplete)
-    
+
     return () => {
       socket.off('steam:start', handleSteamStart)
       socket.off('steam:log', handleSteamLog)
@@ -412,95 +442,95 @@ export default function Servers() {
       toast({ title: 'Error', description: 'Please enter the server data path first', variant: 'destructive' })
       return
     }
-    
+
     setDetecting(true)
     setDetectError(null)
     setDetectResult(null)
     setSelectedServerConfig('')
-    
+
     try {
       const data = await serversDetectApi.detect({
         dataPath: newServer.zomboidDataPath,
         installPath: newServer.installPath || undefined
       }) as unknown as DetectResult & { error?: string }
-      
+
       if (!data || data.error) {
         setDetectError(data?.error || 'Detection failed')
         return
       }
-      
+
       setDetectResult(data)
-      
+
       // Auto-select first server if only one
       if (data.detectedServers.length === 1) {
         handleSelectServerConfig(data.detectedServers[0], data)
       } else if (data.detectedServers.length > 1) {
-        toast({ 
-          title: 'Multiple Servers Found', 
+        toast({
+          title: 'Multiple Servers Found',
           description: 'Please select which server configuration to use'
         })
       }
-      
+
       // Update useNoSteam based on detection
       if (data.hasNoSteam) {
         setNewServer(prev => ({ ...prev, useNoSteam: true }))
       }
-      
+
     } catch (error) {
       setDetectError(error instanceof Error ? error.message : 'Detection failed')
     } finally {
       setDetecting(false)
     }
   }
-  
+
   // Auto-scan a folder to find all PZ server paths
   const handleAutoScan = async () => {
     if (!autoScanPath.trim()) {
       toast({ title: 'Error', description: 'Please enter a folder path to scan', variant: 'destructive' })
       return
     }
-    
+
     setAutoScanning(true)
     setAutoScanResult(null)
-    
+
     try {
       const data = await serversDetectApi.autoScan({ scanPath: autoScanPath, maxDepth: 4 }) as unknown as AutoScanResult & { error?: string }
-      
+
       if (!data || data.error) {
         toast({ title: 'Scan Failed', description: data.error || 'Unknown error', variant: 'destructive' })
         return
       }
-      
+
       setAutoScanResult(data)
-      
+
       if (data.detectedConfigs.length === 0) {
-        toast({ 
-          title: 'No servers found', 
+        toast({
+          title: 'No servers found',
           description: 'No Project Zomboid servers were found in the scanned folder'
         })
       } else {
-        toast({ 
-          title: 'Servers found!', 
+        toast({
+          title: 'Servers found!',
           description: `Found ${data.detectedConfigs.length} server configuration(s)`
         })
       }
-      
+
     } catch (error) {
-      toast({ 
-        title: 'Scan Failed', 
-        description: error instanceof Error ? error.message : 'Auto-scan failed', 
-        variant: 'destructive' 
+      toast({
+        title: 'Scan Failed',
+        description: error instanceof Error ? error.message : 'Auto-scan failed',
+        variant: 'destructive'
       })
     } finally {
       setAutoScanning(false)
     }
   }
-  
+
   // Select a scanned server config and populate the form
   const handleSelectScannedConfig = (config: DetectedServerConfig, installPath?: string) => {
     // Use matched bat file if available, otherwise use provided installPath
     const effectiveInstallPath = config.matchedBatFile || installPath || ''
-    
+
     setNewServer({
       ...defaultNewServer,
       name: config.publicName || config.serverName,
@@ -513,7 +543,7 @@ export default function Servers() {
     })
     setSelectedServerConfig(config.serverName)
     setShowAutoScan(false)
-    
+
     // Also set the detect result for consistency
     setDetectResult({
       valid: true,
@@ -533,7 +563,7 @@ export default function Servers() {
       }]
     })
   }
-  
+
   // Select a detected server config
   const handleSelectServerConfig = (config: DetectedServer, result?: DetectResult) => {
     const res = result || detectResult
@@ -548,7 +578,7 @@ export default function Servers() {
       rconPassword: config.rconPassword,
       serverPort: config.serverPort
     }))
-    
+
     if (!config.hasRcon) {
       toast({
         title: 'RCON not configured',
@@ -560,18 +590,18 @@ export default function Servers() {
 
   const handleActivateServer = useCallback(async (server: ServerInstance) => {
     if (server.isActive) return
-    
+
     setActivating(server.id)
     try {
       await serversApi.activate(server.id)
-      toast({ 
-        title: 'Server Activated', 
-        description: `Now managing: ${server.name}` 
+      toast({
+        title: 'Server Activated',
+        description: `Now managing: ${server.name}`
       })
       fetchServers()
     } catch (error) {
-      toast({ 
-        title: 'Error', 
+      toast({
+        title: 'Error',
         description: error instanceof Error ? error.message : 'Failed to activate server',
         variant: 'destructive'
       })
@@ -629,7 +659,7 @@ export default function Servers() {
 
   const handleDeleteServer = async () => {
     if (!deleteServer) return
-    
+
     setDeleting(true)
     setDeleteProgress(0)
 
@@ -647,22 +677,22 @@ export default function Servers() {
         try {
           const result = await serversDetectApi.deleteFiles(deleteServer.installPath) as { error?: string }
           if (result?.error) {
-            toast({ 
-              title: 'File deletion failed', 
+            toast({
+              title: 'File deletion failed',
               description: result.error,
               variant: 'destructive'
             })
           }
         } catch (e) {
           const msg = e instanceof Error ? e.message : 'Could not delete server files'
-          toast({ 
-            title: 'Warning', 
+          toast({
+            title: 'Warning',
             description: `${msg} — removing from panel anyway.`,
             variant: 'destructive'
           })
         }
       }
-      
+
       await serversApi.delete(deleteServer.id)
 
       // Complete the progress bar before closing
@@ -670,9 +700,9 @@ export default function Servers() {
       setDeleteProgress(100)
       await new Promise(r => setTimeout(r, 350))
 
-      toast({ 
-        title: 'Deleted', 
-        description: deleteFiles 
+      toast({
+        title: 'Deleted',
+        description: deleteFiles
           ? `Server "${deleteServer.name}" and its files have been deleted`
           : `Server "${deleteServer.name}" removed from panel`
       })
@@ -680,8 +710,8 @@ export default function Servers() {
       setDeleteFiles(false)
       fetchServers()
     } catch (error) {
-      toast({ 
-        title: 'Error', 
+      toast({
+        title: 'Error',
         description: error instanceof Error ? error.message : 'Failed to delete server',
         variant: 'destructive'
       })
@@ -694,13 +724,13 @@ export default function Servers() {
 
   const handleSaveEdit = async () => {
     if (!editingServer || savingEdit) return
-    
+
     // Validate port range
     if (editingServer.rconPort < 1 || editingServer.rconPort > 65535) {
       toast({ title: 'Error', description: 'RCON port must be between 1 and 65535', variant: 'destructive' })
       return
     }
-    
+
     setSavingEdit(true)
     try {
       await serversApi.update(editingServer.id, editingServer)
@@ -708,8 +738,8 @@ export default function Servers() {
       setEditingServer(null)
       fetchServers()
     } catch (error) {
-      toast({ 
-        title: 'Error', 
+      toast({
+        title: 'Error',
         description: error instanceof Error ? error.message : 'Failed to update server',
         variant: 'destructive'
       })
@@ -724,24 +754,24 @@ export default function Servers() {
       toast({ title: 'Error', description: 'Please enter the SteamCMD path', variant: 'destructive' })
       return
     }
-    
+
     const installFolder = getInstallFolder(steamOperation.server.installPath)
     if (!installFolder) {
       toast({ title: 'Error', description: 'Server install path not configured', variant: 'destructive' })
       return
     }
-    
+
     // Save steamcmd path to settings for future use
     try {
       await configApi.updateAppSettings({ steamcmdPath })
     } catch (e) {
       // Non-critical, continue anyway
     }
-    
+
     setSteamLogs([])
     setSteamRunning(true)
     setSteamCompleted(null)
-    
+
     try {
       if (steamOperation.type === 'verify') {
         await serversApi.steamVerify(steamcmdPath, installFolder, steamOperation.branch)
@@ -811,7 +841,7 @@ export default function Servers() {
     setSteamLogs([])
     setSteamRunning(false)
     setSteamCompleted(null)
-    
+
     // Load steamcmd path from settings if not already set
     if (!steamcmdPath) {
       try {
@@ -824,7 +854,7 @@ export default function Servers() {
       }
     }
   }
-  
+
   // Get clean install path (folder only, not batch file)
   const getInstallFolder = (installPath: string | undefined): string => {
     if (!installPath) return ''
@@ -881,11 +911,11 @@ export default function Servers() {
         useDebug: newServer.useDebug,
         isRemote: addMode === 'remote'
       } as Partial<ServerInstance>)
-      
+
       if (createResult.server?.id) {
         await serversApi.activate(createResult.server.id)
       }
-      
+
       toast({ title: 'Server Added', description: `"${newServer.name}" added to panel` })
       setShowAddDialog(false)
       setNewServer(defaultNewServer)
@@ -894,8 +924,8 @@ export default function Servers() {
       setSelectedServerConfig('')
       fetchServers()
     } catch (error) {
-      toast({ 
-        title: 'Error', 
+      toast({
+        title: 'Error',
         description: error instanceof Error ? error.message : 'Failed to add server',
         variant: 'destructive'
       })
@@ -903,7 +933,7 @@ export default function Servers() {
       setAddingServer(false)
     }
   }
-  
+
   const resetAddDialog = () => {
     setShowAddDialog(false)
     setNewServer(defaultNewServer)
@@ -1029,8 +1059,8 @@ export default function Servers() {
           {servers.map(server => {
             const hasUpdate = updateInfo?.updateAvailable && server.isActive
             return (
-            <Card 
-              key={server.id} 
+            <Card
+              key={server.id}
               className={`relative overflow-hidden transition-colors ${
                 server.isActive
                   ? 'border-primary/60 ring-1 ring-primary/25 bg-gradient-to-br from-primary/[0.04] via-card to-card'
@@ -1088,7 +1118,7 @@ export default function Servers() {
                       {server.serverName}
                     </CardDescription>
                   </div>
-                  
+
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="ghost" size="iconDense" className="shrink-0" aria-label={`Options for ${server.name || server.serverName}`}>
@@ -1116,7 +1146,7 @@ export default function Servers() {
                         </>
                       )}
                       <DropdownMenuSeparator />
-                      <DropdownMenuItem 
+                      <DropdownMenuItem
                         onClick={() => setDeleteServer(server)}
                         className="text-destructive focus:text-destructive"
                       >
@@ -1126,7 +1156,7 @@ export default function Servers() {
                   </DropdownMenu>
                 </div>
               </CardHeader>
-              
+
               <CardContent className="space-y-4">
                 {/* Paths Section */}
                 {!server.isRemote && (server.installPath || server.zomboidDataPath) && (
@@ -1264,7 +1294,7 @@ export default function Servers() {
                     )
                   })()}
                   {hasUpdate && (
-                    <Button 
+                    <Button
                       size="sm"
                       variant="warning"
                       onClick={() => openSteamOperation(server, 'update')}
@@ -1273,8 +1303,8 @@ export default function Servers() {
                     </Button>
                   )}
                   {!server.isActive && (
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       size="sm"
                       className="flex-1"
                       onClick={() => handleActivateServer(server)}
@@ -1307,19 +1337,40 @@ export default function Servers() {
           <DialogHeader>
             <DialogTitle>{addMode === 'remote' ? 'Add Remote Server' : 'Add Existing Server'}</DialogTitle>
             <DialogDescription>
-              {addMode === 'remote' 
+              {addMode === 'remote'
                 ? 'Connect to a PZ server on another machine via RCON. Only RCON-based features will be available.'
                 : 'Scan a folder to auto-detect server paths, or enter them manually'}
             </DialogDescription>
           </DialogHeader>
-          
+
+          {addMode === 'local' && servers.some(s => !s.isRemote) && (
+            <div className="space-y-1.5 rounded-md border border-border/60 p-3">
+              <p className="text-xs font-medium">Running a second server alongside the first</p>
+              <ul className="space-y-1">
+                {[
+                  ['Install folder', 'its own — SteamCMD and Workshop downloads overwrite a shared one'],
+                  ['Zomboid data folder', 'its own — saves, config and DB live here'],
+                  ['Config name', 'unique, it names the .ini'],
+                  ['Game port', 'PZ takes the port and the next one, so step by 2'],
+                  ['RCON port', 'unique'],
+                  ['SteamCMD itself', 'safe to share'],
+                ].map(([k, v]) => (
+                  <li key={k} className="grid grid-cols-[9rem_1fr] gap-2 text-xs">
+                    <span className="text-muted-foreground">{k}</span>
+                    <span>{v}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {/* Mode Selector */}
           <div className="grid grid-cols-2 gap-3">
             <button
               onClick={() => { setAddMode('local'); setNewServer(defaultNewServer); setDetectResult(null); setDetectError(null); setSelectedServerConfig('') }}
               className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-[background-color,border-color,color] ${
-                addMode === 'local' 
-                  ? 'border-primary bg-primary/5' 
+                addMode === 'local'
+                  ? 'border-primary bg-primary/5'
                   : 'border-border hover:border-muted-foreground/30'
               }`}
             >
@@ -1332,8 +1383,8 @@ export default function Servers() {
             <button
               onClick={() => { setAddMode('remote'); setNewServer({ ...defaultNewServer, isRemote: true, rconHost: '' }); setDetectResult(null); setDetectError(null); setSelectedServerConfig('') }}
               className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-[background-color,border-color,color] ${
-                addMode === 'remote' 
-                  ? 'border-primary bg-primary/5' 
+                addMode === 'remote'
+                  ? 'border-primary bg-primary/5'
                   : 'border-border hover:border-muted-foreground/30'
               }`}
             >
@@ -1355,7 +1406,7 @@ export default function Servers() {
               </AlertDescription>
             </Alert>
           )}
-          
+
           <div className="space-y-4 py-2">
             {addMode === 'remote' ? (
               /* ========== REMOTE SERVER FORM ========== */
@@ -1369,7 +1420,7 @@ export default function Servers() {
                     maxLength={64}
                   />
                 </div>
-                
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>RCON Host / IP *</Label>
@@ -1421,15 +1472,15 @@ export default function Servers() {
                   <p className="font-medium text-sm">Auto Detect Servers</p>
                   <p className="text-xs text-muted-foreground">Scan a folder to find all PZ servers automatically</p>
                 </div>
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   size="sm"
                   onClick={() => setShowAutoScan(!showAutoScan)}
                 >
                   {showAutoScan ? 'Manual Entry' : 'Auto Scan'}
                 </Button>
               </div>
-              
+
               {showAutoScan && (
                 <div className="space-y-3 pt-2">
                   <div className="flex gap-2">
@@ -1439,7 +1490,7 @@ export default function Servers() {
                       placeholder="Path to scan for PZ servers"
                       className="font-mono text-sm flex-1"
                     />
-                    <Button 
+                    <Button
                       onClick={handleAutoScan}
                       disabled={autoScanning || !autoScanPath.trim()}
                     >
@@ -1450,7 +1501,7 @@ export default function Servers() {
                       )}
                     </Button>
                   </div>
-                  
+
                   {/* Auto Scan Results */}
                   {autoScanResult && autoScanResult.detectedConfigs.length > 0 && (
                     <div className="space-y-2">
@@ -1459,7 +1510,7 @@ export default function Servers() {
                       </p>
                       <div className="space-y-2 max-h-64 overflow-y-auto">
                         {autoScanResult.detectedConfigs.map((config, idx) => (
-                          <div 
+                          <div
                             key={config.serverName || idx}
                             className="p-3 rounded border bg-background hover:bg-accent cursor-pointer transition-colors"
                             onClick={() => handleSelectScannedConfig(config, autoScanResult.installPaths[0])}
@@ -1489,7 +1540,7 @@ export default function Servers() {
                           </div>
                         ))}
                       </div>
-                      
+
                       {/* Show available paths summary */}
                       <div className="text-xs text-muted-foreground space-y-1 pt-2 border-t">
                         {autoScanResult.installPaths.length > 0 && (
@@ -1504,7 +1555,7 @@ export default function Servers() {
                 </div>
               )}
             </div>
-            
+
             {/* Manual Entry Section */}
             {!showAutoScan && (
             <div className="space-y-4">
@@ -1522,8 +1573,8 @@ export default function Servers() {
                     className="font-mono text-sm flex-1"
                     maxLength={260}
                   />
-                  <Button 
-                    variant="secondary" 
+                  <Button
+                    variant="secondary"
                     onClick={handleDetectServer}
                     disabled={detecting || !newServer.zomboidDataPath.trim()}
                   >
@@ -1538,7 +1589,7 @@ export default function Servers() {
                   The folder containing Server/, Saves/, Logs/ subfolders
                 </p>
               </div>
-              
+
               <div className="space-y-2">
                 <Label>Server Install Path (Optional)</Label>
                 <Input
@@ -1551,7 +1602,7 @@ export default function Servers() {
               </div>
             </div>
             )}
-            
+
             {/* Detection Error */}
             {detectError && (
               <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 text-destructive">
@@ -1559,7 +1610,7 @@ export default function Servers() {
                 <span className="text-sm">{detectError}</span>
               </div>
             )}
-            
+
             {/* Detection Result */}
             {detectResult && (
               <div className="space-y-4">
@@ -1575,8 +1626,8 @@ export default function Servers() {
                     {detectResult.detectedServers.length > 1 && (
                       <div className="space-y-2">
                         <Label>Select Server Configuration</Label>
-                        <Select 
-                          value={selectedServerConfig} 
+                        <Select
+                          value={selectedServerConfig}
                           onValueChange={(val) => {
                             const config = detectResult.detectedServers.find(s => s.serverName === val)
                             if (config) handleSelectServerConfig(config)
@@ -1595,7 +1646,7 @@ export default function Servers() {
                         </Select>
                       </div>
                     )}
-                    
+
                     {/* Detected Settings Summary */}
                     {selectedServerConfig && (
                       <div className="space-y-3 rounded-lg border bg-muted/50 p-4">
@@ -1603,7 +1654,7 @@ export default function Servers() {
                           <CheckCircle className="w-4 h-4" />
                           <span className="font-medium">Server detected successfully!</span>
                         </div>
-                        
+
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                           <div>
                             <span className="text-muted-foreground">Server Name:</span>
@@ -1622,7 +1673,23 @@ export default function Servers() {
                             <p className="font-mono">{newServer.rconPort}</p>
                           </div>
                         </div>
-                        
+
+                        {tandemConflicts.length > 0 && (
+                          <div className="space-y-1.5 rounded-md border border-destructive/50 bg-destructive/5 p-3">
+                            <p className="text-xs font-medium text-destructive">
+                              Clashes with a server already added — both cannot run at once
+                            </p>
+                            <ul className="space-y-1">
+                              {tandemConflicts.map((c: { label: string; detail: string }, i: number) => (
+                                <li key={`${c.label}-${i}`} className="grid grid-cols-[7rem_1fr] gap-2 text-xs">
+                                  <span className="text-muted-foreground">{c.label}</span>
+                                  <span>{c.detail}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
                         {/* RCON Password Section */}
                         <div className="space-y-2 mt-2">
                           <Label>RCON Password *</Label>
@@ -1643,7 +1710,7 @@ export default function Servers() {
                             </p>
                           )}
                         </div>
-                        
+
                         {/* Memory Configuration */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
                           <div className="space-y-2">
@@ -1678,13 +1745,13 @@ export default function Servers() {
             </>
             )}
           </div>
-          
+
           <DialogFooter>
             <Button variant="outline" onClick={resetAddDialog}>
               Cancel
             </Button>
-            <Button 
-              onClick={handleAddExistingServer} 
+            <Button
+              onClick={handleAddExistingServer}
               disabled={addingServer || (addMode === 'local' ? (!selectedServerConfig || !newServer.rconPassword) : (!newServer.name || !newServer.rconHost || !newServer.rconPassword))}
             >
               {addingServer ? (
@@ -1706,7 +1773,7 @@ export default function Servers() {
               Update server configuration settings
             </DialogDescription>
           </DialogHeader>
-          
+
           {editingServer && (
             <div className="space-y-4">
               {/* Remote server indicator */}
@@ -1717,7 +1784,7 @@ export default function Servers() {
                   <AlertDescription>RCON-only management is available for this server.</AlertDescription>
                 </Alert>
               )}
-              
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Display Name</Label>
@@ -1736,7 +1803,7 @@ export default function Servers() {
                   />
                 </div>
               </div>
-              
+
               {!editingServer.isRemote && (
               <>
               <div className="space-y-2">
@@ -1747,7 +1814,7 @@ export default function Servers() {
                   className="font-mono text-sm"
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label>Zomboid Data Path</Label>
                 <Input
@@ -1757,7 +1824,7 @@ export default function Servers() {
                   placeholder="Leave empty for default"
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label className="flex items-center gap-1.5">
                   Custom Start Command
@@ -1783,7 +1850,7 @@ export default function Servers() {
               </div>
               </>
               )}
-              
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="flex items-center gap-1.5">
@@ -1816,7 +1883,7 @@ export default function Servers() {
                   />
                 </div>
               </div>
-              
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>RCON Password</Label>
@@ -1848,7 +1915,7 @@ export default function Servers() {
                 </div>
                 )}
               </div>
-              
+
               <div className={editingServer.isRemote ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 sm:grid-cols-3 gap-4"}>
                 <div className="space-y-2">
                   <Label>Game Port</Label>
@@ -1885,7 +1952,7 @@ export default function Servers() {
               </div>
             </div>
           )}
-          
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingServer(null)}>
               Cancel
@@ -1905,7 +1972,7 @@ export default function Servers() {
             <AlertDialogDescription asChild>
               <div className="space-y-4">
                 <p>This will remove "{deleteServer?.name}" from the panel management.</p>
-                
+
                 {deleteServer?.installPath && (
                   <div className="flex items-start gap-3 p-3 rounded-lg border bg-muted/50">
                     <Checkbox
@@ -1924,7 +1991,7 @@ export default function Servers() {
                     </label>
                   </div>
                 )}
-                
+
                 {!deleteFiles && !deleting && (
                   <p className="text-sm text-muted-foreground">
                     Server files will NOT be deleted - you can add this server back later.
@@ -1945,8 +2012,8 @@ export default function Servers() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <Button 
-              onClick={handleDeleteServer} 
+            <Button
+              onClick={handleDeleteServer}
               disabled={deleting}
               className={deleteFiles ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : ""}
             >
@@ -1970,13 +2037,13 @@ export default function Servers() {
               )}
             </DialogTitle>
             <DialogDescription>
-              {steamOperation?.type === 'verify' 
+              {steamOperation?.type === 'verify'
                 ? 'Check and repair game files using SteamCMD'
                 : 'Download the latest version using SteamCMD'
               }
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label>SteamCMD Path *</Label>
@@ -1991,7 +2058,7 @@ export default function Servers() {
                 Folder containing steamcmd
               </p>
             </div>
-            
+
             <div className="space-y-2">
               <Label>Server Install Path</Label>
               <Input
@@ -2018,8 +2085,8 @@ export default function Servers() {
 
             <div className="space-y-2">
               <Label>Steam Branch {loadingBranches && <Loader2 className="inline-block w-3 h-3 ml-1 animate-spin" />}</Label>
-              <Select 
-                value={steamOperation?.branch || 'public'} 
+              <Select
+                value={steamOperation?.branch || 'public'}
                 onValueChange={(value) => steamOperation && setSteamOperation({ ...steamOperation, branch: value })}
                 disabled={steamRunning || loadingBranches}
               >
@@ -2065,7 +2132,7 @@ export default function Servers() {
                 })()}
               </p>
             </div>
-            
+
             {steamLogs.length > 0 && (
               <div className="space-y-2">
                 <Label>Progress</Label>
@@ -2077,17 +2144,17 @@ export default function Servers() {
               </div>
             )}
           </div>
-          
+
           <DialogFooter>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={() => setSteamOperation(null)}
               disabled={steamRunning}
             >
               {steamRunning ? 'Running...' : steamCompleted ? 'Close' : 'Cancel'}
             </Button>
             {!steamCompleted && (
-              <Button 
+              <Button
                 onClick={handleStartSteamOperation}
                 disabled={steamRunning || !steamcmdPath.trim()}
               >
@@ -2101,7 +2168,7 @@ export default function Servers() {
               </Button>
             )}
             {steamCompleted === 'success' && (
-              <Button 
+              <Button
                 variant="default"
                 onClick={() => setSteamOperation(null)}
               >
@@ -2109,7 +2176,7 @@ export default function Servers() {
               </Button>
             )}
             {steamCompleted === 'error' && (
-              <Button 
+              <Button
                 onClick={() => { setSteamCompleted(null); handleStartSteamOperation(); }}
                 disabled={!steamcmdPath.trim()}
               >

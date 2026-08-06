@@ -8,23 +8,105 @@ import { getActiveServer, getAllSettings } from "../database/init.js";
 import { sanitizeError } from "../utils/sanitize.js";
 import { withFileLock, writeFileAtomic } from "../utils/fileWriteQueue.js";
 import { escapeRegExp } from "../utils/regex.js";
+import {
+  SFTP_CONFIG_PATH_KEY,
+  acquireMirrorLock,
+  beginRemoteConfigSession,
+  getMirrorPath,
+  isRemoteConfigConfigured,
+  pushRemoteConfigFiles,
+  validateRemoteConfigTransport,
+} from "../services/remoteConfigFiles.js";
 
 const router = express.Router();
 
-// Block all file operations for remote servers (no local filesystem access)
+// These read or write the panel host's own filesystem, so an SFTP mirror of
+// the remote Server/ folder cannot stand in for them.
+const LOCAL_ONLY_PATHS = new Set(["/browse-files", "/image-preview"]);
+
+async function resolveRemoteConfigTransport() {
+  const settings = await getAllSettings();
+  if (!isRemoteConfigConfigured(settings)) return null;
+  return validateRemoteConfigTransport({
+    host: settings.panelBridgeSftpHost,
+    port: settings.panelBridgeSftpPort,
+    username: settings.panelBridgeSftpUsername,
+    password: settings.panelBridgeSftpPassword,
+    configPath: settings[SFTP_CONFIG_PATH_KEY],
+  });
+}
+
+// A remote server has no local filesystem, but its Server/ folder is reachable
+// over the SFTP credentials PanelBridge already uses. Mirror it in before the
+// handler runs and push back whatever the handler changed, so every existing
+// local-filesystem handler below works unmodified.
 router.use(async (req, res, next) => {
+  let activeServer;
   try {
-    const activeServer = await getActiveServer();
-    if (activeServer?.isRemote) {
-      return res.status(400).json({
-        error:
-          "Server file editing is not available for remote servers. The server filesystem is not accessible from this panel.",
-      });
-    }
-    next();
+    activeServer = await getActiveServer();
   } catch (err) {
-    next(err);
+    return next(err);
   }
+  if (!activeServer?.isRemote) return next();
+
+  if (LOCAL_ONLY_PATHS.has(req.path)) {
+    return res.status(400).json({
+      error:
+        "Browsing the server filesystem is not available for remote servers.",
+    });
+  }
+
+  let transport;
+  try {
+    transport = await resolveRemoteConfigTransport();
+  } catch (err) {
+    return res.status(400).json({ error: sanitizeError(err.message) });
+  }
+  if (!transport) {
+    return res.status(400).json({
+      code: "REMOTE_CONFIG_NOT_CONFIGURED",
+      error:
+        "This server is remote. Add its SFTP details and the remote Server folder under Settings > PanelBridge to edit its configuration from here.",
+    });
+  }
+
+  const serverName = await getServerName();
+  const release = await acquireMirrorLock();
+  let session;
+  try {
+    session = await beginRemoteConfigSession(transport, serverName, {
+      fresh: req.method !== "GET",
+    });
+  } catch (err) {
+    release();
+    log.error(`Remote config pull failed: ${err.message}`);
+    return res.status(502).json({
+      error: `Could not read the remote server config folder: ${sanitizeError(err.message)}`,
+    });
+  }
+
+  let settled = false;
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(watchdog);
+    void (async () => {
+      try {
+        if (req.method !== "GET" && res.statusCode < 400) {
+          await pushRemoteConfigFiles(transport, serverName, session);
+        }
+      } catch (err) {
+        log.error(`Remote config push failed: ${err.message}`);
+      } finally {
+        release();
+      }
+    })();
+  };
+  const watchdog = setTimeout(finish, 60000);
+  watchdog.unref?.();
+  res.on("finish", finish);
+  res.on("close", finish);
+  next();
 });
 
 // Escape strings for safe interpolation into Lua source code
@@ -77,6 +159,15 @@ function unescapeLuaString(value) {
 // Get the server config directory path
 async function getServerConfigPath() {
   const activeServer = await getActiveServer();
+
+  // A remote server's Server/ folder lives on the host; the handlers below
+  // work against its local SFTP mirror instead.
+  if (activeServer?.isRemote) {
+    const transport = await resolveRemoteConfigTransport();
+    if (transport) {
+      return getMirrorPath(transport, await getServerName());
+    }
+  }
 
   // First, use explicitly configured serverConfigPath if available
   if (activeServer?.serverConfigPath) {
@@ -1039,12 +1130,39 @@ export async function persistSandboxValues(values) {
   if (entries.length === 0) return { persisted: false, reason: "nothing to do" };
 
   const activeServer = await getActiveServer();
+  // Called from the PanelBridge routes, outside the mirror middleware, so a
+  // remote server has to pull and push around its own write.
   if (activeServer?.isRemote) {
-    return { persisted: false, reason: "remote server filesystem" };
+    const transport = await resolveRemoteConfigTransport();
+    if (!transport) {
+      return { persisted: false, reason: "remote server filesystem" };
+    }
+    const serverName = await getServerName();
+    const release = await acquireMirrorLock();
+    try {
+      const session = await beginRemoteConfigSession(transport, serverName, {
+        fresh: true,
+      });
+      const result = await writeSandboxValues(entries, session.mirrorDir, serverName);
+      if (result.persisted) {
+        await pushRemoteConfigFiles(transport, serverName, session);
+      }
+      return result;
+    } catch (err) {
+      return { persisted: false, reason: sanitizeError(err.message) };
+    } finally {
+      release();
+    }
   }
 
-  const configPath = await getServerConfigPath();
-  const serverName = await getServerName();
+  return writeSandboxValues(
+    entries,
+    await getServerConfigPath(),
+    await getServerName(),
+  );
+}
+
+async function writeSandboxValues(entries, configPath, serverName) {
   const filePath = path.join(configPath, `${serverName}_SandboxVars.lua`);
   if (!fs.existsSync(filePath)) {
     return { persisted: false, reason: "SandboxVars.lua not found" };

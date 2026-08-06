@@ -1402,7 +1402,7 @@ export const discordApi = {
     modRoleId?: string,
     chatRelayEnabled?: boolean,
     chatRelayChannelId?: string,
-    chatRelayScope?: "public" | "general",
+    chatRelayScope?: "public" | "no-yell" | "general",
   ) =>
     apiPut("/discord/config", {
       token,
@@ -1453,6 +1453,8 @@ export interface ServerInstance {
   useNoSteam: boolean;
   useDebug: boolean;
   isRemote: boolean;
+  // Only set on /servers/active: the remote Server folder is reachable over SFTP.
+  remoteConfigConfigured?: boolean;
   isActive: boolean;
   startCommand: string;
   adminPassword: string;
@@ -1899,6 +1901,18 @@ export const panelBridgeApi = {
   }) => apiPost("/panel-bridge/sftp/logs/list", config) as Promise<{
     success: boolean;
     logPath: string;
+    files: Array<{ name: string; size: number; modifiedAt: string | null }>;
+  }>,
+
+  listSftpConfigFiles: (config: {
+    host?: string;
+    port?: string;
+    username?: string;
+    password?: string;
+    configPath?: string;
+  }) => apiPost("/panel-bridge/sftp/config/list", config) as Promise<{
+    success: boolean;
+    configPath: string;
     files: Array<{ name: string; size: number; modifiedAt: string | null }>;
   }>,
 

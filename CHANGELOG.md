@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+#### Remote servers
+
+- **Edit a remote server's configuration over SFTP**: the Server Configuration page was closed to remote servers entirely, because everything under it reads and writes the panel host's own filesystem. Point Settings > PanelBridge at the remote `Server` folder and the panel now mirrors `<server>.ini`, `SandboxVars.lua`, `spawnpoints.lua` and `spawnregions.lua` over the SFTP credentials PanelBridge already uses, edits the local copy, and writes the changed files back atomically. Only `.ini` and `.lua` files are ever transferred, and only the four the editor touches. Requests are serialized so two overlapping saves cannot lose each other's edits. Sandbox settings applied through PanelBridge now persist on remote servers too.
+
+#### Servers
+
+- **Spell out what a second server on the same machine needs**: adding another local server now lists the four things that must be unique (install folder, Zomboid data folder, config name, ports) and the one thing that is safe to share (SteamCMD itself), and flags a real clash against the servers you already have — same config name, same RCON port, a game port within one of another server's pair, or a shared save or install folder.
+
+#### Discord
+
+- **Keep Q shouts out of the Discord chat relay**: the relay's "Which messages to forward" setting gains a "Public chat without yells" option, so `HEY!`, `HEY YOU!` and `OVER HERE!` no longer flood the channel every time someone presses Q. Build 42 labels both ordinary talking and yells as `Local`, so the panel now reads the chat room id from the game's own delivery log line to tell them apart.
+
+### Fixed
+
+#### Event Console
+
+- **Game Clock claimed success while changing nothing**: Build 42 can reject a clock setter from the Lua bridge, but the bridge discarded that error and still told the panel the time had changed. Clock updates now verify the requested hour, day, month, and year before reporting success; failures return their real reason instead.
+- **World Map could flood a server log with Lua stack traces**: newer Build 42 revisions can expose a vehicle collection without a callable `get` method. The bridge now skips that unsupported live-vehicle source rather than repeatedly calling it while the map polls; saved vehicle markers remain available.
+
+#### Discord
+
+- **Restart notices never reached the Discord chat channel players actually watch**: every countdown line the scheduler broadcasts in-game (`[SERVER] *** RESTART IN ... ***`) was filtered out of the Discord chat relay to avoid spamming ~13 messages per restart, but that filter also swallowed the one message players need most — that the restart is actually happening now (or was cancelled). The countdown ticks are still suppressed; the restart's outcome ("RESTARTING NOW", "Restart CANCELLED") is now relayed like any other server message.
+
 ## [1.1.31] - 2026-08-05
 
 ### Added

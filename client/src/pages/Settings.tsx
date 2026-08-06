@@ -124,6 +124,7 @@ interface AppSettings {
   panelBridgeSftpBridgePath: string;
   panelBridgeSftpPollIntervalSeconds: string;
   panelBridgeSftpLogPath: string;
+  panelBridgeSftpConfigPath: string;
 
   // Server automation
   autoStartServer: boolean;
@@ -243,6 +244,7 @@ export default function Settings() {
     panelBridgeSftpBridgePath: "",
     panelBridgeSftpPollIntervalSeconds: "3",
     panelBridgeSftpLogPath: "",
+    panelBridgeSftpConfigPath: "",
     autoStartServer: false,
     autoExportOnLogin: false,
     autoExportMaxPerPlayer: "3",
@@ -401,6 +403,13 @@ export default function Settings() {
   } | null>(null);
   const [loadingRemoteLogs, setLoadingRemoteLogs] = useState(false);
   const [remoteLogError, setRemoteLogError] = useState<string | null>(null);
+  const [remoteConfigFiles, setRemoteConfigFiles] = useState<
+    Array<{ name: string; size: number; modifiedAt: string | null }>
+  >([]);
+  const [loadingRemoteConfig, setLoadingRemoteConfig] = useState(false);
+  const [remoteConfigError, setRemoteConfigError] = useState<string | null>(
+    null,
+  );
 
   // Server list for install dropdown
   const [servers, setServers] = useState<ServerInstance[]>([]);
@@ -1668,6 +1677,32 @@ export default function Settings() {
       );
     } finally {
       setLoadingRemoteLogs(false);
+    }
+  };
+
+  const handleCheckRemoteConfig = async () => {
+    setLoadingRemoteConfig(true);
+    setRemoteConfigError(null);
+    try {
+      const result = await panelBridgeApi.listSftpConfigFiles({
+        ...sftpConfig(),
+        configPath: settings.panelBridgeSftpConfigPath,
+      });
+      setRemoteConfigFiles(result.files || []);
+      if (!result.files?.length) {
+        setRemoteConfigError(
+          "No .ini or .lua files found in that folder. Check the path points at the server's Server folder.",
+        );
+      }
+    } catch (error) {
+      setRemoteConfigFiles([]);
+      setRemoteConfigError(
+        error instanceof Error
+          ? error.message
+          : "Could not read the remote config folder.",
+      );
+    } finally {
+      setLoadingRemoteConfig(false);
     }
   };
 
@@ -3954,6 +3989,53 @@ export default function Settings() {
                   <p className="text-xs text-muted-foreground">
                     <strong className="text-foreground">Server logs:</strong> read-only. The panel lists the remote log folder and fetches the tail of a file on demand. Nothing is written to the remote host and whole files are never mirrored to disk.
                   </p>
+
+                  <div className="rounded-md border border-border/60 p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium">Remote server config</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Absolute path to the <code>Server</code> folder on the remote host. Setting this unlocks the Server Config page for a remote server: the panel mirrors <code>.ini</code> and <code>SandboxVars.lua</code> over SFTP, edits the copy, then writes it back.
+                        </p>
+                      </div>
+                      <FolderOpen className="h-4 w-4 shrink-0 text-primary" />
+                    </div>
+                    <div className="flex flex-wrap items-end gap-3">
+                      <div className="min-w-[18rem] flex-1 space-y-1.5">
+                        <Label htmlFor="sftp-config-path">Remote Server folder</Label>
+                        <Input
+                          id="sftp-config-path"
+                          value={settings.panelBridgeSftpConfigPath}
+                          onChange={(event) => updateSetting("panelBridgeSftpConfigPath", event.target.value)}
+                          placeholder="/home/pz/Zomboid/Server"
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleCheckRemoteConfig}
+                        disabled={loadingRemoteConfig || !settings.panelBridgeSftpConfigPath.trim()}
+                      >
+                        {loadingRemoteConfig ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FolderOpen className="mr-2 h-4 w-4" />}
+                        Check folder
+                      </Button>
+                    </div>
+
+                    {remoteConfigError && (
+                      <p className="text-xs text-destructive">{remoteConfigError}</p>
+                    )}
+
+                    {remoteConfigFiles.length > 0 && (
+                      <ul className="max-h-40 divide-y divide-border/40 overflow-auto rounded border border-border/50">
+                        {remoteConfigFiles.map((file) => (
+                          <li key={file.name} className="flex items-center justify-between gap-3 px-3 py-1.5 text-xs">
+                            <span className="font-mono">{file.name}</span>
+                            <span className="tabular-nums text-muted-foreground">{file.size} B</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
 
                   <div className="rounded-md border border-border/60 p-4 space-y-3">
                     <div className="flex items-start justify-between gap-3">

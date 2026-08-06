@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 
 // Test PanelBridge command serialization logic
 // Tests the command queue and file write serialization without actual file I/O
@@ -174,5 +176,28 @@ describe('PanelBridge pending commands', () => {
       expect(fn).toHaveBeenCalledWith(expect.objectContaining({ message: 'Bridge stopped' }));
     });
     expect(pendingCommands.size).toBe(0);
+  });
+});
+
+describe('PanelBridge vehicle compatibility', () => {
+  it('does not invoke a vehicle getter that Build 42 does not expose', async () => {
+    const luaPath = path.resolve(process.cwd(), 'pz-mod/PanelBridge/media/lua/server/PanelBridge.lua');
+    const lua = await readFile(luaPath, 'utf8');
+    const vehicleAt = lua.match(/local function vehicleAt\(vehicles, i\)([\s\S]*?)\nend/);
+
+    expect(vehicleAt?.[1]).toContain('if not vehicles or not vehicles.get then return nil end');
+    expect(vehicleAt?.[1]).toContain('pcall(function() return vehicles:get(i) end)');
+  });
+
+  it('keeps the Lua runtime version aligned with the manifest', async () => {
+    const luaPath = path.resolve(process.cwd(), 'pz-mod/PanelBridge/media/lua/server/PanelBridge.lua');
+    const modInfoPath = path.resolve(process.cwd(), 'pz-mod/PanelBridge/mod.info');
+    const [lua, modInfo] = await Promise.all([readFile(luaPath, 'utf8'), readFile(modInfoPath, 'utf8')]);
+    const headerVersion = lua.match(/^    Version: ([^\r\n]+)/m)?.[1];
+    const runtimeVersion = lua.match(/^    VERSION = "([^"]+)",/m)?.[1];
+    const manifestVersion = modInfo.match(/^modversion=(.+)$/m)?.[1];
+
+    expect(runtimeVersion).toBe(headerVersion);
+    expect(manifestVersion).toBe(headerVersion);
   });
 });

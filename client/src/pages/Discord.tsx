@@ -74,7 +74,7 @@ interface DiscordConfig {
   autoStart: boolean;
   chatRelayEnabled: boolean;
   chatRelayChannelId: string;
-  chatRelayScope: "public" | "general";
+  chatRelayScope: "public" | "no-yell" | "general";
 }
 
 interface BotInfo {
@@ -238,9 +238,9 @@ export default function Discord() {
   const [channelId, setChannelId] = useState("");
   const [chatRelayEnabled, setChatRelayEnabled] = useState(true);
   const [chatRelayChannelId, setChatRelayChannelId] = useState("");
-  const [chatRelayScope, setChatRelayScope] = useState<"public" | "general">(
-    "public",
-  );
+  const [chatRelayScope, setChatRelayScope] = useState<
+    "public" | "no-yell" | "general"
+  >("public");
 
   // Setup wizard state
   const [configMessage, setConfigMessage] = useState<FlashMessage | null>(null);
@@ -293,7 +293,10 @@ export default function Discord() {
         setChatRelayEnabled(configData.chatRelayEnabled !== false);
         setChatRelayChannelId(configData.chatRelayChannelId || "");
         setChatRelayScope(
-          configData.chatRelayScope === "general" ? "general" : "public",
+          configData.chatRelayScope === "general" ||
+            configData.chatRelayScope === "no-yell"
+            ? configData.chatRelayScope
+            : "public",
         );
         setAutoStart(configData.autoStart !== false);
       }
@@ -1925,7 +1928,7 @@ export default function Discord() {
                 <Select
                   value={chatRelayScope}
                   onValueChange={(v) =>
-                    setChatRelayScope(v as "public" | "general")
+                    setChatRelayScope(v as "public" | "no-yell" | "general")
                   }
                 >
                   <SelectTrigger id="chatRelayScope">
@@ -1934,6 +1937,9 @@ export default function Discord() {
                   <SelectContent>
                     <SelectItem value="public">
                       All public chat (Say, Shout, General)
+                    </SelectItem>
+                    <SelectItem value="no-yell">
+                      Public chat without yells (Q shouts)
                     </SelectItem>
                     <SelectItem value="general">General tab only</SelectItem>
                   </SelectContent>

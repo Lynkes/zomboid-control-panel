@@ -662,7 +662,7 @@ function BridgeResultDisplay({ result, loading, onInlineAction, players }: Bridg
           {(safehouses as Array<Record<string, unknown>>).map((sh, i) => {
             const title = String(sh.title || sh.id || `Safehouse ${i + 1}`)
             const owner = String(sh.owner || '—')
-            const members = Array.isArray(sh.members) ? sh.members : []
+            const members = Array.isArray(sh.players) ? sh.players : []
             const ref = String(sh.id ?? sh.title ?? '')
             return (
               <div key={ref || i} className="rounded-md border border-border/50 bg-background/40 p-3">
@@ -719,7 +719,7 @@ function BridgeResultDisplay({ result, loading, onInlineAction, players }: Bridg
             const name = String(f.name || `Faction ${i + 1}`)
             const owner = String(f.owner || '—')
             const tag = String(f.tag || '')
-            const members = Array.isArray(f.members) ? f.members : []
+            const members = Array.isArray(f.players) ? f.players : []
             return (
               <div key={name} className="rounded-md border border-border/50 bg-background/40 p-3">
                 <div className="flex items-start justify-between gap-3">
@@ -1340,9 +1340,10 @@ export default function Events() {
   const removeZombies = () => panelBridgeApi.clearAllZombies()
 
   // Time commands
-  // Routed through the bridge rather than RCON `setTimeSpeed` so the change is
-  // applied and read back with the rest of the climate/time state.
-  const setGameTimeSpeed = () => panelBridgeApi.sendCommand('setTimeSpeed', { multiplier: timeSpeed })
+  // Build 42 applies its effective server clock multiplier through RCON. The
+  // PanelBridge GameTime multiplier accepts the value but does not speed up the
+  // dedicated server clock.
+  const setGameTimeSpeed = () => executeCommand(`setTimeSpeed ${timeSpeed}`)
 
   // Teleport commands
   // teleportto only works if admin is in-game and teleports themselves

@@ -35,6 +35,12 @@ import {
   listSftpLogs,
   readSftpLogTail,
 } from "../services/panelBridgeSftp.js";
+import {
+  SFTP_CONFIG_PATH_KEY,
+  listRemoteConfigFiles,
+  resetRemoteConfigSession,
+  validateRemoteConfigTransport,
+} from "../services/remoteConfigFiles.js";
 const log = createLogger("API:PanelBridge");
 
 // ES Module __dirname equivalent
@@ -813,6 +819,32 @@ router.post("/sftp/logs/tail", requireRole("admin"), async (req, res) => {
   try {
     const config = await resolveSftpLogConfig(req.body);
     const result = await readSftpLogTail(config, req.body?.name, req.body?.maxBytes);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(400).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Verify the remote Server/ folder the config editor mirrors for a remote server.
+router.post("/sftp/config/list", requireRole("admin"), async (req, res) => {
+  try {
+    const settings = await getAllSettings();
+    const password =
+      req.body?.password && !isMaskedSecret(req.body.password)
+        ? req.body.password
+        : settings[SFTP_SETTING_KEYS.password] || "";
+    const config = validateRemoteConfigTransport({
+      host: req.body?.host ?? settings[SFTP_SETTING_KEYS.host],
+      port: req.body?.port ?? settings[SFTP_SETTING_KEYS.port],
+      username: req.body?.username ?? settings[SFTP_SETTING_KEYS.username],
+      password,
+      configPath: req.body?.configPath ?? settings[SFTP_CONFIG_PATH_KEY],
+    });
+    const result = await listRemoteConfigFiles(config);
+    if (req.body?.configPath) {
+      await setSetting(SFTP_CONFIG_PATH_KEY, config.configPath);
+      resetRemoteConfigSession();
+    }
     res.json({ success: true, ...result });
   } catch (error) {
     res.status(400).json({ error: sanitizeError(error.message) });

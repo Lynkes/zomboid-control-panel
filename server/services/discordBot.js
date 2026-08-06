@@ -91,7 +91,21 @@ const PUBLIC_CHAT_TYPES = new Set([
   "Server Alert",
   "Server chat",
 ]);
+const NO_YELL_CHAT_TYPES = new Set(
+  [...PUBLIC_CHAT_TYPES].filter((t) => t !== "Shout"),
+);
 const GENERAL_ONLY_CHAT_TYPES = new Set(["General"]);
+const CHAT_RELAY_SCOPES = new Set(["public", "no-yell", "general"]);
+
+export function normalizeChatRelayScope(value) {
+  return CHAT_RELAY_SCOPES.has(value) ? value : "public";
+}
+
+export function allowedChatTypesForScope(scope) {
+  if (scope === "general") return GENERAL_ONLY_CHAT_TYPES;
+  if (scope === "no-yell") return NO_YELL_CHAT_TYPES;
+  return PUBLIC_CHAT_TYPES;
+}
 
 // Default permission levels for each command
 // 'everyone' = no role needed, 'moderator' = mod or admin role, 'admin' = admin role only
@@ -203,10 +217,7 @@ export class DiscordBot {
 
     // B42 records ordinary talking as Say/Local and Q shouts as Shout, so
     // filtering down to the General tab silences almost every real message.
-    const allowed =
-      this.chatRelayScope === "general"
-        ? GENERAL_ONLY_CHAT_TYPES
-        : PUBLIC_CHAT_TYPES;
+    const allowed = allowedChatTypesForScope(this.chatRelayScope);
     if (data?.sourceChatType) {
       if (!allowed.has(data.sourceChatType)) return;
     } else if (this.chatRelayScope === "general") {
@@ -220,13 +231,16 @@ export class DiscordBot {
     // an immediate duplicate in the originating Discord channel.
     if (String(data?.message || "").startsWith("[Discord] ")) return;
 
-    // The scheduler's restart countdown ticks once a second near the end. It is
-    // aimed at players in game; Discord already gets one scheduledRestart notice.
-    if (
-      data?.type === "server" &&
-      String(data?.message || "").startsWith("[SERVER] ")
-    ) {
-      return;
+    // The scheduler's restart countdown ticks as often as once a second near
+    // the end — those are aimed at players in game and would flood the relay.
+    // The restart's actual outcome (it's happening now, or it was called off)
+    // is exactly what players watching Discord expect to see, so those two
+    // are let through instead of being silently swallowed with the rest.
+    const serverMsg = String(data?.message || "");
+    if (data?.type === "server" && serverMsg.startsWith("[SERVER] ")) {
+      const isOutcome =
+        serverMsg.includes("RESTARTING NOW") || serverMsg.includes("CANCELLED");
+      if (!isOutcome) return;
     }
 
     // Use dedicated chat relay channel if set, otherwise fall back to main channel
@@ -283,10 +297,9 @@ export class DiscordBot {
     this.chatRelayEnabled = chatRelayEnabled !== false; // default true
     this.chatRelayChannelId =
       (await getSetting("discordChatRelayChannelId")) || null;
-    this.chatRelayScope =
-      (await getSetting("discordChatRelayScope")) === "general"
-        ? "general"
-        : "public";
+    this.chatRelayScope = normalizeChatRelayScope(
+      await getSetting("discordChatRelayScope"),
+    );
 
     // Load webhook events
     const savedEvents = await getSetting("discordWebhookEvents");
@@ -436,7 +449,7 @@ export class DiscordBot {
   async updateChatRelay(enabled, channelId, scope) {
     this.chatRelayEnabled = enabled;
     this.chatRelayChannelId = channelId || null;
-    this.chatRelayScope = scope === "general" ? "general" : "public";
+    this.chatRelayScope = normalizeChatRelayScope(scope);
     await setSetting("discordChatRelayEnabled", enabled);
     await setSetting("discordChatRelayChannelId", channelId || "");
     await setSetting("discordChatRelayScope", this.chatRelayScope);

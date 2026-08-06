@@ -1,12 +1,12 @@
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useEffect, useState, useContext } from 'react'
-import { 
-  LayoutDashboard, 
+import {
+  LayoutDashboard,
   Gauge,
-  Users, 
-  Terminal, 
-  Clock, 
-  Package, 
+  Users,
+  Terminal,
+  Clock,
+  Package,
   Settings,
   Server,
   Download,
@@ -60,6 +60,8 @@ interface NavItem {
   icon: typeof LayoutDashboard
   label: string
   requiresLocal?: boolean
+  // Still reachable on a remote server once its Server folder is mirrored over SFTP.
+  allowRemoteConfigMirror?: boolean
   disabled?: boolean
   badge?: string
 }
@@ -101,7 +103,7 @@ const navSections: NavSection[] = [
     icon: FileCog,
     color: 'blue',
     items: [
-      { to: '/server-config', icon: FileCog, label: 'Server Configuration', requiresLocal: true },
+      { to: '/server-config', icon: FileCog, label: 'Server Configuration', requiresLocal: true, allowRemoteConfigMirror: true },
       { to: '/mods', icon: Package, label: 'Mod Manager', requiresLocal: true },
     ]
   },
@@ -200,9 +202,9 @@ const sectionToneStyles = {
 // Auth footer — shows logged-in user and logout button
 function AuthFooter() {
   const { user, authEnabled, logout } = useAuth()
-  
+
   if (!authEnabled || !user) return null
-  
+
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5 text-xs">
       <span className="min-w-0 truncate text-foreground/85 font-medium" title={user.username}>{user.username}</span>
@@ -261,6 +263,11 @@ interface LayoutProps {
 
 export default function Layout({ children }: LayoutProps) {
   const [activeServer, setActiveServer] = useState<ServerInstance | null>(null)
+
+  const isBlockedByRemote = (item: NavItem) =>
+    !!item.requiresLocal &&
+    !!activeServer?.isRemote &&
+    !(item.allowRemoteConfigMirror && activeServer.remoteConfigConfigured)
   const [servers, setServers] = useState<ServerInstance[]>([])
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === 'true')
@@ -433,7 +440,7 @@ export default function Layout({ children }: LayoutProps) {
   // Listen for server changes
   useEffect(() => {
     if (!socket) return
-    
+
     const handleActiveServerChanged = async () => {
       try {
         const data = await serversApi.getAll()
@@ -448,7 +455,7 @@ export default function Layout({ children }: LayoutProps) {
         })
       }
     }
-    
+
     socket.on('activeServerChanged', handleActiveServerChanged)
     return () => {
       socket.off('activeServerChanged', handleActiveServerChanged)
@@ -458,7 +465,7 @@ export default function Layout({ children }: LayoutProps) {
   // Listen for update notifications
   useEffect(() => {
     if (!socket) return
-    
+
     const handleUpdateAvailable = (data: UpdateStatus) => {
       setUpdateInfo(data)
       // Show banner again when a different update is detected
@@ -467,7 +474,7 @@ export default function Layout({ children }: LayoutProps) {
         : null
       setUpdateDismissed(!!dismissedKey && localStorage.getItem(dismissedKey) === 'true')
     }
-    
+
     const handleUpdateCheck = (data: UpdateStatus) => {
       if (data.updateAvailable) {
         setUpdateInfo(data)
@@ -475,17 +482,17 @@ export default function Layout({ children }: LayoutProps) {
         setUpdateInfo(null)
       }
     }
-    
+
     socket.on('server:updateAvailable', handleUpdateAvailable)
     socket.on('server:updateCheck', handleUpdateCheck)
-    
+
     // Check for updates on mount
     updateApi.getStatus().then(status => {
       if (status.updateAvailable?.updateAvailable) {
         setUpdateInfo(status.updateAvailable)
       }
     }).catch(() => {})
-    
+
     return () => {
       socket.off('server:updateAvailable', handleUpdateAvailable)
       socket.off('server:updateCheck', handleUpdateCheck)
@@ -513,8 +520,8 @@ export default function Layout({ children }: LayoutProps) {
       <div className="fixed top-0 left-0 right-0 z-50 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/85 lg:hidden">
         <div className="flex items-center justify-between p-3">
           <PanelBrand compact />
-          <Button 
-            variant="ghost" 
+          <Button
+            variant="ghost"
             size="icon"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
@@ -527,7 +534,7 @@ export default function Layout({ children }: LayoutProps) {
 
       {/* Mobile Menu Overlay */}
       {mobileMenuOpen && (
-        <div 
+        <div
           className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[1px] lg:hidden"
           onClick={() => setMobileMenuOpen(false)}
           aria-hidden="true"
@@ -716,7 +723,7 @@ export default function Layout({ children }: LayoutProps) {
               return (
                 <div key={section.id} className={cn('space-y-0.5', sectionIdx === 0 ? 'mt-2 pt-2 border-t border-border/40' : 'mt-2 pt-2 border-t border-border/40')}>
                   {section.items.map((item) => {
-                    const isDisabledByRemote = !!item.requiresLocal && activeServer?.isRemote
+                    const isDisabledByRemote = isBlockedByRemote(item)
                     if (isDisabledByRemote || item.disabled) return null
                     const isActive = location.pathname === item.to
                     return (
@@ -772,7 +779,7 @@ export default function Layout({ children }: LayoutProps) {
                 </div>
                 <div className="space-y-0.5">
                   {section.items.map((item) => {
-                    const isDisabledByRemote = !!item.requiresLocal && activeServer?.isRemote
+                    const isDisabledByRemote = isBlockedByRemote(item)
 
                     if (item.disabled) {
                       return (
