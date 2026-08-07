@@ -1,10 +1,34 @@
 ---@diagnostic disable: undefined-global, deprecated
 --[[
     PanelBridge - Server-side mod for Zomboid Control Panel
-    Version: 1.7.23
+    Version: 1.7.24
 
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
+
+                v1.7.24 Changes:
+                - Java methods are now probed by calling them and caching the
+                    outcome per class, instead of testing obj.method as a field.
+                    A field test reports false for methods that are callable but
+                    not exposed as Lua fields, which silently returned zero
+                    vehicles (v1.7.23) and let safeGetValue fabricate defaults
+                    such as game-time year 1993. A genuinely missing method now
+                    costs one engine stack trace per class per session rather
+                    than one per tick, and a getter that throws for a broken
+                    modded object is never marked unavailable.
+                - Live-state caches (vehicles, safehouses, player details) are
+                    invalidated after any state-changing command, so a repair,
+                    refuel, or battery change is no longer masked for 5 seconds.
+                - Queue bookkeeping writes dropped from about five files per
+                    command to two: the duplicate inbox cursor write is gone and
+                    queue state is persisted once per tick instead of once per
+                    result.
+                - The legacy commands.json intake is polled every 2s instead of
+                    every tick. The panel only writes that file when a numbered
+                    queue write fails, so it stays a working fallback.
+                - json.encode has a recursion depth limit, and logging no longer
+                    rescans the level table or shifts the whole ring buffer on
+                    every call.
 
                 v1.7.23 Changes:
                 - World Map vehicle polling now skips Java collections that do
@@ -293,7 +317,7 @@
 local json
 
 local PanelBridge = {
-    VERSION = "1.7.23",
+    VERSION = "1.7.24",
     PROTOCOL_VERSION = "queue-v1",
     CHECK_INTERVAL = 250, -- milliseconds (fast command polling)
     lastCheck = 0,
@@ -316,9 +340,21 @@ local PanelBridge = {
     MAX_COMMANDS_PER_TICK = 200,
     QUEUE_SEQUENCE_WIDTH = 10,
 
+    -- The panel only writes the legacy commands.json when a numbered queue
+    -- write fails (see panelBridge.js), so polling it every tick costs far
+    -- more than the rare fallback is worth.
+    LEGACY_COMMANDS_INTERVAL = 2000,
+    lastLegacyCheck = 0,
+
+    -- Set when queueState changes; flushed to disk once per tick.
+    queueStateDirty = false,
+
     -- API detection
     detectedVersion = nil,
     apiCapabilities = {},
+
+    -- Cached results of Java method probes, keyed by class name + method.
+    methodCapabilities = {},
 
     -- Statistics
     stats = {
@@ -361,6 +397,9 @@ local LOG_LEVEL = {
     ERROR = 4
 }
 
+local LOG_LEVEL_NAME = {}
+for name, val in pairs(LOG_LEVEL) do LOG_LEVEL_NAME[val] = name end
+
 -- Lua 5.1/5.2 compatibility
 local unpack = unpack or table.unpack
 
@@ -374,10 +413,7 @@ function PanelBridge.log(level, message, context)
     else
         timestamp = 0
     end
-    local levelName = "INFO"
-    for name, val in pairs(LOG_LEVEL) do
-        if val == level then levelName = name break end
-    end
+    local levelName = LOG_LEVEL_NAME[level] or "INFO"
 
     local entry = {
         timestamp = timestamp,
@@ -386,10 +422,17 @@ function PanelBridge.log(level, message, context)
         context = context
     }
 
-    -- Add to ring buffer
+    -- Ring buffer. getDebugLog reads this as an ordered array, so trim in
+    -- batches from the front rather than shifting all entries on every call.
     table.insert(PanelBridge.debugLog, entry)
     if #PanelBridge.debugLog > PanelBridge.MAX_DEBUG_ENTRIES then
-        table.remove(PanelBridge.debugLog, 1)
+        local drop = math.floor(PanelBridge.MAX_DEBUG_ENTRIES / 4)
+        if drop < 1 then drop = 1 end
+        local kept = {}
+        for i = drop + 1, #PanelBridge.debugLog do
+            kept[#kept + 1] = PanelBridge.debugLog[i]
+        end
+        PanelBridge.debugLog = kept
     end
 
     -- Print to console
@@ -432,43 +475,95 @@ end
 -- API DETECTION & SAFE CALLING
 -- ============================================
 
--- Check if a method exists on an object
-function PanelBridge.hasMethod(obj, methodName)
-    if not obj then return false end
-    return type(obj[methodName]) == "function"
+-- PZ's Java objects do not reliably expose their methods as readable Lua
+-- fields: a method can be callable via obj:method() while obj.method reads
+-- nil. Testing the field therefore produces false negatives that silently
+-- discard real data (v1.7.17 collections, v1.7.21/v1.7.23 vehicles) or
+-- substitute fabricated defaults. The only reliable test is to call it.
+--
+-- Calling a genuinely missing method makes the engine print a stack trace
+-- even inside pcall, so the outcome is cached per class+method and the call
+-- is never retried. A method that exists but throws (a broken modded
+-- vehicle's getter) is NOT marked unavailable, so one bad object cannot
+-- disable a working accessor server-wide.
+local function capabilityKey(obj, methodName)
+    local ok, className = pcall(function() return obj:getClass():getName() end)
+    if ok and className then
+        return tostring(className) .. "#" .. methodName
+    end
+    return nil
 end
 
--- Safely call a method that might not exist
--- Returns: success, result/error
-function PanelBridge.safeCall(obj, methodName, ...)
-    if not obj then
+local function isMissingMethodError(err)
+    local text = tostring(err or ""):lower()
+    return text:find("call nil", 1, true) ~= nil
+        or text:find("attempt to call", 1, true) ~= nil
+        or text:find("not a function", 1, true) ~= nil
+end
+
+-- Returns: success, result (or error message on failure)
+function PanelBridge.invoke(obj, methodName, ...)
+    if obj == nil then
         return false, "Object is nil"
     end
 
-    if not PanelBridge.hasMethod(obj, methodName) then
-        return false, "Method '" .. methodName .. "' not available"
+    local key = capabilityKey(obj, methodName)
+    if key and PanelBridge.methodCapabilities[key] == false then
+        return false, "Method '" .. methodName .. "' not available on this build"
     end
 
-    local args = {...}
+    local args = { ... }
     local success, result = pcall(function()
         return obj[methodName](obj, unpack(args))
     end)
 
     if success then
+        if key then PanelBridge.methodCapabilities[key] = true end
         return true, result
-    else
-        PanelBridge.debug("safeCall failed", { method = methodName, error = result })
-        return false, result
     end
+
+    if key and isMissingMethodError(result) then
+        PanelBridge.methodCapabilities[key] = false
+        PanelBridge.debug("Method unavailable on this build; will not retry", {
+            method = methodName,
+            class = key
+        })
+    else
+        PanelBridge.debug("invoke failed", { method = methodName, error = tostring(result) })
+    end
+    return false, result
+end
+
+-- Advisory only: a false result does NOT prove the method is missing (see
+-- PanelBridge.invoke). Never gate an action on this; use invoke instead.
+function PanelBridge.hasMethod(obj, methodName)
+    if not obj then return false end
+    if type(obj[methodName]) == "function" then return true end
+    local key = capabilityKey(obj, methodName)
+    return key ~= nil and PanelBridge.methodCapabilities[key] == true
+end
+
+-- Safely call a method that might not exist
+-- Returns: success, result/error
+function PanelBridge.safeCall(obj, methodName, ...)
+    return PanelBridge.invoke(obj, methodName, ...)
 end
 
 -- Safely get a value from a method, with default fallback
 function PanelBridge.safeGet(obj, methodName, default)
-    local success, result = PanelBridge.safeCall(obj, methodName)
-    if success then
+    local success, result = PanelBridge.invoke(obj, methodName)
+    if success and result ~= nil then
         return result
     end
     return default
+end
+
+-- Calls a method and returns its value, or nil if unavailable. Use this in
+-- place of `obj.method and obj:method()`, which is unreliable on Java objects.
+function PanelBridge.tryGet(obj, methodName, ...)
+    local success, result = PanelBridge.invoke(obj, methodName, ...)
+    if success then return result end
+    return nil
 end
 
 -- Detect PZ version and available APIs
@@ -551,9 +646,15 @@ json.null = setmetatable({}, { __tostring = function() return "null" end })
 
 local function kind_of(obj)
     if type(obj) ~= 'table' then return type(obj) end
-    local i = 1
-    for _ in pairs(obj) do
-        if obj[i] ~= nil then i = i + 1 else return 'table' end
+    -- Exit on the first non-numeric key instead of probing obj[i] on every
+    -- iteration; object-shaped tables then cost one lookup rather than N.
+    local count = 0
+    for k in pairs(obj) do
+        if type(k) ~= 'number' then return 'table' end
+        count = count + 1
+    end
+    for i = 1, count do
+        if obj[i] == nil then return 'table' end
     end
     -- Empty Lua tables are ambiguous (array vs object). The panel's JS
     -- consumers overwhelmingly expect collection fields like
@@ -579,7 +680,15 @@ local function escape_str(s)
     return s
 end
 
-function json.encode(obj)
+-- Guards against a cyclic or pathologically deep table taking down the tick
+-- with a stack overflow. Handler payloads are far shallower than this.
+local JSON_MAX_DEPTH = 64
+
+function json.encode(obj, depth)
+    depth = depth or 0
+    if depth > JSON_MAX_DEPTH then
+        return 'null'
+    end
     if obj == json.null then
         return 'null'
     end
@@ -600,13 +709,13 @@ function json.encode(obj)
         if k == 'array' then
             local parts = {}
             for i, v in ipairs(obj) do
-                parts[i] = json.encode(v)
+                parts[i] = json.encode(v, depth + 1)
             end
             return '[' .. table.concat(parts, ',') .. ']'
         else
             local parts = {}
             for key, val in pairs(obj) do
-                parts[#parts + 1] = json.encode(tostring(key)) .. ':' .. json.encode(val)
+                parts[#parts + 1] = json.encode(tostring(key), depth + 1) .. ':' .. json.encode(val, depth + 1)
             end
             return '{' .. table.concat(parts, ',') .. '}'
         end
@@ -975,12 +1084,14 @@ function PanelBridge.readQueueState()
 end
 
 function PanelBridge.writeQueueState()
-    return PanelBridge.writeJSON("queue-state-lua.json", {
+    local ok = PanelBridge.writeJSON("queue-state-lua.json", {
         protocolVersion = PanelBridge.PROTOCOL_VERSION,
         lastCommandSeq = PanelBridge.queueState.lastCommandSeq,
         nextResultSeq = PanelBridge.queueState.nextResultSeq,
         updatedAt = getTimestampMs()
     })
+    if ok then PanelBridge.queueStateDirty = false end
+    return ok
 end
 
 function PanelBridge.writeInboxCursor(lastSeq)
@@ -1036,11 +1147,17 @@ function PanelBridge.sendResult(id, success, data, errorMsg)
         timestamp = getTimestampMs()
     })
     PanelBridge.queueState.nextResultSeq = PanelBridge.queueState.nextResultSeq + 1
-    PanelBridge.writeQueueState()
+    -- Persisted once per tick by flushResults rather than once per result.
+    PanelBridge.queueStateDirty = true
 end
 
 function PanelBridge.flushResults()
-    if #PanelBridge.pendingResults == 0 then return end
+    if #PanelBridge.pendingResults == 0 then
+        if PanelBridge.queueStateDirty then
+            PanelBridge.writeQueueState()
+        end
+        return
+    end
 
     -- NOTE (audit L04, retired): this used to also do a read-modify-write of
     -- a legacy results.json on every flush, for panels that hadn't
@@ -1075,6 +1192,9 @@ function PanelBridge.flushResults()
     end
 
     if writtenCount <= 0 then
+        if PanelBridge.queueStateDirty then
+            PanelBridge.writeQueueState()
+        end
         return
     end
 
@@ -1083,6 +1203,13 @@ function PanelBridge.flushResults()
         table.insert(remaining, PanelBridge.pendingResults[i])
     end
     PanelBridge.pendingResults = remaining
+
+    -- Persist the sequence counter only after the result files it refers to
+    -- are on disk, so a crash can never leave a reusable seq pointing at an
+    -- unconsumed result.
+    if PanelBridge.queueStateDirty then
+        PanelBridge.writeQueueState()
+    end
 end
 
 -- ============================================
@@ -1108,6 +1235,17 @@ local CACHEABLE_TTL_MS = {
     getAllPlayerDetails = 5000,    -- 5s: live player stats (panel polls every 15s)
 }
 local readOnlyCache = {}
+
+-- Live game state, unlike the static catalogs, can be changed by any admin
+-- command, so these entries are dropped after every state-changing command.
+-- Without this a repair/refuel/battery change stayed invisible for the TTL.
+local LIVE_STATE_CACHE_KEYS = { "getVehiclesDetailed", "getSafehouses", "getAllPlayerDetails" }
+
+local function invalidateLiveStateCache()
+    for _, key in ipairs(LIVE_STATE_CACHE_KEYS) do
+        readOnlyCache[key] = nil
+    end
+end
 
 -- Marks a command id as processed, keeping processedIds (O(1) lookup) and
 -- processedIdOrder (insertion order, for the trim in processCommands) in sync.
@@ -1226,6 +1364,10 @@ local function processSingleCommand(cmd)
             })
             if cacheTtl then
                 readOnlyCache[cmd.action] = { at = getTimestampMs(), ok = success, data = data, err = errorMsg }
+            else
+                -- Any non-cacheable command that succeeded may have mutated
+                -- world state the live caches describe.
+                invalidateLiveStateCache()
             end
             PanelBridge.sendResult(cmd.id, success, data, errorMsg)
         elseif errorMsg == "useRCON" then
@@ -1341,9 +1483,10 @@ local function processQueuedCommands(budget)
                     PanelBridge.clearFile(fileName)
                     shouldAdvance = true
                 else
+                    -- The cursor is written once below via shouldAdvance; the
+                    -- in-memory position is set here so a handler crash cannot
+                    -- cause this command to be replayed.
                     PanelBridge.queueState.lastCommandSeq = nextSeq
-                    PanelBridge.writeInboxCursor(nextSeq)
-                    advanced = true
 
                     local cmd = queued.command or queued
                     if processSingleCommand(cmd) then
@@ -1567,9 +1710,10 @@ handlers.getServerInfo = function(args)
         pcall(function()
             -- Use getHour()/getMinutes() on B42, fall back to getTimeOfDay() on B41
             local hour, minute
-            if gameTime.getHour then
-                hour = gameTime:getHour()
-                minute = gameTime.getMinutes and gameTime:getMinutes() or 0
+            local hourValue = PanelBridge.tryGet(gameTime, "getHour")
+            if hourValue then
+                hour = hourValue
+                minute = PanelBridge.safeGet(gameTime, "getMinutes", 0)
             else
                 local tod = gameTime:getTimeOfDay()
                 hour = math.floor(tod)
@@ -1614,12 +1758,12 @@ handlers.getWeather = function(args)
             precipitationIntensity = precipIntensity,
             isRaining = climate:isRaining(),
             isSnowing = climate:isSnowing(),
-            isThunderStorming = climate.getIsThunderStorming and climate:getIsThunderStorming() or false,
+            isThunderStorming = PanelBridge.safeGet(climate, "getIsThunderStorming", false),
             dayLight = climate:getDayLightStrength(),
             nightStrength = climate:getNightStrength(),
             desaturation = climate:getDesaturation(),
-            viewDistance = climate.getViewDistance and climate:getViewDistance() or 1.0,
-            ambient = climate.getAmbient and climate:getAmbient() or 1.0
+            viewDistance = PanelBridge.safeGet(climate, "getViewDistance", 1.0),
+            ambient = PanelBridge.safeGet(climate, "getAmbient", 1.0)
         }
     end)
 
@@ -1641,15 +1785,16 @@ handlers.triggerBlizzard = function(args)
     local duration = args.duration or 2.0
 
     local success, err = pcall(function()
-        if climate.triggerCustomWeatherStage and WeatherPeriod and WeatherPeriod.STAGE_BLIZZARD then
-            print("PanelBridge: Triggering Blizzard via triggerCustomWeatherStage")
-            climate:triggerCustomWeatherStage(WeatherPeriod.STAGE_BLIZZARD, duration)
-        elseif climate.transmitTriggerBlizzard then
-            print("PanelBridge: Triggering Blizzard via transmitTriggerBlizzard (fallback)")
-            climate:transmitTriggerBlizzard(duration)
+        local used
+        if WeatherPeriod and WeatherPeriod.STAGE_BLIZZARD
+            and PanelBridge.invoke(climate, "triggerCustomWeatherStage", WeatherPeriod.STAGE_BLIZZARD, duration) then
+            used = "triggerCustomWeatherStage"
+        elseif PanelBridge.invoke(climate, "transmitTriggerBlizzard", duration) then
+            used = "transmitTriggerBlizzard"
         else
             error("No weather trigger method available")
         end
+        PanelBridge.debug("Blizzard triggered", { method = used })
     end)
 
     if not success then
@@ -1669,15 +1814,16 @@ handlers.triggerTropicalStorm = function(args)
     local duration = args.duration or 2.0
 
     local success, err = pcall(function()
-        if climate.triggerCustomWeatherStage and WeatherPeriod and WeatherPeriod.STAGE_TROPICAL_STORM then
-             print("PanelBridge: Triggering Tropical Storm via triggerCustomWeatherStage")
-            climate:triggerCustomWeatherStage(WeatherPeriod.STAGE_TROPICAL_STORM, duration)
-        elseif climate.transmitTriggerTropical then
-            print("PanelBridge: Triggering Tropical Storm via transmitTriggerTropical (fallback)")
-            climate:transmitTriggerTropical(duration)
+        local used
+        if WeatherPeriod and WeatherPeriod.STAGE_TROPICAL_STORM
+            and PanelBridge.invoke(climate, "triggerCustomWeatherStage", WeatherPeriod.STAGE_TROPICAL_STORM, duration) then
+            used = "triggerCustomWeatherStage"
+        elseif PanelBridge.invoke(climate, "transmitTriggerTropical", duration) then
+            used = "transmitTriggerTropical"
         else
             error("No weather trigger method available")
         end
+        PanelBridge.debug("Tropical storm triggered", { method = used })
     end)
 
     if not success then
@@ -1697,15 +1843,16 @@ handlers.triggerStorm = function(args)
     local duration = args.duration or 2.0
 
     local success, err = pcall(function()
-        if climate.triggerCustomWeatherStage and WeatherPeriod and WeatherPeriod.STAGE_STORM then
-            print("PanelBridge: Triggering Storm via triggerCustomWeatherStage")
-            climate:triggerCustomWeatherStage(WeatherPeriod.STAGE_STORM, duration)
-        elseif climate.transmitTriggerStorm then
-            print("PanelBridge: Triggering Storm via transmitTriggerStorm (fallback)")
-            climate:transmitTriggerStorm(duration)
+        local used
+        if WeatherPeriod and WeatherPeriod.STAGE_STORM
+            and PanelBridge.invoke(climate, "triggerCustomWeatherStage", WeatherPeriod.STAGE_STORM, duration) then
+            used = "triggerCustomWeatherStage"
+        elseif PanelBridge.invoke(climate, "transmitTriggerStorm", duration) then
+            used = "transmitTriggerStorm"
         else
             error("No weather trigger method available")
         end
+        PanelBridge.debug("Storm triggered", { method = used })
     end)
 
     if not success then
@@ -1723,18 +1870,17 @@ handlers.stopWeather = function(args)
     end
 
     local success, err = pcall(function()
-        if climate.stopWeatherAndThunder then
-            print("PanelBridge: Stopping weather via stopWeatherAndThunder")
-            climate:stopWeatherAndThunder()
-        elseif climate.transmitServerStopWeather then
-             print("PanelBridge: Stopping weather via transmitServerStopWeather (fallback)")
-            climate:transmitServerStopWeather()
-        elseif climate.transmitStopWeather then
-             print("PanelBridge: Stopping weather via transmitStopWeather (fallback)")
-            climate:transmitStopWeather()
+        local used
+        if PanelBridge.invoke(climate, "stopWeatherAndThunder") then
+            used = "stopWeatherAndThunder"
+        elseif PanelBridge.invoke(climate, "transmitServerStopWeather") then
+            used = "transmitServerStopWeather"
+        elseif PanelBridge.invoke(climate, "transmitStopWeather") then
+            used = "transmitStopWeather"
         else
             error("No stop weather method available")
         end
+        PanelBridge.debug("Weather stopped", { method = used })
     end)
 
     if not success then
@@ -1760,16 +1906,16 @@ handlers.generateWeather = function(args)
     local javaFrontType = javaFrontMap[frontType] or 0
 
     local success, err = pcall(function()
-        if climate.transmitGenerateWeather then
-            print("PanelBridge: Generating weather via transmitGenerateWeather")
-            climate:transmitGenerateWeather(strength, javaFrontType)
-        elseif climate.triggerCustomWeather then
-            print("PanelBridge: Generating weather via triggerCustomWeather (fallback)")
-            -- triggerCustomWeather only supports warm/cold boolean, no stationary
-            climate:triggerCustomWeather(strength, frontType ~= 1)
+        local used
+        if PanelBridge.invoke(climate, "transmitGenerateWeather", strength, javaFrontType) then
+            used = "transmitGenerateWeather"
+        -- triggerCustomWeather only supports warm/cold boolean, no stationary
+        elseif PanelBridge.invoke(climate, "triggerCustomWeather", strength, frontType ~= 1) then
+            used = "triggerCustomWeather"
         else
             error("No generate weather method available")
         end
+        PanelBridge.debug("Weather period generated", { method = used })
     end)
 
     if not success then
@@ -1790,28 +1936,23 @@ handlers.setSnow = function(args)
     local success, err
 
     -- If enabling snow and not currently raining, start rain first
-    if enabled and climate.isRaining and not climate:isRaining() then
-        local intensity = args.intensity or 0.5
-        if climate.transmitServerStartRain then
-            pcall(function() climate:transmitServerStartRain(intensity) end)
-        end
+    if enabled and PanelBridge.tryGet(climate, "isRaining") == false then
+        PanelBridge.invoke(climate, "transmitServerStartRain", args.intensity or 0.5)
     end
 
     success, err = pcall(function()
-        -- Try Admin Override (Robust method)
-        local snowBool = climate:getClimateBool(0) -- BOOL_IS_SNOW = 0
-        if snowBool then
-            snowBool:setEnableAdmin(true)
-            snowBool:setAdminValue(enabled)
-            -- Also trigger normal method just in case
-            if climate.setPrecipitationIsSnow then
-                climate:setPrecipitationIsSnow(enabled)
-            end
-        elseif climate.setPrecipitationIsSnow then
-            climate:setPrecipitationIsSnow(enabled)
-        else
-            error("No method to set snow")
+        local applied = false
+        -- Admin override is the robust path.
+        local snowBool = PanelBridge.tryGet(climate, "getClimateBool", 0) -- BOOL_IS_SNOW = 0
+        if snowBool and PanelBridge.invoke(snowBool, "setEnableAdmin", true)
+            and PanelBridge.invoke(snowBool, "setAdminValue", enabled) then
+            applied = true
         end
+        -- Also drive the normal setter so the live value matches the override.
+        if PanelBridge.invoke(climate, "setPrecipitationIsSnow", enabled) then
+            applied = true
+        end
+        if not applied then error("No method to set snow") end
     end)
 
     if not success then
@@ -1830,12 +1971,7 @@ handlers.startRain = function(args)
 
     local intensity = args.intensity or 0.5
 
-    local success, err
-    if climate.transmitServerStartRain then
-        success, err = pcall(function() climate:transmitServerStartRain(intensity) end)
-    else
-        return false, nil, "transmitServerStartRain method not available in this version"
-    end
+    local success, err = PanelBridge.invoke(climate, "transmitServerStartRain", intensity)
 
     if not success then
         return false, nil, "Failed to start rain: " .. tostring(err)
@@ -1851,12 +1987,7 @@ handlers.stopRain = function(args)
         return false, nil, "ClimateManager not available"
     end
 
-    local success, err
-    if climate.transmitServerStopRain then
-        success, err = pcall(function() climate:transmitServerStopRain() end)
-    else
-        return false, nil, "transmitServerStopRain method not available in this version"
-    end
+    local success, err = PanelBridge.invoke(climate, "transmitServerStopRain")
 
     if not success then
         return false, nil, "Failed to stop rain: " .. tostring(err)
@@ -1878,18 +2009,27 @@ handlers.triggerLightning = function(args)
     local light = args.light ~= false     -- default to true
     local rumble = args.rumble ~= false   -- default to true
 
-    local success, err
-    if climate.transmitServerTriggerLightning then
-        success, err = pcall(function() climate:transmitServerTriggerLightning(x, y, strike, light, rumble) end)
-    else
-        return false, nil, "transmitServerTriggerLightning method not available in this version"
-    end
+    local success, err = PanelBridge.invoke(climate, "transmitServerTriggerLightning", x, y, strike, light, rumble)
 
     if not success then
         return false, nil, "Failed to trigger lightning: " .. tostring(err)
     end
 
     return true, { message = "Lightning triggered", x = x, y = y }
+end
+
+-- Applies a climate float through the admin override, falling back to the
+-- direct setter. Returns the method used, or nil when neither is available.
+local function applyClimateFloat(climate, floatIndex, value, setterName)
+    local cf = PanelBridge.tryGet(climate, "getClimateFloat", floatIndex)
+    if cf and PanelBridge.invoke(cf, "setEnableAdmin", true)
+        and PanelBridge.invoke(cf, "setAdminValue", value) then
+        return "climateFloat"
+    end
+    if PanelBridge.invoke(climate, setterName, value) then
+        return setterName
+    end
+    return nil
 end
 
 -- Set daylight strength (for darkness control)
@@ -1902,15 +2042,8 @@ handlers.setDayLight = function(args)
     local value = tonumber(args.value) or 1.0
 
     local success, err = pcall(function()
-        local cf = climate:getClimateFloat(11) -- FLOAT_DAYLIGHT_STRENGTH = 11
-        if cf then
-            cf:setEnableAdmin(true)
-            cf:setAdminValue(value)
-        elseif climate.setDayLightStrength then
-            climate:setDayLightStrength(value)
-        else
-            error("No method to set daylight")
-        end
+        local used = applyClimateFloat(climate, 11, value, "setDayLightStrength") -- FLOAT_DAYLIGHT_STRENGTH = 11
+        if not used then error("No method to set daylight") end
     end)
 
     if not success then
@@ -1930,15 +2063,8 @@ handlers.setNightStrength = function(args)
     local value = tonumber(args.value) or 0.0
 
     local success, err = pcall(function()
-        local cf = climate:getClimateFloat(2) -- FLOAT_NIGHT_STRENGTH = 2
-        if cf then
-            cf:setEnableAdmin(true)
-            cf:setAdminValue(value)
-        elseif climate.setNightStrength then
-            climate:setNightStrength(value)
-        else
-            error("No method to set night strength")
-        end
+        local used = applyClimateFloat(climate, 2, value, "setNightStrength") -- FLOAT_NIGHT_STRENGTH = 2
+        if not used then error("No method to set night strength") end
     end)
 
     if not success then
@@ -1958,15 +2084,8 @@ handlers.setDesaturation = function(args)
     local value = tonumber(args.value) or 0.0
 
     local success, err = pcall(function()
-        local cf = climate:getClimateFloat(0) -- FLOAT_DESATURATION = 0
-        if cf then
-            cf:setEnableAdmin(true)
-            cf:setAdminValue(value)
-        elseif climate.setDesaturation then
-            climate:setDesaturation(value)
-        else
-            error("No method to set desaturation")
-        end
+        local used = applyClimateFloat(climate, 0, value, "setDesaturation") -- FLOAT_DESATURATION = 0
+        if not used then error("No method to set desaturation") end
     end)
 
     if not success then
@@ -1986,15 +2105,8 @@ handlers.setViewDistance = function(args)
     local value = tonumber(args.value) or 1.0
 
     local success, err = pcall(function()
-        local cf = climate:getClimateFloat(10) -- FLOAT_VIEW_DISTANCE = 10
-        if cf then
-            cf:setEnableAdmin(true)
-            cf:setAdminValue(value)
-        elseif climate.setViewDistance then
-            climate:setViewDistance(value)
-        else
-            error("No method to set view distance")
-        end
+        local used = applyClimateFloat(climate, 10, value, "setViewDistance") -- FLOAT_VIEW_DISTANCE = 10
+        if not used then error("No method to set view distance") end
     end)
 
     if not success then
@@ -2014,15 +2126,8 @@ handlers.setAmbient = function(args)
     local value = tonumber(args.value) or 1.0
 
     local success, err = pcall(function()
-        local cf = climate:getClimateFloat(9) -- FLOAT_AMBIENT = 9
-        if cf then
-            cf:setEnableAdmin(true)
-            cf:setAdminValue(value)
-        elseif climate.setAmbient then
-            climate:setAmbient(value)
-        else
-            error("No method to set ambient")
-        end
+        local used = applyClimateFloat(climate, 9, value, "setAmbient") -- FLOAT_AMBIENT = 9
+        if not used then error("No method to set ambient") end
     end)
 
     if not success then
@@ -2181,18 +2286,16 @@ handlers.resetClimateOverrides = function(args)
         return false, nil, "ClimateManager not available"
     end
 
-    -- B42: use resetAdmin() which resets all float + bool admin overrides in one call
-    if climate.resetAdmin then
-        pcall(function() climate:resetAdmin() end)
+    -- B42: resetAdmin() resets all float + bool admin overrides in one call
+    if PanelBridge.invoke(climate, "resetAdmin") then
         return true, { message = "Climate overrides reset via resetAdmin()", floatsReset = 13, boolsReset = 1 }
     end
 
     -- Fallback: disable admin override on all known float IDs (0-12)
     local resetCount = 0
     for floatId = 0, 12 do
-        local cf = climate:getClimateFloat(floatId)
-        if cf and cf.setEnableAdmin then
-            cf:setEnableAdmin(false)
+        local cf = PanelBridge.tryGet(climate, "getClimateFloat", floatId)
+        if cf and PanelBridge.invoke(cf, "setEnableAdmin", false) then
             resetCount = resetCount + 1
         end
     end
@@ -2245,7 +2348,7 @@ handlers.getClimateFloats = function(args)
                 value = cf:getFinalValue(),
                 min = cf:getMin(),
                 max = cf:getMax(),
-                isAdminEnabled = cf.isEnableAdmin and cf:isEnableAdmin() or false
+                isAdminEnabled = PanelBridge.safeGet(cf, "isEnableAdmin", false)
             })
         end
     end
@@ -2489,11 +2592,9 @@ end
 
 -- Helper to safely get a value from a method that might not exist (with default fallback)
 local function safeGetValue(obj, methodName, default)
-    if obj and obj[methodName] then
-        local success, result = pcall(function() return obj[methodName](obj) end)
-        if success and result ~= nil then
-            return result
-        end
+    local success, result = PanelBridge.invoke(obj, methodName)
+    if success and result ~= nil then
+        return result
     end
     return default
 end
@@ -2530,13 +2631,7 @@ handlers.setGameTime = function(args)
     local updated = {}
 
     local function setAndVerify(methodName, value, getterName, expected)
-        if not gameTime[methodName] then
-            return false, methodName .. " is not available in this PZ build"
-        end
-
-        local ok, err = pcall(function()
-            gameTime[methodName](gameTime, value)
-        end)
+        local ok, err = PanelBridge.invoke(gameTime, methodName, value)
         if not ok then
             return false, "Failed to call " .. methodName .. ": " .. tostring(err)
         end
@@ -2618,12 +2713,7 @@ handlers.getTimeSpeed = function(args)
         return false, nil, "GameTime not available"
     end
 
-    local multiplier = 1
-    pcall(function()
-        if gt.getMultiplier then
-            multiplier = gt:getMultiplier()
-        end
-    end)
+    local multiplier = tonumber(PanelBridge.tryGet(gt, "getMultiplier")) or 1
 
     return true, { multiplier = multiplier }
 end
@@ -2836,13 +2926,8 @@ local function serializeInventory(container, depth, maxItems, currentCount)
     local itemList = nil
     local method = "none"
 
-    if container.getItems then
-        local ok, result = pcall(function() return container:getItems() end)
-        if ok and result then
-            itemList = result
-            method = "getItems"
-        end
-    end
+    itemList = PanelBridge.tryGet(container, "getItems")
+    if itemList then method = "getItems" end
 
     -- B42 fallback: some containers use getAllItems() or Items
     if not itemList and container.getAllItems then
@@ -2871,30 +2956,23 @@ local function serializeInventory(container, depth, maxItems, currentCount)
                     fullType = item:getFullType(),
                     type = item:getType(),
                     name = item:getName(),
-                    count = item.getCount and item:getCount() or 1,
-                    isFavorite = item.isFavorite and item:isFavorite() or false,
-                    isEquipped = item.isEquipped and item:isEquipped() or false
+                    count = PanelBridge.safeGet(item, "getCount", 1),
+                    isFavorite = PanelBridge.safeGet(item, "isFavorite", false),
+                    isEquipped = PanelBridge.safeGet(item, "isEquipped", false)
                 }
 
-                if item.getCondition then
-                    data.condition = item:getCondition()
-                end
-
-                if item.getCurrentUses then
-                    data.uses = item:getCurrentUses()
-                end
+                data.condition = PanelBridge.tryGet(item, "getCondition")
+                data.uses = PanelBridge.tryGet(item, "getCurrentUses")
 
                 -- Handle containers (bags, etc.)
-                if item.IsInventoryContainer and item:IsInventoryContainer() then
+                if PanelBridge.tryGet(item, "IsInventoryContainer") then
                     local subContainer = item:getItemContainer()
                     if subContainer then
                         data.contents = serializeInventory(subContainer, depth + 1, maxItems, currentCount)
                     end
                 end
 
-                if item.getDelta then
-                    data.delta = item:getDelta()
-                end
+                data.delta = PanelBridge.tryGet(item, "getDelta")
 
                 return data
             end)
@@ -2949,29 +3027,25 @@ local function getPlayerTraits(player)
     local method = "none"
 
     -- B42: Traits are accessed through SurvivorDesc
-    local desc = nil
-    if player.getDescriptor then
-        local ok, d = pcall(function() return player:getDescriptor() end)
-        if ok and d then desc = d end
-    end
+    local desc = PanelBridge.tryGet(player, "getDescriptor")
 
     if desc then
         -- B42 primary: getTraitList()
-        if not traitList and desc.getTraitList then
-            local ok, result = pcall(function() return desc:getTraitList() end)
-            if ok and result then traitList = result; method = "desc:getTraitList" end
+        if not traitList then
+            traitList = PanelBridge.tryGet(desc, "getTraitList")
+            if traitList then method = "desc:getTraitList" end
         end
         -- B42 alt: getTraits()
-        if not traitList and desc.getTraits then
-            local ok, result = pcall(function() return desc:getTraits() end)
-            if ok and result then traitList = result; method = "desc:getTraits" end
+        if not traitList then
+            traitList = PanelBridge.tryGet(desc, "getTraits")
+            if traitList then method = "desc:getTraits" end
         end
     end
 
     -- B41 fallback: player:getTraits()
-    if not traitList and player.getTraits then
-        local ok, result = pcall(function() return player:getTraits() end)
-        if ok and result then traitList = result; method = "player:getTraits" end
+    if not traitList then
+        traitList = PanelBridge.tryGet(player, "getTraits")
+        if traitList then method = "player:getTraits" end
     end
 
     if not traitList then return {}, "no trait method worked (tried: desc:getTraitList, desc:getTraits, player:getTraits)" end
@@ -2989,14 +3063,12 @@ local function getPlayerTraits(player)
         if ok and trait then
             if type(trait) == "string" then
                 table.insert(traits, trait)
-            elseif trait.getType then
-                local ok2, t = pcall(function() return trait:getType() end)
-                if ok2 then table.insert(traits, t) else table.insert(traits, tostring(trait)) end
-            elseif trait.toString then
-                local ok2, t = pcall(function() return trait:toString() end)
-                if ok2 then table.insert(traits, t) else table.insert(traits, tostring(trait)) end
             else
-                table.insert(traits, tostring(trait))
+                local typeOk, typeValue = PanelBridge.invoke(trait, "getType")
+                if not typeOk then
+                    typeOk, typeValue = PanelBridge.invoke(trait, "toString")
+                end
+                table.insert(traits, typeOk and typeValue or tostring(trait))
             end
         end
     end
@@ -3024,10 +3096,8 @@ local function getWornItems(player)
     local wornItems = nil
     local method = "none"
 
-    if player.getWornItems then
-        local ok, result = pcall(function() return player:getWornItems() end)
-        if ok and result then wornItems = result; method = "getWornItems" end
-    end
+    wornItems = PanelBridge.tryGet(player, "getWornItems")
+    if wornItems then method = "getWornItems" end
 
     if not wornItems then return {}, "getWornItems returned nil or failed" end
 
@@ -3084,15 +3154,11 @@ handlers.exportPlayerData = function(args)
     -- Main inventory
     local mainInv = nil
     local invDiag = "not attempted"
-    if player.getInventory then
-        local ok, container = pcall(function() return player:getInventory() end)
-        if ok and container then
-            mainInv, invDiag = serializeInventory(container)
-        else
-            invDiag = "getInventory() failed or returned nil"
-        end
+    local playerInventory = PanelBridge.tryGet(player, "getInventory")
+    if playerInventory then
+        mainInv, invDiag = serializeInventory(playerInventory)
     else
-        invDiag = "player has no getInventory method"
+        invDiag = "getInventory() failed or returned nil"
     end
     diag.inventory = invDiag
 
@@ -3320,10 +3386,9 @@ handlers.teleportPlayer = function(args)
     -- Step 0a: If the player is in a vehicle, exit first — teleportTo silently
     -- fails when the occupant is bound to a vehicle seat.
     pcall(function()
-        if player.getVehicle and player:getVehicle() then
-            local v = player:getVehicle()
-            if v.exit then
-                v:exit(player)
+        local v = PanelBridge.tryGet(player, "getVehicle")
+        if v then
+            if PanelBridge.invoke(v, "exit", player) then
                 table.insert(debugInfo, "vehicle exit")
             end
         end
@@ -3340,55 +3405,38 @@ handlers.teleportPlayer = function(args)
 
     -- Step 0c: Enable network teleport flag BEFORE moving so the move itself
     -- is flagged as an authorized teleport instead of a suspicious jump.
-    pcall(function()
-        if player.setNetworkTeleportEnabled then
-            player:setNetworkTeleportEnabled(true)
-            table.insert(debugInfo, "networkTeleportEnabled(pre) set")
-        end
-    end)
+    if PanelBridge.invoke(player, "setNetworkTeleportEnabled", true) then
+        table.insert(debugInfo, "networkTeleportEnabled(pre) set")
+    end
 
     -- Step 1: Server-side position update via teleportTo (Java method)
-    local ok1, err1 = pcall(function()
-        if player.teleportTo then
-            player:teleportTo(x, y, z)
-            table.insert(debugInfo, "teleportTo called")
-        else
-            player:setX(x)
-            player:setY(y)
-            player:setZ(z)
-            table.insert(debugInfo, "setXYZ called")
-        end
-    end)
-    if not ok1 then
-        table.insert(debugInfo, "teleportTo FAILED: " .. tostring(err1))
+    local okTeleport, teleportErr = PanelBridge.invoke(player, "teleportTo", x, y, z)
+    if okTeleport then
+        table.insert(debugInfo, "teleportTo called")
+    else
+        table.insert(debugInfo, "teleportTo unavailable: " .. tostring(teleportErr))
     end
 
     -- Step 1b: Hard-set XYZ as belt-and-braces — teleportTo alone does not
     -- always stick on B42 dedicated servers.
-    pcall(function()
-        if player.setX then player:setX(x) end
-        if player.setY then player:setY(y) end
-        if player.setZ then player:setZ(z) end
+    local forcedX = PanelBridge.invoke(player, "setX", x)
+    local forcedY = PanelBridge.invoke(player, "setY", y)
+    local forcedZ = PanelBridge.invoke(player, "setZ", z)
+    if forcedX or forcedY or forcedZ then
         table.insert(debugInfo, "setXYZ forced")
-    end)
+    end
 
     -- Step 2: Update last-known position for network consistency
-    pcall(function()
-        if player.setLx then
-            player:setLx(x)
-            player:setLy(y)
-            player:setLz(z)
-            table.insert(debugInfo, "setLxyz done")
-        end
-    end)
+    if PanelBridge.invoke(player, "setLx", x) then
+        PanelBridge.invoke(player, "setLy", y)
+        PanelBridge.invoke(player, "setLz", z)
+        table.insert(debugInfo, "setLxyz done")
+    end
 
     -- Step 3: Re-set network teleport flag (tells server to broadcast new position)
-    pcall(function()
-        if player.setNetworkTeleportEnabled then
-            player:setNetworkTeleportEnabled(true)
-            table.insert(debugInfo, "networkTeleportEnabled(post) set")
-        end
-    end)
+    if PanelBridge.invoke(player, "setNetworkTeleportEnabled", true) then
+        table.insert(debugInfo, "networkTeleportEnabled(post) set")
+    end
 
     -- Step 4: Force position broadcast via sendPlayerExtraInfo (global, server-side)
     -- PanelBridge has no client-side mod, so sendServerCommand to a custom module
@@ -3485,14 +3533,10 @@ handlers.getAllSandboxOptions = function(args)
     local function getOptionValue(opt)
         local raw = nil
         -- Try getValue first (most common)
-        if opt.getValue then
-            local ok, val = pcall(function() return opt:getValue() end)
-            if ok then raw = val end
-        end
+        raw = PanelBridge.tryGet(opt, "getValue")
         -- Try getIntValue for integer enums
-        if raw == nil and opt.getIntValue then
-            local ok, val = pcall(function() return opt:getIntValue() end)
-            if ok then raw = val end
+        if raw == nil then
+            raw = PanelBridge.tryGet(opt, "getIntValue")
         end
         -- Try direct value field
         if raw == nil and opt.value ~= nil then raw = opt.value end
@@ -3570,11 +3614,7 @@ handlers.getAllSandboxOptions = function(args)
                     end
                 end)
                 -- Get selected index for enums
-                pcall(function()
-                    if opt.getIntValue then
-                        info.selectedIndex = opt:getIntValue()
-                    end
-                end)
+                info.selectedIndex = PanelBridge.tryGet(opt, "getIntValue")
             elseif className:find("String") then
                 info.type = "string"
             else
@@ -3582,31 +3622,21 @@ handlers.getAllSandboxOptions = function(args)
             end
         end)
         -- Get min/max for numeric types
-        pcall(function()
-            if opt.getMin then
-                local v = opt:getMin()
-                if type(v) == "number" then info.min = v end
-            end
-        end)
-        pcall(function()
-            if opt.getMax then
-                local v = opt:getMax()
-                if type(v) == "number" then info.max = v end
-            end
-        end)
+        local minValue = PanelBridge.tryGet(opt, "getMin")
+        if type(minValue) == "number" then info.min = minValue end
+        local maxValue = PanelBridge.tryGet(opt, "getMax")
+        if type(maxValue) == "number" then info.max = maxValue end
         -- Get default value
-        pcall(function()
-            if opt.getDefaultValue then
-                local v = opt:getDefaultValue()
-                local t = type(v)
-                if t == "string" or t == "number" or t == "boolean" then
-                    info.default = v
-                else
-                    local ok2, str = pcall(tostring, v)
-                    if ok2 then info.default = str end
-                end
+        local defaultValue = PanelBridge.tryGet(opt, "getDefaultValue")
+        if defaultValue ~= nil then
+            local t = type(defaultValue)
+            if t == "string" or t == "number" or t == "boolean" then
+                info.default = defaultValue
+            else
+                local ok2, str = pcall(tostring, defaultValue)
+                if ok2 then info.default = str end
             end
-        end)
+        end
         return info
     end
 
@@ -3817,44 +3847,28 @@ handlers.setSandboxOption = function(args)
         if not intVal then return false, nil, "Invalid enum value" end
         intVal = math.floor(intVal)
         -- Bounds-check against getNumValues if available
-        pcall(function()
-            if targetOpt.getNumValues then
-                local numVals = targetOpt:getNumValues()
-                if numVals and intVal >= numVals then intVal = numVals - 1 end
-                if intVal < 0 then intVal = 0 end
-            end
-        end)
+        local numVals = tonumber(PanelBridge.tryGet(targetOpt, "getNumValues"))
+        if numVals and intVal >= numVals then intVal = numVals - 1 end
+        if intVal < 0 then intVal = 0 end
         ok, err = pcall(function() targetOpt:setValue(intVal) end)
     elseif optType == "integer" then
         local intVal = tonumber(newValue)
         if not intVal then return false, nil, "Invalid integer value" end
         intVal = math.floor(intVal)
         -- Clamp to min/max if the option exposes them
-        pcall(function()
-            if targetOpt.getMin then
-                local mn = targetOpt:getMin()
-                if type(mn) == "number" and intVal < mn then intVal = mn end
-            end
-            if targetOpt.getMax then
-                local mx = targetOpt:getMax()
-                if type(mx) == "number" and intVal > mx then intVal = mx end
-            end
-        end)
+        local intMin = PanelBridge.tryGet(targetOpt, "getMin")
+        if type(intMin) == "number" and intVal < intMin then intVal = intMin end
+        local intMax = PanelBridge.tryGet(targetOpt, "getMax")
+        if type(intMax) == "number" and intVal > intMax then intVal = intMax end
         ok, err = pcall(function() targetOpt:setValue(intVal) end)
     elseif optType == "double" then
         local numVal = tonumber(newValue)
         if not numVal then return false, nil, "Invalid numeric value" end
         -- Clamp to min/max
-        pcall(function()
-            if targetOpt.getMin then
-                local mn = targetOpt:getMin()
-                if type(mn) == "number" and numVal < mn then numVal = mn end
-            end
-            if targetOpt.getMax then
-                local mx = targetOpt:getMax()
-                if type(mx) == "number" and numVal > mx then numVal = mx end
-            end
-        end)
+        local numMin = PanelBridge.tryGet(targetOpt, "getMin")
+        if type(numMin) == "number" and numVal < numMin then numVal = numMin end
+        local numMax = PanelBridge.tryGet(targetOpt, "getMax")
+        if type(numMax) == "number" and numVal > numMax then numVal = numMax end
         ok, err = pcall(function() targetOpt:setValue(numVal) end)
     elseif optType == "string" then
         ok, err = pcall(function() targetOpt:setValue(tostring(newValue)) end)
@@ -3868,25 +3882,20 @@ handlers.setSandboxOption = function(args)
     end
 
     -- Read back the value to confirm
-    local confirmed = nil
-    pcall(function()
-        if targetOpt.getValue then
-            confirmed = targetOpt:getValue()
-            local t = type(confirmed)
-            if t ~= "string" and t ~= "number" and t ~= "boolean" then
-                local ok2, str = pcall(tostring, confirmed)
-                confirmed = ok2 and str or nil
-            end
+    local confirmed = PanelBridge.tryGet(targetOpt, "getValue")
+    if confirmed ~= nil then
+        local t = type(confirmed)
+        if t ~= "string" and t ~= "number" and t ~= "boolean" then
+            local ok2, str = pcall(tostring, confirmed)
+            confirmed = ok2 and str or nil
         end
-    end)
+    end
 
     PanelBridge.info("Sandbox option set", { name = optName, value = tostring(newValue), confirmed = tostring(confirmed) })
 
     -- setValue only touches the Java object. Mod code reads the global
     -- SandboxVars table, which stays stale until toLua() rebuilds it.
-    pcall(function()
-        if sandbox.toLua then sandbox:toLua() end
-    end)
+    PanelBridge.invoke(sandbox, "toLua")
 
     -- Trigger a world save so the changed option persists across restarts
     pcall(function()
@@ -4184,9 +4193,7 @@ handlers.getUtilitiesStatus = function(args)
             end
             elecModifier = sandbox:getElecShutModifier()
             waterModifier = sandbox:getWaterShutModifier()
-            if sandbox.getTimeSinceApo then
-                timeSinceApo = sandbox:getTimeSinceApo()
-            end
+            timeSinceApo = PanelBridge.tryGet(sandbox, "getTimeSinceApo") or timeSinceApo
         end
 
         local gameTime = GameTime.getInstance()
@@ -4270,6 +4277,20 @@ local function setElectricityOnLoadedSquares(enabled)
 end
 
 -- Helper function to activate light switches in loaded chunks around all players
+-- Drives a light switch to `enabled`.
+-- Returns: inRequestedState, didChange
+local function setLightSwitchState(obj, enabled)
+    local state = PanelBridge.tryGet(obj, "isActivated")
+    if state == enabled then return true, false end
+    -- toggle only flips, so fall back to the explicit setter when absent.
+    if not PanelBridge.invoke(obj, "toggle") then
+        if not PanelBridge.invoke(obj, "setActive", enabled) then
+            return false, false
+        end
+    end
+    return PanelBridge.tryGet(obj, "isActivated") == enabled, true
+end
+
 local function activateLightSwitchesInLoadedChunks()
     local cell = getCell()
     if not cell then
@@ -4299,16 +4320,7 @@ local function activateLightSwitchesInLoadedChunks()
                                     local obj = objects:get(i)
                                     if obj and instanceof(obj, "IsoLightSwitch") then
                                         local success, toggleErr = pcall(function()
-                                            if obj.toggle then
-                                                if obj:isActivated() then
-                                                    obj:toggle()
-                                                end
-                                                if not obj:isActivated() then
-                                                    obj:toggle()
-                                                    activatedCount = activatedCount + 1
-                                                end
-                                            elseif obj.setActive then
-                                                obj:setActive(true)
+                                            if setLightSwitchState(obj, true) then
                                                 activatedCount = activatedCount + 1
                                             end
                                         end)
@@ -4350,9 +4362,7 @@ local function deactivateLightSwitchesInLoadedChunks()
                         local sq = cell:getGridSquare(x, y, z)
                         if sq then
                             -- Use switchLight(false) on the square itself to cut lighting
-                            if sq.switchLight then
-                                pcall(function() sq:switchLight(false) end)
-                            end
+                            PanelBridge.invoke(sq, "switchLight", false)
 
                             local objects = sq:getObjects()
                             if objects then
@@ -4360,12 +4370,8 @@ local function deactivateLightSwitchesInLoadedChunks()
                                     local obj = objects:get(i)
                                     if obj and instanceof(obj, "IsoLightSwitch") then
                                         local success, err = pcall(function()
-                                            if obj:isActivated() then
-                                                if obj.toggle then
-                                                    obj:toggle()
-                                                elseif obj.setActive then
-                                                    obj:setActive(false)
-                                                end
+                                            local inState, changed = setLightSwitchState(obj, false)
+                                            if inState and changed then
                                                 deactivatedCount = deactivatedCount + 1
                                             end
                                         end)
@@ -4537,16 +4543,7 @@ local function makeLightSwitchActivator(counter)
         for i = 0, objects:size() - 1 do
             local obj = objects:get(i)
             if obj and instanceof(obj, "IsoLightSwitch") then
-                if obj.toggle then
-                    if obj:isActivated() then
-                        obj:toggle()
-                    end
-                    if not obj:isActivated() then
-                        obj:toggle()
-                        counter.n = counter.n + 1
-                    end
-                elseif obj.setActive then
-                    obj:setActive(true)
+                if setLightSwitchState(obj, true) then
                     counter.n = counter.n + 1
                 end
             end
@@ -4556,20 +4553,14 @@ end
 
 local function makeLightSwitchDeactivator(counter)
     return function(sq)
-        if sq.switchLight then
-            pcall(function() sq:switchLight(false) end)
-        end
+        PanelBridge.invoke(sq, "switchLight", false)
         local objects = sq:getObjects()
         if not objects then return end
         for i = 0, objects:size() - 1 do
             local obj = objects:get(i)
             if obj and instanceof(obj, "IsoLightSwitch") then
-                if obj:isActivated() then
-                    if obj.toggle then
-                        obj:toggle()
-                    elseif obj.setActive then
-                        obj:setActive(false)
-                    end
+                local inState, changed = setLightSwitchState(obj, false)
+                if inState and changed then
                     counter.n = counter.n + 1
                 end
             end
@@ -4624,50 +4615,32 @@ handlers.restoreUtilities = function(args, cmdId)
 
         -- Step 2: Sync Lua -> Java via updateFromLua, then apply
         if sandboxOptions then
-            pcall(function()
-                if sandboxOptions.updateFromLua then
-                    sandboxOptions:updateFromLua()
-                    table.insert(debugInfo, "updateFromLua OK")
-                end
-            end)
-            pcall(function()
-                if sandboxOptions.applySettings then
-                    sandboxOptions:applySettings()
-                    table.insert(debugInfo, "applySettings OK")
-                end
-            end)
+            if PanelBridge.invoke(sandboxOptions, "updateFromLua") then
+                table.insert(debugInfo, "updateFromLua OK")
+            end
+            if PanelBridge.invoke(sandboxOptions, "applySettings") then
+                table.insert(debugInfo, "applySettings OK")
+            end
             -- Verify Java side got the values
             table.insert(debugInfo, "Java getElecShutModifier=" .. tostring(sandboxOptions:getElecShutModifier()))
             table.insert(debugInfo, "Java getWaterShutModifier=" .. tostring(sandboxOptions:getWaterShutModifier()))
             -- If applySettings recalculated, force restoreDays back via Java option
             if restorePower and sandboxOptions:getElecShutModifier() ~= restoreDays then
-                pcall(function()
-                    local opt = sandboxOptions:getOptionByName("ElecShutModifier")
-                    if opt and opt.setValue then opt:setValue(restoreDays) end
-                end)
+                PanelBridge.invoke(sandboxOptions:getOptionByName("ElecShutModifier"), "setValue", restoreDays)
                 table.insert(debugInfo, "FORCED Java ElecShutModifier=" .. tostring(restoreDays))
             end
             if restoreWater and sandboxOptions:getWaterShutModifier() ~= restoreDays then
-                pcall(function()
-                    local opt = sandboxOptions:getOptionByName("WaterShutModifier")
-                    if opt and opt.setValue then opt:setValue(restoreDays) end
-                end)
+                PanelBridge.invoke(sandboxOptions:getOptionByName("WaterShutModifier"), "setValue", restoreDays)
                 table.insert(debugInfo, "FORCED Java WaterShutModifier=" .. tostring(restoreDays))
             end
             -- Re-apply so the forced values take effect before setHydroPowerOn
-            pcall(function()
-                if sandboxOptions.applySettings then
-                    sandboxOptions:applySettings()
-                    table.insert(debugInfo, "applySettings(post-force) OK")
-                end
-            end)
+            if PanelBridge.invoke(sandboxOptions, "applySettings") then
+                table.insert(debugInfo, "applySettings(post-force) OK")
+            end
             -- Sync Java -> Lua to confirm
-            pcall(function()
-                if sandboxOptions.toLua then
-                    sandboxOptions:toLua()
-                    table.insert(debugInfo, "toLua OK")
-                end
-            end)
+            if PanelBridge.invoke(sandboxOptions, "toLua") then
+                table.insert(debugInfo, "toLua OK")
+            end
         end
 
         -- Step 3: Set hydro power ON *after* applySettings so it can't be overwritten
@@ -4696,12 +4669,9 @@ handlers.restoreUtilities = function(args, cmdId)
         end)
 
         -- Step 7: Transmit weather (forces world state sync including power)
-        pcall(function()
-            if world.transmitWeather then
-                world:transmitWeather()
+            if PanelBridge.invoke(world, "transmitWeather") then
                 table.insert(debugInfo, "transmitWeather OK")
             end
-        end)
 
         -- NOTE: no custom client-side mod is distributed. Client sync relies on
         -- built-in PZ propagation: /reloadoptions (sandbox), transmitWeather
@@ -4796,35 +4766,21 @@ handlers.shutOffUtilities = function(args, cmdId)
         -- Step 2: Sync Lua -> Java and apply
         local sandboxOptions = getSandboxOptions()
         if sandboxOptions then
-            pcall(function()
-                if sandboxOptions.updateFromLua then sandboxOptions:updateFromLua() end
-            end)
-            pcall(function()
-                if sandboxOptions.applySettings then sandboxOptions:applySettings() end
-            end)
+            PanelBridge.invoke(sandboxOptions, "updateFromLua")
+            PanelBridge.invoke(sandboxOptions, "applySettings")
             table.insert(debugInfo, "Java getElecShutModifier=" .. tostring(sandboxOptions:getElecShutModifier()))
             table.insert(debugInfo, "Java getWaterShutModifier=" .. tostring(sandboxOptions:getWaterShutModifier()))
             -- applySettings can re-roll the modifier from the enum, so pin it back
             if shutPower and sandboxOptions:getElecShutModifier() ~= 0 then
-                pcall(function()
-                    local opt = sandboxOptions:getOptionByName("ElecShutModifier")
-                    if opt and opt.setValue then opt:setValue(0) end
-                end)
+                PanelBridge.invoke(sandboxOptions:getOptionByName("ElecShutModifier"), "setValue", 0)
                 table.insert(debugInfo, "FORCED Java ElecShutModifier=0")
             end
             if shutWater and sandboxOptions:getWaterShutModifier() ~= 0 then
-                pcall(function()
-                    local opt = sandboxOptions:getOptionByName("WaterShutModifier")
-                    if opt and opt.setValue then opt:setValue(0) end
-                end)
+                PanelBridge.invoke(sandboxOptions:getOptionByName("WaterShutModifier"), "setValue", 0)
                 table.insert(debugInfo, "FORCED Java WaterShutModifier=0")
             end
-            pcall(function()
-                if sandboxOptions.applySettings then sandboxOptions:applySettings() end
-            end)
-            pcall(function()
-                if sandboxOptions.toLua then sandboxOptions:toLua() end
-            end)
+            PanelBridge.invoke(sandboxOptions, "applySettings")
+            PanelBridge.invoke(sandboxOptions, "toLua")
             table.insert(debugInfo, "sandbox sync OK")
         end
 
@@ -4852,10 +4808,9 @@ handlers.shutOffUtilities = function(args, cmdId)
         end)
 
         -- Step 7: Transmit weather
-        pcall(function()
-            if world.transmitWeather then world:transmitWeather() end
+        if PanelBridge.invoke(world, "transmitWeather") then
             table.insert(debugInfo, "transmitWeather OK")
-        end)
+        end
 
         -- NOTE: no custom client-side mod is distributed. Client sync relies on
         -- built-in PZ propagation: /reloadoptions (sandbox), transmitWeather
@@ -4928,33 +4883,25 @@ handlers.healPlayer = function(args)
     local bodyDamage = player:getBodyDamage()
     if bodyDamage then
         local ok1, err1 = pcall(function()
-            -- RestoreToFullHealth — the most comprehensive single call (B42)
-            -- Call this FIRST as it handles most healing in one shot
-            if bodyDamage.RestoreToFullHealth then
-                bodyDamage:RestoreToFullHealth()
+            -- RestoreToFullHealth handles most healing in one shot on B42.
+            if PanelBridge.invoke(bodyDamage, "RestoreToFullHealth") then
                 healed.bodyDamage = true
             end
             -- Clear Knox virus (zombie) infection at body level
-            if bodyDamage.setInfected then
-                bodyDamage:setInfected(false)
-            end
-            if bodyDamage.setInfectedWound then
-                bodyDamage:setInfectedWound(false)
-            end
+            PanelBridge.invoke(bodyDamage, "setInfected", false)
+            PanelBridge.invoke(bodyDamage, "setInfectedWound", false)
             -- B42: clear fake-dead scratches, bites etc
-            if bodyDamage.setFakeInfected then
-                bodyDamage:setFakeInfected(false)
+            PanelBridge.invoke(bodyDamage, "setFakeInfected", false)
+            -- Restore individual body parts (getNumOfBodyParts is absent on some B42 builds)
+            local numParts = tonumber(PanelBridge.tryGet(bodyDamage, "getNumOfBodyParts"))
+            if not numParts and BodyPartType then
+                numParts = tonumber(PanelBridge.tryGet(BodyPartType, "getNumOfBodyParts"))
+                if not numParts and BodyPartType.ToIndex then
+                    -- B42 fallback: iterate known part count (PZ has ~18 body parts)
+                    numParts = 18
+                end
             end
-            -- Restore individual body parts (guard getNumOfBodyParts — removed in some B42 builds)
-            local numParts = 0
-            if bodyDamage.getNumOfBodyParts then
-                numParts = bodyDamage:getNumOfBodyParts()
-            elseif BodyPartType and BodyPartType.getNumOfBodyParts then
-                numParts = BodyPartType:getNumOfBodyParts()
-            elseif BodyPartType and BodyPartType.ToIndex then
-                -- B42 fallback: iterate known part count (PZ has ~18 body parts)
-                numParts = 18
-            end
+            numParts = numParts or 0
             for i = 0, numParts - 1 do
                 -- B42 requires BodyPartType enum, not a raw integer index
                 local partType = i
@@ -4964,25 +4911,29 @@ handlers.healPlayer = function(args)
                 end
                 local ok_part, part = pcall(function() return bodyDamage:getBodyPart(partType) end)
                 if ok_part and part then
-                    if part.SetBitten then part:SetBitten(false) end
-                    if part.SetBleeding then part:SetBleeding(false) end
-                    if part.SetScratched then part:SetScratched(false, false) end
-                    if part.SetDeepWounded then part:SetDeepWounded(false) end
-                    if part.SetInfected then part:SetInfected(false) end
-                    if part.SetHealth then part:SetHealth(100) end
+                    local applied = 0
+                    local function apply(methodName, ...)
+                        if PanelBridge.invoke(part, methodName, ...) then applied = applied + 1 end
+                    end
+                    apply("SetBitten", false)
+                    apply("SetBleeding", false)
+                    apply("SetScratched", false, false)
+                    apply("SetDeepWounded", false)
+                    apply("SetInfected", false)
+                    apply("SetHealth", 100)
                     -- B42: clear additional wound states
-                    if part.SetBurned then part:SetBurned(false) end
-                    if part.setBandaged then part:setBandaged(false, 0) end
-                    if part.SetCut then part:SetCut(false) end
-                    if part.SetHaveBullet then part:SetHaveBullet(false) end
-                    if part.SetHaveGlass then part:SetHaveGlass(false) end
-                    if part.SetFractureTime then part:SetFractureTime(0) end
-                    if part.SetSplintFactor then part:SetSplintFactor(0) end
-                    if part.SetStiffness then part:SetStiffness(0) end
-                    if part.SetWoundInfectionLevel then part:SetWoundInfectionLevel(0) end
+                    apply("SetBurned", false)
+                    apply("setBandaged", false, 0)
+                    apply("SetCut", false)
+                    apply("SetHaveBullet", false)
+                    apply("SetHaveGlass", false)
+                    apply("SetFractureTime", 0)
+                    apply("SetSplintFactor", 0)
+                    apply("SetStiffness", 0)
+                    apply("SetWoundInfectionLevel", 0)
+                    if applied > 0 then healed.bodyDamage = true end
                 end
             end
-            healed.bodyDamage = true
         end)
         if not ok1 then table.insert(errors, "bodyDamage: " .. tostring(err1)) end
     end
@@ -4991,20 +4942,24 @@ handlers.healPlayer = function(args)
     local stats = player:getStats()
     if stats then
         local ok2, err2 = pcall(function()
-            if stats.setHunger then stats:setHunger(0) end
-            if stats.setThirst then stats:setThirst(0) end
-            if stats.setFatigue then stats:setFatigue(0) end
-            if stats.setStress then stats:setStress(0) end
-            if stats.setBoredom then stats:setBoredom(0) end
-            if stats.setUnhappyness then stats:setUnhappyness(0) end
-            if stats.setPain then stats:setPain(0) end
-            if stats.setEndurance then stats:setEndurance(1) end
+            local applied = 0
+            local function reset(methodName, value)
+                if PanelBridge.invoke(stats, methodName, value) then applied = applied + 1 end
+            end
+            reset("setHunger", 0)
+            reset("setThirst", 0)
+            reset("setFatigue", 0)
+            reset("setStress", 0)
+            reset("setBoredom", 0)
+            reset("setUnhappyness", 0)
+            reset("setPain", 0)
+            reset("setEndurance", 1)
             -- B42: additional stat resets
-            if stats.setDrunkenness then stats:setDrunkenness(0) end
-            if stats.setAngry then stats:setAngry(0) end
-            if stats.setFear then stats:setFear(0) end
-            if stats.setPanic then stats:setPanic(0) end
-            healed.stats = true
+            reset("setDrunkenness", 0)
+            reset("setAngry", 0)
+            reset("setFear", 0)
+            reset("setPanic", 0)
+            healed.stats = applied > 0
         end)
         if not ok2 then table.insert(errors, "stats: " .. tostring(err2)) end
     end
@@ -5013,10 +4968,7 @@ handlers.healPlayer = function(args)
     local ok3, err3 = pcall(function()
         local moodles = player:getMoodles()
         if moodles then
-            if moodles.reset then
-                moodles:reset()
-            end
-            healed.moodles = true
+            healed.moodles = PanelBridge.invoke(moodles, "reset") and true or false
         end
     end)
     if not ok3 then table.insert(errors, "moodles: " .. tostring(err3)) end
@@ -5064,19 +5016,14 @@ handlers.killPlayer = function(args)
     local debugInfo = {}
 
     -- Force godmode OFF — otherwise setHealth(0) is a no-op
-    pcall(function()
-        if player.setGodMod then
-            player:setGodMod(false)
-            table.insert(debugInfo, "godMod disabled")
-        elseif player.setGodMode then
-            player:setGodMode(false)
-            table.insert(debugInfo, "godMode disabled")
-        end
-        if player.setInvincible then
-            player:setInvincible(false)
-            table.insert(debugInfo, "invincible disabled")
-        end
-    end)
+    if PanelBridge.invoke(player, "setGodMod", false) then
+        table.insert(debugInfo, "godMod disabled")
+    elseif PanelBridge.invoke(player, "setGodMode", false) then
+        table.insert(debugInfo, "godMode disabled")
+    end
+    if PanelBridge.invoke(player, "setInvincible", false) then
+        table.insert(debugInfo, "invincible disabled")
+    end
 
     -- Method 1: zero out overall body health (B42 authoritative source)
     pcall(function()
@@ -5094,17 +5041,15 @@ handlers.killPlayer = function(args)
     end)
 
     -- Method 3: trigger PZ's native death path so clients get the death event
-    pcall(function()
-        if player.Kill then
-            player:Kill(player)
-            table.insert(debugInfo, "Kill(self) called")
-        elseif player.DoDeath then
-            local HandWeapon = _G.HandWeapon
-            local fakeWeapon = HandWeapon and HandWeapon.new and HandWeapon.new() or nil
-            player:DoDeath(fakeWeapon, player, "panel")
+    if PanelBridge.invoke(player, "Kill", player) then
+        table.insert(debugInfo, "Kill(self) called")
+    else
+        local HandWeapon = _G.HandWeapon
+        local fakeWeapon = HandWeapon and HandWeapon.new and HandWeapon.new() or nil
+        if PanelBridge.invoke(player, "DoDeath", fakeWeapon, player, "panel") then
             table.insert(debugInfo, "DoDeath called")
         end
-    end)
+    end
 
     -- Method 4: broadcast updated extra info + zombie-death flag for network sync
     pcall(function()
@@ -5120,10 +5065,7 @@ handlers.killPlayer = function(args)
         end
     end)
 
-    local isDead = false
-    pcall(function()
-        if player.isDead then isDead = player:isDead() end
-    end)
+    local isDead = PanelBridge.tryGet(player, "isDead") == true
 
     local debugStr = table.concat(debugInfo, " | ")
     PanelBridge.info("Killed player", { username = username, isDead = isDead, debug = debugStr })
@@ -5152,11 +5094,9 @@ handlers.setGodMode = function(args)
     -- B42/B41: setGodMod is the actual PZ method name (not a typo)
     local method = nil
     local success, err = pcall(function()
-        if player.setGodMod then
-            player:setGodMod(enabled)
+        if PanelBridge.invoke(player, "setGodMod", enabled) then
             method = "setGodMod"
-        elseif player.setGodMode then
-            player:setGodMode(enabled)
+        elseif PanelBridge.invoke(player, "setGodMode", enabled) then
             method = "setGodMode"
         else
             error("No godmode method available on player object")
@@ -5168,12 +5108,8 @@ handlers.setGodMode = function(args)
     end
 
     -- Verify it took effect
-    local verified = nil
-    pcall(function()
-        if player.isGodMod then
-            verified = player:isGodMod() == enabled
-        end
-    end)
+    local godModeState = PanelBridge.tryGet(player, "isGodMod")
+    local verified = godModeState ~= nil and (godModeState == enabled) or nil
 
     PanelBridge.info("Set godmode", { username = username, enabled = enabled, method = method, verified = verified })
     return true, {
@@ -5210,12 +5146,8 @@ handlers.setInvisible = function(args)
     end
 
     -- Verify
-    local verified = nil
-    pcall(function()
-        if player.isInvisible then
-            verified = player:isInvisible() == enabled
-        end
-    end)
+    local invisibleState = PanelBridge.tryGet(player, "isInvisible")
+    local verified = invisibleState ~= nil and (invisibleState == enabled) or nil
 
     PanelBridge.info("Set invisible", { username = username, enabled = enabled, verified = verified })
     return true, {
@@ -5300,12 +5232,8 @@ handlers.giveItem = function(args)
     end
 
     -- Network sync so client sees the new items
+    PanelBridge.invoke(player, "sendObjectChange", "inventory")
     pcall(function()
-        -- Force inventory sync to client
-        if player.sendObjectChange then
-            player:sendObjectChange("inventory")
-        end
-        -- Also send player state update
         if sendPlayerExtraInfo then
             sendPlayerExtraInfo(player)
         end
@@ -5447,18 +5375,15 @@ handlers.airdrop = function(args)
     local failedTypes = {}
     for _, itemType in ipairs(itemsToSpawn) do
         local ok, result = pcall(function()
-            if sq.AddWorldInventoryItem then
-                -- B42+ method: place directly on the ground
-                return sq:AddWorldInventoryItem(itemType, 0.5, 0.5, 0)
-            else
-                -- Fallback: use InventoryItemFactory + manual placement
-                local item = InventoryItemFactory.CreateItem(itemType)
-                if item then
-                    sq:AddWorldInventoryItem(item, 0.5, 0.5, 0)
-                    return item
-                end
-                return nil
+            -- B42+ method: place directly on the ground by item type
+            local placedOk, placed = PanelBridge.invoke(sq, "AddWorldInventoryItem", itemType, 0.5, 0.5, 0)
+            if placedOk and placed then return placed end
+            -- Fallback: use InventoryItemFactory + manual placement
+            local item = InventoryItemFactory.CreateItem(itemType)
+            if item and PanelBridge.invoke(sq, "AddWorldInventoryItem", item, 0.5, 0.5, 0) then
+                return item
             end
+            return nil
         end)
         if ok and result then
             added = added + 1
@@ -5606,16 +5531,7 @@ handlers.clearAllZombies = function(args)
 
     -- Try ForceKillAllZombies first (reliable in both B41 and B42)
     local removed = 0
-    local usedForceKill = false
-    if world.ForceKillAllZombies then
-        local ok, err = pcall(function()
-            world:ForceKillAllZombies()
-            usedForceKill = true
-        end)
-        if not ok then
-            PanelBridge.warn("ForceKillAllZombies failed, falling back to manual removal", { error = tostring(err) })
-        end
-    end
+    local usedForceKill = PanelBridge.invoke(world, "ForceKillAllZombies") and true or false
 
     -- Fallback: manual removal from cell zombie list
     if not usedForceKill then
@@ -6066,9 +5982,7 @@ handlers.createFaction = function(args)
     end
 
     -- Sync to clients
-    pcall(function()
-        if factionOrErr.syncFaction then factionOrErr:syncFaction() end
-    end)
+    PanelBridge.invoke(factionOrErr, "syncFaction")
 
     return true, { message = "Faction '" .. name .. "' created with owner '" .. owner .. "'", name = name, owner = owner }
 end
@@ -6088,7 +6002,7 @@ handlers.factionAddPlayer = function(args)
 
     local ok, err = pcall(function()
         faction:addPlayer(username)
-        if faction.syncFaction then faction:syncFaction() end
+        PanelBridge.invoke(faction, "syncFaction")
     end)
     if not ok then
         return false, nil, "Failed to add player to faction: " .. tostring(err)
@@ -6112,7 +6026,7 @@ handlers.factionRemovePlayer = function(args)
 
     local ok, err = pcall(function()
         faction:removePlayer(username)
-        if faction.syncFaction then faction:syncFaction() end
+        PanelBridge.invoke(faction, "syncFaction")
     end)
     if not ok then
         return false, nil, "Failed to remove player from faction: " .. tostring(err)
@@ -6136,7 +6050,7 @@ handlers.factionSetTag = function(args)
 
     local ok, err = pcall(function()
         faction:setTag(tag)
-        if faction.syncFaction then faction:syncFaction() end
+        PanelBridge.invoke(faction, "syncFaction")
     end)
     if not ok then
         return false, nil, "Failed to set faction tag: " .. tostring(err)
@@ -6172,21 +6086,34 @@ end
 
 local function getVehiclesList()
     local world = getWorld()
-    local cell = world and world.getCell and world:getCell() or nil
-    if not cell then return nil end
-    if cell.getVehicles then
-        return cell:getVehicles()
-    end
+    if not world then return nil end
+    local cellOk, cell = PanelBridge.invoke(world, "getCell")
+    if not cellOk or not cell then return nil end
+    local listOk, vehicles = PanelBridge.invoke(cell, "getVehicles")
+    if not listOk then return nil end
+    return vehicles
+end
+
+-- Returns the vehicle count, or nil when the list cannot be measured.
+local function vehicleCount(vehicles)
+    local ok, size = PanelBridge.invoke(vehicles, "size")
+    if not ok then return nil end
+    return tonumber(size)
+end
+
+-- The vehicle list exposes get(i) as a callable method but not always as an
+-- indexable field, so it must be called rather than field-tested. See
+-- PanelBridge.invoke for how a genuinely missing method is handled.
+local function vehicleAt(vehicles, i)
+    local ok, v = PanelBridge.invoke(vehicles, "get", i)
+    if ok then return v end
     return nil
 end
 
--- Some builds expose the vehicle list's get(i) only as a callable method and
--- not as an indexable property. Others expose neither; invoking a missing Java
--- method inside pcall still makes PZ emit a full server stack trace.
-local function vehicleAt(vehicles, i)
-    if not vehicles or not vehicles.get then return nil end
-    local ok, v = pcall(function() return vehicles:get(i) end)
-    if ok then return v end
+-- Reads a single vehicle property, returning nil when it is unavailable.
+local function vehicleGet(v, methodName)
+    local ok, value = PanelBridge.invoke(v, methodName)
+    if ok then return value end
     return nil
 end
 
@@ -6197,10 +6124,16 @@ local function findVehicleById(vehicleId)
     local targetId = tonumber(vehicleId)
     if not targetId then return nil end
 
-    for i = 0, vehicles:size() - 1 do
+    local size = vehicleCount(vehicles)
+    if not size then return nil end
+
+    for i = 0, size - 1 do
         local v = vehicleAt(vehicles, i)
-        if v and v.getId and tonumber(v:getId()) == targetId then
-            return v
+        if v then
+            local idOk, id = PanelBridge.invoke(v, "getId")
+            if idOk and tonumber(id) == targetId then
+                return v
+            end
         end
     end
     return nil
@@ -6222,9 +6155,9 @@ handlers.getVehiclesDetailed = function(args)
 
     local out = {}
     local skipped = 0
-    local sizeOk, size = pcall(function() return vehicles.size and vehicles:size() or 0 end)
-    if not sizeOk then
-        return false, nil, "Vehicle list size lookup failed: " .. tostring(size)
+    local size = vehicleCount(vehicles)
+    if not size then
+        return false, nil, "Vehicle list size lookup failed"
     end
     for i = 0, size - 1 do
         -- Wrap each vehicle individually: a single broken modded vehicle
@@ -6237,25 +6170,22 @@ handlers.getVehiclesDetailed = function(args)
             -- Each getter is independently guarded so one broken accessor
             -- (e.g. a missing battery part on a modded vehicle) doesn't
             -- void the whole row.
-            local function safe(fn)
-                if not fn then return nil end
-                local sok, sv = pcall(fn)
-                if sok then return sv end
-                return nil
+            local function get(methodName)
+                return vehicleGet(v, methodName)
             end
             return {
-                id = safe(function() return v.getId and v:getId() end),
-                x = safe(function() return v.getX and v:getX() end),
-                y = safe(function() return v.getY and v:getY() end),
-                z = safe(function() return v.getZ and v:getZ() end),
-                scriptName = safe(function() return v.getScriptName and v:getScriptName() end),
-                type = safe(function() return v.getVehicleType and v:getVehicleType() end),
-                speedKmh = safe(function() return v.getCurrentSpeedKmHour and v:getCurrentSpeedKmHour() end) or 0,
-                batteryCharge = safe(function() return v.getBatteryCharge and v:getBatteryCharge() end),
-                fuelPct = safe(function() return v.getRemainingFuelPercentage and v:getRemainingFuelPercentage() end),
-                alarmed = safe(function() return v.isAlarmed and v:isAlarmed() end) == true,
-                sirening = safe(function() return v.getLightbarSirenMode and (v:getLightbarSirenMode() or 0) > 0 end) == true,
-                trunkLocked = safe(function() return v.isTrunkLocked and v:isTrunkLocked() end) == true
+                id = get("getId"),
+                x = get("getX"),
+                y = get("getY"),
+                z = get("getZ"),
+                scriptName = get("getScriptName"),
+                type = get("getVehicleType"),
+                speedKmh = get("getCurrentSpeedKmHour") or 0,
+                batteryCharge = get("getBatteryCharge"),
+                fuelPct = get("getRemainingFuelPercentage"),
+                alarmed = get("isAlarmed") == true,
+                sirening = (tonumber(get("getLightbarSirenMode")) or 0) > 0,
+                trunkLocked = get("isTrunkLocked") == true
             }
         end)
         if ok and entry then
@@ -6273,29 +6203,30 @@ handlers.vehicleRepair = function(args)
     if not vehicle then return false, nil, "Vehicle not found" end
 
     local ok, repairedOrErr = pcall(function()
-        local partCount = vehicle.getPartCount and vehicle:getPartCount() or 0
+        local partCount = tonumber(PanelBridge.tryGet(vehicle, "getPartCount")) or 0
         local repaired = 0
         for i = 0, partCount - 1 do
-            local part = vehicle.getPartByIndex and vehicle:getPartByIndex(i) or nil
-            if part and part.setCondition then
-                local item = part.getInventoryItem and part:getInventoryItem() or nil
-                local condition = item and item.getConditionMax and item:getConditionMax() or 100
-                part:setCondition(condition)
-                if item then
-                    if item.setCondition then item:setCondition(condition) end
-                    if part.doInventoryItemStats then
-                        part:doInventoryItemStats(item, part:getMechanicSkillInstaller())
+            local part = PanelBridge.tryGet(vehicle, "getPartByIndex", i)
+            if part then
+                local item = PanelBridge.tryGet(part, "getInventoryItem")
+                local condition = (item and tonumber(PanelBridge.tryGet(item, "getConditionMax"))) or 100
+                -- Only count a part whose condition actually applied.
+                if PanelBridge.invoke(part, "setCondition", condition) then
+                    if item then
+                        PanelBridge.invoke(item, "setCondition", condition)
+                        PanelBridge.invoke(part, "doInventoryItemStats", item,
+                            PanelBridge.tryGet(part, "getMechanicSkillInstaller"))
                     end
+                    PanelBridge.invoke(vehicle, "transmitPartCondition", part)
+                    if item then PanelBridge.invoke(vehicle, "transmitPartItem", part) end
+                    PanelBridge.invoke(vehicle, "transmitPartModData", part)
+                    repaired = repaired + 1
                 end
-                if vehicle.transmitPartCondition then vehicle:transmitPartCondition(part) end
-                if item and vehicle.transmitPartItem then vehicle:transmitPartItem(part) end
-                if vehicle.transmitPartModData then vehicle:transmitPartModData(part) end
-                repaired = repaired + 1
             end
         end
         if repaired == 0 then error("No repairable vehicle parts available") end
-        if vehicle.updatePartStats then vehicle:updatePartStats() end
-        if vehicle.updateBulletStats then vehicle:updateBulletStats() end
+        PanelBridge.invoke(vehicle, "updatePartStats")
+        PanelBridge.invoke(vehicle, "updateBulletStats")
         return repaired
     end)
     if not ok then return false, nil, "Vehicle repair failed: " .. tostring(repairedOrErr) end
@@ -6309,8 +6240,10 @@ handlers.vehicleSetAlarm = function(args)
     local enabled = args.enabled == true
 
     local ok, err = pcall(function()
-        if vehicle.setAlarmed then vehicle:setAlarmed(enabled) end
-        if enabled and vehicle.triggerAlarm then vehicle:triggerAlarm() end
+        if not PanelBridge.invoke(vehicle, "setAlarmed", enabled) then
+            error("setAlarmed not available")
+        end
+        if enabled then PanelBridge.invoke(vehicle, "triggerAlarm") end
     end)
     if not ok then return false, nil, "Failed to update vehicle alarm: " .. tostring(err) end
 
@@ -6325,9 +6258,7 @@ handlers.vehicleSetSiren = function(args)
     if not mode then mode = (args.enabled == false and 0 or 1) end
 
     local ok, err = pcall(function()
-        if vehicle.setLightbarSirenMode then
-            vehicle:setLightbarSirenMode(mode)
-        else
+        if not PanelBridge.invoke(vehicle, "setLightbarSirenMode", mode) then
             error("setLightbarSirenMode not available")
         end
     end)
@@ -6342,9 +6273,7 @@ handlers.vehicleSetTrunkLocked = function(args)
     local locked = args.locked == true
 
     local ok, err = pcall(function()
-        if vehicle.setTrunkLocked then
-            vehicle:setTrunkLocked(locked)
-        else
+        if not PanelBridge.invoke(vehicle, "setTrunkLocked", locked) then
             error("setTrunkLocked not available")
         end
     end)
@@ -6364,22 +6293,17 @@ handlers.vehicleSetFuel = function(args)
     local ok, err = pcall(function()
         -- B42: fuel is stored as container content amount on the GasTank part
         -- Pattern from Vehicles.Create.GasTank / Vehicles.Update.GasTank
-        local part = vehicle:getPartById("GasTank")
-        if part and part.getContainerCapacity then
-            local capacity = part:getContainerCapacity()
-            if capacity and capacity > 0 then
-                local amount = capacity * pct / 100
-                part:setContainerContentAmount(amount)
-                if vehicle.transmitPartModData then
-                    vehicle:transmitPartModData(part)
-                end
+        local part = PanelBridge.tryGet(vehicle, "getPartById", "GasTank")
+        local capacity = part and tonumber(PanelBridge.tryGet(part, "getContainerCapacity"))
+        if capacity and capacity > 0 then
+            local amount = capacity * pct / 100
+            if PanelBridge.invoke(part, "setContainerContentAmount", amount) then
+                PanelBridge.invoke(vehicle, "transmitPartModData", part)
                 return -- B42 success
             end
         end
         -- B41 fallback (also used if B42 GasTank has no capacity)
-        if vehicle.setRemainingFuelPercentage then
-            vehicle:setRemainingFuelPercentage(pct)
-        else
+        if not PanelBridge.invoke(vehicle, "setRemainingFuelPercentage", pct) then
             error("No fuel setter available")
         end
     end)
@@ -6397,18 +6321,15 @@ handlers.vehicleSetBattery = function(args)
     charge = math.min(math.max(charge, 0), 100)
 
     local ok, err = pcall(function()
-        local battery = vehicle.getBattery and vehicle:getBattery() or nil
-        if battery and battery.getInventoryItem then
-            local item = battery:getInventoryItem()
-            if item and item.getCurrentUsesFloat and VehicleUtils and VehicleUtils.chargeBattery then
-                VehicleUtils.chargeBattery(vehicle, charge / 100 - item:getCurrentUsesFloat())
-                return
-            end
+        local battery = PanelBridge.tryGet(vehicle, "getBattery")
+        local item = battery and PanelBridge.tryGet(battery, "getInventoryItem")
+        local currentUses = item and tonumber(PanelBridge.tryGet(item, "getCurrentUsesFloat"))
+        if currentUses and VehicleUtils and VehicleUtils.chargeBattery then
+            VehicleUtils.chargeBattery(vehicle, charge / 100 - currentUses)
+            return
         end
         -- B41 fallback (also used if B42 battery has no inventory item)
-        if vehicle.setBatteryCharge then
-            vehicle:setBatteryCharge(charge)
-        else
+        if not PanelBridge.invoke(vehicle, "setBatteryCharge", charge) then
             error("No battery setter available")
         end
     end)
@@ -6422,26 +6343,19 @@ handlers.removeVehicle = function(args)
     if not vehicle then return false, nil, "Vehicle not found" end
 
     local vId = tonumber(args.vehicleId)
-    local vx = vehicle.getX and vehicle:getX() or 0
-    local vy = vehicle.getY and vehicle:getY() or 0
-    local scriptName = vehicle.getScriptName and vehicle:getScriptName() or "unknown"
+    local vx = tonumber(PanelBridge.tryGet(vehicle, "getX")) or 0
+    local vy = tonumber(PanelBridge.tryGet(vehicle, "getY")) or 0
+    local scriptName = PanelBridge.tryGet(vehicle, "getScriptName") or "unknown"
 
     local ok, err = pcall(function()
-        if vehicle.permanentlyRemove then
-            vehicle:permanentlyRemove()
-        elseif vehicle.removeFromWorld then
-            vehicle:removeFromWorld()
-        elseif vehicle.removeVehicle then
-            vehicle:removeVehicle()
-        else
-            -- Last resort: try to destroy via world cell
-            local world = getWorld()
-            local cell = world and world:getCell() or nil
-            if cell and cell.removeVehicle then
-                cell:removeVehicle(vehicle)
-            else
-                error("No removal method available on this PZ build")
-            end
+        if PanelBridge.invoke(vehicle, "permanentlyRemove") then return end
+        if PanelBridge.invoke(vehicle, "removeFromWorld") then return end
+        if PanelBridge.invoke(vehicle, "removeVehicle") then return end
+        -- Last resort: try to destroy via world cell
+        local world = getWorld()
+        local cell = world and PanelBridge.tryGet(world, "getCell")
+        if not (cell and PanelBridge.invoke(cell, "removeVehicle", vehicle)) then
+            error("No removal method available on this PZ build")
         end
     end)
     if not ok then return false, nil, "Failed to remove vehicle: " .. tostring(err) end
@@ -6472,22 +6386,25 @@ handlers.removeVehiclesInArea = function(args)
 
     local removed = 0
     local removedList = {}
-    for i = vehicles:size() - 1, 0, -1 do
+    local size = vehicleCount(vehicles)
+    if not size then return false, nil, "Vehicle list size lookup failed" end
+
+    for i = size - 1, 0, -1 do
         local v = vehicleAt(vehicles, i)
         if v then
-            local vx = v.getX and v:getX() or 0
-            local vy = v.getY and v:getY() or 0
+            local vx = tonumber(vehicleGet(v, "getX")) or 0
+            local vy = tonumber(vehicleGet(v, "getY")) or 0
             if vx >= minX and vx <= maxX and vy >= minY and vy <= maxY then
-                local vId = v.getId and v:getId() or nil
-                local scriptName = v.getScriptName and v:getScriptName() or "unknown"
-                local ok2, err2 = pcall(function()
-                    if v.permanentlyRemove then
-                        v:permanentlyRemove()
-                    elseif v.removeFromWorld then
-                        v:removeFromWorld()
-                    end
-                end)
-                if ok2 then
+                local vId = vehicleGet(v, "getId")
+                local scriptName = vehicleGet(v, "getScriptName") or "unknown"
+                -- Only count a removal that actually executed. The previous
+                -- field-guarded version ran neither branch on builds that hide
+                -- these methods, yet still reported the vehicle as removed.
+                local didRemove = PanelBridge.invoke(v, "permanentlyRemove")
+                if not didRemove then
+                    didRemove = PanelBridge.invoke(v, "removeFromWorld")
+                end
+                if didRemove then
                     removed = removed + 1
                     table.insert(removedList, { id = vId, scriptName = scriptName, x = vx, y = vy })
                 end
@@ -6510,45 +6427,37 @@ handlers.vehicleHotwire = function(args)
 
     local ok, err = pcall(function()
         -- 1. Hotwire state
-        if vehicle.setHotwired then
-            vehicle:setHotwired(true)
+        if PanelBridge.invoke(vehicle, "setHotwired", true) then
             table.insert(actions, "hotwired")
         end
-        if vehicle.setHotwiredBroken then
-            vehicle:setHotwiredBroken(false)
+        if PanelBridge.invoke(vehicle, "setHotwiredBroken", false) then
             table.insert(actions, "hotwireBroken=false")
         end
         -- B42: put keys in ignition as fallback
-        if vehicle.setKeysInIgnition then
-            vehicle:setKeysInIgnition(true)
+        if PanelBridge.invoke(vehicle, "setKeysInIgnition", true) then
             table.insert(actions, "keysInIgnition")
         end
 
         -- 2. Unlock all doors
-        local partCount = vehicle.getPartCount and vehicle:getPartCount() or 0
+        local partCount = tonumber(PanelBridge.tryGet(vehicle, "getPartCount")) or 0
         for i = 0, partCount - 1 do
-            local part = vehicle:getPartByIndex(i)
+            local part = PanelBridge.tryGet(vehicle, "getPartByIndex", i)
             if part then
-                local door = part.getDoor and part:getDoor()
-                if door and door.setLocked then
-                    door:setLocked(false)
+                local door = PanelBridge.tryGet(part, "getDoor")
+                if door then
+                    PanelBridge.invoke(door, "setLocked", false)
                 end
             end
         end
-        if vehicle.setTrunkLocked then
-            vehicle:setTrunkLocked(false)
-        end
+        PanelBridge.invoke(vehicle, "setTrunkLocked", false)
         table.insert(actions, "unlocked")
 
         -- 3. Ensure engine part has enough condition to start
-        local enginePart = vehicle.getPartById and vehicle:getPartById("Engine") or nil
-        if enginePart and enginePart.getCondition then
-            local cond = enginePart:getCondition()
-            if cond < 10 then
-                if enginePart.setCondition then
-                    enginePart:setCondition(20)
-                    table.insert(actions, "engineCondRepaired")
-                end
+        local enginePart = PanelBridge.tryGet(vehicle, "getPartById", "Engine")
+        local engineCond = enginePart and tonumber(PanelBridge.tryGet(enginePart, "getCondition"))
+        if engineCond and engineCond < 10 then
+            if PanelBridge.invoke(enginePart, "setCondition", 20) then
+                table.insert(actions, "engineCondRepaired")
             end
         end
 
@@ -6581,17 +6490,14 @@ handlers.vehicleHotwire = function(args)
         end
 
         -- 5. Transmit state to clients — try all known methods
-        if vehicle.transmitEngine then
-            vehicle:transmitEngine()
+        if PanelBridge.invoke(vehicle, "transmitEngine") then
             table.insert(actions, "transmitEngine")
         end
-        if vehicle.transmitVehicle then
-            vehicle:transmitVehicle()
+        if PanelBridge.invoke(vehicle, "transmitVehicle") then
             table.insert(actions, "transmitVehicle")
         end
         -- B42: send full update to all clients
-        if vehicle.updateFlags then
-            vehicle:updateFlags()
+        if PanelBridge.invoke(vehicle, "updateFlags") then
             table.insert(actions, "updateFlags")
         end
     end)
@@ -6732,13 +6638,13 @@ end
 
 handlers.getInfrastructureSnapshot = function(args)
     local world = getWorld()
-    local cell = getCell and getCell() or (world and world.getCell and world:getCell() or nil)
+    local cell = (getCell and getCell()) or (world and PanelBridge.tryGet(world, "getCell"))
     if not world then return false, nil, "World not available" end
 
     local snapshot = {
-        hydroPowerOn = world.isHydroPowerOn and world:isHydroPowerOn() or nil,
-        globalTemperature = world.getGlobalTemperature and world:getGlobalTemperature() or nil,
-        weather = world.getWeather and world:getWeather() or nil,
+        hydroPowerOn = PanelBridge.tryGet(world, "isHydroPowerOn"),
+        globalTemperature = PanelBridge.tryGet(world, "getGlobalTemperature"),
+        weather = PanelBridge.tryGet(world, "getWeather"),
         sample = nil
     }
 
@@ -6747,17 +6653,13 @@ handlers.getInfrastructureSnapshot = function(args)
     local sz = tonumber(args.z) or 0
     if cell and sx and sy then
         local sample = { x = sx, y = sy, z = sz }
-        pcall(function()
-            if cell.getDangerScore then sample.dangerScore = cell:getDangerScore(math.floor(sx), math.floor(sy)) end
-            if cell.getHeatSourceTemperature then sample.heatSourceTemperature = cell:getHeatSourceTemperature(math.floor(sx), math.floor(sy), math.floor(sz)) end
-            if cell.getHeatSourceHighestTemperature then
-                sample.heatSourceHighestTemperature = cell:getHeatSourceHighestTemperature(
-                    snapshot.globalTemperature or 0,
-                    math.floor(sx), math.floor(sy), math.floor(sz)
-                )
-            end
-            if cell.getLightSourceAt then sample.hasLamppost = cell:getLightSourceAt(math.floor(sx), math.floor(sy), math.floor(sz)) ~= nil end
-        end)
+        local ix, iy, iz = math.floor(sx), math.floor(sy), math.floor(sz)
+        sample.dangerScore = PanelBridge.tryGet(cell, "getDangerScore", ix, iy)
+        sample.heatSourceTemperature = PanelBridge.tryGet(cell, "getHeatSourceTemperature", ix, iy, iz)
+        sample.heatSourceHighestTemperature = PanelBridge.tryGet(cell, "getHeatSourceHighestTemperature",
+            snapshot.globalTemperature or 0, ix, iy, iz)
+        local lightOk, lightSource = PanelBridge.invoke(cell, "getLightSourceAt", ix, iy, iz)
+        if lightOk then sample.hasLamppost = lightSource ~= nil end
         snapshot.sample = sample
     end
 
@@ -6974,17 +6876,11 @@ handlers.getVehicleCatalog = function(args)
         return false, nil, "ScriptManager not available"
     end
 
-    local allVehicles = nil
-    local ok, err = pcall(function()
-        -- Try B42 method first, then B41 fallback
-        if sm.getAllVehicleScripts then
-            allVehicles = sm:getAllVehicleScripts()
-        elseif sm.getAllVehicles then
-            allVehicles = sm:getAllVehicles()
-        end
-    end)
-    if not ok or not allVehicles then
-        return false, nil, "Failed to enumerate vehicles: " .. tostring(err or "API not available")
+    -- Try B42 method first, then B41 fallback
+    local allVehicles = PanelBridge.tryGet(sm, "getAllVehicleScripts")
+        or PanelBridge.tryGet(sm, "getAllVehicles")
+    if not allVehicles then
+        return false, nil, "Failed to enumerate vehicles: API not available"
     end
 
     local catalog = {}
@@ -7053,7 +6949,15 @@ function PanelBridge.processCommands()
     -- numbered queue exists specifically to avoid. Do not build new features
     -- on this path; retire it (see the matching note in flushResults) once
     -- all deployed panels are confirmed on queue-v1.
-    local commands = PanelBridge.readJSON("commands.json")
+    -- Legacy intake: the panel only writes commands.json when a numbered
+    -- queue write fails, so it is polled on its own slower interval instead
+    -- of every tick. See the race note above before building on this path.
+    local nowMs = getTimestampMs()
+    local commands = nil
+    if nowMs - PanelBridge.lastLegacyCheck >= PanelBridge.LEGACY_COMMANDS_INTERVAL then
+        PanelBridge.lastLegacyCheck = nowMs
+        commands = PanelBridge.readJSON("commands.json")
+    end
     if not commands or not commands.commands then
         if processedCount > 0 then
             PanelBridge.debug("Processed " .. processedCount .. " commands")
@@ -7267,10 +7171,11 @@ function PanelBridge.onServerStarted()
     -- Reset time speed to 1x so fast-forward doesn't persist across reboots
     pcall(function()
         local gt = getGameTime()
-        if gt and gt.getMultiplier and gt:getMultiplier() ~= 1 then
-            local prev = gt:getMultiplier()
-            gt:setMultiplier(1)
-            print("[PanelBridge] Reset time speed from " .. tostring(prev) .. "x to 1x")
+        local multiplier = tonumber(PanelBridge.tryGet(gt, "getMultiplier"))
+        if multiplier and multiplier ~= 1 then
+            if PanelBridge.invoke(gt, "setMultiplier", 1) then
+                print("[PanelBridge] Reset time speed from " .. tostring(multiplier) .. "x to 1x")
+            end
         end
     end)
 

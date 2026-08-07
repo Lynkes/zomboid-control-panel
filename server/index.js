@@ -54,6 +54,7 @@ import {
   compareModVersions,
   writeLuaAtomic,
 } from "./utils/embeddedLua.js";
+import { isServerObservedRunning } from "./utils/serverStatus.js";
 
 // === Supervisor bootstrap ===
 // If the .exe was double-clicked directly (no PANEL_SUPERVISOR_V env var) and
@@ -936,9 +937,13 @@ rconService.on("disconnected", async () => {
   setTimeout(async () => {
     try {
       const activeServer = await getActiveServer();
-      const running = activeServer?.isRemote
-        ? panelBridge.isModConnected()
+      const processRunning = activeServer?.isRemote
+        ? false
         : await serverManager.checkServerRunning();
+      const running = isServerObservedRunning({
+        processRunning,
+        bridgeConnected: panelBridge.isModConnected(),
+      });
       if (!running && lastKnownRunning !== false) {
         lastKnownRunning = false;
         log.info(
@@ -1959,11 +1964,17 @@ let lastKnownRunning = null;
 
 async function getObservedServerRunning() {
   const activeServer = await getActiveServer();
-  if (!activeServer?.isRemote) return serverManager.checkServerRunning();
+  const processRunning = activeServer?.isRemote
+    ? false
+    : await serverManager.checkServerRunning();
 
-  // A remote host has no local Java process to inspect. A live RCON session
-  // or fresh PanelBridge heartbeat is direct evidence that the game is up.
-  return rconService.connected || panelBridge.isModConnected();
+  // A systemd-launched local server can evade strict per-server ownership
+  // attribution. RCON and the bridge remain direct evidence that it is alive.
+  return isServerObservedRunning({
+    processRunning,
+    rconConnected: rconService.connected,
+    bridgeConnected: panelBridge.isModConnected(),
+  });
 }
 
 function startStatusWatchdog() {

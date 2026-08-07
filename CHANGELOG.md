@@ -23,10 +23,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+#### Server status
+
+- **A running systemd server could display as Offline**: strict per-server process ownership intentionally refuses to claim another local server, but a systemd-launched server can be difficult to attribute even when the panel's own RCON connection and PanelBridge heartbeat prove it is alive. Status reporting now accepts either direct connection as live evidence while keeping strict ownership requirements for stop and force-stop operations.
+
 #### Event Console
 
 - **Game Clock claimed success while changing nothing**: Build 42 can reject a clock setter from the Lua bridge, but the bridge discarded that error and still told the panel the time had changed. Clock updates now verify the requested hour, day, month, and year before reporting success; failures return their real reason instead.
 - **World Map could flood a server log with Lua stack traces**: newer Build 42 revisions can expose a vehicle collection without a callable `get` method. The bridge now skips that unsupported live-vehicle source rather than repeatedly calling it while the map polls; saved vehicle markers remain available.
+
+#### World Map and vehicles
+
+- **Live vehicles could silently disappear from the World Map**: the bridge decided whether a Build 42 method existed by reading it as a property, but Project Zomboid exposes many Java methods that are callable while that property reads as empty. Every loaded vehicle was then discarded, leaving the map showing only saved markers with no fuel, battery, or repair controls. The bridge now determines availability by calling the method once and remembering the answer, so a method that genuinely is missing is attempted once per server session instead of on every poll.
+- **Vehicle repair and area removal could report work they never did**: repairing a vehicle counted parts it had not actually changed, and removing vehicles in an area reported them as removed even when no removal method applied. Both now count only operations that genuinely succeeded.
+- **Panel data went stale for several seconds after an action**: vehicle, safehouse, and player readouts are cached briefly to keep polling cheap, but the cache was not cleared when an admin action changed the world, so a refuel, repair, or battery change appeared not to have worked until the cache expired. Any state-changing command now refreshes those readouts immediately.
+- **Game time and weather could report invented values**: the same property-based check made readings such as the in-game year, minute, view distance, and thunderstorm state fall back to hardcoded defaults instead of the server's real values.
+- **Admin actions could report success while doing nothing**: the same property check gated 138 further call sites, so on affected Build 42 revisions the action was skipped and still reported as done. Healing a player could leave stats, wounds and moodles untouched; restoring or cutting power could skip light switches; and weather, sandbox, faction, teleport, item-spawn and vehicle commands could all silently no-op. Every one of these now reports what actually happened, and the heal result lists only the parts that were really restored.
+
+#### Performance
+
+- **Reduced the bridge's disk writes and per-tick work**: each command wrote its queue position to disk twice and persisted its counter once per result, and the legacy command file was re-read every quarter second even though the panel only writes it when a queued command fails. Bookkeeping is now written once per tick and the legacy file is checked on its own slower schedule.
 
 #### Discord
 

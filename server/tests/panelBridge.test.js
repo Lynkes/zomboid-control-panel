@@ -180,21 +180,62 @@ describe('PanelBridge pending commands', () => {
 });
 
 describe('PanelBridge vehicle compatibility', () => {
-  it('does not invoke a vehicle getter that Build 42 does not expose', async () => {
+  it('reads the vehicle list by calling get, not by testing it as a field', async () => {
     const luaPath = path.resolve(process.cwd(), 'pz-mod/PanelBridge/media/lua/server/PanelBridge.lua');
     const lua = await readFile(luaPath, 'utf8');
     const vehicleAt = lua.match(/local function vehicleAt\(vehicles, i\)([\s\S]*?)\nend/);
 
-    expect(vehicleAt?.[1]).toContain('if not vehicles or not vehicles.get then return nil end');
-    expect(vehicleAt?.[1]).toContain('pcall(function() return vehicles:get(i) end)');
+    // Build 42 exposes get(i) as a callable method while `vehicles.get`
+    // reads nil, so a field test silently returns zero vehicles (v1.7.23).
+    expect(vehicleAt?.[1]).toContain('PanelBridge.invoke(vehicles, "get", i)');
+    expect(vehicleAt?.[1]).not.toContain('vehicles.get');
+  });
+
+  it('never guards a Java method by reading it as a field', async () => {
+    const luaPath = path.resolve(process.cwd(), 'pz-mod/PanelBridge/media/lua/server/PanelBridge.lua');
+    const lua = await readFile(luaPath, 'utf8');
+
+    // `obj.method and obj:method()` substitutes a fallback value whenever the
+    // method is callable but not readable as a field. That produced empty
+    // collections in v1.7.17/v1.7.21/v1.7.23 and fabricated game-time values.
+    const offenders = lua
+      .split(/\r?\n/)
+      .map((line, index) => ({ line: line.replace(/--.*$/, ''), number: index + 1 }))
+      .filter(({ line }) => /(\w+)\.(\w+)\s+and\s+\1:\2\s*\(/.test(line))
+      .map(({ line, number }) => `${number}: ${line.trim()}`);
+
+    expect(offenders).toEqual([]);
+  });
+
+  it('never gates a Java call on an `if obj.method then` field test', async () => {
+    const luaPath = path.resolve(process.cwd(), 'pz-mod/PanelBridge/media/lua/server/PanelBridge.lua');
+    const lua = await readFile(luaPath, 'utf8');
+    const lines = lua.split(/\r?\n/).map(line => line.replace(/--.*$/, ''));
+
+    // Same defect as above in statement form: the guarded block is skipped
+    // entirely when the method is callable but the field reads nil, so the
+    // handler silently does nothing and still reports success. Ratcheted at
+    // zero — use PanelBridge.invoke/tryGet, which probe by calling.
+    const offenders = [];
+    lines.forEach((line, index) => {
+      const guard = line.match(/(?:if|elseif)\s+(\w+)\.(\w+)\s+then/);
+      if (!guard) return;
+      const [, base, method] = guard;
+      const window = lines.slice(index, index + 4).join('\n');
+      if (new RegExp(`\\b${base}:${method}\\s*\\(`).test(window)) {
+        offenders.push(`${index + 1}: ${line.trim()}`);
+      }
+    });
+
+    expect(offenders).toEqual([]);
   });
 
   it('keeps the Lua runtime version aligned with the manifest', async () => {
     const luaPath = path.resolve(process.cwd(), 'pz-mod/PanelBridge/media/lua/server/PanelBridge.lua');
     const modInfoPath = path.resolve(process.cwd(), 'pz-mod/PanelBridge/mod.info');
     const [lua, modInfo] = await Promise.all([readFile(luaPath, 'utf8'), readFile(modInfoPath, 'utf8')]);
-    const headerVersion = lua.match(/^    Version: ([^\r\n]+)/m)?.[1];
-    const runtimeVersion = lua.match(/^    VERSION = "([^"]+)",/m)?.[1];
+    const headerVersion = lua.match(/^ {4}Version: ([^\r\n]+)/m)?.[1];
+    const runtimeVersion = lua.match(/^ {4}VERSION = "([^"]+)",/m)?.[1];
     const manifestVersion = modInfo.match(/^modversion=(.+)$/m)?.[1];
 
     expect(runtimeVersion).toBe(headerVersion);
