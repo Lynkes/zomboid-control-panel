@@ -207,6 +207,16 @@ describe('PanelBridge vehicle compatibility', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('uses a stringified Java class wrapper for capability cache keys', async () => {
+    const luaPath = path.resolve(process.cwd(), 'pz-mod/PanelBridge/media/lua/server/PanelBridge.lua');
+    const lua = await readFile(luaPath, 'utf8');
+    const capabilityKey = lua.match(/local function capabilityKey\(obj, methodName\)([\s\S]*?)\nend/);
+
+    expect(capabilityKey?.[1]).toContain('obj:getClass()');
+    expect(capabilityKey?.[1]).toContain('tostring(classValue) .. "#" .. methodName');
+    expect(capabilityKey?.[1]).not.toContain(':getName()');
+  });
+
   it('never gates a Java call on an `if obj.method then` field test', async () => {
     const luaPath = path.resolve(process.cwd(), 'pz-mod/PanelBridge/media/lua/server/PanelBridge.lua');
     const lua = await readFile(luaPath, 'utf8');
@@ -240,5 +250,41 @@ describe('PanelBridge vehicle compatibility', () => {
 
     expect(runtimeVersion).toBe(headerVersion);
     expect(manifestVersion).toBe(headerVersion);
+  });
+});
+
+describe('PanelBridge player healing compatibility', () => {
+  const bridgePath = path.resolve(
+    import.meta.dirname,
+    '../../pz-mod/PanelBridge/media/lua/server/PanelBridge.lua',
+  );
+
+  it('uses the documented body-part collection without probing unavailable APIs', async () => {
+    const source = await readFile(bridgePath, 'utf8');
+    const healStart = source.indexOf('handlers.healPlayer = function(args)');
+    const killStart = source.indexOf('-- Kill a player', healStart);
+    const healHandler = source.slice(healStart, killStart);
+
+    expect(healStart).toBeGreaterThanOrEqual(0);
+    expect(killStart).toBeGreaterThan(healStart);
+    expect(healHandler).toContain('bodyDamage:getBodyParts()');
+    expect(healHandler).toContain('part:RestoreToFullHealth()');
+    expect(healHandler).toContain('part:SetFakeInfected(false)');
+    expect(healHandler).not.toContain('setFakeInfected');
+    expect(healHandler).not.toContain('getNumOfBodyParts');
+  });
+
+  it('uses Build 42 native death and reports a failed verification', async () => {
+    const source = await readFile(bridgePath, 'utf8');
+    const killStart = source.indexOf('handlers.killPlayer = function(args)');
+    const godModeStart = source.indexOf('-- Set player\'s godmode', killStart);
+    const killHandler = source.slice(killStart, godModeStart);
+
+    expect(killStart).toBeGreaterThanOrEqual(0);
+    expect(godModeStart).toBeGreaterThan(killStart);
+    expect(killHandler).toContain('PanelBridge.invoke(player, "Kill", nil)');
+    expect(killHandler).toContain('return isDead, {');
+    expect(killHandler).not.toContain('setOverallBodyHealth');
+    expect(killHandler).not.toContain('DoDeath');
   });
 });

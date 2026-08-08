@@ -1,10 +1,14 @@
 ---@diagnostic disable: undefined-global, deprecated
 --[[
     PanelBridge - Server-side mod for Zomboid Control Panel
-    Version: 1.7.24
+    Version: 1.7.26
 
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
+
+                v1.7.26 Changes:
+                - Player health actions use the Build 42 body-part collection
+                    and native death path without probing absent APIs.
 
                 v1.7.24 Changes:
                 - Java methods are now probed by calling them and caching the
@@ -317,7 +321,7 @@
 local json
 
 local PanelBridge = {
-    VERSION = "1.7.24",
+    VERSION = "1.7.26",
     PROTOCOL_VERSION = "queue-v1",
     CHECK_INTERVAL = 250, -- milliseconds (fast command polling)
     lastCheck = 0,
@@ -487,9 +491,10 @@ end
 -- vehicle's getter) is NOT marked unavailable, so one bad object cannot
 -- disable a working accessor server-wide.
 local function capabilityKey(obj, methodName)
-    local ok, className = pcall(function() return obj:getClass():getName() end)
-    if ok and className then
-        return tostring(className) .. "#" .. methodName
+    local ok, classValue = pcall(function() return obj:getClass() end)
+    if ok and classValue then
+        -- Build 42.20 class wrappers stringify correctly but reject getName().
+        return tostring(classValue) .. "#" .. methodName
     end
     return nil
 end
@@ -4890,49 +4895,14 @@ handlers.healPlayer = function(args)
             -- Clear Knox virus (zombie) infection at body level
             PanelBridge.invoke(bodyDamage, "setInfected", false)
             PanelBridge.invoke(bodyDamage, "setInfectedWound", false)
-            -- B42: clear fake-dead scratches, bites etc
-            PanelBridge.invoke(bodyDamage, "setFakeInfected", false)
-            -- Restore individual body parts (getNumOfBodyParts is absent on some B42 builds)
-            local numParts = tonumber(PanelBridge.tryGet(bodyDamage, "getNumOfBodyParts"))
-            if not numParts and BodyPartType then
-                numParts = tonumber(PanelBridge.tryGet(BodyPartType, "getNumOfBodyParts"))
-                if not numParts and BodyPartType.ToIndex then
-                    -- B42 fallback: iterate known part count (PZ has ~18 body parts)
-                    numParts = 18
-                end
-            end
-            numParts = numParts or 0
-            for i = 0, numParts - 1 do
-                -- B42 requires BodyPartType enum, not a raw integer index
-                local partType = i
-                if BodyPartType and BodyPartType.FromIndex then
-                    local okIdx, converted = pcall(BodyPartType.FromIndex, i)
-                    if okIdx and converted then partType = converted end
-                end
-                local ok_part, part = pcall(function() return bodyDamage:getBodyPart(partType) end)
-                if ok_part and part then
-                    local applied = 0
-                    local function apply(methodName, ...)
-                        if PanelBridge.invoke(part, methodName, ...) then applied = applied + 1 end
-                    end
-                    apply("SetBitten", false)
-                    apply("SetBleeding", false)
-                    apply("SetScratched", false, false)
-                    apply("SetDeepWounded", false)
-                    apply("SetInfected", false)
-                    apply("SetHealth", 100)
-                    -- B42: clear additional wound states
-                    apply("SetBurned", false)
-                    apply("setBandaged", false, 0)
-                    apply("SetCut", false)
-                    apply("SetHaveBullet", false)
-                    apply("SetHaveGlass", false)
-                    apply("SetFractureTime", 0)
-                    apply("SetSplintFactor", 0)
-                    apply("SetStiffness", 0)
-                    apply("SetWoundInfectionLevel", 0)
-                    if applied > 0 then healed.bodyDamage = true end
-                end
+            -- Build 42 exposes a Java collection of BodyPart objects.
+            -- Using it avoids capability probes that log engine errors.
+            local bodyParts = bodyDamage:getBodyParts()
+            for i = 0, bodyParts:size() - 1 do
+                local part = bodyParts:get(i)
+                part:RestoreToFullHealth()
+                part:SetFakeInfected(false)
+                healed.bodyDamage = true
             end
         end)
         if not ok1 then table.insert(errors, "bodyDamage: " .. tostring(err1)) end
@@ -5025,33 +4995,12 @@ handlers.killPlayer = function(args)
         table.insert(debugInfo, "invincible disabled")
     end
 
-    -- Method 1: zero out overall body health (B42 authoritative source)
-    pcall(function()
-        local bd = player:getBodyDamage()
-        if bd and bd.setOverallBodyHealth then
-            bd:setOverallBodyHealth(0)
-            table.insert(debugInfo, "bodyDamage.setOverallBodyHealth(0)")
-        end
-    end)
-
-    -- Method 2: direct setHealth(0) — may be overwritten by body damage recompute
-    pcall(function()
-        player:setHealth(0)
-        table.insert(debugInfo, "setHealth(0)")
-    end)
-
-    -- Method 3: trigger PZ's native death path so clients get the death event
-    if PanelBridge.invoke(player, "Kill", player) then
-        table.insert(debugInfo, "Kill(self) called")
-    else
-        local HandWeapon = _G.HandWeapon
-        local fakeWeapon = HandWeapon and HandWeapon.new and HandWeapon.new() or nil
-        if PanelBridge.invoke(player, "DoDeath", fakeWeapon, player, "panel") then
-            table.insert(debugInfo, "DoDeath called")
-        end
+    -- Build 42's native death path performs the authoritative health and event updates.
+    if PanelBridge.invoke(player, "Kill", nil) then
+        table.insert(debugInfo, "Kill(nil) called")
     end
 
-    -- Method 4: broadcast updated extra info + zombie-death flag for network sync
+    -- Broadcast updated extra info + zombie-death flag for network sync.
     pcall(function()
         if sendPlayerExtraInfo then
             sendPlayerExtraInfo(player)
@@ -5069,7 +5018,7 @@ handlers.killPlayer = function(args)
 
     local debugStr = table.concat(debugInfo, " | ")
     PanelBridge.info("Killed player", { username = username, isDead = isDead, debug = debugStr })
-    return true, {
+    return isDead, {
         message = isDead and "Player killed" or "Kill attempted (player may respawn if not dead)",
         username = username,
         isDead = isDead,

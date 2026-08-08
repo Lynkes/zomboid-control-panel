@@ -1936,7 +1936,7 @@ export default function Discord() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="public">
-                      All public chat (Say, Shout, General)
+                      All public chat (General, Say, Local, Shout)
                     </SelectItem>
                     <SelectItem value="no-yell">
                       Public chat without yells (Q shouts)
@@ -1949,6 +1949,12 @@ export default function Discord() {
                   Build 42 records ordinary talking as Say, so "General tab
                   only" relays very little.
                 </p>
+                {chatRelayScope === "public" && (
+                  <p className="text-xs text-warning">
+                    Local chat is forwarded to Discord. Choose General tab only
+                    to keep player proximity chat private.
+                  </p>
+                )}
               </div>
             )}
             {chatRelayEnabled && (
