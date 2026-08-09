@@ -847,6 +847,7 @@ describe("Discord event notifications", () => {
     bot.channelId = "123456789012345678";
     bot.webhookEvents = webhookEvents;
     bot._lastLifecycleState = null;
+    bot._lastLifecycleAt = 0;
     const sent = [];
     bot.sendNotification = async (msg) => {
       sent.push(msg);
@@ -879,6 +880,40 @@ describe("Discord event notifications", () => {
     await bot.sendEventNotification("serverStart", { missing: "" });
     expect(bot._lastLifecycleState).toBe("running");
   });
+
+  it("retries a lifecycle notification after a failed send", async () => {
+    const { bot, sent } = await makeBot({
+      serverStop: { enabled: true, template: "Server stopped" },
+    });
+    let shouldFail = true;
+    bot.sendNotification = async (message) => {
+      if (shouldFail) return false;
+      sent.push(message);
+      return true;
+    };
+
+    await bot.sendEventNotification("serverStop");
+    expect(bot._lastLifecycleState).toBeNull();
+
+    shouldFail = false;
+    await bot.sendEventNotification("serverStop");
+    expect(sent).toEqual(["Server stopped"]);
+    expect(bot._lastLifecycleState).toBe("stopped");
+  }, 15000);
+
+  it("retries the same lifecycle state after the duplicate window expires", async () => {
+    const { bot, sent } = await makeBot({
+      serverStop: { enabled: true, template: "Server stopped" },
+    });
+
+    await bot.sendEventNotification("serverStop");
+    await bot.sendEventNotification("serverStop");
+    expect(sent).toEqual(["Server stopped"]);
+
+    bot._lastLifecycleAt = Date.now() - 60_001;
+    await bot.sendEventNotification("serverStop");
+    expect(sent).toEqual(["Server stopped", "Server stopped"]);
+  }, 15000);
 });
 
 describe("Discord slash command visibility", () => {

@@ -272,6 +272,9 @@ describe('PanelBridge player healing compatibility', () => {
     expect(healHandler).toContain('part:SetFakeInfected(false)');
     expect(healHandler).not.toContain('setFakeInfected');
     expect(healHandler).not.toContain('getNumOfBodyParts');
+    expect(healHandler).not.toContain('PanelBridge.invoke(');
+    expect(healHandler).not.toContain('player:getStats()');
+    expect(healHandler).not.toContain('player:getMoodles()');
   });
 
   it('uses Build 42 native death and reports a failed verification', async () => {
@@ -286,5 +289,58 @@ describe('PanelBridge player healing compatibility', () => {
     expect(killHandler).toContain('return isDead, {');
     expect(killHandler).not.toContain('setOverallBodyHealth');
     expect(killHandler).not.toContain('DoDeath');
+  });
+});
+
+describe('PanelBridge Java capability caching', () => {
+  const bridgePath = path.resolve(
+    import.meta.dirname,
+    '../../pz-mod/PanelBridge/media/lua/server/PanelBridge.lua',
+  );
+
+  it('stops retrying a method that never succeeds, even without an error message', async () => {
+    const source = await readFile(bridgePath, 'utf8');
+    const invoke = source.match(/function PanelBridge\.invoke\(obj, methodName, \.\.\.\)([\s\S]*?)\nend/);
+
+    // Build 42 raises an empty RuntimeException for a missing method, so the
+    // error-text test alone never matched and the engine retraced every call.
+    expect(invoke?.[1]).toContain('failures >= MAX_METHOD_FAILURES');
+    expect(invoke?.[1]).toContain('PanelBridge.methodCapabilities[key] = false');
+    // A method that already worked must survive one broken modded object.
+    expect(invoke?.[1]).toContain('PanelBridge.methodCapabilities[key] ~= true');
+    expect(invoke?.[1]).toContain('PanelBridge.methodFailures[key] = nil');
+  });
+
+  it('still identifies a class when the Java wrapper rejects getClass', async () => {
+    const source = await readFile(bridgePath, 'utf8');
+    const capabilityKey = source.match(/local function capabilityKey\(obj, methodName\)([\s\S]*?)\nend/);
+
+    // Without a key nothing can be cached, so the call retraces forever.
+    expect(capabilityKey?.[1]).toContain('@%x+');
+  });
+});
+
+describe('PanelBridge game-time compatibility', () => {
+  it('uses only documented Build 42 clock methods without speculative probes', async () => {
+    const source = await readFile(
+      path.resolve(import.meta.dirname, '../../pz-mod/PanelBridge/media/lua/server/PanelBridge.lua'),
+      'utf8',
+    );
+    const handlerStart = source.indexOf('handlers.getGameTime = function(args)');
+    const handlerEnd = source.indexOf('-- Set game time', handlerStart);
+    const handler = source.slice(handlerStart, handlerEnd);
+
+    expect(handlerStart).toBeGreaterThanOrEqual(0);
+    expect(handlerEnd).toBeGreaterThan(handlerStart);
+    expect(handler).toContain('gameTime:getTimeOfDay()');
+    expect(handler).toContain('gameTime:getWorldAgeHours()');
+    expect(handler).toContain('gameTime:getNightsSurvived()');
+    expect(handler).toContain('math.floor((timeOfDay - hour) * 60)');
+    expect(handler).not.toContain('safeGetValue(');
+    expect(handler).not.toContain('PanelBridge.invoke(');
+    expect(handler).not.toContain('getMinutes');
+    expect(handler).not.toContain('getDayOfWeek');
+    expect(handler).not.toContain('getTimeSinceApo');
+    expect(handler).not.toContain('getMoon');
   });
 });

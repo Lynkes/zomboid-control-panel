@@ -121,6 +121,8 @@ const DEFAULT_COMMAND_PERMISSIONS = {
   rcon: "admin",
 };
 
+const LIFECYCLE_DEDUPE_WINDOW_MS = 60_000;
+
 export class DiscordBot {
   constructor(rconService, serverManager, scheduler, logTailer = null) {
     this.client = null;
@@ -150,8 +152,11 @@ export class DiscordBot {
     // Lifecycle dedupe — serverStart/serverStop webhooks can be triggered
     // from several paths (HTTP /start /stop /force-stop, Discord slash
     // commands, the status watchdog, RCON-disconnect detection). Track the
-    // last fired state so we send exactly one webhook per real transition.
+    // last fired state so duplicate observations within a short window only
+    // send one webhook. A missed opposite transition must not suppress future
+    // real lifecycle notifications forever.
     this._lastLifecycleState = null; // 'running' | 'stopped' | null
+    this._lastLifecycleAt = 0;
 
     // Throttles the "game server unreachable" reply so a busy Discord channel
     // gets told once rather than once per message.
@@ -337,7 +342,10 @@ export class DiscordBot {
     let newState = null;
     if (isLifecycle) {
       newState = eventType === "serverStart" ? "running" : "stopped";
-      if (this._lastLifecycleState === newState) {
+      if (
+        this._lastLifecycleState === newState &&
+        Date.now() - this._lastLifecycleAt < LIFECYCLE_DEDUPE_WINDOW_MS
+      ) {
         return; // already notified for this transition
       }
     }
@@ -346,7 +354,10 @@ export class DiscordBot {
     if (!event || !event.enabled || typeof event.template !== "string") {
       // Update dedupe state even when the event is disabled — otherwise
       // enabling the event later would replay the historical transition.
-      if (isLifecycle) this._lastLifecycleState = newState;
+      if (isLifecycle) {
+        this._lastLifecycleState = newState;
+        this._lastLifecycleAt = Date.now();
+      }
       return;
     }
 
@@ -378,7 +389,10 @@ export class DiscordBot {
     // counted as a channel failure, eventually suppressing every notification.
     if (!message.trim()) {
       log.warn(`Skipping ${eventType} notification: template rendered empty`);
-      if (isLifecycle) this._lastLifecycleState = newState;
+      if (isLifecycle) {
+        this._lastLifecycleState = newState;
+        this._lastLifecycleAt = Date.now();
+      }
       return;
     }
 
@@ -386,7 +400,10 @@ export class DiscordBot {
     // Only commit lifecycle dedupe state on a successful send. If the send
     // failed (circuit open, missing perms, channel deleted), keep the old
     // state so the next attempt isn't suppressed.
-    if (isLifecycle && sent) this._lastLifecycleState = newState;
+    if (isLifecycle && sent) {
+      this._lastLifecycleState = newState;
+      this._lastLifecycleAt = Date.now();
+    }
   }
 
   async updateConfig(token, guildId, adminRoleId, channelId, modRoleId) {
@@ -514,6 +531,7 @@ export class DiscordBot {
     this._registeredGuildId = null;
     this._channelBreakers.clear();
     this._lastLifecycleState = null;
+    this._lastLifecycleAt = 0;
   }
 
   async updateCommandPermissions(permissions) {
@@ -1485,6 +1503,7 @@ export class DiscordBot {
       // Reset lifecycle dedupe so the next bot session can fire a fresh
       // serverStart/serverStop without being suppressed by the previous run.
       this._lastLifecycleState = null;
+      this._lastLifecycleAt = 0;
       // Reset breaker state too — stale failure counts shouldn't carry over.
       this._channelBreakers.clear();
       this._chatRelayChain = Promise.resolve();

@@ -138,11 +138,7 @@ Pop-Location
 if ($gitStatus) {
     Write-Warn "Uncommitted changes detected:"
     $gitStatus | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkYellow }
-    $confirm = Read-Host "  Continue with uncommitted changes? (y/N)"
-    if ($confirm -ne 'y') {
-        Write-Host "  Aborted." -ForegroundColor Red
-        exit 1
-    }
+    Write-Warn "Continuing with uncommitted changes."
 } else {
     Write-Ok "No uncommitted changes"
 }
