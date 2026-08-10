@@ -82,6 +82,13 @@ const ROUTE_LOADERS: Record<string, RouteLoaderMeta> = {
     variant: 'list',
     metrics: ['workshop', 'mods', 'conflicts'],
   },
+  '/templates': {
+    title: 'Simulation Templates',
+    description: 'Loading rulesets, diff previews, and apply controls.',
+    eyebrow: '// CONFIG · TEMPLATES',
+    variant: 'list',
+    metrics: ['templates', 'diff', 'apply'],
+  },
   '/scheduler': {
     title: 'Scheduled Tasks',
     description: 'Preparing task rules, run history, and automation controls.',
@@ -167,6 +174,7 @@ const Settings = lazy(() => import('./pages/Settings'))
 const ServerSetup = lazy(() => import('./pages/ServerSetup'))
 const Servers = lazy(() => import('./pages/Servers'))
 const ServerConfig = lazy(() => import('./pages/ServerConfig'))
+const Templates = lazy(() => import('./pages/Templates'))
 const Debug = lazy(() => import('./pages/Debug'))
 const ServerFinder = lazy(() => import('./pages/ServerFinder'))
 const Events = lazy(() => import('./pages/Events'))
@@ -551,6 +559,7 @@ function AppContent() {
               <Route path="/console" element={<FeatureErrorBoundary featureName="Console"><Console /></FeatureErrorBoundary>} />
               <Route path="/scheduler" element={<FeatureErrorBoundary featureName="Scheduler"><Scheduler /></FeatureErrorBoundary>} />
               <Route path="/mods" element={<FeatureErrorBoundary featureName="Mod Manager"><Mods /></FeatureErrorBoundary>} />
+              <Route path="/templates" element={<FeatureErrorBoundary featureName="Simulation Templates"><Templates /></FeatureErrorBoundary>} />
               <Route path="/chunks" element={<FeatureErrorBoundary featureName="Chunk Cleaner"><ChunkCleaner /></FeatureErrorBoundary>} />
               <Route path="/chunk-cleaner" element={<Navigate to="/chunks" replace />} />
               <Route path="/discord" element={<FeatureErrorBoundary featureName="Discord Integration"><Discord /></FeatureErrorBoundary>} />

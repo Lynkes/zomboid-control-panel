@@ -60,6 +60,30 @@ function storageRemove(keys) {
   });
 }
 
+// The manifest only grants host access to the two Steam domains outright
+// (needed for the cookies API). Any other origin — the user's own panel
+// URL, which can be anything — is requested at runtime via
+// optional_host_permissions instead of a blanket http(s)://*/* grant.
+function requestOrigin(origin) {
+  return new Promise((resolve) => {
+    try {
+      browserAPI.permissions.request({ origins: [origin] }, (granted) =>
+        resolve(!!granted),
+      );
+    } catch (e) {
+      resolve(false);
+    }
+  });
+}
+
+async function ensurePanelPermission(panelUrl) {
+  const origin = new URL(panelUrl).origin + '/*';
+  const granted = await requestOrigin(origin);
+  if (!granted) {
+    throw new Error('Permission to contact the panel URL was not granted.');
+  }
+}
+
 function cookieGet(details) {
   return new Promise((resolve) => {
     try {
@@ -201,6 +225,7 @@ async function doTest() {
     if (!panelUrl) throw new Error('Panel URL is required');
     if (!ui.username.value.trim()) throw new Error('Username is required');
     if (!ui.password.value) throw new Error('Password is required');
+    await ensurePanelPermission(panelUrl);
     const token = await loginToPanel(panelUrl, ui.username.value.trim(), ui.password.value);
     await saveSettings(true);
     await storageSet({ accessToken: token });
@@ -222,6 +247,7 @@ async function doSend() {
     if (!panelUrl || !username) {
       throw new Error('Configure Panel URL + username first.');
     }
+    await ensurePanelPermission(panelUrl);
 
     const { sessionid, steamLoginSecure } = await readSteamCookies();
     if (!sessionid || !steamLoginSecure) {

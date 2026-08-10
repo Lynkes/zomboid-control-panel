@@ -1,0 +1,71 @@
+import { describe, expect, it } from 'vitest'
+import {
+  humanizeTemplateKey,
+  getIniKeyLabel,
+  getSandboxKeyLabel,
+  formatDifficultyLabel,
+  formatDiffValue,
+} from '../templateLabels'
+
+describe('humanizeTemplateKey', () => {
+  it('splits camelCase and PascalCase words', () => {
+    expect(humanizeTemplateKey('ZombieRespawn')).toBe('Zombie Respawn')
+    expect(humanizeTemplateKey('MaximumLooted')).toBe('Maximum Looted')
+    expect(humanizeTemplateKey('HoursForLootRespawn')).toBe('Hours For Loot Respawn')
+  })
+
+  it('keeps acronyms grouped and splits the following word', () => {
+    expect(humanizeTemplateKey('PVPMeleeDamageModifier')).toBe('PVP Melee Damage Modifier')
+  })
+})
+
+describe('getIniKeyLabel / getSandboxKeyLabel', () => {
+  it('prefers the curated schema label when one exists', () => {
+    expect(getIniKeyLabel('PVP')).not.toBe('')
+  })
+
+  it('falls back to a humanized key for unknown settings', () => {
+    expect(getSandboxKeyLabel('SomeBrandNewSetting')).toBe('Some Brand New Setting')
+  })
+})
+
+describe('formatDifficultyLabel', () => {
+  it('title-cases a plain word', () => {
+    expect(formatDifficultyLabel('hardcore')).toBe('Hardcore')
+  })
+
+  it('upper-cases known acronyms', () => {
+    expect(formatDifficultyLabel('pvp')).toBe('PVP')
+  })
+
+  it('splits hyphenated levels into title-cased words', () => {
+    expect(formatDifficultyLabel('first-week')).toBe('First Week')
+  })
+
+  it('returns Custom for an empty level', () => {
+    expect(formatDifficultyLabel(undefined)).toBe('Custom')
+  })
+})
+
+describe('formatDiffValue', () => {
+  it('renders booleans as On/Off', () => {
+    expect(formatDiffValue(true)).toBe('On')
+    expect(formatDiffValue(false)).toBe('Off')
+  })
+
+  it('renders string booleans as On/Off', () => {
+    expect(formatDiffValue('true')).toBe('On')
+    expect(formatDiffValue('false')).toBe('Off')
+  })
+
+  it('renders undefined/null/empty as (not set)', () => {
+    expect(formatDiffValue(undefined)).toBe('(not set)')
+    expect(formatDiffValue(null)).toBe('(not set)')
+    expect(formatDiffValue('')).toBe('(not set)')
+  })
+
+  it('renders numbers and other strings as-is', () => {
+    expect(formatDiffValue(5)).toBe('5')
+    expect(formatDiffValue('Muldraugh, KY')).toBe('Muldraugh, KY')
+  })
+})

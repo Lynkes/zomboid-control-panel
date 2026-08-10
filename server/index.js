@@ -28,6 +28,7 @@ import {
   initDatabase,
   getActiveServer,
   getAllSettings,
+  getServers,
   getSetting,
   setSetting,
   flushWrites,
@@ -36,6 +37,7 @@ import {
 } from "./database/init.js";
 import { RconService } from "./services/rcon.js";
 import { ServerManager } from "./services/serverManager.js";
+import { DockerClient } from "./services/dockerClient.js";
 import { ModChecker } from "./services/modChecker.js";
 import { Scheduler } from "./services/scheduler.js";
 import { DiscordBot } from "./services/discordBot.js";
@@ -43,6 +45,7 @@ import { BackupService } from "./services/backupService.js";
 import { UpdateChecker } from "./services/updateChecker.js";
 import { PanelUpdateChecker } from "./services/panelUpdateChecker.js";
 import { LogTailer } from "./services/logTailer.js";
+import { DiskMonitor } from "./services/diskMonitor.js";
 import authService from "./services/auth.js";
 import { requireRole } from "./services/auth.js";
 import authRoutes from "./routes/auth.js";
@@ -55,6 +58,7 @@ import {
   writeLuaAtomic,
 } from "./utils/embeddedLua.js";
 import { isServerObservedRunning } from "./utils/serverStatus.js";
+import { discoverMounts } from "./services/mountDiscovery.js";
 
 // === Supervisor bootstrap ===
 // If the .exe was double-clicked directly (no PANEL_SUPERVISOR_V env var) and
@@ -175,6 +179,11 @@ async function gracefulShutdown(signal) {
       panelUpdateChecker.stop();
     }
 
+    // Stop disk monitor
+    if (diskMonitor) {
+      diskMonitor.stop();
+    }
+
     // Stop PanelBridge
     if (panelBridge?.isRunning) {
       panelBridge.stop();
@@ -210,7 +219,9 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 // Routes
 import serverRoutes from "./routes/server.js";
+import discoveryRoutes from "./routes/discovery.js";
 import serversRoutes from "./routes/servers.js";
+import serverStatusRoutes from "./routes/serverStatus.js";
 import serverFilesRoutes from "./routes/serverFiles.js";
 import playerRoutes from "./routes/players.js";
 import rconRoutes from "./routes/rcon.js";
@@ -219,11 +230,15 @@ import schedulerRoutes from "./routes/scheduler.js";
 import modsRoutes from "./routes/mods.js";
 import chunksRoutes from "./routes/chunks.js";
 import discordRoutes from "./routes/discord.js";
-import debugRoutes, { addLogToBuffer, getDiskFree } from "./routes/debug.js";
+import debugRoutes, { addLogToBuffer } from "./routes/debug.js";
+import { getDiskFree } from "./utils/diskSpace.js";
 import serverFinderRoutes from "./routes/serverFinder.js";
 import panelBridgeRoutes from "./routes/panelBridge.js";
 import backupRoutes from "./routes/backup.js";
 import mapProxyRoutes from "./routes/mapProxy.js";
+import systemRoutes from "./routes/system.js";
+import templatesRoutes from "./routes/templates.js";
+import dockerRoutes from "./routes/docker.js";
 import panelBridge from "./services/panelBridge.js";
 
 dotenv.config();
@@ -592,6 +607,7 @@ app.use("/api/server/start", strictLimiter);
 app.use("/api/server/stop", strictLimiter);
 app.use("/api/server/force-stop", strictLimiter);
 app.use("/api/server/restart", strictLimiter);
+app.use("/api/docker/containers", strictLimiter);
 app.use("/api/backup/restore", strictLimiter);
 app.use("/api/backup/delete-older-than", strictLimiter);
 app.use("/api/backup/upload", strictLimiter);
@@ -602,12 +618,16 @@ app.use("/api/server-files/raw", strictLimiter);
 app.use("/api/server-files/restore", strictLimiter);
 app.use("/api/server-files/save-and-reload", strictLimiter);
 app.use("/api/panel-bridge/install-mod", strictLimiter);
+app.use("/api/panel-bridge/install-local", strictLimiter);
 app.use("/api/panel-bridge/character/export", strictLimiter);
 app.use("/api/panel-bridge/character/import", strictLimiter);
 app.use("/api/panel/update-check", strictLimiter);
 app.use("/api/panel/update-download", strictLimiter);
 app.use("/api/panel/update-preflight", strictLimiter);
 app.use("/api/panel/restart", strictLimiter);
+// Writes server.ini and SandboxVars.lua directly — same risk class as
+// server-files/save-and-reload above.
+app.use("/api/templates/:id/apply", strictLimiter);
 // Browser cookie extraction spawns PowerShell for DPAPI unwrap — expensive
 // and platform-sensitive, so keep it under the destructive limiter too.
 app.use("/api/mods/collection/extract-cookies", strictLimiter);
@@ -648,6 +668,7 @@ app.use("/api/panel-bridge/command", panelBridgeCommandLimiter);
 // Initialize services
 const rconService = new RconService();
 const serverManager = new ServerManager();
+const dockerClient = new DockerClient();
 const modChecker = new ModChecker();
 const logTailer = new LogTailer();
 const scheduler = new Scheduler(rconService, serverManager);
@@ -1022,6 +1043,7 @@ panelBridge.on("playerDisconnect", (playerName) => {
 // Make services available to routes
 app.set("rconService", rconService);
 app.set("serverManager", serverManager);
+app.set("dockerClient", dockerClient);
 app.set("modChecker", modChecker);
 app.set("scheduler", scheduler);
 app.set("discordBot", discordBot);
@@ -1040,12 +1062,23 @@ app.set("updateChecker", updateChecker);
 const panelUpdateChecker = new PanelUpdateChecker(io);
 app.set("panelUpdateChecker", panelUpdateChecker);
 
+// Disk-space monitor for the active server's save volume (P0: a full disk
+// during save corrupts worlds). Polls every 60s and emits disk:warning /
+// disk:critical / disk:normal over the same socket.
+const diskMonitor = new DiskMonitor(io);
+app.set("diskMonitor", diskMonitor);
+
 // Auth routes (must be before other API routes)
 app.use("/api/auth", authRoutes);
 
 // API Routes
 app.use("/api/server", serverRoutes);
+// Mounted BEFORE serversRoutes: its literal /discover-mounts and
+// /create-from-discovery paths must match before servers.js's GET /:id
+// catch-all would otherwise swallow them as a server-id lookup.
+app.use("/api/servers", discoveryRoutes);
 app.use("/api/servers", serversRoutes);
+app.use("/api/servers", serverStatusRoutes);
 app.use("/api/server-files", serverFilesRoutes);
 app.use("/api/players", playerRoutes);
 app.use("/api/rcon", rconRoutes);
@@ -1059,6 +1092,9 @@ app.use("/api/server-finder", serverFinderRoutes);
 app.use("/api/panel-bridge", panelBridgeRoutes);
 app.use("/api/backup", backupRoutes);
 app.use("/api/map", mapProxyRoutes);
+app.use("/api/system", systemRoutes);
+app.use("/api/templates", templatesRoutes);
+app.use("/api/docker", dockerRoutes);
 
 // Health check + panel version
 // In exe builds, PANEL_VERSION is injected by esbuild at compile time.
@@ -2448,6 +2484,9 @@ async function start() {
     // Start panel self-update checker
     panelUpdateChecker.start(_pkgVersion);
 
+    // Start disk-space monitor for the active server's save volume
+    diskMonitor.start();
+
     // Read panel port from DB (saved via Settings UI), fallback to env or 3001
     const savedPort = await getSetting("panelPort");
     const PORT = process.env.PORT || savedPort || 3001;
@@ -2520,6 +2559,23 @@ async function start() {
           });
         }
         logReady(urls);
+
+        // If PZ server files were bind-mounted in but no server profile has
+        // been created yet, point the user at Settings instead of leaving
+        // them to guess a Docker mount path manually.
+        try {
+          const existingServers = await getServers();
+          if (!existingServers || existingServers.length === 0) {
+            const mounts = discoverMounts();
+            if (mounts.length > 0) {
+              log.info(
+                `PZ server files detected at ${mounts[0].installPath} — visit Settings to connect`,
+              );
+            }
+          }
+        } catch (err) {
+          log.debug(`Mount auto-discovery check failed: ${err.message}`);
+        }
 
         // Linux/CentOS: Check for common issues at startup
         if (process.platform !== "win32") {

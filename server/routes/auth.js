@@ -64,6 +64,23 @@ function normalizeIpAddress(address) {
   return withoutZone.startsWith("::ffff:") ? withoutZone.slice(7) : withoutZone;
 }
 
+// Docker's default bridge network pool (172.17.0.0/16 through
+// 172.31.0.0/16, i.e. all of 172.16.0.0/12). When this process runs
+// directly on a Docker host, os.networkInterfaces() includes the docker0 /
+// custom-bridge gateway addresses as "this machine's own" addresses. Docker
+// hairpin NAT can make a connection FROM any container TO a host-published
+// port on this panel arrive with a source address rewritten to the bridge
+// gateway IP — so trusting those addresses as "local" would let any
+// container on the host bypass the local-only reset-token protection.
+// Loopback is unaffected: it's added separately below and always trusted.
+function isDockerBridgeAddress(address) {
+  const match = /^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/.exec(address);
+  if (!match) return false;
+  const first = Number(match[1]);
+  const second = Number(match[2]);
+  return first === 172 && second >= 16 && second <= 31;
+}
+
 function getLocalPanelAddresses() {
   const addresses = new Set(
     [...LOOPBACK_REMOTE_ADDRESSES]
@@ -75,7 +92,7 @@ function getLocalPanelAddresses() {
   for (const entries of Object.values(interfaces)) {
     for (const entry of entries || []) {
       const normalized = normalizeIpAddress(entry.address);
-      if (normalized) {
+      if (normalized && !isDockerBridgeAddress(normalized)) {
         addresses.add(normalized);
       }
     }

@@ -67,6 +67,7 @@ const defaultData = {
   player_notes: [],
   player_stats: [],
   mod_presets: [],
+  user_templates: [],
   steamid_bans: [],
   performance_history: [],
   bridge_logs: [],
@@ -119,6 +120,11 @@ const WRITE_BACKOFF_MAX_MS = 16_000;
 // Circuit breaker: once tripped, refuse to schedule further writes for a cooldown.
 let _writeCircuitOpenUntil = 0;
 const CIRCUIT_OPEN_MS = 60_000;
+// State surfaced read-only via getCircuitBreakerStatus() below — purely
+// observational, never read by the write path itself, so adding these
+// doesn't change any circuit-breaker behavior.
+let _lastWriteError = null;
+let _circuitFailCount = 0;
 let _backupTimer = null;
 let _shutdownRegistered = false;
 
@@ -188,14 +194,18 @@ export async function flushWrites() {
       }
       fs.renameSync(tmpPath, dbPath);
       _writeRetries = 0; // Reset on success
+      _lastWriteError = null;
+      _circuitFailCount = 0;
       log.debug(`DB flushed (${Math.round(data.length / 1024)}KB)`);
     } catch (err) {
       _writeRetries++;
+      _lastWriteError = err.message;
       if (_writeRetries >= MAX_WRITE_RETRIES) {
         log.error(
           `DB write failed ${_writeRetries} times, opening circuit breaker for ${CIRCUIT_OPEN_MS / 1000}s: ${err.message}`,
         );
         // Open the circuit — stop scheduling writes for a cooldown so we don't pin the event loop.
+        _circuitFailCount = _writeRetries;
         _writeCircuitOpenUntil = Date.now() + CIRCUIT_OPEN_MS;
         _writeRetries = 0;
         _dirty = true; // Keep dirty; next scheduleWrite after cooldown will retry.
@@ -221,6 +231,25 @@ export async function flushWrites() {
 
   await _writePromise;
   _writePromise = null;
+}
+
+/**
+ * Read-only snapshot of the write circuit breaker's current state, for
+ * surfacing storage health to the UI. `failCount` reflects the consecutive
+ * failures that most recently tripped the breaker while it's open (the
+ * write path resets its own retry counter on open — see flushWrites above),
+ * and the live retry count once it's closed again.
+ */
+export function getCircuitBreakerStatus() {
+  const open = Date.now() < _writeCircuitOpenUntil;
+  return {
+    open,
+    lastError: _lastWriteError,
+    failCount: open ? _circuitFailCount : _writeRetries,
+    cooldownEndsAt: open
+      ? new Date(_writeCircuitOpenUntil).toISOString()
+      : null,
+  };
 }
 
 /**
@@ -614,6 +643,7 @@ function getDatabaseStatsSync() {
       player_notes: data.player_notes?.length ?? 0,
       player_stats: data.player_stats?.length ?? 0,
       mod_presets: data.mod_presets?.length ?? 0,
+      user_templates: data.user_templates?.length ?? 0,
       performance_history: data.performance_history?.length ?? 0,
       bridge_logs: data.bridge_logs?.length ?? 0,
       discord_webhooks: data.discord_webhooks?.length ?? 0,
@@ -1263,10 +1293,25 @@ export async function getAllSettings() {
 // Server Configurations (Multi-server)
 // ============================================
 
-function normalizeServerMemory(server) {
+// Falls back to the docker-compose PZ_SERVER_PATH / PZ_SAVE_PATH env vars when
+// a stored server profile has no path configured, and auto-detects isRemote
+// from whether the resolved paths exist on this host.
+export function normalizeServerMemory(server) {
   if (!server) return server;
+  const installPath = server.installPath || process.env.PZ_SERVER_PATH || "";
+  const zomboidDataPath =
+    server.zomboidDataPath || process.env.PZ_SAVE_PATH || null;
+
+  const pathsConfigured = Boolean(installPath || zomboidDataPath);
+  const pathsExistLocally =
+    Boolean(installPath && fs.existsSync(installPath)) ||
+    Boolean(zomboidDataPath && fs.existsSync(zomboidDataPath));
+
   return {
     ...server,
+    installPath,
+    zomboidDataPath,
+    isRemote: pathsConfigured ? !pathsExistLocally : server.isRemote || false,
     minMemory: normalizeMemoryGb(server.minMemory, 4),
     maxMemory: normalizeMemoryGb(server.maxMemory, 8),
   };
@@ -1646,6 +1691,50 @@ export async function deleteModPreset(id) {
   if (index === -1) return false;
 
   db.data.mod_presets.splice(index, 1);
+  scheduleWrite();
+  return true;
+}
+
+// ============================================
+// Simulation Templates (user-created; built-ins live under server/data/templates)
+// ============================================
+
+export async function getUserTemplates() {
+  const db = await getDb();
+  if (!db.data.user_templates) db.data.user_templates = [];
+  return db.data.user_templates;
+}
+
+export async function getUserTemplate(id) {
+  const db = await getDb();
+  if (!db.data.user_templates) db.data.user_templates = [];
+  return db.data.user_templates.find((t) => t.meta?.id === id) || null;
+}
+
+export async function saveUserTemplate(template) {
+  const db = await getDb();
+  if (!db.data.user_templates) db.data.user_templates = [];
+
+  const index = db.data.user_templates.findIndex(
+    (t) => t.meta?.id === template.meta?.id,
+  );
+  if (index === -1) {
+    db.data.user_templates.push(template);
+  } else {
+    db.data.user_templates[index] = template;
+  }
+  scheduleWrite();
+  return template;
+}
+
+export async function deleteUserTemplate(id) {
+  const db = await getDb();
+  if (!db.data.user_templates) return false;
+
+  const index = db.data.user_templates.findIndex((t) => t.meta?.id === id);
+  if (index === -1) return false;
+
+  db.data.user_templates.splice(index, 1);
   scheduleWrite();
   return true;
 }

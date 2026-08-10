@@ -717,6 +717,12 @@ export const playersApi = {
     ),
 };
 
+export interface RconTestResult {
+  success: boolean;
+  error?: "unreachable" | "auth_failed" | "invalid_input" | "internal_error";
+  detail: string;
+}
+
 // RCON API
 export const rconApi = {
   execute: (command: string) => apiPost("/rcon/execute", { command }),
@@ -726,6 +732,8 @@ export const rconApi = {
   disconnect: () => apiPost("/rcon/disconnect"),
   getHistory: (limit?: number) => apiGet(`/rcon/history?limit=${limit || 100}`),
   getCommands: () => apiGet("/rcon/commands"),
+  testConnection: (host: string, port: number, password: string) =>
+    apiPost<RconTestResult>("/rcon/test", { host, port, password }),
 };
 
 // Scheduler API
@@ -1443,6 +1451,7 @@ export interface ServerInstance {
   installPath: string;
   zomboidDataPath: string | null;
   serverConfigPath: string | null;
+  dockerContainerName?: string | null;
   branch?: string;
   rconHost: string;
   rconPort: number;
@@ -1461,11 +1470,44 @@ export interface ServerInstance {
   createdAt: string;
 }
 
+// Mount discovery — probes common Docker bind-mount locations for PZ server
+// files so a fresh panel can offer a one-click "connect this" profile.
+export interface DiscoveredMount {
+  installPath: string;
+  dataPath: string | null;
+  source: string;
+  serverNames: string[];
+  hasStartScript: boolean;
+  hasPanelBridge: boolean;
+}
+
+// One signal (host / server / bridge) from GET /servers/active/status — see
+// server/utils/serverStatusModel.js for the full set of `status` values per
+// signal (they differ: host uses running/stopped/unknown/not-applicable,
+// server uses connected/disconnected/connecting, bridge uses
+// active/offline/not-installed).
+export interface ServerStatusSignal {
+  status: string;
+  label: string;
+  detail: string | null;
+}
+
+export interface ComposedServerStatus {
+  provider: string;
+  selected: boolean;
+  host: ServerStatusSignal;
+  server: ServerStatusSignal;
+  bridge: ServerStatusSignal;
+  summary: string;
+}
+
 // Servers API (multi-server management)
 export const serversApi = {
   getAll: () => apiGet("/servers") as Promise<{ servers: ServerInstance[] }>,
   getActive: () =>
     apiGet("/servers/active") as Promise<{ server: ServerInstance }>,
+  getComposedStatus: () =>
+    apiGet("/servers/active/status") as Promise<ComposedServerStatus>,
   getResolvedActive: async () => {
     const data = (await apiGet("/servers")) as { servers: ServerInstance[] };
     return {
@@ -1486,6 +1528,10 @@ export const serversApi = {
       }>;
       detectedProcesses: number;
       detectionError: string | null;
+    }>,
+  getRconStatuses: () =>
+    apiGet("/servers/rcon-status") as Promise<{
+      servers: Array<{ id: string; status: "connected" | "unreachable" | "auth_failed" | "unconfigured" | "unavailable" }>;
     }>,
   get: (id: string | number) =>
     apiGet(`/servers/${id}`) as Promise<{ server: ServerInstance }>,
@@ -1531,6 +1577,61 @@ export const serversApi = {
       branch,
       validateFiles: true,
     }) as Promise<{ success: boolean; message: string }>,
+
+  // Probe common Docker bind-mount locations for PZ server files.
+  discoverMounts: () =>
+    apiGet("/servers/discover-mounts") as Promise<{
+      mounts: DiscoveredMount[];
+    }>,
+
+  // Turn a discover-mounts result into a fully-populated server profile —
+  // RCON settings are read server-side from the discovered server's own INI.
+  createFromDiscovery: (data: {
+    installPath: string;
+    dataPath: string;
+    serverName?: string;
+    name?: string;
+  }) =>
+    apiPost("/servers/create-from-discovery", data) as Promise<{
+      server: ServerInstance;
+      message: string;
+    }>,
+};
+
+export interface DockerContainerSummary {
+  id: string;
+  name: string;
+  image: string;
+  state: string;
+  status: string;
+}
+
+export interface DockerContainerStats {
+  cpuPercent: number;
+  memoryUsed: number;
+  memoryLimit: number;
+  memoryPercent: number;
+  networkRx: number;
+  networkTx: number;
+  diskRead: number;
+  diskWrite: number;
+}
+
+export const dockerApi = {
+  getStatus: () => apiGet("/docker/status") as Promise<{
+    enabled: boolean;
+    available: boolean;
+    containers: DockerContainerSummary[];
+  }>,
+  getStats: () => apiGet("/docker/stats") as Promise<{
+    containers: Record<string, DockerContainerStats>;
+  }>,
+  runAction: (id: string, action: "start" | "stop" | "restart", serverId: string | number) =>
+    apiPost(`/docker/containers/${encodeURIComponent(id)}/${action}`, { serverId }) as Promise<{
+      success: boolean;
+      message?: string;
+      error?: string;
+    }>,
 };
 
 // Server Files API (INI, Sandbox, Spawn Points)
@@ -1577,6 +1678,23 @@ export interface BackupFile {
   filename: string;
   size: number;
   created: string;
+}
+
+export interface BackupHistoryRecord {
+  id: string;
+  fileName: string;
+  createdAt: string;
+  size: number;
+  serverId: string | number | null;
+  serverName: string;
+}
+
+export interface BackupSnapshot {
+  schemaVersion: number;
+  createdAt: string;
+  server: { id: string | number | null; name: string; provider: string };
+  serverIni: Record<string, string>;
+  sandboxVars: Record<string, string | number | boolean>;
 }
 
 export interface ConfigTemplate {
@@ -1752,6 +1870,123 @@ export const serverFilesApi = {
     const blob = await response.blob();
     return URL.createObjectURL(blob);
   },
+};
+
+// =============================================
+// SIMULATION TEMPLATES API (server/routes/templates.js)
+// Named "Sim*" to avoid colliding with the unrelated raw ini/sandbox
+// ConfigTemplate types above (server/routes/serverFiles.js templates).
+// =============================================
+export interface SimTemplateMeta {
+  id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  pzBuild: string;
+  createdAt?: string;
+}
+
+export interface SimTemplateModRef {
+  workshopId: string;
+  modId?: string;
+  name?: string;
+}
+
+export type SimTemplateValueMap = Record<string, string | number | boolean>;
+
+export interface SimTemplate {
+  schemaVersion: number;
+  meta: SimTemplateMeta;
+  sandboxVars: Record<string, SimTemplateValueMap>;
+  serverIni: SimTemplateValueMap;
+  iniExclusions: string[];
+  mods: SimTemplateModRef[];
+  map: { mapId: string };
+  difficulty: { level?: string };
+  isBuiltin?: boolean;
+}
+
+export interface SimTemplateDiff {
+  serverIni: Array<{ key: string; from: unknown; to: unknown }>;
+  sandboxVars: Array<{
+    section: string;
+    key: string;
+    from: unknown;
+    to: unknown;
+  }>;
+  summary: { iniChanges: number; sandboxChanges: number; totalChanges: number };
+}
+
+export interface SimTemplateApplyResult {
+  success: boolean;
+  ini: { appliedKeys: string[] } | null;
+  sandbox:
+    | { applied: Array<{ section: string; key: string }>; skipped: Array<{ section: string; key: string }> }
+    | { skipped: true; reason: string }
+    | null;
+  backups: string[];
+  error?: string;
+}
+
+export const templatesApi = {
+  list: () => apiGet("/templates") as Promise<{ templates: SimTemplate[] }>,
+  get: (id: string) =>
+    apiGet(`/templates/${encodeURIComponent(id)}`) as Promise<{
+      template: SimTemplate;
+    }>,
+  // Create either from scratch (pass name/description/tags/sandboxVars/serverIni)
+  // or a full exported template object re-saved as a new user template.
+  create: (input: Record<string, unknown>) =>
+    apiPost("/templates", input) as Promise<{
+      success: boolean;
+      template?: SimTemplate;
+      error?: string;
+    }>,
+  import: (template: unknown) =>
+    apiPost("/templates/import", { template }) as Promise<{
+      success: boolean;
+      template?: SimTemplate;
+      error?: string;
+    }>,
+  // Returns the raw template JSON (server sets Content-Disposition, but we
+  // fetch it as data and build our own .pztemplate.json blob client-side —
+  // see downloadExport — so the extension matches this feature's format).
+  export: (id: string) =>
+    apiGet(`/templates/${encodeURIComponent(id)}/export`) as Promise<SimTemplate>,
+  downloadExport: async (id: string, filenameBase: string) => {
+    const template = await apiGet<SimTemplate>(
+      `/templates/${encodeURIComponent(id)}/export`,
+    );
+    const blob = new Blob([JSON.stringify(template, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${filenameBase || id}.pztemplate.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
+  preview: (id: string, serverId: string | number) =>
+    apiPost(`/templates/${encodeURIComponent(id)}/preview`, {
+      serverId,
+    }) as Promise<{ success: boolean; diff?: SimTemplateDiff; error?: string }>,
+  apply: (
+    id: string,
+    serverId: string | number,
+    options?: { backup?: boolean; applyIni?: boolean; applySandbox?: boolean },
+  ) =>
+    apiPost(`/templates/${encodeURIComponent(id)}/apply`, {
+      serverId,
+      options,
+    }) as Promise<SimTemplateApplyResult>,
+  delete: (id: string) =>
+    apiDelete(`/templates/${encodeURIComponent(id)}`) as Promise<{
+      success: boolean;
+      error?: string;
+    }>,
 };
 
 // Panel Bridge API (for direct Lua mod communication)
@@ -2387,6 +2622,14 @@ export const backupApi = {
   // Get list of backups
   listBackups: (): Promise<{ backups: BackupFile[] }> => apiGet("/backup/list"),
 
+  getHistory: (serverId?: string | number) =>
+    apiGet(`/backup/history${serverId != null ? `?serverId=${encodeURIComponent(serverId)}` : ""}`) as Promise<{
+      records: BackupHistoryRecord[];
+    }>,
+
+  getSnapshot: (name: string): Promise<{ success: boolean; snapshot?: BackupSnapshot; message?: string }> =>
+    apiGet(`/backup/${encodeURIComponent(name)}/snapshot`),
+
   // Update backup settings
   updateSettings: (
     settings: Partial<BackupSettings>,
@@ -2715,4 +2958,37 @@ export const panelUpdateApi = {
     apiPost("/panel/update-download", { confirm }),
   getApplyLog: (): Promise<{ log: string | null }> =>
     apiGet("/panel/update-apply-log"),
+};
+
+// Disk-space + write circuit-breaker health (P0 data-loss surfacing)
+export interface DiskSpaceStatus {
+  path: string | null;
+  totalBytes: number;
+  freeBytes: number;
+  usedPercent: number;
+  warning: boolean;
+  critical: boolean;
+}
+
+export interface DiskSpaceReport {
+  saveVolume: DiskSpaceStatus | null;
+  panelData: DiskSpaceStatus;
+}
+
+export interface CircuitBreakerStatus {
+  open: boolean;
+  lastError: string | null;
+  failCount: number;
+  cooldownEndsAt: string | null;
+}
+
+export interface StorageHealth {
+  diskSpace: DiskSpaceReport;
+  circuitBreaker: CircuitBreakerStatus;
+}
+
+export const systemApi = {
+  getDiskSpace: (): Promise<DiskSpaceReport> => apiGet("/system/disk-space"),
+  getStorageHealth: (): Promise<StorageHealth> =>
+    apiGet("/system/storage-health"),
 };

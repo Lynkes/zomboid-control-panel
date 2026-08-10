@@ -130,3 +130,46 @@ describe("restoreBackup archive safety", () => {
     expect(leftovers).toEqual([]);
   });
 });
+
+describe("getBackupSnapshot", () => {
+  it("reads the embedded panel server snapshot", async () => {
+    const backupPath = path.join(backupsPath, "snapshot.zip");
+    await new Promise((resolve, reject) => {
+      const output = fs.createWriteStream(backupPath);
+      const archive = archiver("zip", { zlib: { level: 0 } });
+      output.on("close", resolve);
+      output.on("error", reject);
+      archive.on("error", reject);
+      archive.pipe(output);
+      archive.append(
+        JSON.stringify({
+          schemaVersion: 1,
+          server: { name: SERVER_NAME },
+          serverIni: { PVP: "false" },
+        }),
+        { name: "panel-server-snapshot.json" },
+      );
+      archive.finalize();
+    });
+
+    const result = await createService().getBackupSnapshot("snapshot.zip");
+
+    expect(result).toEqual({
+      success: true,
+      snapshot: {
+        schemaVersion: 1,
+        server: { name: SERVER_NAME },
+        serverIni: { PVP: "false" },
+      },
+    });
+  });
+
+  it("reports a legacy archive without a panel snapshot", async () => {
+    await writeValidBackup(path.join(backupsPath, "legacy.zip"), "LEGACY");
+
+    await expect(createService().getBackupSnapshot("legacy.zip")).resolves.toEqual({
+      success: false,
+      message: "This backup has no panel snapshot",
+    });
+  });
+});

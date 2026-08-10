@@ -52,6 +52,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { PageHeader } from "@/components/PageHeader";
+import { PasswordInput } from "@/components/PasswordInput";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -71,6 +72,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/components/ui/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import { EmptyState } from "@/components/EmptyState";
 import {
   configApi,
@@ -1781,6 +1783,11 @@ export default function Settings() {
             result.error ||
             "No response from PanelBridge.lua. Make sure the game server is running and the mod is enabled.",
           variant: "destructive",
+          action: (
+            <ToastAction altText="Open PanelBridge settings" onClick={() => handleTabChange("bridge")}>
+              Open Bridge
+            </ToastAction>
+          ),
         });
       }
     } catch (error) {
@@ -1791,6 +1798,11 @@ export default function Settings() {
             ? error.message
             : "The panel could not ping the mod. Confirm the server is running with PanelBridge enabled.",
         variant: "destructive",
+        action: (
+          <ToastAction altText="Open PanelBridge settings" onClick={() => handleTabChange("bridge")}>
+            Open Bridge
+          </ToastAction>
+        ),
       });
     } finally {
       setPinging(false);
@@ -3974,7 +3986,7 @@ export default function Settings() {
                         <div className="space-y-1.5"><Label htmlFor="sftp-host">SFTP host</Label><Input id="sftp-host" value={settings.panelBridgeSftpHost} onChange={(event) => updateSetting("panelBridgeSftpHost", event.target.value)} placeholder="pz.example.net" /></div>
                         <div className="space-y-1.5"><Label htmlFor="sftp-port">Port</Label><Input id="sftp-port" inputMode="numeric" value={settings.panelBridgeSftpPort} onChange={(event) => updateSetting("panelBridgeSftpPort", event.target.value)} /></div>
                         <div className="space-y-1.5"><Label htmlFor="sftp-user">Username</Label><Input id="sftp-user" autoComplete="username" value={settings.panelBridgeSftpUsername} onChange={(event) => updateSetting("panelBridgeSftpUsername", event.target.value)} /></div>
-                        <div className="space-y-1.5"><Label htmlFor="sftp-password">Password</Label><Input id="sftp-password" type="password" autoComplete="current-password" value={settings.panelBridgeSftpPassword} onChange={(event) => updateSetting("panelBridgeSftpPassword", event.target.value)} placeholder="Stored securely" /></div>
+                        <div className="space-y-1.5"><Label htmlFor="sftp-password">Password</Label><PasswordInput id="sftp-password" autoComplete="current-password" value={settings.panelBridgeSftpPassword} onChange={(value) => updateSetting("panelBridgeSftpPassword", value)} placeholder="Stored securely" label="SFTP password" /></div>
                       </div>
                       <div className="space-y-1.5"><Label htmlFor="sftp-bridge-path">Remote bridge folder</Label><Input id="sftp-bridge-path" value={settings.panelBridgeSftpBridgePath} onChange={(event) => updateSetting("panelBridgeSftpBridgePath", event.target.value)} placeholder="/home/pz/Zomboid/Lua/panelbridge/MyServer" /></div>
                       <div className="flex flex-wrap items-end gap-3">

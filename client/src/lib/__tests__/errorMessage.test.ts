@@ -1,5 +1,20 @@
-import { describe, it, expect } from 'vitest'
-import { getUserErrorMessage } from '../errorMessage'
+import { describe, expect, it } from 'vitest'
+import { ApiError } from '../api'
+import { getRecoveryUrl, getUserErrorMessage } from '../errorMessage'
+
+describe('getRecoveryUrl', () => {
+  it('uses the server-provided recovery destination', () => {
+    expect(getRecoveryUrl(new ApiError('Bridge not running', { data: { fixUrl: '/settings?tab=bridge' } }))).toBe('/settings?tab=bridge')
+  })
+
+  it('maps established RCON failures to connection settings', () => {
+    expect(getRecoveryUrl(new Error('RCON authentication failed'))).toBe('/settings?tab=connection')
+  })
+
+  it('does not create a destination for unrelated failures', () => {
+    expect(getRecoveryUrl(new Error('Network timeout'))).toBeNull()
+  })
+})
 
 class MockApiError extends Error {
   status?: number

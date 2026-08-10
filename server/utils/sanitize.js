@@ -3,6 +3,64 @@
  * Strips filesystem paths and other sensitive info that could aid attackers.
  */
 
+// Matches any settings/config key that holds a credential-shaped value.
+// Pattern-based (rather than an explicit key allowlist) so a newly added
+// secret (e.g. jwtSecret, discordBotToken) is masked automatically instead
+// of leaking until someone remembers to add it to a list.
+export const SENSITIVE_FIELD_RE =
+  /password|secret|token|apikey|api_key|jwt|sessionid|loginsecure|cookie|webhook/i;
+
+/**
+ * Detect a value that is just the bullet-mask sentinel we send to clients
+ * (see maskSecretValue/maskSensitiveObject below). Used to avoid writing the
+ * masked placeholder back over a real stored secret when a client echoes an
+ * unmodified masked field back on save.
+ */
+export function isMaskedSecret(value) {
+  if (typeof value !== "string" || value.length === 0) return false;
+  if (value.startsWith("••••••••")) return true;
+  if (/^[•*●○]+$/.test(value)) return true;
+  return false;
+}
+
+/** Mask a secret string, keeping only its last 4 characters for reference. */
+export function maskSecretValue(value) {
+  if (typeof value !== "string" || value.length === 0) return value;
+  return "••••••••" + value.slice(-4);
+}
+
+/**
+ * Shallow-mask every string field whose key looks secret-like
+ * (SENSITIVE_FIELD_RE). Used for API responses that echo back settings or
+ * DB records containing credentials (RCON/admin passwords, tokens, cookies).
+ */
+export function maskSensitiveObject(obj) {
+  if (!obj || typeof obj !== "object") return obj;
+  const masked = { ...obj };
+  for (const [key, value] of Object.entries(masked)) {
+    if (SENSITIVE_FIELD_RE.test(key) && typeof value === "string" && value) {
+      masked[key] = maskSecretValue(value);
+    }
+  }
+  return masked;
+}
+
+/**
+ * Mask a single server record's credentials (rconPassword, adminPassword,
+ * ...) before it goes out over the API. Every /api/servers response —
+ * list, single, create, update, activate, detect, auto-scan — must go
+ * through this so a non-admin authenticated user (or a compromised
+ * frontend origin) can't read a running server's RCON/admin password.
+ */
+export function sanitizeServerResponse(server) {
+  return maskSensitiveObject(server);
+}
+
+/** Map sanitizeServerResponse over an array of server records. */
+export function sanitizeServerResponseList(servers) {
+  return Array.isArray(servers) ? servers.map(sanitizeServerResponse) : servers;
+}
+
 // Matches Windows absolute paths like C:\Users\foo\bar or D:\something
 const WIN_PATH_RE = /[A-Z]:\\[^\s'")\]>}]+/gi;
 // Matches Windows forward-slash paths like C:/Users/foo/bar (Node.js sometimes normalizes to this)

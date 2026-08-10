@@ -3,8 +3,13 @@ import fs from "fs";
 import path from "path";
 import { createLogger } from "../utils/logger.js";
 const log = createLogger("API:Servers");
-import { sanitizeError } from "../utils/sanitize.js";
-import { normalizeRconHost } from "../services/rcon.js";
+import {
+  sanitizeError,
+  sanitizeServerResponse,
+  sanitizeServerResponseList,
+  isMaskedSecret,
+} from "../utils/sanitize.js";
+import { normalizeRconHost, testRconConnection } from "../services/rcon.js";
 import {
   getServers,
   getServer,
@@ -16,8 +21,64 @@ import {
   getAllSettings,
 } from "../database/init.js";
 import { isRemoteConfigConfigured } from "../services/remoteConfigFiles.js";
+import { requireRole } from "../services/auth.js";
+import {
+  canAutoInstall,
+  checkBridgeInstalled,
+  installBridge,
+} from "../services/panelBridgeInstaller.js";
 
 const router = express.Router();
+
+// serverName is interpolated into filesystem paths (server-files, backups,
+// chunks) as `${serverName}.ini` etc. — reject anything but a plain,
+// non-traversal-capable name up front instead of relying on every
+// downstream path-building call site to re-validate it.
+const SERVER_NAME_REGEX =
+  /^[a-zA-Z0-9_-][a-zA-Z0-9_\- ]*[a-zA-Z0-9_-]$|^[a-zA-Z0-9_-]$/;
+
+function isValidServerName(value) {
+  return typeof value === "string" && SERVER_NAME_REGEX.test(value);
+}
+
+function isValidDockerContainerRef(value) {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(value);
+}
+
+async function mapWithConcurrency(items, limit, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await mapper(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+// Auto-install/update PanelBridge.lua on the newly-activated server when the
+// panel has direct filesystem access to its install directory. Best-effort:
+// logs and swallows any failure rather than affecting activation.
+function autoInstallBridgeIfNeeded(server) {
+  try {
+    if (!canAutoInstall(server)) return;
+    const status = checkBridgeInstalled(server);
+    if (status.installed && !status.needsUpdate) return;
+
+    const result = installBridge(server);
+    if (result.success) {
+      log.info(
+        `PanelBridge ${status.installed ? "updated" : "installed"} at ${result.targetPath} (v${result.version || "unknown"})`,
+      );
+    } else {
+      log.warn(`PanelBridge auto-install failed: ${result.error}`);
+    }
+  } catch (error) {
+    log.warn(`PanelBridge auto-install check failed: ${error.message}`);
+  }
+}
 
 function normalizeMemoryGb(value, fallback) {
   const parsed = parseInt(value, 10);
@@ -158,7 +219,10 @@ function scanForPzPaths(rootPath, maxDepth = 3) {
 }
 
 // Auto-scan a folder to find PZ server install paths and data paths
-router.post("/auto-scan", async (req, res) => {
+// Reads arbitrary local server .ini files and returns their RCON passwords
+// in plaintext to prefill the "create server" form — admin-only, same
+// sensitivity tier as chunks delete / panel-bridge command execution.
+router.post("/auto-scan", requireRole("admin"), async (req, res) => {
   try {
     const { scanPath, maxDepth = 3 } = req.body;
 
@@ -269,7 +333,8 @@ router.post("/auto-scan", async (req, res) => {
 });
 
 // Detect server settings from data path (folder containing Server/, Saves/, Logs/)
-router.post("/detect", async (req, res) => {
+// Same as /auto-scan: exposes RCON passwords read straight off disk.
+router.post("/detect", requireRole("admin"), async (req, res) => {
   try {
     const { dataPath, installPath } = req.body;
     log.info(
@@ -388,7 +453,7 @@ router.post("/detect", async (req, res) => {
 router.get("/", async (req, res) => {
   try {
     const servers = await getServers();
-    res.json({ servers });
+    res.json({ servers: sanitizeServerResponseList(servers) });
   } catch (error) {
     log.error(`Failed to get servers: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -468,6 +533,33 @@ router.get("/status", async (req, res) => {
   }
 });
 
+// Lightweight, bounded RCON connectivity probe for every configured server.
+// It creates no persistent connections and never returns credential material.
+router.get("/rcon-status", async (req, res) => {
+  try {
+    const servers = await getServers();
+    const statuses = await mapWithConcurrency(servers, 3, async (server) => {
+      if (!server.rconHost || !server.rconPort) {
+        return { id: server.id, status: "unconfigured" };
+      }
+      const result = await testRconConnection({
+        host: normalizeRconHost(server.rconHost),
+        port: Number(server.rconPort),
+        password: server.rconPassword || "",
+        timeoutMs: 3000,
+      });
+      return {
+        id: server.id,
+        status: result.success ? "connected" : result.error || "unavailable",
+      };
+    });
+    res.json({ servers: statuses });
+  } catch (error) {
+    log.error(`Failed to probe server RCON status: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
 // Get active server
 router.get("/active", async (req, res) => {
   try {
@@ -480,7 +572,9 @@ router.get("/active", async (req, res) => {
     const remoteConfigConfigured = server.isRemote
       ? isRemoteConfigConfigured(await getAllSettings())
       : false;
-    res.json({ server: { ...server, remoteConfigConfigured } });
+    res.json({
+      server: sanitizeServerResponse({ ...server, remoteConfigConfigured }),
+    });
   } catch (error) {
     log.error(`Failed to get active server: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -503,7 +597,7 @@ router.get("/:id", async (req, res) => {
       return res.status(404).json({ error: "Server not found" });
     }
 
-    res.json({ server });
+    res.json({ server: sanitizeServerResponse(server) });
   } catch (error) {
     log.error(`Failed to get server: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -517,6 +611,13 @@ router.post("/", async (req, res) => {
     log.info(
       `POST / — creating server: name=${config?.name}, remote=${!!config?.isRemote}`,
     );
+
+    // Fall back to env-configured paths (docker-compose PZ_SERVER_PATH /
+    // PZ_SAVE_PATH) when the request body doesn't set them explicitly.
+    if (!config.installPath)
+      config.installPath = process.env.PZ_SERVER_PATH || "";
+    if (!config.zomboidDataPath)
+      config.zomboidDataPath = process.env.PZ_SAVE_PATH || null;
 
     // Validate required fields - installPath not required for remote servers
     const isRemote = !!config.isRemote;
@@ -546,17 +647,17 @@ router.post("/", async (req, res) => {
 
     // Validate serverName against path traversal
     const serverName = (config.serverName || "servertest").trim();
-    if (
-      !/^[a-zA-Z0-9_-][a-zA-Z0-9_\- ]*[a-zA-Z0-9_-]$|^[a-zA-Z0-9_-]$/.test(
-        serverName,
-      )
-    ) {
+    if (!isValidServerName(serverName)) {
       return res
         .status(400)
         .json({
           error:
             "Invalid server name: only letters, numbers, underscores, hyphens and spaces allowed",
         });
+    }
+    const dockerContainerName = String(config.dockerContainerName || "").trim();
+    if (dockerContainerName && !isValidDockerContainerRef(dockerContainerName)) {
+      return res.status(400).json({ error: "Invalid Docker container name" });
     }
 
     // Validate server port if provided
@@ -573,6 +674,7 @@ router.post("/", async (req, res) => {
       installPath: config.installPath || "",
       zomboidDataPath: config.zomboidDataPath || null,
       serverConfigPath: config.serverConfigPath || null,
+      dockerContainerName: dockerContainerName || null,
       branch: config.branch || "stable",
       rconHost: normalizeRconHost(config.rconHost),
       rconPort: rconPort,
@@ -587,7 +689,10 @@ router.post("/", async (req, res) => {
     });
 
     log.info(`Created new server: ${server.name} (ID: ${server.id})`);
-    res.status(201).json({ server, message: "Server created successfully" });
+    res.status(201).json({
+      server: sanitizeServerResponse(server),
+      message: "Server created successfully",
+    });
   } catch (error) {
     log.error(`Failed to create server: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -602,6 +707,7 @@ const ALLOWED_SERVER_UPDATE_FIELDS = [
   "serverPath",
   "zomboidDataPath",
   "serverConfigPath",
+  "dockerContainerName",
   "branch",
   "rconHost",
   "rconPort",
@@ -634,6 +740,39 @@ router.put("/:id", async (req, res) => {
     for (const key of ALLOWED_SERVER_UPDATE_FIELDS) {
       if (req.body[key] !== undefined) {
         updates[key] = req.body[key];
+      }
+    }
+
+    // Validate serverName against path traversal — this field is
+    // interpolated into filesystem paths downstream (server-files, backups,
+    // chunks), so it must pass the same check as server creation.
+    if (updates.serverName !== undefined) {
+      const trimmed = String(updates.serverName).trim();
+      if (!isValidServerName(trimmed)) {
+        return res.status(400).json({
+          error:
+            "Invalid server name: only letters, numbers, underscores, hyphens and spaces allowed",
+        });
+      }
+      updates.serverName = trimmed;
+    }
+
+    if (updates.dockerContainerName !== undefined) {
+      const value = String(updates.dockerContainerName).trim();
+      if (value && !isValidDockerContainerRef(value)) {
+        return res.status(400).json({
+          error: "Invalid Docker container name",
+        });
+      }
+      updates.dockerContainerName = value || null;
+    }
+
+    // GET responses mask rconPassword/adminPassword (sanitizeServerResponse).
+    // If the client echoes that masked value back unmodified, drop the field
+    // so the real stored secret isn't overwritten with bullets.
+    for (const key of ["rconPassword", "adminPassword"]) {
+      if (updates[key] !== undefined && isMaskedSecret(updates[key])) {
+        delete updates[key];
       }
     }
 
@@ -731,7 +870,10 @@ router.put("/:id", async (req, res) => {
       }
     }
 
-    res.json({ server, message: "Server updated successfully" });
+    res.json({
+      server: sanitizeServerResponse(server),
+      message: "Server updated successfully",
+    });
   } catch (error) {
     log.error(`Failed to update server: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -811,13 +953,20 @@ router.post("/:id/activate", async (req, res) => {
       }
     }
 
+    // Best-effort: keep PanelBridge.lua current on servers the panel can
+    // reach directly on disk. Never let an install failure block activation.
+    autoInstallBridgeIfNeeded(server);
+
     // Emit to clients that active server changed
     if (io) {
       io.emit("activeServerChanged", { server });
     }
 
     log.info(`Activated server: ${server.name} (ID: ${server.id})`);
-    res.json({ server, message: `Now managing: ${server.name}` });
+    res.json({
+      server: sanitizeServerResponse(server),
+      message: `Now managing: ${server.name}`,
+    });
   } catch (error) {
     log.error(`Failed to activate server: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });

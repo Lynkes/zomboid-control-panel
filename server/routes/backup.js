@@ -5,6 +5,7 @@ import { createLogger } from "../utils/logger.js";
 import { sanitizeError } from "../utils/sanitize.js";
 import { getActiveServer } from "../database/init.js";
 import { requireRole } from "../services/auth.js";
+import { listBackupRecords } from "../services/backupRecords.js";
 const log = createLogger("API:Backup");
 
 const router = express.Router();
@@ -42,6 +43,32 @@ router.get("/list", async (req, res) => {
   } catch (error) {
     log.error(`Failed to list backups: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+router.get("/history", async (req, res) => {
+  try {
+    const limit = req.query.limit ? Number.parseInt(req.query.limit, 10) : undefined;
+    const records = await listBackupRecords({
+      serverId: req.query.serverId,
+      limit: Number.isInteger(limit) ? Math.min(Math.max(limit, 1), 500) : undefined,
+    });
+    res.json({ records });
+  } catch (error) {
+    log.error(`Failed to list backup history: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+router.get("/:name/snapshot", requireRole("admin"), async (req, res) => {
+  try {
+    const backupService = req.app.get("backupService");
+    const result = await backupService.getBackupSnapshot(req.params.name);
+    if (result.success) return res.json(result);
+    return res.status(404).json(result);
+  } catch (error) {
+    log.error(`Failed to read backup snapshot: ${error.message}`);
+    return res.status(500).json({ error: sanitizeError(error.message) });
   }
 });
 

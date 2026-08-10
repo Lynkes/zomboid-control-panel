@@ -8,6 +8,7 @@ import { getActiveServer, getAllSettings } from "../database/init.js";
 import { sanitizeError } from "../utils/sanitize.js";
 import { withFileLock, writeFileAtomic } from "../utils/fileWriteQueue.js";
 import { escapeRegExp } from "../utils/regex.js";
+import { confineToRoots } from "../utils/browseRoots.js";
 import {
   SFTP_CONFIG_PATH_KEY,
   acquireMirrorLock,
@@ -192,15 +193,28 @@ async function getServerConfigPath() {
   return path.join(os.homedir(), "Zomboid", "Server");
 }
 
-// Get server name from active server
-async function getServerName() {
+// Get server name from active server. serverName is interpolated directly
+// into filesystem paths all over this file (`${serverName}.ini`, etc.), so a
+// value containing "../" — e.g. written via a PUT /api/servers/:id that
+// skipped validation — would let those paths escape the server config
+// directory. path.basename() strips any directory component; if that
+// changes the value at all, reject it outright rather than silently using
+// a mangled name.
+export async function getServerName() {
   const activeServer = await getActiveServer();
+  let raw;
   if (activeServer?.serverName) {
-    return activeServer.serverName;
+    raw = activeServer.serverName;
+  } else {
+    const settings = await getAllSettings();
+    raw = settings.serverName || "servertest";
   }
 
-  const settings = await getAllSettings();
-  return settings.serverName || "servertest";
+  const safe = path.basename(raw);
+  if (safe !== raw || !safe) {
+    throw new Error("Configured server name contains invalid path characters");
+  }
+  return safe;
 }
 
 // Backup directory
@@ -1923,20 +1937,6 @@ async function getAllowedBrowseRoots() {
   roots.push(path.resolve(defaultConfig));
   // De-duplicate
   return [...new Set(roots)];
-}
-
-/**
- * Check whether `target` is equal to or inside one of `allowedRoots`.
- * Returns the resolved target if allowed, or null if it escapes all roots.
- */
-function confineToRoots(target, allowedRoots) {
-  const resolved = path.resolve(target);
-  for (const root of allowedRoots) {
-    if (resolved === root || resolved.startsWith(root + path.sep)) {
-      return resolved;
-    }
-  }
-  return null;
 }
 
 // GET /browse-files - List directories and files at a given path

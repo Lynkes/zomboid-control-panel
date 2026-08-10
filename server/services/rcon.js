@@ -19,6 +19,54 @@ export function normalizeRconHost(host) {
   return host.trim() || "127.0.0.1";
 }
 
+// Raw TCP reachability probe used by testRconConnection() below — separate
+// from RconService.checkPortOpen() because that method has a fixed 2s
+// timeout tuned for the background auto-reconnect loop, while a
+// user-initiated "Test Connection" click can afford (and benefits from) a
+// longer 5s window before reporting the host unreachable.
+export function checkTcpReachable(host, port, timeoutMs) {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    socket.setTimeout(timeoutMs);
+    const finish = (result) => {
+      socket.destroy();
+      resolve(result);
+    };
+    socket.once("connect", () => finish(true));
+    socket.once("timeout", () => finish(false));
+    socket.once("error", () => finish(false));
+    socket.connect(port, host);
+  });
+}
+
+// Tests arbitrary RCON credentials without touching the shared RconService
+// singleton's connection state — used by the "Test Connection" UI so a user
+// can validate host/port/password before saving them.
+export async function testRconConnection({ host, port, password, timeoutMs = 5000 }) {
+  const reachable = await checkTcpReachable(host, port, timeoutMs);
+  if (!reachable) {
+    return {
+      success: false,
+      error: "unreachable",
+      detail: "Unreachable: check host and port",
+    };
+  }
+
+  const client = new SourceRconClient({ host, port, timeout: timeoutMs });
+  try {
+    await client.authenticate(password || "");
+    return { success: true, detail: "Connected" };
+  } catch {
+    return {
+      success: false,
+      error: "auth_failed",
+      detail: "Authentication failed: check RCON password",
+    };
+  } finally {
+    client.disconnect();
+  }
+}
+
 export class RconService extends EventEmitter {
   constructor() {
     super();

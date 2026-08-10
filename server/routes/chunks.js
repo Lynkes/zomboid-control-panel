@@ -12,6 +12,7 @@ import {
 import { sanitizeError } from "../utils/sanitize.js";
 import { requireRole } from "../services/auth.js";
 import { deleteVehiclesInBoxes } from "../utils/vehiclesDb.js";
+import { confineToRoots } from "../utils/browseRoots.js";
 import {
   normalizeUserPath,
   getCandidateZomboidPaths,
@@ -1999,14 +2000,16 @@ function formatBytes(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
 
-// Browse a path — list directories for manual navigation
+// Browse a path — list directories for manual navigation. Confined to the
+// active server's zomboidDataPath so this can't be used to walk the entire
+// host filesystem (it was previously unconfined path.resolve()).
 router.get("/browse", async (req, res) => {
   try {
     const browsePath = req.query.path ? String(req.query.path) : null;
+    const zomboidDataPath = await getZomboidDataPath();
 
     if (!browsePath) {
       // Return the current zomboidDataPath as starting point
-      const zomboidDataPath = await getZomboidDataPath();
       return res.json({
         currentPath: zomboidDataPath || "",
         directories: [],
@@ -2014,7 +2017,19 @@ router.get("/browse", async (req, res) => {
       });
     }
 
-    const resolved = path.resolve(browsePath);
+    if (!zomboidDataPath) {
+      return res
+        .status(400)
+        .json({ error: "No Zomboid data path configured to browse" });
+    }
+
+    const allowedRoots = [path.resolve(zomboidDataPath)];
+    const resolved = confineToRoots(browsePath, allowedRoots);
+    if (!resolved) {
+      return res.status(403).json({
+        error: "Access denied: path is outside the server's save directory",
+      });
+    }
 
     if (!fs.existsSync(resolved)) {
       return res.status(400).json({ error: "Path does not exist" });
@@ -2063,7 +2078,10 @@ router.get("/browse", async (req, res) => {
       directories,
       hasSaves: hasSavesMultiplayer || isSavesMultiplayer || hasMapFolders,
       parent:
-        path.dirname(resolved) !== resolved ? path.dirname(resolved) : null,
+        path.dirname(resolved) !== resolved &&
+        confineToRoots(path.dirname(resolved), allowedRoots)
+          ? path.dirname(resolved)
+          : null,
     });
   } catch (error) {
     log.error(`Failed to browse path: ${error.message}`);

@@ -172,34 +172,88 @@ The packaged binary includes its own runtime — no Node.js, Python, or Java ins
 
 ## Quick Start
 
-Download from [Releases](https://github.com/fpsacha/zomboid-control-panel/releases/latest). Self-contained binary — no dependencies.
+Choose where the **panel** runs. It can run beside the game server, in Docker,
+or on a separate computer. The panel needs RCON access to the game server;
+PanelBridge features additionally need its server files or SFTP access.
+
+| Your setup | Use this guide |
+| --- | --- |
+| Windows PC or Windows server | [Windows](#windows) |
+| Linux PC, VPS, or home server | [Linux](#linux) |
+| macOS | [macOS](#macos) |
+| Docker or Unraid | [Docker and Unraid](#docker-and-unraid) |
+| Indifferent Broccoli hosted server | [Indifferent Broccoli](#indifferent-broccoli) |
+
+Download the current package from [Releases](https://github.com/fpsacha/zomboid-control-panel/releases/latest). The Windows and Linux packages include the panel runtime: no Node.js, Python, or Java installation is needed on the panel host.
 
 ### Windows
-1. Extract `ZomboidControlPanel-windows.zip`
-2. Run `Start.bat`
-3. Open `http://localhost:3001`
+1. Download and extract `ZomboidControlPanel-windows.zip`.
+2. Double-click `Start.bat`.
+3. Open `http://localhost:3001`.
+4. Create the admin account, then open **Servers** and add your PZ server.
 
 ### Linux
 ```bash
+mkdir zomboid-panel && cd zomboid-panel
 tar xzf ZomboidControlPanel-linux.tar.gz
+chmod +x start.sh
 ./start.sh
 ```
-Works on Ubuntu 20.04+, Debian 10+, CentOS Stream 8+, Rocky 8+, or anything with glibc 2.28+.
+Open `http://localhost:3001`, create the admin account, then add the PZ server in **Servers**. Works on Ubuntu 20.04+, Debian 10+, CentOS Stream 8+, Rocky 8+, or anything with glibc 2.28+.
 
-### Docker
+### macOS
 
-Download [docker-compose.install.yml](docker-compose.install.yml), then run:
+The packaged panel binary supports Windows and Linux. On macOS, run the panel with Docker Desktop or OrbStack:
 
 ```bash
+curl -O https://raw.githubusercontent.com/fpsacha/zomboid-control-panel/main/docker-compose.install.yml
 docker compose -f docker-compose.install.yml up -d
 ```
 
-Open `http://localhost:3001`. This starts the panel with persistent Docker
-volumes. For a panel that manages a PZ server on the same host, use the fully
-documented [docker-compose.yml](docker-compose.yml) and configure its bind mounts.
-The Compose files use named volumes for panel state, so do not replace them with
-host `./panel-data` or `./data` mounts unless those directories are owned by
-UID/GID `1000:1000`.
+Open `http://localhost:3001`. Add a local or remote PZ server through **Servers**. Project Zomboid server hosting itself needs Linux or a hosting provider; the panel can still run on your Mac.
+
+### Docker and Unraid
+
+For a normal Docker host:
+
+```bash
+curl -O https://raw.githubusercontent.com/fpsacha/zomboid-control-panel/main/docker-compose.install.yml
+docker compose -f docker-compose.install.yml up -d
+```
+
+Open `http://localhost:3001`. This starts the panel with persistent named volumes.
+
+For **Unraid**, import [`docker/unraid/zomboid-panel.xml`](docker/unraid/zomboid-panel.xml), then set the PZ install and config/save host paths to match your existing PZ container. The panel's own paths must stay `/app/data` and `/app/logs`; see [Unraid and Indifferent Broccoli](#unraid-and-indifferent-broccoli) for the four required mappings.
+
+### Indifferent Broccoli
+
+Indifferent Broccoli runs the **game server**. Run this panel on your Windows PC, Linux host, macOS Docker setup, or Unraid box using one of the guides above.
+
+1. In the Indifferent Broccoli panel, enable or note the server's RCON host, port, and password.
+2. In Zomboid Control Panel, open **Servers** and add it as a **remote server** using those RCON details.
+3. Install `PanelBridge.lua` through the provider's file manager, then set `DoLuaChecksum=false` in the server `.ini` and restart the game server.
+4. In **Settings > PanelBridge > Remote connection**, enter the SFTP **host**, **port**, **username**, and **password** supplied by Indifferent Broccoli. Plain FTP will not work.
+5. Set **Remote bridge folder** to the remote folder that contains PanelBridge's `status.json`, `inbox`, and `outbox` files. Click **Test SFTP**, then **Start SFTP bridge**.
+6. Optional, but recommended for browser-based configuration editing: set **Remote Server folder** to the absolute folder containing the server's `.ini` and `_SandboxVars.lua` files, then click **Check folder**.
+7. Keep start, stop, restart, and game updates in Indifferent Broccoli's own dashboard. The panel can administer the game through RCON and PanelBridge, but it does not take ownership of a hosted provider's container.
+
+Indifferent Broccoli advertises full file access, mod support, and its own server control panel. Their current Project Zomboid guide is available at [Indifferent Broccoli](https://indifferentbroccoli.com/project-zomboid-server-hosting).
+
+### Before You Continue
+
+For every platform, confirm these in the PZ server `.ini` before adding it to the panel:
+
+```ini
+RCONPort=27015
+RCONPassword=choose-a-strong-password
+DoLuaChecksum=false
+```
+
+Use the actual RCON port and password configured for your server. `DoLuaChecksum=false` is needed only for PanelBridge features.
+
+### Docker: shared PZ folders and permissions
+
+The panel-only Docker setup above does not automatically grant access to the PZ install or saves. For config editing, local backups, and PanelBridge file access, use the fully documented [docker-compose.yml](docker-compose.yml) and configure its bind mounts. The Compose files use named volumes for panel state, so do not replace them with host `./panel-data` or `./data` mounts unless those directories are owned by UID/GID `1000:1000`.
 
 #### Shared PZ folders: Docker permissions
 

@@ -4,8 +4,23 @@ const log = createLogger('API:RCON');
 import { getCommandHistory } from '../database/init.js';
 import { PZ_COMMANDS } from '../utils/commands.js';
 import { sanitizeError } from '../utils/sanitize.js';
+import { testRconConnection } from '../services/rcon.js';
 
 const router = express.Router();
+
+function validateTestInput(host, port, password) {
+  if (typeof host !== 'string' || host.length > 255 || !/^[a-zA-Z0-9.-]+$/.test(host)) {
+    return 'Invalid host format';
+  }
+  const portNum = parseInt(port, 10);
+  if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+    return 'Invalid port (1-65535)';
+  }
+  if (password !== undefined && (typeof password !== 'string' || password.length > 256)) {
+    return 'Invalid password format';
+  }
+  return null;
+}
 
 // Execute raw RCON command
 router.post('/execute', async (req, res) => {
@@ -96,6 +111,26 @@ router.post('/connect', async (req, res) => {
     const rconService = req.app.get('rconService');
     const friendlyError = rconService.getUserFriendlyError(error.message);
     res.status(500).json({ success: false, error: friendlyError });
+  }
+});
+
+// Test arbitrary RCON credentials without applying them — lets the UI
+// validate host/port/password before the user saves a server's settings.
+router.post('/test', async (req, res) => {
+  try {
+    const { host, port, password } = req.body;
+    log.info(`POST /test (host=${host || 'none'}, port=${port || 'none'})`);
+
+    const validationError = validateTestInput(host, port, password);
+    if (validationError) {
+      return res.status(400).json({ success: false, error: 'invalid_input', detail: validationError });
+    }
+
+    const result = await testRconConnection({ host, port: parseInt(port, 10), password });
+    res.json(result);
+  } catch (error) {
+    log.error(`RCON test failed: ${error.message}`);
+    res.status(500).json({ success: false, error: 'internal_error', detail: sanitizeError(error.message) });
   }
 });
 

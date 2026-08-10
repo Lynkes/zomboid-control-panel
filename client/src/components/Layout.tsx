@@ -17,6 +17,7 @@ import {
   Layers,
   ChevronDown,
   FileCog,
+  LayoutTemplate,
   Menu,
   X,
   Search,
@@ -33,6 +34,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ConnectionStatus } from './ConnectionStatus'
+import { SystemHealthBanner } from './SystemHealthBanner'
 import { serversApi, ServerInstance, updateApi, UpdateStatus, serverApi, modsApi, panelUpdateApi } from '@/lib/api'
 import { SocketContext } from '@/contexts/SocketContext'
 
@@ -105,6 +107,7 @@ const navSections: NavSection[] = [
     items: [
       { to: '/server-config', icon: FileCog, label: 'Server Configuration', requiresLocal: true, allowRemoteConfigMirror: true },
       { to: '/mods', icon: Package, label: 'Mod Manager', requiresLocal: true },
+      { to: '/templates', icon: LayoutTemplate, label: 'Templates', requiresLocal: true, allowRemoteConfigMirror: true },
     ]
   },
   {
@@ -963,6 +966,7 @@ export default function Layout({ children }: LayoutProps) {
       {/* Main Content */}
       <main id="main-content" className="flex-1 overflow-auto pt-16 lg:pt-0">
         <div className="p-4 lg:p-8 max-w-7xl mx-auto">
+          <SystemHealthBanner />
           {/* Server Update Banner — cockpit-style: vertical accent, mono micro-label, tabular build delta */}
           {updateInfo && updateInfo.updateAvailable && !updateDismissed && (
             <div

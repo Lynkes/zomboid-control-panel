@@ -7,7 +7,6 @@ import {
   Check,
   Power,
   MoreVertical,
-  Star,
   Loader2,
   FolderOpen,
   Download,
@@ -29,6 +28,9 @@ import {
   Network,
   Play,
   Square,
+  Container,
+  RotateCw,
+  Link,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
@@ -37,6 +39,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useToast } from '@/components/ui/use-toast'
 import { reportClientError, reportClientWarning } from '@/lib/client-errors'
+import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -76,14 +79,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { serversApi, serversDetectApi, ServerInstance, configApi, serverApi, updateApi, UpdateStatus } from '@/lib/api'
+import { serversApi, serversDetectApi, dockerApi, DockerContainerStats, DockerContainerSummary, ServerInstance, configApi, serverApi, updateApi, UpdateStatus, DiscoveredMount, ComposedServerStatus } from '@/lib/api'
+import { ServerStatusBadge } from '@/components/ServerStatusBadge'
 import { SocketContext } from '@/contexts/SocketContext'
 import { useNavigate } from 'react-router-dom'
 import { PageHeader } from '@/components/PageHeader'
+import { PasswordInput } from '@/components/PasswordInput'
+import { RconTestConnection } from '@/components/RconTestConnection'
+import { MountDiscoveryBanner } from '@/components/MountDiscoveryBanner'
+import { DiscoverySetup } from '@/components/DiscoverySetup'
 
 interface DetectedServerConfig {
   dataPath: string
   serverConfigPath: string
+  dockerContainerName: string
   serverName: string
   iniFile: string
   rconPort: number
@@ -136,6 +145,7 @@ interface NewServerForm {
   installPath: string
   zomboidDataPath: string
   serverConfigPath: string
+  dockerContainerName: string
   rconHost: string
   rconPort: number
   rconPassword: string
@@ -153,6 +163,7 @@ const defaultNewServer: NewServerForm = {
   installPath: '',
   zomboidDataPath: '',
   serverConfigPath: '',
+  dockerContainerName: '',
   rconHost: '127.0.0.1',
   rconPort: 27015,
   rconPassword: '',
@@ -164,9 +175,24 @@ const defaultNewServer: NewServerForm = {
   isRemote: false
 }
 
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
+  return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`
+}
+
 export default function Servers() {
   const [servers, setServers] = useState<ServerInstance[]>([])
   const [serverStatuses, setServerStatuses] = useState<Record<string, { running: boolean; pid: string | null }>>({})
+  const [rconStatuses, setRconStatuses] = useState<Record<string, string>>({})
+  const [dockerAvailable, setDockerAvailable] = useState(false)
+  const [dockerContainers, setDockerContainers] = useState<DockerContainerSummary[]>([])
+  const [dockerStats, setDockerStats] = useState<Record<string, DockerContainerStats>>({})
+  const [dockerActionPending, setDockerActionPending] = useState<string | null>(null)
+  // Full 3-signal status (host/RCON/bridge) for the active server only — the
+  // other servers' cards fall back to the host-only signal in serverStatuses.
+  const [activeStatus, setActiveStatus] = useState<ComposedServerStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [editingServer, setEditingServer] = useState<ServerInstance | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
@@ -241,6 +267,17 @@ export default function Servers() {
   ])
   const [loadingBranches, setLoadingBranches] = useState(false)
 
+  // Mount discovery — offers a one-click "connect this" profile when PZ
+  // server files are found at a common bind-mount path and no profile
+  // uses them yet.
+  const [discoveredMounts, setDiscoveredMounts] = useState<DiscoveredMount[]>([])
+  const [scanningMounts, setScanningMounts] = useState(false)
+  const [discoverySetupMount, setDiscoverySetupMount] = useState<DiscoveredMount | null>(null)
+  const connectableMounts = discoveredMounts.filter(
+    (mount) => mount.dataPath && mount.serverNames.length > 0,
+  )
+  const activeServerId = servers.find((server) => server.isActive)?.id ?? null
+
   const { toast } = useToast()
   const socket = useContext(SocketContext)
   const navigate = useNavigate()
@@ -280,11 +317,95 @@ export default function Servers() {
     }
   }, [])
 
+  const fetchRconStatuses = useCallback(async () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+    try {
+      const data = await serversApi.getRconStatuses()
+      setRconStatuses(Object.fromEntries((data.servers || []).map((server) => [String(server.id), server.status])))
+    } catch (error) {
+      reportClientWarning('Failed to fetch per-server RCON status.', error)
+    }
+  }, [])
+
+  const fetchDockerState = useCallback(async () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+    try {
+      const status = await dockerApi.getStatus()
+      setDockerAvailable(status.enabled && status.available)
+      setDockerContainers(status.containers || [])
+      if (!status.enabled || !status.available) {
+        setDockerStats({})
+        return
+      }
+      const stats = await dockerApi.getStats()
+      setDockerStats(stats.containers || {})
+    } catch (error) {
+      setDockerAvailable(false)
+      reportClientWarning('Failed to fetch managed Docker state.', error)
+    }
+  }, [])
+
+  const handleDockerAction = useCallback(async (
+    container: DockerContainerSummary,
+    action: 'start' | 'stop' | 'restart',
+  ) => {
+    setDockerActionPending(`${action}-${container.id}`)
+    try {
+      const server = servers.find((item) => item.dockerContainerName === container.name || item.dockerContainerName === container.id)
+      if (!server) throw new Error('No server profile maps to this container')
+      const result = await dockerApi.runAction(server.dockerContainerName || container.id, action, server.id)
+      if (!result.success) throw new Error(result.error || `Failed to ${action} container`)
+      toast({ title: `Container ${action} requested`, description: container.name, variant: 'success' as const })
+      await fetchDockerState()
+    } catch (error) {
+      toast({
+        title: `Container ${action} failed`,
+        description: error instanceof Error ? error.message : 'Docker action failed',
+        variant: 'destructive',
+      })
+    } finally {
+      setDockerActionPending(null)
+    }
+  }, [fetchDockerState, servers, toast])
+
+  const handleConfigureRemoteBridge = useCallback(async (server: ServerInstance) => {
+    try {
+      if (!server.isActive) {
+        await serversApi.activate(server.id)
+        await fetchServers()
+      }
+      navigate('/settings?tab=bridge')
+    } catch (error) {
+      toast({
+        title: 'Could not select remote server',
+        description: error instanceof Error ? error.message : 'Server activation failed',
+        variant: 'destructive',
+      })
+    }
+  }, [fetchServers, navigate, toast])
+
+  // Provider-aware host/RCON/bridge status for whichever server is active —
+  // shown on its card via ServerStatusBadge instead of a single Running/
+  // Stopped flag that hides RCON/bridge trouble behind a "running" container.
+  const fetchActiveStatus = useCallback(async () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+    try {
+      setActiveStatus(await serversApi.getComposedStatus())
+    } catch (error) {
+      setActiveStatus(null)
+      reportClientWarning('Failed to fetch active server status.', error)
+    }
+  }, [])
+
   // Load steamcmd path and servers on mount
   useEffect(() => {
     fetchServers()
     fetchServerStatuses()
+    fetchRconStatuses()
+    fetchDockerState()
     const statusInterval = setInterval(fetchServerStatuses, 15000)
+    const rconStatusInterval = setInterval(fetchRconStatuses, 30000)
+    const dockerInterval = setInterval(fetchDockerState, 10000)
     // Load steamcmd path from settings
     configApi.getAppSettings().then(data => {
       if (data.settings?.steamcmdPath) {
@@ -300,8 +421,55 @@ export default function Servers() {
         setGameVersion(status.gameVersion)
       }
     }).catch(e => reportClientWarning('Failed to load update status.', e))
-    return () => clearInterval(statusInterval)
-  }, [fetchServers, fetchServerStatuses])
+    return () => {
+      clearInterval(statusInterval)
+      clearInterval(rconStatusInterval)
+      clearInterval(dockerInterval)
+    }
+  }, [fetchServers, fetchServerStatuses, fetchRconStatuses, fetchDockerState])
+
+  useEffect(() => {
+    if (!activeServerId) {
+      setActiveStatus(null)
+      return
+    }
+    fetchActiveStatus()
+    const interval = setInterval(fetchActiveStatus, 10000)
+    return () => clearInterval(interval)
+  }, [activeServerId, fetchActiveStatus])
+
+  // Silently probe for common bind-mount PZ installs — non-fatal since the
+  // banner is a convenience, not a requirement.
+  useEffect(() => {
+    serversApi.discoverMounts()
+      .then(data => setDiscoveredMounts(data.mounts || []))
+      .catch(e => reportClientWarning('Mount discovery failed.', e))
+  }, [])
+
+  const handleScanMounts = async () => {
+    setScanningMounts(true)
+    try {
+      const data = await serversApi.discoverMounts()
+      const mounts = data.mounts || []
+      const connectableCount = mounts.filter(
+        (mount) => mount.dataPath && mount.serverNames.length > 0,
+      ).length
+      setDiscoveredMounts(mounts)
+      toast({
+        title: connectableCount
+          ? `${connectableCount} server${connectableCount === 1 ? '' : 's'} found`
+          : 'No servers found',
+      })
+    } catch (error) {
+      toast({
+        title: 'Scan Failed',
+        description: error instanceof Error ? error.message : 'Mount discovery failed',
+        variant: 'destructive'
+      })
+    } finally {
+      setScanningMounts(false)
+    }
+  }
 
   // Listen for update status changes (clears banner after successful update)
   useEffect(() => {
@@ -392,6 +560,7 @@ export default function Servers() {
     if (!socket) return
 
     const handleActiveServerChanged = () => {
+      setActiveStatus(null)
       fetchServers()
     }
 
@@ -904,6 +1073,7 @@ export default function Servers() {
         rconHost: newServer.rconHost,
         rconPort: newServer.rconPort,
         rconPassword: newServer.rconPassword,
+        dockerContainerName: newServer.dockerContainerName || null,
         serverPort: newServer.serverPort,
         minMemory: newServer.minMemory,
         maxMemory: newServer.maxMemory,
@@ -965,6 +1135,21 @@ export default function Servers() {
         icon={<Server className="w-5 h-5 text-primary" />}
         actions={
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-9 w-9"
+              onClick={handleScanMounts}
+              disabled={scanningMounts}
+              aria-label="Scan for servers"
+              title="Scan for servers"
+            >
+              {scanningMounts ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Search className="h-4 w-4" aria-hidden="true" />
+              )}
+            </Button>
             <Button variant="outline" onClick={() => { setAddMode('remote'); setShowAddDialog(true) }}>
               <Globe className="w-4 h-4 mr-2" /> Add Remote Server
             </Button>
@@ -977,6 +1162,19 @@ export default function Servers() {
           </div>
         }
       />
+
+      {/* Discovered mounts — offer a one-click connect when no server profile uses them yet */}
+      {servers.length === 0 && connectableMounts.length > 0 && (
+        <div className="space-y-2">
+          {connectableMounts.map(mount => (
+            <MountDiscoveryBanner
+              key={mount.installPath}
+              mount={mount}
+              onConnect={setDiscoverySetupMount}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Server Grid */}
       {servers.length === 0 ? (
@@ -1082,7 +1280,7 @@ export default function Servers() {
                       <span className="truncate">{server.name}</span>
                       {server.isActive ? (
                         <Badge variant="default" className="text-xs">
-                          <Star className="w-3 h-3 mr-1" /> Active
+                          <Check className="w-3 h-3 mr-1" /> Selected
                         </Badge>
                       ) : (
                         <Badge variant="outline" className="text-xs text-muted-foreground">
@@ -1090,18 +1288,34 @@ export default function Servers() {
                         </Badge>
                       )}
                       {(() => {
+                        // The selected server has real RCON/bridge signals from the
+                        // composed status endpoint; every other card only knows
+                        // whatever the host-process scan found for it.
+                        if (server.isActive && activeStatus) {
+                          return (
+                            <ServerStatusBadge
+                              compact
+                              host={activeStatus.host}
+                              server={activeStatus.server}
+                              bridge={activeStatus.bridge}
+                            />
+                          )
+                        }
                         const status = serverStatuses[String(server.id)]
-                        if (!status) return null
-                        return status.running ? (
-                          <Badge variant="success" className="text-xs" title={status.pid ? `PID ${status.pid}` : 'Process detected'}>
-                            <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-current motion-safe:animate-pulse" />
-                            Running
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-xs text-muted-foreground" title="No matching PZ server process found on this host">
-                            Stopped
-                          </Badge>
-                        )
+                        const host = server.isRemote
+                          ? { status: 'unknown', label: 'Host' }
+                          : status
+                            ? { status: status.running ? 'running' : 'stopped', label: 'Process' }
+                            : undefined
+                        const rconStatus = rconStatuses[String(server.id)]
+                        const rcon = rconStatus
+                          ? rconStatus === 'connected'
+                            ? { status: 'connected', label: 'RCON' }
+                            : rconStatus === 'unconfigured'
+                              ? { status: 'unknown', label: 'RCON', detail: 'Not configured' }
+                              : { status: 'disconnected', label: 'RCON', detail: rconStatus === 'auth_failed' ? 'Authentication failed' : 'Unavailable' }
+                          : undefined
+                        return <ServerStatusBadge compact host={host} server={rcon} />
                       })()}
                       {server.isRemote && (
                         <Badge variant="outline" className="text-xs">
@@ -1181,6 +1395,63 @@ export default function Servers() {
                     )}
                   </div>
                 )}
+
+                {(() => {
+                  const container = server.dockerContainerName
+                    ? dockerContainers.find((item) => item.name === server.dockerContainerName || item.id === server.dockerContainerName)
+                    : null
+                  if (!container || !dockerAvailable) return null
+                  const stats = dockerStats[container.id] || dockerStats[container.name]
+                  const isRunning = container.state === 'running'
+                  const pending = dockerActionPending !== null
+                  return (
+                    <div className="space-y-2 border-y border-border/50 py-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <Container className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <span className="truncate text-xs font-medium">{container.name}</span>
+                          <span className={cn('text-xs', isRunning ? 'text-muted-foreground' : 'text-destructive')}>
+                            {container.state}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button size="iconDense" variant="ghost" disabled={pending || isRunning} onClick={() => handleDockerAction(container, 'start')} aria-label={`Start ${container.name}`}>
+                                {dockerActionPending === `start-${container.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Start container</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button size="iconDense" variant="ghost" disabled={pending || !isRunning} onClick={() => handleDockerAction(container, 'stop')} aria-label={`Stop ${container.name}`}>
+                                {dockerActionPending === `stop-${container.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Stop container</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button size="iconDense" variant="ghost" disabled={pending} onClick={() => handleDockerAction(container, 'restart')} aria-label={`Restart ${container.name}`}>
+                                {dockerActionPending === `restart-${container.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Restart container</TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </div>
+                      {stats && (
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
+                          <span className="text-muted-foreground">CPU <span className="font-mono text-foreground">{stats.cpuPercent}%</span></span>
+                          <span className="text-muted-foreground">RAM <span className="font-mono text-foreground">{formatBytes(stats.memoryUsed)} ({stats.memoryPercent}%)</span></span>
+                          <span className="text-muted-foreground">Net <span className="font-mono text-foreground">{formatBytes(stats.networkRx)} in</span></span>
+                          <span className="text-muted-foreground">Disk <span className="font-mono text-foreground">{formatBytes(stats.diskWrite)} write</span></span>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
 
                 {/* Network & Config Grid */}
                 <div className={`grid ${server.isRemote ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 sm:grid-cols-3'} gap-2`}>
@@ -1262,7 +1533,8 @@ export default function Servers() {
                     const isRunning = status?.running ?? false
                     const startPending = serverActionPending === `start-${server.id}`
                     const stopPending = serverActionPending === `stop-${server.id}`
-                    if (server.isRemote) return null
+                    const hasManagedContainer = dockerAvailable && server.dockerContainerName && dockerContainers.some((item) => item.name === server.dockerContainerName || item.id === server.dockerContainerName)
+                    if (server.isRemote || hasManagedContainer) return null
                     return isRunning ? (
                       <Button
                         size="sm"
@@ -1293,6 +1565,16 @@ export default function Servers() {
                       </Button>
                     )
                   })()}
+                  {server.isRemote && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleConfigureRemoteBridge(server)}
+                      title="Configure the SFTP bridge for this remote server"
+                    >
+                      <Link className="w-4 h-4 mr-1.5" /> Configure SFTP Bridge
+                    </Button>
+                  )}
                   {hasUpdate && (
                     <Button
                       size="sm"
@@ -1444,11 +1726,16 @@ export default function Servers() {
 
                 <div className="space-y-2">
                   <Label>RCON Password *</Label>
-                  <Input
-                    type="password"
+                  <PasswordInput
                     value={newServer.rconPassword}
-                    onChange={e => setNewServer({ ...newServer, rconPassword: e.target.value })}
+                    onChange={value => setNewServer({ ...newServer, rconPassword: value })}
                     placeholder="Enter the RCON password set in the server's INI file"
+                    label="RCON password"
+                  />
+                  <RconTestConnection
+                    host={newServer.rconHost}
+                    port={newServer.rconPort}
+                    password={newServer.rconPassword}
                   />
                 </div>
 
@@ -1693,12 +1980,12 @@ export default function Servers() {
                         {/* RCON Password Section */}
                         <div className="space-y-2 mt-2">
                           <Label>RCON Password *</Label>
-                          <Input
-                            type="password"
+                          <PasswordInput
                             placeholder="Enter RCON password"
                             value={newServer.rconPassword}
                             className="bg-background"
-                            onChange={e => setNewServer({ ...newServer, rconPassword: e.target.value })}
+                            onChange={value => setNewServer({ ...newServer, rconPassword: value })}
+                            label="RCON password"
                           />
                           {!newServer.rconPassword ? (
                             <p className="text-xs text-warning">
@@ -1709,6 +1996,11 @@ export default function Servers() {
                               <CheckCircle className="w-3 h-3" /> Password set
                             </p>
                           )}
+                          <RconTestConnection
+                            host={newServer.rconHost || '127.0.0.1'}
+                            port={newServer.rconPort}
+                            password={newServer.rconPassword}
+                          />
                         </div>
 
                         {/* Memory Configuration */}
@@ -1802,6 +2094,16 @@ export default function Servers() {
                     maxLength={64}
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label>Managed Docker Container</Label>
+                  <Input
+                    value={editingServer.dockerContainerName || ''}
+                    onChange={e => setEditingServer({ ...editingServer, dockerContainerName: e.target.value || null })}
+                    placeholder="Optional explicit container name"
+                    maxLength={128}
+                  />
+                  <p className="text-xs text-muted-foreground">Requires PANEL_DOCKER_CONTROL_ENABLED and the container label zomboid-panel.managed=true.</p>
+                </div>
               </div>
 
               {!editingServer.isRemote && (
@@ -1887,10 +2189,15 @@ export default function Servers() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>RCON Password</Label>
-                  <Input
-                    type="password"
+                  <PasswordInput
                     value={editingServer.rconPassword}
-                    onChange={e => setEditingServer({ ...editingServer, rconPassword: e.target.value })}
+                    onChange={value => setEditingServer({ ...editingServer, rconPassword: value })}
+                    label="RCON password"
+                  />
+                  <RconTestConnection
+                    host={editingServer.rconHost}
+                    port={editingServer.rconPort}
+                    password={editingServer.rconPassword}
                   />
                 </div>
                 {!editingServer.isRemote && (
@@ -1906,11 +2213,11 @@ export default function Servers() {
                       </TooltipContent>
                     </Tooltip>
                   </Label>
-                  <Input
-                    type="password"
+                  <PasswordInput
                     value={editingServer.adminPassword || ''}
-                    onChange={e => setEditingServer({ ...editingServer, adminPassword: e.target.value })}
+                    onChange={value => setEditingServer({ ...editingServer, adminPassword: value })}
                     placeholder="Set admin password"
+                    label="admin password"
                   />
                 </div>
                 )}
@@ -2220,6 +2527,14 @@ export default function Servers() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Discovery Setup — "Connect" from the mount discovery banner */}
+      <DiscoverySetup
+        open={!!discoverySetupMount}
+        onOpenChange={(open) => !open && setDiscoverySetupMount(null)}
+        mount={discoverySetupMount}
+        onCreated={() => { fetchServers(); fetchServerStatuses() }}
+      />
     </div>
   )
 }

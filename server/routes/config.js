@@ -2,8 +2,14 @@ import express from "express";
 import { createLogger } from "../utils/logger.js";
 const log = createLogger("API:Config");
 import { getAllSettings, setSetting } from "../database/init.js";
-import { sanitizeError } from "../utils/sanitize.js";
+import {
+  sanitizeError,
+  SENSITIVE_FIELD_RE,
+  isMaskedSecret,
+  maskSensitiveObject,
+} from "../utils/sanitize.js";
 import net from "net";
+import { requireRole } from "../services/auth.js";
 import {
   MOD_CHECK_INTERVAL_MINUTES_MAX,
   MOD_CHECK_INTERVAL_MINUTES_MIN,
@@ -220,44 +226,12 @@ router.post("/option", async (req, res) => {
   }
 });
 
-// Sensitive keys that should be masked in API responses
-const SENSITIVE_KEYS = [
-  "rconPassword",
-  // Retained so any value left in an existing db.json stays masked, even
-  // though this key is no longer writable.
-  "discordToken",
-  "steamApiKey",
-  "steamSessionId",
-  "steamLoginSecure",
-  "panelBridgeSftpPassword",
-];
-
-// Detect a value that is just the bullet-mask we send to the client.
-// If the user saves Settings without re-pasting a sensitive value, the
-// masked string would otherwise overwrite the real secret in the DB.
-// Accepts the canonical "•••...xxxx" sentinel from maskSensitiveSettings
-// as well as values that are entirely bullets / asterisks (defence in
-// depth in case the mask format changes).
-export function isMaskedSecret(value) {
-  if (typeof value !== "string" || value.length === 0) return false;
-  if (value.startsWith("••••••••")) return true;
-  if (/^[•*\u2022\u25CF\u25CB]+$/.test(value)) return true;
-  return false;
-}
-
-function maskSensitiveSettings(settings) {
-  const masked = { ...settings };
-  for (const key of SENSITIVE_KEYS) {
-    if (
-      masked[key] &&
-      typeof masked[key] === "string" &&
-      masked[key].length > 0
-    ) {
-      masked[key] = "••••••••" + masked[key].slice(-4);
-    }
-  }
-  return masked;
-}
+// Sensitive settings are masked in API responses by pattern (see
+// SENSITIVE_FIELD_RE / maskSensitiveObject in utils/sanitize.js) rather than
+// an explicit key list, so a newly added secret-shaped setting (jwtSecret,
+// discordBotToken, ...) is masked automatically instead of leaking in
+// plaintext until someone remembers to list it here.
+const maskSensitiveSettings = maskSensitiveObject;
 
 // Get application settings
 router.get("/app-settings", async (req, res) => {
@@ -270,8 +244,11 @@ router.get("/app-settings", async (req, res) => {
   }
 });
 
-// Update application settings
-router.put("/app-settings", async (req, res) => {
+// Update application settings. Admin-gated: this endpoint can flip
+// corsAllowAll (disables CORS origin checking panel-wide) and other
+// security-relevant settings, so any authenticated-but-unprivileged
+// account must not be able to write it.
+router.put("/app-settings", requireRole("admin"), async (req, res) => {
   try {
     const { settings } = req.body;
     log.info(
@@ -354,7 +331,7 @@ router.put("/app-settings", async (req, res) => {
     // RCON passwords, Discord tokens, and Steam cookies. See workshop
     // collection "cookies not configured" bug for the symptom.
     const filtered = validEntries.filter(([key, value]) => {
-      if (SENSITIVE_KEYS.includes(key) && isMaskedSecret(value)) {
+      if (SENSITIVE_FIELD_RE.test(key) && isMaskedSecret(value)) {
         log.info(
           `Preserving stored value for sensitive key "${key}" (masked input ignored)`,
         );
