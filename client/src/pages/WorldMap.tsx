@@ -2348,7 +2348,7 @@ export default function WorldMap() {
         }
       }
     },
-    [toast, fetchPlayerPositions]
+    [toast]
   )
 
   // Teleport an arbitrary online player to the right-clicked coordinate.
@@ -2384,7 +2384,7 @@ export default function WorldMap() {
         if (mountedRef.current) setActionLoading(null)
       }
     },
-    [toast]
+    [toast, fetchPlayerPositions]
   )
 
   // Copy map coordinates to the clipboard.

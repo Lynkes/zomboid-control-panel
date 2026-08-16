@@ -12,13 +12,49 @@ import {
   getPlayerStat,
   getSteamIdBans,
   addSteamIdBan,
-  removeSteamIdBan
+  removeSteamIdBan,
+  getActiveServer,
 } from '../database/init.js';
 import { VEHICLES, PERKS, PERK_CATALOG, ACCESS_LEVELS } from '../utils/commands.js';
 import { sanitizeError } from '../utils/sanitize.js';
 import bridge from '../services/panelBridge.js';
+import { listWhitelistAccounts } from '../utils/whitelistDb.js';
 
 const router = express.Router();
+const MAX_EXPORT_FILE_BYTES = 5 * 1024 * 1024;
+
+export function parsePlayerExportFile(filePath) {
+  let stat;
+  try {
+    stat = fs.statSync(filePath);
+  } catch {
+    throw new Error('Export not found');
+  }
+
+  if (stat.size > MAX_EXPORT_FILE_BYTES) {
+    throw new Error('Export file is too large');
+  }
+
+  let raw;
+  try {
+    raw = fs.readFileSync(filePath, 'utf8');
+  } catch {
+    throw new Error('Could not read export file');
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error('Invalid JSON export file');
+  }
+
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Invalid export structure');
+  }
+
+  return parsed;
+}
 
 // Validation helpers to prevent RCON command injection
 // Allow normal in-game names (spaces/symbols) but block control chars and quote/backslash.
@@ -46,6 +82,12 @@ function isValidNumber(num, min = -Infinity, max = Infinity) {
   return Number.isFinite(n) && n >= min && n <= max;
 }
 
+export function normalizePlayerLogLimit(value) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 100;
+  return Math.min(parsed, 500);
+}
+
 // B42's godmod/invisible commands only accept the "-true" value form and ignore
 // a target username, so over RCON — which has no player of its own — they are
 // a no-op. PanelBridge sets the flag on the player object instead.
@@ -66,7 +108,10 @@ async function setPlayerMode(req, bridgeAction, rconMethod, username, enabled) {
 router.get('/activity', async (req, res) => {
   try {
     const { player, limit = 100 } = req.query;
-    const logs = await getPlayerLogs(player || null, parseInt(limit, 10));
+    const logs = await getPlayerLogs(
+      player || null,
+      normalizePlayerLogLimit(limit),
+    );
     res.json({ success: true, logs });
   } catch (error) {
     log.error(`Failed to get player activity logs: ${error.message}`);
@@ -208,7 +253,7 @@ router.post('/access-level', async (req, res) => {
 router.post('/whitelist/add', async (req, res) => {
   try {
     const rconService = req.app.get('rconService');
-    const { username } = req.body;
+    const { username, password } = req.body;
 
     if (!username) {
       return res.status(400).json({ error: 'Username is required' });
@@ -217,8 +262,12 @@ router.post('/whitelist/add', async (req, res) => {
     if (!isValidUsername(username)) {
       return res.status(400).json({ error: 'Invalid username format' });
     }
+    if (password !== undefined && password !== '' && !/^[a-zA-Z0-9!@#$%^&*_-]{4,64}$/.test(password)) {
+      return res.status(400).json({ error: 'Invalid password format' });
+    }
 
-    const result = await rconService.addToWhitelist(username);
+    const result = await rconService.addToWhitelist(username, password);
+    if (!result?.success) return res.status(400).json(result);
     log.info(`POST /whitelist/add: ${username}`);
     await logPlayerAction(username, 'whitelist_add', null);
 
@@ -244,6 +293,7 @@ router.post('/whitelist/remove', async (req, res) => {
     }
 
     const result = await rconService.removeFromWhitelist(username);
+    if (!result?.success) return res.status(400).json(result);
     log.info(`POST /whitelist/remove: ${username}`);
     await logPlayerAction(username, 'whitelist_remove', null);
 
@@ -623,14 +673,14 @@ router.post('/voiceban', async (req, res) => {
   }
 });
 
-// Add user to whitelist server (with password)
+// Add user to whitelist server (password is optional in Build 42)
 router.post('/adduser', async (req, res) => {
   try {
     const rconService = req.app.get('rconService');
     const { username, password } = req.body;
 
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password are required' });
+    if (!username) {
+      return res.status(400).json({ error: 'Username is required' });
     }
 
     if (!isValidUsername(username)) {
@@ -638,11 +688,12 @@ router.post('/adduser', async (req, res) => {
     }
 
     // Password validation - alphanumeric and some special chars
-    if (!/^[a-zA-Z0-9!@#$%^&*_-]{4,64}$/.test(password)) {
+    if (password !== undefined && password !== '' && !/^[a-zA-Z0-9!@#$%^&*_-]{4,64}$/.test(password)) {
       return res.status(400).json({ error: 'Invalid password format' });
     }
 
     const result = await rconService.addUser(username, password);
+    if (!result?.success) return res.status(400).json(result);
     await logPlayerAction(username, 'adduser', null);
 
     res.json(result);
@@ -661,6 +712,70 @@ router.post('/whitelist/addall', async (req, res) => {
     res.json(result);
   } catch (error) {
     log.error(`Failed to add all to whitelist: ${error.message}`);
+    res.status(400).json({ success: false, error: sanitizeError(error.message) });
+  }
+});
+
+router.post('/whitelist/steamid/add', async (req, res) => {
+  try {
+    const { steamId } = req.body;
+    if (!/^\d{17}$/.test(String(steamId || ''))) {
+      return res.status(400).json({ error: 'Invalid SteamID format (must be 17 digits)' });
+    }
+    const result = await req.app.get('rconService').addAllowedSteamId(String(steamId));
+    if (!result?.success) return res.status(400).json(result);
+    await logPlayerAction(String(steamId), 'whitelist_steamid_add', null);
+    res.json(result);
+  } catch (error) {
+    log.error(`Failed to add allowed SteamID: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+router.post('/whitelist/steamid/remove', async (req, res) => {
+  try {
+    const { steamId } = req.body;
+    if (!/^\d{17}$/.test(String(steamId || ''))) {
+      return res.status(400).json({ error: 'Invalid SteamID format (must be 17 digits)' });
+    }
+    const result = await req.app.get('rconService').removeAllowedSteamId(String(steamId));
+    if (!result?.success) return res.status(400).json(result);
+    await logPlayerAction(String(steamId), 'whitelist_steamid_remove', null);
+    res.json(result);
+  } catch (error) {
+    log.error(`Failed to remove allowed SteamID: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+router.get('/whitelist', async (req, res) => {
+  try {
+    const activeServer = await getActiveServer();
+    if (!activeServer) {
+      return res.status(404).json({ error: 'No active server selected' });
+    }
+    if (activeServer.isRemote) {
+      return res.json({
+        success: true,
+        available: false,
+        accounts: [],
+        allowedSteamIds: [],
+        reason: 'Whitelist roster is not available for remote servers yet',
+        server: { id: activeServer.id, name: activeServer.serverName },
+      });
+    }
+
+    const result = await listWhitelistAccounts(
+      activeServer.zomboidDataPath,
+      activeServer.serverName,
+    );
+    res.json({
+      success: true,
+      ...result,
+      server: { id: activeServer.id, name: activeServer.serverName },
+    });
+  } catch (error) {
+    log.error(`Failed to list whitelist accounts: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
   }
 });
@@ -726,6 +841,12 @@ router.post('/notes', async (req, res) => {
 router.delete('/notes/:playerName', async (req, res) => {
   try {
     const success = await deletePlayerNote(req.params.playerName);
+    if (!success) {
+      return res.status(404).json({
+        success: false,
+        error: 'Player note not found',
+      });
+    }
     res.json({ success });
   } catch (error) {
     log.error(`Failed to delete player note: ${error.message}`);
@@ -824,7 +945,7 @@ router.get('/exports/:username/:filename', async (req, res) => {
       return res.status(404).json({ error: 'Export not found' });
     }
 
-    const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    const data = parsePlayerExportFile(filePath);
     res.json(data);
   } catch (error) {
     log.error(`Failed to get export: ${error.message}`);

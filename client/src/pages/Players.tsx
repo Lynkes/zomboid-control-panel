@@ -99,6 +99,17 @@ interface Player {
   online: boolean
 }
 
+interface WhitelistAccount {
+  id: number
+  username: string
+  lastConnection: string | null
+  role: string
+  authType: number
+  steamId: string | null
+  ownerId: string | null
+  displayName: string | null
+}
+
 const ACCESS_LEVELS = ['admin', 'moderator', 'overseer', 'gm', 'observer', 'user', 'none']
 
 // Labels for the access-level dropdown.
@@ -391,7 +402,13 @@ export default function Players() {
   // ones currently online. Sorted by most recently seen first so familiar
   // names sit at the top. Drives the Roster tab and lets admins moderate
   // (note, ban-by-name) players who are not currently connected.
-  const [rosterTab, setRosterTab] = useState<'online' | 'roster' | 'banned'>('online')
+  const [rosterTab, setRosterTab] = useState<'online' | 'roster' | 'banned' | 'whitelist'>('online')
+  const [whitelistAccounts, setWhitelistAccounts] = useState<WhitelistAccount[]>([])
+  const [allowedSteamIds, setAllowedSteamIds] = useState<string[]>([])
+  const [allowedSteamIdInput, setAllowedSteamIdInput] = useState('')
+  const [whitelistAvailable, setWhitelistAvailable] = useState(true)
+  const [whitelistError, setWhitelistError] = useState<string | null>(null)
+  const [whitelistLoading, setWhitelistLoading] = useState(false)
   const offlineRoster = useMemo(() => {
     const onlineLower = new Set(players.map(p => p.name.toLowerCase()))
     const stats = Object.values(playerStats) as PlayerStat[]
@@ -418,6 +435,16 @@ export default function Players() {
       (b.reason || '').toLowerCase().includes(search)
     )
   }, [bannedSteamIds, playerSearchFilter])
+
+  const filteredWhitelist = useMemo(() => {
+    const search = playerSearchFilter.trim().toLowerCase()
+    if (!search) return whitelistAccounts
+    return whitelistAccounts.filter(account =>
+      [account.username, account.displayName, account.steamId, account.role]
+        .filter(Boolean)
+        .some(value => String(value).toLowerCase().includes(search)),
+    )
+  }, [playerSearchFilter, whitelistAccounts])
 
   // Update peak players
   useEffect(() => {
@@ -613,8 +640,24 @@ export default function Players() {
     }
   }, [])
 
+  const fetchWhitelist = useCallback(async () => {
+    setWhitelistLoading(true)
+    try {
+      const result = await playersApi.getWhitelist()
+      setWhitelistAccounts(result.accounts || [])
+      setAllowedSteamIds(result.allowedSteamIds || [])
+      setWhitelistAvailable(result.available !== false)
+      setWhitelistError(result.available === false ? result.reason || 'Whitelist roster unavailable' : null)
+    } catch (error) {
+      reportClientError('Failed to fetch whitelist accounts.', error)
+      setWhitelistError(getErrorMessage(error, 'Failed to load whitelist accounts.'))
+    } finally {
+      setWhitelistLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
-    Promise.all([fetchPlayers(), fetchData(), fetchNotesAndStats(), fetchBannedSteamIds()]).catch(err => {
+    Promise.all([fetchPlayers(), fetchData(), fetchNotesAndStats(), fetchBannedSteamIds(), fetchWhitelist()]).catch(err => {
       reportClientError('Failed to load initial player data.', err)
     })
     let isMounted = true
@@ -640,7 +683,7 @@ export default function Players() {
       isMounted = false
       clearInterval(interval)
     }
-  }, [fetchPlayers, fetchData, fetchNotesAndStats, fetchBannedSteamIds])
+  }, [fetchPlayers, fetchData, fetchNotesAndStats, fetchBannedSteamIds, fetchWhitelist])
 
   // Load note/tags when selected player changes
   useEffect(() => {
@@ -752,18 +795,18 @@ export default function Players() {
   }
 
   const handleAddUser = () => {
-    if (!addUserUsername.trim() || !addUserPassword.trim()) {
+    if (!addUserUsername.trim()) {
       toast({
         title: 'Error',
-        description: 'Username and password are required',
+        description: 'Username is required',
         variant: 'destructive',
       })
       return
     }
-    if (addUserPassword.length < 4) {
+    if (addUserPassword.length > 0 && addUserPassword.length < 4) {
       toast({
         title: 'Error',
-        description: 'Password must be at least 4 characters',
+        description: 'Password must be empty or at least 4 characters',
         variant: 'destructive',
       })
       return
@@ -772,6 +815,23 @@ export default function Players() {
       setAddUserDialogOpen(false)
       setAddUserUsername('')
       setAddUserPassword('')
+      void fetchWhitelist()
+    })
+  }
+
+  const handleAddAllowedSteamId = () => {
+    const steamId = allowedSteamIdInput.trim()
+    if (!/^\d{17}$/.test(steamId)) {
+      toast({
+        title: 'Invalid Steam ID',
+        description: 'Steam IDs must contain exactly 17 digits.',
+        variant: 'destructive',
+      })
+      return
+    }
+    handleAction('Add allowed Steam ID', () => playersApi.addAllowedSteamId(steamId), () => {
+      setAllowedSteamIdInput('')
+      void fetchWhitelist()
     })
   }
 
@@ -902,7 +962,7 @@ export default function Players() {
                 Updated {lastRefresh.toLocaleTimeString()}
               </span>
             )}
-            <Button onClick={fetchPlayers} variant="outline" size="sm" className="gap-2">
+            <Button onClick={() => { fetchPlayers(); void fetchWhitelist() }} variant="outline" size="sm" className="gap-2">
               <RefreshCw className="w-4 h-4" />
               Refresh
             </Button>
@@ -985,16 +1045,16 @@ export default function Players() {
               <span>roster</span>
               <span className="text-muted-foreground/50">·</span>
               <span>
-                {rosterTab === 'online' ? 'live' : rosterTab === 'roster' ? 'history' : 'bans'}
+                {rosterTab === 'online' ? 'live' : rosterTab === 'roster' ? 'history' : rosterTab === 'banned' ? 'bans' : 'accounts'}
               </span>
             </div>
             <span className="font-mono text-[11px] tabular-nums text-foreground/80">
-              {rosterTab === 'online' ? players.length : rosterTab === 'roster' ? offlineRoster.length : bannedSteamIds.length}
+              {rosterTab === 'online' ? players.length : rosterTab === 'roster' ? offlineRoster.length : rosterTab === 'banned' ? bannedSteamIds.length : whitelistAccounts.length}
             </span>
           </div>
           <CardHeader className="space-y-3 pb-3 pt-4">
             {/* Tab strip: online / roster / banned */}
-            <div className="grid grid-cols-3 gap-1 rounded-md border border-border/55 bg-muted/30 p-1">
+            <div className="grid grid-cols-4 gap-1 rounded-md border border-border/55 bg-muted/30 p-1">
               <button
                 type="button"
                 onClick={() => setRosterTab('online')}
@@ -1034,6 +1094,19 @@ export default function Players() {
                 <span>Banned</span>
                 <span className="tabular-nums text-foreground/70">{bannedSteamIds.length}</span>
               </button>
+              <button
+                type="button"
+                onClick={() => { setRosterTab('whitelist'); void fetchWhitelist() }}
+                className={cn(
+                  'flex items-center justify-center gap-1.5 rounded-sm px-2 py-1.5 text-xs font-medium transition-colors',
+                  rosterTab === 'whitelist'
+                    ? 'bg-background text-foreground shadow-sm ring-1 ring-border/60'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <span>Whitelist</span>
+                <span className="tabular-nums text-foreground/70">{whitelistAccounts.length}</span>
+              </button>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -1047,7 +1120,9 @@ export default function Players() {
                     ? 'Search players...'
                     : rosterTab === 'roster'
                       ? 'Search roster...'
-                      : 'Search bans...'
+                      : rosterTab === 'banned'
+                        ? 'Search bans...'
+                        : 'Search whitelist...'
                 }
                 value={playerSearchFilter}
                 onChange={(e) => setPlayerSearchFilter(e.target.value)}
@@ -1276,6 +1351,98 @@ export default function Players() {
                   </div>
                 )
               )}
+
+              {rosterTab === 'whitelist' && (
+                !whitelistAvailable ? (
+                  <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
+                    <Shield className="h-6 w-6 text-muted-foreground/70" />
+                    <p className="mt-3 text-sm font-medium">Whitelist roster unavailable</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{whitelistError || 'The account database could not be read for this server.'}</p>
+                  </div>
+                ) : whitelistLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                  </div>
+                ) : filteredWhitelist.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
+                    <Shield className="h-6 w-6 text-muted-foreground/70" />
+                    <p className="mt-3 text-sm font-medium">{playerSearchFilter ? 'No matches' : 'Whitelist is empty'}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{playerSearchFilter ? 'Try a different search term.' : 'Add an account with a username and password.'}</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {filteredWhitelist.map((account) => {
+                      const online = players.some(player => player.name.toLowerCase() === account.username.toLowerCase())
+                      return (
+                        <div key={`${account.id}-${account.username}`} className="w-full rounded-lg border border-transparent p-3 hover:border-border hover:bg-muted/40">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className={cn('h-2 w-2 shrink-0 rounded-full', online ? 'bg-primary' : 'bg-muted-foreground/40')} />
+                                <span className="truncate font-medium">{account.username}</span>
+                                <Badge variant="outline" className="px-1.5 py-0 text-[10px] uppercase">{account.role}</Badge>
+                              </div>
+                              <div className="mt-1 flex flex-wrap gap-x-2 text-[10px] text-muted-foreground">
+                                {account.steamId && <span className="font-mono">{account.steamId}</span>}
+                                {account.lastConnection && <span>last {new Date(account.lastConnection).toLocaleDateString()}</span>}
+                                <span>{online ? 'online' : 'offline'}</span>
+                              </div>
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="shrink-0"
+                              onClick={() => handleAction('Remove from whitelist', () => playersApi.removeFromWhitelist(account.username), () => { void fetchWhitelist() })}
+                              disabled={loading}
+                              title={`Remove ${account.username} from whitelist`}
+                            >
+                              <UserMinus className="mr-1.5 h-3.5 w-3.5" />
+                              Remove
+                            </Button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              )}
+
+              {rosterTab === 'whitelist' && whitelistAvailable && !whitelistLoading && (
+                <div className="mt-3 space-y-2 border-t border-border/40 pt-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Allowed Steam IDs</span>
+                    <span className="font-mono text-[11px] tabular-nums text-foreground/70">{allowedSteamIds.length}</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <Input
+                      value={allowedSteamIdInput}
+                      onChange={(event) => setAllowedSteamIdInput(event.target.value.replace(/\D/g, '').slice(0, 17))}
+                      placeholder="76561198XXXXXXXXX"
+                      inputMode="numeric"
+                      className="h-8 font-mono text-xs"
+                      aria-label="Allowed Steam ID"
+                    />
+                    <Button onClick={handleAddAllowedSteamId} disabled={loading || allowedSteamIdInput.length !== 17} size="sm" className="shrink-0">
+                      <Plus className="mr-1.5 h-3.5 w-3.5" /> Add
+                    </Button>
+                  </div>
+                  {allowedSteamIds.filter(id => !playerSearchFilter.trim() || id.includes(playerSearchFilter.trim())).map((steamId) => (
+                    <div key={steamId} className="flex items-center justify-between gap-2 rounded-md border border-transparent px-2 py-1.5 hover:border-border hover:bg-muted/30">
+                      <span className="font-mono text-xs">{steamId}</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
+                        onClick={() => handleAction('Remove allowed Steam ID', () => playersApi.removeAllowedSteamId(steamId), () => { void fetchWhitelist() })}
+                        disabled={loading}
+                        title={`Remove allowed Steam ID ${steamId}`}
+                      >
+                        <Trash2 className="mr-1 h-3.5 w-3.5" /> Remove
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </ScrollArea>
 
             {/* Manual entry — for offline or unlisted usernames */}
@@ -1443,14 +1610,18 @@ export default function Players() {
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
-                                onClick={() => handleAction('Add to whitelist', () => playersApi.addToWhitelist(selectedPlayer))}
+                                onClick={() => {
+                                  setAddUserUsername(selectedPlayer)
+                                  setAddUserPassword('')
+                                  setAddUserDialogOpen(true)
+                                }}
                                 disabled={loading}
                               >
                                 <UserPlus className="w-4 h-4 mr-2" />
                                 Add to Whitelist
                               </DropdownMenuItem>
                               <DropdownMenuItem
-                                onClick={() => handleAction('Remove from whitelist', () => playersApi.removeFromWhitelist(selectedPlayer))}
+                                onClick={() => handleAction('Remove from whitelist', () => playersApi.removeFromWhitelist(selectedPlayer), () => { void fetchWhitelist() })}
                                 disabled={loading}
                               >
                                 <UserMinus className="w-4 h-4 mr-2" />
@@ -1872,7 +2043,7 @@ export default function Players() {
                       <DialogHeader>
                         <DialogTitle>Add User</DialogTitle>
                         <DialogDescription>
-                          Create a new user account for whitelist servers
+                          Create a new user account for whitelist servers. Build 42 allows an empty password.
                         </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4">
@@ -1886,12 +2057,12 @@ export default function Players() {
                           />
                         </div>
                         <div>
-                          <Label>Password</Label>
+                          <Label>Password (optional)</Label>
                           <Input
                             type="password"
                             value={addUserPassword}
                             onChange={(e) => setAddUserPassword(e.target.value)}
-                            placeholder="Enter password (min 4 characters)..."
+                            placeholder="Optional password (min 4 characters)..."
                             maxLength={128}
                           />
                         </div>
@@ -1902,7 +2073,7 @@ export default function Players() {
                         </Button>
                         <Button
                           onClick={handleAddUser}
-                          disabled={loading || !addUserUsername.trim() || addUserPassword.length < 4}
+                          disabled={loading || !addUserUsername.trim() || (addUserPassword.length > 0 && addUserPassword.length < 4)}
                         >
                           {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
                           Add User

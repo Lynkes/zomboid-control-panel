@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Player access
+
+- **Whitelist management**: the Players page now lists per-server Build 42 whitelist accounts without exposing passwords, shows roles, Steam IDs, last connections, and online status, and supports account creation, removal, and allowed Steam ID management. Remote-server rosters remain unavailable until the remote database transport is implemented.
+
 #### Backups
 
 - **Server snapshots and durable history**: new backups embed a secret-free snapshot of the server identity and selected INI/sandbox settings. The Backups page can inspect the snapshot and shows persisted history for the active server.
@@ -46,6 +50,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Keep Q shouts out of the Discord chat relay**: the relay's "Which messages to forward" setting gains a "Public chat without yells" option, so `HEY!`, `HEY YOU!` and `OVER HERE!` no longer flood the channel every time someone presses Q. Build 42 labels both ordinary talking and yells as `Local`, so the panel now reads the chat room id from the game's own delivery log line to tell them apart.
 
 ### Fixed
+
+- **Linux release compatibility**: pin standalone Linux artifact builds to Ubuntu 22.04 so the binary remains compatible with hosts using the documented glibc 2.28+ baseline. v1.1.44 was built through the moving `ubuntu-latest` runner after it moved to Ubuntu 24.04.
+
+#### World Map and Chunk Cleaner
+
+- **Blank Build 42 map tiles**: Project Zomboid moved its map build list behind a versioned static directory and removed the old `42.19.0` fallback. The panel now discovers the upstream static path dynamically, falls back to the available `42.20.0` geometry, and permits browser-created tile blobs under its Content Security Policy.
+
+#### Managed Docker servers
+
+- **Containerized servers could immediately come back after Stop**: stopping PID 1 through RCON or a host process kill triggered Docker's restart policy. Dashboard controls, Discord commands, scheduled restarts, and manual lifecycle actions now use Docker for explicitly managed containers. A running world is saved first; a failed save cancels the operation.
+- **Docker control could appear available but lack socket permission**: supplemental container groups are preserved when the image drops privileges, and socket-access failures are surfaced instead of looking like an empty container list.
 
 #### Safety and recovery
 

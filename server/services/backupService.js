@@ -619,7 +619,7 @@ export class BackupService {
       log.info(`Deleted ${deletedCount} backups older than ${days} days`);
 
       return {
-        success: true,
+        success: failedCount === 0,
         deleted: deletedCount,
         failed: failedCount,
         deletedNames,

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../database/init.js", () => ({
   getScheduledTasks: vi.fn(),
+  updateScheduledTask: vi.fn(),
   getServer: vi.fn(),
   getActiveServer: vi.fn().mockResolvedValue(null),
   updateTaskLastRun: vi.fn().mockResolvedValue(),
@@ -100,6 +101,13 @@ function getRunNowHandler() {
   return layer.route.stack[0].handle;
 }
 
+function getUpdateHandler() {
+  const layer = router.stack.find(
+    (entry) => entry.route?.path === "/tasks/:id" && entry.route.methods.put,
+  );
+  return layer.route.stack[0].handle;
+}
+
 function createResponse() {
   const response = { status: vi.fn(), json: vi.fn() };
   response.status.mockReturnValue(response);
@@ -137,5 +145,57 @@ describe("POST /api/scheduler/tasks/:id/run", () => {
 
     expect(runTaskNow).not.toHaveBeenCalled();
     expect(response.status).toHaveBeenCalledWith(404);
+  });
+});
+
+describe("PUT /api/scheduler/tasks/:id", () => {
+  it("keeps an enabled task scheduled when enabled is omitted", async () => {
+    const { updateScheduledTask } = await import("../database/init.js");
+    const scheduleTask = vi.fn();
+    const cancelTask = vi.fn();
+    updateScheduledTask.mockResolvedValue({
+      id: 8,
+      name: "Renamed task",
+      cron_expression: "0 * * * *",
+      command: "save",
+      enabled: 1,
+      server_id: null,
+    });
+    const response = createResponse();
+
+    await getUpdateHandler()(
+      {
+        params: { id: "8" },
+        body: { name: "Renamed task" },
+        app: { get: () => ({ scheduleTask, cancelTask }) },
+      },
+      response,
+    );
+
+    expect(scheduleTask).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 8, enabled: 1 }),
+    );
+    expect(cancelTask).not.toHaveBeenCalled();
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({ success: true }),
+    );
+  });
+
+  it("rejects stringified enabled values instead of treating false as true", async () => {
+    const { updateScheduledTask } = await import("../database/init.js");
+    updateScheduledTask.mockClear();
+    const response = createResponse();
+
+    await getUpdateHandler()(
+      {
+        params: { id: "8" },
+        body: { enabled: "false" },
+        app: { get: () => ({ scheduleTask: vi.fn(), cancelTask: vi.fn() }) },
+      },
+      response,
+    );
+
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(updateScheduledTask).not.toHaveBeenCalled();
   });
 });

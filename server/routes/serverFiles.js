@@ -18,6 +18,7 @@ import {
   pushRemoteConfigFiles,
   validateRemoteConfigTransport,
 } from "../services/remoteConfigFiles.js";
+import { requireStoppedForLocalConfigMutation } from "../services/configMutationGuard.js";
 
 const router = express.Router();
 
@@ -109,6 +110,35 @@ router.use(async (req, res, next) => {
   res.on("close", finish);
   next();
 });
+
+const LOCAL_CONFIG_MUTATIONS = new Set([
+  "PUT /ini",
+  "PUT /sandbox",
+  "PUT /sandbox-option",
+  "POST /sandbox/repair",
+  "PUT /spawnpoints",
+  "PUT /spawnregions",
+  "PUT /raw/ini",
+  "PUT /raw/sandbox",
+  "PUT /raw/spawnpoints",
+  "PUT /raw/spawnregions",
+]);
+
+export function isLocalConfigMutation(req) {
+  const routeKey = `${req.method} ${req.path}`;
+  if (LOCAL_CONFIG_MUTATIONS.has(routeKey)) return true;
+  if (req.method === "POST" && /^\/templates\/[^/]+\/apply$/.test(req.path)) {
+    return true;
+  }
+  return req.method === "POST" && /^\/restore\/[^/]+$/.test(req.path);
+}
+
+export { requireStoppedForLocalConfigMutation };
+router.use((req, res, next) =>
+  isLocalConfigMutation(req)
+    ? requireStoppedForLocalConfigMutation(req, res, next)
+    : next(),
+);
 
 // Escape strings for safe interpolation into Lua source code
 function escapeLuaString(str) {

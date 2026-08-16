@@ -134,6 +134,7 @@ Write-Step "0/6" "Pre-flight checks"
 
 Push-Location $RepoDir
 try { $gitStatus = git status --porcelain 2>$null } catch { $gitStatus = $null }
+$untrackedFiles = @(git ls-files --others --exclude-standard 2>$null)
 Pop-Location
 if ($gitStatus) {
     Write-Warn "Uncommitted changes detected:"
@@ -141,6 +142,10 @@ if ($gitStatus) {
     Write-Warn "Continuing with uncommitted changes."
 } else {
     Write-Ok "No uncommitted changes"
+}
+if ($untrackedFiles.Count -gt 0) {
+    $untrackedFiles | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkYellow }
+    throw "Untracked files detected. Stage intentional new source files before releasing; refusing to stage runtime state automatically."
 }
 
 # ============================================
@@ -309,7 +314,7 @@ if ($SkipGitHub) {
 } else {
     Push-Location $RepoDir
     try {
-        git add -A
+        git add -u
 
         # Check if there are changes to commit
         $status = git status --porcelain

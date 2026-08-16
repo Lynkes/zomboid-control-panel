@@ -20,7 +20,11 @@ import {
   parseLegacyBoolean,
   parseLegacyMinutes,
 } from "../services/modChecker.js";
+import { parseAutoUpdateWarningMinutes } from "../services/updateChecker.js";
 import { BackupService } from "../services/backupService.js";
+import authService from "../services/auth.js";
+import { parsePlayerExportFile } from "../routes/players.js";
+import { requireStoppedForLocalConfigMutation } from "../services/configMutationGuard.js";
 
 // Test the restart timeout pattern fix
 // Verifies that the Promise.race + clearTimeout pattern doesn't leak unhandled rejections
@@ -87,6 +91,22 @@ describe("Restart timeout pattern", () => {
 
     // Timeout case
     expect(await sendWarning("test", false)).toBe("RCON timeout");
+  });
+});
+
+describe("automatic update warning parsing", () => {
+  it("uses the documented default for unset or blank settings", () => {
+    expect(parseAutoUpdateWarningMinutes(null)).toBe(15);
+    expect(parseAutoUpdateWarningMinutes(undefined)).toBe(15);
+    expect(parseAutoUpdateWarningMinutes(" ")).toBe(15);
+  });
+
+  it("keeps valid values bounded and rejects invalid values", () => {
+    expect(parseAutoUpdateWarningMinutes("5")).toBe(5);
+    expect(parseAutoUpdateWarningMinutes(2.9)).toBe(2);
+    expect(parseAutoUpdateWarningMinutes(-4)).toBe(0);
+    expect(parseAutoUpdateWarningMinutes(90)).toBe(60);
+    expect(parseAutoUpdateWarningMinutes("abc")).toBe(15);
   });
 });
 
@@ -174,6 +194,65 @@ describe("local password reset hardening", () => {
     };
 
     expect(isLocalPanelRequest(localRequest)).toBe(true);
+  });
+});
+
+describe("logout and export trust boundaries", () => {
+  it("rejects forged refresh tokens even when the payload matches a real session", async () => {
+    const dbModule = await import("../database/init.js");
+    const getDbSpy = vi.spyOn(dbModule, "getDb").mockResolvedValue({
+      data: {
+        users: [
+          {
+            id: "user-1",
+            username: "admin",
+            role: "admin",
+            tokenGen: 0,
+            refreshSessions: [{ id: "real-session", expiresAt: new Date(Date.now() + 60_000).toISOString() }],
+          },
+        ],
+      },
+    });
+
+    authService.jwtSecret = "test-secret";
+    const forgedRefreshToken =
+      "eyJhbGciOiJub25lIn0.eyJ1c2VySWQiOiJ1c2VyLTEiLCJ0eXBlIjoicmVmcmVzaCIsInRva2VuR2VuIjowLCJzZXNzaW9uSWQiOiJyZWFsLXNlc3Npb24ifQ.";
+
+    await expect(authService.logout(forgedRefreshToken)).resolves.toBe(false);
+    getDbSpy.mockRestore();
+  });
+
+  it("rejects oversized or non-object export payloads before parsing JSON", () => {
+    const largeTempPath = path.join(os.tmpdir(), "zcp-export-too-large.json");
+    fs.writeFileSync(largeTempPath, JSON.stringify({ payload: "x".repeat(6 * 1024 * 1024) }));
+
+    try {
+      expect(() => parsePlayerExportFile(largeTempPath)).toThrow(/too large/i);
+    } finally {
+      fs.unlinkSync(largeTempPath);
+    }
+
+    const invalidTempPath = path.join(os.tmpdir(), "zcp-export-invalid.json");
+    fs.writeFileSync(invalidTempPath, "not-json");
+
+    try {
+      expect(() => parsePlayerExportFile(invalidTempPath)).toThrow(/invalid json/i);
+    } finally {
+      fs.unlinkSync(invalidTempPath);
+    }
+  });
+});
+
+describe("config mutation guard", () => {
+  it("allows local server config writes while the server is running because they apply on reboot", async () => {
+    const next = vi.fn();
+    const req = { app: { get: vi.fn() } };
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+
+    await requireStoppedForLocalConfigMutation(req, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
   });
 });
 

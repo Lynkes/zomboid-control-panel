@@ -38,6 +38,7 @@ import {
 import { RconService } from "./services/rcon.js";
 import { ServerManager } from "./services/serverManager.js";
 import { DockerClient } from "./services/dockerClient.js";
+import { setDockerClient } from "./services/managedContainer.js";
 import { ModChecker } from "./services/modChecker.js";
 import { Scheduler } from "./services/scheduler.js";
 import { DiscordBot } from "./services/discordBot.js";
@@ -531,7 +532,13 @@ app.use(
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'", "'unsafe-inline'"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-        imgSrc: ["'self'", "data:", "https:"],
+        // blob: is required by the World Map tile loader: it fetches each
+        // tile, converts the response to a Blob and decodes it through
+        // URL.createObjectURL (WorldMap.tsx) so a decode failure can be told
+        // apart from a network failure. Without blob: the browser blocks
+        // img.src, img.onerror fires, and every such tile is recorded as a
+        // coverage failure even though its bytes arrived intact.
+        imgSrc: ["'self'", "data:", "blob:", "https:"],
         connectSrc: ["'self'", "ws:", "wss:"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
         objectSrc: ["'none'"],
@@ -669,6 +676,9 @@ app.use("/api/panel-bridge/command", panelBridgeCommandLimiter);
 const rconService = new RconService();
 const serverManager = new ServerManager();
 const dockerClient = new DockerClient();
+// Lets the scheduler and the Discord bot route lifecycle actions to Docker
+// without threading the client through their constructors.
+setDockerClient(dockerClient);
 const modChecker = new ModChecker();
 const logTailer = new LogTailer();
 const scheduler = new Scheduler(rconService, serverManager);

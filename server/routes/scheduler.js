@@ -195,6 +195,14 @@ router.put('/tasks/:id', async (req, res) => {
     if (command !== undefined && (typeof command !== 'string' || command.length > 2000)) {
       return res.status(400).json({ error: 'Invalid command (max 2000 characters)' });
     }
+    if (
+      enabled !== undefined &&
+      ![true, false, 0, 1].includes(enabled)
+    ) {
+      return res.status(400).json({ error: 'enabled must be a boolean or 0/1' });
+    }
+    const normalizedEnabled =
+      enabled === undefined ? undefined : (enabled === true || enabled === 1 ? 1 : 0);
 
     // Validate cron expression before saving to prevent DB/scheduler inconsistency
     if (cronExpression && !cron.validate(cronExpression)) {
@@ -214,7 +222,7 @@ router.put('/tasks/:id', async (req, res) => {
       }
     }
 
-    const updated = await updateScheduledTask(taskId, name, cronExpression, command, enabled, serverId);
+    const updated = await updateScheduledTask(taskId, name, cronExpression, command, normalizedEnabled, serverId);
     if (!updated) {
       return res.status(404).json({ error: 'Task not found' });
     }
@@ -222,7 +230,7 @@ router.put('/tasks/:id', async (req, res) => {
     // Reschedule from the merged record, not the request body: a partial update
     // (e.g. the enable/disable toggle) would otherwise re-arm the job without
     // its pinned server and run it against whichever server is active.
-    if (enabled) {
+    if (updated.enabled) {
       try {
         scheduler.scheduleTask({
           id: taskId,

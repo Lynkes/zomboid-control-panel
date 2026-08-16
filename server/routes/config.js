@@ -15,6 +15,7 @@ import {
   MOD_CHECK_INTERVAL_MINUTES_MIN,
   minutesToCheckIntervalMs,
 } from "../services/modChecker.js";
+import { requireStoppedForLocalConfigMutation } from "../services/configMutationGuard.js";
 
 const router = express.Router();
 
@@ -149,7 +150,7 @@ router.get("/", async (req, res) => {
 });
 
 // Update server configuration
-router.put("/", async (req, res) => {
+router.put("/", requireStoppedForLocalConfigMutation, async (req, res) => {
   try {
     log.info("PUT /config — saving server config");
     const serverManager = req.app.get("serverManager");

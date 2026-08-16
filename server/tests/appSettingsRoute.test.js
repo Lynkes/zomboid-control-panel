@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getAllSettings = vi.fn();
 const setSetting = vi.fn();
+const getActiveServer = vi.fn();
 
 vi.mock("../database/init.js", () => ({
   getAllSettings,
   setSetting,
+  getActiveServer,
 }));
 
 const { default: router } = await import("../routes/config.js");
@@ -113,5 +115,34 @@ describe("PUT /api/config/app-settings", () => {
     );
 
     expect(setSetting).toHaveBeenCalledWith("corsAllowAll", true);
+  });
+});
+
+describe("PUT /api/config", () => {
+  it("refuses to write server config while the local server is running", async () => {
+    getActiveServer.mockResolvedValue({ isRemote: false });
+    const saveServerConfig = vi.fn();
+    const response = createResponse();
+
+    await runRoute(
+      "/",
+      "put",
+      {
+        body: { config: { serverName: "DoomerZ" } },
+        app: {
+          get: (key) =>
+            key === "serverManager"
+              ? {
+                  checkServerRunning: vi.fn(async () => true),
+                  saveServerConfig,
+                }
+              : null,
+        },
+      },
+      response,
+    );
+
+    expect(response.status).toHaveBeenCalledWith(409);
+    expect(saveServerConfig).not.toHaveBeenCalled();
   });
 });

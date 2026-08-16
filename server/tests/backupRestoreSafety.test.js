@@ -131,6 +131,32 @@ describe("restoreBackup archive safety", () => {
   });
 });
 
+describe("deleteBackupsOlderThan result contract", () => {
+  it("reports partial deletion failures as unsuccessful", async () => {
+    const service = createService();
+    service.listBackups = async () => [
+      {
+        name: "old-a.zip",
+        created: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+      },
+      {
+        name: "old-b.zip",
+        created: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+      },
+    ];
+    service.deleteBackup = vi
+      .fn()
+      .mockResolvedValueOnce({ success: true })
+      .mockResolvedValueOnce({ success: false, error: "locked" });
+
+    const result = await service.deleteBackupsOlderThan(1);
+
+    expect(result).toEqual(
+      expect.objectContaining({ success: false, deleted: 1, failed: 1 }),
+    );
+  });
+});
+
 describe("getBackupSnapshot", () => {
   it("reads the embedded panel server snapshot", async () => {
     const backupPath = path.join(backupsPath, "snapshot.zip");

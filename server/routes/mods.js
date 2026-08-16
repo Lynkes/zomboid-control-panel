@@ -55,11 +55,19 @@ const router = express.Router();
 // Serialises write operations to the same INI file so concurrent requests
 // cannot interleave their writes (prevents lost-update race conditions).
 const iniLocks = new Map(); // iniPath → Promise chain
-function withIniLock(iniPath, fn) {
+export function withIniLock(iniPath, fn) {
   const prev = iniLocks.get(iniPath) || Promise.resolve();
   const next = prev.then(fn, fn); // run fn regardless of previous result
   iniLocks.set(iniPath, next);
+  const cleanup = () => {
+    if (iniLocks.get(iniPath) === next) iniLocks.delete(iniPath);
+  };
+  next.then(cleanup, cleanup);
   return next;
+}
+
+export function getIniLockCount() {
+  return iniLocks.size;
 }
 
 export function filterOwnedClientModIds(clientModIds, ownedModIds) {
@@ -7259,6 +7267,16 @@ async function deleteModFromDiskAndIni(wsId) {
       ? path.join(serverConfigPath, `${sanitized}.ini`)
       : null;
 
+  if (!iniPath || !fs.existsSync(iniPath)) {
+    return {
+      removedPath: null,
+      modIdsToStrip: [],
+      mapFoldersToStrip: [],
+      iniEditApplied: false,
+      error: "Server config file was not found or not accessible",
+    };
+  }
+
   // Capture mod IDs and map folders BEFORE we delete the folder — both are
   // read off the files we are about to remove.
   const modIdsToStrip = serverPath
@@ -7267,6 +7285,42 @@ async function deleteModFromDiskAndIni(wsId) {
   const mapFoldersToStrip = serverPath
     ? findMapFoldersFromWorkshop(wsId, serverPath)
     : [];
+
+  await withIniLock(iniPath, () => {
+    let content = readTextFile(iniPath);
+    const wsMatch = content.match(/^WorkshopItems=(.*)$/m);
+    if (wsMatch) {
+      const wsList = wsMatch[1]
+        .split(";")
+        .filter(Boolean)
+        .filter((id) => id !== wsId);
+      content = content.replace(
+        /^WorkshopItems=.*/m,
+        `WorkshopItems=${sanitizeIniList(wsList)}`,
+      );
+    }
+    const modsMatch = content.match(/^Mods=(.*)$/m);
+    if (modsMatch && modIdsToStrip.length > 0) {
+      const modsList = modsMatch[1]
+        .split(";")
+        .filter(Boolean)
+        .filter((id) => !modIdsToStrip.includes(id));
+      content = content.replace(
+        /^Mods=.*/m,
+        `Mods=${sanitizeModIdList(modsList)}`,
+      );
+    }
+    const mapMatch = content.match(/^Map=(.*)$/m);
+    if (mapMatch && mapFoldersToStrip.length > 0) {
+      let mapList = mapMatch[1]
+        .split(";")
+        .filter(Boolean)
+        .filter((m) => !mapFoldersToStrip.includes(m));
+      if (mapList.length === 0) mapList = ["Muldraugh, KY"];
+      content = content.replace(/^Map=.*/m, `Map=${sanitizeIniList(mapList)}`);
+    }
+    fs.writeFileSync(iniPath, content, "utf-8");
+  });
 
   const possiblePaths = getWorkshopPaths(wsId, serverPath || "");
   let removedPath = null;
@@ -7282,47 +7336,7 @@ async function deleteModFromDiskAndIni(wsId) {
     }
   }
 
-  let iniEditApplied = false;
-  if (iniPath && fs.existsSync(iniPath)) {
-    iniEditApplied = true;
-    await withIniLock(iniPath, () => {
-      let content = readTextFile(iniPath);
-      const wsMatch = content.match(/^WorkshopItems=(.*)$/m);
-      if (wsMatch) {
-        const wsList = wsMatch[1]
-          .split(";")
-          .filter(Boolean)
-          .filter((id) => id !== wsId);
-        content = content.replace(
-          /^WorkshopItems=.*/m,
-          `WorkshopItems=${sanitizeIniList(wsList)}`,
-        );
-      }
-      const modsMatch = content.match(/^Mods=(.*)$/m);
-      if (modsMatch && modIdsToStrip.length > 0) {
-        const modsList = modsMatch[1]
-          .split(";")
-          .filter(Boolean)
-          .filter((id) => !modIdsToStrip.includes(id));
-        content = content.replace(
-          /^Mods=.*/m,
-          `Mods=${sanitizeModIdList(modsList)}`,
-        );
-      }
-      const mapMatch = content.match(/^Map=(.*)$/m);
-      if (mapMatch && mapFoldersToStrip.length > 0) {
-        let mapList = mapMatch[1]
-          .split(";")
-          .filter(Boolean)
-          .filter((m) => !mapFoldersToStrip.includes(m));
-        if (mapList.length === 0) mapList = ["Muldraugh, KY"];
-        content = content.replace(/^Map=.*/m, `Map=${sanitizeIniList(mapList)}`);
-      }
-      fs.writeFileSync(iniPath, content, "utf-8");
-    });
-  }
-
-  return { removedPath, modIdsToStrip, mapFoldersToStrip, iniEditApplied };
+  return { removedPath, modIdsToStrip, mapFoldersToStrip, iniEditApplied: true };
 }
 
 // Delete a mod from disk: removes the workshop content folder, and also
@@ -7339,6 +7353,14 @@ router.post("/delete-disk-mod", async (req, res) => {
 
     const { removedPath, modIdsToStrip, iniEditApplied } =
       await deleteModFromDiskAndIni(wsId);
+
+    if (!iniEditApplied) {
+      return res.status(400).json({
+        error: "Server config file was not found or not accessible",
+        workshopId: wsId,
+        deletedFromDisk: false,
+      });
+    }
 
     // Drop from tracking, then ADD to the ignore list so auto-sync won't
     // re-track the mod next time Steam re-downloads it. Delete is meant to
@@ -7496,6 +7518,12 @@ router.post("/batch-delete-disk-mods", async (req, res) => {
         ? path.join(serverConfigPath, `${sanitized}.ini`)
         : null;
 
+    if (!iniPath || !fs.existsSync(iniPath)) {
+      return res.status(400).json({
+        error: "Server config file was not found or not accessible",
+      });
+    }
+
     // Capture all mod IDs BEFORE we start deleting.
     const allModIdsToStrip = new Set();
     for (const wsId of cleaned) {
@@ -7504,6 +7532,33 @@ router.post("/batch-delete-disk-mods", async (req, res) => {
           allModIdsToStrip.add(m);
       }
     }
+
+    await withIniLock(iniPath, () => {
+      let content = readTextFile(iniPath);
+      const wsMatch = content.match(/^WorkshopItems=(.*)$/m);
+      if (wsMatch) {
+        const wsList = wsMatch[1]
+          .split(";")
+          .filter(Boolean)
+          .filter((id) => !cleaned.includes(id));
+        content = content.replace(
+          /^WorkshopItems=.*/m,
+          `WorkshopItems=${sanitizeIniList(wsList)}`,
+        );
+      }
+      const modsMatch = content.match(/^Mods=(.*)$/m);
+      if (modsMatch && allModIdsToStrip.size > 0) {
+        const modsList = modsMatch[1]
+          .split(";")
+          .filter(Boolean)
+          .filter((id) => !allModIdsToStrip.has(id));
+        content = content.replace(
+          /^Mods=.*/m,
+          `Mods=${sanitizeModIdList(modsList)}`,
+        );
+      }
+      fs.writeFileSync(iniPath, content, "utf-8");
+    });
 
     // Delete folders.
     const results = [];
@@ -7522,36 +7577,6 @@ router.post("/batch-delete-disk-mods", async (req, res) => {
         }
       }
       results.push({ workshopId: wsId, deletedFromDisk: removed });
-    }
-
-    // One INI write for the whole batch.
-    if (iniPath && fs.existsSync(iniPath)) {
-      await withIniLock(iniPath, () => {
-        let content = readTextFile(iniPath);
-        const wsMatch = content.match(/^WorkshopItems=(.*)$/m);
-        if (wsMatch) {
-          const wsList = wsMatch[1]
-            .split(";")
-            .filter(Boolean)
-            .filter((id) => !cleaned.includes(id));
-          content = content.replace(
-            /^WorkshopItems=.*/m,
-            `WorkshopItems=${sanitizeIniList(wsList)}`,
-          );
-        }
-        const modsMatch = content.match(/^Mods=(.*)$/m);
-        if (modsMatch && allModIdsToStrip.size > 0) {
-          const modsList = modsMatch[1]
-            .split(";")
-            .filter(Boolean)
-            .filter((id) => !allModIdsToStrip.has(id));
-          content = content.replace(
-            /^Mods=.*/m,
-            `Mods=${sanitizeModIdList(modsList)}`,
-          );
-        }
-        fs.writeFileSync(iniPath, content, "utf-8");
-      });
     }
 
     // Drop from tracking, then ADD to the ignore list so auto-sync won't

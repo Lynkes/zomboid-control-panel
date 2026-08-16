@@ -268,5 +268,20 @@ describe('RconService', () => {
 
       expect(executeSpy).toHaveBeenCalledWith('setaccesslevel "Safe Player" "admin"');
     });
+
+    it('matches Build 42 whitelist commands for optional passwords and allowed Steam IDs', async () => {
+      const liveRcon = new RconService();
+      const executeSpy = vi.spyOn(liveRcon, 'execute').mockResolvedValue({ success: true, response: 'ok' });
+
+      await liveRcon.addToWhitelist('NoPassword');
+      await liveRcon.addAllowedSteamId('76561198000000000');
+      await liveRcon.removeAllowedSteamId('76561198000000000');
+
+      expect(executeSpy.mock.calls).toEqual([
+        ['adduser "NoPassword"'],
+        ['addSteamID 76561198000000000'],
+        ['removeSteamID 76561198000000000'],
+      ]);
+    });
   });
 });

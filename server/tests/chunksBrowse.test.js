@@ -13,7 +13,7 @@ vi.mock("../database/init.js", () => ({
   updateServer: vi.fn(),
 }));
 
-const { default: router } = await import("../routes/chunks.js");
+const { copyChunkBackup, default: router } = await import("../routes/chunks.js");
 
 function createResponse() {
   const response = { status: vi.fn(), json: vi.fn() };
@@ -86,5 +86,28 @@ describe("GET /api/chunks/browse", () => {
     await getBrowseHandler()({ query: { path: outsideDir } }, response);
 
     expect(response.status).toHaveBeenCalledWith(400);
+  });
+});
+
+describe("chunk backup safety", () => {
+  let dataRoot;
+
+  beforeEach(() => {
+    dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "chunks-backup-data-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dataRoot, { recursive: true, force: true });
+  });
+
+  it("rejects a backup collision instead of allowing deletion to continue", async () => {
+    const source = path.join(dataRoot, "chunk.bin");
+    const destination = path.join(dataRoot, "backup.bin");
+    fs.writeFileSync(source, "chunk");
+    fs.writeFileSync(destination, "existing backup");
+
+    await expect(copyChunkBackup(source, destination, true)).rejects.toMatchObject({
+      code: "EEXIST",
+    });
   });
 });

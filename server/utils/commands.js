@@ -113,29 +113,29 @@ export const PZ_COMMANDS = {
   // Whitelist
   adduser: {
     command: 'adduser',
-    description: 'Add a new user to whitelisted server',
+    description: 'Add a new user to a whitelisted server (password optional)',
     parameters: [
       { name: 'username', type: 'string', required: true },
-      { name: 'password', type: 'string', required: true }
+      { name: 'password', type: 'string', required: false }
     ],
     category: 'whitelist'
   },
-  addusertowhitelist: {
-    command: 'addusertowhitelist',
-    description: 'Add a connected user to whitelist',
-    parameters: [{ name: 'username', type: 'string', required: true }],
+  addsteamid: {
+    command: 'addSteamID',
+    description: 'Add a SteamID to the allowed SteamID list',
+    parameters: [{ name: 'steamId', type: 'string', required: true }],
+    category: 'whitelist'
+  },
+  removesteamid: {
+    command: 'removeSteamID',
+    description: 'Remove a SteamID from the allowed SteamID list',
+    parameters: [{ name: 'steamId', type: 'string', required: true }],
     category: 'whitelist'
   },
   removeuserfromwhitelist: {
     command: 'removeuserfromwhitelist',
     description: 'Remove a user from whitelist',
     parameters: [{ name: 'username', type: 'string', required: true }],
-    category: 'whitelist'
-  },
-  addalltowhitelist: {
-    command: 'addalltowhitelist',
-    description: 'Add all connected users to whitelist',
-    parameters: [],
     category: 'whitelist'
   },
 

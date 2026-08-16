@@ -1126,13 +1126,9 @@ export class RconService extends EventEmitter {
   }
 
   async addToWhitelist(username, password) {
-    // Build 41's `addusertowhitelist` was removed in Build 42; the replacement
-    // creates the account outright and therefore needs a password.
     const safeUser = this.sanitizeQuotedArg(username, "Username", 64);
-    if (!password || typeof password !== "string") {
-      throw new Error(
-        "Build 42 requires a password to add a whitelist user. Provide one, or add the account with /adduser on the server console.",
-      );
+    if (password === undefined || password === null || password === "") {
+      return this.execute(`adduser "${safeUser}"`);
     }
     const safePassword = this.sanitizeQuotedArg(password, "Password", 128);
     return this.execute(`adduser "${safeUser}" "${safePassword}"`);
@@ -1349,6 +1345,14 @@ export class RconService extends EventEmitter {
     return this.execute(`unbanid ${safeId}`);
   }
 
+  async addAllowedSteamId(steamId) {
+    return this.execute(`addSteamID ${this.sanitizeQuotedArg(steamId, "SteamID", 17)}`);
+  }
+
+  async removeAllowedSteamId(steamId) {
+    return this.execute(`removeSteamID ${this.sanitizeQuotedArg(steamId, "SteamID", 17)}`);
+  }
+
   // Voice ban
   async voiceBan(username, enabled) {
     const value = enabled ? "-true" : "-false";
@@ -1359,8 +1363,12 @@ export class RconService extends EventEmitter {
 
   // Whitelist management
   async addUser(username, password) {
+    const safeUser = this.sanitizeQuotedArg(username, "Username", 64);
+    if (password === undefined || password === null || password === "") {
+      return this.execute(`adduser "${safeUser}"`);
+    }
     return this.execute(
-      `adduser "${this.sanitizeQuotedArg(username, "Username", 64)}" "${this.sanitizeQuotedArg(password, "Password", 128)}"`,
+      `adduser "${safeUser}" "${this.sanitizeQuotedArg(password, "Password", 128)}"`,
     );
   }
 

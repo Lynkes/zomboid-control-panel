@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const logPlayerAction = vi.fn();
+const deletePlayerNote = vi.fn();
 
 vi.mock("../database/init.js", () => ({
   logPlayerAction,
@@ -8,7 +9,7 @@ vi.mock("../database/init.js", () => ({
   getPlayerNotes: vi.fn(),
   getPlayerNote: vi.fn(),
   upsertPlayerNote: vi.fn(),
-  deletePlayerNote: vi.fn(),
+  deletePlayerNote,
   getPlayerStats: vi.fn(),
   getPlayerStat: vi.fn(),
   getSteamIdBans: vi.fn(),
@@ -16,7 +17,9 @@ vi.mock("../database/init.js", () => ({
   removeSteamIdBan: vi.fn(),
 }));
 
-const { default: router } = await import("../routes/players.js");
+const { default: router, normalizePlayerLogLimit } = await import(
+  "../routes/players.js"
+);
 
 function createResponse() {
   const response = { status: vi.fn(), json: vi.fn() };
@@ -24,9 +27,9 @@ function createResponse() {
   return response;
 }
 
-function getHandler(path) {
+function getHandler(path, method = "post") {
   const layer = router.stack.find(
-    (entry) => entry.route?.path === path && entry.route.methods.post,
+    (entry) => entry.route?.path === path && entry.route.methods[method],
   );
   return layer.route.stack[0].handle;
 }
@@ -92,5 +95,36 @@ describe("POST /api/players/add-item item ID validation", () => {
 
     expect(addItem).not.toHaveBeenCalled();
     expect(response.status).toHaveBeenCalledWith(400);
+  });
+});
+
+describe("DELETE /api/players/notes/:playerName", () => {
+  it("returns 404 when the note did not exist", async () => {
+    deletePlayerNote.mockResolvedValue(false);
+    const response = createResponse();
+
+    await getHandler("/notes/:playerName", "delete")(
+      { params: { playerName: "MissingPlayer" } },
+      response,
+    );
+
+    expect(response.status).toHaveBeenCalledWith(404);
+    expect(response.json).toHaveBeenCalledWith({
+      success: false,
+      error: "Player note not found",
+    });
+  });
+});
+
+describe("player activity limit normalization", () => {
+  it.each([
+    [undefined, 100],
+    ["not-a-number", 100],
+    ["-1", 100],
+    ["0", 100],
+    ["200", 200],
+    ["9999", 500],
+  ])("normalizes %j to %d rows", (input, expected) => {
+    expect(normalizePlayerLogLimit(input)).toBe(expected);
   });
 });

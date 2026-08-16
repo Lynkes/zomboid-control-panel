@@ -471,13 +471,13 @@ class AuthService {
     }
 
     try {
-      // Decode without verifying so we can still revoke an expired-but-known session.
-      const payload = jwt.decode(refreshToken);
+      const payload = jwt.verify(refreshToken, this.jwtSecret);
       if (
         !payload ||
         typeof payload !== "object" ||
         payload.type !== "refresh" ||
-        !payload.sessionId
+        !payload.sessionId ||
+        !payload.userId
       ) {
         return false;
       }
@@ -486,6 +486,16 @@ class AuthService {
       const users = db.data.users || [];
       const user = users.find((entry) => entry.id === payload.userId);
       if (!user) {
+        return false;
+      }
+
+      this.ensureUserAuthState(user);
+      const currentGen = user.tokenGen || 0;
+      if ((payload.tokenGen ?? 0) !== currentGen) {
+        return false;
+      }
+
+      if (!this.findRefreshSession(user, payload.sessionId)) {
         return false;
       }
 

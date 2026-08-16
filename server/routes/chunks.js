@@ -25,6 +25,20 @@ export { normalizeUserPath, getCandidateZomboidPaths };
 
 const router = express.Router();
 
+export async function copyChunkBackup(sourcePath, destinationPath, exclusive = false) {
+  try {
+    await fs.promises.copyFile(
+      sourcePath,
+      destinationPath,
+      exclusive ? fs.constants.COPYFILE_EXCL : 0,
+    );
+    return true;
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
 // B42: 1 cell = 32×32 chunks (256×256 tiles, 8 tiles/chunk).
 // B41: 1 cell = 30×30 chunks (300×300 tiles, 10 tiles/chunk).
 function cellDivisorFor(isB42) {
@@ -141,17 +155,9 @@ async function cleanupEmptyCellFiles(
         // cellaux/ so the restore script can distinguish these from chunk
         // backups (which live at the top level of backupPath).
         if (backupPath) {
-          try {
-            const cellAuxDir = path.join(backupPath, "cellaux", folder);
-            await fs.promises.mkdir(cellAuxDir, { recursive: true });
-            await fs.promises.copyFile(full, path.join(cellAuxDir, file));
-          } catch (cpErr) {
-            if (cpErr.code !== "ENOENT") {
-              log.debug(
-                `Failed to back up cell aux ${folder}/${file}: ${cpErr.message}`,
-              );
-            }
-          }
+          const cellAuxDir = path.join(backupPath, "cellaux", folder);
+          await fs.promises.mkdir(cellAuxDir, { recursive: true });
+          await copyChunkBackup(full, path.join(cellAuxDir, file));
         }
         await fs.promises.unlink(full);
         removed.push(`${folder}/${file}`);
@@ -1213,10 +1219,10 @@ router.post("/delete-chunks", requireRole("admin"), async (req, res) => {
                 : path.join(savePath, "map", chunk.file);
             try {
               const backupName = `${srcTag}_${chunk.file.replace(/[/\\]/g, "_")}`;
-              await fs.promises.copyFile(
+              await copyChunkBackup(
                 mapFile,
                 path.join(backupPath, backupName),
-                fs.constants.COPYFILE_EXCL,
+                true,
               );
             } catch (e) {
               if (e.code !== "ENOENT") throw e;
@@ -1229,17 +1235,18 @@ router.post("/delete-chunks", requireRole("admin"), async (req, res) => {
               );
               try {
                 const backupName = `chunkdata_${chunk.file.replace(/[/\\]/g, "_")}`;
-                await fs.promises.copyFile(
+                await copyChunkBackup(
                   chunkDataFile,
                   path.join(backupPath, backupName),
-                  fs.constants.COPYFILE_EXCL,
+                  true,
                 );
               } catch (e) {
                 if (e.code !== "ENOENT") throw e;
               }
             }
           } catch (e) {
-            log.warn(`Failed to backup chunk ${chunk.file}: ${e.message}`);
+            log.error(`Failed to backup chunk ${chunk.file}: ${e.message}`);
+            throw e;
           }
         }),
       );
@@ -1666,12 +1673,12 @@ router.post("/delete-region", requireRole("admin"), async (req, res) => {
               : path.join(mapPath, chunk.file);
           try {
             const backupName = `map_${chunk.file.replace(/[/\\]/g, "_")}`;
-            await fs.promises.copyFile(
+            await copyChunkBackup(
               srcFile,
               path.join(backupPath, backupName),
             );
           } catch (e) {
-            // Ignore missing files or errors
+            if (e.code !== "ENOENT") throw e;
           }
         }),
       );

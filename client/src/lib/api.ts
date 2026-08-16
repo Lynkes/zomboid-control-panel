@@ -629,6 +629,23 @@ export const serverApi = {
 // Players API
 export const playersApi = {
   getPlayers: () => apiGet("/players"),
+  getWhitelist: () => apiGet<{
+    success: boolean
+    available: boolean
+    accounts: Array<{
+      id: number
+      username: string
+      lastConnection: string | null
+      role: string
+      authType: number
+      steamId: string | null
+      ownerId: string | null
+      displayName: string | null
+    }>
+    allowedSteamIds: string[]
+    reason?: string
+    server?: { id: string | number; name: string }
+  }>("/players/whitelist"),
   kick: (username: string, reason?: string) =>
     apiPost("/players/kick", { username, reason }),
   ban: (username: string, banIp?: boolean, reason?: string) =>
@@ -636,10 +653,14 @@ export const playersApi = {
   unban: (username: string) => apiPost("/players/unban", { username }),
   setAccessLevel: (username: string, level: string) =>
     apiPost("/players/access-level", { username, level }),
-  addToWhitelist: (username: string) =>
-    apiPost("/players/whitelist/add", { username }),
+  addToWhitelist: (username: string, password: string) =>
+    apiPost("/players/whitelist/add", { username, password }),
   removeFromWhitelist: (username: string) =>
     apiPost("/players/whitelist/remove", { username }),
+  addAllowedSteamId: (steamId: string) =>
+    apiPost("/players/whitelist/steamid/add", { steamId }),
+  removeAllowedSteamId: (steamId: string) =>
+    apiPost("/players/whitelist/steamid/remove", { steamId }),
   teleport: (
     player1: string,
     destination?: string | { x: number; y: number; z?: number },
