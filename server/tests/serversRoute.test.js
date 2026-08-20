@@ -3,10 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const createServer = vi.fn();
 const updateServer = vi.fn();
 const getServers = vi.fn();
+const getSetting = vi.fn();
 const testRconConnection = vi.fn();
 
 vi.mock("../database/init.js", () => ({
   getServers,
+  getSetting,
   getServer: vi.fn(),
   getActiveServer: vi.fn(),
   createServer,
@@ -21,6 +23,13 @@ vi.mock("../services/rcon.js", () => ({
 }));
 
 const { default: router } = await import("../routes/servers.js");
+const {
+  getSteamLoginArgs,
+  hasSteamManifestAccessDeniedState,
+  isSteamOperationIdle,
+} = await import(
+  "../routes/server.js"
+);
 
 function createResponse() {
   const response = {
@@ -63,6 +72,8 @@ async function runRoute(routePath, method, req, res) {
 describe("POST /api/servers", () => {
   beforeEach(() => {
     createServer.mockReset();
+    getSetting.mockReset();
+    getSetting.mockResolvedValue("");
     createServer.mockResolvedValue({ id: "server-id", name: "Test Server" });
   });
 
@@ -157,6 +168,8 @@ describe("POST /api/servers", () => {
 describe("PUT /api/servers/:id", () => {
   beforeEach(() => {
     updateServer.mockReset();
+    getSetting.mockReset();
+    getSetting.mockResolvedValue("");
     updateServer.mockResolvedValue({ id: 1, name: "Test Server" });
   });
 
@@ -186,6 +199,21 @@ describe("PUT /api/servers/:id", () => {
     );
   });
 
+  it("persists a custom start command when updating a server", async () => {
+    const response = createResponse();
+    const startCommand = "start-server.sh -servername DoomerZ";
+
+    await getUpdateHandler()(
+      { params: { id: "1" }, body: { startCommand } },
+      response,
+    );
+
+    expect(updateServer).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ startCommand }),
+    );
+  });
+
   it("drops a masked rconPassword instead of overwriting the stored secret", async () => {
     const response = createResponse();
 
@@ -198,6 +226,34 @@ describe("PUT /api/servers/:id", () => {
       1,
       expect.not.objectContaining({ rconPassword: expect.anything() }),
     );
+  });
+});
+
+describe("Steam operation watchdog", () => {
+  it("recognizes an operation that has stopped producing output", () => {
+    const now = Date.now();
+
+    expect(isSteamOperationIdle({ lastOutputAt: now - 9 * 60 * 1000 }, now)).toBe(false);
+    expect(isSteamOperationIdle({ lastOutputAt: now - 10 * 60 * 1000 }, now)).toBe(true);
+  });
+});
+
+describe("SteamCMD update login", () => {
+  it("uses anonymous login instead of an account that would need interaction", async () => {
+    getSetting.mockResolvedValue("configured-account");
+
+    expect(await getSteamLoginArgs()).toEqual(["+login", "anonymous"]);
+  });
+});
+
+describe("SteamCMD manifest recovery", () => {
+  it("recognizes Steam's access-denied manifest state", () => {
+    expect(
+      hasSteamManifestAccessDeniedState('"StateFlags" "6"'),
+    ).toBe(true);
+    expect(
+      hasSteamManifestAccessDeniedState('"StateFlags" "4"'),
+    ).toBe(false);
   });
 });
 

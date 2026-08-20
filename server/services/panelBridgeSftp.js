@@ -7,10 +7,50 @@ import { createLogger } from '../utils/logger.js';
 const log = createLogger('Bridge:SFTP');
 
 function safeRemotePath(value) {
-  if (typeof value !== 'string' || !value.startsWith('/') || value.includes('..') || value.includes('\\')) {
+  if (typeof value !== 'string' || !value.startsWith('/') || value.includes('..') || value.includes('\\') || /[\0\r\n]/.test(value)) {
     throw new Error('Remote bridge path must be an absolute POSIX path without traversal');
   }
-  return value.replace(/\/+$/, '') || '/';
+  const normalized = value.replace(/\/+$/, '') || '/';
+  if (normalized === '/') throw new Error('Remote bridge path must name the PanelBridge server folder, not the filesystem root');
+  return normalized;
+}
+
+function isMissingRemotePath(error) {
+  const message = error?.message || String(error);
+  return /no such file|not found|enoent/i.test(message);
+}
+
+function isRemoteFile(entryType) {
+  return entryType === true || entryType === '-';
+}
+
+export function getSftpErrorGuidance(error) {
+  const message = error?.message || String(error);
+  if (/chroot|remove the \/home prefix|remote bridge path .*\/home(?:\/|$)/i.test(message)
+    || /mkdir.*permission denied.*\/(?:home|Home)(?:[\s/]|$)/i.test(message)) {
+    return 'This SFTP account appears to be chrooted. Remove the /home prefix and enter the path exactly as shown in the SFTP client, for example /server-data/lua/panelbridge/<server name>.';
+  }
+  if (/authentication|auth fail|all configured authentication methods failed|permission denied.*auth|publickey|keyboard-interactive/i.test(message)) {
+    return 'Verify the SFTP username and password, then confirm the account can log in over port 22.';
+  }
+  if (/permission denied|eacces|failure.*mkdir|failure.*put/i.test(message)) {
+    return 'Give the SFTP account read and write permission for the remote bridge folder and its parent directory.';
+  }
+  if (isMissingRemotePath(error)) {
+    return 'Verify the remote bridge folder is the VPS path to Lua/panelbridge/<server name>. The panel will create its inbox and outbox folders after the parent path is correct.';
+  }
+  if (/found a directory|non-regular entry|occupied by a directory/i.test(message)) {
+    return 'Remove or rename the directory occupying that bridge file path, then run Verify and prepare SFTP again.';
+  }
+  if (/econnrefused|etimedout|timeout|enotfound|ehostunreach|network/i.test(message)) {
+    return 'Check the SFTP host, port, firewall, and that the hosting provider allows SFTP from this panel computer.';
+  }
+  return 'Run Test SFTP again. If it still fails, download a support bundle and include sftp-diagnostics.json.';
+}
+
+export function formatSftpError(error) {
+  const message = error?.message || String(error);
+  return `${message} Fix: ${getSftpErrorGuidance(error)}`;
 }
 
 export function validateSftpBridgeConfig(config) {
@@ -49,6 +89,8 @@ const LOG_TAIL_DEFAULT_BYTES = 256 * 1024;
 const LOG_LIST_MAX = 200;
 const LOG_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const LOG_EXTENSIONS = ['.txt', '.log'];
+const REMOTE_DIRECTORY_CHECK_MS = 60000;
+const MAX_BRIDGE_FILE_BYTES = 16 * 1024 * 1024;
 
 export function validateSftpLogConfig(config) {
   const host = typeof config?.host === 'string' ? config.host.trim() : '';
@@ -145,6 +187,18 @@ export class PanelBridgeSftpTransport {
     this.lastSyncAt = null;
     this.lastError = null;
     this.lastLatencyMs = null;
+    this.connectionAttempts = 0;
+    this.lastConnectedAt = null;
+    this.lastDisconnectedAt = null;
+    this.lastErrorAt = null;
+    this.lastErrorStage = null;
+    this.syncAttempts = 0;
+    this.failureCount = 0;
+    this.recentErrors = [];
+    this.lastLoggedError = null;
+    this.lastLoggedErrorAt = 0;
+    this.nextRemoteDirectoryCheckAt = 0;
+    this.transferId = crypto.randomBytes(6).toString('hex');
   }
 
   async start(config, cachePath) {
@@ -153,7 +207,13 @@ export class PanelBridgeSftpTransport {
     fs.mkdirSync(path.join(cachePath, 'inbox'), { recursive: true, mode: 0o700 });
     fs.mkdirSync(path.join(cachePath, 'outbox'), { recursive: true, mode: 0o700 });
     this.running = true;
-    await this.syncNow(true);
+    try {
+      await this.ensureRemoteDirectories();
+      await this.syncNow(true);
+    } catch (error) {
+      if (this.lastError !== error.message) this.recordError('startup', error);
+      throw error;
+    }
     this.timer = setInterval(() => this.syncNow().catch(() => {}), this.config.pollIntervalSeconds * 1000);
     this.timer.unref?.();
   }
@@ -162,12 +222,16 @@ export class PanelBridgeSftpTransport {
     this.running = false;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
-    if (this.client) await this.client.end().catch(() => {});
-    this.client = null;
+    if (this.client) {
+      await this.client.end().catch(() => {});
+      this.client = null;
+      this.lastDisconnectedAt = new Date().toISOString();
+    }
   }
 
   async connect() {
     if (this.client) return this.client;
+    this.connectionAttempts += 1;
     const client = new SftpClient('PanelBridgeSftp');
     await client.connect({
       host: this.config.host,
@@ -177,7 +241,24 @@ export class PanelBridgeSftpTransport {
       readyTimeout: 10000,
     });
     this.client = client;
+    this.lastConnectedAt = new Date().toISOString();
     return client;
+  }
+
+  async ensureRemoteDirectories() {
+    const client = await this.connect();
+    try {
+      await client.mkdir(this.config.bridgePath, true);
+      await client.mkdir(this.remote('inbox'), true);
+      await client.mkdir(this.remote('outbox'), true);
+    } catch (error) {
+      if (/permission denied|eacces/i.test(error?.message || '')
+        && /^\/home(?:\/|$)/i.test(this.config.bridgePath)) {
+        throw new Error(`SFTP account rejected remote bridge path ${this.config.bridgePath}; likely chrooted account path. Remove the /home prefix and use the path visible in the SFTP client.`);
+      }
+      throw error;
+    }
+    this.nextRemoteDirectoryCheckAt = Date.now() + REMOTE_DIRECTORY_CHECK_MS;
   }
 
   remote(relativeName) {
@@ -188,11 +269,22 @@ export class PanelBridgeSftpTransport {
   async copyRemote(relativeName) {
     const client = await this.connect();
     const remotePath = this.remote(relativeName);
-    const exists = await client.exists(remotePath);
-    if (!exists) return false;
+    const entryType = await client.exists(remotePath);
+    if (!entryType) return false;
+    if (!isRemoteFile(entryType)) {
+      throw new Error(`Expected a regular file at remote bridge path ${remotePath}, but found a non-regular entry`);
+    }
+    const metadata = await client.stat(remotePath);
+    const size = Number(metadata?.size);
+    if (!Number.isFinite(size) || size < 0) {
+      throw new Error(`Remote bridge file ${remotePath} has an invalid size`);
+    }
+    if (size > MAX_BRIDGE_FILE_BYTES) {
+      throw new Error(`Remote bridge file ${remotePath} exceeds the ${MAX_BRIDGE_FILE_BYTES / (1024 * 1024)} MB download limit`);
+    }
     const localPath = path.join(this.cachePath, relativeName);
     fs.mkdirSync(path.dirname(localPath), { recursive: true, mode: 0o700 });
-    const temporaryPath = `${localPath}.download`;
+    const temporaryPath = `${localPath}.${this.transferId}.download`;
     await client.fastGet(remotePath, temporaryPath);
     fs.renameSync(temporaryPath, localPath);
     return true;
@@ -226,16 +318,40 @@ export class PanelBridgeSftpTransport {
     for (const name of names) {
       const remotePath = this.remote(`inbox/${name}`);
       const client = await this.connect();
-      if (await client.exists(remotePath)) continue;
-      await client.fastPut(path.join(inbox, name), remotePath);
+      const entryType = await client.exists(remotePath);
+      if (isRemoteFile(entryType)) continue;
+      if (entryType) {
+        throw new Error(`Remote command path ${remotePath} is occupied by a directory`);
+      }
+      const temporaryRemotePath = `${remotePath}.${this.transferId}.uploading`;
+      const uploadAtomically = async () => {
+        try {
+          await client.fastPut(path.join(inbox, name), temporaryRemotePath);
+          await client.rename(temporaryRemotePath, remotePath);
+        } catch (error) {
+          await client.delete(temporaryRemotePath).catch(() => {});
+          throw error;
+        }
+      };
+      try {
+        await uploadAtomically();
+      } catch (error) {
+        if (!isMissingRemotePath(error)) throw error;
+        await this.ensureRemoteDirectories();
+        await uploadAtomically();
+      }
     }
   }
 
   async syncNow(throwOnError = false) {
     if (!this.running || this.syncing) return;
     this.syncing = true;
+    this.syncAttempts += 1;
     const startedAt = Date.now();
     try {
+      if (Date.now() >= this.nextRemoteDirectoryCheckAt) {
+        await this.ensureRemoteDirectories();
+      }
       // Upload first so a newly queued command never waits behind remote
       // reads. Results are collected in the same pass after the Lua mod ticks.
       await this.uploadInbox();
@@ -246,13 +362,31 @@ export class PanelBridgeSftpTransport {
       this.lastLatencyMs = this.lastSyncAt - startedAt;
       this.lastError = null;
     } catch (error) {
-      this.lastError = error.message;
+      this.recordError('sync', error);
       if (this.client) await this.client.end().catch(() => {});
       this.client = null;
-      log.debug(`Sync failed: ${error.message}`);
+      this.lastDisconnectedAt = new Date().toISOString();
       if (throwOnError) throw error;
     } finally {
       this.syncing = false;
+    }
+  }
+
+  recordError(stage, error) {
+    const message = error?.message || String(error);
+    const timestamp = new Date().toISOString();
+    this.failureCount += 1;
+    this.lastError = message;
+    this.lastErrorAt = timestamp;
+    this.lastErrorStage = stage;
+    this.recentErrors.push({ stage, message, timestamp });
+    if (this.recentErrors.length > 20) this.recentErrors.shift();
+
+    const now = Date.now();
+    if (message !== this.lastLoggedError || now - this.lastLoggedErrorAt >= 60000) {
+      log.warn(`SFTP ${stage} failed: ${message}`);
+      this.lastLoggedError = message;
+      this.lastLoggedErrorAt = now;
     }
   }
 
@@ -264,7 +398,25 @@ export class PanelBridgeSftpTransport {
       lastSyncAt: this.lastSyncAt,
       lastLatencyMs: this.lastLatencyMs,
       lastError: this.lastError,
+      lastErrorGuidance: this.lastError ? getSftpErrorGuidance({ message: this.lastError }) : null,
       pollIntervalSeconds: this.config?.pollIntervalSeconds ?? null,
+      remotePath: this.config?.bridgePath ?? null,
+      remoteDirectories: this.config ? {
+        bridge: this.config.bridgePath,
+        inbox: `${this.config.bridgePath}/inbox`,
+        outbox: `${this.config.bridgePath}/outbox`,
+      } : null,
+      diagnostics: {
+        connected: Boolean(this.client),
+        connectionAttempts: this.connectionAttempts,
+        lastConnectedAt: this.lastConnectedAt,
+        lastDisconnectedAt: this.lastDisconnectedAt,
+        syncAttempts: this.syncAttempts,
+        failureCount: this.failureCount,
+        lastErrorAt: this.lastErrorAt,
+        lastErrorStage: this.lastErrorStage,
+        recentErrors: this.recentErrors.slice(-20),
+      },
     };
   }
 }
@@ -275,8 +427,20 @@ export async function testSftpBridge(config) {
   const startedAt = Date.now();
   try {
     await client.connect({ host: validated.host, port: validated.port, username: validated.username, password: validated.password, readyTimeout: 10000 });
-    const statusExists = Boolean(await client.exists(`${validated.bridgePath}/status.json.txt`) || await client.exists(`${validated.bridgePath}/status.json`));
-    return { success: true, statusExists, latencyMs: Date.now() - startedAt };
+    await client.mkdir(validated.bridgePath, true);
+    await client.mkdir(`${validated.bridgePath}/inbox`, true);
+    await client.mkdir(`${validated.bridgePath}/outbox`, true);
+    const statusExists = isRemoteFile(await client.exists(`${validated.bridgePath}/status.json.txt`))
+      || isRemoteFile(await client.exists(`${validated.bridgePath}/status.json`));
+    return {
+      success: true,
+      statusExists,
+      foldersReady: true,
+      latencyMs: Date.now() - startedAt,
+      nextStep: statusExists
+        ? 'The remote bridge is ready. Start the SFTP bridge.'
+        : 'Folders are ready. Start or restart the PZ server with PanelBridge.lua installed and LuaChecksum=false to create status.json.',
+    };
   } finally {
     await client.end().catch(() => {});
   }

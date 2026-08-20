@@ -110,3 +110,4 @@ describe("local config mutation safety", () => {
     expect(remoteNext).toHaveBeenCalledOnce();
   });
 });
+

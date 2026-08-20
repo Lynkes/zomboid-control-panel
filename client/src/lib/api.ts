@@ -1681,6 +1681,8 @@ export interface SandboxData {
   MultiplierConfig: Record<string, string | number | boolean>;
   Map: Record<string, string | number | boolean>;
   Basement: Record<string, string | number | boolean>;
+  Music?: Record<string, string | number | boolean>;
+  Debug?: Record<string, string | number | boolean>;
 }
 
 export interface UtilitiesChangeResult {
@@ -2199,7 +2201,9 @@ export const panelBridgeApi = {
   }) => apiPost("/panel-bridge/sftp/test", config) as Promise<{
     success: boolean;
     statusExists: boolean;
+    foldersReady: boolean;
     latencyMs: number;
+    nextStep: string;
   }>,
 
   // Start the bridge

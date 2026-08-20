@@ -88,9 +88,10 @@ export class RconService extends EventEmitter {
     this.baseReconnectDelay = 2000; // Start at 2s
     this.maxReconnectDelay = 60000; // Max 60s
 
-    // Throttle connection failure logging to avoid spam
+    // Throttle connection failure logging to avoid spam while the game server
+    // is intentionally offline. Reconnect attempts continue independently.
     this.lastConnectionErrorLog = 0;
-    this.connectionErrorLogCooldown = 60000; // Only log once per minute
+    this.connectionErrorLogCooldown = 5 * 60 * 1000; // Only log once per 5 minutes
     this.configLoaded = false;
     this.serverManager = null; // Reference to ServerManager for server status checks
 

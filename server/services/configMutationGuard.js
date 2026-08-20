@@ -10,17 +10,27 @@ export async function requireStoppedForLocalConfigMutation(req, res, next) {
 
     const serverManager = req.app?.get?.("serverManager");
     if (typeof serverManager?.checkServerRunning !== "function") {
-      return next();
+      return res.status(503).json({
+        code: "SERVER_STATE_UNKNOWN",
+        error: "Cannot verify whether the server is stopped. Try again shortly.",
+      });
     }
 
-    // The server can accept config edits while running because the INI file is
-    // saved immediately and the game reads it again on reboot. Blocking the
-    // mutation here creates a false negative for a valid operation.
+    if (await serverManager.checkServerRunning()) {
+      return res.status(409).json({
+        code: "SERVER_RUNNING",
+        error: "Stop the server before editing configuration.",
+      });
+    }
+
     return next();
   } catch (error) {
     log.warn(
       `Could not verify server state before config mutation: ${error.message}`,
     );
-    return next();
+    return res.status(503).json({
+      code: "SERVER_STATE_UNKNOWN",
+      error: "Cannot verify whether the server is stopped. Try again shortly.",
+    });
   }
 }

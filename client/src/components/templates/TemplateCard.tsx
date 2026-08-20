@@ -53,7 +53,7 @@ export function TemplateCard({ template, onPreview, onExport, onDelete, canManag
           <Button size="sm" variant="outline" onClick={() => onExport(template)} title="Export template">
             <Download className="h-3.5 w-3.5" />
           </Button>
-          {canManage && !template.isBuiltin && (
+          {canManage && (
             <Button size="sm" variant="outline" onClick={() => onDelete(template)} title="Delete template">
               <Trash2 className="h-3.5 w-3.5" />
             </Button>

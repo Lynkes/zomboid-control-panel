@@ -393,7 +393,7 @@ function toIni(obj, originalContent = "") {
 }
 
 // Parse SandboxVars.lua
-function parseSandboxVars(content) {
+export function parseSandboxVars(content) {
   const result = {
     VERSION: 4,
     settings: {},
@@ -402,6 +402,8 @@ function parseSandboxVars(content) {
     MultiplierConfig: {},
     Map: {},
     Basement: {},
+    Music: {},
+    Debug: {},
   };
 
   // Known nested blocks to skip when parsing top-level settings
@@ -411,6 +413,8 @@ function parseSandboxVars(content) {
     "MultiplierConfig",
     "Map",
     "Basement",
+    "Music",
+    "Debug",
   ];
 
   try {
@@ -577,6 +581,8 @@ function modifySandboxValue(
       "MultiplierConfig",
       "Map",
       "Basement",
+      "Music",
+      "Debug",
     ];
     const blockRanges = [];
     for (const bn of knownBlocks) {
@@ -697,7 +703,7 @@ export function repairSandboxSyntax(content) {
 }
 
 // Apply multiple sandbox changes to file content in-place
-function applySandboxChanges(originalContent, changes) {
+export function applySandboxChanges(originalContent, changes) {
   let content = originalContent;
 
   // Apply settings changes

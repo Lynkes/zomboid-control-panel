@@ -751,6 +751,25 @@ function buildBridgeStatus() {
   }
 }
 
+async function buildSftpDiagnostics() {
+  try {
+    const settings = await getAllSettings();
+    const status = panelBridgeService?.getStatus?.() || {};
+    return sanitizeForBundle({
+      configured: Boolean(settings?.panelBridgeSftpEnabled),
+      host: settings?.panelBridgeSftpHost || null,
+      port: settings?.panelBridgeSftpPort || null,
+      username: settings?.panelBridgeSftpUsername || null,
+      remotePath: settings?.panelBridgeSftpBridgePath || null,
+      activeTransport: status.transport || null,
+      lastSftpTransport: status.lastSftpTransport || null,
+      fellBackToLocal: status.transport?.type !== "sftp" && Boolean(status.lastSftpTransport),
+    });
+  } catch (e) {
+    return { _error: e.message };
+  }
+}
+
 async function buildProcessSnapshot() {
   return {
     title: process.title,
@@ -800,15 +819,16 @@ function buildBundleReadme() {
     "2. `system-info.json` — panel version, OS, RAM, disk free.",
     "3. `panel-config.json` — sanitized settings + servers list (passwords/tokens masked).",
     "4. `zomboid-paths.json` — what the panel thinks the data/install paths are, all probed candidates, and dir listings of `Saves/`, `Saves/Multiplayer/`, `Server/`, `Logs/`, etc.",
-    "5. `bridge-status.json` — PanelBridge connection, IPC file ages.",
-    "6. `recent-events.json` — last server starts/stops, RCON commands, player join/leave, scheduled task runs.",
-    "7. `db-stats.json` — record counts per collection.",
-    "8. `performance-history.json` — recent CPU/RAM samples.",
-    "9. `environment.txt` — relevant env vars (secrets show as `<set>`/`<unset>` only).",
-    "10. `network-interfaces.json` — local IPs (no MACs).",
-    "11. `process.json` — process flags, versions, active handle counts.",
-    "12. `server-config-summary.json` — sanitized effective server settings, mod/map lists, and sandbox integrity.",
-    "13. `pz-build-info.json` — installed Project Zomboid branch and Steam build ID.",
+    "5. `bridge-status.json` — PanelBridge connection, IPC file ages, and active transport.",
+    "6. `sftp-diagnostics.json` — sanitized remote SFTP configuration and the last SFTP attempt, including failures after local fallback.",
+    "7. `recent-events.json` — last server starts/stops, RCON commands, player join/leave, scheduled task runs.",
+    "8. `db-stats.json` — record counts per collection.",
+    "9. `performance-history.json` — recent CPU/RAM samples.",
+    "10. `environment.txt` — relevant env vars (secrets show as `<set>`/`<unset>` only).",
+    "11. `network-interfaces.json` — local IPs (no MACs).",
+    "12. `process.json` — process flags, versions, active handle counts.",
+    "13. `server-config-summary.json` — sanitized effective server settings, mod/map lists, and sandbox integrity.",
+    "14. `pz-build-info.json` — installed Project Zomboid branch and Steam build ID.",
     "",
     "## Then the raw logs",
     "",
@@ -850,6 +870,7 @@ async function buildBundleDiagnostics(activeServer) {
     wrap("performance-history.json", () => buildPerformanceHistory()),
     wrap("db-stats.json", () => buildDbStats()),
     wrap("bridge-status.json", async () => buildBridgeStatus()),
+    wrap("sftp-diagnostics.json", () => buildSftpDiagnostics()),
     wrap("process.json", () => buildProcessSnapshot()),
     wrap("network-interfaces.json", () => buildNetworkInterfaces()),
     wrap("server-config-summary.json", () => buildServerConfigSummary(activeServer)),

@@ -43,6 +43,7 @@ class PanelBridge extends EventEmitter {
     this.statusInterval = null;
     this.fileWatcher = null;
     this.sftpTransport = null;
+    this.lastSftpStatus = null;
     this.pendingCommands = new Map(); // id -> { resolve, reject, timeout, timestamp }
     this.processedResults = new Map(); // id -> timestamp (for deduplication)
     this.protocolVersion = 'queue-v1';
@@ -114,27 +115,35 @@ class PanelBridge extends EventEmitter {
   }
 
   async configureSftp(config, cachePath) {
-    if (this.isRunning) this.stop();
-    if (this.sftpTransport) await this.sftpTransport.stop();
-    this.configure(cachePath, true);
-    // A remote sync can take longer than the local file transport's 15s
-    // command limit. Allow the upload, Lua tick, result download, and one
-    // retry interval to complete before reporting a timeout.
-    this.config.commandTimeoutMs = 60000;
     const transport = new PanelBridgeSftpTransport();
     try {
       await transport.start(config, cachePath);
     } catch (error) {
+      this.lastSftpStatus = transport.getStatus();
       await transport.stop();
+      this.lastSftpStatus = transport.getStatus();
       throw error;
     }
+
+    // Keep the current bridge alive until the replacement has completed its
+    // initial remote directory and status sync. A bad replacement must not
+    // disconnect an otherwise healthy server.
+    const previousTransport = this.sftpTransport;
+    if (this.isRunning) this.stop();
+    if (previousTransport) await previousTransport.stop();
+    this.configure(cachePath, true);
+    this.config.commandTimeoutMs = 60000;
     this.sftpTransport = transport;
+    this.lastSftpStatus = transport.getStatus();
     this.start();
     return this.bridgePath;
   }
 
   async stopSftp() {
-    if (this.sftpTransport) await this.sftpTransport.stop();
+    if (this.sftpTransport) {
+      await this.sftpTransport.stop();
+      this.lastSftpStatus = this.sftpTransport.getStatus();
+    }
     this.sftpTransport = null;
     this.config.commandTimeoutMs = 15000;
   }
@@ -272,6 +281,25 @@ class PanelBridge extends EventEmitter {
         log.warn(`Could not parse queue state file: ${error.message}`);
         this.queueState.nextCommandSeq = 1;
         this.queueState.lastConsumedResultSeq = 0;
+      }
+    }
+
+    // The SFTP cache can be cleared independently of the remote server. In
+    // that case the Lua cursor is the authoritative lower bound for new
+    // command filenames, otherwise Node would restart at cmd-0000000001.
+    const luaStateFile = this.resolveModFile('queue-state-lua.json');
+    if (luaStateFile && fs.existsSync(luaStateFile)) {
+      try {
+        const luaState = JSON.parse(fs.readFileSync(luaStateFile, 'utf-8') || '{}');
+        const lastCommandSeq = Number(luaState.lastCommandSeq);
+        if (Number.isFinite(lastCommandSeq) && lastCommandSeq >= 0) {
+          this.queueState.nextCommandSeq = Math.max(
+            this.queueState.nextCommandSeq,
+            Math.floor(lastCommandSeq) + 1,
+          );
+        }
+      } catch (error) {
+        log.warn(`Could not parse Lua queue state file: ${error.message}`);
       }
     }
 
@@ -1247,8 +1275,9 @@ class PanelBridge extends EventEmitter {
         statusCheckMs: this.config.statusCheckMs
       },
       statusFile: fileInfo,
-      hasFileWatcher: !!this.fileWatcher
-      ,transport: this.sftpTransport?.getStatus() || { type: 'local', running: this.isRunning }
+      hasFileWatcher: !!this.fileWatcher,
+      transport: this.sftpTransport?.getStatus() || { type: 'local', running: this.isRunning },
+      lastSftpTransport: this.lastSftpStatus
     };
   }
 

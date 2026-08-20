@@ -350,6 +350,7 @@ export default function Settings() {
       running: boolean;
       lastLatencyMs?: number | null;
       lastError?: string | null;
+      lastErrorGuidance?: string | null;
     };
     config?: {
       statusStaleMs: number;
@@ -1234,6 +1235,15 @@ export default function Settings() {
       return;
     }
 
+    if (selectedInstallServer?.isRemote) {
+      toast({
+        title: "Manual install required",
+        description: "Remote servers cannot be written from this computer. Copy PanelBridge.lua to the server's Lua folder using SFTP or the hosting provider's file manager.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setInstallingMod(true);
     try {
       const result = await panelBridgeApi.installModAuto(
@@ -1738,10 +1748,8 @@ export default function Settings() {
     try {
       const result = await panelBridgeApi.testSftp(sftpConfig());
       toast({
-        title: "SFTP Connected",
-        description: result.statusExists
-          ? `Bridge status found, ${result.latencyMs} ms round trip.`
-          : `Connected in ${result.latencyMs} ms. Start the PZ server to create status.json.`,
+        title: result.statusExists ? "SFTP Bridge Ready" : "SFTP Folders Ready",
+        description: `${result.nextStep} (${result.latencyMs} ms)`,
         variant: "success" as const,
       });
     } catch (error) {
@@ -1757,9 +1765,31 @@ export default function Settings() {
     try {
       await panelBridgeApi.configureSftp(sftpConfig());
       updateSetting("panelBridgeSftpEnabled", true);
+      setOriginalSettings((previous) => previous ? {
+        ...previous,
+        panelBridgeSftpEnabled: true,
+        panelBridgeSftpHost: settings.panelBridgeSftpHost,
+        panelBridgeSftpPort: settings.panelBridgeSftpPort,
+        panelBridgeSftpUsername: settings.panelBridgeSftpUsername,
+        panelBridgeSftpPassword: settings.panelBridgeSftpPassword,
+        panelBridgeSftpBridgePath: settings.panelBridgeSftpBridgePath,
+        panelBridgeSftpPollIntervalSeconds: settings.panelBridgeSftpPollIntervalSeconds,
+      } : previous);
       toast({ title: "SFTP Bridge Started", description: "PanelBridge is syncing through the local cache.", variant: "success" as const });
       await fetchBridgeStatus();
     } catch (error) {
+      if (originalSettings) {
+        setSettings((previous) => ({
+          ...previous,
+          panelBridgeSftpEnabled: originalSettings.panelBridgeSftpEnabled,
+          panelBridgeSftpHost: originalSettings.panelBridgeSftpHost,
+          panelBridgeSftpPort: originalSettings.panelBridgeSftpPort,
+          panelBridgeSftpUsername: originalSettings.panelBridgeSftpUsername,
+          panelBridgeSftpPassword: originalSettings.panelBridgeSftpPassword,
+          panelBridgeSftpBridgePath: originalSettings.panelBridgeSftpBridgePath,
+          panelBridgeSftpPollIntervalSeconds: originalSettings.panelBridgeSftpPollIntervalSeconds,
+        }));
+      }
       setBridgeError(error instanceof Error ? error.message : "Could not start the SFTP bridge.");
     } finally {
       setBridgeLoading(false);
@@ -1853,6 +1883,7 @@ export default function Settings() {
     servers.find((server) => String(server.id) === selectedInstallServerId) ||
     null;
   const activeServer = servers.find((server) => server.isActive) || null;
+  const isRemoteServer = Boolean(activeServer?.isRemote);
   const trimmedHttpsKeyPath = settings.httpsKeyPath.trim();
   const trimmedHttpsCertPath = settings.httpsCertPath.trim();
   const hasPartialHttpsCertPath =
@@ -3642,70 +3673,66 @@ export default function Settings() {
                 {/* Not running - setup flow */}
                 {!bridgeStatus?.isRunning && (
                   <div className="p-4 bg-muted rounded-xl space-y-3">
-                    <p className="text-sm font-medium">Get Started</p>
-                    <ol className="space-y-1.5 text-sm text-muted-foreground list-decimal list-inside">
-                      <li>
-                        Install{" "}
-                        <strong className="text-foreground">
-                          PanelBridge.lua
-                        </strong>{" "}
-                        using the section below
-                      </li>
-                      <li>
-                        Set{" "}
-                        <strong className="text-foreground">
-                          LuaChecksum=false
-                        </strong>{" "}
-                        in your server INI
-                      </li>
-                      <li>
-                        Click{" "}
-                        <strong className="text-foreground">Auto Setup</strong>{" "}
-                        to start the bridge watcher
-                      </li>
-                      <li>Start or restart the PZ server</li>
-                    </ol>
-                    <Button
-                      onClick={() => handleAutoConfigure()}
-                      disabled={bridgeLoading}
-                      className="gap-2"
-                    >
-                      {bridgeLoading ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Zap className="w-4 h-4" />
-                      )}
-                      Auto Setup
-                    </Button>
-
-                    <div className="border-t border-border/50 pt-3 mt-1 space-y-2">
-                      <p className="text-xs text-muted-foreground">
-                        Or set the bridge path manually (Linux / VPS / custom
-                        installs):
-                      </p>
-                      <div className="flex gap-2">
-                        <Input
-                          value={manualBridgePath}
-                          onChange={(e) => setManualBridgePath(e.target.value)}
-                          placeholder="/home/pzuser/Zomboid/Lua/panelbridge/MyServer"
-                          className="text-xs h-9"
-                        />
+                    {isRemoteServer ? (
+                      <>
+                        <p className="text-sm font-medium">Remote server setup</p>
+                        <p className="text-sm text-muted-foreground">
+                          This panel is running separately from your PZ server. Skip Auto Setup and the local bridge path above.
+                        </p>
+                        <ol className="space-y-1.5 text-sm text-muted-foreground list-decimal list-inside">
+                          <li>Copy <strong className="text-foreground">PanelBridge.lua</strong> into the remote server's Lua folder.</li>
+                          <li>Set <strong className="text-foreground">LuaChecksum=false</strong> in the remote server INI.</li>
+                          <li>Enter the VPS path in <strong className="text-foreground">SFTP PanelBridge files</strong> below.</li>
+                          <li>Click <strong className="text-foreground">Test SFTP</strong>, then <strong className="text-foreground">Start SFTP bridge</strong>.</li>
+                          <li>Start or restart the PZ server.</li>
+                        </ol>
+                        <p className="text-xs text-muted-foreground">
+                          The SFTP bridge creates the remote bridge, inbox, and outbox folders automatically. The path must be on the VPS, not on this computer.
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-sm font-medium">Get Started</p>
+                        <ol className="space-y-1.5 text-sm text-muted-foreground list-decimal list-inside">
+                          <li>Install <strong className="text-foreground">PanelBridge.lua</strong> using the section below</li>
+                          <li>Set <strong className="text-foreground">LuaChecksum=false</strong> in your server INI</li>
+                          <li>Click <strong className="text-foreground">Auto Setup</strong> to start the bridge watcher</li>
+                          <li>Start or restart the PZ server</li>
+                        </ol>
                         <Button
-                          onClick={handleManualConfigure}
-                          disabled={bridgeLoading || !manualBridgePath.trim()}
-                          variant="secondary"
-                          size="sm"
-                          className="shrink-0 gap-1.5"
+                          onClick={() => handleAutoConfigure()}
+                          disabled={bridgeLoading}
+                          className="gap-2"
                         >
-                          {bridgeLoading ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <FolderOpen className="w-3.5 h-3.5" />
-                          )}
-                          Connect
+                          {bridgeLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                          Auto Setup
                         </Button>
-                      </div>
-                    </div>
+
+                        <div className="border-t border-border/50 pt-3 mt-1 space-y-2">
+                          <p className="text-xs text-muted-foreground">
+                            Or set the bridge path manually (Linux / VPS / custom installs):
+                          </p>
+                          <div className="flex gap-2">
+                            <Input
+                              value={manualBridgePath}
+                              onChange={(e) => setManualBridgePath(e.target.value)}
+                              placeholder="/home/pzuser/Zomboid/Lua/panelbridge/MyServer"
+                              className="text-xs h-9"
+                            />
+                            <Button
+                              onClick={handleManualConfigure}
+                              disabled={bridgeLoading || !manualBridgePath.trim()}
+                              variant="secondary"
+                              size="sm"
+                              className="shrink-0 gap-1.5"
+                            >
+                              {bridgeLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderOpen className="w-3.5 h-3.5" />}
+                              Connect
+                            </Button>
+                          </div>
+                        </div>
+                      </>
+                    )}
 
                   </div>
                 )}
@@ -3722,21 +3749,29 @@ export default function Settings() {
                     </AlertTitle>
                     <AlertDescription className="space-y-2">
                       <p>
-                        The panel is ready. Start the PZ server with
-                        PanelBridge.lua installed and{" "}
-                        <strong className="text-foreground">
-                          LuaChecksum=false
-                        </strong>{" "}
-                        set.
+                        {isRemoteServer && bridgeStatus.transport?.type === "sftp"
+                          ? "SFTP is ready, but the panel has not received a status file from the remote PZ server yet."
+                          : "The panel is ready. Start the PZ server with PanelBridge.lua installed and LuaChecksum=false set."}
                       </p>
-                      {bridgeStatus?.bridgePath && (
+                      {isRemoteServer && bridgeStatus.transport?.type === "sftp" ? (
+                        <>
+                          <p className="text-xs text-muted-foreground break-words">
+                            Remote folder: <code className="rounded bg-background px-1 break-all">{settings.panelBridgeSftpBridgePath}</code>
+                          </p>
+                          {bridgeStatus?.bridgePath && (
+                            <p className="text-xs text-muted-foreground break-words">
+                              Local SFTP cache: <code className="rounded bg-background px-1 break-all">{bridgeStatus.bridgePath}</code>
+                            </p>
+                          )}
+                        </>
+                      ) : bridgeStatus?.bridgePath ? (
                         <p className="text-xs text-muted-foreground break-words">
                           Watching:{" "}
                           <code className="rounded bg-background px-1 break-all">
                             {bridgeStatus.bridgePath}
                           </code>
                         </p>
-                      )}
+                      ) : null}
                     </AlertDescription>
                   </Alert>
                 )}
@@ -3946,7 +3981,7 @@ export default function Settings() {
                   </div>
 
                   <div className="grid gap-4 lg:grid-cols-2">
-                    <div className="rounded-md border border-border/60 p-4 space-y-3">
+                    <div id="sftp-panelbridge" className="rounded-md border border-border/60 p-4 space-y-3">
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <p className="text-sm font-medium">RCON command connection</p>
@@ -3977,10 +4012,15 @@ export default function Settings() {
                         <div>
                           <p className="text-sm font-medium">SFTP PanelBridge files</p>
                           <p className="mt-1 text-xs text-muted-foreground">
-                            Syncs only the bridge status, command queue, and results folder. It does not read general server files.
+                            {isRemoteServer
+                              ? "For this remote server, enter the VPS folder here. The panel syncs only bridge status, commands, and results."
+                              : "Syncs only the bridge status, command queue, and results folder. It does not read general server files."}
                           </p>
                         </div>
                         <Cloud className="h-4 w-4 shrink-0 text-primary" />
+                      </div>
+                      <div className="rounded border border-border/50 bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
+                        <strong className="text-foreground">Setup order:</strong> enter the VPS folder, click <strong className="text-foreground">Verify and prepare SFTP</strong> to verify access and create the bridge queue folders, then click <strong className="text-foreground">Start SFTP bridge</strong>. A missing status file means the PZ server has not written one yet.
                       </div>
                       <div className="grid gap-3 sm:grid-cols-2">
                         <div className="space-y-1.5"><Label htmlFor="sftp-host">SFTP host</Label><Input id="sftp-host" value={settings.panelBridgeSftpHost} onChange={(event) => updateSetting("panelBridgeSftpHost", event.target.value)} placeholder="pz.example.net" /></div>
@@ -3988,13 +4028,17 @@ export default function Settings() {
                         <div className="space-y-1.5"><Label htmlFor="sftp-user">Username</Label><Input id="sftp-user" autoComplete="username" value={settings.panelBridgeSftpUsername} onChange={(event) => updateSetting("panelBridgeSftpUsername", event.target.value)} /></div>
                         <div className="space-y-1.5"><Label htmlFor="sftp-password">Password</Label><PasswordInput id="sftp-password" autoComplete="current-password" value={settings.panelBridgeSftpPassword} onChange={(value) => updateSetting("panelBridgeSftpPassword", value)} placeholder="Stored securely" label="SFTP password" /></div>
                       </div>
-                      <div className="space-y-1.5"><Label htmlFor="sftp-bridge-path">Remote bridge folder</Label><Input id="sftp-bridge-path" value={settings.panelBridgeSftpBridgePath} onChange={(event) => updateSetting("panelBridgeSftpBridgePath", event.target.value)} placeholder="/home/pz/Zomboid/Lua/panelbridge/MyServer" /></div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="sftp-bridge-path">Remote bridge folder on the VPS</Label>
+                        <Input id="sftp-bridge-path" value={settings.panelBridgeSftpBridgePath} onChange={(event) => updateSetting("panelBridgeSftpBridgePath", event.target.value)} placeholder="/home/pzuser/Zomboid/Lua/panelbridge/MyServer" />
+                        <p className="text-[11px] text-muted-foreground">Use the path as seen by this SFTP account. Do not enter a Windows path or a path from your local computer.</p>
+                      </div>
                       <div className="flex flex-wrap items-end gap-3">
                         <div className="w-36 space-y-1.5"><Label htmlFor="sftp-poll">Sync interval (seconds)</Label><Input id="sftp-poll" inputMode="numeric" value={settings.panelBridgeSftpPollIntervalSeconds} onChange={(event) => updateSetting("panelBridgeSftpPollIntervalSeconds", event.target.value)} /></div>
-                        <Button type="button" variant="outline" onClick={handleTestSftp} disabled={testingSftp || bridgeLoading}>{testingSftp ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link className="mr-2 h-4 w-4" />}Test SFTP</Button>
+                        <Button type="button" variant="outline" onClick={handleTestSftp} disabled={testingSftp || bridgeLoading}>{testingSftp ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link className="mr-2 h-4 w-4" />}Verify and prepare SFTP</Button>
                         <Button type="button" onClick={handleConfigureSftp} disabled={bridgeLoading}>{bridgeLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Cloud className="mr-2 h-4 w-4" />}Start SFTP bridge</Button>
                       </div>
-                      {bridgeStatus?.transport?.type === "sftp" && <p className="text-xs text-muted-foreground">SFTP {bridgeStatus.transport.running ? "running" : "stopped"}{bridgeStatus.transport.lastLatencyMs != null ? `, last sync ${bridgeStatus.transport.lastLatencyMs} ms` : ""}{bridgeStatus.transport.lastError ? `, last error: ${bridgeStatus.transport.lastError}` : ""}</p>}
+                      {bridgeStatus?.transport?.type === "sftp" && <div className="space-y-1 text-xs text-muted-foreground"><p>SFTP {bridgeStatus.transport.running ? "running" : "stopped"}{bridgeStatus.transport.lastLatencyMs != null ? `, last sync ${bridgeStatus.transport.lastLatencyMs} ms` : ""}{bridgeStatus.transport.lastError ? `, last error: ${bridgeStatus.transport.lastError}` : ""}</p>{bridgeStatus.transport.lastErrorGuidance && <p className="text-warning">Fix: {bridgeStatus.transport.lastErrorGuidance}</p>}</div>}
                     </div>
                   </div>
 
@@ -4178,7 +4222,7 @@ export default function Settings() {
                     </Select>
                     <Button
                       onClick={handleInstallMod}
-                      disabled={installingMod || !selectedInstallServerId}
+                      disabled={installingMod || !selectedInstallServerId || selectedInstallServer?.isRemote}
                       className="gap-2"
                       variant="outline"
                     >
@@ -4190,6 +4234,11 @@ export default function Settings() {
                       Install Mod
                     </Button>
                   </div>
+                  {selectedInstallServer?.isRemote && (
+                    <p className="text-xs text-warning">
+                      Remote server: copy PanelBridge.lua to the remote Lua folder with SFTP or the provider file manager. Automatic local installation is unavailable.
+                    </p>
+                  )}
                   {selectedInstallTarget && (
                     <p className="text-xs text-muted-foreground break-all">
                       Destination:{" "}

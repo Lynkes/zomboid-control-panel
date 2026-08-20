@@ -1,13 +1,25 @@
 ---@diagnostic disable: undefined-global, deprecated
 --[[
     PanelBridge - Server-side mod for Zomboid Control Panel
-    Version: 1.7.34
+    Version: 1.7.37
 
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
 
+                v1.7.37 Changes:
+                - Bundled with panel v1.1.50. No bridge protocol changes.
+
+                v1.7.36 Changes:
+                - Bundled with panel v1.1.49. No bridge protocol changes.
+
+                v1.7.35 Changes:
+                - Fixed triggerLightning on Build 42.20 by calling the
+                    server-side ThunderStorm event directly. The climate
+                    transmit helper can return without an error while no
+                    lightning reaches connected clients.
+
                 v1.7.34 Changes:
-                - Bundled with panel v1.1.46. No bridge protocol changes.
+                - Bundled with panel v1.1.48. No bridge protocol changes.
 
                 v1.7.33 Changes:
                 - Bundled with panel v1.1.45. No bridge protocol changes.
@@ -356,7 +368,7 @@
 local json
 
 local PanelBridge = {
-    VERSION = "1.7.34",
+    VERSION = "1.7.37",
     PROTOCOL_VERSION = "queue-v1",
     CHECK_INTERVAL = 250, -- milliseconds (fast command polling)
     lastCheck = 0,
@@ -2068,13 +2080,21 @@ handlers.triggerLightning = function(args)
         return false, nil, "ClimateManager not available"
     end
 
-    local x = args.x or 0
-    local y = args.y or 0
+    local x = math.floor(tonumber(args.x) or 0)
+    local y = math.floor(tonumber(args.y) or 0)
     local strike = args.strike ~= false  -- default to true
     local light = args.light ~= false     -- default to true
     local rumble = args.rumble ~= false   -- default to true
 
-    local success, err = PanelBridge.invoke(climate, "transmitServerTriggerLightning", x, y, strike, light, rumble)
+    -- Build 42.20's transmit helper can complete without queuing a visible
+    -- thunder event. Trigger the server-side ThunderStorm event directly.
+    local thunderStorm = PanelBridge.tryGet(climate, "getThunderStorm")
+    local success, err
+    if thunderStorm then
+        success, err = PanelBridge.invoke(thunderStorm, "triggerThunderEvent", x, y, strike, light, rumble)
+    else
+        success, err = PanelBridge.invoke(climate, "transmitServerTriggerLightning", x, y, strike, light, rumble)
+    end
 
     if not success then
         return false, nil, "Failed to trigger lightning: " .. tostring(err)

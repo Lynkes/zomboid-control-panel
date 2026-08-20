@@ -7,7 +7,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { fileURLToPath } from "url";
 import { createLogger } from "../utils/logger.js";
-import { getServer } from "../database/init.js";
+import { getServer, getSetting, setSetting } from "../database/init.js";
 import {
   getUserTemplates,
   getUserTemplate,
@@ -35,6 +35,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BUILTIN_DIR = path.join(__dirname, "../data/templates");
 
 let builtinCache = null;
+const HIDDEN_BUILTIN_TEMPLATES_SETTING = "hiddenBuiltinTemplateIds";
+
+async function getHiddenBuiltinTemplateIds() {
+  const stored = await getSetting(HIDDEN_BUILTIN_TEMPLATES_SETTING);
+  return Array.isArray(stored)
+    ? new Set(stored.filter((id) => typeof id === "string"))
+    : new Set();
+}
 
 function loadBuiltinTemplates() {
   if (builtinCache) return builtinCache;
@@ -62,7 +70,10 @@ export function _resetBuiltinCacheForTests() {
 }
 
 export async function listTemplates() {
-  const builtins = loadBuiltinTemplates();
+  const hiddenBuiltinIds = await getHiddenBuiltinTemplateIds();
+  const builtins = loadBuiltinTemplates().filter(
+    (template) => !hiddenBuiltinIds.has(template.meta.id),
+  );
   const userTemplates = (await getUserTemplates()).map((t) => ({
     ...t,
     isBuiltin: false,
@@ -71,8 +82,9 @@ export async function listTemplates() {
 }
 
 export async function getTemplate(id) {
+  const hiddenBuiltinIds = await getHiddenBuiltinTemplateIds();
   const builtin = loadBuiltinTemplates().find((t) => t.meta.id === id);
-  if (builtin) return builtin;
+  if (builtin) return hiddenBuiltinIds.has(id) ? null : builtin;
   const userTemplate = await getUserTemplate(id);
   return userTemplate ? { ...userTemplate, isBuiltin: false } : null;
 }
@@ -93,7 +105,10 @@ export async function saveTemplate(input) {
 
 export async function deleteTemplate(id) {
   if (loadBuiltinTemplates().some((t) => t.meta.id === id)) {
-    return { success: false, error: "Cannot delete a built-in template" };
+    const hiddenBuiltinIds = await getHiddenBuiltinTemplateIds();
+    hiddenBuiltinIds.add(id);
+    await setSetting(HIDDEN_BUILTIN_TEMPLATES_SETTING, [...hiddenBuiltinIds]);
+    return { success: true, hiddenBuiltin: true };
   }
   const deleted = await deleteUserTemplate(id);
   return deleted ? { success: true } : { success: false, error: "Template not found" };

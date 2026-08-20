@@ -11,6 +11,7 @@ vi.mock("../database/init.js", () => ({
 }));
 
 const { default: router } = await import("../routes/panelBridge.js");
+const { getServer } = await import("../database/init.js");
 
 function createResponse() {
   const response = { status: vi.fn(), json: vi.fn() };
@@ -60,6 +61,28 @@ describe("PanelBridge mod-install routes require admin", () => {
       response,
     );
     expect(response.status).toHaveBeenCalledWith(403);
+  });
+
+  it("explains that remote servers require manual or SFTP installation", async () => {
+    getServer.mockResolvedValue({
+      id: "remote-1",
+      isRemote: true,
+      name: "Remote PZ",
+      serverName: "servertest",
+    });
+    const response = createResponse();
+
+    await runRoute(
+      "/install-mod-auto",
+      "post",
+      { body: { serverId: "remote-1" }, user: { role: "admin" } },
+      response,
+    );
+
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(response.json).toHaveBeenCalledWith({
+      error: expect.stringMatching(/remote servers.*SFTP/i),
+    });
   });
 
   it("rejects POST /install-mod for a non-admin authenticated user", async () => {

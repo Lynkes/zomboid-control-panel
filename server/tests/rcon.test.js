@@ -31,6 +31,14 @@ describe('RCON packet framing', () => {
   });
 });
 
+describe('RCON connection logging', () => {
+  it('uses a five-minute cooldown for repeated offline warnings', () => {
+    const service = new RconService();
+
+    expect(service.connectionErrorLogCooldown).toBe(5 * 60 * 1000);
+  });
+});
+
 // Test RCON service logic by creating a lightweight mock
 // This tests the key behaviors without requiring a live RCON connection
 

@@ -57,6 +57,7 @@ export function resolveTargetPath(server) {
 
 function isWritableDir(dirPath) {
   try {
+    if (!fs.statSync(dirPath).isDirectory()) return false;
     fs.accessSync(dirPath, fs.constants.W_OK);
     return true;
   } catch {
@@ -124,6 +125,21 @@ export function installBridge(server) {
   try {
     const sourceContent = fs.readFileSync(sourcePath, 'utf8');
     const sourceVersion = readVersion(sourcePath);
+    if (!sourceVersion) {
+      return { success: false, error: 'PanelBridge source has no readable version.' };
+    }
+    if (fs.existsSync(targetPath)) {
+      const targetVersion = readVersion(targetPath);
+      if (targetVersion && compareModVersions(targetVersion, sourceVersion) > 0) {
+        return {
+          success: true,
+          targetPath,
+          version: targetVersion,
+          updated: false,
+          message: `Existing PanelBridge v${targetVersion} is newer than the bundled v${sourceVersion}; it was left unchanged.`,
+        };
+      }
+    }
     writeLuaAtomic(targetPath, sourceContent);
     matchOwnership(targetPath, resolveInstallDir(server));
     const installedContent = fs.readFileSync(targetPath, 'utf8');
@@ -132,7 +148,7 @@ export function installBridge(server) {
       return { success: false, error: 'PanelBridge verification failed after install.' };
     }
     log.info(`PanelBridge installed at ${targetPath} (v${version || 'unknown'})`);
-    return { success: true, targetPath, version };
+    return { success: true, targetPath, version, updated: true };
   } catch (error) {
     log.warn(`PanelBridge install failed: ${error.message}`);
     return { success: false, error: error.message };

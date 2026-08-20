@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { readFile } from 'node:fs/promises';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 // Test PanelBridge command serialization logic
@@ -163,6 +165,7 @@ describe('PanelBridge pending commands', () => {
         action: 'test',
         timestamp: Date.now()
       });
+
     }
 
     // Simulate bridge stop
@@ -176,6 +179,27 @@ describe('PanelBridge pending commands', () => {
       expect(fn).toHaveBeenCalledWith(expect.objectContaining({ message: 'Bridge stopped' }));
     });
     expect(pendingCommands.size).toBe(0);
+  });
+});
+
+describe('PanelBridge queue recovery', () => {
+  it('resumes command numbering after a cleared SFTP cache', async () => {
+    const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'pz-bridge-test-'));
+    try {
+      const { PanelBridge } = await import('../services/panelBridge.js');
+      fs.writeFileSync(
+        path.join(temporaryDirectory, 'queue-state-lua.json.txt'),
+        JSON.stringify({ lastCommandSeq: 42 }),
+      );
+      const bridge = new PanelBridge();
+      bridge.configure(temporaryDirectory, true);
+
+      bridge.ensureQueueProtocol();
+
+      expect(bridge.queueState.nextCommandSeq).toBe(43);
+    } finally {
+      fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+    }
   });
 });
 
@@ -250,6 +274,27 @@ describe('PanelBridge vehicle compatibility', () => {
 
     expect(runtimeVersion).toBe(headerVersion);
     expect(manifestVersion).toBe(headerVersion);
+  });
+});
+
+describe('PanelBridge climate compatibility', () => {
+  it('uses the direct Build 42 ThunderStorm event for lightning', async () => {
+    const luaPath = path.resolve(
+      process.cwd(),
+      'pz-mod/PanelBridge/media/lua/server/PanelBridge.lua',
+    );
+    const source = await readFile(luaPath, 'utf8');
+    const start = source.indexOf('handlers.triggerLightning = function(args)');
+    const end = source.indexOf('-- Applies a climate float', start);
+    const handler = source.slice(start, end);
+
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    expect(handler).toContain('getThunderStorm');
+    expect(handler).toContain('triggerThunderEvent');
+    expect(handler.indexOf('triggerThunderEvent')).toBeLessThan(
+      handler.indexOf('transmitServerTriggerLightning'),
+    );
   });
 });
 

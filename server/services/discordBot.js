@@ -5,6 +5,7 @@ import {
   REST,
   Routes,
   EmbedBuilder,
+  ActivityType,
   PermissionFlagsBits,
   MessageFlags,
   escapeMarkdown,
@@ -123,6 +124,7 @@ const DEFAULT_COMMAND_PERMISSIONS = {
 };
 
 const LIFECYCLE_DEDUPE_WINDOW_MS = 60_000;
+const PLAYER_PRESENCE_INTERVAL_MS = 60_000;
 
 export class DiscordBot {
   constructor(rconService, serverManager, scheduler, logTailer = null) {
@@ -142,6 +144,8 @@ export class DiscordBot {
     this.chatRelayEnabled = true;
     this.chatRelayChannelId = null; // null = use main channelId
     this.chatRelayScope = "public"; // 'public' = all open channels, 'general' = General tab only
+    this._presenceInterval = null;
+    this._presenceUpdateInFlight = null;
 
     // Notification circuit breaker — avoids log/network spam when Discord
     // is unreachable (DNS failures, transient outages). After N consecutive
@@ -1280,6 +1284,60 @@ export class DiscordBot {
     return breaker;
   }
 
+  async updatePlayerPresence() {
+    if (!this.isRunning || !this.client?.user || !this.serverManager) return;
+    if (this._presenceUpdateInFlight) return this._presenceUpdateInFlight;
+
+    this._presenceUpdateInFlight = (async () => {
+      let activity = "Server offline";
+      try {
+        const serverRunning = await this.serverManager.checkServerRunning();
+        if (serverRunning) {
+          if (this.rconService?.connected) {
+            const result = await this.rconService.getPlayers();
+            if (result?.success) {
+              const count = Array.isArray(result.players)
+                ? result.players.length
+                : 0;
+              activity = `${count} player${count === 1 ? "" : "s"} online`;
+            } else {
+              activity = "Players unavailable";
+            }
+          } else {
+            activity = "Players unavailable";
+          }
+        }
+
+        if (this.isRunning && this.client?.user) {
+          await this.client.user.setActivity(activity, {
+            type: ActivityType.Watching,
+          });
+        }
+      } catch (error) {
+        log.debug(`Discord presence update failed: ${error.message}`);
+      } finally {
+        this._presenceUpdateInFlight = null;
+      }
+    })();
+
+    return this._presenceUpdateInFlight;
+  }
+
+  _startPresenceUpdates() {
+    if (this._presenceInterval || !this.client?.user) return;
+    void this.updatePlayerPresence();
+    this._presenceInterval = setInterval(() => {
+      void this.updatePlayerPresence();
+    }, PLAYER_PRESENCE_INTERVAL_MS);
+  }
+
+  _stopPresenceUpdates() {
+    if (this._presenceInterval) {
+      clearInterval(this._presenceInterval);
+      this._presenceInterval = null;
+    }
+  }
+
   async start() {
     // Guard against double-start — calling start() twice would attach a
     // second messageCreate listener and double-relay every Discord message
@@ -1461,6 +1519,7 @@ export class DiscordBot {
             log.warn(`Failed to register slash commands: ${e.message}`);
           }
           this.isRunning = true;
+          this._startPresenceUpdates();
           resolve();
         });
         this.client.login(this.token).catch((err) => {
@@ -1488,10 +1547,12 @@ export class DiscordBot {
         this.client = null;
       }
       this.isRunning = false;
+      this._stopPresenceUpdates();
       return false;
     }
   }
   async stop() {
+    this._stopPresenceUpdates();
     // Detach the chatMessage listener so a swapped LogTailer (e.g. a
     // restart of the panel-managed game-server changes the tailer instance)
     // doesn't leak handlers across bot lifecycles. Done outside the client

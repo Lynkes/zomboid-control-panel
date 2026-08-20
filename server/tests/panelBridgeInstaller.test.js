@@ -37,6 +37,12 @@ describe('canAutoInstall', () => {
     expect(canAutoInstall({ id: 's1', isRemote: false })).toBe(false);
   });
 
+  it('is false when installPath points to a regular file', () => {
+    const filePath = path.join(tmpDir, 'server-install.txt');
+    fs.writeFileSync(filePath, 'not a directory');
+    expect(canAutoInstall({ installPath: filePath, isRemote: false })).toBe(false);
+  });
+
   it('is false when installPath does not exist on disk', () => {
     const missing = path.join(tmpDir, 'does-not-exist');
     expect(canAutoInstall({ installPath: missing, isRemote: false })).toBe(false);
@@ -132,5 +138,18 @@ describe('installBridge', () => {
     const result = installBridge(localServer());
     expect(result.success).toBe(false);
     expect(result.error).toBeTruthy();
+  });
+
+  it('does not downgrade a newer installed bridge', () => {
+    const targetDir = path.join(tmpDir, 'media', 'lua', 'server');
+    fs.mkdirSync(targetDir, { recursive: true });
+    const targetPath = path.join(targetDir, 'PanelBridge.lua');
+    fs.writeFileSync(targetPath, 'local VERSION = "99.0.0"\n');
+
+    const result = installBridge(localServer());
+
+    expect(result.success).toBe(true);
+    expect(result.updated).toBe(false);
+    expect(fs.readFileSync(targetPath, 'utf8')).toContain('99.0.0');
   });
 });

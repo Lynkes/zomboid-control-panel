@@ -244,15 +244,18 @@ describe("logout and export trust boundaries", () => {
 });
 
 describe("config mutation guard", () => {
-  it("allows local server config writes while the server is running because they apply on reboot", async () => {
+  it("fails closed when server state cannot be verified", async () => {
     const next = vi.fn();
     const req = { app: { get: vi.fn() } };
     const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
 
     await requireStoppedForLocalConfigMutation(req, res, next);
 
-    expect(next).toHaveBeenCalledTimes(1);
-    expect(res.status).not.toHaveBeenCalled();
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "SERVER_STATE_UNKNOWN" }),
+    );
   });
 });
 
@@ -970,7 +973,6 @@ describe("Discord event notifications", () => {
       sent.push(message);
       return true;
     };
-
     await bot.sendEventNotification("serverStop");
     expect(bot._lastLifecycleState).toBeNull();
 
@@ -993,6 +995,49 @@ describe("Discord event notifications", () => {
     await bot.sendEventNotification("serverStop");
     expect(sent).toEqual(["Server stopped", "Server stopped"]);
   }, 15000);
+});
+
+describe("Discord player presence", () => {
+  it("shows the current player count when RCON is connected", async () => {
+    const { DiscordBot } = await import("../services/discordBot.js");
+    const setActivity = vi.fn();
+    const bot = Object.create(DiscordBot.prototype);
+    bot.isRunning = true;
+    bot.client = { user: { setActivity } };
+    bot.serverManager = { checkServerRunning: async () => true };
+    bot.rconService = {
+      connected: true,
+      getPlayers: async () => ({ success: true, players: ["alice", "bob"] }),
+    };
+    bot._presenceUpdateInFlight = null;
+
+    await bot.updatePlayerPresence();
+
+    expect(setActivity).toHaveBeenCalledWith(
+      "2 players online",
+      expect.any(Object),
+    );
+  });
+
+  it("does not query RCON while it is disconnected", async () => {
+    const { DiscordBot } = await import("../services/discordBot.js");
+    const getPlayers = vi.fn();
+    const setActivity = vi.fn();
+    const bot = Object.create(DiscordBot.prototype);
+    bot.isRunning = true;
+    bot.client = { user: { setActivity } };
+    bot.serverManager = { checkServerRunning: async () => true };
+    bot.rconService = { connected: false, getPlayers };
+    bot._presenceUpdateInFlight = null;
+
+    await bot.updatePlayerPresence();
+
+    expect(getPlayers).not.toHaveBeenCalled();
+    expect(setActivity).toHaveBeenCalledWith(
+      "Players unavailable",
+      expect.any(Object),
+    );
+  });
 });
 
 describe("Discord slash command visibility", () => {

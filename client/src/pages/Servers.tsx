@@ -499,8 +499,10 @@ export default function Servers() {
       try {
         const detection = await serverApi.detectSteamCmd()
         const resolvedSteamcmdPath = detection.found && detection.path ? detection.path : steamcmdPath
-        if (resolvedSteamcmdPath && resolvedSteamcmdPath !== steamcmdPath) {
-          setSteamcmdPath(resolvedSteamcmdPath)
+        if (resolvedSteamcmdPath) {
+          // Detection is asynchronous. Do not replace a path the operator
+          // typed after the dialog opened but before detection completed.
+          setSteamcmdPath((currentPath) => currentPath.trim() || resolvedSteamcmdPath)
         }
         const data = await serverApi.getBranches(resolvedSteamcmdPath)
         if (data.branches && Array.isArray(data.branches)) {

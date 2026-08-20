@@ -16,6 +16,8 @@ let userTemplates;
 
 vi.mock("../database/init.js", () => ({
   getServer: vi.fn(),
+  getSetting: vi.fn(async () => []),
+  setSetting: vi.fn(async () => {}),
   getUserTemplates: vi.fn(async () => userTemplates),
   getUserTemplate: vi.fn(async (id) => userTemplates.find((t) => t.meta?.id === id) || null),
   saveUserTemplate: vi.fn(async (template) => {
@@ -31,7 +33,7 @@ vi.mock("../database/init.js", () => ({
   }),
 }));
 
-const { getServer } = await import("../database/init.js");
+const { getServer, getSetting, setSetting } = await import("../database/init.js");
 const templateService = await import("../services/templateService.js");
 
 const BUILTIN_IDS = [
@@ -46,6 +48,9 @@ const BUILTIN_IDS = [
 beforeEach(() => {
   userTemplates = [];
   getServer.mockReset();
+  getSetting.mockReset();
+  getSetting.mockResolvedValue([]);
+  setSetting.mockReset();
 });
 
 // ─── templateSchema.js ──────────────────────────────────────────────────────
@@ -161,9 +166,21 @@ describe("built-in templates", () => {
     expect(template?.isBuiltin).toBe(true);
   });
 
-  it("refuses to delete a built-in template", async () => {
+  it("hides a built-in template for this panel", async () => {
     const result = await templateService.deleteTemplate("vanilla-apocalypse");
-    expect(result).toEqual({ success: false, error: expect.stringMatching(/built-in/i) });
+    expect(result).toEqual({ success: true, hiddenBuiltin: true });
+    expect(setSetting).toHaveBeenCalledWith(
+      "hiddenBuiltinTemplateIds",
+      ["vanilla-apocalypse"],
+    );
+  });
+
+  it("does not list a hidden built-in template", async () => {
+    getSetting.mockResolvedValue(["vanilla-apocalypse"]);
+
+    const templates = await templateService.listTemplates();
+
+    expect(templates.map((template) => template.meta.id)).not.toContain("vanilla-apocalypse");
   });
 
   it("refuses to save over a built-in template id", async () => {

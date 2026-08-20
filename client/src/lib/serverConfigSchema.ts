@@ -1089,7 +1089,8 @@ export const INI_SCHEMA: IniSetting[] = [
     options: [
       { value: '1', label: 'Hidden' },
       { value: '2', label: 'Friends Only' },
-      { value: '3', label: 'Everyone' }
+      { value: '3', label: 'Friends and Nearby Players' },
+      { value: '4', label: 'Everyone' }
     ],
     default: '1',
     category: 'players'

@@ -36,6 +36,7 @@ import { createLogger } from "../utils/logger.js";
 import {
   getSftpCachePath,
   testSftpBridge,
+  formatSftpError,
   validateSftpBridgeConfig,
   listSftpLogs,
   readSftpLogTail,
@@ -793,22 +794,22 @@ router.post("/sftp/test", requireRole("admin"), async (req, res) => {
     const result = await testSftpBridge(config);
     res.json(result);
   } catch (error) {
-    res.status(400).json({ error: sanitizeError(error.message) });
+    res.status(400).json({ error: sanitizeError(formatSftpError(error)) });
   }
 });
 
 router.post("/sftp/configure", requireRole("admin"), async (req, res) => {
   try {
     const config = await resolveSftpConfig(req.body);
+    const cachePath = getSftpCachePath(config);
+    await bridge.configureSftp(config, cachePath);
     for (const [field, key] of Object.entries(SFTP_SETTING_KEYS)) {
       const value = field === "enabled" ? true : config[field];
       if (value !== undefined) await setSetting(key, value);
     }
-    const cachePath = getSftpCachePath(config);
-    await bridge.configureSftp(config, cachePath);
     res.json({ success: true, bridgePath: cachePath, transport: bridge.getStatus().transport });
   } catch (error) {
-    res.status(400).json({ error: sanitizeError(error.message) });
+    res.status(400).json({ error: sanitizeError(formatSftpError(error)) });
   }
 });
 
@@ -2572,68 +2573,29 @@ router.post("/install-mod-auto", requireRole("admin"), async (req, res) => {
       }
     }
 
-    // Use serverPath if available, otherwise extract directory from installPath
-    let serverInstallDir = targetServer.serverPath || targetServer.installPath;
-    if (!serverInstallDir) {
-      return res
-        .status(400)
-        .json({ error: "Server install path not configured." });
-    }
-
-    // If installPath points to a file (e.g., .bat), extract the directory
-    if (
-      serverInstallDir.endsWith(".bat") ||
-      serverInstallDir.endsWith(".sh") ||
-      serverInstallDir.endsWith(".exe")
-    ) {
-      serverInstallDir = path.dirname(serverInstallDir);
-    }
-
-    // Install to: {serverInstallDir}/media/lua/server/PanelBridge.lua
-    const luaServerPath = path.join(serverInstallDir, "media", "lua", "server");
-    const destLuaFile = path.join(luaServerPath, "PanelBridge.lua");
-
-    // Prefer embedded Lua (guaranteed to match running binary version).
-    let srcContent = getEmbeddedPanelBridgeLua();
-    let sourceLocation = srcContent ? "embedded" : null;
-
-    if (!srcContent) {
-      const possiblePaths = [
-        path.join(__dirname, "..", "..", "pz-mod", "PanelBridge"),
-        path.join(process.cwd(), "pz-mod", "PanelBridge"),
-        path.join(path.dirname(process.execPath), "pz-mod", "PanelBridge"),
-      ];
-      for (const p of possiblePaths) {
-        const candidate = path.join(
-          p,
-          "media",
-          "lua",
-          "server",
-          "PanelBridge.lua",
-        );
-        if (fs.existsSync(candidate)) {
-          srcContent = fs.readFileSync(candidate, "utf8");
-          sourceLocation = candidate;
-          break;
-        }
-      }
-    }
-
-    if (!srcContent) {
-      return res.status(404).json({
-        error: "Source mod not found (no embedded Lua and no on-disk pz-mod).",
+    if (targetServer.isRemote) {
+      return res.status(400).json({
+        error: "Automatic PanelBridge installation is unavailable for remote servers. Copy PanelBridge.lua to the remote server's Lua folder using SFTP or the hosting provider's file manager.",
       });
     }
 
-    writeLuaAtomic(destLuaFile, srcContent);
+    if (!canAutoInstall(targetServer)) {
+      return res.status(400).json({
+        error: "Automatic PanelBridge installation is unavailable. Configure an existing local server install folder with write permission, or use the manual install path.",
+      });
+    }
 
-    res.json({
-      success: true,
-      message: "PanelBridge.lua installed to server Lua folder",
-      path: destLuaFile,
-      source: sourceLocation,
+    const installResult = installBridge(targetServer);
+    if (!installResult.success) {
+      return res.status(500).json(installResult);
+    }
+
+    return res.json({
+      ...installResult,
+      message: installResult.message || `PanelBridge installed to ${installResult.targetPath}`,
       serverName: targetServer.serverName || targetServer.name,
     });
+
   } catch (error) {
     res.status(500).json({ error: sanitizeError(error.message) });
   }

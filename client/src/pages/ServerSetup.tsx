@@ -189,6 +189,7 @@ export default function ServerSetup() {
     useCustomDataPath,
     rconPort,
     rconPassword,
+    adminPassword,
     serverPort,
     minMemory,
     maxMemory,
@@ -203,6 +204,7 @@ export default function ServerSetup() {
       useCustomDataPath,
       rconPort,
       rconPassword,
+      adminPassword,
       serverPort,
       minMemory,
       maxMemory,
@@ -216,6 +218,7 @@ export default function ServerSetup() {
     useCustomDataPath,
     rconPort,
     rconPassword,
+    adminPassword,
     serverPort,
     minMemory,
     maxMemory,
@@ -431,6 +434,7 @@ export default function ServerSetup() {
             rconHost: "127.0.0.1",
             rconPort: data.rconPort || s.rconPort,
             rconPassword: data.rconPassword || s.rconPassword,
+            adminPassword: s.adminPassword,
             serverPort: data.serverPort || s.serverPort,
             minMemory: (data.minMemory || s.minMemory) * 1024,
             maxMemory: (data.maxMemory || s.maxMemory) * 1024,
@@ -702,6 +706,7 @@ export default function ServerSetup() {
             rconHost: "127.0.0.1",
             rconPort: data.rconPort || rconPort,
             rconPassword: data.rconPassword || rconPassword,
+            adminPassword,
             serverPort: data.serverPort || serverPort,
             minMemory: (data.minMemory || minMemory) * 1024,
             maxMemory: (data.maxMemory || maxMemory) * 1024,
@@ -1517,36 +1522,60 @@ export default function ServerSetup() {
         <CardContent className="space-y-6">
           <div className="grid gap-6 sm:grid-cols-2">
             <div className="space-y-3">
-              <div className="flex justify-between">
+              <div className="flex items-center justify-between gap-3">
                 <Label>Minimum RAM</Label>
-                <span className="font-mono font-medium">{minMemory}GB</span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={64}
+                  value={minMemory}
+                  className="h-8 w-20 bg-background text-right font-mono"
+                  onChange={e => {
+                    const value = Math.min(64, Math.max(1, parseInt(e.target.value, 10) || 1))
+                    setMinMemory(value)
+                    if (value > maxMemory) setMaxMemory(value)
+                  }}
+                  aria-label="Minimum RAM in GB"
+                />
               </div>
               <Slider
-                value={[minMemory]}
+                value={[Math.min(minMemory, 64)]}
                 onValueChange={([val]) => {
                   setMinMemory(val);
                   if (val > maxMemory) setMaxMemory(val);
                 }}
                 min={2}
-                max={16}
+                max={64}
                 step={1}
                 aria-label={`Minimum RAM: ${minMemory}GB`}
               />
             </div>
 
             <div className="space-y-3">
-              <div className="flex justify-between">
+              <div className="flex items-center justify-between gap-3">
                 <Label>Maximum RAM</Label>
-                <span className="font-mono font-medium">{maxMemory}GB</span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={128}
+                  value={maxMemory}
+                  className="h-8 w-20 bg-background text-right font-mono"
+                  onChange={e => {
+                    const value = Math.min(128, Math.max(1, parseInt(e.target.value, 10) || 1))
+                    setMaxMemory(value)
+                    if (value < minMemory) setMinMemory(value)
+                  }}
+                  aria-label="Maximum RAM in GB"
+                />
               </div>
               <Slider
-                value={[maxMemory]}
+                value={[Math.min(maxMemory, 64)]}
                 onValueChange={([val]) => {
                   setMaxMemory(val);
                   if (val < minMemory) setMinMemory(val);
                 }}
                 min={2}
-                max={16}
+                max={64}
                 step={1}
                 aria-label={`Maximum RAM: ${maxMemory}GB`}
               />
@@ -2111,36 +2140,60 @@ export default function ServerSetup() {
           <CardContent>
             <div className="grid gap-6 sm:grid-cols-2">
               <div className="space-y-3">
-                <div className="flex justify-between">
+                <div className="flex items-center justify-between gap-3">
                   <Label>Minimum RAM</Label>
-                  <span className="font-mono">{minMemory}GB</span>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={64}
+                    value={minMemory}
+                    className="h-8 w-20 bg-background text-right font-mono"
+                    onChange={e => {
+                      const value = Math.min(64, Math.max(1, parseInt(e.target.value, 10) || 1))
+                      setMinMemory(value)
+                      if (value > maxMemory) setMaxMemory(value)
+                    }}
+                    aria-label="Minimum RAM in GB"
+                  />
                 </div>
                 <Slider
-                  value={[minMemory]}
+                  value={[Math.min(minMemory, 64)]}
                   onValueChange={([val]) => {
                     setMinMemory(val);
                     if (val > maxMemory) setMaxMemory(val);
                   }}
                   min={2}
-                  max={16}
+                  max={64}
                   step={1}
                   aria-label={`Minimum RAM: ${minMemory}GB`}
                 />
               </div>
 
               <div className="space-y-3">
-                <div className="flex justify-between">
+                <div className="flex items-center justify-between gap-3">
                   <Label>Maximum RAM</Label>
-                  <span className="font-mono">{maxMemory}GB</span>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={128}
+                    value={maxMemory}
+                    className="h-8 w-20 bg-background text-right font-mono"
+                    onChange={e => {
+                      const value = Math.min(128, Math.max(1, parseInt(e.target.value, 10) || 1))
+                      setMaxMemory(value)
+                      if (value < minMemory) setMinMemory(value)
+                    }}
+                    aria-label="Maximum RAM in GB"
+                  />
                 </div>
                 <Slider
-                  value={[maxMemory]}
+                  value={[Math.min(maxMemory, 64)]}
                   onValueChange={([val]) => {
                     setMaxMemory(val);
                     if (val < minMemory) setMinMemory(val);
                   }}
                   min={2}
-                  max={16}
+                  max={64}
                   step={1}
                   aria-label={`Maximum RAM: ${maxMemory}GB`}
                 />
