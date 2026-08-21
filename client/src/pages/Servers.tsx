@@ -80,6 +80,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { serversApi, serversDetectApi, dockerApi, DockerContainerStats, DockerContainerSummary, ServerInstance, configApi, serverApi, updateApi, UpdateStatus, DiscoveredMount, ComposedServerStatus } from '@/lib/api'
+import { waitForServerState } from '@/lib/serverStatus'
 import { ServerStatusBadge } from '@/components/ServerStatusBadge'
 import { SocketContext } from '@/contexts/SocketContext'
 import { useNavigate } from 'react-router-dom'
@@ -438,6 +439,22 @@ export default function Servers() {
     return () => clearInterval(interval)
   }, [activeServerId, fetchActiveStatus])
 
+  useEffect(() => {
+    if (!socket || activeServerId === null) return
+
+    const handleServerStatus = (data: { running?: boolean }) => {
+      if (typeof data.running !== 'boolean') return
+      setServerStatuses(prev => ({
+        ...prev,
+        [String(activeServerId)]: { running: data.running as boolean, pid: null },
+      }))
+      fetchActiveStatus()
+    }
+
+    socket.on('server:status', handleServerStatus)
+    return () => { socket.off('server:status', handleServerStatus) }
+  }, [socket, activeServerId, fetchActiveStatus])
+
   // Silently probe for common bind-mount PZ installs — non-fatal since the
   // banner is a convenience, not a requirement.
   useEffect(() => {
@@ -786,16 +803,35 @@ export default function Servers() {
   // we activate first, wait for the switch to land, then issue start. This
   // mirrors what users would otherwise do manually from the dropdown.
   const [serverActionPending, setServerActionPending] = useState<string | null>(null)
+  const waitForActionState = useCallback(async (serverId: string | number, expectedRunning: boolean) => {
+    return waitForServerState(
+      serversApi.getStatus,
+      serverId,
+      expectedRunning,
+      (serverStatus) => {
+        setServerStatuses(prev => ({
+          ...prev,
+          [String(serverStatus.id)]: { running: serverStatus.running, pid: serverStatus.pid },
+        }))
+      },
+    )
+  }, [])
+
   const handleInlineStart = useCallback(async (server: ServerInstance) => {
     setServerActionPending(`start-${server.id}`)
     try {
       if (!server.isActive) {
         await serversApi.activate(server.id)
       }
-      await serverApi.start()
-      toast({ title: 'Server Starting', description: server.name || server.serverName })
-      fetchServers()
-      fetchServerStatuses()
+      const result = await serverApi.start()
+      if (result?.success === false) throw new Error(result.error || result.message || 'Server start failed')
+      const confirmed = await waitForActionState(server.id, true)
+      toast({
+        title: confirmed ? 'Server Started' : 'Server Start Requested',
+        description: confirmed ? (server.name || server.serverName) : 'The panel is still waiting for the process to appear.',
+        variant: confirmed ? 'success' as const : 'default',
+      })
+      await Promise.allSettled([fetchServers(), fetchServerStatuses()])
     } catch (error) {
       toast({
         title: 'Failed to start server',
@@ -805,7 +841,7 @@ export default function Servers() {
     } finally {
       setServerActionPending(null)
     }
-  }, [toast, fetchServers, fetchServerStatuses])
+  }, [toast, fetchServers, fetchServerStatuses, waitForActionState])
 
   const handleInlineStop = useCallback(async (server: ServerInstance) => {
     setServerActionPending(`stop-${server.id}`)
@@ -813,10 +849,15 @@ export default function Servers() {
       if (!server.isActive) {
         await serversApi.activate(server.id)
       }
-      await serverApi.stop()
-      toast({ title: 'Server Stopping', description: server.name || server.serverName })
-      fetchServers()
-      fetchServerStatuses()
+      const result = await serverApi.stop()
+      if (result?.success === false) throw new Error(result.error || result.message || 'Server stop failed')
+      const confirmed = await waitForActionState(server.id, false)
+      toast({
+        title: confirmed ? 'Server Stopped' : 'Server Stop Requested',
+        description: confirmed ? (server.name || server.serverName) : 'The panel is still waiting for the process to stop.',
+        variant: confirmed ? 'success' as const : 'default',
+      })
+      await Promise.allSettled([fetchServers(), fetchServerStatuses()])
     } catch (error) {
       toast({
         title: 'Failed to stop server',
@@ -826,7 +867,7 @@ export default function Servers() {
     } finally {
       setServerActionPending(null)
     }
-  }, [toast, fetchServers, fetchServerStatuses])
+  }, [toast, fetchServers, fetchServerStatuses, waitForActionState])
 
   const handleDeleteServer = async () => {
     if (!deleteServer) return
@@ -1707,14 +1748,14 @@ export default function Servers() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>RCON Host / IP *</Label>
+                    <Label>Server machine (RCON host) *</Label>
                     <Input
                       value={newServer.rconHost}
                       onChange={e => setNewServer({ ...newServer, rconHost: e.target.value })}
                       placeholder="192.168.1.100 or myserver.com"
                       className="font-mono text-sm"
                     />
-                    <p className="text-xs text-muted-foreground">The IP address or hostname of the remote PZ server</p>
+                    <p className="text-xs text-muted-foreground">Address of the machine running PZ. Use 127.0.0.1 only when the panel and server share this machine.</p>
                   </div>
                   <div className="space-y-2">
                     <Label>RCON Port *</Label>
@@ -2152,13 +2193,24 @@ export default function Servers() {
                   <p className="text-xs text-destructive">Command contains disallowed shell characters</p>
                 )}
               </div>
+              <div className="flex items-start gap-3 rounded-md border border-border/60 p-3">
+                <Checkbox
+                  id={`edit-use-no-steam-${editingServer.id}`}
+                  checked={!!editingServer.useNoSteam}
+                  onCheckedChange={(checked) => setEditingServer({ ...editingServer, useNoSteam: checked === true })}
+                />
+                <div className="space-y-1">
+                  <Label htmlFor={`edit-use-no-steam-${editingServer.id}`}>Launch without Steam</Label>
+                  <p className="text-xs text-muted-foreground">Use the non-Steam dedicated-server mode on the next start.</p>
+                </div>
+              </div>
               </>
               )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="flex items-center gap-1.5">
-                    RCON Host
+                    {editingServer.isRemote ? 'Server machine (RCON host)' : 'RCON host'}
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Info className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
@@ -2171,7 +2223,13 @@ export default function Servers() {
                   <Input
                     value={editingServer.rconHost}
                     onChange={e => setEditingServer({ ...editingServer, rconHost: e.target.value })}
+                    placeholder={editingServer.isRemote ? '192.168.1.100 or server.example.com' : '127.0.0.1'}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    {editingServer.isRemote
+                      ? 'Address of the machine running PZ. Use 127.0.0.1 only when the panel and server share this machine.'
+                      : 'Use 127.0.0.1 when the panel and server share this machine.'}
+                  </p>
                 </div>
                 <div className="space-y-2">
                   <Label>RCON Port</Label>

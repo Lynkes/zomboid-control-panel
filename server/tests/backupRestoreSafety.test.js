@@ -115,6 +115,30 @@ describe("restoreBackup archive safety", () => {
     ).toBe("RESTORED");
   });
 
+  it("restores a world whose source archive has different nested folder names", async () => {
+    const portable = path.join(backupsPath, "portable.zip");
+    const nestedWorld = path.join(root, "source", "Saves", "Multiplayer", "DifferentName");
+    writeWorld(nestedWorld, "PORTABLE");
+
+    await new Promise((resolve, reject) => {
+      const output = fs.createWriteStream(portable);
+      const archive = archiver("zip", { zlib: { level: 0 } });
+      output.on("close", resolve);
+      output.on("error", reject);
+      archive.on("error", reject);
+      archive.pipe(output);
+      archive.directory(path.join(root, "source", "Saves"), "Saves");
+      archive.finalize();
+    });
+
+    const result = await createService().restoreBackup("portable.zip", {
+      createPreRestoreBackup: false,
+    });
+
+    expect(result.success).toBe(true);
+    expect(fs.readFileSync(path.join(savesPath, "map_meta.bin"), "utf8")).toBe("PORTABLE");
+  });
+
   it("leaves no staging folder behind", async () => {
     const good = path.join(backupsPath, "good.zip");
     await writeValidBackup(good, "RESTORED");

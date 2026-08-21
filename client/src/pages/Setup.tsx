@@ -36,6 +36,7 @@ export default function Setup() {
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [panelPort, setPanelPort] = useState('3001')
   const [showPassword, setShowPassword] = useState(false)
   const [rememberMe, setRememberMe] = useState(true)
   const [error, setError] = useState('')
@@ -49,6 +50,8 @@ export default function Setup() {
   const passwordsMatch = password === confirmPassword
   const passwordLongEnough = password.length >= 6
   const usernameValid = /^[a-zA-Z0-9_-]{3,32}$/.test(username)
+  const panelPortNumber = Number(panelPort)
+  const panelPortValid = Number.isInteger(panelPortNumber) && panelPortNumber >= 1024 && panelPortNumber <= 65535
   const strength = useMemo(() => scorePassword(password), [password])
 
   const detectCaps = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -74,10 +77,14 @@ export default function Setup() {
       setError('Passwords do not match')
       return
     }
+    if (!panelPortValid) {
+      setError('Panel port must be a whole number between 1024 and 65535')
+      return
+    }
 
     setLoading(true)
     try {
-      await setup(username, password, rememberMe)
+      await setup(username, password, rememberMe, panelPort)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Setup failed')
     } finally {
@@ -169,6 +176,25 @@ export default function Setup() {
               </>
             )}
           </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="panelPort">Panel Port</Label>
+          <Input
+            id="panelPort"
+            type="number"
+            value={panelPort}
+            onChange={(e) => setPanelPort(e.target.value)}
+            min="1024"
+            max="65535"
+            inputMode="numeric"
+            disabled={loading}
+            aria-invalid={Boolean(error && !panelPortValid)}
+            required
+          />
+          <p className="text-xs leading-5 text-muted-foreground">
+            Port used to open the panel. Default: 3001. If it is busy, the panel will choose and save a free port automatically.
+          </p>
         </div>
 
         <div className="space-y-2">

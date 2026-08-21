@@ -166,7 +166,8 @@ const AIRDROP_PRESETS = [
 
 // ─── DZI Map Constants ────────────────────────────────────
 // Camera: canvasX = dziPixelX * scale + offset.x
-// Map tiles served via backend proxy to avoid CORS.
+// Map tiles use the browser-direct pzmap.org path when available. The backend
+// proxy remains the fallback for cached tiles and restricted browsers.
 
 interface MapConfig {
   tileUrl: string
@@ -208,7 +209,7 @@ const B42_DEFAULT_CENTER_TILE = { x: 10486.75, y: 6678.75 }
 // The projection origin CANNOT be recovered by rescaling: 42.20.0 is exactly
 // 2x the height of 42.19.0 but 4032 px wider, because each build is cropped
 // and padded independently. So the backend reads the real origin out of the
-// build's own base/map_info.json, matching what map.projectzomboid.com's own
+// build's own base/map_info.json, matching what pzmap.org's own
 // viewer does:
 //   imageX = (x0 + (gx - gy) * sqr / 2) / scale
 //   imageY = (y0 + (gx + gy) * sqr / 4) / scale
@@ -288,7 +289,7 @@ const MAP_B41: MapConfig = {
   fullWidth: 2285184,
   fullHeight: 990400,
   maxLevel: 22, // ceil(log2(2285184)) = 22
-  // Isometric projection from map.projectzomboid.com (multiply=2):
+  // Isometric projection from pzmap.org (multiply=2):
   // Origin derived from PxToTileOffset {x:-5577, y:10327}
   isoX0: 1017856,  // (5577 + 10327) * 64
   isoY0: -152000,  // (5577 - 10327) * 32
@@ -811,7 +812,7 @@ export default function WorldMap() {
   // ─── Map tile cache ─────────────────────────────────────
   // 'empty' marks a tile the upstream server confirmed doesn't exist (a
   // real HTTP 404, not a network/proxy failure) — e.g. a sparse/edge tile
-  // near the map boundary. map.projectzomboid.com's own OpenSeadragon
+  // near the map boundary. pzmap.org's own OpenSeadragon
   // viewer just renders these blank; treating them as errors caused a
   // false "tiles offline" banner and visible view jumps on zoom. See the
   // status-aware fetch() below — an <img> tag alone can't distinguish a
@@ -819,13 +820,13 @@ export default function WorldMap() {
   const tileCacheRef = useRef<Record<string, HTMLImageElement | null | 'empty'>>({})
 
   // Resolved once per session: lets the browser build direct-to-upstream
-  // tile URLs (https://map.projectzomboid.com/maps/<dir>/...) instead of
+  // tile URLs (https://pzmap.org/maps/<dir>/...) instead of
   // always routing through this server's proxy. Some deployments (e.g. a
   // Kubernetes cluster with a restrictive Gateway API egress policy) block
-  // outbound access to map.projectzomboid.com for the panel's own pod while
+  // outbound access to pzmap.org for the panel's own pod while
   // the admin's browser has no such restriction. /api/map/resolve has its
   // own cache + hardcoded fallback server-side, so it responds instantly
-  // even when the backend itself can't reach map.projectzomboid.com.
+  // even when the backend itself can't reach pzmap.org.
   const mapSourceRef = useRef<{ root: string; b42Dir: string; b41Path: string } | null>(null)
   useEffect(() => {
     let cancelled = false
@@ -835,7 +836,7 @@ export default function WorldMap() {
     return () => { cancelled = true }
   }, [])
 
-  // Builds the real map.projectzomboid.com URL for a tile, or null if we
+  // Builds the real pzmap.org URL for a tile, or null if we
   // haven't resolved enough info yet (falls back to the backend proxy).
   const buildDirectTileUrl = useCallback((level: number, col: number, row: number, floor: number, ext: string) => {
     const src = mapSourceRef.current
@@ -922,7 +923,7 @@ export default function WorldMap() {
 
     // Loads through this server's proxy — the "smart" path that can tell a
     // real 404 (tile genuinely absent; the reference OpenSeadragon viewer
-    // on map.projectzomboid.com just renders these blank) apart from an
+    // on pzmap.org just renders these blank) apart from an
     // actual connectivity failure, since an <img> tag alone can't see HTTP
     // status codes. Used directly when we haven't resolved a direct
     // upstream URL yet, and as the fallback when a direct browser load
@@ -987,7 +988,7 @@ export default function WorldMap() {
       return
     }
 
-    // Fast path: load straight from map.projectzomboid.com in the browser,
+    // Fast path: load straight from pzmap.org in the browser,
     // bypassing this server entirely. Some deployments' backend can't reach
     // that host (e.g. a restrictive Kubernetes egress policy) even though
     // the admin's own browser has no such restriction. An <img> tag can't
@@ -2555,7 +2556,7 @@ export default function WorldMap() {
 
         {/* Tile-load failure banner — appears when many *distinct* tiles fail
             with a real error (network outage, firewall blocking
-            map.projectzomboid.com, upstream tile server down). A genuine
+            pzmap.org, upstream tile server down). A genuine
             HTTP 404 (sparse/edge tile, out of map bounds) does NOT count
             toward this — see loadDziTile's 'empty' handling. Without this
             banner the user just sees an indefinite empty map. See issue #6. */}
@@ -2574,7 +2575,7 @@ export default function WorldMap() {
                   <>
                     <div className="font-semibold text-foreground">No map tiles at this zoom</div>
                     <div className="text-muted-foreground mt-0.5">
-                      <span className="font-mono text-warning/90">map.projectzomboid.com</span> is
+                      <span className="font-mono text-warning/90">pzmap.org</span> is
                       reachable but hasn't rendered this area at this detail level. Zoom out, or
                       try Refresh later.
                     </div>
@@ -2583,7 +2584,7 @@ export default function WorldMap() {
                   <>
                     <div className="font-semibold text-foreground">Map tiles aren't loading</div>
                     <div className="text-muted-foreground mt-0.5">
-                      Panel can't reach <span className="font-mono text-warning/90">map.projectzomboid.com</span>.
+                      Panel can't reach <span className="font-mono text-warning/90">pzmap.org</span>.
                       Check outbound HTTPS access and try Refresh.
                     </div>
                   </>

@@ -27,6 +27,7 @@ import {
   checkBridgeInstalled,
   installBridge,
 } from "../services/panelBridgeInstaller.js";
+import { refreshWorkshopChecker } from "../services/modChecker.js";
 
 const router = express.Router();
 
@@ -77,6 +78,18 @@ function autoInstallBridgeIfNeeded(server) {
     }
   } catch (error) {
     log.warn(`PanelBridge auto-install check failed: ${error.message}`);
+  }
+}
+
+async function refreshWorkshopCheckerIfAvailable(req) {
+  const modChecker = req.app.get("modChecker");
+  if (!modChecker) return;
+
+  try {
+    await refreshWorkshopChecker(modChecker);
+  } catch (error) {
+    // Server profile changes must remain saveable if workshop probing fails.
+    log.warn(`Workshop checker refresh failed: ${error.message}`);
   }
 }
 
@@ -870,6 +883,10 @@ router.put("/:id", async (req, res) => {
           log.warn(`RCON reload failed after update: ${e.message}`);
         }
       }
+
+      if (Object.prototype.hasOwnProperty.call(updates, "installPath")) {
+        await refreshWorkshopCheckerIfAvailable(req);
+      }
     }
 
     res.json({
@@ -938,6 +955,8 @@ router.post("/:id/activate", async (req, res) => {
       await serverManager.reloadConfig();
       log.info(`ServerManager reloaded config for server: ${server.name}`);
     }
+
+    await refreshWorkshopCheckerIfAvailable(req);
 
     // Disconnect current RCON if connected
     if (rconService && rconService.isConnected()) {

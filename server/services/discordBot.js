@@ -10,13 +10,16 @@ import {
   MessageFlags,
   escapeMarkdown,
 } from "discord.js";
+import fs from "fs";
+import path from "path";
 import { request as undiciRequest, Headers as UndiciHeaders } from "undici";
 import { STATUS_CODES } from "http";
 import { types } from "util";
 import { createLogger } from "../utils/logger.js";
 const log = createLogger("Discord");
-import { getSetting, setSetting } from "../database/init.js";
+import { getActiveServer, getSetting, setSetting } from "../database/init.js";
 import { sanitizeError } from "../utils/sanitize.js";
+import { readIniValues } from "../utils/templateFiles.js";
 import { runManagedLifecycle } from "./managedContainer.js";
 
 // Workaround for undici 8.x + Node.js 22+/24+: undici adds Symbol(sensitiveHeaders)
@@ -1284,6 +1287,44 @@ export class DiscordBot {
     return breaker;
   }
 
+  async getConfiguredMaxPlayers() {
+    try {
+      const activeServer = await getActiveServer();
+      const serverName = activeServer?.serverName || (await getSetting("serverName"));
+      const configPath =
+        activeServer?.serverConfigPath ||
+        (activeServer?.zomboidDataPath
+          ? path.join(activeServer.zomboidDataPath, "Server")
+          : await getSetting("serverConfigPath")) ||
+        ((await getSetting("zomboidDataPath"))
+          ? path.join(await getSetting("zomboidDataPath"), "Server")
+          : null);
+
+      if (
+        !configPath ||
+        !serverName ||
+        typeof serverName !== "string" ||
+        path.basename(serverName) !== serverName ||
+        serverName.includes("..")
+      ) {
+        return null;
+      }
+
+      const iniPath = path.join(configPath, `${serverName}.ini`);
+      if (!fs.existsSync(iniPath)) return null;
+
+      const content = fs.readFileSync(iniPath, "utf8");
+      const maxPlayers = Number.parseInt(
+        readIniValues(content, ["MaxPlayers"]).MaxPlayers,
+        10,
+      );
+      return Number.isInteger(maxPlayers) && maxPlayers > 0 ? maxPlayers : null;
+    } catch (error) {
+      log.debug(`Could not read MaxPlayers for Discord presence: ${error.message}`);
+      return null;
+    }
+  }
+
   async updatePlayerPresence() {
     if (!this.isRunning || !this.client?.user || !this.serverManager) return;
     if (this._presenceUpdateInFlight) return this._presenceUpdateInFlight;
@@ -1299,7 +1340,8 @@ export class DiscordBot {
               const count = Array.isArray(result.players)
                 ? result.players.length
                 : 0;
-              activity = `${count} player${count === 1 ? "" : "s"} online`;
+              const maxPlayers = await this.getConfiguredMaxPlayers();
+              activity = maxPlayers ? `${count}/${maxPlayers}` : `${count} online`;
             } else {
               activity = "Players unavailable";
             }
@@ -1310,7 +1352,7 @@ export class DiscordBot {
 
         if (this.isRunning && this.client?.user) {
           await this.client.user.setActivity(activity, {
-            type: ActivityType.Watching,
+            type: ActivityType.Playing,
           });
         }
       } catch (error) {

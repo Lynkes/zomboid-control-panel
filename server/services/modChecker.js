@@ -33,6 +33,59 @@ export function minutesToCheckIntervalMs(minutes) {
   return value * 60 * 1000;
 }
 
+export function getWorkshopAcfCandidates(installPath) {
+  if (typeof installPath !== "string" || !installPath.trim()) return [];
+
+  const rawPath = installPath.trim();
+  const baseRoot = path.normalize(rawPath);
+  const roots = [];
+  const extension = path.extname(rawPath).toLowerCase();
+  let currentRoot = [".bat", ".cmd", ".exe", ".sh"].includes(extension)
+    ? path.dirname(baseRoot)
+    : baseRoot;
+  for (let depth = 0; depth < 5; depth += 1) {
+    roots.push(currentRoot);
+    const parentRoot = path.dirname(currentRoot);
+    if (parentRoot === currentRoot) break;
+    currentRoot = parentRoot;
+  }
+
+  const candidates = [];
+  const seen = new Set();
+  const addCandidate = (candidate) => {
+    const normalized = path.normalize(candidate);
+    if (!seen.has(normalized)) {
+      seen.add(normalized);
+      candidates.push(normalized);
+    }
+  };
+
+  for (const root of roots) {
+    addCandidate(
+      path.join(root, "steamapps", "workshop", "appworkshop_108600.acf"),
+    );
+    addCandidate(path.join(root, "workshop", "appworkshop_108600.acf"));
+    addCandidate(path.join(root, "appworkshop_108600.acf"));
+    addCandidate(
+      path.join(root, "..", "steamapps", "workshop", "appworkshop_108600.acf"),
+    );
+  }
+
+  return candidates;
+}
+
+export async function refreshWorkshopChecker(modChecker) {
+  if (!modChecker?.findWorkshopAcfPath) return null;
+
+  const workshopAcfPath = await modChecker.findWorkshopAcfPath();
+  if (workshopAcfPath) {
+    if (!modChecker.isRunning) modChecker.start();
+  } else if (modChecker.isRunning) {
+    modChecker.stop();
+  }
+  return workshopAcfPath;
+}
+
 // Older API endpoints stored milliseconds while Settings stored minutes.
 // Accept both on startup, then rewrite legacy milliseconds as minutes.
 export function normalizeStoredCheckInterval(value) {
@@ -236,6 +289,8 @@ export class ModChecker extends EventEmitter {
   // Find the workshop ACF file path from server config
   async findWorkshopAcfPath() {
     try {
+      this.workshopAcfPath = null;
+
       // Allow manual override from settings
       const manualPath = await getSetting("modWorkshopAcfPath");
       if (manualPath && fs.existsSync(manualPath)) {
@@ -262,35 +317,15 @@ export class ModChecker extends EventEmitter {
         return null;
       }
 
-      // Workshop ACF is at: {installPath}/steamapps/workshop/appworkshop_108600.acf
-      const acfPath = path.join(
-        installPath,
-        "steamapps",
-        "workshop",
-        "appworkshop_108600.acf",
-      );
-
-      if (fs.existsSync(acfPath)) {
-        this.workshopAcfPath = acfPath;
-        log.info(`Found workshop ACF at ${acfPath}`);
-        return acfPath;
+      for (const acfPath of getWorkshopAcfCandidates(installPath)) {
+        if (fs.existsSync(acfPath)) {
+          this.workshopAcfPath = acfPath;
+          log.info(`Found workshop ACF at ${acfPath}`);
+          return acfPath;
+        }
       }
 
-      // Check one level up (common if installPath points to a subfolder)
-      const acfPathUp = path.join(
-        installPath,
-        "..",
-        "steamapps",
-        "workshop",
-        "appworkshop_108600.acf",
-      );
-      if (fs.existsSync(acfPathUp)) {
-        this.workshopAcfPath = acfPathUp;
-        log.info(`Found workshop ACF at parent: ${acfPathUp}`);
-        return acfPathUp;
-      }
-
-      log.debug(`Workshop ACF not found at ${acfPath}`);
+      log.debug(`Workshop ACF not found for install path ${installPath}`);
       return null;
     } catch (error) {
       log.warn(`Failed to find workshop ACF: ${error.message}`);

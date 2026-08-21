@@ -17,7 +17,7 @@ interface AuthState {
 
 interface AuthContextType extends AuthState {
   login: (username: string, password: string, rememberMe?: boolean) => Promise<void>
-  setup: (username: string, password: string, rememberMe?: boolean) => Promise<void>
+  setup: (username: string, password: string, rememberMe?: boolean, panelPort?: string) => Promise<void>
   logout: () => Promise<void>
   getToken: () => string | null
 }
@@ -172,12 +172,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const setup = useCallback(async (username: string, password: string, rememberMe = true) => {
+  const setup = useCallback(async (username: string, password: string, rememberMe = true, panelPort = '3001') => {
     const res = await fetch('/api/auth/setup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ username, password, rememberMe }),
+      body: JSON.stringify({ username, password, rememberMe, panelPort }),
     })
 
     if (!res.ok) {

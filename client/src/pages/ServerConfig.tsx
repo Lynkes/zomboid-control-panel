@@ -96,7 +96,7 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { PageHeader } from '@/components/PageHeader'
 // DropdownMenu imports available if needed
-import { serverFilesApi, panelBridgeApi, SpawnPointsByProfession, SpawnRegion, SandboxData, ConfigTemplate } from '@/lib/api'
+import { serverApi, serverFilesApi, panelBridgeApi, SpawnPointsByProfession, SpawnRegion, SandboxData, ConfigTemplate } from '@/lib/api'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { formatModSettingDescription, formatModSettingLabel } from '@/lib/modSettingsLabels'
 import { EmptyState } from '@/components/EmptyState'
@@ -107,6 +107,8 @@ import {
   SANDBOX_SCHEMA,
   SANDBOX_CATEGORIES,
   SANDBOX_CATEGORY_GROUPS,
+  normalizeNumericInput,
+  parseNumericSettingValue,
   IniSetting,
   SandboxSetting,
   groupByCategory
@@ -219,6 +221,7 @@ const IniSettingRow = memo(({
 }) => {
   const isModified = originalValue !== undefined && value !== originalValue
   const isDifferentFromDefault = setting.default !== undefined && String(value) !== String(setting.default)
+  const numberIsInvalid = setting.type === 'number' && String(value ?? '').trim() !== '' && parseNumericSettingValue(value, setting) === null
 
   // Multiline settings
   if (setting.type === 'multiline') {
@@ -304,19 +307,16 @@ const IniSettingRow = memo(({
             ) : setting.type === 'number' ? (
               <div>
                 <Input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   value={value}
                   onChange={(e) => {
-                    const val = e.target.value
-                    if (val === '') {
-                      onChange(setting.key, '')
-                      return
-                    }
-                    onChange(setting.key, val)
+                    onChange(setting.key, normalizeNumericInput(e.target.value))
                   }}
                   min={setting.min}
                   max={setting.max}
-                  className={`text-right ${isModified ? 'border-warning/40' : ''}`}
+                  aria-invalid={numberIsInvalid}
+                  className={`text-right ${isModified ? 'border-warning/40' : ''} ${numberIsInvalid ? 'border-destructive/70' : ''}`}
                 />
                 {(setting.min !== undefined || setting.max !== undefined) && (
                   <div className="text-xs text-muted-foreground/60 text-right mt-0.5">
@@ -410,6 +410,7 @@ const SandboxSettingRow = memo(({
 }) => {
   const isModified = originalValue !== undefined && JSON.stringify(value) !== JSON.stringify(originalValue)
   const isDifferentFromDefault = setting.default !== undefined && JSON.stringify(value) !== JSON.stringify(setting.default)
+  const numberIsInvalid = setting.type === 'number' && String(value ?? '').trim() !== '' && parseNumericSettingValue(value, setting) === null
 
   return (
     <div className={`perf-content-auto grid gap-2 rounded-md border-b py-3 pl-3 pr-4 transition-colors last:border-0 ${
@@ -468,13 +469,15 @@ const SandboxSettingRow = memo(({
             ) : (
               <div>
                 <Input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   value={value !== undefined ? String(value) : ''}
-                  onChange={(e) => onChange(setting, e.target.value)}
+                  onChange={(e) => onChange(setting, normalizeNumericInput(e.target.value))}
                   min={setting.min}
                   max={setting.max}
                   step={setting.max && setting.max <= 1 ? 0.1 : 1}
-                  className={`text-right ${isModified ? 'border-warning/40' : ''}`}
+                  aria-invalid={numberIsInvalid}
+                  className={`text-right ${isModified ? 'border-warning/40' : ''} ${numberIsInvalid ? 'border-destructive/70' : ''}`}
                 />
                 {(setting.min !== undefined || setting.max !== undefined) && (
                   <div className="text-xs text-muted-foreground/60 text-right mt-0.5">
@@ -652,6 +655,7 @@ export default function ServerConfig() {
   const [activeTab, setActiveTab] = useState('ini')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [serverRunning, setServerRunning] = useState<boolean | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   // Defer the search value so each keystroke doesn't re-filter the full schema
   // synchronously — keeps the input snappy on slower machines.
@@ -750,6 +754,25 @@ export default function ServerConfig() {
   const [originalIniSettings, setOriginalIniSettings] = useState<Record<string, string>>({})
   const [originalSandboxData, setOriginalSandboxData] = useState<SandboxData | null>(null)
   const [originalRawContent, setOriginalRawContent] = useState('')
+
+  const invalidIniSettings = useMemo(
+    () => INI_SCHEMA.filter(setting => {
+      if (setting.type !== 'number') return false
+      const value = iniSettings[setting.key]
+      return String(value ?? '').trim() !== '' && parseNumericSettingValue(value, setting) === null
+    }),
+    [iniSettings],
+  )
+
+  const invalidSandboxSettings = useMemo(() => {
+    if (!sandboxData) return []
+    return SANDBOX_SCHEMA.filter(setting => {
+      if (setting.type !== 'number') return false
+      const section = (setting.section || 'settings') as keyof SandboxData
+      const value = (sandboxData[section] as SandboxRecord | undefined)?.[setting.key]
+      return value !== undefined && value !== null && String(value).trim() !== '' && parseNumericSettingValue(value, setting) === null
+    })
+  }, [sandboxData])
 
   // Mod Settings (live from PanelBridge)
   const [modSettings, setModSettings] = useState<Record<string, Array<{
@@ -889,6 +912,21 @@ export default function ServerConfig() {
       setLoading(false)
     }
   }
+
+  const refreshServerState = useCallback(async () => {
+    try {
+      const status = await serverApi.getStatus()
+      setServerRunning(Boolean(status.running))
+    } catch {
+      setServerRunning(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshServerState()
+    const interval = setInterval(() => { void refreshServerState() }, 5000)
+    return () => clearInterval(interval)
+  }, [refreshServerState])
 
   // Track if raw content is loading
   const [_loadingRaw, setLoadingRaw] = useState(false)
@@ -1176,6 +1214,22 @@ export default function ServerConfig() {
   const handleSaveIni = async () => {
     setSaving(true)
     try {
+      if (serverRunning === true) {
+        toast({
+          title: 'Stop the server before saving',
+          description: 'Project Zomboid can overwrite configuration files while it is running.',
+          variant: 'destructive',
+        })
+        return
+      }
+      if (invalidIniSettings.length > 0) {
+        toast({
+          title: 'Invalid server settings',
+          description: `Fix: ${invalidIniSettings.map(setting => setting.label).join(', ')}`,
+          variant: 'destructive',
+        })
+        return
+      }
       if (editorMode === 'raw') {
         await serverFilesApi.saveRaw('ini', rawContent)
         setOriginalRawContent(rawContent)
@@ -1218,6 +1272,22 @@ export default function ServerConfig() {
   const handleSaveSandbox = async () => {
     setSaving(true)
     try {
+      if (serverRunning === true) {
+        toast({
+          title: 'Stop the server before saving',
+          description: 'Project Zomboid can overwrite configuration files while it is running.',
+          variant: 'destructive',
+        })
+        return
+      }
+      if (editorMode === 'structured' && invalidSandboxSettings.length > 0) {
+        toast({
+          title: 'Invalid Sandbox values',
+          description: `Fix: ${invalidSandboxSettings.map(setting => setting.label).join(', ')}`,
+          variant: 'destructive',
+        })
+        return
+      }
       if (editorMode === 'raw') {
         await serverFilesApi.saveRaw('sandbox', rawContent)
         setOriginalRawContent(rawContent)
@@ -1225,16 +1295,17 @@ export default function ServerConfig() {
         // Create a deep copy to sanitize numbers
         const cleanData = JSON.parse(JSON.stringify(sandboxData)) as SandboxData
 
-        // Ensure numbers are actually numbers (not strings from input keys)
+        // Ensure numbers are finite, canonical numbers before writing Lua.
         SANDBOX_SCHEMA.forEach(setting => {
           if (setting.type === 'number') {
             const section = (setting.section || 'settings') as keyof SandboxData
             if (cleanData[section]) {
               const sectionData = cleanData[section] as SandboxRecord
               const raw = sectionData[setting.key]
-              if (typeof raw === 'string') {
-                const num = parseFloat(raw)
-                sectionData[setting.key] = isNaN(num) ? (Number(setting.default) || 0) : num
+              if (raw !== undefined && raw !== null && String(raw).trim() !== '') {
+                const parsed = parseNumericSettingValue(raw, setting)
+                if (parsed === null) throw new Error(`${setting.label} is invalid`)
+                sectionData[setting.key] = parsed
               }
             }
           }
@@ -1858,6 +1929,24 @@ export default function ServerConfig() {
             </TabsTrigger>
           ))}
         </TabsList>
+        {serverRunning === true && ['ini', 'sandbox', 'spawnpoints', 'spawnregions'].includes(activeTab) && (
+          <Alert className="mt-3 border-warning/40 bg-warning/10">
+            <AlertTriangle className="h-4 w-4 text-warning" />
+            <AlertTitle>Stop the server before saving</AlertTitle>
+            <AlertDescription>
+              Project Zomboid can overwrite these files while it is running. You can prepare changes here, then stop the server and save them.
+            </AlertDescription>
+          </Alert>
+        )}
+        {activeTab === 'sandbox' && invalidSandboxSettings.length > 0 && (
+          <Alert className="mt-3 border-destructive/40 bg-destructive/10">
+            <AlertCircle className="h-4 w-4 text-destructive" />
+            <AlertTitle>Fix invalid values before saving</AlertTitle>
+            <AlertDescription>
+              {invalidSandboxSettings.map(setting => setting.label).join(', ')} must be valid numbers within the shown range.
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* INI Settings Tab */}
         <TabsContent value="ini" className="mt-4">
@@ -1916,7 +2005,7 @@ export default function ServerConfig() {
                   >
                     <ExternalLink className="h-3 w-3" /> Wiki
                   </a>
-                  <Button onClick={handleSaveIni} disabled={saving || !hasIniChanges} variant="command" size="sm" className="h-7 gap-1.5 text-xs font-medium">
+                  <Button onClick={handleSaveIni} disabled={saving || !hasIniChanges || serverRunning === true || invalidIniSettings.length > 0} variant="command" size="sm" className="h-7 gap-1.5 text-xs font-medium">
                     {saving ? (
                       <Loader2 className="h-3 w-3 animate-spin" />
                     ) : (
@@ -2334,7 +2423,7 @@ export default function ServerConfig() {
                   >
                     <ExternalLink className="h-3 w-3" /> Wiki
                   </a>
-                  <Button onClick={handleSaveSandbox} disabled={saving || !hasSandboxChanges} variant="command" size="sm" className="h-7 gap-1.5 text-xs font-medium">
+                  <Button onClick={handleSaveSandbox} disabled={saving || !hasSandboxChanges || serverRunning === true || invalidSandboxSettings.length > 0} variant="command" size="sm" className="h-7 gap-1.5 text-xs font-medium">
                     {saving ? (
                       <Loader2 className="h-3 w-3 animate-spin" />
                     ) : (
@@ -3416,7 +3505,7 @@ export default function ServerConfig() {
               variant="ghost"
               size="sm"
               onClick={activeTab === 'ini' ? discardIniChanges : discardSandboxChanges}
-              disabled={saving}
+              disabled={saving || serverRunning === true}
               className="h-8 gap-1.5 text-xs font-medium text-muted-foreground hover:text-destructive"
             >
               <Undo2 className="h-3 w-3" /> discard
@@ -3425,7 +3514,7 @@ export default function ServerConfig() {
               variant="command"
               size="sm"
               onClick={activeTab === 'ini' ? handleSaveIni : handleSaveSandbox}
-              disabled={saving}
+              disabled={saving || serverRunning === true || (activeTab === 'ini' ? invalidIniSettings.length > 0 : invalidSandboxSettings.length > 0)}
               className="h-8 gap-1.5 text-xs font-medium"
             >
               {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}

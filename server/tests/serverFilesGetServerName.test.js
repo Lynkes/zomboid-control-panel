@@ -8,7 +8,7 @@ vi.mock("../database/init.js", () => ({
   getAllSettings,
 }));
 
-const { getServerName } = await import("../routes/serverFiles.js");
+const { getServerName, parseIni, toIni } = await import("../routes/serverFiles.js");
 
 // Finding 2: serverName is interpolated straight into filesystem paths
 // (`${serverName}.ini`, `${serverName}_SandboxVars.lua`, ...) throughout
@@ -41,5 +41,23 @@ describe("getServerName (Finding 2: path traversal via serverName)", () => {
     getActiveServer.mockResolvedValue(null);
     getAllSettings.mockResolvedValue({});
     await expect(getServerName()).resolves.toBe("servertest");
+  });
+});
+
+describe("INI round-trip helpers", () => {
+  it("writes a changed value back to the same key while preserving comments", () => {
+    const original = "; server config\nMinutesPerPage=2\nPublic=true\n";
+    const settings = { ...parseIni(original), MinutesPerPage: "3" };
+    const written = toIni(settings, original);
+
+    expect(written).toContain("; server config");
+    expect(parseIni(written).MinutesPerPage).toBe("3");
+    expect(parseIni(written).Public).toBe("true");
+  });
+
+  it("does not add empty values for keys absent from a new INI", () => {
+    const written = toIni({ MinutesPerPage: "", Public: "true" });
+
+    expect(written).toBe("Public=true");
   });
 });

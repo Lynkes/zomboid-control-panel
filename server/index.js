@@ -270,6 +270,7 @@ if (trustProxySetting) {
   );
 }
 const httpServer = createServer(app);
+let activePanelPort = null;
 
 // HTTPS server — created during startup if certs are available
 let httpsServer = null;
@@ -1131,7 +1132,7 @@ app.get("/api/health", (req, res) => {
 // Panel info - returns the panel's own address for remote access
 app.get("/api/panel-info", async (req, res) => {
   const savedPort = await getSetting("panelPort");
-  const PORT = process.env.PORT || savedPort || 3001;
+  const PORT = activePanelPort || process.env.PORT || savedPort || 3001;
   const localIp = await serverManager.getLocalIp();
   res.json({
     localIp,
@@ -2499,7 +2500,11 @@ async function start() {
 
     // Read panel port from DB (saved via Settings UI), fallback to env or 3001
     const savedPort = await getSetting("panelPort");
-    const PORT = process.env.PORT || savedPort || 3001;
+    const configuredPort = Number(process.env.PORT || savedPort || 3001);
+    const PORT = Number.isInteger(configuredPort) && configuredPort >= 1 && configuredPort <= 65535
+      ? configuredPort
+      : 3001;
+    let listenPort = PORT;
 
     // ── HTTPS Setup ──
     const httpsEnabled = await getSetting("httpsEnabled");
@@ -2550,9 +2555,17 @@ async function start() {
     let listenRetries = 0;
     const maxListenRetries = 5;
     const listenWithRetry = () => {
-      httpServer.listen(PORT, async () => {
+      httpServer.listen(listenPort, async () => {
+        const address = httpServer.address();
+        const boundPort = address && typeof address === "object" ? address.port : listenPort;
+        activePanelPort = boundPort;
+        if (listenPort === 0 && !process.env.PORT && boundPort !== PORT) {
+          await setSetting("panelPort", boundPort);
+          await flushWrites();
+          log.warn(`Configured panel port ${PORT} was unavailable; switched to free port ${boundPort} and saved it.`);
+        }
         logSection("Ready");
-        const urls = [{ label: "Local: ", url: `http://localhost:${PORT}` }];
+        const urls = [{ label: "Local: ", url: `http://localhost:${boundPort}` }];
         if (httpsServer) {
           urls.push({
             label: "HTTPS: ",
@@ -2565,7 +2578,7 @@ async function start() {
         if (localIp !== "127.0.0.1") {
           urls.push({
             label: "Network:",
-            url: `http://${localIp}:${PORT}`,
+            url: `http://${localIp}:${boundPort}`,
           });
         }
         logReady(urls);
@@ -2652,8 +2665,7 @@ async function start() {
         // Auto-open browser when running as packaged exe
         if (typeof process.pkg !== "undefined") {
           const protocol = httpsServer ? "https" : "http";
-          const port = httpsServer ? httpsPort : PORT;
-          const url = `${protocol}://localhost:${port}`;
+          const url = `${protocol}://localhost:${httpsServer ? httpsPort : boundPort}`;
 
           // Skip auto-open on headless Linux (no display server)
           if (
@@ -2689,15 +2701,17 @@ async function start() {
         );
         setTimeout(listenWithRetry, delay);
       } else if (err.code === "EADDRINUSE") {
-        log.error(
-          `Port ${PORT} is in use by another process (not a panel — the single-instance lock would have caught that).`,
-        );
-        log.error(
-          `Find the offender with: ${process.platform === "win32" ? `netstat -ano | findstr :${PORT}` : `ss -tlnp | grep :${PORT}  (or: lsof -i :${PORT})`}`,
-        );
-        log.error(
-          `Then either kill it, or set PORT to a free port in Settings / env var.`,
-        );
+        if (!process.env.PORT) {
+          listenRetries = 0;
+          listenPort = 0;
+          log.warn(
+            `Port ${PORT} remained unavailable after ${maxListenRetries} retries; selecting a free port automatically.`,
+          );
+          setTimeout(listenWithRetry, 0);
+          return;
+        }
+        log.error(`Port ${PORT} is in use and PORT is explicitly set; refusing to choose a different port.`);
+        log.error(`Find the offender with: ${process.platform === "win32" ? `netstat -ano | findstr :${PORT}` : `ss -tlnp | grep :${PORT}  (or: lsof -i :${PORT})`}`);
         process.exit(1);
       } else {
         log.error(`Server error: ${err.message}`);

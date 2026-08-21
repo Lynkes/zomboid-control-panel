@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.55] - 2026-08-21
+
+### Fixed
+
+- **Server Configuration crash**: tolerate missing numeric keys while loading older or partially generated server profiles.
+- **Sandbox decimal input**: accept comma decimals such as `0,8`, normalize them to `0.8`, and reject malformed or out-of-range numeric values before saving.
+- **Configuration editing feedback**: show why local configuration must be saved while the server is stopped and disable save actions while it is running.
+
+## [1.1.53] - 2026-08-20
+
+### Fixed
+
+- **Build 42 configuration ownership**: keep shared gameplay settings such as `MinutesPerPage`, loot respawn, and blood lifespan in the SandboxVars editor instead of exposing duplicate INI controls with conflicting defaults.
+- **Configuration save verification**: show the resolved config file path and verify INI writes by reading the value back from disk.
+- **Server lifecycle status**: keep the Servers page synchronized through start and stop transitions, including delayed process shutdowns and status events.
+- **Remote RCON setup guidance**: clarify that the host field is the machine running Project Zomboid and that `127.0.0.1` is only correct when the panel shares that machine.
+
+## [1.1.52] - 2026-08-20
+
+### Fixed
+
+- **Workshop update detection**: automatically find the Steam Workshop ACF from common server and SteamCMD layouts, refresh detection when switching or editing servers, and provide a direct folder picker when the path is missing.
+
+## [1.1.51] - 2026-08-20
+
+### Added
+
+- **Scheduled tasks**: schedule commands weekly with a visual Monday-to-Sunday selector.
+- **Discord presence**: show the live player count and configured capacity, such as `Playing 19/32`.
+- **Server launch mode**: choose Steam or non-Steam dedicated-server launch mode when editing a local server.
+
+### Fixed
+
+- **World Map access**: use the current `pzmap.org` host for browser-direct B42 tiles when the panel host receives a Cloudflare 403.
+- **Dashboard server controls**: stop events now reach connected dashboards immediately, stale composed status no longer overrides live local process status, and stopped servers no longer retain stale uptime.
+- **Portable world restores**: restore world saves from archives whose nested folder names differ from the destination machine.
+- **First-run panel port**: persist the selected setup port and fall back to a free port when the requested port is occupied.
+
+### PanelBridge
+
+- Updated PanelBridge to `1.7.38` for this panel release. No protocol changes.
+
 ## [1.1.50] - 2026-08-19
 
 ### Fixed

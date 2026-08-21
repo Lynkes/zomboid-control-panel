@@ -306,7 +306,7 @@ async function createBackup(filename) {
 }
 
 // Parse INI file to object
-function parseIni(content) {
+export function parseIni(content) {
   const result = {};
   const lines = content.split(/\r?\n/);
 
@@ -328,7 +328,7 @@ function parseIni(content) {
 }
 
 // Convert object back to INI format
-function toIni(obj, originalContent = "") {
+export function toIni(obj, originalContent = "") {
   // Preserve comments and order from original
   if (originalContent) {
     const lines = originalContent.split(/\r?\n/);
@@ -379,6 +379,9 @@ function toIni(obj, originalContent = "") {
   // Generate from scratch
   return Object.entries(obj)
     .filter(([key]) => {
+      if (obj[key] === "" || obj[key] === undefined || obj[key] === null) {
+        return false;
+      }
       if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
         log.warn(`Invalid INI key skipped: ${key}`);
         return false;
@@ -976,7 +979,7 @@ router.get("/ini", async (req, res) => {
     const content = fs.readFileSync(filePath, "utf-8");
     const parsed = parseIni(content);
 
-    res.json({ settings: parsed });
+    res.json({ settings: parsed, path: filePath, serverName });
   } catch (error) {
     log.error("Failed to read INI:", error);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -1009,7 +1012,7 @@ router.put("/ini", async (req, res) => {
 
     // Read original to preserve comments/structure. Locked per-path so two
     // overlapping PUTs to the same INI can't interleave their read-modify-write.
-    await withFileLock(filePath, async () => {
+    const persistedSettings = await withFileLock(filePath, async () => {
       let originalContent = "";
       if (fs.existsSync(filePath)) {
         originalContent = fs.readFileSync(filePath, "utf-8");
@@ -1018,11 +1021,20 @@ router.put("/ini", async (req, res) => {
 
       const content = toIni(settings, originalContent);
       writeFileAtomic(filePath, content, "utf-8");
-      return content;
+      const persisted = parseIni(fs.readFileSync(filePath, "utf-8"));
+      const original = parseIni(originalContent);
+      for (const [key, value] of Object.entries(settings)) {
+        const isExistingKey = Object.prototype.hasOwnProperty.call(original, key);
+        const isNewNonEmptyKey = value !== "" && value !== null && value !== undefined;
+        if ((isExistingKey || isNewNonEmptyKey) && persisted[key] !== String(value).replace(/[\r\n]/g, "")) {
+          throw new Error(`INI write verification failed for ${key}`);
+        }
+      }
+      return persisted;
     });
 
     log.info("Saved INI file");
-    res.json({ success: true, message: "Settings saved" });
+    res.json({ success: true, message: "Settings saved", path: filePath, settings: persistedSettings });
   } catch (error) {
     log.error("Failed to save INI:", error);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -1043,7 +1055,7 @@ router.get("/sandbox", async (req, res) => {
     const content = fs.readFileSync(filePath, "utf-8");
     const parsed = parseSandboxVars(content);
 
-    res.json({ sandbox: parsed });
+    res.json({ sandbox: parsed, path: filePath, serverName });
   } catch (error) {
     log.error("Failed to read SandboxVars:", error);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -1113,6 +1125,7 @@ router.put("/sandbox", async (req, res) => {
       success: true,
       created: !fileExists,
       message: fileExists ? "Sandbox settings saved" : "SandboxVars file created",
+      path: filePath,
     });
   } catch (error) {
     log.error("Failed to save SandboxVars:", error);

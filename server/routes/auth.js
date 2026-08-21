@@ -13,6 +13,7 @@ import authService from "../services/auth.js";
 import { createLogger } from "../utils/logger.js";
 import { sanitizeError } from "../utils/sanitize.js";
 import { getDataPaths } from "../utils/paths.js";
+import { setSetting } from "../database/init.js";
 
 const log = createLogger("Auth");
 const router = Router();
@@ -224,12 +225,17 @@ router.post("/setup", setupLimiter, async (req, res) => {
         .json({ error: "Setup already completed. Use login instead." });
     }
 
-    const { username, password, rememberMe = false } = req.body || {};
+    const { username, password, rememberMe = false, panelPort = 3001 } = req.body || {};
     if (!isNonEmptyString(username) || !isNonEmptyString(password)) {
       return res
         .status(400)
         .json({ error: "Username and password are required" });
     }
+    const normalizedPanelPort = Number(panelPort);
+    if (!Number.isInteger(normalizedPanelPort) || normalizedPanelPort < 1024 || normalizedPanelPort > 65535) {
+      return res.status(400).json({ error: "Panel port must be a whole number between 1024 and 65535" });
+    }
+    await setSetting("panelPort", normalizedPanelPort);
     await authService.createUser(username, password);
 
     // Auto-login after setup — generate tokens

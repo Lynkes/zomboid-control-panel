@@ -3612,7 +3612,7 @@ router.get("/diagnostics", async (req, res) => {
 
 // ─── World Map Diagnostics ───────────────────────────────────────────
 // Dedicated checks for everything the World Map page depends on:
-// tile CDNs (b42map.com / map.projectzomboid.com), PanelBridge handlers
+// tile CDNs (b42map.com / pzmap.org), PanelBridge handlers
 // for live player/vehicle/safehouse data, save folder layout (B41 vs B42),
 // and the local /api/map proxy itself.
 const TILE_PROBE_TIMEOUT_MS = 5000;
@@ -3739,7 +3739,7 @@ router.get("/worldmap", async (req, res) => {
           diagFail(
             "worldmap.tiles.b42",
             "B42 tile CDN unreachable",
-            `Could not reach map.projectzomboid.com for B42 tiles (${b42Probe.error || `HTTP ${b42Probe.statusCode}`}). The B42 base map will not load.`,
+            `Could not reach pzmap.org for B42 tiles (${b42Probe.error || `HTTP ${b42Probe.statusCode}`}). The B42 base map will not load.`,
             {
               category: "worldmap",
               hint: "Check the panel host's outbound HTTPS access. The /api/map/tiles proxy fetches tiles server-side.",
@@ -3753,7 +3753,7 @@ router.get("/worldmap", async (req, res) => {
           diagOk(
             "worldmap.tiles.b41",
             "B41 tile CDN reachable",
-            `map.projectzomboid.com responded in ${b41Probe.latencyMs} ms (HTTP ${b41Probe.statusCode}).`,
+            `pzmap.org responded in ${b41Probe.latencyMs} ms (HTTP ${b41Probe.statusCode}).`,
             { category: "worldmap" },
           ),
         );
@@ -3762,10 +3762,10 @@ router.get("/worldmap", async (req, res) => {
           diagWarn(
             "worldmap.tiles.b41",
             "B41 tile CDN unreachable",
-            `Could not reach map.projectzomboid.com (${b41Probe.error || `HTTP ${b41Probe.statusCode}`}). B41 fallback tiles will not load.`,
+            `Could not reach pzmap.org (${b41Probe.error || `HTTP ${b41Probe.statusCode}`}). B41 fallback tiles will not load.`,
             {
               category: "worldmap",
-              hint: "Only relevant if you run a B41 server. Outbound HTTPS to map.projectzomboid.com is required.",
+              hint: "Only relevant if you run a B41 server. Outbound HTTPS to pzmap.org is required.",
             },
           ),
         );

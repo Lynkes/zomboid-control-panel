@@ -542,13 +542,16 @@ export default function Dashboard() {
 
   /* ---------------------------- derived ----------------------------------- */
   const hasServer = !!activeServer
-  const hostRunning = hasServer && (composedStatus ? composedStatus.host.status === 'running' : !!status?.running)
+  const localProcessStatus = !activeServer?.isRemote && typeof status?.running === 'boolean'
+    ? status.running
+    : null
+  const hostRunning = hasServer && (localProcessStatus ?? (composedStatus ? composedStatus.host.status === 'running' : !!status?.running))
   const rconConnected = composedStatus
     ? composedStatus.server.status === 'connected'
     : Boolean(status?.rcon?.connected)
   const bridgeActive = composedStatus?.bridge.status === 'active'
   const hostUnknown = composedStatus ? ['unknown', 'not-applicable'].includes(composedStatus.host.status) : false
-  const online = hasServer && (composedStatus ? hostRunning || rconConnected || bridgeActive : !!status?.running)
+  const online = hasServer && (localProcessStatus ?? (composedStatus ? hostRunning || rconConnected || bridgeActive : !!status?.running))
   const modsPending = maintenance.modUpdatesAvailable > 0
   const staleLink = !lastUpdated || Date.now() - lastUpdated.getTime() > 60_000
 

@@ -1763,18 +1763,30 @@ export const serverFilesApi = {
     apiGet("/server-files/ini") as Promise<{
       settings: Record<string, string>;
       path: string;
+      serverName: string;
     }>,
   saveIni: (settings: Record<string, string>) =>
-    apiPut("/server-files/ini", { settings }),
+    apiPut("/server-files/ini", { settings }) as Promise<{
+      success: boolean;
+      message: string;
+      path: string;
+      settings: Record<string, string>;
+    }>,
 
   // Sandbox
   getSandbox: () =>
     apiGet("/server-files/sandbox") as Promise<{
       sandbox: SandboxData;
       path: string;
+      serverName: string;
     }>,
   saveSandbox: (sandbox: SandboxData) =>
-    apiPut("/server-files/sandbox", { sandbox }),
+    apiPut("/server-files/sandbox", { sandbox }) as Promise<{
+      success: boolean;
+      created: boolean;
+      message: string;
+      path: string;
+    }>,
   validateSandbox: () =>
     apiGet("/server-files/sandbox/validate") as Promise<{
       valid: boolean;

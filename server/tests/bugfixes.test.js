@@ -15,6 +15,8 @@ import {
 } from "../routes/mods.js";
 import {
   ModChecker,
+  getWorkshopAcfCandidates,
+  refreshWorkshopChecker,
   minutesToCheckIntervalMs,
   normalizeStoredCheckInterval,
   parseLegacyBoolean,
@@ -398,6 +400,54 @@ describe("mod name resolution from disk", () => {
     } finally {
       await fs.promises.rm(tempRoot, { recursive: true, force: true });
     }
+  });
+});
+
+describe("workshop ACF candidate discovery", () => {
+  it("walks up from a nested startup script to the SteamCMD workshop path", () => {
+    const installScript = path.join(
+      "C:\\PZServer",
+      "steamapps",
+      "common",
+      "ProjectZomboid",
+      "StartServer64.bat",
+    );
+
+    expect(getWorkshopAcfCandidates(installScript)).toContain(
+      path.join("C:\\PZServer", "steamapps", "workshop", "appworkshop_108600.acf"),
+    );
+  });
+
+  it("returns no candidates when no install path is available", () => {
+    expect(getWorkshopAcfCandidates(" ")).toEqual([]);
+  });
+});
+
+describe("workshop checker lifecycle", () => {
+  it("starts polling when an ACF path becomes available", async () => {
+    const modChecker = {
+      findWorkshopAcfPath: vi.fn().mockResolvedValue("/pz/steamapps/workshop/appworkshop_108600.acf"),
+      isRunning: false,
+      start: vi.fn(),
+      stop: vi.fn(),
+    };
+
+    await expect(refreshWorkshopChecker(modChecker)).resolves.toContain("appworkshop_108600.acf");
+    expect(modChecker.start).toHaveBeenCalledOnce();
+    expect(modChecker.stop).not.toHaveBeenCalled();
+  });
+
+  it("stops polling when the ACF path disappears", async () => {
+    const modChecker = {
+      findWorkshopAcfPath: vi.fn().mockResolvedValue(null),
+      isRunning: true,
+      start: vi.fn(),
+      stop: vi.fn(),
+    };
+
+    await expect(refreshWorkshopChecker(modChecker)).resolves.toBeNull();
+    expect(modChecker.start).not.toHaveBeenCalled();
+    expect(modChecker.stop).toHaveBeenCalledOnce();
   });
 });
 
@@ -1009,12 +1059,13 @@ describe("Discord player presence", () => {
       connected: true,
       getPlayers: async () => ({ success: true, players: ["alice", "bob"] }),
     };
+    bot.getConfiguredMaxPlayers = async () => 32;
     bot._presenceUpdateInFlight = null;
 
     await bot.updatePlayerPresence();
 
     expect(setActivity).toHaveBeenCalledWith(
-      "2 players online",
+      "2/32",
       expect.any(Object),
     );
   });

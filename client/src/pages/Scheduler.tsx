@@ -74,6 +74,16 @@ interface CronPreset {
   cron: string
 }
 
+const weekDays = [
+  { value: '1', short: 'MON', name: 'Monday' },
+  { value: '2', short: 'TUE', name: 'Tuesday' },
+  { value: '3', short: 'WED', name: 'Wednesday' },
+  { value: '4', short: 'THU', name: 'Thursday' },
+  { value: '5', short: 'FRI', name: 'Friday' },
+  { value: '6', short: 'SAT', name: 'Saturday' },
+  { value: '0', short: 'SUN', name: 'Sunday' },
+]
+
 const commonCommands = [
   { label: 'Restart Server', value: 'restart' },
   { label: 'Save World', value: 'save' },
@@ -119,10 +129,11 @@ export default function Scheduler() {
 
   // Simple Scheduler State
   const [scheduleMode, setScheduleMode] = useState<'simple' | 'advanced'>('simple')
-  const [simpleIntervalType, setSimpleIntervalType] = useState<'hourly' | 'daily' | 'interval'>('daily')
+  const [simpleIntervalType, setSimpleIntervalType] = useState<'hourly' | 'daily' | 'weekly' | 'interval'>('daily')
   const [simpleHour, setSimpleHour] = useState('06')
   const [simpleMinute, setSimpleMinute] = useState('00')
   const [simpleHoursInterval, setSimpleHoursInterval] = useState('4')
+  const [simpleWeekday, setSimpleWeekday] = useState('1')
 
   // Restart form
   const [restartMinutes, setRestartMinutes] = useState(5)
@@ -209,6 +220,9 @@ export default function Scheduler() {
     if (simpleIntervalType === 'daily') {
       return `${clamp(simpleMinute, 0, 59, 0)} ${clamp(simpleHour, 0, 23, 0)} * * *`
     }
+    if (simpleIntervalType === 'weekly') {
+      return `${clamp(simpleMinute, 0, 59, 0)} ${clamp(simpleHour, 0, 23, 0)} * * ${simpleWeekday}`
+    }
     if (simpleIntervalType === 'hourly') return `0 * * * *`
     return `0 */${clamp(simpleHoursInterval, 1, 23, 1)} * * *`
   }
@@ -286,6 +300,7 @@ export default function Scheduler() {
     setSimpleHour('06')
     setSimpleMinute('00')
     setSimpleHoursInterval('4')
+    setSimpleWeekday('1')
   }
 
   // Reopen an existing schedule in the builder when its cron matches one the
@@ -298,6 +313,15 @@ export default function Scheduler() {
       setSimpleIntervalType('daily')
       setSimpleMinute(daily[1])
       setSimpleHour(daily[2])
+      return
+    }
+    const weekly = /^(\d{1,2}) (\d{1,2}) \* \* ([0-6])$/.exec(cronExpression)
+    if (weekly) {
+      setScheduleMode('simple')
+      setSimpleIntervalType('weekly')
+      setSimpleMinute(weekly[1])
+      setSimpleHour(weekly[2])
+      setSimpleWeekday(weekly[3])
       return
     }
     if (/^0 \* \* \* \*$/.test(cronExpression)) {
@@ -554,7 +578,7 @@ export default function Scheduler() {
                   <TabsContent value="simple" className="space-y-4 pt-4 border rounded-md p-4 mt-0 border-t-0 rounded-t-none">
                     <div className="space-y-2">
                       <Label>Frequency</Label>
-                      <Select value={simpleIntervalType} onValueChange={(v) => setSimpleIntervalType(v as 'hourly' | 'daily' | 'interval')}>
+                      <Select value={simpleIntervalType} onValueChange={(v) => setSimpleIntervalType(v as 'hourly' | 'daily' | 'weekly' | 'interval')}>
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
@@ -562,11 +586,37 @@ export default function Scheduler() {
                           <SelectItem value="hourly">Every Hour (at minute 0)</SelectItem>
                           <SelectItem value="interval">Every X Hours</SelectItem>
                           <SelectItem value="daily">Daily at Specific Time</SelectItem>
+                          <SelectItem value="weekly">Weekly on a Specific Day</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
 
-                    {simpleIntervalType === 'daily' && (
+                    {simpleIntervalType === 'weekly' && (
+                      <div className="space-y-2">
+                        <Label>Day of the week</Label>
+                        <div className="grid grid-cols-4 gap-2 sm:grid-cols-7" role="group" aria-label="Day of the week">
+                          {weekDays.map((day) => {
+                            const selected = simpleWeekday === day.value
+                            return (
+                              <Button
+                                key={day.value}
+                                type="button"
+                                variant={selected ? 'default' : 'outline'}
+                                size="sm"
+                                className="h-10 px-2 text-[11px] tracking-[0.12em]"
+                                aria-pressed={selected}
+                                aria-label={day.name}
+                                onClick={() => setSimpleWeekday(day.value)}
+                              >
+                                {day.short}
+                              </Button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {(simpleIntervalType === 'daily' || simpleIntervalType === 'weekly') && (
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label>Hour (0-23)</Label>

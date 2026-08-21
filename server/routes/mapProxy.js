@@ -67,11 +67,12 @@ function writeDiskCacheAsync(relPath, buffer) {
 }
 
 // ─── B42 map version resolution ──────────────────────────────────────────────
-// b42map.com has migrated to map.projectzomboid.com. Tiles are now served at
-// https://map.projectzomboid.com/maps/<version>/base/layer<floor>_files/<level>/<tile>
+// b42map.com has migrated to pzmap.org. The old map.projectzomboid.com host
+// now redirects there, adding another failure point for direct browser loads.
+// Tiles are served at https://pzmap.org/maps/<version>/base/layer<floor>_files/<level>/<tile>
 // We resolve the latest B42 version directory dynamically from build_list.json
 // so tile loading stays current when PZ ships new map builds without a panel update.
-const PZ_MAP_ROOT = "https://map.projectzomboid.com";
+const PZ_MAP_ROOT = "https://pzmap.org";
 // 42.19.0 was removed from map.projectzomboid.com - /maps/42.19.0/base/ now
 // 404s in its entirety, so the previous fallback could not serve a single tile.
 // It is still listed in build_list.json, so "listed" is not evidence a build is

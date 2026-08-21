@@ -88,7 +88,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useToast } from '@/components/ui/use-toast'
-import { modsApi } from '@/lib/api'
+import { modsApi, serversApi } from '@/lib/api'
+import { FolderBrowser } from '@/components/FolderBrowser'
 import { buildRequiresMap, computeAutoSortedOrder, createRequirementResolver, type AutoSortResult } from '@/lib/modLoadOrder'
 import { EmptyState } from '@/components/EmptyState'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -194,6 +195,9 @@ export default function Mods() {
   const [loading, setLoading] = useState(false)
   const [checking, setChecking] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [workshopBrowserOpen, setWorkshopBrowserOpen] = useState(false)
+  const [workshopBrowserInitialPath, setWorkshopBrowserInitialPath] = useState<string | undefined>()
+  const [savingWorkshopPath, setSavingWorkshopPath] = useState(false)
   const { toast } = useToast()
   const confirm = useConfirm()
 
@@ -530,6 +534,62 @@ export default function Mods() {
     // so this is a no-op for users who don't use the feature.
     fetchCollectionStatusRef.current?.().catch(() => {})
   }, [])
+
+  const handleOpenWorkshopBrowser = useCallback(async () => {
+    try {
+      const { server } = await serversApi.getActive()
+      if (!server) {
+        toast({
+          title: 'No active server',
+          description: 'Select a local server before choosing a workshop folder.',
+          variant: 'destructive',
+        })
+        return
+      }
+      if (server.isRemote) {
+        toast({
+          title: 'Remote server',
+          description: 'Workshop update detection requires the server files to be local to the panel.',
+          variant: 'destructive',
+        })
+        return
+      }
+      const installPath = server?.installPath?.trim() || ''
+      const lastSlash = Math.max(installPath.lastIndexOf('\\'), installPath.lastIndexOf('/'))
+      const isStartupScript = /\.(bat|cmd|exe|sh)$/i.test(installPath)
+      setWorkshopBrowserInitialPath(
+        isStartupScript && lastSlash >= 0 ? installPath.slice(0, lastSlash) : installPath || undefined,
+      )
+    } catch (error) {
+      reportClientWarning('Could not load the active server path before opening the folder browser.', error)
+      toast({
+        title: 'Could not open folder browser',
+        description: error instanceof Error ? error.message : 'The active server could not be loaded.',
+        variant: 'destructive',
+      })
+      return
+    }
+    setWorkshopBrowserOpen(true)
+  }, [toast])
+
+  const handleWorkshopFolderSelected = useCallback(async (selectedPath: string) => {
+    if (savingWorkshopPath || !selectedPath.trim()) return
+    setSavingWorkshopPath(true)
+    try {
+      const { server } = await serversApi.getActive()
+      await serversApi.update(server.id, { installPath: selectedPath.trim() })
+      await fetchData()
+      toast({ title: 'Workshop path connected', description: 'Update detection is ready.' })
+    } catch (error) {
+      toast({
+        title: 'Could not save workshop path',
+        description: error instanceof Error ? error.message : 'Choose the folder containing the PZ server files.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSavingWorkshopPath(false)
+    }
+  }, [fetchData, savingWorkshopPath, toast])
 
   // Fetch mods that exist on disk but are NOT in the server INI.
   // Lazy: only called when the user opens the "Show disabled" panel.
@@ -2370,18 +2430,20 @@ export default function Mods() {
           {!status?.workshopAcfConfigured && (
             <>
               <Separator orientation="vertical" className="h-4" />
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center gap-2 text-destructive">
-                    <AlertTriangle className="w-3.5 h-3.5" />
-                    <span className="text-xs">Workshop path missing</span>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Can't find workshop data file (ACF)</p>
-                  <p className="text-xs text-muted-foreground">Set the server install path in Settings to enable update detection.</p>
-                </TooltipContent>
-              </Tooltip>
+              <div className="flex min-w-0 items-center gap-2 text-destructive" role="status">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span className="text-xs">Workshop path missing</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 border-destructive/30 px-2 text-xs text-foreground hover:bg-destructive/10"
+                  onClick={handleOpenWorkshopBrowser}
+                  disabled={savingWorkshopPath}
+                >
+                  <FolderOpen className="mr-1.5 h-3.5 w-3.5" />
+                  Fix path
+                </Button>
+              </div>
             </>
           )}
 
@@ -2454,6 +2516,14 @@ export default function Mods() {
               <Clock className="w-5 h-5 animate-pulse text-warning" />
               <div>
                 <p className="font-medium text-warning">Restart Pending</p>
+
+            <FolderBrowser
+              open={workshopBrowserOpen}
+              onOpenChange={setWorkshopBrowserOpen}
+              onSelect={handleWorkshopFolderSelected}
+              initialPath={workshopBrowserInitialPath}
+              title="Choose Project Zomboid server folder"
+            />
                 <p className="text-xs text-muted-foreground">
                   Waiting for players to leave before restarting (max {status.maxDelayMinutes} min)
                 </p>

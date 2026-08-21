@@ -973,14 +973,25 @@ export class BackupService {
       return stagingPath;
     }
 
-    const directories = fs
-      .readdirSync(stagingPath, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => path.join(stagingPath, entry.name));
+    const candidates = [];
+    const pending = [stagingPath];
+    while (pending.length > 0) {
+      const current = pending.pop();
+      let entries;
+      try {
+        entries = fs.readdirSync(current, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      if (current !== stagingPath && looksLikeWorld(current)) {
+        candidates.push(current);
+        continue;
+      }
+      for (const entry of entries) {
+        if (entry.isDirectory()) pending.push(path.join(current, entry.name));
+      }
+    }
 
-    return (
-      directories.find(looksLikeWorld) ||
-      (directories.length === 1 ? directories[0] : null)
-    );
+    return candidates.length === 1 ? candidates[0] : null;
   }
 }

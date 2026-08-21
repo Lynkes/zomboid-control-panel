@@ -994,6 +994,10 @@ export class ServerManager {
 
   // Clear state fields so getServerStatus doesn't report a stale startTime /
   // old serverProcess handle after a kill.
+  markServerStopped() {
+    this._clearRunState();
+  }
+
   _clearRunState() {
     this.isRunning = false;
     this.serverProcess = null;
@@ -1200,6 +1204,9 @@ export class ServerManager {
 
     const processDetails = await this.getServerProcessDetails();
     const isRunning = processDetails.running;
+    if (!isRunning && !processDetails.scanFailed) {
+      this._clearRunState();
+    }
     if (isRunning && !this.startTime) {
       const detectedUptime = await this.getProcessUptimeSeconds(
         processDetails.matched[0]?.pid,
