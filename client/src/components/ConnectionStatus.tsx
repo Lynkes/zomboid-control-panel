@@ -1,4 +1,5 @@
 import { Wifi, WifiOff, Loader2 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { useConnectionStatus } from '@/contexts/SocketContext'
 import { cn } from '@/lib/utils'
 import {
@@ -13,6 +14,7 @@ interface ConnectionStatusProps {
 }
 
 export function ConnectionStatus({ className, showLabel = false }: ConnectionStatusProps) {
+  const { t } = useTranslation('connectionStatus')
   const { connected, reconnecting, reconnectAttempt, error } = useConnectionStatus()
 
   // Only show when not connected — a permanently visible "Connected" badge is noise
@@ -24,8 +26,8 @@ export function ConnectionStatus({ className, showLabel = false }: ConnectionSta
         icon: Wifi,
         color: 'text-primary',
         surface: 'border-primary/20 bg-primary/10',
-        label: 'Connected',
-        description: 'Real-time updates active',
+        label: t('connected.label'),
+        description: t('connected.description'),
       }
     }
     if (reconnecting) {
@@ -33,8 +35,8 @@ export function ConnectionStatus({ className, showLabel = false }: ConnectionSta
         icon: Loader2,
         color: 'text-warning',
         surface: 'border-warning/24 bg-warning/10',
-        label: 'Reconnecting...',
-        description: `Attempt ${reconnectAttempt}/10`,
+        label: t('reconnecting.label'),
+        description: t('reconnecting.description', { attempt: reconnectAttempt }),
         animate: true,
       }
     }
@@ -42,8 +44,8 @@ export function ConnectionStatus({ className, showLabel = false }: ConnectionSta
       icon: WifiOff,
       color: 'text-destructive',
       surface: 'border-destructive/24 bg-destructive/10',
-      label: 'Panel Disconnected',
-      description: error || 'WebSocket connection to the panel backend lost',
+      label: t('disconnected.label'),
+      description: error || t('disconnected.description'),
     }
   }
 

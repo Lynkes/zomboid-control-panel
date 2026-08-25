@@ -24,8 +24,14 @@ jobs:
           node-version: 22
           cache: npm
 
+      # npm ci requires the lockfile to already carry a platform-correct entry
+      # for every optional dependency; ours doesn't reliably carry libc
+      # metadata for the linux gnu/musl split packages (verified 2026-08-22,
+      # see docs/build/verification.md), which is exactly the reasoning the
+      # Dockerfile already uses for the same install (see its own comments).
+      # npm install re-resolves optional deps against the runner instead.
       - name: Install
-        run: npm ci
+        run: npm install --no-audit --prefer-offline --include=optional
 
       # Warning ceiling is a ratchet: it must only ever be lowered.
       - name: Lint
@@ -46,9 +52,13 @@ jobs:
           cache: npm
           cache-dependency-path: client/package-lock.json
 
+      # Same reasoning as the server job above and the Dockerfile's client
+      # stage: npm ci is fragile here because of missing libc metadata on
+      # the linux gnu/musl split optional deps (esbuild/vite's rollup and
+      # lightningcss). npm install re-resolves against the runner instead.
       - name: Install
         working-directory: client
-        run: npm ci
+        run: npm install --no-audit --prefer-offline --include=optional
 
       - name: Lint
         working-directory: client

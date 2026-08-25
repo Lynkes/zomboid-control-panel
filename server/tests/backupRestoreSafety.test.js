@@ -11,7 +11,15 @@ vi.mock("../database/init.js", () => ({
   logServerEvent: vi.fn(async () => {}),
 }));
 
+const { invalidateMapFolderScanMock } = vi.hoisted(() => ({
+  invalidateMapFolderScanMock: vi.fn(),
+}));
+vi.mock("../routes/chunks.js", () => ({
+  invalidateMapFolderScan: invalidateMapFolderScanMock,
+}));
+
 const { BackupService } = await import("../services/backupService.js");
+const { Open } = await import("unzipper");
 
 const SERVER_NAME = "servertest";
 
@@ -55,6 +63,7 @@ beforeEach(() => {
   backupsPath = path.join(root, "backups");
   fs.mkdirSync(backupsPath, { recursive: true });
   writeWorld(savesPath, "LIVE");
+  invalidateMapFolderScanMock.mockClear();
 });
 
 afterEach(() => {
@@ -139,6 +148,38 @@ describe("restoreBackup archive safety", () => {
     expect(fs.readFileSync(path.join(savesPath, "map_meta.bin"), "utf8")).toBe("PORTABLE");
   });
 
+  it("invalidates chunks.js's cached map/ folder scan after a successful restore", async () => {
+    // Regression: chunks.js's /chunks and /stats routes cache a scan of a
+    // save's map/ folder for a few seconds (getMapFolderScan()'s TTL
+    // backstop). A restore swaps the whole save in from the archive but has
+    // no path to call into chunks.js's own explicit invalidation -- without
+    // this, a page reload within the TTL window after a restore would show
+    // chunk counts for the PRE-restore map/ contents.
+    const good = path.join(backupsPath, "good.zip");
+    await writeValidBackup(good, "RESTORED");
+
+    const result = await createService().restoreBackup("good.zip", {
+      createPreRestoreBackup: false,
+    });
+
+    expect(result.success).toBe(true);
+    expect(invalidateMapFolderScanMock).toHaveBeenCalledWith(
+      path.join(savesPath, "map"),
+    );
+  });
+
+  it("does not invalidate the map/ folder scan when the restore fails", async () => {
+    const corrupt = path.join(backupsPath, "corrupt.zip");
+    fs.writeFileSync(corrupt, Buffer.from("PK truncated payload"));
+
+    const result = await createService().restoreBackup("corrupt.zip", {
+      createPreRestoreBackup: false,
+    });
+
+    expect(result.success).toBe(false);
+    expect(invalidateMapFolderScanMock).not.toHaveBeenCalled();
+  });
+
   it("leaves no staging folder behind", async () => {
     const good = path.join(backupsPath, "good.zip");
     await writeValidBackup(good, "RESTORED");
@@ -153,6 +194,65 @@ describe("restoreBackup archive safety", () => {
 
     expect(leftovers).toEqual([]);
   });
+});
+
+describe("createBackup archive safety", () => {
+  it("leaves no .tmp file behind after a successful backup, and lists a real .zip", async () => {
+    const service = createService();
+
+    const result = await service.createBackup({});
+
+    expect(result.success).toBe(true);
+    const files = fs.readdirSync(backupsPath);
+    expect(files.some((f) => f.endsWith(".tmp"))).toBe(false);
+    expect(files.some((f) => f.endsWith(".zip"))).toBe(true);
+  });
+
+  it("does not depend on readdir arrays while creating a backup", async () => {
+    const service = createService();
+    service.cleanupOldBackups = async () => {};
+    const callbackReaddir = vi.spyOn(fs, "readdir").mockImplementation((...args) => {
+      args.at(-1)(new Error("readdir must not be used for backup traversal"));
+    });
+    const promiseReaddir = vi
+      .spyOn(fs.promises, "readdir")
+      .mockRejectedValue(new Error("readdir must not be used for backup traversal"));
+
+    try {
+      const result = await service.createBackup({});
+      expect(result.success).toBe(true);
+      expect(fs.existsSync(result.backup.path)).toBe(true);
+    } finally {
+      callbackReaddir.mockRestore();
+      promiseReaddir.mockRestore();
+    }
+  });
+
+  it("includes every nested save entry in the archive", async () => {
+    const nestedFiles = [
+      "map/chunk.bin",
+      "players/alpha/player.db",
+      "vehicles/zone-1/vehicle.db",
+    ];
+    for (const relativePath of nestedFiles) {
+      const filePath = path.join(savesPath, relativePath);
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, relativePath);
+    }
+
+    const result = await createService().createBackup({});
+    const archive = await Open.file(result.backup.path);
+    const entryNames = archive.files.map((entry) => entry.path);
+
+    expect(result.success).toBe(true);
+    expect(entryNames).toEqual(
+      expect.arrayContaining([
+        ...nestedFiles.map((relativePath) => `${SERVER_NAME}/${relativePath}`),
+        "panel-server-snapshot.json",
+      ]),
+    );
+  });
+
 });
 
 describe("deleteBackupsOlderThan result contract", () => {

@@ -206,12 +206,25 @@ export async function pushRemoteConfigFiles(rawConfig, serverName, session) {
       const remotePath = `${config.configPath}/${name}`;
       const tempPath = `${remotePath}.panel-tmp`;
       await client.put(fs.readFileSync(localPath), tempPath);
+      // posix-rename@openssh.com replaces an existing destination in one
+      // atomic step (supported by every OpenSSH server since 4.8, 2011).
+      // Plain SFTP rename cannot overwrite an existing file, which is why
+      // this used to delete the destination first and rename second -- but
+      // that leaves a real window, between the delete succeeding and the
+      // rename completing, where the remote file does not exist at all. A
+      // dropped connection or timeout in that window doesn't leave a stale
+      // config, it leaves NO config. Fall back to the old delete-then-rename
+      // sequence only if the server is old enough to lack the extension.
       try {
-        await client.delete(remotePath);
+        await client.posixRename(tempPath, remotePath);
       } catch {
-        // First write of a file that does not exist remotely yet.
+        try {
+          await client.delete(remotePath);
+        } catch {
+          // First write of a file that does not exist remotely yet.
+        }
+        await client.rename(tempPath, remotePath);
       }
-      await client.rename(tempPath, remotePath);
       manifest[name] = hashFile(localPath);
     }
   });
@@ -236,17 +249,30 @@ export function acquireMirrorLock() {
 
 let lastSession = null;
 
+// Identifies WHERE the mirror was pulled from -- everything that decides
+// which remote files end up in it, short of the password (a password change
+// alone doesn't change what the files are, only how we authenticate to get
+// them). Two requests within MIRROR_FRESH_MS that resolve to the same
+// serverName but a DIFFERENT host/port/username/configPath (a credentials
+// change on Settings, or a configPath change on the SFTP config list) must
+// not reuse a mirror pulled under the old transport.
+function transportFingerprint(config) {
+  return `${config.host}:${config.port}:${config.username}:${config.configPath}`;
+}
+
 export async function beginRemoteConfigSession(config, serverName, { fresh }) {
+  const transportKey = transportFingerprint(config);
   if (
     !fresh &&
     lastSession &&
     lastSession.serverName === serverName &&
+    lastSession.transportKey === transportKey &&
     Date.now() - lastSession.pulledAt < MIRROR_FRESH_MS
   ) {
     return lastSession;
   }
   const pulled = await pullRemoteConfigFiles(config, serverName);
-  lastSession = { ...pulled, serverName };
+  lastSession = { ...pulled, serverName, transportKey };
   return lastSession;
 }
 

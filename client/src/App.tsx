@@ -1,5 +1,6 @@
 import { Routes, Route, Link, Navigate, useLocation } from 'react-router-dom'
 import { useEffect, useState, useCallback, lazy, Suspense } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { Socket } from 'socket.io-client'
 import Layout from './components/Layout'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -383,6 +384,7 @@ function NotFoundRoute() {
 }
 
 function AppContent() {
+  const { t } = useTranslation('shell')
   const demoMode = isDemoMode()
   const [socket, setSocket] = useState<Socket | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
@@ -553,27 +555,32 @@ function AppContent() {
           <ScrollToTop />
           <Suspense fallback={<PageLoader />}>
             <Routes>
-              <Route path="/" element={<FeatureErrorBoundary featureName="Dashboard"><Dashboard /></FeatureErrorBoundary>} />
+              <Route path="/" element={<FeatureErrorBoundary featureName={t('nav.dashboard')}><Dashboard /></FeatureErrorBoundary>} />
               <Route path="/dashboard" element={<Navigate to="/" replace />} />
-              <Route path="/players" element={<FeatureErrorBoundary featureName="Player Management"><Players /></FeatureErrorBoundary>} />
-              <Route path="/console" element={<FeatureErrorBoundary featureName="Console"><Console /></FeatureErrorBoundary>} />
-              <Route path="/scheduler" element={<FeatureErrorBoundary featureName="Scheduler"><Scheduler /></FeatureErrorBoundary>} />
-              <Route path="/mods" element={<FeatureErrorBoundary featureName="Mod Manager"><Mods /></FeatureErrorBoundary>} />
-              <Route path="/templates" element={<FeatureErrorBoundary featureName="Simulation Templates"><Templates /></FeatureErrorBoundary>} />
-              <Route path="/chunks" element={<FeatureErrorBoundary featureName="Chunk Cleaner"><ChunkCleaner /></FeatureErrorBoundary>} />
+              <Route path="/players" element={<FeatureErrorBoundary featureName={t('nav.items.onlinePlayers')}><Players /></FeatureErrorBoundary>} />
+              <Route path="/console" element={<FeatureErrorBoundary featureName={t('nav.items.serverConsole')}><Console /></FeatureErrorBoundary>} />
+              <Route path="/scheduler" element={<FeatureErrorBoundary featureName={t('nav.items.scheduledTasks')}><Scheduler /></FeatureErrorBoundary>} />
+              <Route path="/mods" element={<FeatureErrorBoundary featureName={t('nav.items.modManager')}><Mods /></FeatureErrorBoundary>} />
+              <Route path="/templates" element={<FeatureErrorBoundary featureName={t('nav.items.templates')}><Templates /></FeatureErrorBoundary>} />
+              <Route path="/chunks" element={<FeatureErrorBoundary featureName={t('nav.items.mapCleanup')}><ChunkCleaner /></FeatureErrorBoundary>} />
               <Route path="/chunk-cleaner" element={<Navigate to="/chunks" replace />} />
-              <Route path="/discord" element={<FeatureErrorBoundary featureName="Discord Integration"><Discord /></FeatureErrorBoundary>} />
-              <Route path="/settings" element={<FeatureErrorBoundary featureName="Settings"><Settings /></FeatureErrorBoundary>} />
-              <Route path="/server-setup" element={<FeatureErrorBoundary featureName="Server Setup"><ServerSetup /></FeatureErrorBoundary>} />
-              <Route path="/servers" element={<FeatureErrorBoundary featureName="Server Manager"><Servers /></FeatureErrorBoundary>} />
-              <Route path="/server-config" element={<FeatureErrorBoundary featureName="Server Configuration"><ServerConfig /></FeatureErrorBoundary>} />
+              <Route path="/discord" element={<FeatureErrorBoundary featureName={t('nav.items.discord')}><Discord /></FeatureErrorBoundary>} />
+              <Route path="/settings" element={<FeatureErrorBoundary featureName={t('nav.items.panelSettings')}><Settings /></FeatureErrorBoundary>} />
+              {/* Users and Roles & Permissions are now tabs inside Settings -- these
+                  keep old bookmarks/deep links working rather than 404ing them. */}
+              <Route path="/roles" element={<Navigate to="/settings?tab=roles" replace />} />
+              <Route path="/users" element={<Navigate to="/settings?tab=users" replace />} />
+              <Route path="/sso" element={<Navigate to="/settings?tab=sso" replace />} />
+              <Route path="/server-setup" element={<FeatureErrorBoundary featureName={t('nav.items.serverSetup')}><ServerSetup /></FeatureErrorBoundary>} />
+              <Route path="/servers" element={<FeatureErrorBoundary featureName={t('nav.items.myServers')}><Servers /></FeatureErrorBoundary>} />
+              <Route path="/server-config" element={<FeatureErrorBoundary featureName={t('nav.items.serverConfiguration')}><ServerConfig /></FeatureErrorBoundary>} />
               <Route path="/serverconfig" element={<Navigate to="/server-config" replace />} />
-              <Route path="/server-finder" element={<FeatureErrorBoundary featureName="Server Finder"><ServerFinder /></FeatureErrorBoundary>} />
-              <Route path="/debug" element={<FeatureErrorBoundary featureName="Debug"><Debug /></FeatureErrorBoundary>} />
-              <Route path="/events" element={<FeatureErrorBoundary featureName="Events & Weather"><Events /></FeatureErrorBoundary>} />
-              <Route path="/world-map" element={<FeatureErrorBoundary featureName="World Map"><WorldMap /></FeatureErrorBoundary>} />
-              <Route path="/chat" element={<FeatureErrorBoundary featureName="In-Game Chat"><Chat /></FeatureErrorBoundary>} />
-              <Route path="/backups" element={<FeatureErrorBoundary featureName="Backups"><Backups /></FeatureErrorBoundary>} />
+              <Route path="/server-finder" element={<FeatureErrorBoundary featureName={t('nav.items.browsePublic')}><ServerFinder /></FeatureErrorBoundary>} />
+              <Route path="/debug" element={<FeatureErrorBoundary featureName={t('nav.items.debugLogs')}><Debug /></FeatureErrorBoundary>} />
+              <Route path="/events" element={<FeatureErrorBoundary featureName={t('nav.items.eventsWeather')}><Events /></FeatureErrorBoundary>} />
+              <Route path="/world-map" element={<FeatureErrorBoundary featureName={t('nav.items.worldMap')}><WorldMap /></FeatureErrorBoundary>} />
+              <Route path="/chat" element={<FeatureErrorBoundary featureName={t('nav.items.inGameChat')}><Chat /></FeatureErrorBoundary>} />
+              <Route path="/backups" element={<FeatureErrorBoundary featureName={t('nav.items.worldBackups')}><Backups /></FeatureErrorBoundary>} />
               <Route path="*" element={<NotFoundRoute />} />
             </Routes>
           </Suspense>

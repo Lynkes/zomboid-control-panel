@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Loader2, AlertCircle } from 'lucide-react'
 import {
   Dialog,
@@ -34,6 +35,7 @@ interface DiscoverySetupProps {
 // server config to use when several exist, and turns it into a full
 // profile via create-from-discovery.
 export function DiscoverySetup({ open, onOpenChange, mount, onCreated }: DiscoverySetupProps) {
+  const { t } = useTranslation('discoverySetup')
   const [selectedName, setSelectedName] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [creating, setCreating] = useState(false)
@@ -67,10 +69,10 @@ export function DiscoverySetup({ open, onOpenChange, mount, onCreated }: Discove
       const server = result.server
       await serversApi.activate(server.id)
       onCreated?.(server)
-      toast({ title: 'Server added' })
+      toast({ title: t('toastServerAdded') })
       onOpenChange(false)
     } catch (error) {
-      setCreateError(error instanceof Error ? error.message : 'Failed to create server')
+      setCreateError(error instanceof Error ? error.message : t('failedToCreate'))
     } finally {
       setCreating(false)
     }
@@ -82,18 +84,18 @@ export function DiscoverySetup({ open, onOpenChange, mount, onCreated }: Discove
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Add discovered server</DialogTitle>
-          <DialogDescription className="sr-only">Create a server profile from a discovered mount.</DialogDescription>
+          <DialogTitle>{t('title')}</DialogTitle>
+          <DialogDescription className="sr-only">{t('description')}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <dl className="grid gap-2 text-xs">
             <div className="grid grid-cols-[4rem_minmax(0,1fr)] gap-2">
-              <dt className="text-muted-foreground">Install</dt>
+              <dt className="text-muted-foreground">{t('install')}</dt>
               <dd className="truncate font-mono" title={mount.installPath}>{mount.installPath}</dd>
             </div>
             {mount.dataPath && (
               <div className="grid grid-cols-[4rem_minmax(0,1fr)] gap-2">
-                <dt className="text-muted-foreground">Data</dt>
+                <dt className="text-muted-foreground">{t('data')}</dt>
                 <dd className="truncate font-mono" title={mount.dataPath}>{mount.dataPath}</dd>
               </div>
             )}
@@ -101,7 +103,7 @@ export function DiscoverySetup({ open, onOpenChange, mount, onCreated }: Discove
 
           {mount.serverNames.length > 1 && (
             <div className="space-y-2">
-              <Label>Configuration</Label>
+              <Label>{t('configuration')}</Label>
               <Select value={selectedName} onValueChange={selectServer}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -114,7 +116,7 @@ export function DiscoverySetup({ open, onOpenChange, mount, onCreated }: Discove
           )}
 
           <div className="space-y-2">
-            <Label>Display name</Label>
+            <Label>{t('displayName')}</Label>
             <Input value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={100} />
           </div>
 
@@ -127,10 +129,10 @@ export function DiscoverySetup({ open, onOpenChange, mount, onCreated }: Discove
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>{t('cancel')}</Button>
           <Button onClick={handleCreate} disabled={creating || !selectedName}>
             {creating && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
-            Add server
+            {t('addServer')}
           </Button>
         </DialogFooter>
       </DialogContent>

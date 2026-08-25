@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -9,7 +10,7 @@ interface PasswordInputProps {
   onChange: (value: string) => void
   placeholder?: string
   className?: string
-  /** Used in the toggle button's aria-label, e.g. "RCON password" */
+  /** Used in the toggle button's aria-label, e.g. "RCON password". Caller-supplied — translate at the call site. */
   label?: string
   maxLength?: number
   id?: string
@@ -24,12 +25,14 @@ export function PasswordInput({
   onChange,
   placeholder,
   className,
-  label = 'password',
+  label,
   maxLength,
   id,
   autoComplete,
 }: PasswordInputProps) {
+  const { t } = useTranslation('passwordInput')
   const [visible, setVisible] = useState(false)
+  const resolvedLabel = label ?? t('defaultLabel')
 
   return (
     <div className="relative">
@@ -49,7 +52,7 @@ export function PasswordInput({
         size="sm"
         className="absolute right-1 top-1 h-9 w-9 p-0"
         onClick={() => setVisible((v) => !v)}
-        aria-label={visible ? `Hide ${label}` : `Show ${label}`}
+        aria-label={visible ? t('hide', { label: resolvedLabel }) : t('show', { label: resolvedLabel })}
       >
         {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
       </Button>

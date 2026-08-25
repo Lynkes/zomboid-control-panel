@@ -26,7 +26,9 @@ function getStatusHandler() {
 
 function fakeApp(overrides = {}) {
   const services = {
-    serverManager: { isRunning: false },
+    serverManager: {
+      getServerProcessDetails: async () => ({ running: false, scanFailed: false }),
+    },
     rconService: { getConfig: () => ({ connected: false }), connecting: false },
     ...overrides,
   };
@@ -58,7 +60,9 @@ describe("GET /api/servers/active/status", () => {
     await getStatusHandler()(
       {
         app: fakeApp({
-          serverManager: { isRunning: true },
+          serverManager: {
+            getServerProcessDetails: async () => ({ running: true, scanFailed: false }),
+          },
           rconService: {
             getConfig: () => ({ connected: false, host: "127.0.0.1", port: 27015 }),
             connecting: false,
@@ -75,6 +79,38 @@ describe("GET /api/servers/active/status", () => {
         host: expect.objectContaining({ status: "running" }),
         server: expect.objectContaining({ status: "disconnected" }),
         bridge: expect.objectContaining({ status: "offline" }),
+      }),
+    );
+  });
+
+  // Regression: this route used to read the cached serverManager.isRunning
+  // field directly. That field gets forced to a confident `false` by ANY
+  // failed process-detection scan (see serverManager.js), so once detection
+  // started failing on a host, this endpoint -- which feeds the dashboard's
+  // host badge -- kept confidently reporting "stopped" while a fresh check
+  // in the same moment (e.g. /wipe's own guard) correctly refused because it
+  // could not tell. Same underlying scan, two different answers. This must
+  // call getServerProcessDetails() itself so it sees the SAME scanFailed
+  // fresh, not a stale cached boolean.
+  it("reports the host as unknown, not stopped, when process detection itself failed", async () => {
+    getActiveServer.mockResolvedValue({ id: 1, isRemote: false });
+    const response = createResponse();
+
+    await getStatusHandler()(
+      {
+        app: fakeApp({
+          serverManager: {
+            isRunning: false, // stale cached field -- must not be trusted
+            getServerProcessDetails: async () => ({ running: false, scanFailed: true }),
+          },
+        }),
+      },
+      response,
+    );
+
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: expect.objectContaining({ status: "unknown" }),
       }),
     );
   });

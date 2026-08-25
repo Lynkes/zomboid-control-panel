@@ -15,7 +15,7 @@ export function PageHeader({ title, description, icon, actions, badge, eyebrow, 
   return (
     <section className="page-header-shell rounded-lg border border-border/40 bg-card/40 px-4 py-3 sm:px-5 sm:py-4" data-tone={tone}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0 space-y-1">
+        <div className="min-w-0 space-y-1 sm:flex-1">
           {eyebrow && <p className="page-eyebrow text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">{eyebrow}</p>}
           <div className="flex items-center gap-3">
             <div className="min-w-0">
@@ -31,7 +31,7 @@ export function PageHeader({ title, description, icon, actions, badge, eyebrow, 
           </div>
         </div>
         {actions && (
-          <div className="flex flex-wrap items-center gap-2 self-start sm:max-w-[48%] sm:justify-end sm:self-auto">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 self-start sm:max-w-[48%] sm:justify-end sm:self-auto">
             {actions}
           </div>
         )}

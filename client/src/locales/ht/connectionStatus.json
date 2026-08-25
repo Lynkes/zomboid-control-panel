@@ -1,0 +1,14 @@
+{
+  "connected": {
+    "label": "Konekte",
+    "description": "Mizajou an tan reyèl aktive"
+  },
+  "reconnecting": {
+    "label": "Ap rekonekte...",
+    "description": "Tantativ {{attempt}}/10"
+  },
+  "disconnected": {
+    "label": "Panèl Dekonekte",
+    "description": "Koneksyon WebSocket ak backend panèl la pèdi"
+  }
+}

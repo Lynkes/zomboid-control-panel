@@ -1,0 +1,24 @@
+{
+  "pageHeader": {
+    "title": "沙盒模板",
+    "description": "为你的服务器应用预设规则集，或保存你自己的配置以便日后重复使用。",
+    "import": "导入",
+    "saveCurrentConfig": "保存当前配置"
+  },
+  "emptyState": {
+    "loadErrorTitle": "无法加载模板",
+    "retry": "重试",
+    "noTemplatesTitle": "暂无模板",
+    "noTemplatesDesc": "将当前服务器配置保存为模板，或从文件导入一个。"
+  },
+  "toasts": {
+    "exportFailedTitle": "导出失败",
+    "exportFailedFallback": "导出模板失败",
+    "deleteTemplateTitle": "删除模板",
+    "deleteTemplateDesc": "删除「{{name}}」？此操作无法撤销。",
+    "templateDeletedTitle": "模板已删除",
+    "deleteFailedTitle": "删除失败",
+    "deleteFailedFallback": "删除模板失败",
+    "loadFailedFallback": "加载模板失败。"
+  }
+}

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
 import {
   Dialog,
@@ -24,6 +25,7 @@ interface CreateTemplateDialogProps {
 }
 
 export function CreateTemplateDialog({ open, onClose, onCreated }: CreateTemplateDialogProps) {
+  const { t } = useTranslation('templateCreateDialog')
   const { toast } = useToast()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -42,9 +44,9 @@ export function CreateTemplateDialog({ open, onClose, onCreated }: CreateTemplat
     setLoading(true)
     Promise.all([serverFilesApi.getIni(), serverFilesApi.getSandbox()])
       .then(([ini, sandbox]) => setCapture(buildTemplateCapture(ini.settings, sandbox.sandbox)))
-      .catch(() => setError('Failed to read the current server configuration.'))
+      .catch(() => setError(t('failedToReadConfig')))
       .finally(() => setLoading(false))
-  }, [open])
+  }, [open, t])
 
   const handleSave = async () => {
     if (!capture || !name.trim()) return
@@ -54,15 +56,15 @@ export function CreateTemplateDialog({ open, onClose, onCreated }: CreateTemplat
       const result = await templatesApi.create({
         name: name.trim(),
         description: description.trim(),
-        tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
+        tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean),
         serverIni: capture.serverIni,
         sandboxVars: capture.sandboxVars,
       })
-      if (!result.success) throw new Error(result.error || 'Failed to save template')
-      toast({ title: 'Template Saved', description: `"${name.trim()}" is ready to reuse.`, variant: 'success' as const })
+      if (!result.success) throw new Error(result.error || t('failedToSave'))
+      toast({ title: t('toastSavedTitle'), description: t('toastSavedDesc', { name: name.trim() }), variant: 'success' as const })
       onCreated()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save template')
+      setError(err instanceof Error ? err.message : t('failedToSave'))
     } finally {
       setSaving(false)
     }
@@ -72,8 +74,8 @@ export function CreateTemplateDialog({ open, onClose, onCreated }: CreateTemplat
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Save Current Config as Template</DialogTitle>
-          <DialogDescription>Captures this server's current server.ini and sandbox settings.</DialogDescription>
+          <DialogTitle>{t('title')}</DialogTitle>
+          <DialogDescription>{t('description')}</DialogDescription>
         </DialogHeader>
 
         {loading ? (
@@ -83,26 +85,28 @@ export function CreateTemplateDialog({ open, onClose, onCreated }: CreateTemplat
         ) : (
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label htmlFor="template-name">Name</Label>
-              <Input id="template-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="My Ruleset" />
+              <Label htmlFor="template-name">{t('nameLabel')}</Label>
+              <Input id="template-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('namePlaceholder')} />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="template-description">Description</Label>
+              <Label htmlFor="template-description">{t('descriptionLabel')}</Label>
               <Textarea id="template-description" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="template-tags">Tags (comma separated)</Label>
-              <Input id="template-tags" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="hardcore, pvp" />
+              <Label htmlFor="template-tags">{t('tagsLabel')}</Label>
+              <Input id="template-tags" value={tags} onChange={(e) => setTags(e.target.value)} placeholder={t('tagsPlaceholder')} />
             </div>
             {capture && (
               <p className="text-xs text-muted-foreground">
-                Will save {capture.sandboxKeyCount} sandbox setting(s) and {capture.iniKeyCount} server.ini key(s).
-                Identity and connection settings (name, ports, passwords) are never included.
+                {t('willSave', {
+                  sandbox: t('sandboxSettingCount', { count: capture.sandboxKeyCount }),
+                  ini: t('iniKeyCount', { count: capture.iniKeyCount }),
+                })}
               </p>
             )}
             {error && (
               <Alert variant="destructive">
-                <AlertTitle>Couldn't save template</AlertTitle>
+                <AlertTitle>{t('errorTitle')}</AlertTitle>
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
@@ -110,10 +114,10 @@ export function CreateTemplateDialog({ open, onClose, onCreated }: CreateTemplat
         )}
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button variant="outline" onClick={onClose} disabled={saving}>{t('cancel')}</Button>
           <Button onClick={handleSave} disabled={saving || loading || !name.trim() || !capture}>
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            Save Template
+            {t('saveTemplate')}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { Lock, Eye, Download, Trash2, Package } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -14,6 +15,7 @@ interface TemplateCardProps {
 }
 
 export function TemplateCard({ template, onPreview, onExport, onDelete, canManage }: TemplateCardProps) {
+  const { t } = useTranslation('templateCard')
   const changeCount = Object.keys(template.serverIni || {}).length +
     Object.values(template.sandboxVars || {}).reduce((n, s) => n + Object.keys(s || {}).length, 0)
 
@@ -24,7 +26,7 @@ export function TemplateCard({ template, onPreview, onExport, onDelete, canManag
           <CardTitle className="text-base">{template.meta.name}</CardTitle>
           <Badge variant={template.isBuiltin ? 'secondary' : 'outline'} className="shrink-0 gap-1">
             {template.isBuiltin && <Lock className="h-3 w-3" />}
-            {template.isBuiltin ? 'Built-in' : 'Custom'}
+            {template.isBuiltin ? t('builtin') : t('custom')}
           </Badge>
         </div>
         <CardDescription className="line-clamp-3">{template.meta.description}</CardDescription>
@@ -37,24 +39,24 @@ export function TemplateCard({ template, onPreview, onExport, onDelete, canManag
           ))}
         </div>
         <p className="text-xs text-muted-foreground">
-          {changeCount} setting{changeCount === 1 ? '' : 's'} overridden
+          {t('settingsOverridden', { count: changeCount })}
           {template.mods.length > 0 && (
             <span className="ml-1 inline-flex items-center gap-1">
               <Package className="h-3 w-3" />
-              {template.mods.length} mod{template.mods.length === 1 ? '' : 's'}
+              {t('modsCount', { count: template.mods.length })}
             </span>
           )}
         </p>
         <div className="mt-auto flex items-center gap-2 pt-2">
           <Button size="sm" onClick={() => onPreview(template)} className="flex-1">
             <Eye className="h-3.5 w-3.5" />
-            Preview
+            {t('preview')}
           </Button>
-          <Button size="sm" variant="outline" onClick={() => onExport(template)} title="Export template">
+          <Button size="sm" variant="outline" onClick={() => onExport(template)} title={t('exportTitle')}>
             <Download className="h-3.5 w-3.5" />
           </Button>
           {canManage && (
-            <Button size="sm" variant="outline" onClick={() => onDelete(template)} title="Delete template">
+            <Button size="sm" variant="outline" onClick={() => onDelete(template)} title={t('deleteTitle')}>
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
           )}

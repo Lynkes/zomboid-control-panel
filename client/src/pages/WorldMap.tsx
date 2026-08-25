@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 import { useTheme } from '@/contexts/ThemeContext'
 import { useSocket } from '@/contexts/SocketContext'
 import {
@@ -67,8 +68,11 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { panelBridgeApi, updateApi, serversApi, mapApi, playersApi } from '@/lib/api'
+import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
 import { useToast } from '@/components/ui/use-toast'
 import { cn } from '@/lib/utils'
+import { createInFlightGate } from '@/lib/inFlightGate'
+import { resolveFallbackTile, conservativeRenderedMaxLevel } from './worldMapTileFallback'
 
 const TILE_RETRY_MS = [2_000, 10_000, 60_000] as const
 
@@ -154,14 +158,15 @@ interface MapSafehouse {
   lastVisited?: string
 }
 
-// Airdrop preset definitions
+// Airdrop preset definitions. Label/description text lives in the worldMap
+// locale under airdropPresets.<id> — see presetLabel/presetDesc below.
 const AIRDROP_PRESETS = [
-  { id: 'military',  label: 'Military',   icon: Swords,           desc: 'Rifles, ammo, armor, comms' },
-  { id: 'medical',   label: 'Medical',    icon: Pill,             desc: 'Bandages, antibiotics, first aid' },
-  { id: 'food',      label: 'Food',       icon: UtensilsCrossed,  desc: 'Canned food, water, MREs' },
-  { id: 'building',  label: 'Building',   icon: Hammer,           desc: 'Planks, nails, tools, rope' },
-  { id: 'weapons',   label: 'Weapons',    icon: Target,           desc: 'Shotguns, melee weapons, holsters' },
-  { id: 'tools',     label: 'Tools',      icon: Wrench,           desc: 'Axes, wrenches, blowtorch, tape' },
+  { id: 'military',  icon: Swords },
+  { id: 'medical',   icon: Pill },
+  { id: 'food',      icon: UtensilsCrossed },
+  { id: 'building',  icon: Hammer },
+  { id: 'weapons',   icon: Target },
+  { id: 'tools',     icon: Wrench },
 ] as const
 
 // ─── DZI Map Constants ────────────────────────────────────
@@ -175,6 +180,13 @@ interface MapConfig {
   fullWidth: number
   fullHeight: number
   maxLevel: number
+  // Deepest level actually worth requesting -- maxLevel is the depth a FULL
+  // Deep Zoom pyramid would need for these dimensions, not evidence the
+  // tile host rendered that deep. Defaults to maxLevel for configs that have
+  // no better source (MAP_B41 has no server-side discovery yet); B42 gets a
+  // real discovered value from /api/map/resolve. See GH#109 /
+  // conv-gh109-worldmap-black.
+  renderedMaxLevel: number
   isoX0: number
   isoY0: number
   isoHalfSqr: number
@@ -190,6 +202,11 @@ const MAP_B42: MapConfig = {
   fullWidth: 1157312,
   fullHeight: 509520,
   maxLevel: 21,
+  // Placeholder used before /api/map/resolve returns (e.g. first paint every
+  // session) -- fails CLOSED to the conservative floor, not the full 21,
+  // same as b42ConfigFor's own `??` fallback below. See
+  // conservativeRenderedMaxLevel's comment in worldMapTileFallback.ts.
+  renderedMaxLevel: conservativeRenderedMaxLevel(21),
   isoX0: 518144,
   isoY0: -69648,
   isoHalfSqr: 32,
@@ -237,6 +254,7 @@ function b42ConfigFor(info: {
   width: number
   height: number
   maxLevel: number
+  renderedMaxLevel?: number
   b42Dir?: string
   x0?: number
   y0?: number
@@ -268,6 +286,13 @@ function b42ConfigFor(info: {
     fullWidth: info.width,
     fullHeight: info.height,
     maxLevel: info.maxLevel,
+    // If the server response predates this field (rolling restart) or a
+    // resolve genuinely failed to determine it, fail CLOSED to the
+    // conservative floor -- NOT info.maxLevel, which is exactly the
+    // inflated, never-actually-rendered ceiling this fix exists to stop
+    // trusting. See conservativeRenderedMaxLevel's comment in
+    // worldMapTileFallback.ts.
+    renderedMaxLevel: info.renderedMaxLevel ?? conservativeRenderedMaxLevel(info.maxLevel),
     isoX0,
     isoY0,
     isoHalfSqr,
@@ -289,6 +314,15 @@ const MAP_B41: MapConfig = {
   fullWidth: 2285184,
   fullHeight: 990400,
   maxLevel: 22, // ceil(log2(2285184)) = 22
+  // B41 has no server-side discovery like B42's discoverRenderedMaxLevel
+  // (mapProxy.js) -- it's a legacy/frozen build served from a hardcoded
+  // directory with no dynamic /resolve geometry today. Uses the same
+  // conservativeRenderedMaxLevel floor as B42's own static placeholder
+  // (see its comment above) rather than the full (near-certainly-too-deep)
+  // maxLevel. The coarser-tile fallback in drawTileWithFallback covers
+  // whatever this clamp gets wrong either way. See GH#109 /
+  // conv-gh109-worldmap-black.
+  renderedMaxLevel: conservativeRenderedMaxLevel(22),
   // Isometric projection from pzmap.org (multiply=2):
   // Origin derived from PxToTileOffset {x:-5577, y:10327}
   isoX0: 1017856,  // (5577 + 10327) * 64
@@ -304,6 +338,9 @@ const MIN_SCALE = 0.0003        // canvas px per DZI px (zoomed way out)
 const MAX_SCALE = 1.0           // canvas px per DZI px (zoomed way in)
 const POLL_INTERVAL = 3000
 const MARKER_HIT_RADIUS = 14
+// How many coarser levels drawTileWithFallback will walk up looking for a
+// cached tile to degrade to. See GH#109 / conv-gh109-worldmap-black.
+const MAX_FALLBACK_LEVELS = 8
 
 // ─── Cached top-down vehicle icons ────────────────────────
 // Top-down car silhouette rendered to offscreen canvases. Much more legible
@@ -548,12 +585,15 @@ const PZ_LANDMARKS = [
 
 // ─── Component ────────────────────────────────────────────
 export default function WorldMap() {
+  const { t } = useTranslation('worldMap')
   const { theme } = useTheme()
   const socket = useSocket()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const mapWrapperRef = useRef<HTMLDivElement>(null)
   const animFrameRef = useRef<number>(0)
+  const playerFetchGateRef = useRef(createInFlightGate())
+  const overlayFetchGateRef = useRef(createInFlightGate())
   const playersRef = useRef<MapPlayer[]>([])
   const drawRequestRef = useRef<number>(0)
   const canvasColorsRef = useRef<CanvasColors>(resolveCanvasColors())
@@ -628,6 +668,8 @@ export default function WorldMap() {
   const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null)
   // Confirm-deletion dialog state for custom drop packages.
   const [deleteTemplateId, setDeleteTemplateId] = useState<string | null>(null)
+  // Confirm-deletion dialog state for removing a vehicle from the world.
+  const [removeVehicleTarget, setRemoveVehicleTarget] = useState<{ id: number; label: string; x: number; y: number } | null>(null)
   const [templateNameInput, setTemplateNameInput] = useState('')
   const [savingTemplate, setSavingTemplate] = useState(false)
   const persistDropTemplates = useCallback((next: DropTemplate[]) => {
@@ -644,7 +686,11 @@ export default function WorldMap() {
 
   // Floor label helper
   const floorLabel = (f: number) =>
-    f === 0 ? 'Ground' : f > 0 ? `Floor ${f}` : `B${Math.abs(f)}`
+    f === 0 ? t('floor.ground') : f > 0 ? t('floor.floorN', { n: f }) : t('floor.basementN', { n: Math.abs(f) })
+
+  // Airdrop preset label/description lookups (icon stays in AIRDROP_PRESETS)
+  const presetLabel = useCallback((id: string) => t(`airdropPresets.${id}.label`), [t])
+  const presetDesc = useCallback((id: string) => t(`airdropPresets.${id}.desc`), [t])
 
   // Change floor — clears tile cache since tiles differ per floor
   const changeFloor = useCallback((newFloor: number) => {
@@ -811,22 +857,31 @@ export default function WorldMap() {
 
   // ─── Map tile cache ─────────────────────────────────────
   // 'empty' marks a tile the upstream server confirmed doesn't exist (a
-  // real HTTP 404, not a network/proxy failure) — e.g. a sparse/edge tile
-  // near the map boundary. pzmap.org's own OpenSeadragon
-  // viewer just renders these blank; treating them as errors caused a
-  // false "tiles offline" banner and visible view jumps on zoom. See the
-  // status-aware fetch() below — an <img> tag alone can't distinguish a
-  // 404 from any other failure.
+  // real HTTP 404, not a network/proxy failure) — e.g. a sparse/edge tile,
+  // or any tile past the real (often much shallower than maxLevel) rendered
+  // coverage depth for this build (see mapProxy.js's discoverRenderedMaxLevel
+  // and GH#109 / conv-gh109-worldmap-black). Treating a 404 as a load error
+  // caused a false "tiles offline" banner and visible view jumps on zoom, so
+  // it's tracked as its own state rather than folded into a failure retry —
+  // see the status-aware fetch() below, since an <img> tag alone can't
+  // distinguish a 404 from any other failure.
+  // pzmap.org's own OpenSeadragon viewer renders an 'empty' tile blank too,
+  // but that is NOT evidence blank is the right answer here — it is a
+  // reference-conformance fact, not a UX one, and it does not survive a real
+  // user staring at a black map (GH#109, filed by Everyday44). The
+  // requirement this state actually carries is: drawMap must fall back to
+  // the nearest cached coarser tile for an 'empty' entry (see
+  // drawTileWithFallback / worldMapTileFallback.ts), never draw nothing.
   const tileCacheRef = useRef<Record<string, HTMLImageElement | null | 'empty'>>({})
 
   // Resolved once per session: lets the browser build direct-to-upstream
-  // tile URLs (https://pzmap.org/maps/<dir>/...) instead of
+  // tile URLs (https://tiles.pzmap.org/<dir>/...) instead of
   // always routing through this server's proxy. Some deployments (e.g. a
   // Kubernetes cluster with a restrictive Gateway API egress policy) block
-  // outbound access to pzmap.org for the panel's own pod while
+  // outbound access to tiles.pzmap.org for the panel's own pod while
   // the admin's browser has no such restriction. /api/map/resolve has its
   // own cache + hardcoded fallback server-side, so it responds instantly
-  // even when the backend itself can't reach pzmap.org.
+  // even when the backend itself can't reach tiles.pzmap.org.
   const mapSourceRef = useRef<{ root: string; b42Dir: string; b41Path: string } | null>(null)
   useEffect(() => {
     let cancelled = false
@@ -836,7 +891,7 @@ export default function WorldMap() {
     return () => { cancelled = true }
   }, [])
 
-  // Builds the real pzmap.org URL for a tile, or null if we
+  // Builds the real tiles.pzmap.org URL for a tile, or null if we
   // haven't resolved enough info yet (falls back to the backend proxy).
   const buildDirectTileUrl = useCallback((level: number, col: number, row: number, floor: number, ext: string) => {
     const src = mapSourceRef.current
@@ -847,7 +902,9 @@ export default function WorldMap() {
     // Floor is a path segment on the real upstream, not a query param —
     // the ?floor= convention only exists on our own proxy route, which
     // encodes it that way because /tiles/:level/:tile has no :floor segment.
-    return `${src.root}/maps/${src.b42Dir}/base/layer${floor}_files/${level}/${col}_${row}.${ext}`
+    // No /maps/ segment here -- that's a proxy-route convention, not part of
+    // the real upstream path (dropped along with the pzmap.org -> tiles.pzmap.org move).
+    return `${src.root}/${src.b42Dir}/base/layer${floor}_files/${level}/${col}_${row}.${ext}`
   }, [])
 
   // Cap concurrent tile loads to avoid flooding the network
@@ -922,10 +979,10 @@ export default function WorldMap() {
     const proxyUrl = `${mapCfgRef.current.tileUrl}/${level}/${col}_${row}.${ext}${proxyFloorParam}`
 
     // Loads through this server's proxy — the "smart" path that can tell a
-    // real 404 (tile genuinely absent; the reference OpenSeadragon viewer
-    // on pzmap.org just renders these blank) apart from an
-    // actual connectivity failure, since an <img> tag alone can't see HTTP
-    // status codes. Used directly when we haven't resolved a direct
+    // real 404 (tile genuinely absent — see tileCacheRef's comment above for
+    // what 'empty' means and why it must fall back, not render blank) apart
+    // from an actual connectivity failure, since an <img> tag alone can't
+    // see HTTP status codes. Used directly when we haven't resolved a direct
     // upstream URL yet, and as the fallback when a direct browser load
     // fails for an ambiguous reason (which itself might just be a real
     // 404 — routing it through here resolves that ambiguity).
@@ -1012,6 +1069,35 @@ export default function WorldMap() {
     directImg.src = directUrl
   }, [buildDirectTileUrl])
 
+  // A requested level can be within maxLevel yet still have no tile rendered
+  // upstream for most of the map -- see GH#109 / conv-gh109-worldmap-black
+  // and worldMapTileFallback.ts's header comment. When the exact tile is
+  // missing or still loading, draw the matching sub-rectangle of the
+  // nearest cached COARSER tile instead of leaving the rect untouched.
+  const drawTileWithFallback = useCallback((
+    ctx: CanvasRenderingContext2D,
+    floor: number,
+    level: number,
+    col: number,
+    row: number,
+    dx: number,
+    dy: number,
+    dw: number,
+    dh: number,
+  ) => {
+    const fallback = resolveFallbackTile(
+      level,
+      col,
+      row,
+      (l, c, r) => tileCacheRef.current[`${floor}/${l}/${c}_${r}`],
+      (l, c, r) => loadDziTile(l, c, r),
+      MAX_FALLBACK_LEVELS,
+    )
+    if (!fallback) return false
+    ctx.drawImage(fallback.img, fallback.srcX, fallback.srcY, fallback.srcW, fallback.srcH, dx, dy, dw, dh)
+    return true
+  }, [loadDziTile])
+
   // ─── Coordinate transforms (DZI pixel ↔ canvas, game-tile ↔ DZI) ─
   const dziToCanvas = useCallback(
     (dziX: number, dziY: number, s?: number, off?: { x: number; y: number }) => {
@@ -1053,6 +1139,7 @@ export default function WorldMap() {
       setLoading(false)
       return
     }
+    if (!playerFetchGateRef.current.enter()) return
 
     try {
       const res = await panelBridgeApi.getServerInfo()
@@ -1085,6 +1172,7 @@ export default function WorldMap() {
     } catch {
       setBridgeConnected(false)
     } finally {
+      playerFetchGateRef.current.leave()
       setLoading(false)
     }
   }, [hasActiveServer])
@@ -1110,6 +1198,7 @@ export default function WorldMap() {
   // Fetch vehicles + safehouses from PanelBridge
   const fetchOverlays = useCallback(async () => {
     if (!mountedRef.current || !hasActiveServer) return
+    if (!overlayFetchGateRef.current.enter()) return
     try {
       const [vRes, persistedRes, sRes] = await Promise.allSettled([
         panelBridgeApi.sendCommand('getVehiclesDetailed'),
@@ -1140,7 +1229,10 @@ export default function WorldMap() {
         const sList = Array.isArray(sData) ? sData : Array.isArray(sData.safehouses) ? sData.safehouses : []
         setSafehouses((sList as MapSafehouse[]).filter(s => typeof s.x === 'number' && typeof s.y === 'number' && isFinite(s.x) && isFinite(s.y)))
       }
-    } catch { /* best-effort */ }
+    } catch { /* best-effort */
+    } finally {
+      overlayFetchGateRef.current.leave()
+    }
   }, [hasActiveServer])
 
   // ─── Polling ────────────────────────────────────────────
@@ -1159,13 +1251,21 @@ export default function WorldMap() {
     return () => clearInterval(interval)
   }, [bridgeConnected, fetchOverlays, hasActiveServer])
 
+  // Deliberately NOT gated on bridgeConnected: fetchPlayerPositions is what
+  // sets bridgeConnected in the first place (true on a successful response,
+  // false on failure). Gating this interval on bridgeConnected meant that
+  // once the mod disconnected, this effect's own guard would tear the
+  // interval down and nothing would ever call fetchPlayerPositions again to
+  // notice a reconnect -- the "Bridge Offline" badge was stuck until the
+  // user reloaded the page or switched servers. Polling through the
+  // disconnected state (a cheap failed fetch every 3s) lets it self-heal.
   useEffect(() => {
-    if (!hasActiveServer || !bridgeConnected) return
+    if (!hasActiveServer) return
     const interval = setInterval(() => {
       if (document.visibilityState !== 'hidden') fetchPlayerPositions()
     }, POLL_INTERVAL)
     return () => clearInterval(interval)
-  }, [bridgeConnected, fetchPlayerPositions, hasActiveServer])
+  }, [fetchPlayerPositions, hasActiveServer])
 
   useEffect(() => { playersRef.current = players }, [players])
 
@@ -1206,7 +1306,14 @@ export default function WorldMap() {
 
     // ── DZI map tiles ──
     const mc = mapCfgRef.current
-    const level = Math.max(0, Math.min(mc.maxLevel, Math.round(mc.maxLevel + Math.log2(s))))
+    // Clamp to renderedMaxLevel, not maxLevel -- maxLevel is the depth a
+    // FULL Deep Zoom pyramid would need for these dimensions, not evidence
+    // the tile host actually rendered that deep (see GH#109 /
+    // conv-gh109-worldmap-black). The DZI addressing math below (levelScale
+    // etc.) still keys off the real maxLevel, since tile level numbering is
+    // defined relative to the full theoretical pyramid regardless of how
+    // much of it actually exists upstream.
+    const level = Math.max(0, Math.min(mc.renderedMaxLevel, Math.round(mc.maxLevel + Math.log2(s))))
     const levelScale = Math.pow(2, mc.maxLevel - level)
     const levelW = Math.ceil(mc.fullWidth / levelScale)
     const levelH = Math.ceil(mc.fullHeight / levelScale)
@@ -1236,15 +1343,21 @@ export default function WorldMap() {
       for (let col = minCol; col <= maxCol; col++) {
         loadDziTile(level, col, row)
         const img = tileCacheRef.current[`${floorRef.current}/${level}/${col}_${row}`]
+        // Floor the origin and pad the size by 1px so adjacent tiles
+        // slightly overlap instead of leaving a sub-pixel seam (visible as
+        // a dark line since tiles draw at globalAlpha 0.9 over a dark bg).
+        const dx = Math.floor(col * tileSize * levelScale * s + off.x)
+        const dy = Math.floor(row * tileSize * levelScale * s + off.y)
         if (img && img !== 'empty') {
-          // Floor the origin and pad the size by 1px so adjacent tiles
-          // slightly overlap instead of leaving a sub-pixel seam (visible as
-          // a dark line since tiles draw at globalAlpha 0.9 over a dark bg).
-          const dx = Math.floor(col * tileSize * levelScale * s + off.x)
-          const dy = Math.floor(row * tileSize * levelScale * s + off.y)
           const dw = Math.ceil(img.naturalWidth * levelScale * s) + 1
           const dh = Math.ceil(img.naturalHeight * levelScale * s) + 1
           ctx.drawImage(img, dx, dy, dw, dh)
+        } else {
+          // Exact tile missing (confirmed absent) or still loading -- draw a
+          // coarser cached tile's matching sub-rectangle instead of nothing.
+          const dw = Math.ceil(tileSize * levelScale * s) + 1
+          const dh = Math.ceil(tileSize * levelScale * s) + 1
+          drawTileWithFallback(ctx, floorRef.current, level, col, row, dx, dy, dw, dh)
         }
       }
     }
@@ -1276,9 +1389,22 @@ export default function WorldMap() {
       ctx.fillStyle = C.landmarkDiamond
       ctx.fill()
 
-      // Label
-      ctx.fillStyle = C.landmarkLabel
-      ctx.fillText(lm.name, p.x, p.y - markerSize - 4)
+      // Label — the marker-position cull above is generous enough (±100px)
+      // that a centered label can still land mostly or entirely off-canvas,
+      // leaving only a stray fragment of the name visible (e.g. "gh" of
+      // "Muldraugh") on a narrow viewport. Only draw it if it's fully on
+      // screen; the marker alone still shows an accurate position.
+      const labelWidth = ctx.measureText(lm.name).width
+      const labelY = p.y - markerSize - 4
+      const labelFits =
+        p.x - labelWidth / 2 >= 0 &&
+        p.x + labelWidth / 2 <= W &&
+        labelY - fontSize >= 0 &&
+        labelY <= H
+      if (labelFits) {
+        ctx.fillStyle = C.landmarkLabel
+        ctx.fillText(lm.name, p.x, labelY)
+      }
     }
 
     // ── Safehouse rectangles ──
@@ -1322,7 +1448,7 @@ export default function WorldMap() {
           ctx.font = `600 ${shFontSize}px ui-sans-serif, system-ui, sans-serif`
           ctx.textAlign = 'center'
           ctx.fillStyle = C.safehouseLabel
-          const displayName = sh.title || sh.owner || 'Safehouse'
+          const displayName = sh.title || sh.owner || t('safehouseFallback')
           ctx.fillText(displayName, centerX, centerY - 2)
           if (sh.owner && sh.owner !== displayName) {
             ctx.font = `400 ${shFontSize * 0.85}px ui-sans-serif, system-ui, sans-serif`
@@ -1418,7 +1544,7 @@ export default function WorldMap() {
           ctx.font = `500 ${vFontSize}px ui-sans-serif, system-ui, sans-serif`
           ctx.textAlign = 'center'
           ctx.fillStyle = C.vehicleLabel
-          const shortName = vehicle.type || vehicle.scriptName?.split('.').pop() || 'Vehicle'
+          const shortName = vehicle.type || vehicle.scriptName?.split('.').pop() || t('vehicleFallback')
           ctx.fillText(shortName, vp.x, vp.y - half - 4)
         }
       }
@@ -1703,20 +1829,31 @@ export default function WorldMap() {
         ctx.shadowBlur = 3
         ctx.shadowOffsetY = 1
         ctx.fillStyle = hslToken('--warning', 0.9 * fadeAlpha)
-        ctx.fillText(presetDef.label, ap.x, ap.y - dropSize * 2.2)
+        ctx.fillText(presetLabel(presetDef.id), ap.x, ap.y - dropSize * 2.2)
         ctx.restore()
       }
     }
 
     // Empty state
     if (currentPlayers.length === 0) {
+      // The floating control rail (top-3 left-3, w-12) permanently overlaps
+      // the canvas's left edge, so text centered on the full canvas width can
+      // render underneath it on narrow (mobile) viewports. Only nudge right
+      // when a naive center would tuck the text under the rail.
+      const railClearance = 72
       ctx.textAlign = 'center'
+
       ctx.fillStyle = C.emptyTitle
       ctx.font = '600 14px ui-sans-serif, system-ui, sans-serif'
-      ctx.fillText('No players on the map', W / 2, H / 2 - 8)
+      const title = t('emptyState.title')
+      const titleX = Math.max(W / 2, railClearance + ctx.measureText(title).width / 2)
+      ctx.fillText(title, titleX, H / 2 - 8)
+
       ctx.font = '400 11px ui-sans-serif, system-ui, sans-serif'
       ctx.fillStyle = C.emptySubtitle
-      ctx.fillText('Player positions appear when PanelBridge is connected', W / 2, H / 2 + 10)
+      const subtitle = t('emptyState.subtitle')
+      const subtitleX = Math.max(W / 2, railClearance + ctx.measureText(subtitle).width / 2)
+      ctx.fillText(subtitle, subtitleX, H / 2 + 10)
     }
 
     // Crosshair at cursor
@@ -1733,7 +1870,7 @@ export default function WorldMap() {
       ctx.stroke()
       ctx.setLineDash([])
     }
-  }, [canvasSize, loadDziTile, playerToScreen, hoveredPlayer, selectedPlayer, cursorWorldPos, isDragging, showVehicles, showSafehouses, hoveredVehicle])
+  }, [canvasSize, loadDziTile, drawTileWithFallback, playerToScreen, hoveredPlayer, selectedPlayer, cursorWorldPos, isDragging, showVehicles, showSafehouses, hoveredVehicle, t, presetLabel])
 
   // ─── Animation loop ─────────────────────────────────────
   useEffect(() => {
@@ -2176,10 +2313,10 @@ export default function WorldMap() {
       try {
         const res = await panelBridgeApi.triggerLightning(x, y, true, true, true)
         if (res.success) {
-          toast({ title: 'Lightning strike', description: `Struck at ${x}, ${y}` })
+          toast({ title: t('toasts.lightningStrikeTitle'), description: t('toasts.lightningStrikeDesc', { x, y }) })
         }
       } catch {
-        toast({ title: 'Error', description: 'Failed to trigger lightning', variant: 'destructive' })
+        toast({ title: t('errorTitle'), description: t('toasts.lightningFailed'), variant: 'destructive' })
       } finally {
         setActionLoading(null)
         setContextMenu(null)
@@ -2194,10 +2331,10 @@ export default function WorldMap() {
       try {
         const res = await panelBridgeApi.playWorldSound(x, y, 0, 200, 100)
         if (res.success) {
-          toast({ title: 'Noise Created', description: `Sound at ${x}, ${y} — attracting zombies` })
+          toast({ title: t('toasts.noiseCreatedTitle'), description: t('toasts.noiseCreatedDesc', { x, y }) })
         }
       } catch {
-        toast({ title: 'Error', description: 'Failed to create noise', variant: 'destructive' })
+        toast({ title: t('errorTitle'), description: t('toasts.noiseFailed'), variant: 'destructive' })
       } finally {
         setActionLoading(null)
         setContextMenu(null)
@@ -2212,33 +2349,34 @@ export default function WorldMap() {
       actionLoadingRef.current = 'airdrop'
       setActionLoading('airdrop')
       try {
+        // /panel-bridge/command's generic passthrough (bridge.sendCommand())
+        // only ever resolves with { success: true, ... } -- an in-game
+        // failure rejects the promise instead (see processResult()'s
+        // pending.reject branch in services/panelBridge.js) -- so this
+        // never sees res.success === false, only the catch below.
         const res = await panelBridgeApi.triggerAirdrop({ x, y, preset, announce: true, attractZombies: true })
         if (!mountedRef.current) return
-        if (res.success) {
-          const presetDef = AIRDROP_PRESETS.find((p) => p.id === preset)
-          const label = presetDef?.label ?? preset
-          const data = res.data as Record<string, unknown> | undefined
-          const itemCount = typeof data?.itemCount === 'number' ? data.itemCount : undefined
-          const failed = typeof data?.failed === 'number' ? data.failed : 0
-          const coords = `${Math.round(x)}, ${Math.round(y)}`
-          let desc = itemCount
-            ? `${itemCount} items dropped at ${coords}`
-            : `Supply drop at ${coords}`
-          if (failed > 0) {
-            desc += ` (${failed} failed)`
-          }
-          toast({ title: `${label} airdrop deployed`, description: desc })
-          setAirdropMarkers((prev) => {
-            const next = [...prev, { x, y, preset, time: Date.now() }]
-            return next.length > 50 ? next.slice(-50) : next // cap at 50 markers
-          })
-        } else {
-          toast({ title: 'Airdrop failed', description: res.error || 'Area may not be loaded — a player must be nearby', variant: 'destructive' })
+        const presetDef = AIRDROP_PRESETS.find((p) => p.id === preset)
+        const label = presetDef ? presetLabel(presetDef.id) : preset
+        const data = res.data as Record<string, unknown> | undefined
+        const itemCount = typeof data?.itemCount === 'number' ? data.itemCount : undefined
+        const failed = typeof data?.failed === 'number' ? data.failed : 0
+        const coords = `${Math.round(x)}, ${Math.round(y)}`
+        let desc = itemCount
+          ? t('toasts.itemsDropped', { count: itemCount, coords })
+          : t('toasts.supplyDrop', { coords })
+        if (failed > 0) {
+          desc += t('toasts.failedSuffix', { count: failed })
         }
+        toast({ title: t('toasts.airdropDeployedTitle', { label }), description: desc })
+        setAirdropMarkers((prev) => {
+          const next = [...prev, { x, y, preset, time: Date.now() }]
+          return next.length > 50 ? next.slice(-50) : next // cap at 50 markers
+        })
       } catch (err) {
         if (!mountedRef.current) return
-        const msg = err instanceof Error ? err.message : 'Failed to call airdrop'
-        toast({ title: 'Airdrop error', description: msg, variant: 'destructive' })
+        const msg = err instanceof Error ? err.message : t('toasts.areaNotLoaded')
+        toast({ title: t('toasts.airdropFailedTitle'), description: msg, variant: 'destructive' })
       } finally {
         actionLoadingRef.current = null
         if (mountedRef.current) {
@@ -2247,7 +2385,7 @@ export default function WorldMap() {
         }
       }
     },
-    [toast]
+    [toast, t, presetLabel]
   )
 
   // Clean up expired airdrop markers (older than 5 minutes)
@@ -2283,7 +2421,7 @@ export default function WorldMap() {
         }))
         .filter((it) => it.itemType.length > 0)
       if (cleaned.length === 0) {
-        toast({ title: 'No items', description: 'Add at least one item to drop', variant: 'destructive' })
+        toast({ title: t('toasts.noItemsTitle'), description: t('toasts.noItemsDesc'), variant: 'destructive' })
         return
       }
       // Module must start with a letter; item name may start with a digit (e.g. 9mmClip, 556Bullets).
@@ -2291,19 +2429,22 @@ export default function WorldMap() {
       const bad = cleaned.find((it) => !ID_RE.test(it.itemType))
       if (bad) {
         toast({
-          title: 'Invalid item',
-          description: `${bad.itemType} — expected format: Module.Item`,
+          title: t('toasts.invalidItemTitle'),
+          description: t('toasts.invalidItemDesc', { item: bad.itemType }),
           variant: 'destructive',
         })
         return
       }
       if (cleaned.length > 50) {
-        toast({ title: 'Too many items', description: 'Max 50 item entries per drop', variant: 'destructive' })
+        toast({ title: t('toasts.tooManyItemsTitle'), description: t('toasts.tooManyItemsDesc'), variant: 'destructive' })
         return
       }
       actionLoadingRef.current = 'drop'
       setActionLoading('drop')
       try {
+        // Same shape as callAirdrop above: the generic /panel-bridge/command
+        // passthrough only ever resolves on success, so this never sees
+        // res.success === false, only the catch below.
         const res = await panelBridgeApi.triggerAirdrop({
           x: opts.x,
           y: opts.y,
@@ -2313,35 +2454,35 @@ export default function WorldMap() {
           soundRadius: Math.max(10, Math.min(500, Math.floor(opts.soundRadius))),
         })
         if (!mountedRef.current) return
-        if (res.success) {
-          const data = res.data as Record<string, unknown> | undefined
-          const failed = typeof data?.failed === 'number' ? data.failed : 0
-          const totalQty = cleaned.reduce((sum, it) => sum + it.count, 0)
-          const coords = `${Math.round(opts.x)}, ${Math.round(opts.y)}`
-          const title = opts.label ? `${opts.label} dropped` : 'Drop deployed'
-          let desc =
-            cleaned.length === 1
-              ? `${cleaned[0].itemType.replace(/^[^.]+\./, '')}${cleaned[0].count > 1 ? ` × ${cleaned[0].count}` : ''} at ${coords}`
-              : `${cleaned.length} items (${totalQty} total) at ${coords}`
-          if (failed > 0) desc += ` (${failed} failed)`
-          if (!opts.silent) toast({ title, description: desc })
-          setAirdropMarkers((prev) => {
-            const next = [...prev, { x: opts.x, y: opts.y, preset: 'custom', time: Date.now() }]
-            return next.length > 50 ? next.slice(-50) : next
-          })
-          setLastDrop({
-            items: cleaned,
-            label: opts.label || (cleaned.length === 1
-              ? cleaned[0].itemType.replace(/^[^.]+\./, '')
-              : `${cleaned.length}-item package`),
-          })
-        } else {
-          toast({ title: 'Drop failed', description: res.error || 'Area may not be loaded — a player must be nearby', variant: 'destructive' })
-        }
+        const data = res.data as Record<string, unknown> | undefined
+        const failed = typeof data?.failed === 'number' ? data.failed : 0
+        const totalQty = cleaned.reduce((sum, it) => sum + it.count, 0)
+        const coords = `${Math.round(opts.x)}, ${Math.round(opts.y)}`
+        const title = opts.label ? t('toasts.droppedTitle', { label: opts.label }) : t('toasts.dropDeployed')
+        let desc =
+          cleaned.length === 1
+            ? t('toasts.singleItemDesc', {
+                item: cleaned[0].itemType.replace(/^[^.]+\./, ''),
+                qtySuffix: cleaned[0].count > 1 ? t('toasts.qtySuffix', { count: cleaned[0].count }) : '',
+                coords,
+              })
+            : t('toasts.multiItemDesc', { count: cleaned.length, total: totalQty, coords })
+        if (failed > 0) desc += t('toasts.failedSuffix', { count: failed })
+        if (!opts.silent) toast({ title, description: desc })
+        setAirdropMarkers((prev) => {
+          const next = [...prev, { x: opts.x, y: opts.y, preset: 'custom', time: Date.now() }]
+          return next.length > 50 ? next.slice(-50) : next
+        })
+        setLastDrop({
+          items: cleaned,
+          label: opts.label || (cleaned.length === 1
+            ? cleaned[0].itemType.replace(/^[^.]+\./, '')
+            : t('toasts.itemPackageFallback', { count: cleaned.length })),
+        })
       } catch (err) {
         if (!mountedRef.current) return
-        const msg = err instanceof Error ? err.message : 'Failed to drop item'
-        toast({ title: 'Drop error', description: msg, variant: 'destructive' })
+        const msg = err instanceof Error ? err.message : t('toasts.areaNotLoaded')
+        toast({ title: t('toasts.dropFailedTitle'), description: msg, variant: 'destructive' })
       } finally {
         actionLoadingRef.current = null
         if (mountedRef.current) {
@@ -2349,7 +2490,7 @@ export default function WorldMap() {
         }
       }
     },
-    [toast]
+    [toast, t]
   )
 
   // Teleport an arbitrary online player to the right-clicked coordinate.
@@ -2357,35 +2498,49 @@ export default function WorldMap() {
     async (username: string, x: number, y: number, z: number) => {
       setActionLoading('teleport')
       try {
-        const res = await panelBridgeApi.sendCommand('teleportPlayer', {
+        // bridge.sendCommand() (services/panelBridge.js) only ever resolves
+        // with { success: true, ... } -- an in-game failure rejects the
+        // promise instead (see processResult()'s pending.reject branch), so
+        // handleResponse() throws into the catch below either way. This
+        // never sees res.success === false. It CAN resolve with
+        // data.verified !== 'confirmed' though (mod couldn't read back the
+        // new position) -- that's not a rejection, so it needs its own check.
+        const response = await panelBridgeApi.sendCommand('teleportPlayer', {
           username,
           x: Math.round(x),
           y: Math.round(y),
           z: Math.round(z),
         })
         if (!mountedRef.current) return
-        if (res.success) {
-          toast({
-            title: 'Player teleported',
-            description: `${username} → ${Math.round(x)}, ${Math.round(y)}`,
-          })
-          fetchPlayerPositions()
-        } else {
-          toast({
-            title: 'Teleport failed',
-            description: res.error || 'Grid square may not be loaded at destination',
-            variant: 'destructive',
-          })
-        }
+        const verifyState = getBridgeVerifiedState('teleportPlayer', response?.data)
+        toast(
+          verifyState === 'unverifiable'
+            ? {
+                title: t('toasts.teleportedTitle'),
+                description: t('toasts.bridgeUnverifiedDesc', { action: t('toasts.teleportedTitle') }),
+                variant: 'default',
+              }
+            : verifyState === 'old-bridge'
+              ? {
+                  title: t('toasts.teleportedTitle'),
+                  description: t('toasts.bridgeOldBridgeDesc', { action: t('toasts.teleportedTitle') }),
+                  variant: 'default',
+                }
+              : {
+                  title: t('toasts.teleportedTitle'),
+                  description: t('toasts.teleportedDesc', { username, x: Math.round(x), y: Math.round(y) }),
+                },
+        )
+        fetchPlayerPositions()
       } catch (err) {
         if (!mountedRef.current) return
-        const msg = err instanceof Error ? err.message : 'Teleport error'
-        toast({ title: 'Teleport error', description: msg, variant: 'destructive' })
+        const msg = err instanceof Error ? err.message : t('toasts.teleportErrorFallback')
+        toast({ title: t('toasts.teleportErrorTitle'), description: msg, variant: 'destructive' })
       } finally {
         if (mountedRef.current) setActionLoading(null)
       }
     },
-    [toast, fetchPlayerPositions]
+    [toast, fetchPlayerPositions, t]
   )
 
   // Copy map coordinates to the clipboard.
@@ -2394,12 +2549,12 @@ export default function WorldMap() {
       const text = `${Math.round(x)}, ${Math.round(y)}`
       try {
         await navigator.clipboard.writeText(text)
-        toast({ title: 'Copied', description: text })
+        toast({ title: t('toasts.copiedTitle'), description: text })
       } catch {
-        toast({ title: 'Copy failed', description: 'Clipboard unavailable', variant: 'destructive' })
+        toast({ title: t('toasts.copyFailedTitle'), description: t('toasts.copyFailedDesc'), variant: 'destructive' })
       }
     },
-    [toast]
+    [toast, t]
   )
 
   // Pan to player (from player list click)
@@ -2418,8 +2573,8 @@ export default function WorldMap() {
   return (
     <div className="space-y-4 page-transition">
       <PageHeader
-        title="World Map"
-        description="Live player positions on the Knox County map. Right-click for actions."
+        title={t('pageHeader.title')}
+        description={t('pageHeader.description')}
         icon={<MapIcon className="w-5 h-5" />}
         actions={
           <div className="flex items-center gap-2">
@@ -2431,7 +2586,7 @@ export default function WorldMap() {
               className="gap-2"
             >
               <RefreshCw className="w-4 h-4" />
-              Refresh
+              {t('refresh')}
             </Button>
           </div>
         }
@@ -2448,30 +2603,30 @@ export default function WorldMap() {
         <div className="absolute top-3 left-3 z-10 w-12 rounded-md border border-border/55 bg-card/85 backdrop-blur-md shadow-lg overflow-hidden">
           <div className="flex items-center justify-center gap-1 px-1.5 py-1 border-b border-border/40 bg-muted/40 font-mono text-[9px] uppercase tracking-[0.24em] text-primary/70">
             <span className="text-primary/60">//</span>
-            <span>ctrl</span>
+            <span>{t('controlRail.ctrlLabel')}</span>
           </div>
           <div className="flex flex-col gap-px p-1">
             <button
               onClick={zoomIn}
-              aria-label="Zoom in"
+              aria-label={t('controlRail.zoomIn')}
               className="group h-9 w-9 rounded-sm border border-transparent hover:border-border/50 hover:bg-muted/60 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60"
-              title="Zoom in"
+              title={t('controlRail.zoomIn')}
             >
               <ZoomIn className="w-4 h-4" />
             </button>
             <button
               onClick={zoomOut}
-              aria-label="Zoom out"
+              aria-label={t('controlRail.zoomOut')}
               className="group h-9 w-9 rounded-sm border border-transparent hover:border-border/50 hover:bg-muted/60 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60"
-              title="Zoom out"
+              title={t('controlRail.zoomOut')}
             >
               <ZoomOut className="w-4 h-4" />
             </button>
             <button
               onClick={fitToPlayers}
-              aria-label="Fit to players"
+              aria-label={t('controlRail.fitToPlayers')}
               className="group h-9 w-9 rounded-sm border border-transparent hover:border-border/50 hover:bg-muted/60 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60"
-              title="Fit to players"
+              title={t('controlRail.fitToPlayers')}
             >
               <Maximize2 className="w-4 h-4" />
             </button>
@@ -2481,37 +2636,37 @@ export default function WorldMap() {
           {mapCfg.label === 'B42' && (
             <>
               <div className="flex items-center justify-center gap-1 px-1.5 py-1 border-y border-border/40 bg-muted/30 font-mono text-[9px] uppercase tracking-[0.24em] text-muted-foreground/70">
-                <span>floor</span>
+                <span>{t('controlRail.floorHeader')}</span>
               </div>
               <div className="flex flex-col items-center p-1 gap-px">
                 <button
                   onClick={() => changeFloor(floor + 1)}
                   disabled={floor >= 29}
-                  aria-label="Floor up"
+                  aria-label={t('controlRail.floorUp')}
                   className="h-6 w-9 rounded-sm border border-transparent hover:border-border/50 hover:bg-muted/60 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:border-transparent"
-                  title="Floor up"
+                  title={t('controlRail.floorUp')}
                 >
                   <ChevronUp className="w-3.5 h-3.5" />
                 </button>
                 <button
                   onClick={() => changeFloor(0)}
-                  aria-label={`Current floor: ${floorLabel(floor)}`}
+                  aria-label={t('controlRail.currentFloorAria', { floor: floorLabel(floor) })}
                   className={cn(
                     'h-7 w-9 rounded-sm border flex items-center justify-center transition-colors text-[10px] font-mono font-semibold tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60',
                     floor !== 0
                       ? 'bg-accent/20 border-accent/40 text-accent shadow-[inset_0_0_0_1px_rgba(0,0,0,0.2)]'
                       : 'bg-muted/30 border-border/40 text-muted-foreground hover:bg-muted/60 hover:text-foreground'
                   )}
-                  title={`${floorLabel(floor)} — click to reset to ground`}
+                  title={t('controlRail.currentFloorTitle', { floor: floorLabel(floor) })}
                 >
                   {floor === 0 ? <Layers className="w-3.5 h-3.5" /> : (floor > 0 ? `+${floor}` : floor)}
                 </button>
                 <button
                   onClick={() => changeFloor(floor - 1)}
                   disabled={floor <= -1}
-                  aria-label="Floor down"
+                  aria-label={t('controlRail.floorDown')}
                   className="h-6 w-9 rounded-sm border border-transparent hover:border-border/50 hover:bg-muted/60 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:border-transparent"
-                  title="Floor down"
+                  title={t('controlRail.floorDown')}
                 >
                   <ChevronDown className="w-3.5 h-3.5" />
                 </button>
@@ -2520,12 +2675,12 @@ export default function WorldMap() {
           )}
 
           <div className="flex items-center justify-center gap-1 px-1.5 py-1 border-y border-border/40 bg-muted/30 font-mono text-[9px] uppercase tracking-[0.24em] text-muted-foreground/70">
-            <span>layers</span>
+            <span>{t('controlRail.layersHeader')}</span>
           </div>
           <div className="flex flex-col gap-px p-1">
             <button
               onClick={() => setShowVehicles((v) => !v)}
-              aria-label={showVehicles ? `Hide vehicles (${vehicles.length} loaded)` : `Show vehicles (${vehicles.length} loaded)`}
+              aria-label={t(showVehicles ? 'controlRail.vehiclesHideAria' : 'controlRail.vehiclesShowAria', { count: vehicles.length })}
               aria-pressed={showVehicles}
               className={cn(
                 'h-9 w-9 rounded-sm border flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60',
@@ -2533,13 +2688,13 @@ export default function WorldMap() {
                   ? 'bg-info/20 border-info/40 text-info'
                   : 'border-transparent text-muted-foreground hover:border-border/50 hover:bg-muted/60 hover:text-foreground'
               )}
-              title={`${showVehicles ? 'Hide' : 'Show'} vehicles (${vehicles.length}) — only vehicles near players are visible`}
+              title={t(showVehicles ? 'controlRail.vehiclesHideTitle' : 'controlRail.vehiclesShowTitle', { count: vehicles.length })}
             >
               <Car className="w-4 h-4" />
             </button>
             <button
               onClick={() => setShowSafehouses((v) => !v)}
-              aria-label={showSafehouses ? `Hide safehouses (${safehouses.length} loaded)` : `Show safehouses (${safehouses.length} loaded)`}
+              aria-label={t(showSafehouses ? 'controlRail.safehousesHideAria' : 'controlRail.safehousesShowAria', { count: safehouses.length })}
               aria-pressed={showSafehouses}
               className={cn(
                 'h-9 w-9 rounded-sm border flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60',
@@ -2547,7 +2702,7 @@ export default function WorldMap() {
                   ? 'bg-success/20 border-success/40 text-success'
                   : 'border-transparent text-muted-foreground hover:border-border/50 hover:bg-muted/60 hover:text-foreground'
               )}
-              title={`${showSafehouses ? 'Hide' : 'Show'} safehouses (${safehouses.length})`}
+              title={t(showSafehouses ? 'controlRail.safehousesHideTitle' : 'controlRail.safehousesShowTitle', { count: safehouses.length })}
             >
               <Home className="w-4 h-4" />
             </button>
@@ -2566,26 +2721,31 @@ export default function WorldMap() {
               <div className="flex items-center justify-between gap-2 px-3 py-1 border-b border-warning/30 bg-warning/20 font-mono text-[10px] uppercase tracking-[0.24em] text-warning">
                 <span className="flex items-center gap-1.5">
                   <AlertTriangle className="w-3 h-3" />
-                  <span>signal.lost</span>
+                  <span>{t('tileFailure.signalLost')}</span>
                 </span>
-                <span className="text-warning/70">tiles offline</span>
+                <span className="text-warning/70">{t('tileFailure.tilesOffline')}</span>
               </div>
               <div className="px-3 py-2 text-xs leading-snug">
                 {tileFailureKind === 'coverage' ? (
                   <>
-                    <div className="font-semibold text-foreground">No map tiles at this zoom</div>
+                    <div className="font-semibold text-foreground">{t('tileFailure.coverageTitle')}</div>
                     <div className="text-muted-foreground mt-0.5">
-                      <span className="font-mono text-warning/90">pzmap.org</span> is
-                      reachable but hasn't rendered this area at this detail level. Zoom out, or
-                      try Refresh later.
+                      <Trans
+                        i18nKey="tileFailure.coverageDesc"
+                        t={t}
+                        components={{ 1: <span className="font-mono text-warning/90" /> }}
+                      />
                     </div>
                   </>
                 ) : (
                   <>
-                    <div className="font-semibold text-foreground">Map tiles aren't loading</div>
+                    <div className="font-semibold text-foreground">{t('tileFailure.networkTitle')}</div>
                     <div className="text-muted-foreground mt-0.5">
-                      Panel can't reach <span className="font-mono text-warning/90">pzmap.org</span>.
-                      Check outbound HTTPS access and try Refresh.
+                      <Trans
+                        i18nKey="tileFailure.networkDesc"
+                        t={t}
+                        components={{ 1: <span className="font-mono text-warning/90" /> }}
+                      />
                     </div>
                   </>
                 )}
@@ -2600,11 +2760,11 @@ export default function WorldMap() {
             <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 border-b border-border/40 bg-muted/40 font-mono text-[10px] uppercase tracking-[0.22em] text-primary/70">
               <span className="flex items-center gap-1.5">
                 <span className="text-primary/60">//</span>
-                <span>roster</span>
+                <span>{t('roster.label')}</span>
                 <span className="text-muted-foreground/50">·</span>
                 <span className={cn('flex items-center gap-1', bridgeConnected ? 'text-emerald-400/90' : 'text-muted-foreground/60')}>
                   <span className={cn('h-1.5 w-1.5 rounded-full', bridgeConnected ? 'bg-emerald-400 animate-pulse' : 'bg-muted-foreground/40')} />
-                  {bridgeConnected ? 'live' : 'offline'}
+                  {bridgeConnected ? t('roster.live') : t('roster.offline')}
                 </span>
               </span>
               <span className="text-foreground tabular-nums font-semibold">{players.length}</span>
@@ -2615,7 +2775,11 @@ export default function WorldMap() {
                   <button
                     key={p.username}
                     onClick={() => panToPlayer(p)}
-                    aria-label={`Pan to ${p.displayName || p.username}${p.health !== undefined ? `, health ${Math.round(p.health)}%` : ''}`}
+                    aria-label={
+                      p.health !== undefined
+                        ? t('roster.panToAriaWithHealth', { name: p.displayName || p.username, health: Math.round(p.health) })
+                        : t('roster.panToAria', { name: p.displayName || p.username })
+                    }
                     className={cn(
                       'w-full px-2.5 py-1.5 flex items-center gap-2 text-left text-xs transition-colors border-l-2 border-transparent hover:bg-muted/50',
                       selectedPlayer?.username === p.username && 'bg-muted/50 border-primary/60'
@@ -2641,7 +2805,7 @@ export default function WorldMap() {
               <div className="px-3 py-3 flex items-center gap-2 text-[11px] font-mono text-muted-foreground/70">
                 <span className={cn('h-1.5 w-1.5 rounded-full', bridgeConnected ? 'bg-muted-foreground/40' : 'bg-destructive/70')} />
                 <span>
-                  {loading ? 'loading…' : bridgeConnected ? 'no players online' : 'bridge offline'}
+                  {loading ? t('roster.loading') : bridgeConnected ? t('roster.noPlayersOnline') : t('roster.bridgeOffline')}
                 </span>
               </div>
             )}
@@ -2658,7 +2822,7 @@ export default function WorldMap() {
                   <span className="text-muted-foreground/60">x</span>{cursorWorldPos.x.toString().padStart(5, ' ')}<span className="mx-1 text-muted-foreground/40">·</span><span className="text-muted-foreground/60">y</span>{cursorWorldPos.y.toString().padStart(5, ' ')}
                 </span>
               ) : (
-                <span className="text-muted-foreground/50">hover for coords</span>
+                <span className="text-muted-foreground/50">{t('hud.hoverForCoords')}</span>
               )}
             </div>
             <div className="flex items-center gap-1 px-2.5 py-1.5 border-r border-border/40">
@@ -2683,14 +2847,14 @@ export default function WorldMap() {
               <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 border-b border-border/40 bg-muted/40 font-mono text-[10px] uppercase tracking-[0.22em] text-primary/70">
                 <span className="flex items-center gap-1.5">
                   <span className="text-primary/60">//</span>
-                  <span>dossier</span>
+                  <span>{t('dossier.label')}</span>
                   <span className="text-muted-foreground/50">·</span>
-                  <span className="text-emerald-400/90">target.acquired</span>
+                  <span className="text-emerald-400/90">{t('dossier.targetAcquired')}</span>
                 </span>
                 <button
                   onClick={() => setSelectedPlayer(null)}
                   className="p-0.5 -m-0.5 rounded text-muted-foreground/70 hover:text-foreground hover:bg-muted/60 transition-colors"
-                  aria-label="Close dossier"
+                  aria-label={t('dossier.closeAria')}
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -2708,16 +2872,16 @@ export default function WorldMap() {
               </div>
               <div className="px-3 py-2 text-xs space-y-1.5">
                 <div className="flex justify-between items-baseline">
-                  <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/70">pos</span>
+                  <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/70">{t('dossier.pos')}</span>
                   <span className="font-mono tabular-nums">{Math.round(selectedPlayer.x)}, {Math.round(selectedPlayer.y)}</span>
                 </div>
                 <div className="flex justify-between items-baseline">
-                  <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/70">floor</span>
+                  <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/70">{t('dossier.floor')}</span>
                   <span className="font-mono tabular-nums">{selectedPlayer.z}</span>
                 </div>
                 {selectedPlayer.health !== undefined && (
                   <div className="flex justify-between items-center">
-                    <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/70">hp</span>
+                    <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/70">{t('dossier.hp')}</span>
                     <div className="flex items-center gap-1.5">
                       <div className="w-16 h-1.5 rounded-sm bg-muted/60 overflow-hidden ring-1 ring-black/20">
                         <div
@@ -2737,16 +2901,16 @@ export default function WorldMap() {
                 )}
                 {selectedPlayer.accessLevel && selectedPlayer.accessLevel !== 'none' && selectedPlayer.accessLevel !== 'user' && selectedPlayer.accessLevel !== '' && (
                   <div className="flex justify-between items-baseline">
-                    <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/70">role</span>
+                    <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/70">{t('dossier.role')}</span>
                     <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-amber-400">{selectedPlayer.accessLevel}</span>
                   </div>
                 )}
                 {selectedPlayer.isInfected && (
                   <div className="flex items-center justify-between">
-                    <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/70">status</span>
+                    <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/70">{t('dossier.status')}</span>
                     <span className="flex items-center gap-1 text-destructive font-mono text-[10px] uppercase tracking-[0.18em]">
                       <Skull className="w-3 h-3" />
-                      <span>infected</span>
+                      <span>{t('dossier.infected')}</span>
                     </span>
                   </div>
                 )}
@@ -2758,12 +2922,12 @@ export default function WorldMap() {
                   onClick={() => {
                     setActionLoading('heal-card')
                     panelBridgeApi.sendCommand('healPlayer', { username: selectedPlayer.username })
-                      .then(() => { toast({ title: 'Healed', description: `${selectedPlayer.username} healed` }); fetchPlayerPositions() })
-                      .catch(() => toast({ title: 'Error', variant: 'destructive' }))
+                      .then(() => { toast({ title: t('dossier.healedTitle'), description: t('dossier.healedDesc', { username: selectedPlayer.username }) }); fetchPlayerPositions() })
+                      .catch(() => toast({ title: t('errorTitle'), variant: 'destructive' }))
                       .finally(() => setActionLoading(null))
                   }}
                 >
-                  <Heart className="w-3 h-3" /> Heal
+                  <Heart className="w-3 h-3" /> {t('dossier.heal')}
                 </Button>
                 <Button
                   size="sm" variant="ghost" className="h-7 text-xs gap-1 flex-1"
@@ -2771,12 +2935,21 @@ export default function WorldMap() {
                   onClick={() => {
                     setActionLoading('god-card')
                     panelBridgeApi.sendCommand('setGodMode', { username: selectedPlayer.username, enabled: true })
-                      .then(() => toast({ title: 'God mode enabled' }))
-                      .catch(() => toast({ title: 'Error', variant: 'destructive' }))
+                      .then((response) => {
+                        const state = getBridgeVerifiedState('setGodMode', response?.data)
+                        if (state === 'unverifiable') {
+                          toast({ title: t('dossier.godModeEnabled'), description: t('toasts.bridgeUnverifiedDesc', { action: t('dossier.god') }), variant: 'default' })
+                        } else if (state === 'old-bridge') {
+                          toast({ title: t('dossier.godModeEnabled'), description: t('toasts.bridgeOldBridgeDesc', { action: t('dossier.god') }), variant: 'default' })
+                        } else {
+                          toast({ title: t('dossier.godModeEnabled') })
+                        }
+                      })
+                      .catch(() => toast({ title: t('errorTitle'), variant: 'destructive' }))
                       .finally(() => setActionLoading(null))
                   }}
                 >
-                  <Shield className="w-3 h-3" /> God
+                  <Shield className="w-3 h-3" /> {t('dossier.god')}
                 </Button>
               </div>
             </div>
@@ -2794,7 +2967,7 @@ export default function WorldMap() {
               }
             }}
             role="menu"
-            aria-label="Map actions"
+            aria-label={t('contextMenu.ariaLabel')}
             className="absolute z-20 min-w-[220px] sm:min-w-[260px] rounded-md bg-card/95 backdrop-blur-md border border-border/55 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.6)] ring-1 ring-primary/10 overflow-y-auto overscroll-contain"
             style={{
               left: contextMenu.screenX,
@@ -2831,7 +3004,7 @@ export default function WorldMap() {
             <div className="flex items-center justify-between gap-1 px-2 py-1.5 text-[10px] font-mono uppercase tracking-[0.2em] text-primary/70 border-b border-border/40 select-none bg-muted/30">
               <span className="flex items-center gap-1.5">
                 <span className="text-primary/60">//</span>
-                <span>actions</span>
+                <span>{t('contextMenu.actionsLabel')}</span>
                 <span className="text-muted-foreground/40 normal-case tracking-normal">·</span>
                 <span className="text-foreground tabular-nums normal-case tracking-normal">{Math.round(contextMenu.worldX)}, {Math.round(contextMenu.worldY)}</span>
                 <span className="text-muted-foreground/40 normal-case tracking-normal">·</span>
@@ -2839,8 +3012,8 @@ export default function WorldMap() {
               </span>
               <button
                 type="button"
-                title="Copy coordinates"
-                aria-label="Copy coordinates"
+                title={t('contextMenu.copyCoordsTitle')}
+                aria-label={t('contextMenu.copyCoordsTitle')}
                 className="p-1 -m-1 rounded hover:bg-muted/60 text-muted-foreground/60 hover:text-foreground transition-colors"
                 onClick={(ev) => {
                   ev.stopPropagation()
@@ -2856,7 +3029,7 @@ export default function WorldMap() {
                 <div className="px-2.5 pt-2 pb-1.5 border-b border-border/30 select-none">
                   <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.24em] text-primary/60 mb-1">
                     <span>›</span>
-                    <span>target</span>
+                    <span>{t('contextMenu.targetLabel')}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span
@@ -2868,12 +3041,12 @@ export default function WorldMap() {
                 </div>
                 <ContextMenuItem
                   icon={<Heart className="w-3.5 h-3.5 text-emerald-400" />}
-                  label="Heal player"
+                  label={t('contextMenu.healPlayer')}
                   tone="success"
                   onClick={() => {
                     panelBridgeApi.sendCommand('healPlayer', { username: contextMenu.player!.username })
-                      .then(() => { toast({ title: 'Healed', description: `${contextMenu.player!.username} healed` }); fetchPlayerPositions() })
-                      .catch(() => toast({ title: 'Error', variant: 'destructive' }))
+                      .then(() => { toast({ title: t('dossier.healedTitle'), description: t('dossier.healedDesc', { username: contextMenu.player!.username }) }); fetchPlayerPositions() })
+                      .catch(() => toast({ title: t('errorTitle'), variant: 'destructive' }))
                     setContextMenu(null)
                   }}
                 />
@@ -2886,15 +3059,15 @@ export default function WorldMap() {
                   <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.24em] text-info/70 mb-1.5">
                     <span>›</span>
                     <Car className="w-2.5 h-2.5" />
-                    <span>vehicle</span>
+                    <span>{t('contextMenu.vehicleLabel')}</span>
                   </div>
                   <div className="flex items-center gap-1.5 text-xs">
-                    <strong className="text-foreground truncate">{contextMenu.vehicle.type || contextMenu.vehicle.scriptName?.split('.').pop() || 'Vehicle'}</strong>
+                    <strong className="text-foreground truncate">{contextMenu.vehicle.type || contextMenu.vehicle.scriptName?.split('.').pop() || t('vehicleFallback')}</strong>
                   </div>
                   <div className="mt-1.5 space-y-1">
                     {contextMenu.vehicle.fuelPct != null && (
                       <div className="flex items-center gap-1.5">
-                        <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground/70 w-9">fuel</span>
+                        <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground/70 w-9">{t('contextMenu.fuel')}</span>
                         <div className="flex-1 h-1.5 rounded-sm bg-muted/60 overflow-hidden ring-1 ring-black/20">
                           <div
                             className={cn("h-full transition-all", contextMenu.vehicle.fuelPct > 30 ? "bg-info/80" : contextMenu.vehicle.fuelPct > 10 ? "bg-amber-400/80" : "bg-destructive/80")}
@@ -2906,7 +3079,7 @@ export default function WorldMap() {
                     )}
                     {contextMenu.vehicle.batteryCharge != null && (
                       <div className="flex items-center gap-1.5">
-                        <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground/70 w-9">batt</span>
+                        <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground/70 w-9">{t('contextMenu.batt')}</span>
                         <div className="flex-1 h-1.5 rounded-sm bg-muted/60 overflow-hidden ring-1 ring-black/20">
                           <div
                             className={cn("h-full transition-all", contextMenu.vehicle.batteryCharge > 30 ? "bg-info/80" : contextMenu.vehicle.batteryCharge > 10 ? "bg-amber-400/80" : "bg-destructive/80")}
@@ -2917,112 +3090,108 @@ export default function WorldMap() {
                       </div>
                     )}
                     {contextMenu.vehicle.fuelPct == null && contextMenu.vehicle.batteryCharge == null && (
-                      <div className="font-mono text-[10px] text-muted-foreground/50 italic">no telemetry</div>
+                      <div className="font-mono text-[10px] text-muted-foreground/50 italic">{t('contextMenu.noTelemetry')}</div>
                     )}
                   </div>
                 </div>
                 {contextMenu.vehicle.persisted ? (
                   <div className="px-2.5 py-2 text-[11px] text-muted-foreground/70 border-t border-border/30">
-                    Load this vehicle&apos;s area in-game before using vehicle controls.
+                    {t('contextMenu.loadAreaFirst')}
                   </div>
                 ) : (
                   <>
                     <ContextMenuItem
                       icon={<Wrench className="w-3.5 h-3.5 text-info" />}
-                      label="Repair vehicle"
+                      label={t('contextMenu.repairVehicle')}
                       tone="info"
                       loading={actionLoading === 'vehicle-repair'}
                       onClick={() => {
                     setActionLoading('vehicle-repair')
+                    // Generic /panel-bridge/command passthrough only ever
+                    // resolves on success (see teleportPlayerTo above for
+                    // why), so .then() never sees res.success === false.
                     panelBridgeApi.sendCommand('vehicleRepair', { vehicleId: contextMenu.vehicle!.id })
-                      .then((res) => {
-                        if (res.success) {
-                          toast({ title: 'Vehicle repaired' })
-                          fetchOverlays()
-                        } else {
-                          toast({ title: 'Repair failed', description: res.error || 'Unknown error', variant: 'destructive' })
-                        }
+                      .then(() => {
+                        toast({ title: t('toasts.vehicleRepaired') })
+                        fetchOverlays()
                       })
-                      .catch(() => toast({ title: 'Error', variant: 'destructive' }))
+                      .catch((err) => toast({ title: t('toasts.repairFailed'), description: err instanceof Error ? err.message : t('toasts.unknownError'), variant: 'destructive' }))
                       .finally(() => { setActionLoading(null); setContextMenu(null) })
                       }}
                     />
                     <ContextMenuItem
                   icon={<Fuel className="w-3.5 h-3.5 text-info" />}
-                  label="Fill fuel"
+                  label={t('contextMenu.fillFuel')}
                   tone="info"
                   loading={actionLoading === 'vehicle-fuel'}
                   onClick={() => {
                     setActionLoading('vehicle-fuel')
                     panelBridgeApi.sendCommand('vehicleSetFuel', { vehicleId: contextMenu.vehicle!.id, percent: 100 })
-                      .then((res) => {
-                        if (res.success) {
-                          toast({ title: 'Fuel filled to 100%' })
-                          fetchOverlays()
+                      .then((response) => {
+                        const state = getBridgeVerifiedState('vehicleSetFuel', response?.data)
+                        if (state === 'unverifiable') {
+                          toast({ title: t('toasts.fuelFilled'), description: t('toasts.bridgeUnverifiedDesc', { action: t('toasts.fuelFilled') }), variant: 'default' })
+                        } else if (state === 'old-bridge') {
+                          toast({ title: t('toasts.fuelFilled'), description: t('toasts.bridgeOldBridgeDesc', { action: t('toasts.fuelFilled') }), variant: 'default' })
                         } else {
-                          toast({ title: 'Fuel failed', description: res.error || 'Unknown error', variant: 'destructive' })
+                          toast({ title: t('toasts.fuelFilled') })
                         }
+                        fetchOverlays()
                       })
-                      .catch(() => toast({ title: 'Error', variant: 'destructive' }))
+                      .catch((err) => toast({ title: t('toasts.fuelFailed'), description: err instanceof Error ? err.message : t('toasts.unknownError'), variant: 'destructive' }))
                       .finally(() => { setActionLoading(null); setContextMenu(null) })
                       }}
                     />
                     <ContextMenuItem
                   icon={<Battery className="w-3.5 h-3.5 text-info" />}
-                  label="Charge battery"
+                  label={t('contextMenu.chargeBattery')}
                   tone="info"
                   loading={actionLoading === 'vehicle-battery'}
                   onClick={() => {
                     setActionLoading('vehicle-battery')
                     panelBridgeApi.sendCommand('vehicleSetBattery', { vehicleId: contextMenu.vehicle!.id, charge: 100 })
-                      .then((res) => {
-                        if (res.success) {
-                          toast({ title: 'Battery charged to 100%' })
-                          fetchOverlays()
+                      .then((response) => {
+                        const state = getBridgeVerifiedState('vehicleSetBattery', response?.data)
+                        if (state === 'unverifiable') {
+                          toast({ title: t('toasts.batteryCharged'), description: t('toasts.bridgeUnverifiedDesc', { action: t('toasts.batteryCharged') }), variant: 'default' })
+                        } else if (state === 'old-bridge') {
+                          toast({ title: t('toasts.batteryCharged'), description: t('toasts.bridgeOldBridgeDesc', { action: t('toasts.batteryCharged') }), variant: 'default' })
                         } else {
-                          toast({ title: 'Battery failed', description: res.error || 'Unknown error', variant: 'destructive' })
+                          toast({ title: t('toasts.batteryCharged') })
                         }
+                        fetchOverlays()
                       })
-                      .catch(() => toast({ title: 'Error', variant: 'destructive' }))
+                      .catch((err) => toast({ title: t('toasts.batteryFailed'), description: err instanceof Error ? err.message : t('toasts.unknownError'), variant: 'destructive' }))
                       .finally(() => { setActionLoading(null); setContextMenu(null) })
                       }}
                     />
                     <ContextMenuItem
                   icon={<Trash2 className="w-3.5 h-3.5 text-destructive" />}
-                  label="Remove vehicle"
+                  label={t('contextMenu.removeVehicle')}
                   tone="danger"
-                  loading={actionLoading === 'vehicle-remove'}
                   onClick={() => {
-                    setActionLoading('vehicle-remove')
-                    panelBridgeApi.sendCommand('removeVehicle', { vehicleId: contextMenu.vehicle!.id })
-                      .then((res) => {
-                        if (res.success) {
-                          toast({ title: 'Vehicle removed' })
-                          fetchOverlays()
-                        } else {
-                          toast({ title: 'Remove failed', description: res.error || 'Unknown error', variant: 'destructive' })
-                        }
-                      })
-                      .catch(() => toast({ title: 'Error', variant: 'destructive' }))
-                      .finally(() => { setActionLoading(null); setContextMenu(null) })
+                    const v = contextMenu.vehicle!
+                    setRemoveVehicleTarget({
+                      id: v.id,
+                      label: v.type || v.scriptName?.split('.').pop() || t('vehicleFallback'),
+                      x: Math.round(v.x),
+                      y: Math.round(v.y),
+                    })
+                    setContextMenu(null)
                       }}
                     />
                     <ContextMenuItem
                   icon={<Zap className="w-3.5 h-3.5 text-amber-400" />}
-                  label="Hotwire & start engine"
+                  label={t('contextMenu.hotwire')}
                   tone="warning"
                   loading={actionLoading === 'vehicle-hotwire'}
                   onClick={() => {
                     setActionLoading('vehicle-hotwire')
                     panelBridgeApi.sendCommand('vehicleHotwire', { vehicleId: contextMenu.vehicle!.id })
-                      .then((res) => {
-                        if (res.success) {
-                          toast({ title: 'Vehicle hotwired', description: 'Engine started' })
-                        } else {
-                          toast({ title: 'Hotwire failed', description: res.error || 'Unknown error', variant: 'destructive' })
-                        }
+                      .then(() => {
+                        toast({ title: t('toasts.vehicleHotwired'), description: t('toasts.engineStarted') })
                       })
-                      .catch(() => toast({ title: 'Error', variant: 'destructive' }))
+                      .catch((err) => toast({ title: t('toasts.hotwireFailed'), description: err instanceof Error ? err.message : t('toasts.unknownError'), variant: 'destructive' }))
                       .finally(() => { setActionLoading(null); setContextMenu(null) })
                       }}
                     />
@@ -3034,7 +3203,7 @@ export default function WorldMap() {
             {/* ── Teleport players to this spot ── */}
             {playersRef.current.length > 0 && (
               <div className="border-t border-border/30">
-                <ContextMenuSection label="teleport" icon={<Locate className="w-2.5 h-2.5" />} tone="primary" />
+                <ContextMenuSection label={t('contextMenu.teleportLabel')} icon={<Locate className="w-2.5 h-2.5" />} tone="primary" />
                 {playersRef.current.slice(0, 6).map((pl) => {
                   const pColor = pl.isInfected
                     ? 'text-destructive'
@@ -3046,7 +3215,12 @@ export default function WorldMap() {
                       key={`tp-${pl.username}`}
                       icon={<Users className={cn('w-3.5 h-3.5', pColor)} />}
                       label={pl.displayName || pl.username}
-                      description={`${Math.round(pl.x)}, ${Math.round(pl.y)} → ${Math.round(contextMenu.worldX)}, ${Math.round(contextMenu.worldY)}`}
+                      description={t('contextMenu.teleportDesc', {
+                        fromX: Math.round(pl.x),
+                        fromY: Math.round(pl.y),
+                        toX: Math.round(contextMenu.worldX),
+                        toY: Math.round(contextMenu.worldY),
+                      })}
                       tone="primary"
                       loading={actionLoading === 'teleport'}
                       disabled={!bridgeConnected}
@@ -3059,7 +3233,7 @@ export default function WorldMap() {
                 })}
                 {playersRef.current.length > 6 && (
                   <div className="px-2.5 py-1 font-mono text-[10px] text-muted-foreground/50 italic select-none">
-                    +{playersRef.current.length - 6} more online
+                    {t('contextMenu.moreOnline', { count: playersRef.current.length - 6 })}
                   </div>
                 )}
               </div>
@@ -3067,27 +3241,27 @@ export default function WorldMap() {
 
             {/* ── World effects section ── */}
             <div className="border-t border-border/30">
-              <ContextMenuSection label="effects" icon={<Zap className="w-2.5 h-2.5" />} tone="info" />
+              <ContextMenuSection label={t('contextMenu.effectsLabel')} icon={<Zap className="w-2.5 h-2.5" />} tone="info" />
               <ContextMenuItem
                 icon={<CloudLightning className="w-3.5 h-3.5 text-info" />}
-                label="Lightning strike"
-                description="Single bolt + thunder"
+                label={t('contextMenu.lightningStrike')}
+                description={t('contextMenu.lightningDesc')}
                 tone="info"
                 loading={actionLoading === 'lightning'}
                 onClick={() => triggerLightningAt(contextMenu.worldX, contextMenu.worldY)}
               />
               <ContextMenuItem
                 icon={<Volume2 className="w-3.5 h-3.5 text-amber-400" />}
-                label="Create noise"
-                description="Pull zombies this way"
+                label={t('contextMenu.createNoise')}
+                description={t('contextMenu.createNoiseDesc')}
                 tone="warning"
                 loading={actionLoading === 'noise'}
                 onClick={() => createNoiseAt(contextMenu.worldX, contextMenu.worldY)}
               />
               <ContextMenuItem
                 icon={<Car className="w-3.5 h-3.5 text-muted-foreground" />}
-                label="Spawn vehicle here"
-                description="Pick a vehicle to spawn"
+                label={t('contextMenu.spawnVehicleHere')}
+                description={t('contextMenu.spawnVehicleDesc')}
                 disabled={!bridgeConnected}
                 onClick={() => {
                   setSpawnDialog({ x: Math.round(contextMenu.worldX), y: Math.round(contextMenu.worldY), z: floor })
@@ -3099,11 +3273,11 @@ export default function WorldMap() {
 
             {/* ── Drops section ── */}
             <div className="border-t border-border/30">
-              <ContextMenuSection label="drops" icon={<Package className="w-2.5 h-2.5" />} tone="warning" />
+              <ContextMenuSection label={t('contextMenu.dropsLabel')} icon={<Package className="w-2.5 h-2.5" />} tone="warning" />
               <ContextMenuItem
                 icon={<Package className="w-3.5 h-3.5 text-amber-400" />}
-                label="Custom drop…"
-                description="Build a package — items, quantities, templates"
+                label={t('contextMenu.customDrop')}
+                description={t('contextMenu.customDropDesc')}
                 tone="warning"
                 disabled={!bridgeConnected}
                 onClick={() => {
@@ -3126,7 +3300,7 @@ export default function WorldMap() {
               {lastDrop && (
                 <ContextMenuItem
                   icon={<RefreshCw className="w-3.5 h-3.5 text-amber-400/80" />}
-                  label="Repeat last drop"
+                  label={t('contextMenu.repeatLastDrop')}
                   description={lastDrop.label}
                   tone="warning"
                   loading={actionLoading === 'drop'}
@@ -3147,13 +3321,13 @@ export default function WorldMap() {
               )}
               {dropTemplates.length > 0 && (
                 <>
-                  <ContextMenuSection label="saved packages" icon={<Save className="w-2.5 h-2.5" />} tone="muted" />
+                  <ContextMenuSection label={t('contextMenu.savedPackages')} icon={<Save className="w-2.5 h-2.5" />} tone="muted" />
                   {dropTemplates.slice(0, 8).map((tpl) => (
                     <ContextMenuItem
                       key={tpl.id}
                       icon={<Package className="w-3.5 h-3.5 text-amber-400/70" />}
                       label={tpl.name}
-                      description={`${tpl.items.length} items`}
+                      description={t('dropDialog.templateItemCount', { count: tpl.items.length })}
                       tone="warning"
                       loading={actionLoading === 'drop'}
                       disabled={!bridgeConnected}
@@ -3173,13 +3347,13 @@ export default function WorldMap() {
                   ))}
                 </>
               )}
-              <ContextMenuSection label="preset crates" icon={<Package className="w-2.5 h-2.5" />} tone="muted" />
+              <ContextMenuSection label={t('contextMenu.presetCrates')} icon={<Package className="w-2.5 h-2.5" />} tone="muted" />
               {AIRDROP_PRESETS.map((preset) => (
                 <ContextMenuItem
                   key={preset.id}
                   icon={<preset.icon className="w-3.5 h-3.5 text-amber-400/80" />}
-                  label={preset.label}
-                  description={preset.desc}
+                  label={presetLabel(preset.id)}
+                  description={presetDesc(preset.id)}
                   tone="warning"
                   loading={actionLoading === 'airdrop'}
                   disabled={!bridgeConnected}
@@ -3189,7 +3363,7 @@ export default function WorldMap() {
               {!bridgeConnected && (
                 <div className="mt-1 mx-2 mb-1.5 px-2 py-1.5 rounded-sm border border-destructive/30 bg-destructive/10 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-destructive/85">
                   <span className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse" />
-                  <span>bridge offline — drops unavailable</span>
+                  <span>{t('contextMenu.bridgeOfflineDrops')}</span>
                 </div>
               )}
             </div>
@@ -3206,7 +3380,7 @@ export default function WorldMap() {
             ref={canvasRef}
             tabIndex={0}
             role="img"
-            aria-label="World map showing Knox County with player positions. Use arrow keys to pan, plus/minus to zoom."
+            aria-label={t('canvasAria')}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
@@ -3227,12 +3401,12 @@ export default function WorldMap() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Car className="w-5 h-5" />
-              Spawn Vehicle
+              {t('spawnDialog.title')}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div className="text-xs text-muted-foreground font-mono tabular-nums">
-              Location: {spawnDialog?.x}, {spawnDialog?.y} · Floor {spawnDialog?.z ?? 0}
+              {t('spawnDialog.location', { x: spawnDialog?.x, y: spawnDialog?.y, z: spawnDialog?.z ?? 0 })}
             </div>
             <VehiclePicker
               value={spawnVehicleId}
@@ -3240,33 +3414,35 @@ export default function WorldMap() {
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setSpawnDialog(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setSpawnDialog(null)}>{t('spawnDialog.cancel')}</Button>
             <Button
               disabled={!spawnVehicleId || actionLoading === 'spawn-vehicle'}
               onClick={() => {
                 if (!spawnDialog || !spawnVehicleId) return
                 setActionLoading('spawn-vehicle')
+                // /players/add-vehicle-at relays rconService.execute()'s
+                // result, which resolves { success: false, error } for a
+                // failed RCON command rather than throwing -- but
+                // handleResponse() throws on ANY 200 body with
+                // success: false too (see lib/api.ts), so this still never
+                // sees res.success === false, only the catch below.
                 playersApi.addVehicleAt(
                   spawnVehicleId,
                   spawnDialog.x,
                   spawnDialog.y,
                   spawnDialog.z,
                 )
-                  .then((res) => {
-                    if (res.success) {
-                      toast({ title: 'Vehicle spawned', description: `${spawnVehicleId.split('.').pop()} at ${spawnDialog.x}, ${spawnDialog.y}` })
-                      fetchOverlays()
-                      setSpawnDialog(null)
-                    } else {
-                      toast({ title: 'Spawn failed', description: res.error || 'Unknown error', variant: 'destructive' })
-                    }
+                  .then(() => {
+                    toast({ title: t('toasts.vehicleSpawnedTitle'), description: t('toasts.vehicleSpawnedDesc', { vehicle: spawnVehicleId.split('.').pop(), x: spawnDialog.x, y: spawnDialog.y }) })
+                    fetchOverlays()
+                    setSpawnDialog(null)
                   })
-                  .catch(() => toast({ title: 'Error', variant: 'destructive' }))
+                  .catch((err) => toast({ title: t('toasts.spawnFailedTitle'), description: err instanceof Error ? err.message : t('toasts.unknownError'), variant: 'destructive' }))
                   .finally(() => setActionLoading(null))
               }}
             >
               {actionLoading === 'spawn-vehicle' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
-              Spawn
+              {t('spawnDialog.spawn')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -3278,7 +3454,7 @@ export default function WorldMap() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Package className="w-5 h-5 text-warning" />
-              Custom item drop
+              {t('dropDialog.title')}
               {activeTemplateId && (() => {
                 const tpl = dropTemplates.find((t) => t.id === activeTemplateId)
                 return tpl ? (
@@ -3302,7 +3478,7 @@ export default function WorldMap() {
               <button
                 type="button"
                 className="text-muted-foreground/60 hover:text-foreground"
-                title="Copy coordinates"
+                title={t('dropDialog.copyCoordsTitle')}
                 onClick={() => dropDialog && copyCoords(dropDialog.x, dropDialog.y)}
               >
                 <Copy className="w-3.5 h-3.5" />
@@ -3313,7 +3489,7 @@ export default function WorldMap() {
             <div className="flex items-center gap-2 flex-wrap">
               <Label className="text-xs text-muted-foreground flex items-center gap-1.5 mr-auto">
                 <Save className="w-3.5 h-3.5" />
-                Package templates
+                {t('dropDialog.packageTemplates')}
               </Label>
               {dropTemplates.length > 0 ? (
                 <>
@@ -3333,10 +3509,10 @@ export default function WorldMap() {
                     }}
                     className="h-8 rounded-md border border-border/60 bg-background px-2 text-xs min-w-[140px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   >
-                    <option value="">Load package…</option>
+                    <option value="">{t('dropDialog.loadPackagePlaceholder')}</option>
                     {dropTemplates.map((tpl) => (
                       <option key={tpl.id} value={tpl.id}>
-                        {tpl.name} ({tpl.items.length})
+                        {t('dropDialog.templateOptionLabel', { name: tpl.name, count: tpl.items.length })}
                       </option>
                     ))}
                   </select>
@@ -3346,7 +3522,7 @@ export default function WorldMap() {
                       variant="outline"
                       size="sm"
                       className="h-8 px-2 text-destructive hover:text-destructive"
-                      title="Delete this package"
+                      title={t('dropDialog.deletePackageTitle')}
                       onClick={() => setDeleteTemplateId(activeTemplateId)}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -3354,7 +3530,7 @@ export default function WorldMap() {
                   )}
                 </>
               ) : (
-                <span className="text-[11px] text-muted-foreground/60 italic">No packages yet — build one and save below</span>
+                <span className="text-[11px] text-muted-foreground/60 italic">{t('dropDialog.noPackagesYet')}</span>
               )}
             </div>
 
@@ -3362,14 +3538,14 @@ export default function WorldMap() {
             <div className="rounded-md border border-border/50 bg-muted/10 divide-y divide-border/30">
               {dropItems.length === 0 && (
                 <div className="px-3 py-4 text-center text-xs text-muted-foreground/60 italic">
-                  No items — add at least one below.
+                  {t('dropDialog.noItemsRow')}
                 </div>
               )}
               {dropItems.map((item, idx) => (
                 <div key={idx} className="flex items-end gap-2 px-2 py-2">
                   <div className="flex-1 min-w-0">
                     {idx === 0 && (
-                      <Label className="text-[10px] text-muted-foreground/70 mb-1 block">Item</Label>
+                      <Label className="text-[10px] text-muted-foreground/70 mb-1 block">{t('dropDialog.itemLabel')}</Label>
                     )}
                     <ItemPicker
                       value={item.itemType}
@@ -3377,12 +3553,12 @@ export default function WorldMap() {
                         setDropItems((prev) => prev.map((it, i) => (i === idx ? { ...it, itemType: val } : it)))
                         setActiveTemplateId(null)
                       }}
-                      placeholder="Search catalog..."
+                      placeholder={t('dropDialog.itemPlaceholder')}
                     />
                   </div>
                   <div className="w-16 shrink-0">
                     {idx === 0 && (
-                      <Label className="text-[10px] text-muted-foreground/70 mb-1 block">Qty</Label>
+                      <Label className="text-[10px] text-muted-foreground/70 mb-1 block">{t('dropDialog.qtyLabel')}</Label>
                     )}
                     <Input
                       type="number"
@@ -3403,7 +3579,7 @@ export default function WorldMap() {
                     variant="ghost"
                     size="sm"
                     className="h-9 w-9 p-0 shrink-0 text-muted-foreground/60 hover:text-destructive"
-                    title="Remove item"
+                    title={t('dropDialog.removeItemTitle')}
                     onClick={() => {
                       setDropItems((prev) => (prev.length <= 1 ? [{ itemType: '', count: 1 }] : prev.filter((_, i) => i !== idx)))
                       setActiveTemplateId(null)
@@ -3427,10 +3603,10 @@ export default function WorldMap() {
                 }}
               >
                 <Plus className="w-3.5 h-3.5 mr-1" />
-                Add item
+                {t('dropDialog.addItem')}
               </Button>
               <div className="text-[11px] text-muted-foreground/70 tabular-nums">
-                {dropItems.filter((it) => it.itemType.trim()).length} / {dropItems.length} valid · max 50
+                {t('dropDialog.validCount', { valid: dropItems.filter((it) => it.itemType.trim()).length, total: dropItems.length })}
               </div>
             </div>
 
@@ -3442,7 +3618,7 @@ export default function WorldMap() {
                   autoFocus
                   value={templateNameInput}
                   onChange={(e) => setTemplateNameInput(e.target.value.slice(0, 40))}
-                  placeholder="Package name (e.g. 'Winter starter')"
+                  placeholder={t('dropDialog.savePackagePlaceholder')}
                   className="h-8 flex-1"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
@@ -3451,7 +3627,7 @@ export default function WorldMap() {
                       if (!name) return
                       const valid = dropItems.filter((it) => it.itemType.trim())
                       if (valid.length === 0) {
-                        toast({ title: 'Cannot save empty package', variant: 'destructive' })
+                        toast({ title: t('toasts.cannotSaveEmptyPackage'), variant: 'destructive' })
                         return
                       }
                       const id = `tpl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
@@ -3460,7 +3636,7 @@ export default function WorldMap() {
                       setActiveTemplateId(id)
                       setSavingTemplate(false)
                       setTemplateNameInput('')
-                      toast({ title: 'Package saved', description: name })
+                      toast({ title: t('toasts.packageSavedTitle'), description: name })
                     } else if (e.key === 'Escape') {
                       setSavingTemplate(false)
                       setTemplateNameInput('')
@@ -3482,10 +3658,10 @@ export default function WorldMap() {
                     setActiveTemplateId(id)
                     setSavingTemplate(false)
                     setTemplateNameInput('')
-                    toast({ title: 'Package saved', description: name })
+                    toast({ title: t('toasts.packageSavedTitle'), description: name })
                   }}
                 >
-                  Save
+                  {t('dropDialog.save')}
                 </Button>
                 <Button type="button" size="sm" variant="ghost" className="h-8" onClick={() => { setSavingTemplate(false); setTemplateNameInput('') }}>
                   <X className="w-3.5 h-3.5" />
@@ -3501,7 +3677,7 @@ export default function WorldMap() {
                 onClick={() => { setSavingTemplate(true); setTemplateNameInput('') }}
               >
                 <Save className="w-3.5 h-3.5 mr-2" />
-                Save current items as package…
+                {t('dropDialog.saveCurrentAsPackage')}
               </Button>
             )}
 
@@ -3511,8 +3687,8 @@ export default function WorldMap() {
                 <div className="flex items-start gap-2.5 min-w-0">
                   <Megaphone className="w-4 h-4 text-muted-foreground/70 mt-0.5 flex-none" />
                   <div className="min-w-0">
-                    <div className="text-sm font-medium">Announce to players</div>
-                    <div className="text-[11px] text-muted-foreground/70">Broadcast drop location in server chat</div>
+                    <div className="text-sm font-medium">{t('dropDialog.announceToPlayers')}</div>
+                    <div className="text-[11px] text-muted-foreground/70">{t('dropDialog.announceDesc')}</div>
                   </div>
                 </div>
                 <Switch checked={dropAnnounce} onCheckedChange={setDropAnnounce} />
@@ -3521,8 +3697,8 @@ export default function WorldMap() {
                 <div className="flex items-start gap-2.5 min-w-0">
                   <BellRing className="w-4 h-4 text-muted-foreground/70 mt-0.5 flex-none" />
                   <div className="min-w-0">
-                    <div className="text-sm font-medium">Attract zombies</div>
-                    <div className="text-[11px] text-muted-foreground/70">Creates noise when items land</div>
+                    <div className="text-sm font-medium">{t('dropDialog.attractZombies')}</div>
+                    <div className="text-[11px] text-muted-foreground/70">{t('dropDialog.attractZombiesDesc')}</div>
                   </div>
                 </div>
                 <Switch checked={dropAttractZombies} onCheckedChange={setDropAttractZombies} />
@@ -3530,8 +3706,8 @@ export default function WorldMap() {
               {dropAttractZombies && (
                 <div className="px-3 py-2.5">
                   <div className="flex items-center justify-between mb-1.5">
-                    <Label className="text-xs text-muted-foreground">Noise radius</Label>
-                    <span className="text-xs font-mono tabular-nums text-muted-foreground/80">{dropSoundRadius} tiles</span>
+                    <Label className="text-xs text-muted-foreground">{t('dropDialog.noiseRadius')}</Label>
+                    <span className="text-xs font-mono tabular-nums text-muted-foreground/80">{t('dropDialog.noiseRadiusValue', { radius: dropSoundRadius })}</span>
                   </div>
                   <Input
                     type="range"
@@ -3543,16 +3719,16 @@ export default function WorldMap() {
                     className="h-1.5 accent-warning"
                   />
                   <div className="flex justify-between text-[9px] text-muted-foreground/50 mt-1">
-                    <span>whisper</span>
-                    <span>gunshot</span>
-                    <span>explosion</span>
+                    <span>{t('dropDialog.whisper')}</span>
+                    <span>{t('dropDialog.gunshot')}</span>
+                    <span>{t('dropDialog.explosion')}</span>
                   </div>
                 </div>
               )}
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDropDialog(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setDropDialog(null)}>{t('dropDialog.cancel')}</Button>
             <Button
               disabled={dropItems.filter((it) => it.itemType.trim()).length === 0 || actionLoading === 'drop'}
               onClick={async () => {
@@ -3560,10 +3736,10 @@ export default function WorldMap() {
                 const valid = dropItems.filter((it) => it.itemType.trim())
                 if (valid.length === 0) return
                 const label = activeTemplateId
-                  ? dropTemplates.find((t) => t.id === activeTemplateId)?.name
+                  ? dropTemplates.find((tpl) => tpl.id === activeTemplateId)?.name
                   : valid.length === 1
                     ? valid[0].itemType.replace(/^[^.]+\./, '')
-                    : `${valid.length}-item package`
+                    : t('toasts.itemPackageFallback', { count: valid.length })
                 await callCustomDrop({
                   x: dropDialog.x,
                   y: dropDialog.y,
@@ -3582,9 +3758,9 @@ export default function WorldMap() {
               {(() => {
                 const validCount = dropItems.filter((it) => it.itemType.trim()).length
                 const totalQty = dropItems.filter((it) => it.itemType.trim()).reduce((s, it) => s + it.count, 0)
-                if (validCount === 0) return 'Drop'
-                if (validCount === 1) return `Drop${totalQty > 1 ? ` × ${totalQty}` : ''}`
-                return `Drop ${validCount} items`
+                if (validCount === 0) return t('dropDialog.dropButton')
+                if (validCount === 1) return totalQty > 1 ? t('dropDialog.dropButtonQty', { qty: totalQty }) : t('dropDialog.dropButton')
+                return t('dropDialog.dropButtonMulti', { count: validCount })
               })()}
             </Button>
           </DialogFooter>
@@ -3598,30 +3774,76 @@ export default function WorldMap() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete package?</AlertDialogTitle>
+            <AlertDialogTitle>{t('deletePackageDialog.title')}</AlertDialogTitle>
             <AlertDialogDescription>
               {(() => {
-                const tpl = dropTemplates.find((t) => t.id === deleteTemplateId)
-                if (!tpl) return 'This package will be removed.'
-                return `“${tpl.name}” (${tpl.items.length} item${tpl.items.length === 1 ? '' : 's'}) will be removed from your saved packages. This cannot be undone.`
+                const tpl = dropTemplates.find((d) => d.id === deleteTemplateId)
+                if (!tpl) return t('deletePackageDialog.descriptionFallback')
+                return t('deletePackageDialog.description', { name: tpl.name, count: tpl.items.length })
               })()}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t('deletePackageDialog.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => {
                 const id = deleteTemplateId
                 if (!id) return
-                const tpl = dropTemplates.find((t) => t.id === id)
-                persistDropTemplates(dropTemplates.filter((t) => t.id !== id))
+                const tpl = dropTemplates.find((d) => d.id === id)
+                persistDropTemplates(dropTemplates.filter((d) => d.id !== id))
                 if (activeTemplateId === id) setActiveTemplateId(null)
                 setDeleteTemplateId(null)
-                if (tpl) toast({ title: 'Package deleted', description: tpl.name })
+                if (tpl) toast({ title: t('toasts.packageDeletedTitle'), description: tpl.name })
               }}
             >
-              Delete
+              {t('deletePackageDialog.confirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Confirm removal of a vehicle from the world — permanent, not undoable. */}
+      <AlertDialog
+        open={!!removeVehicleTarget}
+        onOpenChange={(open) => { if (!open) setRemoveVehicleTarget(null) }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('removeVehicleDialog.title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {removeVehicleTarget && t('removeVehicleDialog.description', {
+                vehicle: removeVehicleTarget.label,
+                x: removeVehicleTarget.x,
+                y: removeVehicleTarget.y,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={actionLoading === 'vehicle-remove'}>
+              {t('removeVehicleDialog.cancel')}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={actionLoading === 'vehicle-remove'}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => {
+                e.preventDefault()
+                const target = removeVehicleTarget
+                if (!target) return
+                setActionLoading('vehicle-remove')
+                panelBridgeApi.sendCommand('removeVehicle', { vehicleId: target.id })
+                  .then(() => {
+                    toast({ title: t('toasts.vehicleRemoved') })
+                    fetchOverlays()
+                  })
+                  .catch((err) => toast({ title: t('toasts.removeFailed'), description: err instanceof Error ? err.message : t('toasts.unknownError'), variant: 'destructive' }))
+                  .finally(() => { setActionLoading(null); setRemoveVehicleTarget(null) })
+              }}
+            >
+              {actionLoading === 'vehicle-remove'
+                ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                : <Trash2 className="w-4 h-4 mr-2" />}
+              {t('removeVehicleDialog.confirm')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

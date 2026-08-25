@@ -1,10 +1,11 @@
 import React from 'react'
+import { withTranslation, type WithTranslation } from 'react-i18next'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 import { Button } from './ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { reportClientError } from '@/lib/client-errors'
 
-interface Props {
+interface Props extends WithTranslation {
   children: React.ReactNode
 }
 
@@ -13,7 +14,10 @@ interface State {
   error: Error | null
 }
 
-export class ErrorBoundary extends React.Component<Props, State> {
+// Class component -- useTranslation() is a hook and doesn't work here.
+// withTranslation() HOC injects `t` as a prop instead (see FeatureErrorBoundary.tsx
+// for the same pattern, deliberately kept identical between the two boundaries).
+class ErrorBoundaryBase extends React.Component<Props, State> {
   constructor(props: Props) {
     super(props)
     this.state = { hasError: false, error: null }
@@ -33,18 +37,19 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   render() {
     if (this.state.hasError) {
+      const { t } = this.props
       return (
         <div className="min-h-screen flex items-center justify-center p-4 bg-background">
           <Card className="max-w-md w-full">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-destructive">
                 <AlertTriangle className="w-6 h-6" />
-                Something went wrong
+                {t('title')}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-muted-foreground">
-                An unexpected error occurred. Please try refreshing the page.
+                {t('description')}
               </p>
               {this.state.error && (
                 <pre className="p-3 bg-muted rounded-lg text-sm overflow-auto max-h-32">
@@ -54,10 +59,10 @@ export class ErrorBoundary extends React.Component<Props, State> {
               <div className="flex gap-2">
                 <Button onClick={() => window.location.reload()}>
                   <RefreshCw className="w-4 h-4 mr-2" />
-                  Refresh Page
+                  {t('refreshPage')}
                 </Button>
                 <Button variant="outline" onClick={this.handleReset}>
-                  Try Again
+                  {t('tryAgain')}
                 </Button>
               </div>
             </CardContent>
@@ -69,3 +74,5 @@ export class ErrorBoundary extends React.Component<Props, State> {
     return this.props.children
   }
 }
+
+export const ErrorBoundary = withTranslation('errorBoundary')(ErrorBoundaryBase)

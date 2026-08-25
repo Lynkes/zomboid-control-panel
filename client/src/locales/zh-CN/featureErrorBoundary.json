@@ -1,0 +1,9 @@
+{
+  "compactMessage": "{{featureName}} 遇到错误",
+  "retry": "重试",
+  "titleSuffix": "{{featureName}} 错误",
+  "description": "加载此部分时发生错误",
+  "tryAgain": "重试",
+  "dashboard": "仪表盘",
+  "defaultFeatureName": "此功能"
+}

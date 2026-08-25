@@ -9,8 +9,8 @@ import {
   getActiveServer,
   updateServer,
 } from "../database/init.js";
-import { sanitizeError } from "../utils/sanitize.js";
-import { requireRole } from "../services/auth.js";
+import { sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
+import { requirePermission } from "../services/permissions.js";
 import { deleteVehiclesInBoxes } from "../utils/vehiclesDb.js";
 import { confineToRoots } from "../utils/browseRoots.js";
 import {
@@ -19,11 +19,56 @@ import {
   invalidateCandidatePathsCache,
   inspectZomboidPath,
 } from "../utils/zomboidPaths.js";
+import { ErrorCode } from "../utils/errorCodes.js";
 
 // Re-export for tests / other modules that still pull these from chunks.js.
-export { normalizeUserPath, getCandidateZomboidPaths };
+export { normalizeUserPath, getCandidateZomboidPaths, invalidateMapFolderScan };
 
 const router = express.Router();
+
+// Run `worker` over `items` with at most `limit` in flight at once. Used for
+// directory-tree walks where the item count can run into the hundreds or
+// thousands (e.g. one X-directory per iteration on a large B42 map) —
+// unbounded Promise.all over that many entries can exhaust file handles
+// (EMFILE) and, on a spinning array or network share, queue so many
+// concurrent round trips that it's slower than doing them one at a time.
+// Fully sequential has the opposite problem: on the same slow storage, each
+// round trip's latency is paid one after another with nothing overlapped.
+// A small bounded batch overlaps latency without either extreme.
+//
+// The bound is PER CALL, not global. getDirSize/getDirStats
+// below call this recursively — each nesting level gets its own fresh
+// `limit`-wide batch, so the true worst case across a walk N levels deep is
+// limit^N concurrent operations, not limit. For a save shaped like
+// savePath -> map -> {X} -> {Y}.bin (3 levels) at limit=8 that's a
+// theoretical 8^3=512 in-flight file handles, not 8. A shared semaphore
+// threaded through the recursion would cap it at a true global 8, but a
+// naive version of that deadlocks: a directory-level worker holds its slot
+// while awaiting its own children's walk, and children recursing into the
+// same shared pool can end up with every slot held by parents who are
+// themselves just waiting — confirmed this by hand before ruling it out,
+// not worth attempting again without a proper acquire-then-release-before-
+// recursing redesign. Left as a per-level bound: still a large, real
+// improvement over the fully-unbounded Promise.all this replaced (which
+// had no ceiling at all, i.e. an unbounded, not just larger, blast radius),
+// and 512 in a genuine worst case is well below typical OS handle limits
+// for the shapes these saves actually take in practice.
+async function runWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const runners = Array.from(
+    { length: Math.min(limit, items.length) },
+    async () => {
+      while (true) {
+        const i = nextIndex++;
+        if (i >= items.length) return;
+        results[i] = await worker(items[i], i);
+      }
+    },
+  );
+  await Promise.all(runners);
+  return results;
+}
 
 export async function copyChunkBackup(sourcePath, destinationPath, exclusive = false) {
   try {
@@ -477,13 +522,22 @@ router.get("/saves", async (req, res) => {
         const savePath = path.join(savesPath, d.name);
         const stats = await fs.promises.stat(savePath);
 
+        // /chunks/:saveName and /stats/:saveName already share map/'s scan
+        // via getMapFolderScan() (see its comment) -- this route was the
+        // one caller still walking it independently, via countFiles(), on
+        // EVERY page load (fetchSaves() runs on ChunkCleaner mount, before
+        // the user has even picked a save). Measured live: 8.06s for a
+        // 147,136-chunk save, on top of the already-fixed /chunks+/stats
+        // pair -- the operator's real page-load total was still ~13.7s
+        // after 6ad0ce0, not the 5.6s that fix alone reported.
+        const mapPath = path.join(savePath, "map");
+        const mapScan = await getMapFolderScan(mapPath);
+
         // Count chunk files (uses recursive count for B42's subdirectory structure)
         // Also check save root for B41 flat chunk files
-        let chunkCount = 0;
-        const mapPath = path.join(savePath, "map");
-        if (fs.existsSync(mapPath)) {
-          chunkCount = await countFiles(mapPath);
-        }
+        let chunkCount = mapScan.isB42Structure
+          ? mapScan.totalBinFiles + mapScan.totalNonBinFiles
+          : 0;
         if (chunkCount === 0) {
           // B41 fallback: count map_X_Y.bin files in save root
           const B41_CHUNK_REGEX = /^map_\d+_\d+\.bin$/i;
@@ -499,8 +553,37 @@ router.get("/saves", async (req, res) => {
           }
         }
 
-        // Get save size
-        const size = await getDirSize(savePath);
+        // Get save size -- reuse the map/ scan above for the "map" entry
+        // instead of letting getDirSize() re-walk the same 100k+ files a
+        // third time; every other top-level entry (chunkdata/, players.db,
+        // etc.) still goes through getDirSize()/stat() same as before.
+        let size = 0;
+        try {
+          const topEntries = await fs.promises.readdir(savePath, {
+            withFileTypes: true,
+          });
+          const topSizes = await Promise.all(
+            topEntries.map(async (entry) => {
+              if (entry.name === "map" && mapScan.isB42Structure) {
+                const chunkSize = mapScan.rawChunks.reduce(
+                  (sum, c) => sum + c.size,
+                  0,
+                );
+                return chunkSize + mapScan.totalNonBinSize;
+              }
+              const fullPath = path.join(savePath, entry.name);
+              if (entry.isDirectory()) return getDirSize(fullPath);
+              try {
+                return (await fs.promises.stat(fullPath)).size;
+              } catch (e) {
+                return 0;
+              }
+            }),
+          );
+          size = topSizes.reduce((a, b) => a + b, 0);
+        } catch (e) {
+          log.debug(`Save size scan failed for ${savePath}: ${e.message}`);
+        }
 
         return {
           name: d.name,
@@ -578,11 +661,14 @@ router.get("/suggested-paths", async (req, res) => {
 // to the legacy flat setting. The path is validated with the same rules as
 // the /saves customPath query parameter so users can't smuggle in arbitrary
 // directories via this endpoint.
-router.post("/save-path", async (req, res) => {
+router.post("/save-path", requirePermission("chunks.manage"), async (req, res) => {
   try {
     const { path: rawPath } = req.body || {};
     if (!rawPath || typeof rawPath !== "string") {
-      return res.status(400).json({ error: "Missing path." });
+      return res.status(400).json({
+        error: "Missing path.",
+        code: ErrorCode.CHUNKS_SAVE_PATH_MISSING,
+      });
     }
     let validated;
     try {
@@ -595,9 +681,10 @@ router.post("/save-path", async (req, res) => {
       return res.status(e.statusCode || 400).json(payload);
     }
     if (!validated) {
-      return res
-        .status(400)
-        .json({ error: "Path is empty after normalization." });
+      return res.status(400).json({
+        error: "Path is empty after normalization.",
+        code: ErrorCode.CHUNKS_SAVE_PATH_EMPTY,
+      });
     }
 
     const activeServer = await getActiveServer();
@@ -651,7 +738,10 @@ router.get("/chunks/:saveName", async (req, res) => {
     // Sanitize saveName to prevent path traversal
     const sanitizedSaveName = path.basename(saveName);
     if (!sanitizedSaveName || sanitizedSaveName !== saveName) {
-      return res.status(400).json({ error: "Invalid save name" });
+      return res.status(400).json({
+        error: "Invalid save name",
+        code: ErrorCode.CHUNKS_INVALID_SAVE_NAME,
+      });
     }
 
     let zomboidDataPath;
@@ -662,7 +752,10 @@ router.get("/chunks/:saveName", async (req, res) => {
     }
 
     if (!zomboidDataPath) {
-      return res.status(400).json({ error: "Zomboid data path not set" });
+      return res.status(400).json({
+        error: "Zomboid data path not set",
+        code: ErrorCode.CHUNKS_DATA_PATH_NOT_SET,
+      });
     }
 
     // Resolve the saves path the same way as /saves
@@ -688,26 +781,27 @@ router.get("/chunks/:saveName", async (req, res) => {
       maxY = -Infinity;
     let totalChunks = 0;
 
-    const mapExists = fs.existsSync(mapPath);
-
     // B42 uses subdirectory structure: map/{X}/{Y}.bin
     // B41 may use flat files inside map/ OR flat files in the save root
-    let mapContents = [];
-    let xDirs = [];
-    let flatBinFiles = [];
-
-    if (mapExists) {
-      mapContents = await fs.promises.readdir(mapPath, { withFileTypes: true });
-      xDirs = mapContents.filter(
-        (d) => d.isDirectory() && /^\d+$/.test(d.name),
-      );
-      flatBinFiles = mapContents.filter(
-        (f) => f.isFile() && f.name.endsWith(".bin"),
-      );
-    }
+    //
+    // The (potentially 100k+ file) B42 scan goes through getMapFolderScan(),
+    // which /stats/:saveName also calls for the SAME save -- the client
+    // fires both routes concurrently on every page load (see
+    // ChunkCleaner.tsx's Promise.allSettled). Sharing the walk while both
+    // are in flight means the tree gets walked once, not twice -- measured
+    // on a 147,136-file synthetic fixture matching a real operator save:
+    // /chunks alone 6.2s, /stats alone 9.3s, both concurrently 15.3s before
+    // this; roughly one walk's cost after. See getMapFolderScan()'s own
+    // comment for why this is in-flight-only, not a TTL cache.
+    const mapScan = await getMapFolderScan(mapPath, emitProgress);
+    const mapExists = mapScan.mapExists;
+    const mapContents = mapScan.mapContents || [];
+    const flatBinFiles = mapContents.filter(
+      (f) => f.isFile() && f.name.endsWith(".bin"),
+    );
 
     log.info(
-      `[ChunkCleaner] map/ ${mapExists ? "exists" : "missing"}: ${mapContents.length} entries, ${xDirs.length} numeric dirs (B42), ${flatBinFiles.length} flat .bin files (B41)`,
+      `[ChunkCleaner] map/ ${mapExists ? "exists" : "missing"}: ${mapContents.length} entries, ${mapScan.isB42Structure ? "B42 structure" : "no B42 dirs"}, ${flatBinFiles.length} flat .bin files (B41)`,
     );
 
     const rememberChunkCoord = (x, y) => {
@@ -722,90 +816,15 @@ router.get("/chunks/:saveName", async (req, res) => {
       return true;
     };
 
-    if (xDirs.length > 0) {
-      // B42 structure: map/{X}/{Y}.bin
-      // Use sequential directory scans to avoid overwhelming the filesystem.
-      let totalBinFiles = 0;
-      let totalNonBinFiles = 0;
-      let sampleNonBinFiles = [];
-      let emptyDirs = 0;
-      let scannedDirs = 0;
-      emitProgress(0, xDirs.length, 0, { force: true });
-
-      for (const xDir of xDirs) {
-        const x = parseInt(xDir.name, 10);
-        const xPath = path.join(mapPath, xDir.name);
-
-        try {
-          // Read Y files in this X directory
-          const yEntries = await fs.promises.readdir(xPath, {
-            withFileTypes: true,
-          });
-          // Only process files (skip subdirectories inside chunk dirs)
-          const yFiles = yEntries.filter((e) => e.isFile()).map((e) => e.name);
-
-          if (yFiles.length === 0) {
-            emptyDirs++;
-            continue;
-          }
-
-          const binFiles = yFiles.filter((f) => f.endsWith(".bin"));
-          const nonBinFiles = yFiles.filter((f) => !f.endsWith(".bin"));
-          totalBinFiles += binFiles.length;
-          totalNonBinFiles += nonBinFiles.length;
-          if (nonBinFiles.length > 0 && sampleNonBinFiles.length < 5) {
-            sampleNonBinFiles.push(
-              ...nonBinFiles.slice(0, 3).map((f) => `${xDir.name}/${f}`),
-            );
-          }
-
-          const chunkEntries = [];
-          for (const yFile of binFiles) {
-            const yMatch = yFile.match(/^(\d+)\.bin$/);
-            if (!yMatch) continue;
-
-            const y = parseInt(yMatch[1], 10);
-            if (!rememberChunkCoord(x, y)) continue;
-
-            chunkEntries.push({ x, y, yFile });
-          }
-
-          const results = await Promise.all(
-            chunkEntries.map(async ({ x, y, yFile }) => {
-              const filePath = path.join(xPath, yFile);
-
-              try {
-                const stats = await fs.promises.stat(filePath);
-                return {
-                  file: `${x}/${yFile}`,
-                  x,
-                  y,
-                  size: stats.size,
-                  modified: stats.mtime,
-                };
-              } catch (e) {
-                log.debug(`Stat failed for chunk ${x}/${yFile}: ${e.message}`);
-                return null;
-              }
-            }),
-          );
-
-          for (const chunk of results) {
-            if (chunk) chunks.push(chunk);
-          }
-        } catch (err) {
-          log.warn(`Error reading chunk directory ${xPath}: ${err.message}`);
-        }
-
-        scannedDirs++;
-        emitProgress(scannedDirs, xDirs.length, chunks.length);
+    if (mapScan.isB42Structure) {
+      // Coordinates can't actually collide within map/{X}/{Y}.bin (X is the
+      // directory, Y the filename) -- still run every record through
+      // rememberChunkCoord for bounds/totalChunks bookkeeping, exactly as
+      // before this was extracted into getMapFolderScan().
+      for (const c of mapScan.rawChunks) {
+        if (!rememberChunkCoord(c.x, c.y)) continue;
+        chunks.push(c);
       }
-
-      // Diagnostic: log what was found inside the B42 dirs
-      log.info(
-        `[ChunkCleaner] B42 scan: ${totalChunks} chunks loaded, ${totalBinFiles} .bin files, ${emptyDirs} empty dirs, ${totalNonBinFiles} non-.bin files${sampleNonBinFiles.length > 0 ? " (samples: " + sampleNonBinFiles.join(", ") + ")" : ""}`,
-      );
-      emitProgress(xDirs.length, xDirs.length, chunks.length, { force: true });
     } else {
       // Legacy flat file structure: map_X_Y.bin or X_Y.bin
       const files = mapContents
@@ -816,7 +835,7 @@ router.get("/chunks/:saveName", async (req, res) => {
       for (const file of files) {
         // Common formats: map_X_Y.bin, chunkdata_X_Y.bin, X_Y.bin
         const match = file.match(
-          /(?:map_|chunkdata_|chunk_)?(\d+)_(\d+)(?:_\d+)?\.bin$/i,
+          /^(?:map_|chunkdata_|chunk_)?(\d+)_(\d+)(?:_\d+)?\.bin$/i,
         );
         if (match) {
           const x = parseInt(match[1], 10);
@@ -854,7 +873,7 @@ router.get("/chunks/:saveName", async (req, res) => {
 
     // B41 fallback: if map/ didn't yield any chunks, check save root for
     // flat chunk files like map_X_Y.bin (common B41 save layout).
-    let isB42 = xDirs.length > 0;
+    let isB42 = mapScan.isB42Structure;
 
     // Secondary B42 detection: if map/ is empty (no subdirs, no flat files),
     // check for B42-specific files in the save root. B42 saves have files like
@@ -954,7 +973,7 @@ router.get("/chunks/:saveName", async (req, res) => {
 
         const chunkEntries = [];
         for (const file of validFiles) {
-          const match = file.match(/(\d+)_(\d+)(?:_\d+)?\.bin$/i);
+          const match = file.match(/^(\d+)_(\d+)(?:_\d+)?\.bin$/i);
           if (match) {
             const rawX = parseInt(match[1], 10);
             const rawY = parseInt(match[2], 10);
@@ -1039,7 +1058,7 @@ router.get("/chunks/:saveName", async (req, res) => {
 });
 
 // Delete selected chunks
-router.post("/delete-chunks", requireRole("admin"), async (req, res) => {
+router.post("/delete-chunks", requirePermission("chunks.manage"), async (req, res) => {
   try {
     const {
       saveName,
@@ -1063,25 +1082,50 @@ router.post("/delete-chunks", requireRole("admin"), async (req, res) => {
     // process info and accept `force: true` so users can override after
     // confirming the server really is stopped.
     if (!force) {
-      try {
-        const serverManager = req.app.get("serverManager");
-        if (
-          serverManager &&
-          typeof serverManager.getServerProcessDetails === "function"
-        ) {
-          const details = await serverManager.getServerProcessDetails();
-          if (details.running) {
-            return res.status(400).json({
-              error:
-                "Stop the server before deleting chunks. Running servers hold save files open and will overwrite your changes on shutdown.",
-              code: "server_running",
-              matched: details.matched,
-            });
-          }
-        } else if (
-          serverManager &&
-          typeof serverManager.checkServerRunning === "function"
-        ) {
+      const serverManager = req.app.get("serverManager");
+      if (
+        serverManager &&
+        typeof serverManager.getServerProcessDetails === "function"
+      ) {
+        // Fail CLOSED, not open: a scan that couldn't determine the server's
+        // state (scanFailed) or that threw outright must refuse the same way
+        // a confirmed-running server does, not be read as "confirmed
+        // stopped". checkServerRunning()'s collapse of a failed scan into a
+        // plain `false` was the exact bug fixed elsewhere (/wipe,
+        // /delete-files) via this same scanFailed flag -- this guard used
+        // getServerProcessDetails() already but never actually consulted it,
+        // and its own catch swallowed a thrown check and proceeded anyway.
+        let details;
+        try {
+          details = await serverManager.getServerProcessDetails();
+        } catch (e) {
+          log.warn(
+            `Server-running check failed, refusing to proceed: ${e.message}`,
+          );
+          return res.status(503).json({
+            error: "Can't verify whether the server is actually stopped — the process-detection scan itself failed, not the server. Check the panel's log for the error. If this keeps happening, something on this host (antivirus, a full disk, or a missing system tool) may be blocking detection.",
+            code: ErrorCode.SERVER_STATE_UNKNOWN,
+          });
+        }
+        if (details.scanFailed) {
+          return res.status(503).json({
+            error: "Can't verify whether the server is actually stopped — the process-detection scan itself failed, not the server. Check the panel's log for the error. If this keeps happening, something on this host (antivirus, a full disk, or a missing system tool) may be blocking detection.",
+            code: ErrorCode.SERVER_STATE_UNKNOWN,
+          });
+        }
+        if (details.running) {
+          return res.status(400).json({
+            error:
+              "Stop the server before deleting chunks. Running servers hold save files open and will overwrite your changes on shutdown.",
+            code: "server_running",
+            matched: details.matched,
+          });
+        }
+      } else if (
+        serverManager &&
+        typeof serverManager.checkServerRunning === "function"
+      ) {
+        try {
           const isRunning = await serverManager.checkServerRunning();
           if (isRunning) {
             return res.status(400).json({
@@ -1090,20 +1134,21 @@ router.post("/delete-chunks", requireRole("admin"), async (req, res) => {
               code: "server_running",
             });
           }
+        } catch (e) {
+          log.warn(
+            `Server-running check failed (proceeding cautiously): ${e.message}`,
+          );
         }
-      } catch (e) {
-        log.warn(
-          `Server-running check failed (proceeding cautiously): ${e.message}`,
-        );
       }
     } else {
       log.warn("delete-chunks: server-running check bypassed via force=true");
     }
 
     if (!saveName || !chunks || !Array.isArray(chunks) || chunks.length === 0) {
-      return res
-        .status(400)
-        .json({ error: "Save name and chunks array required" });
+      return res.status(400).json({
+        error: "Save name and chunks array required",
+        code: ErrorCode.DELETE_CHUNKS_FIELDS_REQUIRED,
+      });
     }
 
     // Cap chunk count explicitly. Express body-parser already rejects >1MB
@@ -1112,39 +1157,52 @@ router.post("/delete-chunks", requireRole("admin"), async (req, res) => {
     if (chunks.length > 100000) {
       return res.status(400).json({
         error: `Too many chunks (${chunks.length.toLocaleString()}). Maximum is 100,000 per request — split into smaller batches.`,
+        code: ErrorCode.DELETE_CHUNKS_TOO_MANY,
+        params: sanitizeErrorParams({ count: chunks.length }),
       });
     }
 
     // Sanitize saveName to prevent path traversal
     const sanitizedSaveName = path.basename(saveName);
     if (!sanitizedSaveName || sanitizedSaveName !== saveName) {
-      return res.status(400).json({ error: "Invalid save name" });
+      return res.status(400).json({
+        error: "Invalid save name",
+        code: ErrorCode.CHUNKS_INVALID_SAVE_NAME,
+      });
     }
 
     // Validate chunk files and coordinates
     for (const chunk of chunks) {
       if (!chunk.file) {
-        return res.status(400).json({ error: "Invalid chunk file name" });
+        return res.status(400).json({
+          error: "Invalid chunk file name",
+          code: ErrorCode.DELETE_CHUNKS_INVALID_FILE_NAME,
+        });
       }
       const normalized = path.normalize(chunk.file);
       if (normalized.includes("..") || path.isAbsolute(normalized)) {
-        return res.status(400).json({ error: "Invalid chunk file path" });
+        return res.status(400).json({
+          error: "Invalid chunk file path",
+          code: ErrorCode.DELETE_CHUNKS_INVALID_FILE_PATH,
+        });
       }
       if (chunk.x !== undefined && chunk.x !== null) {
         const nx = Number(chunk.x);
         if (!Number.isFinite(nx) || !Number.isInteger(nx)) {
-          return res
-            .status(400)
-            .json({ error: "Invalid chunk x coordinate — must be an integer" });
+          return res.status(400).json({
+            error: "Invalid chunk x coordinate — must be an integer",
+            code: ErrorCode.DELETE_CHUNKS_INVALID_X,
+          });
         }
         chunk.x = nx;
       }
       if (chunk.y !== undefined && chunk.y !== null) {
         const ny = Number(chunk.y);
         if (!Number.isFinite(ny) || !Number.isInteger(ny)) {
-          return res
-            .status(400)
-            .json({ error: "Invalid chunk y coordinate — must be an integer" });
+          return res.status(400).json({
+            error: "Invalid chunk y coordinate — must be an integer",
+            code: ErrorCode.DELETE_CHUNKS_INVALID_Y,
+          });
         }
         chunk.y = ny;
       }
@@ -1154,14 +1212,20 @@ router.post("/delete-chunks", requireRole("admin"), async (req, res) => {
       ? resolveCustomOrDefaultDataPath(String(customPath))
       : await getZomboidDataPath();
     if (!zomboidDataPath) {
-      return res.status(400).json({ error: "Zomboid data path not set" });
+      return res.status(400).json({
+        error: "Zomboid data path not set",
+        code: ErrorCode.CHUNKS_DATA_PATH_NOT_SET,
+      });
     }
 
     const savesPath = resolveSavesPath(zomboidDataPath);
     const savePath = path.join(savesPath, sanitizedSaveName);
 
     if (!fs.existsSync(savePath)) {
-      return res.status(404).json({ error: "Save not found" });
+      return res.status(404).json({
+        error: "Save not found",
+        code: ErrorCode.CHUNKS_SAVE_NOT_FOUND,
+      });
     }
 
     // B42 vs B41 detection — filesystem-based, not filename-based.
@@ -1408,6 +1472,11 @@ router.post("/delete-chunks", requireRole("admin"), async (req, res) => {
       `Deleted ${deleted} chunks from save ${sanitizedSaveName} (cell aux files removed: ${cellCleanup.removed.length}, vehicles removed: ${vehiclesResult.deleted})`,
     );
 
+    // /saves' and /chunks+/stats' cached scan of this save's map/ folder
+    // (see getMapFolderScan()'s comment) is now stale -- a follow-up load
+    // must not report chunks we just deleted.
+    invalidateMapFolderScan(path.join(savePath, "map"));
+
     res.json({
       success: true,
       deleted,
@@ -1425,7 +1494,7 @@ router.post("/delete-chunks", requireRole("admin"), async (req, res) => {
 });
 
 // Delete chunks by region (x/y coordinate range)
-router.post("/delete-region", requireRole("admin"), async (req, res) => {
+router.post("/delete-region", requirePermission("chunks.manage"), async (req, res) => {
   try {
     const {
       saveName,
@@ -1444,25 +1513,44 @@ router.post("/delete-region", requireRole("admin"), async (req, res) => {
     // delete-chunks handler above for the full rationale and `force` escape
     // hatch (issue #5: detection can false-positive on custom launchers).
     if (!force) {
-      try {
-        const serverManager = req.app.get("serverManager");
-        if (
-          serverManager &&
-          typeof serverManager.getServerProcessDetails === "function"
-        ) {
-          const details = await serverManager.getServerProcessDetails();
-          if (details.running) {
-            return res.status(400).json({
-              error:
-                "Stop the server before deleting chunks. Running servers hold save files open and will overwrite your changes on shutdown.",
-              code: "server_running",
-              matched: details.matched,
-            });
-          }
-        } else if (
-          serverManager &&
-          typeof serverManager.checkServerRunning === "function"
-        ) {
+      const serverManager = req.app.get("serverManager");
+      if (
+        serverManager &&
+        typeof serverManager.getServerProcessDetails === "function"
+      ) {
+        // Fail CLOSED, not open -- see the matching comment in delete-chunks
+        // above for the full rationale (this guard is identical).
+        let details;
+        try {
+          details = await serverManager.getServerProcessDetails();
+        } catch (e) {
+          log.warn(
+            `Server-running check failed, refusing to proceed: ${e.message}`,
+          );
+          return res.status(503).json({
+            error: "Can't verify whether the server is actually stopped — the process-detection scan itself failed, not the server. Check the panel's log for the error. If this keeps happening, something on this host (antivirus, a full disk, or a missing system tool) may be blocking detection.",
+            code: ErrorCode.SERVER_STATE_UNKNOWN,
+          });
+        }
+        if (details.scanFailed) {
+          return res.status(503).json({
+            error: "Can't verify whether the server is actually stopped — the process-detection scan itself failed, not the server. Check the panel's log for the error. If this keeps happening, something on this host (antivirus, a full disk, or a missing system tool) may be blocking detection.",
+            code: ErrorCode.SERVER_STATE_UNKNOWN,
+          });
+        }
+        if (details.running) {
+          return res.status(400).json({
+            error:
+              "Stop the server before deleting chunks. Running servers hold save files open and will overwrite your changes on shutdown.",
+            code: "server_running",
+            matched: details.matched,
+          });
+        }
+      } else if (
+        serverManager &&
+        typeof serverManager.checkServerRunning === "function"
+      ) {
+        try {
           const isRunning = await serverManager.checkServerRunning();
           if (isRunning) {
             return res.status(400).json({
@@ -1471,11 +1559,11 @@ router.post("/delete-region", requireRole("admin"), async (req, res) => {
               code: "server_running",
             });
           }
+        } catch (e) {
+          log.warn(
+            `Server-running check failed (proceeding cautiously): ${e.message}`,
+          );
         }
-      } catch (e) {
-        log.warn(
-          `Server-running check failed (proceeding cautiously): ${e.message}`,
-        );
       }
     } else {
       log.warn("delete-region: server-running check bypassed via force=true");
@@ -1488,15 +1576,19 @@ router.post("/delete-region", requireRole("admin"), async (req, res) => {
       minY === undefined ||
       maxY === undefined
     ) {
-      return res
-        .status(400)
-        .json({ error: "Save name and region bounds required" });
+      return res.status(400).json({
+        error: "Save name and region bounds required",
+        code: ErrorCode.DELETE_REGION_FIELDS_REQUIRED,
+      });
     }
 
     // Sanitize saveName to prevent path traversal
     const sanitizedSaveName = path.basename(saveName);
     if (!sanitizedSaveName || sanitizedSaveName !== saveName) {
-      return res.status(400).json({ error: "Invalid save name" });
+      return res.status(400).json({
+        error: "Invalid save name",
+        code: ErrorCode.CHUNKS_INVALID_SAVE_NAME,
+      });
     }
 
     // Validate bounds are numbers
@@ -1510,23 +1602,28 @@ router.post("/delete-region", requireRole("admin"), async (req, res) => {
       !Number.isFinite(minY) ||
       !Number.isFinite(maxY)
     ) {
-      return res
-        .status(400)
-        .json({ error: "Region bounds must be finite numbers" });
+      return res.status(400).json({
+        error: "Region bounds must be finite numbers",
+        code: ErrorCode.DELETE_REGION_BOUNDS_NOT_FINITE,
+      });
     }
     // Reject swapped bounds — otherwise a non-invert selection silently
     // matches nothing and the caller sees an unhelpful "0 deleted".
     if (minX > maxX || minY > maxY) {
-      return res
-        .status(400)
-        .json({ error: "Region bounds inverted (minX > maxX or minY > maxY)" });
+      return res.status(400).json({
+        error: "Region bounds inverted (minX > maxX or minY > maxY)",
+        code: ErrorCode.DELETE_REGION_BOUNDS_INVERTED,
+      });
     }
 
     const zomboidDataPath = customPath
       ? resolveCustomOrDefaultDataPath(String(customPath))
       : await getZomboidDataPath();
     if (!zomboidDataPath) {
-      return res.status(400).json({ error: "Zomboid data path not set" });
+      return res.status(400).json({
+        error: "Zomboid data path not set",
+        code: ErrorCode.CHUNKS_DATA_PATH_NOT_SET,
+      });
     }
 
     const savesPath = resolveSavesPath(zomboidDataPath);
@@ -1534,7 +1631,10 @@ router.post("/delete-region", requireRole("admin"), async (req, res) => {
     const mapPath = path.join(savePath, "map");
 
     if (!fs.existsSync(savePath)) {
-      return res.status(404).json({ error: "Save not found" });
+      return res.status(404).json({
+        error: "Save not found",
+        code: ErrorCode.CHUNKS_SAVE_NOT_FOUND,
+      });
     }
 
     const mapExists = fs.existsSync(mapPath);
@@ -1592,7 +1692,7 @@ router.post("/delete-region", requireRole("admin"), async (req, res) => {
 
       for (const file of files) {
         const match = file.match(
-          /(?:map_|chunkdata_|chunk_)?(\d+)_(\d+)(?:_\d+)?\.bin$/i,
+          /^(?:map_|chunkdata_|chunk_)?(\d+)_(\d+)(?:_\d+)?\.bin$/i,
         );
         if (match) {
           const x = parseInt(match[1], 10);
@@ -1651,6 +1751,8 @@ router.post("/delete-region", requireRole("admin"), async (req, res) => {
     if (chunksToDelete.length > 100000) {
       return res.status(400).json({
         error: `Region too large (${chunksToDelete.length.toLocaleString()} chunks). Maximum is 100,000 at a time.`,
+        code: ErrorCode.DELETE_REGION_TOO_LARGE,
+        params: sanitizeErrorParams({ count: chunksToDelete.length }),
       });
     }
 
@@ -1705,6 +1807,7 @@ router.post("/delete-region", requireRole("admin"), async (req, res) => {
 
     // Delete chunks
     let deleted = 0;
+    const errors = [];
     const touchedCells = new Set();
     const regionIsB42 = xDirs.length > 0;
     const regionCellDiv = cellDivisorFor(regionIsB42);
@@ -1722,8 +1825,10 @@ router.post("/delete-region", requireRole("admin"), async (req, res) => {
             `${Math.floor(chunk.x / regionCellDiv)},${Math.floor(chunk.y / regionCellDiv)}`,
           );
         } catch (err) {
-          if (err.code !== "ENOENT")
+          if (err.code !== "ENOENT") {
             log.warn(`Failed to delete chunk ${chunk.file}: ${err.message}`);
+            errors.push(`${chunk.file}: ${sanitizeError(err.message)}`);
+          }
         }
       }),
     );
@@ -1794,11 +1899,17 @@ router.post("/delete-region", requireRole("admin"), async (req, res) => {
       `Deleted ${deleted} chunks in region [${minX},${minY}]-[${maxX},${maxY}] from ${sanitizedSaveName} (cell files removed: ${cellCleanup.removed.length}, vehicles: ${vehiclesResult.deleted})`,
     );
 
+    // /saves' and /chunks+/stats' cached scan of this save's map/ folder
+    // (see getMapFolderScan()'s comment) is now stale -- a follow-up load
+    // must not report chunks we just deleted.
+    invalidateMapFolderScan(mapPath);
+
     res.json({
       success: true,
       deleted,
       vehiclesDeleted: vehiclesResult.deleted || 0,
       cellFilesRemoved: cellCleanup.removed.length,
+      errors: errors.length > 0 ? errors : undefined,
       region: { minX, maxX, minY, maxY },
       inverted: invert,
     });
@@ -1821,7 +1932,10 @@ router.get("/stats/:saveName", async (req, res) => {
     // Sanitize saveName to prevent path traversal
     const sanitizedSaveName = path.basename(saveName);
     if (!sanitizedSaveName || sanitizedSaveName !== saveName) {
-      return res.status(400).json({ error: "Invalid save name" });
+      return res.status(400).json({
+        error: "Invalid save name",
+        code: ErrorCode.CHUNKS_INVALID_SAVE_NAME,
+      });
     }
 
     let zomboidDataPath;
@@ -1834,7 +1948,10 @@ router.get("/stats/:saveName", async (req, res) => {
     }
 
     if (!zomboidDataPath) {
-      return res.status(400).json({ error: "Zomboid data path not set" });
+      return res.status(400).json({
+        error: "Zomboid data path not set",
+        code: ErrorCode.CHUNKS_DATA_PATH_NOT_SET,
+      });
     }
 
     // Resolve the saves path the same way as /saves
@@ -1843,14 +1960,11 @@ router.get("/stats/:saveName", async (req, res) => {
     const savePath = path.join(savesPath, sanitizedSaveName);
 
     if (!fs.existsSync(savePath)) {
-      return res.status(404).json({ error: "Save not found" });
+      return res.status(404).json({
+        error: "Save not found",
+        code: ErrorCode.CHUNKS_SAVE_NOT_FOUND,
+      });
     }
-
-    const stats = {
-      saveName,
-      totalSize: await getDirSize(savePath), // Now awaited
-      folders: {},
-    };
 
     const folders = [
       "map",
@@ -1862,20 +1976,90 @@ router.get("/stats/:saveName", async (req, res) => {
       "radio",
     ];
 
+    // One combined walk per known folder (count + size together) instead of
+    // countFiles() and getDirSize() separately — that previously walked
+    // each folder's whole subtree twice.
+    const folderStatsByName = {};
     for (const folder of folders) {
       const folderPath = path.join(savePath, folder);
       try {
+        if (folder === "map") {
+          // map/ is the one folder /chunks/:saveName ALSO walks on the same
+          // page load (Promise.allSettled fires both routes concurrently) —
+          // route through the shared, in-flight-coalesced scan instead of
+          // getDirStats() so a B42 save's 100k+ files get walked once, not
+          // twice. See getMapFolderScan()'s comment for the measured win.
+          const mapScan = await getMapFolderScan(folderPath);
+          if (mapScan.isB42Structure) {
+            const chunkSize = mapScan.rawChunks.reduce(
+              (sum, c) => sum + c.size,
+              0,
+            );
+            folderStatsByName.map = {
+              count: mapScan.totalBinFiles + mapScan.totalNonBinFiles,
+              size: chunkSize + mapScan.totalNonBinSize,
+            };
+          } else if (mapScan.mapExists) {
+            // Non-B42 map/ (flat B41 files or empty) is cheap to walk
+            // directly — no coalescing benefit, keep the existing path.
+            const { count, size } = await getDirStats(folderPath);
+            folderStatsByName.map = { count, size };
+          }
+          continue;
+        }
         if (fs.existsSync(folderPath)) {
-          const fileCount = await countFiles(folderPath);
-          const size = await getDirSize(folderPath);
-          stats.folders[folder] = {
-            fileCount,
-            size,
-            sizeFormatted: formatBytes(size),
-          };
+          const { count, size } = await getDirStats(folderPath);
+          folderStatsByName[folder] = { count, size };
         }
       } catch (e) {
         log.debug(`Failed to stat folder ${folder}: ${e.message}`);
+      }
+    }
+
+    // Total save size: sum of everything directly under savePath. Reuses
+    // the per-folder walk above for entries that are one of the known
+    // folders (previously a THIRD full walk of the same subtree — once as
+    // part of this total, once via countFiles, once via getDirSize) rather
+    // than re-scanning them.
+    let totalSize = 0;
+    try {
+      const topEntries = await fs.promises.readdir(savePath, { withFileTypes: true });
+      const topSizes = await runWithConcurrency(topEntries, DIR_WALK_CONCURRENCY, async (entry) => {
+        if (entry.isDirectory()) {
+          if (Object.prototype.hasOwnProperty.call(folderStatsByName, entry.name)) {
+            return folderStatsByName[entry.name].size;
+          }
+          // A directory we don't already have stats for (not one of the
+          // known folders) — still needs its own walk to be counted.
+          return getDirSize(path.join(savePath, entry.name));
+        }
+        try {
+          const s = await fs.promises.stat(path.join(savePath, entry.name));
+          return s.size;
+        } catch (e) {
+          return 0;
+        }
+      });
+      totalSize = topSizes.reduce((a, b) => a + b, 0);
+    } catch (err) {
+      if (err.code !== "EACCES" && err.code !== "ENOENT")
+        log.debug(`Top-level size scan failed for ${savePath}: ${err.message}`);
+    }
+
+    const stats = {
+      saveName,
+      totalSize,
+      folders: {},
+    };
+
+    for (const folder of folders) {
+      if (folderStatsByName[folder]) {
+        const { count, size } = folderStatsByName[folder];
+        stats.folders[folder] = {
+          fileCount: count,
+          size,
+          sizeFormatted: formatBytes(size),
+        };
       }
     }
 
@@ -1947,25 +2131,31 @@ router.get("/stats/:saveName", async (req, res) => {
 });
 
 // Helper functions
+//
+// getDirSize/getDirStats both recurse with bounded concurrency
+// (via runWithConcurrency) rather than firing every entry at once — a
+// directory with hundreds of subdirectories previously opened hundreds of
+// simultaneous readdir/stat handles per recursion level. That's a per-level
+// bound, not a global one — see the note on runWithConcurrency above for
+// why, and the real worst case for a walk this deep.
+const DIR_WALK_CONCURRENCY = 8;
+
 async function getDirSize(dirPath) {
   let totalSize = 0;
   try {
     const files = await fs.promises.readdir(dirPath, { withFileTypes: true });
-
-    const promises = files.map(async (file) => {
+    const sizes = await runWithConcurrency(files, DIR_WALK_CONCURRENCY, async (file) => {
       const filePath = path.join(dirPath, file.name);
       if (file.isDirectory()) {
         return getDirSize(filePath);
-      } else {
-        try {
-          const stats = await fs.promises.stat(filePath);
-          return stats.size;
-        } catch (e) {
-          return 0;
-        }
+      }
+      try {
+        const stats = await fs.promises.stat(filePath);
+        return stats.size;
+      } catch (e) {
+        return 0;
       }
     });
-    const sizes = await Promise.all(promises);
     totalSize = sizes.reduce((a, b) => a + b, 0);
   } catch (err) {
     if (err.code !== "EACCES" && err.code !== "ENOENT")
@@ -1974,29 +2164,256 @@ async function getDirSize(dirPath) {
   return totalSize;
 }
 
-// Count files recursively (handles B42's subdirectory structure)
-// Uses parallel I/O for speed on large saves with many chunk directories.
-async function countFiles(dirPath) {
+// Combined file-count + total-size in a single recursive pass — for callers
+// (currently only /stats/:saveName) that need both numbers for the SAME
+// directory, where walking it for a count and again for a size separately
+// would walk that directory's whole subtree twice for no reason.
+async function getDirStats(dirPath) {
   let count = 0;
+  let size = 0;
   try {
     const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
-    const subdirPromises = [];
-    for (const entry of entries) {
+    await runWithConcurrency(entries, DIR_WALK_CONCURRENCY, async (entry) => {
+      const entryPath = path.join(dirPath, entry.name);
       if (entry.isDirectory()) {
-        subdirPromises.push(countFiles(path.join(dirPath, entry.name)));
-      } else {
-        count++;
+        const sub = await getDirStats(entryPath);
+        count += sub.count;
+        size += sub.size;
+        return;
       }
-    }
-    if (subdirPromises.length > 0) {
-      const subCounts = await Promise.all(subdirPromises);
-      count += subCounts.reduce((a, b) => a + b, 0);
-    }
+      count++;
+      try {
+        const stats = await fs.promises.stat(entryPath);
+        size += stats.size;
+      } catch (e) {
+        // Matches getDirSize's silent-0-on-stat-failure — the file still
+        // counts, it just doesn't contribute a known size.
+      }
+    });
   } catch (err) {
     if (err.code !== "EACCES" && err.code !== "ENOENT")
-      log.debug(`countFiles error for ${dirPath}: ${err.message}`);
+      log.debug(`getDirStats error for ${dirPath}: ${err.message}`);
   }
-  return count;
+  return { count, size };
+}
+
+// /saves, /chunks/:saveName and /stats/:saveName all need to walk map/'s
+// B42 {X}/{Y}.bin structure for the SAME save. /chunks and /stats fire
+// concurrently on every page load (ChunkCleaner.tsx's Promise.allSettled) --
+// on a 147,136-file synthetic fixture matching a real operator save, that
+// pair alone went from 15.3s to ~5.6s once they shared one in-flight walk
+// instead of each doing its own. /saves runs BEFORE that pair, sequentially
+// (the client awaits fetchSaves() to completion before auto-selecting a
+// save and firing /chunks+/stats) -- by the time /chunks+/stats start,
+// /saves' own walk has already resolved and its in-flight entry is gone,
+// so pure in-flight sharing can't bridge that gap. Nothing changes on disk
+// during that gap either: it's the same page mount, no user action has
+// happened yet. Measured full-mount-sequence cost of paying for that
+// second walk anyway: /saves (~5-8s, see commit c67099f) then /chunks+
+// /stats (~5.6s) again, back to back.
+//
+// So there are two layers here:
+//  1. In-flight sharing (as before) for genuinely concurrent callers.
+//  2. A SHORT (few-second) TTL cache on top, to bridge the sequential
+//     /saves -> /chunks+/stats gap within one page mount.
+//
+// The TTL is a BACKSTOP, not the primary correctness mechanism -- EXPLICIT
+// invalidation is. Every write this file makes to a save's map/ directory
+// (delete-chunks, delete-region) calls invalidateMapFolderScan() directly,
+// so a chunk count is never stale after an action taken from this app's own
+// chunk-deletion UI, which is the case that actually feeds a destructive
+// decision (delete once, reload, see the old count, delete "again").
+// The TTL exists for writers THIS FILE CANNOT SEE: server.js's /wipe
+// recursively deletes map/ outright, and backupService.js's restoreBackup()
+// extracts a full save over the existing one -- both mutate the same tree
+// from a different module with no path to call into this one or be called
+// back. Kept short deliberately: a stale read in the few seconds after
+// either of those is a narrow accident of timing (the user would have to
+// return to this exact save's chunk view within the TTL window), not a
+// standing risk the way an un-invalidated cache would be.
+const MAP_SCAN_TTL_MS = 3000;
+const _mapScanCache = new Map(); // mapPath -> { result, at }
+const _mapScanInflight = new Map(); // mapPath -> Promise<scan result>
+
+async function getMapFolderScan(mapPath, emitProgress) {
+  const cached = _mapScanCache.get(mapPath);
+  if (cached && Date.now() - cached.at < MAP_SCAN_TTL_MS) {
+    return cached.result;
+  }
+  const inflight = _mapScanInflight.get(mapPath);
+  if (inflight) return inflight;
+  const promise = scanMapFolder(mapPath, emitProgress)
+    .then((result) => {
+      _mapScanCache.set(mapPath, { result, at: Date.now() });
+      return result;
+    })
+    .finally(() => {
+      _mapScanInflight.delete(mapPath);
+    });
+  _mapScanInflight.set(mapPath, promise);
+  return promise;
+}
+
+// Call after any write THIS FILE makes to a save's map/ directory. Clears
+// only the resolved-and-cached entry -- a walk already in flight was
+// started before this write and will still hand its (pre-write) result to
+// whoever is already awaiting it, but there is nothing safe to cancel
+// mid-walk, and the NEXT call sees a cache miss here and starts fresh once
+// that in-flight walk clears itself.
+function invalidateMapFolderScan(mapPath) {
+  _mapScanCache.delete(mapPath);
+}
+
+// The actual walk, extracted verbatim from the old inline /chunks scan loop
+// (same XDIR_SCAN_CONCURRENCY bound, same progress emits) except it returns
+// raw per-file records instead of mutating a request-scoped `chunks` array
+// or calling a request-scoped dedup closure -- callers (both /chunks and
+// /stats) derive their own response shape from the shared result, so this
+// function has no knowledge of either route's output format.
+//
+// `emitProgress` is best-effort: only whichever caller's request actually
+// triggers the walk (the "winner" when /chunks and /stats race in) gets
+// progress emits for that walk. /stats never passes one. In practice
+// /chunks is listed first in the client's Promise.allSettled call and wins
+// almost always; on the rare occasion /stats wins instead, the walk still
+// completes at the same (now much faster) speed, just without a progress
+// bar tick for that particular page load -- a cosmetic-only trade-off.
+async function scanMapFolder(mapPath, emitProgress) {
+  const mapExists = fs.existsSync(mapPath);
+  if (!mapExists) {
+    return { mapExists: false, isB42Structure: false };
+  }
+
+  const mapContents = await fs.promises.readdir(mapPath, {
+    withFileTypes: true,
+  });
+  const xDirs = mapContents.filter(
+    (d) => d.isDirectory() && /^\d+$/.test(d.name),
+  );
+
+  if (xDirs.length === 0) {
+    return { mapExists: true, isB42Structure: false, mapContents };
+  }
+
+  // B42 structure: map/{X}/{Y}.bin
+  // Bounded-concurrency directory scan: XDIR_SCAN_CONCURRENCY dirs in
+  // flight at once. A large B42 map can have hundreds of X-directories; a
+  // fully sequential scan pays each directory's round-trip latency one
+  // after another, which is fine on a local SSD but adds up fast on the
+  // spinning arrays / network shares unRAID setups commonly use. Unbounded
+  // concurrency has its own failure mode on the same hardware — hundreds of
+  // simultaneous readdir/stat calls can exhaust file handles (EMFILE) or
+  // queue so deep on slow storage that it's slower than sequential. See
+  // runWithConcurrency() above.
+  const XDIR_SCAN_CONCURRENCY = 8;
+  let totalBinFiles = 0;
+  let totalNonBinFiles = 0;
+  let totalNonBinSize = 0;
+  let sampleNonBinFiles = [];
+  let emptyDirs = 0;
+  let scannedDirs = 0;
+  const rawChunks = [];
+  emitProgress?.(0, xDirs.length, 0, { force: true });
+
+  await runWithConcurrency(xDirs, XDIR_SCAN_CONCURRENCY, async (xDir) => {
+    const x = parseInt(xDir.name, 10);
+    const xPath = path.join(mapPath, xDir.name);
+
+    try {
+      // Read Y files in this X directory
+      const yEntries = await fs.promises.readdir(xPath, {
+        withFileTypes: true,
+      });
+      // Only process files (skip subdirectories inside chunk dirs)
+      const yFiles = yEntries.filter((e) => e.isFile()).map((e) => e.name);
+
+      if (yFiles.length === 0) {
+        emptyDirs++;
+        return;
+      }
+
+      const binFiles = yFiles.filter((f) => f.endsWith(".bin"));
+      const nonBinFiles = yFiles.filter((f) => !f.endsWith(".bin"));
+      totalBinFiles += binFiles.length;
+      totalNonBinFiles += nonBinFiles.length;
+      if (nonBinFiles.length > 0 && sampleNonBinFiles.length < 5) {
+        sampleNonBinFiles.push(
+          ...nonBinFiles.slice(0, 3).map((f) => `${xDir.name}/${f}`),
+        );
+      }
+
+      const yMatches = [];
+      for (const yFile of binFiles) {
+        const yMatch = yFile.match(/^(\d+)\.bin$/);
+        if (!yMatch) continue;
+        yMatches.push({ y: parseInt(yMatch[1], 10), yFile });
+      }
+
+      const [chunkResults, nonBinSizes] = await Promise.all([
+        Promise.all(
+          yMatches.map(async ({ y, yFile }) => {
+            const filePath = path.join(xPath, yFile);
+            try {
+              const stats = await fs.promises.stat(filePath);
+              return {
+                file: `${x}/${yFile}`,
+                x,
+                y,
+                size: stats.size,
+                modified: stats.mtime,
+              };
+            } catch (e) {
+              log.debug(`Stat failed for chunk ${x}/${yFile}: ${e.message}`);
+              return null;
+            }
+          }),
+        ),
+        // Stat non-.bin files too, purely so /stats' folder size for map/
+        // matches what getDirStats() would have reported (it stats every
+        // file regardless of extension) -- these are expected to be rare to
+        // nonexistent on a real save.
+        Promise.all(
+          nonBinFiles.map(async (f) => {
+            try {
+              const s = await fs.promises.stat(path.join(xPath, f));
+              return s.size;
+            } catch (e) {
+              return 0;
+            }
+          }),
+        ),
+      ]);
+
+      for (const chunk of chunkResults) {
+        if (chunk) rawChunks.push(chunk);
+      }
+      totalNonBinSize += nonBinSizes.reduce((a, b) => a + b, 0);
+    } catch (err) {
+      log.warn(`Error reading chunk directory ${xPath}: ${err.message}`);
+    }
+
+    scannedDirs++;
+    emitProgress?.(scannedDirs, xDirs.length, rawChunks.length);
+  });
+
+  // Diagnostic: log what was found inside the B42 dirs
+  log.info(
+    `[ChunkCleaner] B42 scan: ${rawChunks.length} chunks loaded, ${totalBinFiles} .bin files, ${emptyDirs} empty dirs, ${totalNonBinFiles} non-.bin files${sampleNonBinFiles.length > 0 ? " (samples: " + sampleNonBinFiles.join(", ") + ")" : ""}`,
+  );
+  emitProgress?.(xDirs.length, xDirs.length, rawChunks.length, {
+    force: true,
+  });
+
+  return {
+    mapExists: true,
+    isB42Structure: true,
+    rawChunks,
+    totalBinFiles,
+    totalNonBinFiles,
+    totalNonBinSize,
+    emptyDirs,
+    mapContents,
+  };
 }
 
 function formatBytes(bytes) {
@@ -2025,9 +2442,10 @@ router.get("/browse", async (req, res) => {
     }
 
     if (!zomboidDataPath) {
-      return res
-        .status(400)
-        .json({ error: "No Zomboid data path configured to browse" });
+      return res.status(400).json({
+        error: "No Zomboid data path configured to browse",
+        code: ErrorCode.BROWSE_CHUNKS_DATA_PATH_NOT_SET,
+      });
     }
 
     const allowedRoots = [path.resolve(zomboidDataPath)];
@@ -2035,16 +2453,23 @@ router.get("/browse", async (req, res) => {
     if (!resolved) {
       return res.status(403).json({
         error: "Access denied: path is outside the server's save directory",
+        code: ErrorCode.BROWSE_CHUNKS_ACCESS_DENIED,
       });
     }
 
     if (!fs.existsSync(resolved)) {
-      return res.status(400).json({ error: "Path does not exist" });
+      return res.status(400).json({
+        error: "Path does not exist",
+        code: ErrorCode.BROWSE_CHUNKS_PATH_NOT_FOUND,
+      });
     }
 
     const stat = await fs.promises.stat(resolved);
     if (!stat.isDirectory()) {
-      return res.status(400).json({ error: "Path is not a directory" });
+      return res.status(400).json({
+        error: "Path is not a directory",
+        code: ErrorCode.BROWSE_CHUNKS_PATH_NOT_DIRECTORY,
+      });
     }
 
     const entries = await fs.promises.readdir(resolved, {

@@ -5,8 +5,33 @@ import { getCommandHistory } from '../database/init.js';
 import { PZ_COMMANDS } from '../utils/commands.js';
 import { sanitizeError } from '../utils/sanitize.js';
 import { testRconConnection } from '../services/rcon.js';
+import { requirePermission } from '../services/permissions.js';
+import { ErrorCode } from '../utils/errorCodes.js';
 
 const router = express.Router();
+
+// Mixed, not file-wide: /execute runs an ARBITRARY raw RCON command with no
+// structural validation beyond a length cap — meaningfully more powerful
+// than the specific, validated actions in players.js (kick/ban/etc.), and
+// includes things like `quit` that can shut the server down. That, plus
+// connection lifecycle (/connect, /disconnect, /test — reconfigures which
+// RCON endpoint the panel talks to), are admin+technician only, NOT
+// moderator: a moderator doing player moderation should use players.js's
+// structured endpoints, not an open console. Read-only status/reference
+// routes below (/status, /health, /commands, /commands/:category) stay open
+// to every logged-in role deliberately — nothing sensitive is returned and
+// a moderator plausibly wants to see RCON status or the command reference.
+//
+// /history is NOT in that group, despite looking like one more read-only
+// reference route: it returns the verbatim command_history log, and
+// logCommand() (database/init.js) stores the exact command STRING that was
+// sent, unredacted -- including, e.g., `adduser "player" "password"` from
+// the whitelist-add flow (a real PZ join password) or anything typed into
+// this file's own /execute console. Leaving it ungated meant any logged-in
+// role -- a moderator included, who never holds rcon.execute -- could read
+// every admin/technician's past RCON console session and every whitelist
+// password ever set, through an endpoint whose neighbors really are
+// harmless. Gated the same as /execute/connect/disconnect/test.
 
 function validateTestInput(host, port, password) {
   if (typeof host !== 'string' || host.length > 255 || !/^[a-zA-Z0-9.-]+$/.test(host)) {
@@ -23,19 +48,19 @@ function validateTestInput(host, port, password) {
 }
 
 // Execute raw RCON command
-router.post('/execute', async (req, res) => {
+router.post('/execute', requirePermission('rcon.execute'), async (req, res) => {
   try {
     const rconService = req.app.get('rconService');
     const { command } = req.body;
     log.info(`POST /execute: ${(command || '').substring(0, 100)}`);
     
     if (!command) {
-      return res.status(400).json({ error: 'Command is required' });
+      return res.status(400).json({ error: 'Command is required', code: ErrorCode.RCON_COMMAND_REQUIRED });
     }
-    
+
     // Validate command type and length
     if (typeof command !== 'string' || command.length > 2000) {
-      return res.status(400).json({ error: 'Invalid command (max 2000 characters)' });
+      return res.status(400).json({ error: 'Invalid command (max 2000 characters)', code: ErrorCode.RCON_COMMAND_INVALID });
     }
     
     const result = await rconService.execute(command);
@@ -68,7 +93,7 @@ router.get('/status', async (req, res) => {
 });
 
 // Connect to RCON
-router.post('/connect', async (req, res) => {
+router.post('/connect', requirePermission('rcon.execute'), async (req, res) => {
   try {
     const rconService = req.app.get('rconService');
     const { host, port, password } = req.body;
@@ -77,22 +102,22 @@ router.post('/connect', async (req, res) => {
     // Validate host format if provided (only alphanumeric, dots, hyphens)
     if (host !== undefined) {
       if (typeof host !== 'string' || host.length > 255 || !/^[a-zA-Z0-9.-]+$/.test(host)) {
-        return res.status(400).json({ success: false, error: 'Invalid host format' });
+        return res.status(400).json({ success: false, error: 'Invalid host format', code: ErrorCode.RCON_INVALID_HOST });
       }
     }
-    
+
     // Validate port if provided
     if (port !== undefined) {
       const portNum = parseInt(port, 10);
       if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
-        return res.status(400).json({ success: false, error: 'Invalid port (1-65535)' });
+        return res.status(400).json({ success: false, error: 'Invalid port (1-65535)', code: ErrorCode.RCON_INVALID_PORT });
       }
     }
-    
+
     // Validate password if provided
     if (password !== undefined) {
       if (typeof password !== 'string' || password.length > 256) {
-        return res.status(400).json({ success: false, error: 'Invalid password format' });
+        return res.status(400).json({ success: false, error: 'Invalid password format', code: ErrorCode.RCON_INVALID_PASSWORD });
       }
     }
     
@@ -104,7 +129,7 @@ router.post('/connect', async (req, res) => {
     if (connected) {
       res.json({ success: true, message: 'Connected to RCON' });
     } else {
-      res.status(503).json({ success: false, error: 'Could not connect to RCON. Is the server running and RCON enabled?' });
+      res.status(503).json({ success: false, error: 'Could not connect to RCON. Is the server running and RCON enabled?', code: ErrorCode.RCON_CONNECT_FAILED });
     }
   } catch (error) {
     log.error(`RCON connect failed: ${error.message}`);
@@ -116,7 +141,7 @@ router.post('/connect', async (req, res) => {
 
 // Test arbitrary RCON credentials without applying them — lets the UI
 // validate host/port/password before the user saves a server's settings.
-router.post('/test', async (req, res) => {
+router.post('/test', requirePermission('rcon.execute'), async (req, res) => {
   try {
     const { host, port, password } = req.body;
     log.info(`POST /test (host=${host || 'none'}, port=${port || 'none'})`);
@@ -150,7 +175,7 @@ router.get('/health', async (req, res) => {
 });
 
 // Disconnect from RCON
-router.post('/disconnect', async (req, res) => {
+router.post('/disconnect', requirePermission('rcon.execute'), async (req, res) => {
   try {
     log.info('POST /disconnect');
     const rconService = req.app.get('rconService');
@@ -162,7 +187,7 @@ router.post('/disconnect', async (req, res) => {
 });
 
 // Get command history
-router.get('/history', async (req, res) => {
+router.get('/history', requirePermission('rcon.execute'), async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit, 10) || 100, 1000);
     const history = await getCommandHistory(limit);

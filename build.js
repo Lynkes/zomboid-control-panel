@@ -3,6 +3,7 @@ import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import { pathToFileURL } from "url";
 
 const distDir = "./dist-exe";
 const releaseDir = "./release";
@@ -187,6 +188,244 @@ server-side drop-in, NOT a Workshop mod — there is no client component.
 `;
 
   fs.writeFileSync("./release/README.txt", readme);
+}
+
+export function generateStartBat() {
+  // Start.bat v2 — supervisor + applier.
+  //
+  // Why a supervisor instead of an in-process helper:
+  //   The previous design spawned a detached cmd.exe helper from the panel
+  //   right before exit, which had to wait for the panel PID to die, rename
+  //   the staged exe into place, and respawn. That design was fragile on
+  //   Windows for reasons that bit us repeatedly:
+  //     - Defender / ASR silently killed the detached helper before it ran.
+  //     - `start "" "panel.exe.new"` has no .new file association, hangs or
+  //       no-ops depending on shell config.
+  //     - TIME_WAIT on port 3001 made the staged exe fail to bind on restart.
+  //     - UNC installs (\\host\share) had inconsistent SMB caching of the
+  //       helper's writes.
+  //   The supervisor sidesteps all of these by performing the rename BETWEEN
+  //   panel runs, in a user-visible batch file the user already trusts.
+  //
+  // Protocol with the panel (server/services/panelUpdateChecker.js):
+  //   1. Panel reads env var PANEL_SUPERVISOR_V=2 to know the supervisor is
+  //      live, and uses the supervisor path instead of spawning a helper.
+  //   2. When the user clicks "Apply", the panel writes
+  //      ZomboidControlPanel.exe-dir\.update-pending  (a small JSON marker)
+  //      and exits with code 75.
+  //   3. This .bat sees exit 75 OR sees .update-pending and performs the
+  //      apply: back up the running .exe -> rename newest .new/.new2 to .exe
+  //      -> delete the marker -> relaunch.
+  //   4. All apply events are logged to logs\supervisor.log for diagnostics.
+  //
+  // Picks the launch target by mtime among .exe / .exe.new / .exe.new2 so a
+  // freshly-staged file always wins on the very first launch (before any
+  // apply has run), keeping the original one-shot install behavior intact.
+  //
+  // Crash-loop protection: any exit code other than 0 (clean shutdown) or 75
+  // (update requested), with no update marker present, is treated as a crash
+  // and relaunched with backoff, up to MAX_RAPID_CRASHES attempts. Past the
+  // cap this falls through to the same "stop and show the operator the exit
+  // code" behavior every non-zero exit used to have unconditionally -- a
+  // real boot loop must still surface itself, not spin forever quietly. A
+  // run that stays up at least MIN_STABLE_SECONDS resets the counter, so one
+  // crash after hours of uptime is never treated as part of a boot loop. All
+  // three tunables are overridable via environment variable (used by
+  // server/tests/supervisor-restart.test.js to keep the test fast).
+  return `@echo off
+setlocal ENABLEDELAYEDEXPANSION
+title Zomboid Control Panel
+cd /d "%~dp0"
+
+set "PANEL_SUPERVISOR_V=2"
+set "INSTALL_DIR=%~dp0"
+set "MARKER=%INSTALL_DIR%.update-pending"
+set "BASE_EXE=ZomboidControlPanel.exe"
+set "LOG_DIR=%INSTALL_DIR%logs"
+set "LOG_FILE=%LOG_DIR%\\supervisor.log"
+
+set "MAX_RAPID_CRASHES=5"
+set "MIN_STABLE_SECONDS=60"
+set "BACKOFF_BASE_SECONDS=2"
+set "BACKOFF_CAP_SECONDS=30"
+set "CRASH_COUNT=0"
+if defined PANEL_SUPERVISOR_MAX_CRASHES set "MAX_RAPID_CRASHES=%PANEL_SUPERVISOR_MAX_CRASHES%"
+if defined PANEL_SUPERVISOR_MIN_STABLE_SECONDS set "MIN_STABLE_SECONDS=%PANEL_SUPERVISOR_MIN_STABLE_SECONDS%"
+
+if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" >nul 2>&1
+
+call :stamp "Supervisor v2 starting"
+
+echo Starting Zomboid Control Panel...
+echo (the panel will print the URL to open once it is ready)
+echo.
+
+:run_loop
+  rem === If an update is pending, apply it before launching. ===
+  if exist "%MARKER%" call :apply_update
+
+  rem === Pick the binary to launch. Newest of .exe / .exe.new / .exe.new2. ===
+  rem === First-install case: only .exe.new exists (from the release zip),  ===
+  rem === so this still picks it up on the very first run.                  ===
+  set "TARGET="
+  for /f "usebackq delims=" %%F in (\`powershell -NoProfile -Command "Get-ChildItem -LiteralPath '.' -File | Where-Object { $_.Name -match '^ZomboidControlPanel\\.exe(\\.new2?)?$' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty Name"\`) do set "TARGET=%%F"
+
+  if not defined TARGET (
+    call :stamp "ERROR no ZomboidControlPanel binary found"
+    echo ERROR: No ZomboidControlPanel binary found in this folder.
+    echo Expected one of: ZomboidControlPanel.exe, .exe.new, .exe.new2
+    pause
+    exit /b 1
+  )
+
+  for /f "usebackq delims=" %%S in (\`powershell -NoProfile -Command "[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()"\`) do set "RUN_START=%%S"
+
+  call :stamp "Launching !TARGET!"
+  echo Launching !TARGET!
+  echo.
+  "%INSTALL_DIR%!TARGET!"
+  set "EXITCODE=!ERRORLEVEL!"
+  call :stamp "Panel exited with code !EXITCODE!"
+
+  rem Exit code 75 = panel requested restart-for-update.
+  if "!EXITCODE!"=="75" (
+    echo.
+    echo Panel requested restart for update. Applying...
+    echo.
+    goto run_loop
+  )
+
+  rem Exit code 78 = another panel instance already holds the lock. The
+  rem panel already printed exactly which PID and what to do about it;
+  rem retrying is guaranteed to fail identically every time, so this stops
+  rem here instead of entering the crash-loop backoff -- retrying (and
+  rem eventually "giving up") would misrepresent a working refusal as a
+  rem string of crashes.
+  if "!EXITCODE!"=="78" (
+    echo.
+    pause
+    exit /b 78
+  )
+
+  rem If a marker appeared during runtime (panel wrote it but then crashed
+  rem before exiting with 75), apply on the next loop iteration anyway.
+  if exist "%MARKER%" (
+    echo.
+    echo Update marker present after exit. Applying and relaunching...
+    echo.
+    goto run_loop
+  )
+
+  rem Exit code 0 = the operator (or a signal) asked the panel to stop.
+  rem Never relaunch a clean shutdown.
+  if "!EXITCODE!"=="0" (
+    echo.
+    echo Panel exited cleanly.
+    pause
+    exit /b 0
+  )
+
+  rem Anything else is an unrecovered crash. Relaunch with backoff, up to a
+  rem cap -- past the cap this falls through to the same "stop and show the
+  rem operator" behavior every non-zero exit used to have unconditionally.
+  for /f "usebackq delims=" %%E in (\`powershell -NoProfile -Command "[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()"\`) do set "RUN_END=%%E"
+  set /a UPTIME_SECONDS=RUN_END-RUN_START
+  if !UPTIME_SECONDS! GEQ !MIN_STABLE_SECONDS! (
+    if !CRASH_COUNT! GTR 0 call :stamp "Panel stayed up !UPTIME_SECONDS!s, resetting crash counter"
+    set "CRASH_COUNT=0"
+  )
+  set /a CRASH_COUNT+=1
+
+  if !CRASH_COUNT! GTR !MAX_RAPID_CRASHES! (
+    call :stamp "Gave up after !CRASH_COUNT! rapid crashes, last exit code !EXITCODE!"
+    echo.
+    echo Panel crashed !CRASH_COUNT! times in a row without staying up long enough to recover on its own.
+    echo Last exit code: !EXITCODE!. Check logs\\supervisor.log and the panel output above.
+    pause
+    exit /b !EXITCODE!
+  )
+
+  if defined PANEL_SUPERVISOR_BACKOFF_SECONDS (
+    set "BACKOFF=!PANEL_SUPERVISOR_BACKOFF_SECONDS!"
+  ) else (
+    set /a BACKOFF=BACKOFF_BASE_SECONDS*CRASH_COUNT
+    if !BACKOFF! GTR !BACKOFF_CAP_SECONDS! set "BACKOFF=!BACKOFF_CAP_SECONDS!"
+  )
+
+  call :stamp "Panel crashed, exit !EXITCODE!, relaunch attempt !CRASH_COUNT! of !MAX_RAPID_CRASHES!, waiting !BACKOFF!s"
+  echo.
+  echo Panel exited unexpectedly, code !EXITCODE!. Relaunch attempt !CRASH_COUNT! of !MAX_RAPID_CRASHES! in !BACKOFF!s...
+  echo.
+  rem A 0-second backoff (the default override every test in this file uses,
+  rem and a real operator could set too) still waited zero seconds before
+  rem this -- but paid for a whole powershell.exe startup to do it, adding
+  rem one more source of unpredictable subprocess-spawn latency to a script
+  rem whose whole job here is recovering quickly. Skipping the spawn changes
+  rem no observable timing: same zero seconds waited, same log line, same
+  rem relaunch order.
+  if !BACKOFF! GTR 0 (
+    powershell -NoProfile -Command "Start-Sleep -Seconds !BACKOFF!" >nul 2>&1
+  )
+  goto run_loop
+
+
+rem ============================================================
+rem :apply_update  — rename staged binary into place.
+rem  - Picks newest of .exe.new / .exe.new2 as the source.
+rem  - Backs up current .exe to .exe.bak-yyyyMMdd-HHmmss.
+rem  - Renames staged -> .exe.
+rem  - Keeps the 3 most recent .bak-* files, deletes older.
+rem ============================================================
+:apply_update
+  call :stamp "Apply: marker present, beginning swap"
+
+  set "STAGED_NAME="
+  for /f "usebackq delims=" %%F in (\`powershell -NoProfile -Command "Get-ChildItem -LiteralPath '.' -File | Where-Object { $_.Name -match '^ZomboidControlPanel\\.exe\\.new2?$' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty Name"\`) do set "STAGED_NAME=%%F"
+
+  if not defined STAGED_NAME (
+    call :stamp "Apply: no .new/.new2 staged file found; clearing marker"
+    del /f /q "%MARKER%" >nul 2>&1
+    goto :eof
+  )
+
+  if not exist "%BASE_EXE%" goto :do_rename
+
+  rem Build a timestamp suffix for the backup file.
+  for /f "usebackq delims=" %%T in (\`powershell -NoProfile -Command "Get-Date -Format 'yyyyMMdd-HHmmss'"\`) do set "TS=%%T"
+  set "BACKUP=%BASE_EXE%.bak-!TS!"
+  call :stamp "Apply: backing up %BASE_EXE% to !BACKUP!"
+  ren "%BASE_EXE%" "!BACKUP!" >nul 2>&1
+  if errorlevel 1 (
+    call :stamp "Apply: ERROR could not back up running .exe ^(still locked?^); aborting swap"
+    echo ERROR: could not rename %BASE_EXE% — is the panel still running?
+    pause
+    goto :eof
+  )
+
+:do_rename
+  call :stamp "Apply: renaming !STAGED_NAME! to %BASE_EXE%"
+  ren "!STAGED_NAME!" "%BASE_EXE%" >nul 2>&1
+  if errorlevel 1 (
+    call :stamp "Apply: ERROR rename of staged file failed"
+    echo ERROR: could not rename !STAGED_NAME! to %BASE_EXE%.
+    pause
+    goto :eof
+  )
+
+  del /f /q "%MARKER%" >nul 2>&1
+  call :stamp "Apply: success — update applied"
+
+  rem Prune .bak-* keeping the 3 most recent.
+  powershell -NoProfile -Command "Get-ChildItem -LiteralPath '.' -File -Filter 'ZomboidControlPanel.exe.bak-*' | Sort-Object LastWriteTime -Descending | Select-Object -Skip 3 | Remove-Item -Force -ErrorAction SilentlyContinue" >nul 2>&1
+goto :eof
+
+
+:stamp
+  rem %~1 = message. Appends a timestamped line to LOG_FILE.
+  for /f "usebackq delims=" %%T in (\`powershell -NoProfile -Command "Get-Date -Format 'yyyy-MM-dd HH:mm:ss'"\`) do set "NOW=%%T"
+  >>"%LOG_FILE%" echo [!NOW!] %~1
+  goto :eof
+`.replace(/\r?\n/g, "\r\n");
 }
 
 async function main() {
@@ -467,162 +706,7 @@ Recommended safe-upgrade commands:
     );
   }
 
-  // Start.bat v2 — supervisor + applier.
-  //
-  // Why a supervisor instead of an in-process helper:
-  //   The previous design spawned a detached cmd.exe helper from the panel
-  //   right before exit, which had to wait for the panel PID to die, rename
-  //   the staged exe into place, and respawn. That design was fragile on
-  //   Windows for reasons that bit us repeatedly:
-  //     - Defender / ASR silently killed the detached helper before it ran.
-  //     - `start "" "panel.exe.new"` has no .new file association, hangs or
-  //       no-ops depending on shell config.
-  //     - TIME_WAIT on port 3001 made the staged exe fail to bind on restart.
-  //     - UNC installs (\\host\share) had inconsistent SMB caching of the
-  //       helper's writes.
-  //   The supervisor sidesteps all of these by performing the rename BETWEEN
-  //   panel runs, in a user-visible batch file the user already trusts.
-  //
-  // Protocol with the panel (Dev1/server/services/panelUpdateChecker.js):
-  //   1. Panel reads env var PANEL_SUPERVISOR_V=2 to know the supervisor is
-  //      live, and uses the supervisor path instead of spawning a helper.
-  //   2. When the user clicks "Apply", the panel writes
-  //      ZomboidControlPanel.exe-dir\.update-pending  (a small JSON marker)
-  //      and exits with code 75.
-  //   3. This .bat sees exit 75 OR sees .update-pending and performs the
-  //      apply: back up the running .exe → rename newest .new/.new2 to .exe
-  //      → delete the marker → relaunch.
-  //   4. All apply events are logged to logs\supervisor.log for diagnostics.
-  //
-  // Picks the launch target by mtime among .exe / .exe.new / .exe.new2 so a
-  // freshly-staged file always wins on the very first launch (before any
-  // apply has run), keeping the original one-shot install behavior intact.
-  const startBat = `@echo off
-setlocal ENABLEDELAYEDEXPANSION
-title Zomboid Control Panel
-cd /d "%~dp0"
-
-set "PANEL_SUPERVISOR_V=2"
-set "INSTALL_DIR=%~dp0"
-set "MARKER=%INSTALL_DIR%.update-pending"
-set "BASE_EXE=ZomboidControlPanel.exe"
-set "LOG_DIR=%INSTALL_DIR%logs"
-set "LOG_FILE=%LOG_DIR%\\supervisor.log"
-
-if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" >nul 2>&1
-
-call :stamp "Supervisor v2 starting"
-
-echo Starting Zomboid Control Panel...
-echo Open your browser to: http://localhost:3001
-echo.
-
-:run_loop
-  rem === If an update is pending, apply it before launching. ===
-  if exist "%MARKER%" call :apply_update
-
-  rem === Pick the binary to launch. Newest of .exe / .exe.new / .exe.new2. ===
-  rem === First-install case: only .exe.new exists (from the release zip),  ===
-  rem === so this still picks it up on the very first run.                  ===
-  set "TARGET="
-  for /f "usebackq delims=" %%F in (\`powershell -NoProfile -Command "Get-ChildItem -LiteralPath '.' -File | Where-Object { $_.Name -match '^ZomboidControlPanel\\.exe(\\.new2?)?$' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty Name"\`) do set "TARGET=%%F"
-
-  if not defined TARGET (
-    call :stamp "ERROR no ZomboidControlPanel binary found"
-    echo ERROR: No ZomboidControlPanel binary found in this folder.
-    echo Expected one of: ZomboidControlPanel.exe, .exe.new, .exe.new2
-    pause
-    exit /b 1
-  )
-
-  call :stamp "Launching !TARGET!"
-  echo Launching !TARGET!
-  echo.
-  "!TARGET!"
-  set "EXITCODE=!ERRORLEVEL!"
-  call :stamp "Panel exited with code !EXITCODE!"
-
-  rem Exit code 75 = panel requested restart-for-update.
-  if "!EXITCODE!"=="75" (
-    echo.
-    echo Panel requested restart for update. Applying...
-    echo.
-    goto run_loop
-  )
-
-  rem If a marker appeared during runtime (panel wrote it but then crashed
-  rem before exiting with 75), apply on the next loop iteration anyway.
-  if exist "%MARKER%" (
-    echo.
-    echo Update marker present after exit. Applying and relaunching...
-    echo.
-    goto run_loop
-  )
-
-  rem Anything else: stop here and let the user see the exit code.
-  echo.
-  echo Panel exited with code !EXITCODE!.
-  pause
-exit /b !EXITCODE!
-
-
-rem ============================================================
-rem :apply_update  — rename staged binary into place.
-rem  - Picks newest of .exe.new / .exe.new2 as the source.
-rem  - Backs up current .exe to .exe.bak-yyyyMMdd-HHmmss.
-rem  - Renames staged → .exe.
-rem  - Keeps the 3 most recent .bak-* files, deletes older.
-rem ============================================================
-:apply_update
-  call :stamp "Apply: marker present, beginning swap"
-
-  set "STAGED_NAME="
-  for /f "usebackq delims=" %%F in (\`powershell -NoProfile -Command "Get-ChildItem -LiteralPath '.' -File | Where-Object { $_.Name -match '^ZomboidControlPanel\\.exe\\.new2?$' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty Name"\`) do set "STAGED_NAME=%%F"
-
-  if not defined STAGED_NAME (
-    call :stamp "Apply: no .new/.new2 staged file found; clearing marker"
-    del /f /q "%MARKER%" >nul 2>&1
-    goto :eof
-  )
-
-  if not exist "%BASE_EXE%" goto :do_rename
-
-  rem Build a timestamp suffix for the backup file.
-  for /f "usebackq delims=" %%T in (\`powershell -NoProfile -Command "Get-Date -Format 'yyyyMMdd-HHmmss'"\`) do set "TS=%%T"
-  set "BACKUP=%BASE_EXE%.bak-!TS!"
-  call :stamp "Apply: backing up %BASE_EXE% to !BACKUP!"
-  ren "%BASE_EXE%" "!BACKUP!" >nul 2>&1
-  if errorlevel 1 (
-    call :stamp "Apply: ERROR could not back up running .exe ^(still locked?^); aborting swap"
-    echo ERROR: could not rename %BASE_EXE% — is the panel still running?
-    pause
-    goto :eof
-  )
-
-:do_rename
-  call :stamp "Apply: renaming !STAGED_NAME! to %BASE_EXE%"
-  ren "!STAGED_NAME!" "%BASE_EXE%" >nul 2>&1
-  if errorlevel 1 (
-    call :stamp "Apply: ERROR rename of staged file failed"
-    echo ERROR: could not rename !STAGED_NAME! to %BASE_EXE%.
-    pause
-    goto :eof
-  )
-
-  del /f /q "%MARKER%" >nul 2>&1
-  call :stamp "Apply: success — update applied"
-
-  rem Prune .bak-* keeping the 3 most recent.
-  powershell -NoProfile -Command "Get-ChildItem -LiteralPath '.' -File -Filter 'ZomboidControlPanel.exe.bak-*' | Sort-Object LastWriteTime -Descending | Select-Object -Skip 3 | Remove-Item -Force -ErrorAction SilentlyContinue" >nul 2>&1
-goto :eof
-
-
-:stamp
-  rem %~1 = message. Appends a timestamped line to LOG_FILE.
-  for /f "usebackq delims=" %%T in (\`powershell -NoProfile -Command "Get-Date -Format 'yyyy-MM-dd HH:mm:ss'"\`) do set "NOW=%%T"
-  >>"%LOG_FILE%" echo [!NOW!] %~1
-goto :eof
-`;
+  const startBat = generateStartBat();
   fs.writeFileSync("./release/Start.bat", startBat);
 
   const startSh = `#!/bin/bash
@@ -717,4 +801,9 @@ fi
   console.log("  - README.txt");
 }
 
-await main();
+const isMainModule =
+  process.argv[1] != null &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMainModule) {
+  await main();
+}

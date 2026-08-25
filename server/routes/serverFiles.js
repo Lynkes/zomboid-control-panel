@@ -5,7 +5,7 @@ import os from "os";
 import { createLogger } from "../utils/logger.js";
 const log = createLogger("API:Files");
 import { getActiveServer, getAllSettings } from "../database/init.js";
-import { sanitizeError } from "../utils/sanitize.js";
+import { sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
 import { withFileLock, writeFileAtomic } from "../utils/fileWriteQueue.js";
 import { escapeRegExp } from "../utils/regex.js";
 import { confineToRoots } from "../utils/browseRoots.js";
@@ -18,9 +18,35 @@ import {
   pushRemoteConfigFiles,
   validateRemoteConfigTransport,
 } from "../services/remoteConfigFiles.js";
-import { requireStoppedForLocalConfigMutation } from "../services/configMutationGuard.js";
+import {
+  requireStoppedForLocalConfigMutation,
+  warnRunningForLocalConfigEdit,
+} from "../services/configMutationGuard.js";
+import { requirePermission } from "../services/permissions.js";
+import { ErrorCode } from "../utils/errorCodes.js";
 
 const router = express.Router();
+
+// INI/sandbox/spawn config editing, file backups/restore, and templates —
+// "config" and "backups" are explicitly technician's job per the role
+// brief; moderator has no server-config editing role. Applied once at the
+// router level rather than per-route (25 endpoints). Previously any
+// logged-in role, including moderator, could edit sandbox vars or restore
+// a server file backup.
+router.use(requirePermission("serverfiles.manage"));
+
+// Thrown by getServerConfigPath()/getServerName() when no server is
+// configured at all (no active server row, and no legacy settings fallback
+// either) — every route below operates on a specific server's config
+// directory (even /templates, which lives under it), so there is no
+// meaningful response to give except "nothing is configured", never a
+// fabricated default.
+export class ServerNotConfiguredError extends Error {
+  constructor() {
+    super("No active server configured");
+    this.code = ErrorCode.SERVER_NOT_CONFIGURED;
+  }
+}
 
 // These read or write the panel host's own filesystem, so an SFTP mirror of
 // the remote Server/ folder cannot stand in for them.
@@ -37,6 +63,23 @@ async function resolveRemoteConfigTransport() {
     configPath: settings[SFTP_CONFIG_PATH_KEY],
   });
 }
+
+// Every route below resolves a specific server's config directory (directly,
+// or via /templates living under it). Gate on that up front so an unconfigured
+// panel says so once, here, instead of each of the 25 handlers below silently
+// falling through to a fabricated default and reporting invented data as real.
+// Matches the sibling GET /api/servers/active's 404 shape/message.
+router.use(async (req, res, next) => {
+  try {
+    await getServerConfigPath();
+  } catch (err) {
+    if (err instanceof ServerNotConfiguredError) {
+      return res.status(404).json({ error: err.message, code: err.code });
+    }
+    return next(err);
+  }
+  next();
+});
 
 // A remote server has no local filesystem, but its Server/ folder is reachable
 // over the SFTP credentials PanelBridge already uses. Mirror it in before the
@@ -55,6 +98,7 @@ router.use(async (req, res, next) => {
     return res.status(400).json({
       error:
         "Browsing the server filesystem is not available for remote servers.",
+      code: ErrorCode.REMOTE_BROWSE_NOT_AVAILABLE,
     });
   }
 
@@ -111,10 +155,46 @@ router.use(async (req, res, next) => {
   next();
 });
 
+// Ordinary edits to one of these files. The original justification for
+// BLOCKING all of these outright while the server ran was the assumption
+// that PZ rewrites its config files on shutdown and would discard a live
+// edit — measured 2026-08-23 against a real B42 dedicated server (clean RCON
+// `quit`, the same path server.js's POST /stop uses): a clean shutdown
+// touches NEITHER SandboxVars.lua NOR the server .ini at all (byte-identical
+// mtime/hash before and after), and the next startup rewrites both but
+// PRESERVES an edit made on disk while the server was running — measured,
+// not assumed. "PUT /sandbox-option" was the first removed on that evidence
+// alone (a stuck-forever refusal was a real, reported bug).
+//
+// For these remaining nine, the operator has since RULED (2026-08-23, his
+// own knowledge of the game, not derived from the measurement above): edits
+// are always allowed while the server runs; a write just does not reach the
+// live game until the next restart. That ruling is what changed the
+// behavior below from "refuse" to "allow and say so" — the measurement only
+// established that a clean shutdown/startup cycle doesn't lose the edit,
+// which is necessary for the ruling to be safe but isn't by itself a claim
+// about every route below applying live or requiring a restart uniformly.
+// See warnRunningForLocalConfigEdit() in configMutationGuard.js for the
+// mechanism, and each handler's own response for where restartRequired is
+// attached.
+//
+// HONEST CAVEAT for whoever reads this next: the measurement covers a B42
+// server only, both a clean RCON `quit` and a hard `taskkill /F` force-stop
+// (dwight, 2026-08-23, replicating serverManager.stopServer(false)'s actual
+// mechanism) — both behave identically for this question: neither rewrites
+// either file, both preserve an edit made on disk while running, and
+// startup afterward rewrites-but-preserves in both cases. Two things remain
+// genuinely untested: a B41 server (no B41 dedicated-server install was
+// available to test against), and whether a kill landing mid-write could
+// corrupt an in-flight write specifically (no write was ever caught in
+// flight in either session, clean or forced). The operator's ruling covers
+// all of this from his own experience running these servers and outranks
+// one narrow experiment — but it IS judgement layered on top of
+// measurement, not measurement alone, and the two should stay
+// distinguishable here.
 const LOCAL_CONFIG_MUTATIONS = new Set([
   "PUT /ini",
   "PUT /sandbox",
-  "PUT /sandbox-option",
   "POST /sandbox/repair",
   "PUT /spawnpoints",
   "PUT /spawnregions",
@@ -124,21 +204,46 @@ const LOCAL_CONFIG_MUTATIONS = new Set([
   "PUT /raw/spawnregions",
 ]);
 
-export function isLocalConfigMutation(req) {
-  const routeKey = `${req.method} ${req.path}`;
-  if (LOCAL_CONFIG_MUTATIONS.has(routeKey)) return true;
+// A wholesale file replacement, not an edit: applying a template or
+// restoring a backup overwrites everything in one of these files at once,
+// without the operator reviewing each changed value the way a form save
+// implies. The operator's "edits are fine while running" ruling above was
+// about editing, and the 2026-08-23 measurement says nothing about whether
+// the running game tolerates one of its own open config files being
+// replaced wholesale underneath it — a restore in particular is the one
+// operation where getting that wrong destroys the very thing the operator
+// was trying to protect. Left gated (409 while running) deliberately,
+// pending its own evidence rather than inheriting the edit ruling by
+// assumption.
+function isLocalConfigOverwrite(req) {
   if (req.method === "POST" && /^\/templates\/[^/]+\/apply$/.test(req.path)) {
     return true;
   }
   return req.method === "POST" && /^\/restore\/[^/]+$/.test(req.path);
 }
 
-export { requireStoppedForLocalConfigMutation };
-router.use((req, res, next) =>
-  isLocalConfigMutation(req)
-    ? requireStoppedForLocalConfigMutation(req, res, next)
-    : next(),
-);
+function isLocalConfigEdit(req) {
+  return LOCAL_CONFIG_MUTATIONS.has(`${req.method} ${req.path}`);
+}
+
+export function isLocalConfigMutation(req) {
+  return isLocalConfigEdit(req) || isLocalConfigOverwrite(req);
+}
+
+export {
+  requireStoppedForLocalConfigMutation,
+  isLocalConfigEdit,
+  isLocalConfigOverwrite,
+};
+router.use((req, res, next) => {
+  if (isLocalConfigOverwrite(req)) {
+    return requireStoppedForLocalConfigMutation(req, res, next);
+  }
+  if (isLocalConfigEdit(req)) {
+    return warnRunningForLocalConfigEdit(req, res, next);
+  }
+  return next();
+});
 
 // Escape strings for safe interpolation into Lua source code
 function escapeLuaString(str) {
@@ -188,7 +293,7 @@ function unescapeLuaString(value) {
 }
 
 // Get the server config directory path
-async function getServerConfigPath() {
+export async function getServerConfigPath() {
   const activeServer = await getActiveServer();
 
   // A remote server's Server/ folder lives on the host; the handlers below
@@ -219,8 +324,13 @@ async function getServerConfigPath() {
     return path.join(settings.zomboidDataPath, "Server");
   }
 
-  // Default path: ~/Zomboid/Server
-  return path.join(os.homedir(), "Zomboid", "Server");
+  // Nothing configured anywhere — no active server row and no legacy
+  // settings fallback either. Do NOT default to ~/Zomboid/Server: that is
+  // the vanilla path Project Zomboid itself uses, so on a machine that
+  // happens to have a real (unrelated, never-added-to-the-panel) install
+  // there, this would present its real data as the panel's "active server"
+  // — invented, not merely empty.
+  throw new ServerNotConfiguredError();
 }
 
 // Get server name from active server. serverName is interpolated directly
@@ -237,7 +347,14 @@ export async function getServerName() {
     raw = activeServer.serverName;
   } else {
     const settings = await getAllSettings();
-    raw = settings.serverName || "servertest";
+    raw = settings.serverName;
+  }
+  if (!raw) {
+    // No active server and no legacy settings name either — there is no
+    // real server this could refer to. "servertest" used to fill in here,
+    // which is how an empty database ended up presenting a fully-populated,
+    // fully-editable server that was never configured.
+    throw new ServerNotConfiguredError();
   }
 
   const safe = path.basename(raw);
@@ -252,21 +369,36 @@ async function getBackupPath() {
   return path.join(await getServerConfigPath(), "backups");
 }
 
-// Create backup before saving
+// Create a backup of `filename` before an edit overwrites it.
+//
+// Returns one of three shapes, DELIBERATELY not collapsed into a single
+// null/truthy check: a caller that can't tell "nothing to back up" apart
+// from "the backup failed" ends up treating both the same way, which is
+// exactly how a response ended up asserting a backup existed when it
+// didn't (see docs/qa/kevin-route-hunt.md Finding 2). Same defect shape as
+// `if (!req.user) return next()` from earlier tonight -- one value quietly
+// carrying two meanings, one benign and one dangerous.
+//   { backedUp: true, name }               -- a real backup now exists on disk
+//   { backedUp: false, reason: "no-source" } -- benign: the file being edited
+//     doesn't exist yet (e.g. first-ever write), so there is nothing to
+//     protect. Not a failure.
+//   { backedUp: false, reason: "failed", error } -- dangerous: a backup was
+//     attempted (the source file exists) and did not happen -- disk full,
+//     backup dir unwritable, the copy itself failing. The safety net the
+//     caller may be about to rely on is NOT there.
 async function createBackup(filename) {
   const configPath = await getServerConfigPath();
   const backupDir = await getBackupPath();
   const filePath = path.join(configPath, filename);
 
   try {
-    // Check file existence asynchronously
-    try {
-      await fs.promises.access(filePath);
-    } catch (e) {
-      log.debug(`Config backup source not found: ${filePath} — ${e.message}`);
-      return null;
-    }
+    await fs.promises.access(filePath);
+  } catch (e) {
+    log.debug(`Config backup source not found: ${filePath} — ${e.message}`);
+    return { backedUp: false, reason: "no-source" };
+  }
 
+  try {
     // Ensure backup directory exists
     await fs.promises.mkdir(backupDir, { recursive: true });
 
@@ -274,35 +406,58 @@ async function createBackup(filename) {
     const backupName = `${filename}.${timestamp}.bak`;
     const backupPath = path.join(backupDir, backupName);
 
-    // Async copy
+    // Async copy — this is the actual safety net. Anything that throws
+    // past this point means the backup did not happen.
     await fs.promises.copyFile(filePath, backupPath);
     log.info(`Created backup: ${backupName}`);
 
-    // Cleanup old backups asynchronously
-    const files = await fs.promises.readdir(backupDir);
-    const backups = files
-      .filter((f) => f.startsWith(filename + ".") && f.endsWith(".bak"))
-      .sort()
-      .reverse();
+    // Cleanup old backups is best-effort housekeeping, not part of the
+    // safety net itself — the new backup above already exists on disk
+    // regardless of whether pruning old ones succeeds, so a cleanup
+    // failure must not flip this call's result to backedUp:false.
+    try {
+      const files = await fs.promises.readdir(backupDir);
+      const backups = files
+        .filter((f) => f.startsWith(filename + ".") && f.endsWith(".bak"))
+        .sort()
+        .reverse();
 
-    if (backups.length > 10) {
-      const filesToDelete = backups.slice(10);
-      await Promise.all(
-        filesToDelete.map((old) =>
-          fs.promises
-            .unlink(path.join(backupDir, old))
-            .catch((e) =>
-              log.warn(`Failed to delete old backup ${old}: ${e.message}`),
-            ),
-        ),
+      if (backups.length > 10) {
+        const filesToDelete = backups.slice(10);
+        await Promise.all(
+          filesToDelete.map((old) =>
+            fs.promises
+              .unlink(path.join(backupDir, old))
+              .catch((e) =>
+                log.warn(`Failed to delete old backup ${old}: ${e.message}`),
+              ),
+          ),
+        );
+      }
+    } catch (cleanupError) {
+      log.warn(
+        `Backup cleanup failed (new backup ${backupName} is still safe): ${cleanupError.message}`,
       );
     }
 
-    return backupName;
+    return { backedUp: true, name: backupName };
   } catch (error) {
     log.error(`Backup creation failed: ${error.message}`);
-    return null;
+    return { backedUp: false, reason: "failed", error: error.message };
   }
+}
+
+// For an ordinary, intentional config edit (as opposed to /sandbox/repair's
+// heuristic rewrite of an already-corrupted file): a backup that failed
+// must never block the edit the operator asked for -- the file being
+// edited is valid and the change is deliberate, so losing the previous
+// version is an annoyance, not a disaster. But the response must say so
+// rather than silently degrading. Returns a user-facing warning string, or
+// null when there's nothing to warn about (backup succeeded, or there was
+// no prior file to back up in the first place).
+function backupWarningFor(backup) {
+  if (!backup || backup.backedUp || backup.reason === "no-source") return null;
+  return `Could not back up the previous version before saving: ${backup.error}. Your change was saved, but there is no safety copy of what was there before.`;
 }
 
 // Parse INI file to object
@@ -973,7 +1128,10 @@ router.get("/ini", async (req, res) => {
     const filePath = path.join(configPath, `${serverName}.ini`);
 
     if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: "INI file not found" });
+      return res.status(404).json({
+        error: "INI file not found",
+        code: ErrorCode.INI_FILE_NOT_FOUND,
+      });
     }
 
     const content = fs.readFileSync(filePath, "utf-8");
@@ -998,7 +1156,10 @@ router.put("/ini", async (req, res) => {
     const { settings } = req.body;
 
     if (!settings || typeof settings !== "object") {
-      return res.status(400).json({ error: "Settings object required" });
+      return res.status(400).json({
+        error: "Settings object required",
+        code: ErrorCode.INI_SETTINGS_REQUIRED,
+      });
     }
 
     // Guard against prototype pollution
@@ -1007,16 +1168,20 @@ router.put("/ini", async (req, res) => {
       Object.prototype.hasOwnProperty.call(settings, "constructor") ||
       Object.prototype.hasOwnProperty.call(settings, "prototype")
     ) {
-      return res.status(400).json({ error: "Invalid settings" });
+      return res.status(400).json({
+        error: "Invalid settings",
+        code: ErrorCode.INI_SETTINGS_INVALID,
+      });
     }
 
     // Read original to preserve comments/structure. Locked per-path so two
     // overlapping PUTs to the same INI can't interleave their read-modify-write.
+    let backupWarning = null;
     const persistedSettings = await withFileLock(filePath, async () => {
       let originalContent = "";
       if (fs.existsSync(filePath)) {
         originalContent = fs.readFileSync(filePath, "utf-8");
-        await createBackup(`${serverName}.ini`);
+        backupWarning = backupWarningFor(await createBackup(`${serverName}.ini`));
       }
 
       const content = toIni(settings, originalContent);
@@ -1034,7 +1199,14 @@ router.put("/ini", async (req, res) => {
     });
 
     log.info("Saved INI file");
-    res.json({ success: true, message: "Settings saved", path: filePath, settings: persistedSettings });
+    res.json({
+      success: true,
+      message: "Settings saved",
+      path: filePath,
+      settings: persistedSettings,
+      ...(backupWarning ? { backupWarning } : {}),
+      ...(req.configEditRestartWarning ? { restartRequired: true } : {}),
+    });
   } catch (error) {
     log.error("Failed to save INI:", error);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -1049,7 +1221,10 @@ router.get("/sandbox", async (req, res) => {
     const filePath = path.join(configPath, `${serverName}_SandboxVars.lua`);
 
     if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: "SandboxVars file not found" });
+      return res.status(404).json({
+        error: "SandboxVars file not found",
+        code: ErrorCode.SANDBOXVARS_FILE_NOT_FOUND,
+      });
     }
 
     const content = fs.readFileSync(filePath, "utf-8");
@@ -1072,7 +1247,10 @@ router.put("/sandbox", async (req, res) => {
     const { sandbox } = req.body;
 
     if (!sandbox || typeof sandbox !== "object") {
-      return res.status(400).json({ error: "Sandbox object required" });
+      return res.status(400).json({
+        error: "Sandbox object required",
+        code: ErrorCode.SANDBOX_OBJECT_REQUIRED,
+      });
     }
 
     // Guard against prototype pollution
@@ -1081,7 +1259,10 @@ router.put("/sandbox", async (req, res) => {
       Object.prototype.hasOwnProperty.call(sandbox, "constructor") ||
       Object.prototype.hasOwnProperty.call(sandbox, "prototype")
     ) {
-      return res.status(400).json({ error: "Invalid sandbox data" });
+      return res.status(400).json({
+        error: "Invalid sandbox data",
+        code: ErrorCode.SANDBOX_DATA_INVALID,
+      });
     }
 
     // Guard nested sections against prototype pollution
@@ -1092,7 +1273,10 @@ router.put("/sandbox", async (req, res) => {
           Object.prototype.hasOwnProperty.call(section, "constructor") ||
           Object.prototype.hasOwnProperty.call(section, "prototype")
         ) {
-          return res.status(400).json({ error: "Invalid sandbox data" });
+          return res.status(400).json({
+            error: "Invalid sandbox data",
+            code: ErrorCode.SANDBOX_DATA_INVALID,
+          });
         }
       }
     }
@@ -1100,22 +1284,26 @@ router.put("/sandbox", async (req, res) => {
     // Size limit: reject payloads > 1MB
     const payloadSize = JSON.stringify(sandbox).length;
     if (payloadSize > 1024 * 1024) {
-      return res
-        .status(400)
-        .json({ error: "Sandbox data too large (max 1MB)" });
+      return res.status(400).json({
+        error: "Sandbox data too large (max 1MB)",
+        code: ErrorCode.SANDBOX_DATA_TOO_LARGE,
+      });
     }
 
     // Modify an existing file in-place to preserve comments and structure.
     // On a fresh server, create a valid sandbox file from the submitted schema
     // values so the editor works before the game's first boot.
     let fileExists;
+    let backupWarning = null;
     await withFileLock(filePath, async () => {
       fileExists = fs.existsSync(filePath);
       const newContent = fileExists
         ? applySandboxChanges(fs.readFileSync(filePath, "utf-8"), sandbox)
         : createSandboxVars(sandbox);
       if (fileExists) {
-        await createBackup(`${serverName}_SandboxVars.lua`);
+        backupWarning = backupWarningFor(
+          await createBackup(`${serverName}_SandboxVars.lua`),
+        );
       }
       writeFileAtomic(filePath, newContent, "utf-8");
     });
@@ -1126,6 +1314,8 @@ router.put("/sandbox", async (req, res) => {
       created: !fileExists,
       message: fileExists ? "Sandbox settings saved" : "SandboxVars file created",
       path: filePath,
+      ...(backupWarning ? { backupWarning } : {}),
+      ...(req.configEditRestartWarning ? { restartRequired: true } : {}),
     });
   } catch (error) {
     log.error("Failed to save SandboxVars:", error);
@@ -1142,16 +1332,25 @@ router.put("/sandbox-option", async (req, res) => {
     const { name, value } = req.body || {};
 
     if (typeof name !== "string" || !name) {
-      return res.status(400).json({ error: "Option name required" });
+      return res.status(400).json({
+        error: "Option name required",
+        code: ErrorCode.SANDBOX_OPTION_NAME_REQUIRED,
+      });
     }
     if (!["string", "number", "boolean"].includes(typeof value)) {
-      return res.status(400).json({ error: "Option value must be a primitive" });
+      return res.status(400).json({
+        error: "Option value must be a primitive",
+        code: ErrorCode.SANDBOX_OPTION_VALUE_INVALID,
+      });
     }
 
     const parts = name.split(".");
     const isIdentifier = (p) => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(p);
     if (parts.length > 2 || !parts.every(isIdentifier)) {
-      return res.status(400).json({ error: "Invalid option name" });
+      return res.status(400).json({
+        error: "Invalid option name",
+        code: ErrorCode.SANDBOX_OPTION_NAME_INVALID,
+      });
     }
     const block = parts.length === 2 ? parts[0] : null;
     const key = parts.length === 2 ? parts[1] : parts[0];
@@ -1164,21 +1363,29 @@ router.put("/sandbox-option", async (req, res) => {
       return res.status(404).json({
         error:
           "SandboxVars file not found. Start the server once to generate it.",
+        code: ErrorCode.SANDBOX_OPTION_FILE_NOT_FOUND,
       });
     }
 
     let persisted = false;
+    let backupWarning = null;
     await withFileLock(filePath, async () => {
       const originalContent = fs.readFileSync(filePath, "utf-8");
       const newContent = modifySandboxValue(originalContent, key, value, block);
       if (newContent === originalContent) return;
-      await createBackup(`${serverName}_SandboxVars.lua`);
+      backupWarning = backupWarningFor(
+        await createBackup(`${serverName}_SandboxVars.lua`),
+      );
       writeFileAtomic(filePath, newContent, "utf-8");
       persisted = true;
     });
 
     log.info(`Sandbox option ${name} persisted: ${persisted}`);
-    res.json({ success: true, persisted });
+    res.json({
+      success: true,
+      persisted,
+      ...(backupWarning ? { backupWarning } : {}),
+    });
   } catch (error) {
     log.error("Failed to save sandbox option:", error);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -1218,11 +1425,18 @@ export async function persistSandboxValues(values) {
     }
   }
 
-  return writeSandboxValues(
-    entries,
-    await getServerConfigPath(),
-    await getServerName(),
-  );
+  try {
+    return await writeSandboxValues(
+      entries,
+      await getServerConfigPath(),
+      await getServerName(),
+    );
+  } catch (err) {
+    if (err instanceof ServerNotConfiguredError) {
+      return { persisted: false, reason: "no server configured" };
+    }
+    throw err;
+  }
 }
 
 async function writeSandboxValues(entries, configPath, serverName) {
@@ -1256,9 +1470,14 @@ async function writeSandboxValues(entries, configPath, serverName) {
       reason = "values already match";
       return;
     }
-    await createBackup(`${serverName}_SandboxVars.lua`);
+    const backupWarning = backupWarningFor(
+      await createBackup(`${serverName}_SandboxVars.lua`),
+    );
     writeFileAtomic(filePath, content, "utf-8");
     persisted = true;
+    // persisted stays true -- the edit is intentional and did happen; the
+    // caller (PanelBridge) still needs to see the backup failure though.
+    if (backupWarning) reason = backupWarning;
   });
 
   return { persisted, reason };
@@ -1274,7 +1493,10 @@ router.get("/sandbox/validate", async (req, res) => {
     const filePath = path.join(configPath, `${serverName}_SandboxVars.lua`);
 
     if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: "SandboxVars file not found" });
+      return res.status(404).json({
+        error: "SandboxVars file not found",
+        code: ErrorCode.SANDBOXVARS_FILE_NOT_FOUND,
+      });
     }
 
     const content = fs.readFileSync(filePath, "utf-8");
@@ -1286,10 +1508,15 @@ router.get("/sandbox/validate", async (req, res) => {
   }
 });
 
-// Attempt to auto-repair SandboxVars.lua. Always backs up the existing file
-// first, and refuses to write anything unless the repaired content is
-// verified brace-balanced — if the corruption doesn't match a known
-// pattern, nothing is written and the caller is told to fix it manually.
+// Attempt to auto-repair SandboxVars.lua. Refuses to write anything unless
+// BOTH the repaired content is verified brace-balanced AND a real backup of
+// the broken file was made first — if the corruption doesn't match a known
+// repair pattern, or the backup can't be created, nothing is written and
+// the caller is told exactly why and what to do about it. This route
+// rewrites an already-corrupted file with a heuristic the repair function
+// itself admits can miss (see repairSandboxSyntax's own comment) -- with no
+// backup, a wrong result has no way back, so this is the one call site in
+// this file that refuses rather than proceeding on a failed backup.
 router.post("/sandbox/repair", async (req, res) => {
   try {
     log.info("POST /sandbox/repair");
@@ -1298,7 +1525,10 @@ router.post("/sandbox/repair", async (req, res) => {
     const filePath = path.join(configPath, `${serverName}_SandboxVars.lua`);
 
     if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: "SandboxVars file not found" });
+      return res.status(404).json({
+        error: "SandboxVars file not found",
+        code: ErrorCode.SANDBOXVARS_FILE_NOT_FOUND,
+      });
     }
 
     const result = await withFileLock(filePath, async () => {
@@ -1319,12 +1549,27 @@ router.post("/sandbox/repair", async (req, res) => {
           repaired: false,
           error:
             "Could not automatically repair this file — the corruption doesn't match a known pattern. Restore from a backup or fix it manually.",
+          code: ErrorCode.SANDBOX_REPAIR_PATTERN_UNKNOWN,
         };
       }
 
-      await createBackup(`${serverName}_SandboxVars.lua`);
+      const backup = await createBackup(`${serverName}_SandboxVars.lua`);
+      if (!backup.backedUp) {
+        // reason === "no-source" can't happen here (existsSync already
+        // confirmed the file above), so this is always the "failed" case.
+        return {
+          alreadyValid: false,
+          repaired: false,
+          error:
+            `Could not back up SandboxVars.lua before repairing it, so nothing was changed: ${backup.error}. ` +
+            "Free up disk space or fix the backups folder's permissions, or copy the file aside yourself, then try again.",
+          code: ErrorCode.SANDBOX_REPAIR_BACKUP_FAILED,
+          params: { reason: backup.error },
+        };
+      }
+
       writeFileAtomic(filePath, repaired, "utf-8");
-      return { alreadyValid: false, repaired: true, changes };
+      return { alreadyValid: false, repaired: true, changes, backupName: backup.name };
     });
 
     if (result.alreadyValid) {
@@ -1335,7 +1580,9 @@ router.post("/sandbox/repair", async (req, res) => {
       });
     }
     if (!result.repaired) {
-      return res.status(422).json({ success: false, error: result.error });
+      const body = { success: false, error: result.error, code: result.code };
+      if (result.params) body.params = sanitizeErrorParams(result.params);
+      return res.status(422).json(body);
     }
 
     log.info(
@@ -1345,7 +1592,8 @@ router.post("/sandbox/repair", async (req, res) => {
       success: true,
       repaired: true,
       changes: result.changes,
-      message: `Repaired ${result.changes.length} issue${result.changes.length === 1 ? "" : "s"} in SandboxVars.lua. A backup of the broken file was saved first.`,
+      message: `Repaired ${result.changes.length} issue${result.changes.length === 1 ? "" : "s"} in SandboxVars.lua. A backup of the broken file was saved first (${result.backupName}).`,
+      ...(req.configEditRestartWarning ? { restartRequired: true } : {}),
     });
   } catch (error) {
     log.error("Failed to repair SandboxVars:", error);
@@ -1361,9 +1609,11 @@ router.get("/spawnpoints", async (req, res) => {
     const filePath = path.join(configPath, `${serverName}_spawnpoints.lua`);
 
     if (!fs.existsSync(filePath)) {
-      return res
-        .status(404)
-        .json({ error: "Spawn points file not found", path: filePath });
+      return res.status(404).json({
+        error: "Spawn points file not found",
+        path: filePath,
+        code: ErrorCode.SPAWNPOINTS_FILE_NOT_FOUND,
+      });
     }
 
     const content = fs.readFileSync(filePath, "utf-8");
@@ -1386,14 +1636,18 @@ router.put("/spawnpoints", async (req, res) => {
     const { spawnpoints } = req.body;
 
     if (!spawnpoints || typeof spawnpoints !== "object") {
-      return res
-        .status(400)
-        .json({ error: "Spawn points object required (keyed by profession)" });
+      return res.status(400).json({
+        error: "Spawn points object required (keyed by profession)",
+        code: ErrorCode.SPAWNPOINTS_OBJECT_REQUIRED,
+      });
     }
 
+    let backupWarning = null;
     await withFileLock(filePath, async () => {
       if (fs.existsSync(filePath)) {
-        await createBackup(`${serverName}_spawnpoints.lua`);
+        backupWarning = backupWarningFor(
+          await createBackup(`${serverName}_spawnpoints.lua`),
+        );
       }
 
       const newContent = toSpawnPoints(spawnpoints, serverName);
@@ -1401,7 +1655,12 @@ router.put("/spawnpoints", async (req, res) => {
     });
 
     log.info("Saved spawn points file");
-    res.json({ success: true, message: "Spawn points saved" });
+    res.json({
+      success: true,
+      message: "Spawn points saved",
+      ...(backupWarning ? { backupWarning } : {}),
+      ...(req.configEditRestartWarning ? { restartRequired: true } : {}),
+    });
   } catch (error) {
     log.error("Failed to save spawn points:", error);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -1416,9 +1675,11 @@ router.get("/spawnregions", async (req, res) => {
     const filePath = path.join(configPath, `${serverName}_spawnregions.lua`);
 
     if (!fs.existsSync(filePath)) {
-      return res
-        .status(404)
-        .json({ error: "Spawn regions file not found", path: filePath });
+      return res.status(404).json({
+        error: "Spawn regions file not found",
+        path: filePath,
+        code: ErrorCode.SPAWNREGIONS_FILE_NOT_FOUND,
+      });
     }
 
     const content = fs.readFileSync(filePath, "utf-8");
@@ -1440,12 +1701,18 @@ router.put("/spawnregions", async (req, res) => {
     const { spawnregions } = req.body;
 
     if (!Array.isArray(spawnregions)) {
-      return res.status(400).json({ error: "Spawn regions array required" });
+      return res.status(400).json({
+        error: "Spawn regions array required",
+        code: ErrorCode.SPAWNREGIONS_ARRAY_REQUIRED,
+      });
     }
 
+    let backupWarning = null;
     await withFileLock(filePath, async () => {
       if (fs.existsSync(filePath)) {
-        await createBackup(`${serverName}_spawnregions.lua`);
+        backupWarning = backupWarningFor(
+          await createBackup(`${serverName}_spawnregions.lua`),
+        );
       }
 
       const newContent = toSpawnRegions(spawnregions, serverName);
@@ -1453,7 +1720,12 @@ router.put("/spawnregions", async (req, res) => {
     });
 
     log.info("Saved spawn regions file");
-    res.json({ success: true, message: "Spawn regions saved" });
+    res.json({
+      success: true,
+      message: "Spawn regions saved",
+      ...(backupWarning ? { backupWarning } : {}),
+      ...(req.configEditRestartWarning ? { restartRequired: true } : {}),
+    });
   } catch (error) {
     log.error("Failed to save spawn regions:", error);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -1476,13 +1748,19 @@ router.get("/raw/:type", async (req, res) => {
     };
 
     if (!fileMap[type]) {
-      return res.status(400).json({ error: "Invalid file type" });
+      return res.status(400).json({
+        error: "Invalid file type",
+        code: ErrorCode.RAW_FILE_INVALID_TYPE,
+      });
     }
 
     const filePath = path.join(configPath, fileMap[type]);
 
     if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: "File not found" });
+      return res.status(404).json({
+        error: "File not found",
+        code: ErrorCode.FILE_NOT_FOUND,
+      });
     }
 
     const content = fs.readFileSync(filePath, "utf-8");
@@ -1510,29 +1788,44 @@ router.put("/raw/:type", async (req, res) => {
     };
 
     if (!fileMap[type]) {
-      return res.status(400).json({ error: "Invalid file type" });
+      return res.status(400).json({
+        error: "Invalid file type",
+        code: ErrorCode.RAW_FILE_INVALID_TYPE,
+      });
     }
 
     if (typeof content !== "string") {
-      return res.status(400).json({ error: "Content string required" });
+      return res.status(400).json({
+        error: "Content string required",
+        code: ErrorCode.RAW_CONTENT_STRING_REQUIRED,
+      });
     }
 
     if (content.length > 512 * 1024) {
-      return res.status(400).json({ error: "Content too large (max 512KB)" });
+      return res.status(400).json({
+        error: "Content too large (max 512KB)",
+        code: ErrorCode.RAW_CONTENT_TOO_LARGE,
+      });
     }
 
     const filePath = path.join(configPath, fileMap[type]);
 
+    let backupWarning = null;
     await withFileLock(filePath, async () => {
       if (fs.existsSync(filePath)) {
-        await createBackup(fileMap[type]);
+        backupWarning = backupWarningFor(await createBackup(fileMap[type]));
       }
 
       writeFileAtomic(filePath, content, "utf-8");
     });
 
     log.info(`Saved raw file: ${fileMap[type]}`);
-    res.json({ success: true, message: "File saved" });
+    res.json({
+      success: true,
+      message: "File saved",
+      ...(backupWarning ? { backupWarning } : {}),
+      ...(req.configEditRestartWarning ? { restartRequired: true } : {}),
+    });
   } catch (error) {
     log.error("Failed to save raw file:", error);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -1600,19 +1893,28 @@ router.post("/restore/:filename", async (req, res) => {
     log.info(`POST /restore: filename=${filename}`);
 
     if (!filename.endsWith(".bak")) {
-      return res.status(400).json({ error: "Invalid backup file extension" });
+      return res.status(400).json({
+        error: "Invalid backup file extension",
+        code: ErrorCode.RESTORE_INVALID_EXTENSION,
+      });
     }
 
     const backupPath = path.join(backupDir, filename);
 
     if (!fs.existsSync(backupPath)) {
-      return res.status(404).json({ error: "Backup not found" });
+      return res.status(404).json({
+        error: "Backup not found",
+        code: ErrorCode.RESTORE_BACKUP_NOT_FOUND,
+      });
     }
 
     // Extract original filename from backup name (e.g., "servertest.ini.2024-01-01T12-00-00.bak")
     const parts = filename.split(".");
     if (parts.length < 3) {
-      return res.status(400).json({ error: "Invalid backup filename" });
+      return res.status(400).json({
+        error: "Invalid backup filename",
+        code: ErrorCode.RESTORE_INVALID_FILENAME,
+      });
     }
 
     // Get original filename (everything before the timestamp)
@@ -1622,9 +1924,17 @@ router.post("/restore/:filename", async (req, res) => {
 
     const targetPath = path.join(configPath, originalName);
 
-    // Create backup of current before restoring
+    // Create backup of current before restoring. The restore itself is a
+    // deliberate, well-defined choice (the operator picked this exact
+    // backup file), not a guess -- so a failed pre-restore backup doesn't
+    // block it. But it must be said plainly: if this failed, the state as
+    // of right before this restore is not recoverable through this panel.
+    let preRestoreBackupWarning = null;
     if (fs.existsSync(targetPath)) {
-      await createBackup(originalName);
+      const backup = await createBackup(originalName);
+      if (!backup.backedUp && backup.reason !== "no-source") {
+        preRestoreBackupWarning = `Could not back up the current ${originalName} before restoring over it: ${backup.error}. The version that was in place before this restore is not recoverable through this panel.`;
+      }
     }
 
     await fs.promises.copyFile(backupPath, targetPath);
@@ -1633,6 +1943,7 @@ router.post("/restore/:filename", async (req, res) => {
     res.json({
       success: true,
       message: `Restored ${originalName} from backup`,
+      ...(preRestoreBackupWarning ? { backupWarning: preRestoreBackupWarning } : {}),
     });
   } catch (error) {
     log.error("Failed to restore backup:", error);
@@ -1647,12 +1958,26 @@ router.post("/save-and-reload", async (req, res) => {
     const rconService = req.app.get("rconService");
 
     if (!rconService || !rconService.isConnected()) {
-      return res
-        .status(400)
-        .json({ error: "RCON not connected. Changes saved but not reloaded." });
+      return res.status(400).json({
+        error: "RCON not connected. Changes saved but not reloaded.",
+        code: ErrorCode.SAVE_AND_RELOAD_RCON_NOT_CONNECTED,
+      });
     }
 
+    // Reflect what RCON actually reported, not a hardcoded success. execute()
+    // (which reloadOptions() wraps) already distinguishes success from
+    // failure ({success:false, error} on a timeout, disconnect, or rejected
+    // command) -- this used to discard that and always claim "Options
+    // reloaded", so a failed live reload was invisible: the file on disk was
+    // correct, but the running server silently kept its old settings.
     const result = await rconService.reloadOptions();
+    if (!result?.success) {
+      return res.json({
+        success: false,
+        error: result?.error || "Failed to reload options via RCON",
+        result,
+      });
+    }
     res.json({ success: true, message: "Options reloaded", result });
   } catch (error) {
     log.error("Failed to reload options:", error);
@@ -1721,14 +2046,20 @@ router.get("/templates/:id", async (req, res) => {
     // Sanitize template ID to prevent path traversal
     const safeId = path.basename(req.params.id).replace(/[^a-z0-9_-]/gi, "");
     if (!safeId || safeId !== req.params.id) {
-      return res.status(400).json({ error: "Invalid template ID" });
+      return res.status(400).json({
+        error: "Invalid template ID",
+        code: ErrorCode.TEMPLATE_ID_INVALID,
+      });
     }
 
     const templatesPath = await getTemplatesPath();
     const templateFile = path.join(templatesPath, `${safeId}.json`);
 
     if (!fs.existsSync(templateFile)) {
-      return res.status(404).json({ error: "Template not found" });
+      return res.status(404).json({
+        error: "Template not found",
+        code: ErrorCode.TEMPLATE_NOT_FOUND,
+      });
     }
 
     const content = JSON.parse(fs.readFileSync(templateFile, "utf-8"));
@@ -1751,7 +2082,10 @@ router.post("/templates", async (req, res) => {
     } = req.body;
 
     if (!name) {
-      return res.status(400).json({ error: "Template name is required" });
+      return res.status(400).json({
+        error: "Template name is required",
+        code: ErrorCode.TEMPLATE_NAME_REQUIRED,
+      });
     }
 
     const templatesPath = await ensureTemplatesDir();
@@ -1768,9 +2102,10 @@ router.post("/templates", async (req, res) => {
     while (fs.existsSync(path.join(templatesPath, `${safeId}.json`))) {
       safeId = `${baseId}_${counter++}`;
       if (counter > 100) {
-        return res
-          .status(400)
-          .json({ error: "Too many templates with similar names" });
+        return res.status(400).json({
+          error: "Too many templates with similar names",
+          code: ErrorCode.TEMPLATE_NAME_CONFLICT_LIMIT,
+        });
       }
     }
     const templateFile = path.join(templatesPath, `${safeId}.json`);
@@ -1823,11 +2158,19 @@ router.post("/templates", async (req, res) => {
 // POST /templates/:id/apply - Apply a template to current config
 router.post("/templates/:id/apply", async (req, res) => {
   log.info(`POST /templates/${req.params.id}/apply`);
+  // Declared OUTSIDE the try block, not inside it: the catch below needs to
+  // see whatever landed before a later step threw, so a partial apply (INI
+  // written, Sandbox write then failed) can be reported honestly instead of
+  // reading as "nothing happened".
+  const applied = [];
   try {
     // Sanitize template ID to prevent path traversal
     const safeId = path.basename(req.params.id).replace(/[^a-z0-9_-]/gi, "");
     if (!safeId || safeId !== req.params.id) {
-      return res.status(400).json({ error: "Invalid template ID" });
+      return res.status(400).json({
+        error: "Invalid template ID",
+        code: ErrorCode.TEMPLATE_ID_INVALID,
+      });
     }
 
     const { applyIni = true, applySandbox = true } = req.body;
@@ -1836,24 +2179,32 @@ router.post("/templates/:id/apply", async (req, res) => {
     const templateFile = path.join(templatesPath, `${safeId}.json`);
 
     if (!fs.existsSync(templateFile)) {
-      return res.status(404).json({ error: "Template not found" });
+      return res.status(404).json({
+        error: "Template not found",
+        code: ErrorCode.TEMPLATE_NOT_FOUND,
+      });
     }
 
     const template = JSON.parse(fs.readFileSync(templateFile, "utf-8"));
     const configPath = await getServerConfigPath();
     const serverName = await getServerName();
 
-    const applied = [];
+    const backupWarnings = [];
 
     // Apply INI settings
     if (applyIni && template.iniRaw) {
       const iniPath = path.join(configPath, `${serverName}.ini`);
 
-      // Create backup first
-      await createBackup(`${serverName}.ini`);
+      await withFileLock(iniPath, async () => {
+        // Create backup first
+        const iniBackupWarning = backupWarningFor(
+          await createBackup(`${serverName}.ini`),
+        );
+        if (iniBackupWarning) backupWarnings.push(iniBackupWarning);
 
-      // Write the template INI
-      fs.writeFileSync(iniPath, template.iniRaw);
+        // Write the template INI
+        writeFileAtomic(iniPath, template.iniRaw);
+      });
       applied.push("INI");
       log.info(`Applied INI from template: ${template.name}`);
     }
@@ -1865,29 +2216,44 @@ router.post("/templates/:id/apply", async (req, res) => {
         `${serverName}_SandboxVars.lua`,
       );
 
-      // Create backup first
-      await createBackup(`${serverName}_SandboxVars.lua`);
+      await withFileLock(sandboxPath, async () => {
+        // Create backup first
+        const sandboxBackupWarning = backupWarningFor(
+          await createBackup(`${serverName}_SandboxVars.lua`),
+        );
+        if (sandboxBackupWarning) backupWarnings.push(sandboxBackupWarning);
 
-      // Write the template sandbox
-      fs.writeFileSync(sandboxPath, template.sandboxRaw);
+        // Write the template sandbox
+        writeFileAtomic(sandboxPath, template.sandboxRaw);
+      });
       applied.push("Sandbox");
       log.info(`Applied Sandbox from template: ${template.name}`);
     }
 
     if (applied.length === 0) {
-      return res
-        .status(400)
-        .json({ error: "No settings to apply from this template" });
+      return res.status(400).json({
+        error: "No settings to apply from this template",
+        code: ErrorCode.TEMPLATE_APPLY_NOTHING_TO_APPLY,
+      });
     }
 
     res.json({
       success: true,
       applied,
       message: `Applied ${applied.join(" and ")} settings from "${template.name}"`,
+      ...(backupWarnings.length > 0 ? { backupWarnings } : {}),
     });
   } catch (error) {
     log.error("Failed to apply template:", error);
-    res.status(500).json({ error: sanitizeError(error.message) });
+    // `applied` tracks each write as it actually lands (pushed right after
+    // its own withFileLock call returns), so if INI succeeded and Sandbox
+    // then threw, `applied` already says so here -- a flat 500 with no
+    // reference to it reads as "nothing happened" when part of the template
+    // really did land on disk.
+    res.status(500).json({
+      error: sanitizeError(error.message),
+      ...(applied.length > 0 ? { success: false, partiallyApplied: applied } : {}),
+    });
   }
 });
 
@@ -1897,7 +2263,10 @@ router.put("/templates/:id", async (req, res) => {
     // Sanitize template ID to prevent path traversal
     const safeId = path.basename(req.params.id).replace(/[^a-z0-9_-]/gi, "");
     if (!safeId || safeId !== req.params.id) {
-      return res.status(400).json({ error: "Invalid template ID" });
+      return res.status(400).json({
+        error: "Invalid template ID",
+        code: ErrorCode.TEMPLATE_ID_INVALID,
+      });
     }
 
     const { name, description } = req.body;
@@ -1906,7 +2275,10 @@ router.put("/templates/:id", async (req, res) => {
     const templateFile = path.join(templatesPath, `${safeId}.json`);
 
     if (!fs.existsSync(templateFile)) {
-      return res.status(404).json({ error: "Template not found" });
+      return res.status(404).json({
+        error: "Template not found",
+        code: ErrorCode.TEMPLATE_NOT_FOUND,
+      });
     }
 
     const template = JSON.parse(fs.readFileSync(templateFile, "utf-8"));
@@ -1931,14 +2303,20 @@ router.delete("/templates/:id", async (req, res) => {
     // Sanitize template ID to prevent path traversal
     const safeId = path.basename(req.params.id).replace(/[^a-z0-9_-]/gi, "");
     if (!safeId || safeId !== req.params.id) {
-      return res.status(400).json({ error: "Invalid template ID" });
+      return res.status(400).json({
+        error: "Invalid template ID",
+        code: ErrorCode.TEMPLATE_ID_INVALID,
+      });
     }
 
     const templatesPath = await getTemplatesPath();
     const templateFile = path.join(templatesPath, `${safeId}.json`);
 
     if (!fs.existsSync(templateFile)) {
-      return res.status(404).json({ error: "Template not found" });
+      return res.status(404).json({
+        error: "Template not found",
+        code: ErrorCode.TEMPLATE_NOT_FOUND,
+      });
     }
 
     fs.unlinkSync(templateFile);
@@ -2005,6 +2383,7 @@ router.get("/browse-files", async (req, res) => {
       if (!targetPath) {
         return res.status(403).json({
           error: "Access denied: path is outside allowed server directories",
+          code: ErrorCode.BROWSE_ACCESS_DENIED,
         });
       }
     } else {
@@ -2014,18 +2393,25 @@ router.get("/browse-files", async (req, res) => {
     }
 
     if (!targetPath) {
-      return res
-        .status(400)
-        .json({ error: "No path provided and server config path not set" });
+      return res.status(400).json({
+        error: "No path provided and server config path not set",
+        code: ErrorCode.BROWSE_NO_PATH,
+      });
     }
 
     if (!fs.existsSync(targetPath)) {
-      return res.status(400).json({ error: "Path does not exist" });
+      return res.status(400).json({
+        error: "Path does not exist",
+        code: ErrorCode.BROWSE_PATH_NOT_FOUND,
+      });
     }
 
     const stat = await fs.promises.stat(targetPath);
     if (!stat.isDirectory()) {
-      return res.status(400).json({ error: "Path is not a directory" });
+      return res.status(400).json({
+        error: "Path is not a directory",
+        code: ErrorCode.BROWSE_PATH_NOT_DIRECTORY,
+      });
     }
 
     const entries = await fs.promises.readdir(targetPath, {
@@ -2087,7 +2473,10 @@ router.get("/image-preview", async (req, res) => {
   try {
     const filePath = req.query.path ? String(req.query.path) : null;
     if (!filePath) {
-      return res.status(400).json({ error: "Path is required" });
+      return res.status(400).json({
+        error: "Path is required",
+        code: ErrorCode.IMAGE_PREVIEW_PATH_REQUIRED,
+      });
     }
 
     const allowedRoots = await getAllowedBrowseRoots();
@@ -2095,21 +2484,31 @@ router.get("/image-preview", async (req, res) => {
     if (!resolved) {
       return res.status(403).json({
         error: "Access denied: path is outside allowed server directories",
+        code: ErrorCode.BROWSE_ACCESS_DENIED,
       });
     }
 
     if (!fs.existsSync(resolved)) {
-      return res.status(404).json({ error: "File not found" });
+      return res.status(404).json({
+        error: "File not found",
+        code: ErrorCode.FILE_NOT_FOUND,
+      });
     }
 
     const ext = path.extname(resolved).toLowerCase();
     if (!IMAGE_EXTENSIONS.has(ext)) {
-      return res.status(400).json({ error: "Not an image file" });
+      return res.status(400).json({
+        error: "Not an image file",
+        code: ErrorCode.IMAGE_PREVIEW_NOT_IMAGE,
+      });
     }
 
     const stat = await fs.promises.stat(resolved);
     if (stat.size > 5 * 1024 * 1024) {
-      return res.status(400).json({ error: "Image file exceeds 5MB limit" });
+      return res.status(400).json({
+        error: "Image file exceeds 5MB limit",
+        code: ErrorCode.IMAGE_PREVIEW_TOO_LARGE,
+      });
     }
 
     const mimeMap = {

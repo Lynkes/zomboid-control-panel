@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { mockGetRoleByName } from "./helpers/mockPermissionsDb.js";
 
 vi.mock("../database/init.js", () => ({
   getActiveServer: vi.fn(),
@@ -8,6 +9,7 @@ vi.mock("../database/init.js", () => ({
   getDb: vi.fn(),
   commitNow: vi.fn(),
   logBridgeCommand: vi.fn(),
+  getRoleByName: mockGetRoleByName,
 }));
 
 const { default: router } = await import("../routes/panelBridge.js");
@@ -82,6 +84,7 @@ describe("PanelBridge mod-install routes require admin", () => {
     expect(response.status).toHaveBeenCalledWith(400);
     expect(response.json).toHaveBeenCalledWith({
       error: expect.stringMatching(/remote servers.*SFTP/i),
+      code: "PANELBRIDGE_INSTALL_REMOTE_NOT_AVAILABLE",
     });
   });
 

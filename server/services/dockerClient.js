@@ -141,7 +141,11 @@ export class DockerClient {
       return { success: false, error: `Docker API returned ${statusCode}` };
     } catch (error) {
       log.warn(`Docker ${action} failed for ${containerId}: ${error.message}`);
-      return { success: false, error: "Docker action failed" };
+      // listManagedContainers() already does this (see this.lastError above) --
+      // this was the one method in the file still collapsing every cause (an
+      // unreachable socket, a permission-denied socket, a timed-out stop) into
+      // one static string, so a slow daemon and a broken socket looked identical.
+      return { success: false, error: error.message || "Docker action failed" };
     }
   }
 

@@ -1,0 +1,9 @@
+{
+  "pzMemory": "PZ memory",
+  "players": "Players",
+  "hostCpu": "Host CPU",
+  "hostMemory": "Host memory",
+  "disk": "Disk",
+  "onlineUnit": "online",
+  "normal": "normal"
+}

@@ -1,0 +1,292 @@
+{
+  "loading": "Verbindung wird hergestellt…",
+  "errors": {
+    "failedToConnect": "Verbindung zum Server fehlgeschlagen.",
+    "failedToLoad": "Dashboard-Status konnte nicht geladen werden.",
+    "takingLongerThanExpected": "Das Dashboard reagiert langsamer als erwartet."
+  },
+  "header": {
+    "ariaLabel": "Serverstatus",
+    "everythingNominal": "Alles normal",
+    "upPrefix": "seit {{uptime}}",
+    "remoteBadge": "Remote",
+    "noActiveServer": "Kein aktiver Server"
+  },
+  "addresses": {
+    "lan": {
+      "label": "LAN",
+      "tooltip": "Verbinde dich aus deinem Heimnetzwerk",
+      "copyAria": "LAN-Adresse kopieren: {{address}}",
+      "copyLabel": "LAN-Adresse"
+    },
+    "wan": {
+      "label": "WAN",
+      "tooltip": "Teile diese Adresse mit Spielern im Internet",
+      "copyAria": "WAN-Adresse kopieren: {{address}}",
+      "copyLabel": "WAN-Adresse"
+    },
+    "panel": {
+      "label": "Panel",
+      "tooltip": "Öffne oder kopiere die Adresse des Kontrollpanels",
+      "copyAria": "Panel-Adresse kopieren: {{address}}",
+      "copyLabel": "Panel-Adresse"
+    },
+    "join": {
+      "label": "Beitreten",
+      "aria": "Mit Steam beitreten unter {{address}}",
+      "tooltip": "Mit Steam verbinden"
+    }
+  },
+  "toasts": {
+    "copied": "Kopiert",
+    "copiedDesc": "{{label}} in die Zwischenablage kopiert",
+    "copyFailedTitle": "Kopieren fehlgeschlagen",
+    "copyFailedDesc": "Kopieren in die Zwischenablage nicht möglich",
+    "autoStartEnabledTitle": "Autostart aktiviert",
+    "autoStartDisabledTitle": "Autostart deaktiviert",
+    "autoStartEnabledDesc": "Server startet automatisch, wenn das Panel gestartet wird",
+    "autoStartDisabledDesc": "Server startet nicht automatisch",
+    "autoStartSaveFailed": "Autostart-Einstellung konnte nicht gespeichert werden",
+    "errorTitle": "Fehler",
+    "actionFailedFallback": "Aktion fehlgeschlagen. Bitte versuche es erneut."
+  },
+  "actions": {
+    "start": "Starten",
+    "stop": "Stoppen",
+    "forceStop": "Sofort stoppen",
+    "restart": "Neu starten",
+    "restartNow": "Jetzt neu starten",
+    "save": "Speichern",
+    "refreshStatus": "Status aktualisieren",
+    "createBackup": "Backup erstellen",
+    "bridgeSettings": "Brücken-Einstellungen",
+    "connectRcon": "RCON verbinden",
+    "wipeServer": "Server unwiderruflich löschen",
+    "moreActionsAria": "Weitere Serveraktionen",
+    "addServerFirst": "Zuerst einen Server hinzufügen oder auswählen",
+    "notAvailableRemote": "Nicht verfügbar für Remote-Server (nur RCON)",
+    "forceStopTooltip": "Beendet das Spiel sofort, ohne zu speichern"
+  },
+  "confirm": {
+    "cancel": "Abbrechen",
+    "stopServer": {
+      "title": "Server stoppen",
+      "description": "Möchtest du den Server wirklich stoppen? Alle verbundenen Spieler werden getrennt."
+    },
+    "forceStopServer": {
+      "title": "Server sofort stoppen",
+      "description": "Dadurch wird der Spielprozess sofort beendet, ohne zu speichern.",
+      "descriptionPlayers": " {{count}} Spieler werden getrennt!"
+    },
+    "restartServer": {
+      "title": "Server neu starten",
+      "description": "Dadurch wird allen Spielern eine 5-Minuten-Warnung gesendet, danach wird der Server neu gestartet."
+    },
+    "restartServerNow": {
+      "title": "Server jetzt neu starten",
+      "description": "Dadurch wird der Server sofort ohne Warnung neu gestartet.",
+      "descriptionPlayers": " {{count}} Spieler werden getrennt!"
+    }
+  },
+  "successCopy": {
+    "startServer": { "title": "Server wird gestartet", "description": "Behalte das Dashboard für den Live-Status im Blick." },
+    "stopServer": { "title": "Server gestoppt", "description": "Sitzung sauber beendet." },
+    "forceStopServer": { "title": "Server sofort gestoppt", "description": "Der Spielprozess wurde ohne RCON beendet." },
+    "restartServer": { "title": "Neustart geplant", "description": "Der Server wird in Kürze neu gestartet." },
+    "restartServerNow": { "title": "Neustart ausgelöst", "description": "Befehl für harten Neustart gesendet." },
+    "saveWorld": { "title": "Welt gespeichert", "description": "Aktueller Zustand auf die Festplatte geschrieben." },
+    "createBackup": { "title": "Backup gestartet", "description": "Ein neuer Wiederherstellungspunkt wird gepackt." },
+    "connectRcon": { "title": "RCON verbunden", "description": "Remote-Befehlssteuerung bereit." },
+    "defaultTitle": "Aktion abgeschlossen",
+    "defaultDescription": "{{action}} erfolgreich abgeschlossen."
+  },
+  "verdict": {
+    "noServerConfigured": "Kein Server konfiguriert",
+    "openSetup": "Einrichtung öffnen",
+    "panelCannotReach": "Panel kann den Server nicht erreichen",
+    "retry": "Erneut versuchen",
+    "serverStatusUnknown": "Serverstatus unbekannt",
+    "serverStopped": "Server gestoppt",
+    "rconDisconnected": "RCON getrennt",
+    "hostMemory": "Host-Arbeitsspeicher {{percent}} %",
+    "diskAlmostFull": "Festplatte fast voll, noch {{gb}} GB frei",
+    "diskPercent": "Festplatte {{percent}} %, noch {{gb}} GB frei",
+    "hostCpu": "Host-CPU {{percent}} %",
+    "bridgeOffline": "PanelBridge offline",
+    "bridgeSettingsLink": "Brücken-Einstellungen",
+    "modUpdatesWaiting_one": "{{count}} Mod-Update wartet",
+    "modUpdatesWaiting_other": "{{count}} Mod-Updates warten",
+    "reviewMods": "Mods überprüfen",
+    "noBackups": "Keine Backups"
+  },
+  "panelUpdateBanner": {
+    "applyFailed": "Anwenden fehlgeschlagen",
+    "updateStaged": "Update bereit",
+    "panelUpdate": "Panel-Update",
+    "lastApplyFailedDesc": "Letzter Anwendungsversuch fehlgeschlagen — Diagnose in den Einstellungen.",
+    "stagedDesc": "Heruntergeladen und bereit. Starte das Panel neu, um es anzuwenden.",
+    "newVersionDesc": "Eine neue Panel-Version ist verfügbar.",
+    "dismissAria": "Update-Benachrichtigung ausblenden",
+    "dismissTooltip": "Bis zur nächsten Version ausblenden",
+    "applyUpdate": "Update anwenden",
+    "viewUpdate": "Update anzeigen"
+  },
+  "connectionError": {
+    "label": "Verbindungsfehler",
+    "suffix": ". Einige Funktionen sind möglicherweise nicht verfügbar.",
+    "retry": "Erneut versuchen"
+  },
+  "notConfigured": {
+    "label": "Nicht konfiguriert",
+    "description": "Öffne die Server-Einrichtung, um einen Server hinzuzufügen oder zu konfigurieren.",
+    "openSetup": "Einrichtung öffnen →"
+  },
+  "quickStart": {
+    "dismissAria": "Schnellstart-Anleitung ausblenden",
+    "eyebrow": "Erster Server",
+    "heading": "Bring einen Server zum Laufen, richte RCON ein, dann folgt der Rest.",
+    "step1Title": "Server hinzufügen",
+    "step1Desc": "Füge eine bestehende Installation hinzu, verbinde Remote-RCON oder erstelle einen neuen Server.",
+    "step2Title": "Verbindung prüfen",
+    "step2Desc": "Bestätige Pfade, RCON-Zugangsdaten und aktiven Server.",
+    "step3Title": "Live-Steuerung erreichen",
+    "step3Desc": "Sobald Status, Spieler und Chat aktualisiert werden, ist die Live-Steuerung bereit.",
+    "installNewServer": "Neuen Server installieren",
+    "addExistingServer": "Bestehenden Server hinzufügen",
+    "addRemoteServer": "Remote-Server hinzufügen"
+  },
+  "liveActivity": {
+    "heading": "Live-Aktivität",
+    "eventsCount_one": "{{count}} Ereignis",
+    "eventsCount_other": "{{count}} Ereignisse",
+    "idle": "inaktiv",
+    "offline": "offline",
+    "emptyOnline": "Wartet auf Spielerbeitritte, -abgänge, Todesfälle und Moderationsereignisse.",
+    "emptyConfiguredNotRunning": "Starte den Server, um die Spieleraktivität zu verfolgen.",
+    "emptyNotConfigured": "Konfiguriere einen Server, um die Aktivität zu verfolgen.",
+    "verbs": {
+      "joined": "beigetreten",
+      "left": "verlassen",
+      "died": "gestorben",
+      "killed": "getötet",
+      "banned": "gebannt",
+      "kicked": "gekickt"
+    }
+  },
+  "telemetry": {
+    "heading": "Server-Telemetrie",
+    "sampling": "Erfassung",
+    "standby": "Standby",
+    "live": "live",
+    "lastSecondsLive": "letzte {{seconds}} s · live",
+    "lastMinutesLive": "letzte {{minutes}} Min. · live",
+    "placeholderOnline": "Telemetriedaten erscheinen im nächsten Messzyklus.",
+    "placeholderOffline": "Starte den Server, um CPU-, RAM- und Spielermetriken zu verfolgen."
+  },
+  "connLine": {
+    "rcon": "RCON",
+    "bridge": "Brücke",
+    "connected": "verbunden",
+    "pending": "ausstehend",
+    "offline": "offline"
+  },
+  "maintenance": {
+    "heading": "Wartung",
+    "refreshStatus": "Status aktualisieren",
+    "createBackup": "Backup erstellen",
+    "wipeServer": "Server unwiderruflich löschen",
+    "wipeTooltipOnline": "Stoppe den Server vor dem Löschen",
+    "wipeTooltipOffline": "Karte / Spieler / Weltzustand löschen",
+    "autoStartLabel": "Autostart beim Start"
+  },
+  "bridgeOfflineNotice": {
+    "title": "Brücke offline",
+    "description": "Erweiterte Weltsteuerungen benötigen PanelBridge.",
+    "configureLink": "Brücke konfigurieren"
+  },
+  "workItems": {
+    "players": "Spieler",
+    "console": "Konsole",
+    "mods": "Mods",
+    "schedule": "Zeitplan",
+    "errors": "Fehler",
+    "backups": "Backups",
+    "config": "Config",
+    "rconReady": "RCON bereit",
+    "rconOffline": "RCON offline",
+    "modsToUpdate_one": "{{count}} zu aktualisieren",
+    "modsToUpdate_other": "{{count}} zu aktualisieren",
+    "modsTracked_one": "{{count}} erfasst",
+    "modsTracked_other": "{{count}} erfasst",
+    "errorsNone": "keine",
+    "errorsLogged": "{{count}} protokolliert",
+    "backupsNoneYet": "noch keine",
+    "backupsStored_one": "{{count}} gespeichert",
+    "backupsStored_other": "{{count}} gespeichert",
+    "backupsStoredLast_one": "{{count}} gespeichert, zuletzt {{age}}",
+    "backupsStoredLast_other": "{{count}} gespeichert, zuletzt {{age}}",
+    "scheduleNoneActive": "keine aktiv",
+    "scheduleActive_one": "{{count}} aktiv",
+    "scheduleActive_other": "{{count}} aktiv"
+  },
+  "age": {
+    "justNow": "gerade eben",
+    "minutesAgo_one": "vor {{count}} Min.",
+    "minutesAgo_other": "vor {{count}} Min.",
+    "hoursAgo_one": "vor {{count}} Std.",
+    "hoursAgo_other": "vor {{count}} Std.",
+    "daysAgo_one": "vor {{count}} Tg.",
+    "daysAgo_other": "vor {{count}} Tg.",
+    "justJoined": "gerade beigetreten",
+    "forMinutes_one": "seit {{count}} Min.",
+    "forMinutes_other": "seit {{count}} Min.",
+    "forHours_one": "seit {{count}} Std.",
+    "forHours_other": "seit {{count}} Std.",
+    "forDays_one": "seit {{count}} Tg.",
+    "forDays_other": "seit {{count}} Tg."
+  },
+  "eta": {
+    "anyMoment": "jeden Moment",
+    "inMinutes_one": "in {{count}} Min.",
+    "inMinutes_other": "in {{count}} Min.",
+    "inHours_one": "in {{count}} Std.",
+    "inHours_other": "in {{count}} Std.",
+    "inHoursMinutes": "in {{hours}} Std. {{minutes}} Min.",
+    "inDays_one": "in {{count}} Tg.",
+    "inDays_other": "in {{count}} Tg."
+  },
+  "wipeDialog": {
+    "title": "Server unwiderruflich löschen",
+    "description": "Wähle aus, welche Daten von <b>{{serverName}}</b> gelöscht werden sollen. Der Server muss gestoppt sein.",
+    "defaultServerName": "dem aktiven Server",
+    "targets": {
+      "map": { "label": "Karte & Gelände", "desc": "Chunks, Gelände, Gebäude, Zombie-Population, Iso-Regionen." },
+      "players": { "label": "Spieler & Fahrzeuge", "desc": "Spielstände, Inventare, Positionen, Fahrzeugdaten." },
+      "world": { "label": "Weltzustand", "desc": "Weltverzeichnis, Metadaten, Erosion, Zustände der Spielobjekte, Funk." },
+      "accounts": { "label": "Konten & Banns", "desc": "Benutzerkonten, Passwörter, Rollen, Whitelist- und Bannlisten. Alle müssen sich beim nächsten Beitritt neu registrieren." }
+    },
+    "notice": "Die Auswahl von Karte, Spielern und Welt leert den Speicherordner vollständig, einschließlich allem, was Mods hinterlassen haben. Server-.ini- und Sandbox-Einstellungen werden separat gespeichert und bleiben unberührt.",
+    "noFilesFound": "Keine Dateien für die ausgewählten Ziele gefunden.",
+    "willDelete": "Folgendes wird unwiderruflich gelöscht:",
+    "categoryLabels": {
+      "map": "Karte/Gelände",
+      "players": "Spieler/Fahrzeug",
+      "world": "Weltzustand",
+      "leftovers": "sonstige Reste",
+      "accounts": "Kontodatenbank"
+    },
+    "filesCount": "{{count}} Dateien – {{category}} ({{mb}} MB)",
+    "noCategoryFilesFound": "Keine Dateien für „{{category}}“ gefunden",
+    "total": "Gesamt: {{count}} Dateien ({{mb}} MB)",
+    "truncatedWarning": "Der Scan wurde bei einem sehr großen Save frühzeitig abgebrochen — diese Zahlen sind ein Minimum, die echten Werte können höher liegen.",
+    "cancel": "Abbrechen",
+    "preview": "Vorschau",
+    "wipeNow": "Jetzt unwiderruflich löschen",
+    "previewFailedTitle": "Vorschau fehlgeschlagen",
+    "previewFailedFallback": "Speicherverzeichnis konnte nicht gescannt werden",
+    "wipedTitle": "Server unwiderruflich gelöscht",
+    "wipedDesc": "Gelöscht: {{targets}}",
+    "wipeFailedTitle": "Löschen fehlgeschlagen",
+    "wipeFailedFallback": "Unbekannter Fehler"
+  }
+}

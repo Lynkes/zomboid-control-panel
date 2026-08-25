@@ -28,6 +28,35 @@ const DOWNLOAD_TIMEOUT_MS = 60000;
 const MAX_GITHUB_RETRIES = 3;
 const MAX_DOWNLOAD_REDIRECTS = 5;
 
+export function validateReleaseManifest(
+  manifest,
+  expectedVersion,
+  artifactName,
+  artifactHash,
+) {
+  if (!manifest || typeof manifest !== "object") {
+    return "Release archive does not contain a valid release manifest.";
+  }
+  if (manifest.version !== expectedVersion) {
+    return `Release archive version ${manifest.version || "unknown"} does not match release v${expectedVersion}.`;
+  }
+  if (!artifactName) return null;
+
+  const artifact = Array.isArray(manifest.artifacts)
+    ? manifest.artifacts.find((candidate) => candidate?.file === artifactName)
+    : null;
+  if (!artifact) {
+    return `Release manifest is missing the ${artifactName} artifact.`;
+  }
+  if (
+    artifactHash &&
+    String(artifact.sha256).toLowerCase() !== artifactHash.toLowerCase()
+  ) {
+    return `Release manifest checksum does not match downloaded ${artifactName}.`;
+  }
+  return null;
+}
+
 export class PanelUpdateChecker {
   constructor(io) {
     this.io = io;
@@ -521,7 +550,12 @@ export class PanelUpdateChecker {
           `Could not verify ${clientArchive.name}; refusing to replace the web interface`,
         );
       }
-      await this.replaceClientDist(tmpClientArchivePath, isWindows);
+      await this.replaceClientDist(
+        tmpClientArchivePath,
+        isWindows,
+        tmpDownloadPath,
+        asset.name,
+      );
       fs.unlinkSync(tmpClientArchivePath);
 
       // Promote .partial → .new atomically. If a stale .new exists, drop it first.
@@ -998,7 +1032,7 @@ export class PanelUpdateChecker {
   /**
    * Download a file with progress tracking
    */
-  async replaceClientDist(archivePath, isWindows) {
+  async replaceClientDist(archivePath, isWindows, binaryPath, artifactName) {
     const exeDir = path.dirname(process.execPath);
     const extractDir = fs.mkdtempSync(path.join(os.tmpdir(), "zpanel-update-"));
     const escapePowerShellLiteral = (value) => String(value).replace(/'/g, "''");
@@ -1023,6 +1057,22 @@ export class PanelUpdateChecker {
       } else {
         await this.runUpdateCommand("tar", ["-xzf", extractArchivePath, "-C", extractDir]);
       }
+
+      let manifest;
+      try {
+        manifest = JSON.parse(
+          fs.readFileSync(path.join(extractDir, "release-manifest.json"), "utf8"),
+        );
+      } catch (error) {
+        throw new Error(`Release archive manifest is invalid: ${error.message}`);
+      }
+      const manifestError = validateReleaseManifest(
+        manifest,
+        this.latestRelease?.version,
+        artifactName,
+        binaryPath ? (await this.sha256File(binaryPath)).toLowerCase() : null,
+      );
+      if (manifestError) throw new Error(manifestError);
 
       const incoming = path.join(extractDir, "client", "dist");
       if (!fs.existsSync(path.join(incoming, "index.html"))) {
@@ -1809,11 +1859,29 @@ export class PanelUpdateChecker {
    * Returns up to 8KB of log text or null.
    */
   readMostRecentApplyLog() {
-    // Prefer the stable log file in the panel logs dir (survives relaunch and
-    // is always the latest attempt). Fall back to timestamped logs in logs/
-    // then TEMP for back-compat with older builds.
+    // Start.bat v2 writes apply diagnostics to supervisor.log. Older helper
+    // versions use panel-update-last.log or timestamped files, so retain
+    // those fallbacks for upgraded installations.
     try {
       const logsDir = getDataPaths().logsDir;
+      const supervisor = path.join(logsDir, "supervisor.log");
+      if (fs.existsSync(supervisor)) {
+        const stat = fs.statSync(supervisor);
+        const MAX_BYTES = 8 * 1024;
+        if (stat.size <= MAX_BYTES) {
+          const content = fs.readFileSync(supervisor, "utf8");
+          if (content.trim()) return content;
+        } else {
+          const fd = fs.openSync(supervisor, "r");
+          try {
+            const buf = Buffer.alloc(MAX_BYTES);
+            fs.readSync(fd, buf, 0, MAX_BYTES, stat.size - MAX_BYTES);
+            return `... (truncated, tail only)\n${buf.toString("utf8")}`;
+          } finally {
+            fs.closeSync(fd);
+          }
+        }
+      }
       const stable = path.join(logsDir, "panel-update-last.log");
       if (fs.existsSync(stable)) {
         const stat = fs.statSync(stable);

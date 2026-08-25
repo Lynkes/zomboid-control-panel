@@ -1,0 +1,11 @@
+{
+  "failedToPreview": "无法预览模板",
+  "failedToApply": "无法应用模板",
+  "toastAppliedTitle": "模板已应用",
+  "toastAppliedDesc": "已应用「{{name}}」。",
+  "noActiveServerTitle": "没有活动服务器",
+  "noActiveServerDesc": "先设置服务器，再预览或应用模板。",
+  "remoteServerTitle": "远程服务器",
+  "remoteServerDesc": "远程服务器暂不支持应用模板。",
+  "previewFailedTitle": "预览失败"
+}

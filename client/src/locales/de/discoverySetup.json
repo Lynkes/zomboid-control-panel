@@ -1,0 +1,12 @@
+{
+  "title": "Entdeckten Server hinzufügen",
+  "description": "Serverprofil aus einem entdeckten Mount erstellen.",
+  "install": "Installieren",
+  "data": "Daten",
+  "configuration": "Konfiguration",
+  "displayName": "Anzeigename",
+  "cancel": "Abbrechen",
+  "addServer": "Server hinzufügen",
+  "toastServerAdded": "Server hinzugefügt",
+  "failedToCreate": "Server konnte nicht erstellt werden"
+}

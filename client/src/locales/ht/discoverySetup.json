@@ -1,0 +1,12 @@
+{
+  "title": "Ajoute sèvè dekouvri",
+  "description": "Kreye yon pwofil sèvè soti nan yon mount ki dekouvri.",
+  "install": "Enstale",
+  "data": "Done",
+  "configuration": "Konfigirasyon",
+  "displayName": "Non pou montre",
+  "cancel": "Anile",
+  "addServer": "Ajoute sèvè",
+  "toastServerAdded": "Sèvè ajoute",
+  "failedToCreate": "Echwe pou kreye sèvè"
+}

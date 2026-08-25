@@ -39,7 +39,7 @@ Force-trigger blizzards, tropical storms, or rain at any intensity. Fine-grained
 <td width="50%" valign="top">
 
 ### 🗺️ Live World Map
-Real-time player positions on Knox County. Multi-floor support, layer toggles, zoom & pan. Right-click any player for instant teleport, heal, kick, or message — straight from the map.
+Real-time player positions on Knox County. Multi-floor support, layer toggles, zoom & pan. Right-click any player for instant teleport, heal, kick, or message — straight from the map. Map tiles are proxied and cached by the panel itself, which also auto-detects the current PZ map build so a new release doesn't leave you looking at a stale layout.
 
 <img src="Screenshots/screenshot-worldmap-v2.png" alt="World Map" />
 
@@ -75,7 +75,7 @@ Scans your mod list for known incompatibilities, missing dependencies, and load-
 <td width="50%" valign="top">
 
 ### ⚙️ Server Configuration
-Full in-browser INI editor for sandbox options, spawn regions, mod settings, and server flags. Searchable, structured view + raw view for power users. No more notepad-and-restart.
+Full in-browser INI editor for sandbox options, spawn regions, mod settings, and server flags. Searchable, structured view + raw view for power users. No more notepad-and-restart. Mod Settings edits apply live through PanelBridge while the server is running, and now save to disk correctly too — no need to stop the server just to make an edit stick.
 
 <img src="Screenshots/screenshot-config-v2.png" alt="Server Configuration" />
 
@@ -93,7 +93,9 @@ Spin up a fresh PZ server in minutes. SteamCMD install, port config, RCON setup,
 <td width="50%" valign="top">
 
 ### 🤖 Discord Bot Setup
-Guided wizard for creating the Discord app, getting tokens, configuring intents and inviting the bot. Slash commands + two-way chat relay + event notifications ship turnkey.
+Guided wizard for creating the Discord app, getting tokens, and inviting the bot. Slash commands + two-way chat relay + event notifications ship turnkey.
+
+**The step that trips people up:** in the Discord Developer Portal, under your application's **Bot** page, turn on the **Server Members** and **Message Content** privileged intents. Both are off by default and have nothing to do with your token — a correct token and correct IDs will still fail to connect without them. Check both before you click Start; the panel names the exact problem if you hit it anyway, instead of a generic "check configuration."
 
 <img src="Screenshots/screenshot-discord-setup.png" alt="Discord Setup" />
 
@@ -111,9 +113,23 @@ Host RAM and CPU graphs, PZ process memory, player count history. Time-range sel
 <td width="50%" valign="top">
 
 ### 🐛 Crash Logs & Diagnostics
-Java crash dumps, error logs, support bundles. One-click `.zip` export for when you need to share state with someone smarter than you. Health, environment, and activity tabs included.
+Java crash dumps, error logs, support bundles. One-click `.zip` export for when you need to share state with someone smarter than you. Health, environment, and activity tabs included, plus a Diagnostics tab that runs dozens of checks across the panel, the server, and PanelBridge — some fail with a one-click fix, others link straight to the setting that needs attention.
 
 <img src="Screenshots/screenshot-debug-crashes.png" alt="Crash Logs" />
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### 💾 Backups
+Manual or scheduled world backups with configurable retention. Preview a snapshot's contents before you restore it, download the raw archive, or upload an external one back in. Restoring stops the server, takes an automatic safety backup of the current state first, then rolls the world back — with an explicit warning that it can't be undone.
+
+</td>
+<td width="50%" valign="top">
+
+### 🧹 Chunk Cleaner & Map Cleanup
+Visual map selector for reclaiming disk space from an aging save. Delete individual chunks or drag out a rectangular region, with per-save stats so you know what you're removing before you commit. Panning, selecting, and computing those stats all got noticeably faster on large saves.
 
 </td>
 </tr>
@@ -141,7 +157,9 @@ Java crash dumps, error logs, support bundles. One-click `.zip` export for when 
 - **Server control** — Start, stop, restart, save. Live status and uptime.
 - **Console** — Live log viewer and RCON terminal with command history.
 - **Scheduling** — Recurring restarts, saves, broadcasts with countdown warnings.
-- **Backups** — Create, restore, and manage world backups.
+- **Backups** — Manual or scheduled world backups with configurable retention, snapshot preview, and download/upload of the raw archive. Restore takes an automatic safety backup first and warns it can't be undone.
+- **Roles & permissions** — Capability-based access control: three built-in roles (admin, technician, moderator) plus fully custom ones, each granting an explicit subset of the panel's 28 individual capabilities across 12 areas (server lifecycle, RCON, backups, mods, and more).
+- **Account recovery** — Single-use recovery codes, generated in advance from an authenticated admin session, let the admin reset their own password later if they get locked out. Two more paths cover losing access to the panel entirely: a local-only token file, or the `--reset-password` CLI flag run directly on the server.
 
 ### Observe
 - **Players** — Online list, activity history, kick/ban/unban, access levels, notes and tags.
@@ -153,18 +171,20 @@ Java crash dumps, error logs, support bundles. One-click `.zip` export for when 
 - **Events & weather** — Rain, storms, blizzards, climate control, time control, sound triggers, zombie management.
 - **PanelBridge** — Server-side Lua mod for actions RCON can't reach: teleport, heal, god mode, character export/import, inventory.
 - **Discord bot** — Slash commands and two-way chat relay.
+- **Single sign-on (SSO)** — OpenID Connect login, with ready-made presets for Google, Authentik, Keycloak, Azure AD, Okta, and Auth0, or any other compliant provider entered by hand. Full discovery + PKCE + state/nonce flow, with a one-click credential test before you commit to it.
 - **Multi-server** — Manage multiple PZ servers from one panel.
-- **Chunk cleaner** — Visual map selector for cleaning unused chunks.
+- **Chunk cleaner** — Visual map selector for reclaiming disk space from an aging save: delete individual chunks or drag out a rectangular region, with per-save stats before you commit.
 - **Auto-update** — Checks for new releases, downloads and applies them.
 
 ---
 
 ## Requirements
 
-- **Project Zomboid dedicated server** — Build 41 or Build 42. Tested through B42.18.
+- **Project Zomboid dedicated server** — Build 41 or Build 42.
 - **RCON enabled** in your server `.ini` (`RCONPort=27015` and `RCONPassword=...`).
 - **Network access** between the panel and the PZ server (same machine, same LAN, or reachable IP).
 - For PanelBridge features: `DoLuaChecksum=false` in the server `.ini`.
+- **`curl`** for World Map build detection (Docker, Windows, and macOS already have it; a bare-metal Linux tarball install might not). Without it, the map still works — it just falls back to a fixed build and stops tracking new Project Zomboid map releases, which Debug > World Map will flag.
 
 The packaged binary includes its own runtime — no Node.js, Python, or Java install needed on the panel host.
 
@@ -415,9 +435,11 @@ For VPS or public-internet deployment, put the panel behind a reverse proxy (ngi
 ## Security
 
 - JWT authentication on all API routes.
+- Capability-based roles: three built-in roles plus custom ones, each granting only the specific actions it needs — a moderator account doesn't get server-wipe just because an admin's does.
 - Rate limiting on login, RCON, and destructive operations.
 - RCON parameter sanitization to prevent command injection.
 - CORS configurable per deployment (LAN auto-allows private IPs, VPS requires explicit origins).
+- Recovery codes are single-use, enforced even against two redemption attempts racing each other.
 - Password reset via secure token file or `--reset-password` CLI flag.
 
 ---

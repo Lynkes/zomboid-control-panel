@@ -282,7 +282,7 @@ async function fetchWithRetry(
       }
 
       try {
-        const response = await fetch(url, {
+        let response = await fetch(url, {
           ...withAuth(options),
           signal: controller.signal,
         });
@@ -306,13 +306,26 @@ async function fetchWithRetry(
               ...withAuth(options),
               signal: retryController.signal,
             }).finally(() => clearTimeout(retryTimeoutId));
-            if (retryResponse.status !== 401) {
-              return retryResponse;
+            if (retryResponse.status === 401) {
+              // Refreshed token still 401s — nothing left to retry, force
+              // reload to show login.
+              window.location.reload();
+              return response;
             }
+            // The refresh-retry consumed this attempt's fetch, but a
+            // transient failure (5xx/429) on the RETRIED request still
+            // deserves the same backoff-retry resilience as every other
+            // response. Replace `response` and fall through to the shared
+            // retryable check below instead of returning unconditionally --
+            // returning here unconditionally used to skip fetchWithRetry's
+            // own retry loop entirely for exactly the unluckiest requests:
+            // an expired token AND a transient blip on the very next call.
+            response = retryResponse;
+          } else {
+            // Refresh failed — force reload to show login.
+            window.location.reload();
+            return response;
           }
-          // Refresh failed or still 401 — force reload to show login
-          window.location.reload();
-          return response;
         }
 
         // If response is not retryable error, return it
@@ -363,6 +376,16 @@ async function handleResponse<T = any>(response: Response): Promise<T> {
       status: response.status,
       code: "INVALID_RESPONSE",
     });
+  }
+  // An HTTP 200 with an explicit `success: false` body is this codebase's
+  // other way of saying "this failed" -- RCON/bridge/game actions routinely
+  // resolve this way when the underlying server or connector isn't
+  // reachable, and a caller that only checks "did the fetch throw" reports
+  // success anyway. Strict equality: a response with no `success` field at
+  // all (most GETs, many POSTs that just return the created/updated
+  // resource) is untouched by this check and returns exactly as before.
+  if ((data as { success?: unknown }).success === false) {
+    throw buildResponseError(response, data);
   }
   return data as T;
 }
@@ -666,7 +689,10 @@ export const playersApi = {
     destination?: string | { x: number; y: number; z?: number },
   ) => {
     if (destination && typeof destination === "object") {
-      return apiPost("/players/teleport", {
+      // Coordinate form goes through PanelBridge server-side (server/routes/
+      // players.js forwards bridge.teleportPlayer()'s result via res.json
+      // unmodified) -- same envelope shape as panelBridgeApi.sendCommand.
+      return apiPost<BridgeCommandResult>("/players/teleport", {
         player1,
         x: destination.x,
         y: destination.y,
@@ -1771,6 +1797,7 @@ export const serverFilesApi = {
       message: string;
       path: string;
       settings: Record<string, string>;
+      restartRequired?: boolean;
     }>,
 
   // Sandbox
@@ -1786,6 +1813,7 @@ export const serverFilesApi = {
       created: boolean;
       message: string;
       path: string;
+      restartRequired?: boolean;
     }>,
   validateSandbox: () =>
     apiGet("/server-files/sandbox/validate") as Promise<{
@@ -1800,6 +1828,7 @@ export const serverFilesApi = {
       changes?: string[];
       message?: string;
       error?: string;
+      restartRequired?: boolean;
     }>,
 
   // Spawn Points (keyed by profession)
@@ -2023,6 +2052,19 @@ export const templatesApi = {
       error?: string;
     }>,
 };
+
+// Wire shape of every response from POST /panel-bridge/command. `data.verified`
+// is present on every successful mutating command as of the verify-gating pass
+// (2026-08-23) -- typed here (rather than left as the `apiPost<T = any>`
+// default) specifically so the next person adding a bridge call site is TOLD
+// the field exists instead of having to already know to look for it. See
+// client/src/lib/bridgeVerify.ts for how to interpret it (three states, not a
+// boolean -- a missing key means an out-of-date bridge mod, not "unconfirmed").
+export interface BridgeCommandResult<T = Record<string, unknown>> {
+  success: boolean;
+  data?: T & { verified?: "confirmed" | "unverifiable" };
+  error?: string;
+}
 
 // Panel Bridge API (for direct Lua mod communication)
 export const panelBridgeApi = {
@@ -2250,8 +2292,11 @@ export const panelBridgeApi = {
   ping: () => apiGet("/panel-bridge/ping"),
 
   // Send a command to the game
-  sendCommand: (action: string, args?: Record<string, unknown>) =>
-    apiPost("/panel-bridge/command", { action, args }),
+  sendCommand: <T = Record<string, unknown>>(
+    action: string,
+    args?: Record<string, unknown>,
+  ) =>
+    apiPost<BridgeCommandResult<T>>("/panel-bridge/command", { action, args }),
 
   // Get weather info
   getWeather: () => apiGet("/panel-bridge/weather"),
@@ -2544,11 +2589,11 @@ export const panelBridgeApi = {
 
   // Spawn horde near a player (50-70 tiles away)
   spawnHordeNear: (username: string, count: number) =>
-    apiPost("/panel-bridge/zombies/spawn-near", { username, count }),
+    apiPost<BridgeCommandResult>("/panel-bridge/zombies/spawn-near", { username, count }),
 
   // Spawn horde behind a player based on facing direction
   spawnHordeBehind: (username: string, count: number) =>
-    apiPost("/panel-bridge/zombies/spawn-behind", { username, count }),
+    apiPost<BridgeCommandResult>("/panel-bridge/zombies/spawn-behind", { username, count }),
 
   // Clear ALL zombies from loaded cells
   clearAllZombies: () => apiPost("/panel-bridge/zombies/clear-all"),
@@ -2829,6 +2874,9 @@ export const authApi = {
     codes: string[];
     createdAt: string;
   }> => apiPost("/auth/recovery-codes", {}),
+
+  regenerateJwtSecret: (): Promise<{ success: boolean; message?: string }> =>
+    apiPost("/auth/regenerate-jwt-secret", {}),
 };
 
 // Servers detection API helpers (added to serversApi)
@@ -2843,8 +2891,12 @@ export const serversDetectApi = {
     maxDepth?: number;
   }): Promise<Record<string, unknown>> =>
     apiPost("/servers/auto-scan", params) as Promise<Record<string, unknown>>,
+  // confirm: true is hardcoded here, not threaded through as a parameter --
+  // same shape as serverApi.wipe below: every caller of this function is
+  // already behind its own confirmation dialog before it's ever invoked, so
+  // there's no real call site where the confirmation isn't already implied.
   deleteFiles: (path: string): Promise<unknown> =>
-    apiPost("/server/delete-files", { path }),
+    apiPost("/server/delete-files", { path, confirm: true }),
 };
 
 // Update Checker API
@@ -2975,6 +3027,10 @@ export const mapApi = {
     width: number;
     height: number;
     maxLevel: number;
+    // Deepest level actually worth requesting -- see mapProxy.js's
+    // discoverRenderedMaxLevel. maxLevel alone is the theoretical full DZI
+    // pyramid depth, not evidence the tile host rendered that deep.
+    renderedMaxLevel: number;
     // Isometric projection origin from the build's own map_info.json.
     // Absent if map.projectzomboid.com couldn't be reached.
     x0?: number;
@@ -3028,4 +3084,165 @@ export const systemApi = {
   getDiskSpace: (): Promise<DiskSpaceReport> => apiGet("/system/disk-space"),
   getStorageHealth: (): Promise<StorageHealth> =>
     apiGet("/system/storage-health"),
+};
+
+// ============================================
+// Rights matrix -- roles & capabilities (server/routes/permissions.js).
+// Capability `key` values are load-bearing wire values shared with the
+// server's own CAPABILITIES catalogue (server/services/permissions.js) --
+// render them, never rename them client-side.
+// ============================================
+
+export interface CapabilityInfo {
+  key: string;
+  label: string;
+  description: string;
+}
+
+export interface CapabilityGroup {
+  group: string;
+  capabilities: CapabilityInfo[];
+}
+
+export interface RoleInfo {
+  id: string;
+  name: string;
+  capabilities: string[];
+  isSeeded: boolean;
+  createdAt: string;
+  updatedAt?: string;
+  memberCount: number;
+}
+
+export const permissionsApi = {
+  getCapabilities: (): Promise<{ groups: CapabilityGroup[] }> =>
+    apiGet("/permissions/capabilities"),
+
+  getRoles: (): Promise<{ roles: RoleInfo[] }> => apiGet("/permissions/roles"),
+
+  createRole: (data: {
+    name: string;
+    capabilities: string[];
+  }): Promise<{ success: boolean; role: RoleInfo }> =>
+    apiPost("/permissions/roles", data),
+
+  updateRole: (
+    id: string,
+    data: {
+      name?: string;
+      capabilities?: string[];
+      confirmSelfCapabilityLoss?: boolean;
+    },
+  ): Promise<{ success: boolean; role: RoleInfo }> =>
+    apiPut(`/permissions/roles/${encodeURIComponent(id)}`, data),
+
+  deleteRole: (
+    id: string,
+    reassignTo?: string,
+  ): Promise<{
+    success: boolean;
+    deleted: boolean;
+    reassigned: number;
+    reassignedTo: string | null;
+  }> =>
+    apiDelete(
+      `/permissions/roles/${encodeURIComponent(id)}${
+        reassignTo ? `?reassignTo=${encodeURIComponent(reassignTo)}` : ""
+      }`,
+    ),
+};
+
+// User account list + role assignment (server/routes/auth.js). Kept as its
+// own export rather than folded into authApi in place -- this whole block
+// was appended at end-of-file so it can't collide with concurrent edits
+// elsewhere in authApi.
+export interface ManagedUserAccount {
+  id: string;
+  username: string;
+  role: string;
+  roleId: string | null;
+  createdAt: string;
+  lastLogin: string | null;
+}
+
+export const usersApi = {
+  list: (): Promise<{ users: ManagedUserAccount[] }> => apiGet("/auth/users"),
+
+  create: (data: {
+    username: string;
+    password: string;
+    role: "admin" | "technician" | "moderator";
+  }): Promise<{ success: boolean; user: ManagedUserAccount }> =>
+    apiPost("/auth/users", data),
+
+  assignRole: (
+    userId: string,
+    roleId: string,
+  ): Promise<{ success: boolean; user: ManagedUserAccount }> =>
+    apiFetch(`/auth/users/${encodeURIComponent(userId)}/role`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ roleId }),
+    }).then((response) => handleResponse(response)),
+
+  remove: (
+    userId: string,
+  ): Promise<{ success: boolean; user: { id: string; username: string } }> =>
+    apiDelete(`/auth/users/${encodeURIComponent(userId)}`),
+};
+
+// OIDC settings (server/routes/oidc.js "Settings" section, gated on
+// panel.settings) -- built by Kevin to the shape agreed in advance. Every
+// field here mirrors the server's own publicSettingsShape() exactly.
+export interface OidcSettingsFields {
+  issuerUrl: string;
+  clientId: string;
+  redirectUri: string;
+  scope: string;
+  providerName: string;
+  allowInsecureHttp: boolean;
+}
+
+export interface OidcSettings extends OidcSettingsFields {
+  clientSecretConfigured: boolean;
+  configured: boolean;
+}
+
+export interface OidcSettingsWithEnv extends OidcSettings {
+  envOverrides: Record<keyof OidcSettingsFields | "clientSecret", boolean>;
+  suggestedRedirectUri: string;
+}
+
+export type OidcSettingsUpdate = Partial<OidcSettingsFields> & { clientSecret?: string };
+
+// The resolved endpoints and advertised scopes from a successful test --
+// mirrors server/services/oidc.js's describeDiscoveredMetadata() exactly.
+export interface OidcDiscoveredMetadata {
+  issuer: string;
+  authorizationEndpoint: string | null;
+  tokenEndpoint: string | null;
+  userinfoEndpoint: string | null;
+  jwksUri: string | null;
+  scopesSupported: string[];
+}
+
+export const oidcSettingsApi = {
+  get: (): Promise<OidcSettingsWithEnv> => apiGet("/auth/oidc/settings"),
+
+  update: (updates: OidcSettingsUpdate): Promise<{ success: boolean } & OidcSettings> =>
+    apiFetch("/auth/oidc/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    }).then((response) => handleResponse(response)),
+
+  // Resolves ONLY on a confirmed-good credential check (server-side
+  // `success: true`) -- handleResponse() throws on `success: false`, so
+  // both "confirmed rejected" and "could not determine" arrive as a thrown
+  // ApiError instead, distinguished by its `.code` ("credentials_rejected"
+  // vs "undetermined"). See OidcSettings.tsx's handleTestConnection.
+  testConnection: (
+    updates: OidcSettingsUpdate,
+  ): Promise<{ success: true; metadata: OidcDiscoveredMetadata }> =>
+    apiPost("/auth/oidc/test-connection", updates),
 };

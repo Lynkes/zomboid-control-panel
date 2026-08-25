@@ -1,0 +1,258 @@
+{
+  "pageHeader": {
+    "eyebrow": "权限",
+    "title": "角色与权限",
+    "description": "每个角色对应一列，每项权限对应一行。勾选即授予，取消勾选即收回——更改会立即保存，并在受影响用户的下一次请求时生效。"
+  },
+  "loading": "正在加载角色与权限…",
+  "permissionDenied": {
+    "title": "无法管理角色",
+    "description": "当前账户的角色未包含「管理角色与权限」权限。如需访问此页面，请联系管理员为该账户授予此权限。"
+  },
+  "loadError": {
+    "title": "无法加载角色",
+    "retry": "重试"
+  },
+  "toolbar": {
+    "newRole": "新建角色"
+  },
+  "matrix": {
+    "capabilityColumnHeader": "权限项",
+    "seededBadge": "内置",
+    "memberCount_one": "{{count}} 位成员",
+    "memberCount_other": "{{count}} 位成员",
+    "renameTooltip": "重命名角色",
+    "deleteTooltip": "删除角色",
+    "deleteSeededTooltip": "内置角色无法在此页面删除。",
+    "recoveryCapabilityHint": "移除此权限项的最后一位持有者会导致管理员被锁定在外——面板将拒绝此更改并说明原因。",
+    "savingCell": "正在保存…",
+    "capabilityCount_one": "{{count}} 项权限",
+    "capabilityCount_other": "{{count}} 项权限"
+  },
+  "roleFormDialog": {
+    "createTitle": "新建角色",
+    "createDescription": "为角色命名，然后选择它授予哪些权限项。两者之后都可以更改。",
+    "renameTitle": "重命名「{{name}}」",
+    "renameDescription": "这将更改该角色在所有显示位置的名称。",
+    "nameLabel": "角色名称",
+    "namePlaceholder": "例如：活动策划员",
+    "cancel": "取消",
+    "create": "创建角色",
+    "creating": "正在创建…",
+    "save": "保存",
+    "saving": "正在保存…",
+    "nameRequired": "为角色输入名称。"
+  },
+  "deleteRoleDialog": {
+    "title": "删除「{{name}}」？",
+    "descriptionNoMembers": "此角色没有成员。删除后无法撤销。",
+    "descriptionWithMembers_one": "目前有 {{count}} 位用户持有此角色。请先选择要将其转移到的角色——删除后无法撤销。",
+    "descriptionWithMembers_other": "目前有 {{count}} 位用户持有此角色。请先选择要将其转移到的角色——删除后无法撤销。",
+    "reassignLabel": "将成员转移至",
+    "reassignTip": "此角色的所有成员会一次性全部转移到您在此处选择的角色——无法通过此对话框将他们分配到不同的角色。如需分别为不同用户指定不同角色，请取消并改用下方的「为用户分配角色」表格。",
+    "reassignPlaceholder": "选择角色…",
+    "cancel": "取消",
+    "confirm": "删除角色",
+    "confirming": "正在删除…"
+  },
+  "confirmSelfCapabilityLoss": {
+    "title": "此操作将移除自身的访问权限",
+    "description": "当前账户本身持有此权限项。继续此更改将移除自身{{action}}的能力——其余权限将保持不变。",
+    "confirm": "仍然移除",
+    "cancel": "取消"
+  },
+  "userAssignment": {
+    "title": "为用户分配角色",
+    "description": "更改用户账户所持有的角色。",
+    "usernameColumn": "账户",
+    "roleColumn": "角色",
+    "rolePlaceholder": "选择角色…",
+    "savingRow": "正在保存…",
+    "noUsers": "未找到用户账户。",
+    "permissionDenied": {
+      "title": "无法列出用户账户",
+      "description": "当前账户的角色未包含「管理用户账户」权限。请联系管理员为该账户授予此权限，或使用已拥有该权限的账户登录。"
+    }
+  },
+  "lockout": {
+    "actionManageRoles": "管理角色",
+    "actionManageUsers": "管理用户账户"
+  },
+  "toasts": {
+    "roleCreatedTitle": "角色已创建",
+    "roleCreatedDescription": "「{{name}}」已可分配。",
+    "roleRenamedTitle": "角色已重命名",
+    "roleRenamedDescription": "现显示为「{{name}}」。",
+    "roleDeletedTitle": "角色已删除",
+    "roleDeletedReassignedDescription": "「{{name}}」已删除，其成员已转移至「{{target}}」。",
+    "roleDeletedDescription": "「{{name}}」已删除。",
+    "capabilityGranted": "已将「{{capability}}」授予「{{role}}」。",
+    "capabilityRevoked": "已从「{{role}}」收回「{{capability}}」。",
+    "userRoleAssignedTitle": "角色已分配",
+    "userRoleAssignedDescription": "{{username}} 现持有「{{role}}」角色。",
+    "actionFailedTitle": "操作失败",
+    "unknownError": "未知错误"
+  },
+  "capabilityGroups": {
+    "Users & Roles": "用户与角色",
+    "Backups": "备份",
+    "Server Lifecycle": "服务器生命周期",
+    "RCON": "RCON",
+    "Server Setup & Fleet": "服务器设置与集群",
+    "PanelBridge Integration": "PanelBridge 集成",
+    "Player Authority": "玩家权限",
+    "Mods": "模组",
+    "Automation": "自动化",
+    "Integrations": "集成",
+    "Infrastructure": "基础设施",
+    "Panel Diagnostics & Settings": "面板诊断与设置"
+  },
+  "capabilities": {
+    "users": {
+      "manage": {
+        "label": "管理用户账户",
+        "description": "创建账户、列出账户，并更改每个账户所持有的角色。"
+      }
+    },
+    "roles": {
+      "manage": {
+        "label": "管理角色与权限",
+        "description": "创建、编辑和删除角色，并选择每个角色授予哪些权限项。"
+      }
+    },
+    "backups": {
+      "manage": {
+        "label": "创建、删除与配置备份",
+        "description": "创建手动备份、删除或清理旧备份、上传外部备份，以及更改备份计划。"
+      },
+      "download": {
+        "label": "下载备份压缩包",
+        "description": "将备份 .zip 文件下载到本机之外——包含完整的世界存档副本，若已启用数据库备份，还包含面板自身的账户数据。这与创建、删除或还原备份是不同的操作：此操作会使数据离开本机。"
+      },
+      "restore": {
+        "label": "还原备份",
+        "description": "将当前世界回滚至较早的备份——会影响服务器上当前所有玩家。"
+      }
+    },
+    "server": {
+      "control": {
+        "label": "启动、停止、重启与保存服务器",
+        "description": "启动、停止、强制停止、重启或保存正在运行的服务器。"
+      },
+      "install": {
+        "label": "安装与更新服务器",
+        "description": "通过 SteamCMD 安装或更新服务器，浏览文件系统进行配置，并校验发现的安装。"
+      },
+      "configure": {
+        "label": "编辑服务器配置",
+        "description": "编辑服务器的 .ini 设置、RCON 连接详情，以及网络/路径配置。"
+      },
+      "wipe": {
+        "label": "清除世界",
+        "description": "不可逆地删除地图、玩家或世界存档数据。"
+      },
+      "world_events": {
+        "label": "触发世界事件",
+        "description": "天气、气候、时间、环境音效、丧尸群、实用工具、视觉设置及广播消息——面向整个世界的效果，而非针对特定玩家。"
+      }
+    },
+    "rcon": {
+      "execute": {
+        "label": "执行 RCON 命令",
+        "description": "连接 RCON 并执行任意控制台命令。"
+      }
+    },
+    "servers": {
+      "manage": {
+        "label": "添加、编辑与移除已配置的服务器",
+        "description": "添加、编辑、移除或启用已配置的服务器条目。"
+      },
+      "discover": {
+        "label": "自动发现本机上的服务器",
+        "description": "扫描主机文件系统以查找现有的 PZ 服务器安装。"
+      }
+    },
+    "templates": {
+      "manage": {
+        "label": "管理服务器模板",
+        "description": "创建、导入、应用和删除配置模板。"
+      }
+    },
+    "bridge": {
+      "setup": {
+        "label": "连接与配置 PanelBridge",
+        "description": "连接或重新配置游戏内模组桥接、其 SFTP 传输方式，以及安装该模组。"
+      },
+      "diagnostics": {
+        "label": "PanelBridge 诊断",
+        "description": "查看该模组的调试日志与统计信息，并运行物品/载具目录扫描。"
+      },
+      "command": {
+        "label": "执行任意 PanelBridge 操作",
+        "description": "所有游戏内工具背后不受限的直通通道，包括没有专用按钮的操作。"
+      }
+    },
+    "players": {
+      "moderate": {
+        "label": "管理玩家纪律",
+        "description": "封禁、解封、踢出或将玩家加入白名单。"
+      },
+      "gm_tools": {
+        "label": "GM 工具",
+        "description": "生成物品、传送，以及其他受信任的活动执行操作。"
+      },
+      "view": {
+        "label": "查看玩家信息",
+        "description": "读取玩家详情、状态与历史记录。"
+      }
+    },
+    "mods": {
+      "manage": {
+        "label": "管理模组",
+        "description": "追踪、安装与配置创意工坊模组。"
+      }
+    },
+    "automation": {
+      "manage": {
+        "label": "管理计划任务",
+        "description": "创建和编辑自动重启、备份及其他计划任务。"
+      }
+    },
+    "integrations": {
+      "manage": {
+        "label": "管理集成",
+        "description": "配置 Discord 机器人及类似的外部钩子。"
+      }
+    },
+    "docker": {
+      "manage": {
+        "label": "管理 Docker 容器",
+        "description": "查看状态/统计信息，并启动、停止或重启游戏服务器容器。"
+      }
+    },
+    "chunks": {
+      "manage": {
+        "label": "管理地图区块",
+        "description": "清理或删除地图区块区域，并配置区块存储路径。"
+      }
+    },
+    "serverfiles": {
+      "manage": {
+        "label": "管理服务器文件",
+        "description": "编辑沙盒选项、出生点及其他服务器配置文件。"
+      }
+    },
+    "diagnostics": {
+      "manage": {
+        "label": "查看面板诊断",
+        "description": "查看日志、性能历史、数据库维护工具及 CORS 诊断信息。"
+      }
+    },
+    "panel": {
+      "settings": {
+        "label": "管理面板全局设置",
+        "description": "更改 CORS 策略、模组检查间隔及其他应用级设置。"
+      }
+    }
+  }
+}

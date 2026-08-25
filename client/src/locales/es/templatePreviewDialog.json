@@ -1,0 +1,11 @@
+{
+  "failedToPreview": "No se pudo previsualizar la plantilla",
+  "failedToApply": "No se pudo aplicar la plantilla",
+  "toastAppliedTitle": "Plantilla aplicada",
+  "toastAppliedDesc": "\"{{name}}\" se aplicó.",
+  "noActiveServerTitle": "Sin servidor activo",
+  "noActiveServerDesc": "Configura un servidor antes de previsualizar o aplicar plantillas.",
+  "remoteServerTitle": "Servidor remoto",
+  "remoteServerDesc": "Aplicar plantillas a servidores remotos aún no es compatible.",
+  "previewFailedTitle": "Error al previsualizar"
+}

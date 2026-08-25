@@ -1,4 +1,6 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import {
   Clock,
   Plus,
@@ -74,36 +76,43 @@ interface CronPreset {
   cron: string
 }
 
-const weekDays = [
-  { value: '1', short: 'MON', name: 'Monday' },
-  { value: '2', short: 'TUE', name: 'Tuesday' },
-  { value: '3', short: 'WED', name: 'Wednesday' },
-  { value: '4', short: 'THU', name: 'Thursday' },
-  { value: '5', short: 'FRI', name: 'Friday' },
-  { value: '6', short: 'SAT', name: 'Saturday' },
-  { value: '0', short: 'SUN', name: 'Sunday' },
-]
+function getWeekDays(t: TFunction) {
+  return [
+    { value: '1', short: t('weekdays.mon.short'), name: t('weekdays.mon.name') },
+    { value: '2', short: t('weekdays.tue.short'), name: t('weekdays.tue.name') },
+    { value: '3', short: t('weekdays.wed.short'), name: t('weekdays.wed.name') },
+    { value: '4', short: t('weekdays.thu.short'), name: t('weekdays.thu.name') },
+    { value: '5', short: t('weekdays.fri.short'), name: t('weekdays.fri.name') },
+    { value: '6', short: t('weekdays.sat.short'), name: t('weekdays.sat.name') },
+    { value: '0', short: t('weekdays.sun.short'), name: t('weekdays.sun.name') },
+  ]
+}
 
-const commonCommands = [
-  { label: 'Restart Server', value: 'restart' },
-  { label: 'Save World', value: 'save' },
-  { label: 'Server Message', value: 'servermsg Server maintenance in progress' },
-  { label: 'Check Mod Updates', value: 'checkModsNeedUpdate' },
-  // PanelBridge actions \u2014 routed through the Lua mod via `bridge:<action>`.
-  // JSON args after the action name are validated server-side.
-  { label: 'Trigger Blizzard (2h)', value: 'bridge:triggerBlizzard {"duration":2}' },
-  { label: 'Trigger Storm (1h)', value: 'bridge:triggerStorm {"duration":1}' },
-  { label: 'Trigger Tropical Storm (1h)', value: 'bridge:triggerTropicalStorm {"duration":1}' },
-  { label: 'Stop All Weather', value: 'bridge:stopWeather' },
-  { label: 'Start Rain', value: 'bridge:startRain {"intensity":0.7}' },
-  { label: 'Stop Rain', value: 'bridge:stopRain' },
-  { label: 'Restore Utilities', value: 'bridge:restoreUtilities' },
-  { label: 'Shut Off Utilities', value: 'bridge:shutOffUtilities' },
-  { label: 'Save World (PanelBridge)', value: 'bridge:saveWorld' },
-  { label: 'Broadcast (Server Chat)', value: 'bridge:sendToServerChat {"message":"Scheduled broadcast"}' },
-]
+function getCommonCommands(t: TFunction) {
+  return [
+    { label: t('commands.restartServer'), value: 'restart' },
+    { label: t('commands.saveWorld'), value: 'save' },
+    { label: t('commands.serverMessage'), value: 'servermsg Server maintenance in progress' },
+    { label: t('commands.checkModUpdates'), value: 'checkModsNeedUpdate' },
+    // PanelBridge actions \u2014 routed through the Lua mod via `bridge:<action>`.
+    // JSON args after the action name are validated server-side.
+    { label: t('commands.triggerBlizzard'), value: 'bridge:triggerBlizzard {"duration":2}' },
+    { label: t('commands.triggerStorm'), value: 'bridge:triggerStorm {"duration":1}' },
+    { label: t('commands.triggerTropicalStorm'), value: 'bridge:triggerTropicalStorm {"duration":1}' },
+    { label: t('commands.stopAllWeather'), value: 'bridge:stopWeather' },
+    { label: t('commands.startRain'), value: 'bridge:startRain {"intensity":0.7}' },
+    { label: t('commands.stopRain'), value: 'bridge:stopRain' },
+    { label: t('commands.restoreUtilities'), value: 'bridge:restoreUtilities' },
+    { label: t('commands.shutOffUtilities'), value: 'bridge:shutOffUtilities' },
+    { label: t('commands.saveWorldBridge'), value: 'bridge:saveWorld' },
+    { label: t('commands.broadcastServerChat'), value: 'bridge:sendToServerChat {"message":"Scheduled broadcast"}' },
+  ]
+}
 
 export default function Scheduler() {
+  const { t } = useTranslation('scheduler')
+  const weekDays = useMemo(() => getWeekDays(t), [t])
+  const commonCommands = useMemo(() => getCommonCommands(t), [t])
   const [tasks, setTasks] = useState<ScheduledTask[]>([])
   const [history, setHistory] = useState<ScheduleHistoryEntry[]>([])
   const [presets, setPresets] = useState<CronPreset[]>([])
@@ -116,6 +125,7 @@ export default function Scheduler() {
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
   const [runningTaskId, setRunningTaskId] = useState<number | null>(null)
+  const [broadcastingKey, setBroadcastingKey] = useState<string | null>(null)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const { toast } = useToast()
 
@@ -142,11 +152,17 @@ export default function Scheduler() {
   const fetchData = useCallback(async () => {
     setFetchError(null)
     try {
+      // Only getTasks() is allowed to fail the whole load -- it's the one
+      // thing this page can't function without. The other three used to have
+      // no catch of their own, so an unrelated hiccup (e.g. the presets or
+      // history endpoint 500ing) rejected the entire Promise.all and threw
+      // away a perfectly good task list, replacing it with an empty-state
+      // "no tasks scheduled" even though real tasks existed and loaded fine.
       const [tasksData, presetsData, statusData, historyData, serversData] = await Promise.all([
         schedulerApi.getTasks(),
-        schedulerApi.getCronPresets(),
-        schedulerApi.getStatus(),
-        schedulerApi.getHistory(50),
+        schedulerApi.getCronPresets().catch(() => ({ presets: [] as CronPreset[] })),
+        schedulerApi.getStatus().catch(() => null),
+        schedulerApi.getHistory(50).catch(() => ({ history: [] as ScheduleHistoryEntry[] })),
         serversApi.getAll().catch(() => ({ servers: [] as ServerInstance[] })),
       ])
       setTasks(tasksData.tasks || [])
@@ -164,11 +180,11 @@ export default function Scheduler() {
       })
     } catch (error) {
       reportClientError('Failed to fetch scheduler data.', error)
-      setFetchError('Failed to load scheduler data. The backend may be unreachable.')
+      setFetchError(error instanceof Error ? error.message : t('fetchError.fallback'))
     } finally {
       setInitialLoading(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     fetchData()
@@ -199,7 +215,7 @@ export default function Scheduler() {
   const getServerLabel = (serverId: string | number | null): string | null => {
     if (!serverId) return null
     const match = servers.find((s) => String(s.id) === String(serverId))
-    return match ? (match.name || match.serverName || `Server ${serverId}`) : 'Unknown server'
+    return match ? (match.name || match.serverName || `Server ${serverId}`) : t('scheduledTasks.unknownServer')
   }
 
   // Simple cron validation
@@ -237,8 +253,8 @@ export default function Scheduler() {
 
     if (!newTaskName || !cronToUse || !newTaskCommand) {
       toast({
-        title: 'Error',
-        description: 'Please fill in all fields',
+        title: t('toasts.errorTitle'),
+        description: t('toasts.fillAllFields'),
         variant: 'destructive',
       })
       return
@@ -247,8 +263,8 @@ export default function Scheduler() {
     // Validate cron expression
     if (!isValidCron(cronToUse)) {
       toast({
-        title: 'Invalid Schedule',
-        description: `Invalid cron expression: ${cronToUse}`,
+        title: t('toasts.invalidScheduleTitle'),
+        description: t('toasts.invalidCronDesc', { cron: cronToUse }),
         variant: 'destructive',
       })
       return
@@ -269,8 +285,8 @@ export default function Scheduler() {
         await schedulerApi.createTask(newTaskName, cronToUse, newTaskCommand, newTaskServerId || undefined)
       }
       toast({
-        title: 'Success',
-        description: editingTask ? 'Task updated successfully' : 'Task created successfully',
+        title: t('toasts.successTitle'),
+        description: editingTask ? t('toasts.taskUpdated') : t('toasts.taskCreated'),
         variant: 'success' as const,
       })
       resetTaskForm()
@@ -278,10 +294,10 @@ export default function Scheduler() {
       fetchData()
     } catch (error) {
       toast({
-        title: 'Error',
+        title: t('toasts.errorTitle'),
         description: error instanceof Error
           ? error.message
-          : `Failed to ${editingTask ? 'update' : 'create'} task`,
+          : editingTask ? t('toasts.taskUpdateFailedFallback') : t('toasts.taskCreateFailedFallback'),
         variant: 'destructive',
       })
     } finally {
@@ -294,7 +310,14 @@ export default function Scheduler() {
     setNewTaskName('')
     setNewTaskCron('')
     setNewTaskCommand('')
-    setNewTaskServerId('')
+    // Re-default to the active server rather than blanking the field — otherwise
+    // every task after the first requires a manual reselect, and a task created
+    // with no target silently follows whichever server is active when it fires
+    // instead of the one the operator was looking at.
+    setNewTaskServerId(() => {
+      const active = servers.find((s) => s.isActive)
+      return active ? String(active.id) : (servers[0] ? String(servers[0].id) : '')
+    })
     setScheduleMode('simple')
     setSimpleIntervalType('daily')
     setSimpleHour('06')
@@ -360,15 +383,15 @@ export default function Scheduler() {
         task.server_id != null ? task.server_id : undefined
       )
       toast({
-        title: 'Success',
-        description: `Task ${task.enabled ? 'disabled' : 'enabled'}`,
+        title: t('toasts.successTitle'),
+        description: task.enabled ? t('toasts.taskDisabled') : t('toasts.taskEnabled'),
         variant: 'success' as const,
       })
       fetchData()
     } catch (error) {
       toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to update task',
+        title: t('toasts.errorTitle'),
+        description: error instanceof Error ? error.message : t('toasts.taskUpdateFailedFallback'),
         variant: 'destructive',
       })
     } finally {
@@ -381,15 +404,15 @@ export default function Scheduler() {
     try {
       await schedulerApi.deleteTask(taskId)
       toast({
-        title: 'Success',
-        description: 'Task deleted',
+        title: t('toasts.successTitle'),
+        description: t('toasts.taskDeleted'),
         variant: 'success' as const,
       })
       fetchData()
     } catch (error) {
       toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to delete task',
+        title: t('toasts.errorTitle'),
+        description: error instanceof Error ? error.message : t('toasts.taskDeleteFailedFallback'),
         variant: 'destructive',
       })
     } finally {
@@ -405,15 +428,15 @@ export default function Scheduler() {
       // cron fire, instead of sending task.command to RCON as a raw string.
       await schedulerApi.runTask(task.id)
       toast({
-        title: 'Task Triggered',
-        description: `"${task.name}" is running`,
+        title: t('toasts.taskTriggeredTitle'),
+        description: t('toasts.taskTriggeredDesc', { name: task.name }),
         variant: 'success' as const,
       })
       fetchData() // Refresh to update history
     } catch (error) {
       toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to run task',
+        title: t('toasts.errorTitle'),
+        description: error instanceof Error ? error.message : t('toasts.taskRunFailedFallback'),
         variant: 'destructive',
       })
     } finally {
@@ -426,14 +449,14 @@ export default function Scheduler() {
     try {
       await schedulerApi.restartNow(restartMinutes)
       toast({
-        title: 'Restart Initiated',
-        description: `Server will restart in ${restartMinutes} minutes`,
+        title: t('toasts.restartInitiatedTitle'),
+        description: t('toasts.restartInitiatedDesc', { minutes: restartMinutes }),
         variant: 'success' as const,
       })
     } catch (error) {
       toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to initiate restart',
+        title: t('toasts.errorTitle'),
+        description: error instanceof Error ? error.message : t('toasts.restartFailedFallback'),
         variant: 'destructive',
       })
     } finally {
@@ -446,14 +469,14 @@ export default function Scheduler() {
     try {
       await schedulerApi.restartNow(minutes)
       toast({
-        title: 'Restart Initiated',
-        description: `Server will restart in ${minutes} minutes with countdown warnings`,
+        title: t('toasts.restartInitiatedTitle'),
+        description: t('toasts.restartInitiatedWithWarningsDesc', { minutes }),
         variant: 'success' as const,
       })
     } catch (error) {
       toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to initiate restart',
+        title: t('toasts.errorTitle'),
+        description: error instanceof Error ? error.message : t('toasts.restartFailedFallback'),
         variant: 'destructive',
       })
     } finally {
@@ -461,23 +484,23 @@ export default function Scheduler() {
     }
   }
 
-  const handleBroadcast = async (message: string) => {
-    setLoading(true)
+  const handleBroadcast = async (key: string, message: string) => {
+    setBroadcastingKey(key)
     try {
       await rconApi.execute(`servermsg "${message}"`)
       toast({
-        title: 'Broadcast Sent',
+        title: t('toasts.broadcastSentTitle'),
         description: message,
         variant: 'success' as const,
       })
     } catch (error) {
       toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to broadcast',
+        title: t('toasts.errorTitle'),
+        description: error instanceof Error ? error.message : t('toasts.broadcastFailedFallback'),
         variant: 'destructive',
       })
     } finally {
-      setLoading(false)
+      setBroadcastingKey(null)
     }
   }
 
@@ -487,14 +510,14 @@ export default function Scheduler() {
       await schedulerApi.clearHistory()
       setHistory([])
       toast({
-        title: 'Success',
-        description: 'History cleared',
+        title: t('toasts.successTitle'),
+        description: t('toasts.historyClearedDesc'),
         variant: 'success' as const,
       })
     } catch (error) {
       toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to clear history',
+        title: t('toasts.errorTitle'),
+        description: error instanceof Error ? error.message : t('toasts.historyClearFailedFallback'),
         variant: 'destructive',
       })
     } finally {
@@ -517,11 +540,11 @@ export default function Scheduler() {
       {fetchError && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Scheduler data could not be loaded</AlertTitle>
+          <AlertTitle>{t('fetchError.title')}</AlertTitle>
           <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <span className="min-w-0 break-words" dir="auto">{fetchError}</span>
             <Button variant="outline" size="sm" onClick={fetchData} className="self-start">
-              <RefreshCw className="mr-2 h-4 w-4" /> Retry
+              <RefreshCw className="mr-2 h-4 w-4" /> {t('fetchError.retry')}
             </Button>
           </AlertDescription>
         </Alert>
@@ -534,67 +557,67 @@ export default function Scheduler() {
         }}
       >
         <PageHeader
-          title="Scheduler"
-          description="Automate server tasks and restarts"
-          eyebrow="Maintenance"
+          title={t('pageHeader.title')}
+          description={t('pageHeader.description')}
+          eyebrow={t('pageHeader.eyebrow')}
           tone="maintain"
           icon={<Clock className="w-5 h-5" />}
           actions={
             <DialogTrigger asChild>
               <Button variant="command" onClick={resetTaskForm}>
                 <Plus className="w-4 h-4 mr-2" />
-                New Task
+                {t('pageHeader.newTask')}
               </Button>
             </DialogTrigger>
           }
         />
         <DialogContent>
             <DialogHeader>
-              <DialogTitle>{editingTask ? 'Edit Scheduled Task' : 'Create Scheduled Task'}</DialogTitle>
+              <DialogTitle>{editingTask ? t('dialog.editTitle') : t('dialog.createTitle')}</DialogTitle>
               <DialogDescription>
                 {editingTask
-                  ? `Change the schedule, command, or target server for "${editingTask.name}".`
-                  : 'Run a command on a schedule.'}
+                  ? t('dialog.editDescription', { name: editingTask.name })
+                  : t('dialog.createDescription')}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
               <div>
-                <Label>Task Name</Label>
+                <Label>{t('dialog.taskNameLabel')}</Label>
                 <Input
                   value={newTaskName}
                   onChange={(e) => setNewTaskName(e.target.value)}
-                  placeholder="e.g., Daily Restart"
+                  placeholder={t('dialog.taskNamePlaceholder')}
                   maxLength={100}
                 />
               </div>
               <div>
-                <Label className="mb-2 block">Schedule Type</Label>
+                <Label className="mb-2 block">{t('dialog.scheduleTypeLabel')}</Label>
                 <Tabs value={scheduleMode} onValueChange={(v: string) => setScheduleMode(v as 'simple' | 'advanced')} className="w-full">
                   <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="simple">Simple Builder</TabsTrigger>
-                    <TabsTrigger value="advanced">Advanced (Cron)</TabsTrigger>
+                    <TabsTrigger value="simple">{t('dialog.tabSimple')}</TabsTrigger>
+                    <TabsTrigger value="advanced">{t('dialog.tabAdvanced')}</TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="simple" className="space-y-4 pt-4 border rounded-md p-4 mt-0 border-t-0 rounded-t-none">
                     <div className="space-y-2">
-                      <Label>Frequency</Label>
+                      <Label>{t('dialog.frequencyLabel')}</Label>
                       <Select value={simpleIntervalType} onValueChange={(v) => setSimpleIntervalType(v as 'hourly' | 'daily' | 'weekly' | 'interval')}>
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="hourly">Every Hour (at minute 0)</SelectItem>
-                          <SelectItem value="interval">Every X Hours</SelectItem>
-                          <SelectItem value="daily">Daily at Specific Time</SelectItem>
-                          <SelectItem value="weekly">Weekly on a Specific Day</SelectItem>
+                          <SelectItem value="hourly">{t('dialog.freqHourly')}</SelectItem>
+                          <SelectItem value="interval">{t('dialog.freqInterval')}</SelectItem>
+                          <SelectItem value="daily">{t('dialog.freqDaily')}</SelectItem>
+                          <SelectItem value="weekly">{t('dialog.freqWeekly')}</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
 
                     {simpleIntervalType === 'weekly' && (
                       <div className="space-y-2">
-                        <Label>Day of the week</Label>
-                        <div className="grid grid-cols-4 gap-2 sm:grid-cols-7" role="group" aria-label="Day of the week">
+                        <Label>{t('dialog.dayOfWeekLabel')}</Label>
+                        <div className="grid grid-cols-4 gap-2 sm:grid-cols-7" role="group" aria-label={t('dialog.dayOfWeekAria')}>
                           {weekDays.map((day) => {
                             const selected = simpleWeekday === day.value
                             return (
@@ -619,7 +642,7 @@ export default function Scheduler() {
                     {(simpleIntervalType === 'daily' || simpleIntervalType === 'weekly') && (
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
-                          <Label>Hour (0-23)</Label>
+                          <Label>{t('dialog.hourLabel')}</Label>
                           <Input
                             type="number"
                             min={0}
@@ -629,7 +652,7 @@ export default function Scheduler() {
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label>Minute (0-59)</Label>
+                          <Label>{t('dialog.minuteLabel')}</Label>
                           <Input
                             type="number"
                             min={0}
@@ -643,20 +666,20 @@ export default function Scheduler() {
 
                     {simpleIntervalType === 'interval' && (
                       <div className="space-y-2">
-                        <Label>Every X Hours</Label>
+                        <Label>{t('dialog.everyXHoursLabel')}</Label>
                         <Input
                           type="number"
                           min={1}
                           max={23}
                           value={simpleHoursInterval}
                           onChange={e => setSimpleHoursInterval(e.target.value)}
-                          placeholder="e.g. 4 for every 4 hours"
+                          placeholder={t('dialog.everyXHoursPlaceholder')}
                         />
                       </div>
                     )}
 
                     <div className="bg-muted p-3 rounded text-xs flex items-center justify-between">
-                      <span className="text-muted-foreground">Generated Cron:</span>
+                      <span className="text-muted-foreground">{t('dialog.generatedCronLabel')}</span>
                       <code className="font-mono bg-background px-2 py-1 rounded border">
                         {buildSimpleCron()}
                       </code>
@@ -665,15 +688,15 @@ export default function Scheduler() {
 
                   <TabsContent value="advanced" className="space-y-3 pt-4 border rounded-md p-4 mt-0 border-t-0 rounded-t-none">
                     <div className="space-y-2">
-                      <Label>Load Preset</Label>
+                      <Label>{t('dialog.loadPresetLabel')}</Label>
                       <Select onValueChange={(value) => setNewTaskCron(value)}>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select a preset..." />
+                          <SelectValue placeholder={t('dialog.loadPresetPlaceholder')} />
                         </SelectTrigger>
                         <SelectContent>
                           {presets.map((preset) => (
                             <SelectItem key={preset.cron} value={preset.cron}>
-                              {preset.name} ({preset.cron})
+                              {t('dialog.presetOption', { name: preset.name, cron: preset.cron })}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -681,28 +704,28 @@ export default function Scheduler() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label>Custom Expression</Label>
+                      <Label>{t('dialog.customExpressionLabel')}</Label>
                       <Input
                         value={newTaskCron}
                         onChange={(e) => setNewTaskCron(e.target.value)}
-                        placeholder="e.g., 0 */2 * * *"
+                        placeholder={t('dialog.customExpressionPlaceholder')}
                         className="font-mono"
                         maxLength={100}
-                        aria-label="Cron expression"
+                        aria-label={t('dialog.cronExpressionAria')}
                         aria-describedby="cron-format-hint"
                       />
                     </div>
                     <p id="cron-format-hint" className="text-xs text-muted-foreground">
-                      Format: minute hour day month weekday
+                      {t('dialog.cronFormatHint')}
                     </p>
                   </TabsContent>
                 </Tabs>
               </div>
               <div>
-                <Label>Command</Label>
+                <Label>{t('dialog.commandLabel')}</Label>
                 <Select onValueChange={(value) => setNewTaskCommand(value)}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select common command..." />
+                    <SelectValue placeholder={t('dialog.commandSelectPlaceholder')} />
                   </SelectTrigger>
                   <SelectContent>
                     {commonCommands.map((cmd) => (
@@ -716,41 +739,44 @@ export default function Scheduler() {
                   className="mt-2"
                   value={newTaskCommand}
                   onChange={(e) => setNewTaskCommand(e.target.value)}
-                  placeholder="Or enter custom command"
+                  placeholder={t('dialog.commandCustomPlaceholder')}
                   maxLength={2000}
                 />
                 {newTaskCommand.startsWith('bridge:') && (
                   <p className="mt-1.5 text-xs text-muted-foreground">
-                    Format: <code className="text-foreground">bridge:&lt;action&gt; {'{json args}'}</code> — e.g.
-                    <code className="ml-1 text-foreground">bridge:triggerBlizzard {'{"durationHours":2}'}</code>.
-                    Args are optional. Only allow-listed actions run via the scheduler.
+                    <Trans
+                      i18nKey="dialog.bridgeFormatHint"
+                      t={t}
+                      components={{ 1: <code className="text-foreground" />, 2: <code className="ml-1 text-foreground" /> }}
+                    />
                   </p>
                 )}
               </div>
               <div>
-                <Label>Target Server</Label>
+                <Label>{t('dialog.targetServerLabel')}</Label>
                 <Select value={newTaskServerId} onValueChange={setNewTaskServerId}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select a server..." />
+                    <SelectValue placeholder={t('dialog.targetServerPlaceholder')} />
                   </SelectTrigger>
                   <SelectContent>
                     {servers.map((server) => (
                       <SelectItem key={server.id} value={String(server.id)}>
                         {server.name || server.serverName}
-                        {server.isActive ? ' (Active)' : ''}
-                        {server.isRemote ? ' — Remote' : ''}
+                        {server.isActive ? t('dialog.targetServerActiveSuffix') : ''}
+                        {server.isRemote ? t('dialog.targetServerRemoteSuffix') : ''}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <p className="mt-1.5 text-xs text-muted-foreground">
-                  This task always runs against this server, even if a different one is active when it fires.
+                  {t('dialog.targetServerHelp')}
                 </p>
               </div>
             </div>
             <DialogFooter>
-              <Button onClick={handleCreateTask} disabled={loading}>
-                {editingTask ? 'Save Changes' : 'Create Task'}
+              <Button onClick={handleCreateTask} disabled={loading} className="gap-2">
+                {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+                {editingTask ? t('dialog.saveChanges') : t('dialog.createTaskButton')}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -766,23 +792,23 @@ export default function Scheduler() {
         const tiles = [
           {
             icon: <Clock className="w-4 h-4" />,
-            label: 'Active Tasks',
+            label: t('statusTiles.activeTasks'),
             value: String(activeCount),
-            sub: `${totalCount} total task${totalCount === 1 ? '' : 's'}`,
+            sub: t('statusTiles.totalTasksSub', { count: totalCount }),
             tone: activeCount > 0 ? 'primary' : 'muted',
           },
           {
             icon: <RotateCcw className="w-4 h-4" />,
-            label: 'Restart Tasks',
-            value: restartActive ? 'Scheduled' : 'None',
-            sub: `${restartCount} restart task${restartCount === 1 ? '' : 's'}`,
+            label: t('statusTiles.restartTasks'),
+            value: restartActive ? t('statusTiles.restartScheduled') : t('statusTiles.restartNone'),
+            sub: t('statusTiles.restartTasksSub', { count: restartCount }),
             tone: restartActive ? 'primary' : 'muted',
           },
           {
             icon: <Calendar className="w-4 h-4" />,
-            label: 'Mod Update Restart',
-            value: modRestartPending ? 'Pending' : 'None',
-            sub: 'Auto-restart on mod updates',
+            label: t('statusTiles.modUpdateRestart'),
+            value: modRestartPending ? t('statusTiles.modUpdatePending') : t('statusTiles.modUpdateNone'),
+            sub: t('statusTiles.modUpdateSub'),
             tone: modRestartPending ? 'warning' : 'muted',
           },
         ] as const
@@ -793,18 +819,18 @@ export default function Scheduler() {
         }
         return (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {tiles.map(t => {
-              const cls = toneClasses[t.tone]
+            {tiles.map(tile => {
+              const cls = toneClasses[tile.tone]
               return (
-                <Card key={t.label} className="overflow-hidden">
+                <Card key={tile.label} className="overflow-hidden">
                   <CardContent className="flex items-center gap-3 p-4">
                     <div className={`grid place-items-center w-10 h-10 rounded-md border ${cls.tile}`} aria-hidden="true">
-                      {t.icon}
+                      {tile.icon}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t.label}</p>
-                      <p className={`text-xl font-semibold leading-tight mt-0.5 ${cls.value}`}>{t.value}</p>
-                      <p className="text-[11px] text-muted-foreground/80 mt-0.5 truncate">{t.sub}</p>
+                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{tile.label}</p>
+                      <p className={`text-xl font-semibold leading-tight mt-0.5 ${cls.value}`}>{tile.value}</p>
+                      <p className="text-[11px] text-muted-foreground/80 mt-0.5 truncate">{tile.sub}</p>
                     </div>
                   </CardContent>
                 </Card>
@@ -819,11 +845,11 @@ export default function Scheduler() {
         {/* Manual Restart */}
         <Card>
         <CardHeader>
-          <CardTitle>Manual Restart</CardTitle>
+          <CardTitle>{t('manualRestart.title')}</CardTitle>
           <CardDescription>
             {serverRunning
-              ? 'Pick a countdown — players are warned and the server restarts when it ends.'
-              : 'Server is offline — start it before issuing a restart.'}
+              ? t('manualRestart.descRunning')
+              : t('manualRestart.descOffline')}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -834,30 +860,30 @@ export default function Scheduler() {
               disabled={loading || !serverRunning}
               variant="outline"
               size="sm"
-              title="Restart in 15 minutes with countdown warnings"
+              title={t('manualRestart.restartIn15Title')}
             >
               <Clock className="w-4 h-4 mr-2" />
-              Restart in 15m
+              {t('manualRestart.restartIn15')}
             </Button>
             <Button
               onClick={() => handleRestartWithWarning(10)}
               disabled={loading || !serverRunning}
               variant="outline"
               size="sm"
-              title="Restart in 10 minutes with countdown warnings"
+              title={t('manualRestart.restartIn10Title')}
             >
               <Clock className="w-4 h-4 mr-2" />
-              Restart in 10m
+              {t('manualRestart.restartIn10')}
             </Button>
             <Button
               onClick={() => handleRestartWithWarning(5)}
               disabled={loading || !serverRunning}
               variant="outline"
               size="sm"
-              title="Restart in 5 minutes with countdown warnings"
+              title={t('manualRestart.restartIn5Title')}
             >
               <Clock className="w-4 h-4 mr-2" />
-              Restart in 5m
+              {t('manualRestart.restartIn5')}
             </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
@@ -865,27 +891,26 @@ export default function Scheduler() {
                   disabled={loading || !serverRunning}
                   variant="warning"
                   size="sm"
-                  title="Restart in 1 minute — short warning, requires confirmation"
+                  title={t('manualRestart.restartIn1Title')}
                 >
                   <Clock className="w-4 h-4 mr-2" />
-                  Restart in 1m
+                  {t('manualRestart.restartIn1')}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Restart server in 1 minute?</AlertDialogTitle>
+                  <AlertDialogTitle>{t('manualRestart.restartIn1DialogTitle')}</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Players get a single 1-minute warning before the server goes down.
-                    Use longer countdowns if anyone is mid-fight or driving.
+                    {t('manualRestart.restartIn1DialogDesc')}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogCancel>{t('manualRestart.cancel')}</AlertDialogCancel>
                   <AlertDialogAction
                     onClick={() => handleRestartWithWarning(1)}
                     className="bg-warning text-warning-foreground hover:bg-warning/90"
                   >
-                    Restart in 1m
+                    {t('manualRestart.restartIn1')}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -895,7 +920,7 @@ export default function Scheduler() {
           {/* Custom Time */}
           <div className="flex items-end gap-4">
             <div className="flex-1 max-w-xs">
-              <Label>Custom countdown (minutes)</Label>
+              <Label>{t('manualRestart.customCountdownLabel')}</Label>
               <Input
                 type="number"
                 value={restartMinutes}
@@ -909,20 +934,20 @@ export default function Scheduler() {
                 <AlertDialogTrigger asChild>
                   <Button disabled={loading || !serverRunning} variant="warning">
                     <RotateCcw className="w-4 h-4 mr-2" />
-                    Restart Now
+                    {t('manualRestart.restartNow')}
                   </Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
-                    <AlertDialogTitle>Restart in {restartMinutes} minute{restartMinutes === 1 ? '' : 's'}?</AlertDialogTitle>
+                    <AlertDialogTitle>{t('manualRestart.shortCountdownDialogTitle', { count: restartMinutes })}</AlertDialogTitle>
                     <AlertDialogDescription>
-                      Short countdowns can catch players mid-action. Confirm if you really want to restart this fast.
+                      {t('manualRestart.shortCountdownDialogDesc')}
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogCancel>{t('manualRestart.cancel')}</AlertDialogCancel>
                     <AlertDialogAction onClick={handleRestartNow} className="bg-warning text-warning-foreground hover:bg-warning/90">
-                      Restart in {restartMinutes}m
+                      {t('manualRestart.confirmShortRestart', { count: restartMinutes })}
                     </AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
@@ -934,12 +959,12 @@ export default function Scheduler() {
                 variant="warning"
               >
                 <RotateCcw className="w-4 h-4 mr-2" />
-                Restart Now
+                {t('manualRestart.restartNow')}
               </Button>
             )}
           </div>
           <p className="text-sm text-muted-foreground">
-            Players see countdown warnings at 15m, 10m, 5m, and 1m as the timer ticks down.
+            {t('manualRestart.countdownWarningsNote')}
           </p>
         </CardContent>
       </Card>
@@ -947,46 +972,54 @@ export default function Scheduler() {
       {/* Maintenance Mode */}
       <Card>
         <CardHeader>
-          <CardTitle>Quick Broadcasts</CardTitle>
+          <CardTitle>{t('quickBroadcasts.title')}</CardTitle>
           <CardDescription>
             {serverRunning
-              ? 'Send common announcements to all players.'
-              : 'Server is offline — broadcasts require a running server.'}
+              ? t('quickBroadcasts.descRunning')
+              : t('quickBroadcasts.descOffline')}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-2">
             <Button
-              onClick={() => handleBroadcast('Server entering MAINTENANCE MODE - Please save and disconnect')}
+              onClick={() => handleBroadcast('maintenanceStart', t('broadcastMessages.maintenanceStart'))}
               variant="outline"
               size="sm"
-              disabled={loading || !serverRunning}
+              disabled={broadcastingKey !== null || loading || !serverRunning}
+              className="gap-2"
             >
-              Maintenance Start
+              {broadcastingKey === 'maintenanceStart' && <Loader2 className="w-4 h-4 animate-spin" />}
+              {t('quickBroadcasts.maintenanceStart')}
             </Button>
             <Button
-              onClick={() => handleBroadcast('Maintenance complete - Server is back online!')}
+              onClick={() => handleBroadcast('maintenanceEnd', t('broadcastMessages.maintenanceEnd'))}
               variant="outline"
               size="sm"
-              disabled={loading || !serverRunning}
+              disabled={broadcastingKey !== null || loading || !serverRunning}
+              className="gap-2"
             >
-              Maintenance End
+              {broadcastingKey === 'maintenanceEnd' && <Loader2 className="w-4 h-4 animate-spin" />}
+              {t('quickBroadcasts.maintenanceEnd')}
             </Button>
             <Button
-              onClick={() => handleBroadcast('Server will save in 30 seconds - Brief lag expected')}
+              onClick={() => handleBroadcast('saveWarning', t('broadcastMessages.saveWarning'))}
               variant="outline"
               size="sm"
-              disabled={loading || !serverRunning}
+              disabled={broadcastingKey !== null || loading || !serverRunning}
+              className="gap-2"
             >
-              Save Warning
+              {broadcastingKey === 'saveWarning' && <Loader2 className="w-4 h-4 animate-spin" />}
+              {t('quickBroadcasts.saveWarning')}
             </Button>
             <Button
-              onClick={() => handleBroadcast('Welcome! Please read the rules at spawn')}
+              onClick={() => handleBroadcast('welcome', t('broadcastMessages.welcome'))}
               variant="outline"
               size="sm"
-              disabled={loading || !serverRunning}
+              disabled={broadcastingKey !== null || loading || !serverRunning}
+              className="gap-2"
             >
-              Welcome
+              {broadcastingKey === 'welcome' && <Loader2 className="w-4 h-4 animate-spin" />}
+              {t('quickBroadcasts.welcome')}
             </Button>
           </div>
         </CardContent>
@@ -996,45 +1029,45 @@ export default function Scheduler() {
       {/* Scheduled Tasks */}
       <Card>
         <CardHeader>
-          <CardTitle>Scheduled Tasks</CardTitle>
+          <CardTitle>{t('scheduledTasks.title')}</CardTitle>
           <CardDescription>
-            Manage automated commands.
+            {t('scheduledTasks.description')}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <ScrollArea className="h-[300px] sm:h-[400px]">
             {tasks.length === 0 ? (
-              <EmptyState type="noSchedule" title="No scheduled tasks" description="Create a task to run commands automatically." />
+              <EmptyState type="noSchedule" title={t('scheduledTasks.emptyTitle')} description={t('scheduledTasks.emptyDesc')} />
             ) : (
               <div className="space-y-3">
                 {tasks.map((task) => (
                   <div
                     key={task.id}
-                    className={`group relative flex items-center gap-3 p-4 rounded-lg border transition-colors ${
+                    className={`group relative flex flex-col gap-3 p-4 rounded-lg border transition-colors sm:flex-row sm:items-center ${
                       task.enabled
                         ? 'bg-card border-border/60 hover:border-primary/40'
                         : 'bg-muted/30 border-border/40 text-muted-foreground'
                     }`}
                   >
-                    {/* Leading status pip — solid + ping when active, hollow when disabled */}
-                    <div className="shrink-0 self-stretch flex items-center" aria-hidden="true">
-                      {task.enabled ? (
-                        <span className="relative inline-flex">
-                          <span className="absolute inset-0 rounded-full bg-primary/40 animate-ping motion-reduce:hidden" />
-                          <span className="relative w-2 h-2 rounded-full bg-primary" />
-                        </span>
-                      ) : (
-                        <span className="w-2 h-2 rounded-full border border-muted-foreground/50" />
-                      )}
-                    </div>
-                    <div className="flex flex-1 items-center justify-between min-w-0">
+                    <div className="flex flex-1 min-w-0 items-center gap-3">
+                      {/* Leading status pip — solid + ping when active, hollow when disabled */}
+                      <div className="shrink-0 self-stretch flex items-center" aria-hidden="true">
+                        {task.enabled ? (
+                          <span className="relative inline-flex">
+                            <span className="absolute inset-0 rounded-full bg-primary/40 animate-ping motion-reduce:hidden" />
+                            <span className="relative w-2 h-2 rounded-full bg-primary" />
+                          </span>
+                        ) : (
+                          <span className="w-2 h-2 rounded-full border border-muted-foreground/50" />
+                        )}
+                      </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 min-w-0">
                           <h3 className="font-medium truncate text-foreground">{task.name}</h3>
                           {getServerLabel(task.server_id) && (
                             <span
                               className="shrink-0 text-[11px] font-medium bg-primary/10 border border-primary/30 px-1.5 py-0.5 rounded text-primary truncate max-w-[140px]"
-                              title={`Target server: ${getServerLabel(task.server_id)}`}
+                              title={t('scheduledTasks.targetServerTitle', { server: getServerLabel(task.server_id) })}
                             >
                               {getServerLabel(task.server_id)}
                             </span>
@@ -1048,71 +1081,71 @@ export default function Scheduler() {
                         </p>
                         {task.last_run && (
                           <p className="text-[11px] text-muted-foreground/70 mt-1">
-                            Last run · {new Date(task.last_run).toLocaleString()}
+                            {t('scheduledTasks.lastRun', { date: new Date(task.last_run).toLocaleString() })}
                           </p>
                         )}
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleRunNow(task)}
-                          disabled={loading || runningTaskId !== null}
-                          title="Run task now"
-                          aria-label={`Run ${task.name} now`}
-                        >
-                          {runningTaskId === task.id ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <Play className="w-4 h-4" />
-                          )}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleEditTask(task)}
-                          disabled={loading}
-                          title="Edit task"
-                          aria-label={`Edit ${task.name}`}
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                        <Switch
-                          checked={!!task.enabled}
-                          onCheckedChange={() => handleToggleTask(task)}
-                          disabled={loading}
-                          aria-label={`Toggle ${task.name}`}
-                        />
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              disabled={loading}
-                              aria-label={`Delete task ${task.name}`}
+                    </div>
+                    <div className="flex items-center gap-2 self-end sm:self-auto">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleRunNow(task)}
+                        disabled={loading || runningTaskId !== null}
+                        title={t('scheduledTasks.runNowTitle')}
+                        aria-label={t('scheduledTasks.runNowAria', { name: task.name })}
+                      >
+                        {runningTaskId === task.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Play className="w-4 h-4" />
+                        )}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleEditTask(task)}
+                        disabled={loading}
+                        title={t('scheduledTasks.editTitle')}
+                        aria-label={t('scheduledTasks.editAria', { name: task.name })}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                      <Switch
+                        checked={!!task.enabled}
+                        onCheckedChange={() => handleToggleTask(task)}
+                        disabled={loading}
+                        aria-label={t('scheduledTasks.toggleAria', { name: task.name })}
+                      />
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            disabled={loading}
+                            aria-label={t('scheduledTasks.deleteAria', { name: task.name })}
+                          >
+                            <Trash2 className="w-4 h-4 text-destructive" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>{t('scheduledTasks.deleteDialogTitle')}</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              {t('scheduledTasks.deleteDialogDesc', { name: task.name })}
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>{t('manualRestart.cancel')}</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => handleDeleteTask(task.id)}
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                             >
-                              <Trash2 className="w-4 h-4 text-destructive" />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Delete Scheduled Task</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Are you sure you want to delete "{task.name}"? This action cannot be undone.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => handleDeleteTask(task.id)}
-                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                              >
-                                Delete
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </div>
+                              {t('scheduledTasks.deleteConfirm')}
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     </div>
                   </div>
                 ))}
@@ -1125,14 +1158,14 @@ export default function Scheduler() {
       {/* Execution History */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2">
             <div>
               <CardTitle className="flex items-center gap-2">
                 <History className="w-5 h-5" />
-                Execution History
+                {t('executionHistory.title')}
               </CardTitle>
               <CardDescription>
-                Recent task execution log.
+                {t('executionHistory.description')}
               </CardDescription>
             </div>
             <div className="flex gap-2">
@@ -1143,7 +1176,7 @@ export default function Scheduler() {
                 disabled={loading}
               >
                 <RefreshCw className="w-4 h-4 mr-1" />
-                Refresh
+                {t('executionHistory.refresh')}
               </Button>
               <AlertDialog>
                 <AlertDialogTrigger asChild>
@@ -1153,23 +1186,23 @@ export default function Scheduler() {
                     disabled={loading || history.length === 0}
                   >
                     <Trash2 className="w-4 h-4 mr-1" />
-                    Clear
+                    {t('executionHistory.clear')}
                   </Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
-                    <AlertDialogTitle>Clear Execution History</AlertDialogTitle>
+                    <AlertDialogTitle>{t('executionHistory.clearDialogTitle')}</AlertDialogTitle>
                     <AlertDialogDescription>
-                      Are you sure you want to clear all {history.length} execution history entries? This action cannot be undone.
+                      {t('executionHistory.clearDialogDesc', { count: history.length })}
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogCancel>{t('manualRestart.cancel')}</AlertDialogCancel>
                     <AlertDialogAction
                       onClick={handleClearHistory}
                       className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                     >
-                      Clear All
+                      {t('executionHistory.clearAllConfirm')}
                     </AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
@@ -1180,16 +1213,14 @@ export default function Scheduler() {
         <CardContent>
           <ScrollArea className="h-[300px] sm:h-[400px]">
             {history.length === 0 ? (
-              <EmptyState type="noSchedule" title="No execution history" description="Executions will appear here." />
+              <EmptyState type="noSchedule" title={t('executionHistory.emptyTitle')} description={t('executionHistory.emptyDesc')} />
             ) : (
               <div className="space-y-2">
                 {history.map((entry) => (
                   <div
                     key={entry.id}
-                    className={`p-3 rounded-lg border-l-2 border-y border-r border-y-border/40 border-r-border/40 ${
-                      entry.success
-                        ? 'bg-card border-l-primary/50'
-                        : 'bg-destructive/[0.06] border-l-destructive border-y-destructive/25 border-r-destructive/25'
+                    className={`p-3 rounded-lg border border-border/40 ${
+                      entry.success ? 'bg-card' : 'bg-destructive/[0.06]'
                     }`}
                   >
                     <div className="flex items-start justify-between">
@@ -1199,7 +1230,7 @@ export default function Scheduler() {
                         ) : (
                           <XCircle className="w-4 h-4 text-destructive flex-shrink-0" aria-hidden="true" />
                         )}
-                        <span className="sr-only">{entry.success ? 'Succeeded' : 'Failed'}</span>
+                        <span className="sr-only">{entry.success ? t('executionHistory.succeeded') : t('executionHistory.failed')}</span>
                         <div>
                           <span className="font-medium">{entry.task_name}</span>
                           <code className="ml-2 text-xs bg-muted px-1.5 py-0.5 rounded">
@@ -1219,7 +1250,7 @@ export default function Scheduler() {
                       )}
                       {entry.duration !== null && (
                         <p className="text-xs text-muted-foreground">
-                          Duration: {(entry.duration / 1000).toFixed(1)}s
+                          {t('executionHistory.duration', { seconds: (entry.duration / 1000).toFixed(1) })}
                         </p>
                       )}
                     </div>
@@ -1237,7 +1268,7 @@ export default function Scheduler() {
           <CollapsibleTrigger className="flex w-full items-center justify-between px-5 py-3 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
             <span className="flex items-center gap-2">
               <HelpCircle className="w-4 h-4" />
-              Cron Expression Help
+              {t('cronHelp.title')}
             </span>
             <ChevronDown className="w-4 h-4 transition-transform duration-200 [[data-state=open]>&]:rotate-180" />
           </CollapsibleTrigger>
@@ -1245,31 +1276,31 @@ export default function Scheduler() {
             <div className="px-5 pb-4 pt-0">
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 text-sm">
                 <div>
-                  <p className="font-medium">Minute</p>
-                  <p className="text-muted-foreground">0-59</p>
+                  <p className="font-medium">{t('cronHelp.minuteLabel')}</p>
+                  <p className="text-muted-foreground">{t('cronHelp.minuteRange')}</p>
                 </div>
                 <div>
-                  <p className="font-medium">Hour</p>
-                  <p className="text-muted-foreground">0-23</p>
+                  <p className="font-medium">{t('cronHelp.hourLabel')}</p>
+                  <p className="text-muted-foreground">{t('cronHelp.hourRange')}</p>
                 </div>
                 <div>
-                  <p className="font-medium">Day</p>
-                  <p className="text-muted-foreground">1-31</p>
+                  <p className="font-medium">{t('cronHelp.dayLabel')}</p>
+                  <p className="text-muted-foreground">{t('cronHelp.dayRange')}</p>
                 </div>
                 <div>
-                  <p className="font-medium">Month</p>
-                  <p className="text-muted-foreground">1-12</p>
+                  <p className="font-medium">{t('cronHelp.monthLabel')}</p>
+                  <p className="text-muted-foreground">{t('cronHelp.monthRange')}</p>
                 </div>
                 <div>
-                  <p className="font-medium">Weekday</p>
-                  <p className="text-muted-foreground">0-6 (Sun-Sat)</p>
+                  <p className="font-medium">{t('cronHelp.weekdayLabel')}</p>
+                  <p className="text-muted-foreground">{t('cronHelp.weekdayRange')}</p>
                 </div>
               </div>
               <div className="mt-4 space-y-2 text-sm">
-                <p><code className="bg-muted px-1 rounded">*</code> = any value</p>
-                <p><code className="bg-muted px-1 rounded">*/n</code> = every n units</p>
-                <p><code className="bg-muted px-1 rounded">0 */2 * * *</code> = every 2 hours</p>
-                <p><code className="bg-muted px-1 rounded">0 6 * * *</code> = daily at 6 AM</p>
+                <p><Trans i18nKey="cronHelp.anyValue" t={t} components={{ 1: <code className="bg-muted px-1 rounded" /> }} /></p>
+                <p><Trans i18nKey="cronHelp.everyNUnits" t={t} components={{ 1: <code className="bg-muted px-1 rounded" /> }} /></p>
+                <p><Trans i18nKey="cronHelp.every2HoursExample" t={t} components={{ 1: <code className="bg-muted px-1 rounded" /> }} /></p>
+                <p><Trans i18nKey="cronHelp.daily6amExample" t={t} components={{ 1: <code className="bg-muted px-1 rounded" /> }} /></p>
               </div>
             </div>
           </CollapsibleContent>

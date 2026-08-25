@@ -3,6 +3,10 @@ import compression from "compression";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import { permissionsPolicy } from "./middleware/permissionsPolicy.js";
+import { logSetupTokenIfNeeded } from "./utils/setupToken.js";
+import { computeInlineScriptCspHash } from "./utils/cspScriptHash.js";
+import { parseTrustProxySetting } from "./utils/trustProxy.js";
 import { createServer } from "http";
 import { createServer as createHttpsServer } from "https";
 import { Server } from "socket.io";
@@ -50,8 +54,10 @@ import { DiskMonitor } from "./services/diskMonitor.js";
 import authService from "./services/auth.js";
 import { requireRole } from "./services/auth.js";
 import authRoutes from "./routes/auth.js";
+import oidcRoutes from "./routes/oidc.js";
 import { loadOrCreateCerts } from "./utils/certs.js";
-import { sanitizeError } from "./utils/sanitize.js";
+import { sanitizeError, sanitizeErrorParams } from "./utils/sanitize.js";
+import { ErrorCode } from "./utils/errorCodes.js";
 import { getSftpCachePath } from "./services/panelBridgeSftp.js";
 import {
   getEmbeddedPanelBridgeLua,
@@ -240,6 +246,7 @@ import mapProxyRoutes from "./routes/mapProxy.js";
 import systemRoutes from "./routes/system.js";
 import templatesRoutes from "./routes/templates.js";
 import dockerRoutes from "./routes/docker.js";
+import permissionsRoutes from "./routes/permissions.js";
 import panelBridge from "./services/panelBridge.js";
 
 dotenv.config();
@@ -255,18 +262,23 @@ const app = express();
 // LAN/home-server deployment) spoof X-Forwarded-For to dodge IP-keyed rate
 // limiting (login, setup, RCON limiters all key on req.ip) and to influence
 // the x-forwarded-proto secure-cookie logic.
-const trustProxyEnv = (process.env.TRUST_PROXY || "").trim().toLowerCase();
-let trustProxySetting = false;
-if (trustProxyEnv === "true") {
-  trustProxySetting = 1;
-} else if (trustProxyEnv && trustProxyEnv !== "false") {
-  const hops = parseInt(trustProxyEnv, 10);
-  trustProxySetting = Number.isFinite(hops) && hops > 0 ? hops : false;
+const trustProxyEnv = process.env.TRUST_PROXY || "";
+let trustProxySetting = parseTrustProxySetting(trustProxyEnv);
+try {
+  app.set("trust proxy", trustProxySetting);
+} catch (error) {
+  log.warn(
+    `Invalid TRUST_PROXY value (${trustProxyEnv}), proxy trust disabled: ${error.message}`,
+  );
+  trustProxySetting = false;
+  app.set("trust proxy", false);
 }
-app.set("trust proxy", trustProxySetting);
 if (trustProxySetting) {
+  const configuredProxy = Array.isArray(trustProxySetting)
+    ? trustProxySetting.join(",")
+    : trustProxySetting;
   log.info(
-    `trust proxy enabled (${trustProxySetting} hop${trustProxySetting === 1 ? "" : "s"}) via TRUST_PROXY env var`,
+    `trust proxy enabled (${configuredProxy}) via TRUST_PROXY env var`,
   );
 }
 const httpServer = createServer(app);
@@ -520,18 +532,152 @@ const io = new Server(httpServer, {
   },
 });
 
+// Sets up the optional HTTPS listener from stored settings. Extracted out
+// of start() so it can be exercised directly in tests (server/tests/
+// httpsSetup.test.js) without booting the rest of the panel (player
+// polling, watchdogs, update checkers, etc.) -- the load-bearing case is
+// that a bad customKeyPath/customCertPath/httpsPort must degrade to "HTTPS
+// off, HTTP unaffected" rather than crashing the whole process, and a
+// GOOD config must still actually bring HTTPS up (a fix that merely
+// disabled HTTPS unconditionally would also "pass" the negative case).
+// Mutates the module-level `httpsServer` binding directly (both here and,
+// asynchronously, from the "error" handler below) rather than only
+// returning a value, because the async failure case can only be observed
+// after this function has already returned its initial result.
+export function setupHttpsServer({
+  httpsEnabled,
+  httpsPort,
+  customKeyPath,
+  customCertPath,
+}) {
+  if (!httpsEnabled) return null;
+
+  // loadOrCreateCerts() no longer throws on a bad custom cert/key path
+  // (see utils/certs.js), but this try/catch is a second, independent
+  // guard against anything unexpected in that path ever taking the whole
+  // panel down again -- HTTPS is optional; nothing in here may ever be
+  // allowed to reach the global uncaughtException handler and kill the
+  // process.
+  let certs = null;
+  try {
+    certs = loadOrCreateCerts(customKeyPath, customCertPath);
+  } catch (error) {
+    log.error(
+      `HTTPS certificate setup failed unexpectedly: ${error.message} — running HTTP only`,
+    );
+    return null;
+  }
+  if (!certs) {
+    log.warn(
+      "HTTPS enabled but certificate generation failed — running HTTP only",
+    );
+    return null;
+  }
+
+  httpsServer = createHttpsServer(certs, app);
+  // Add HTTPS origin to allowed list dynamically
+  addAllowedOrigin(`https://localhost:${httpsPort}`);
+  // Attach the SAME Socket.IO instance to the HTTPS server too, instead of
+  // creating a second `Server`. A second instance would have its own auth
+  // middleware, rooms, and connection handlers — every `.emit()` in this
+  // app targets the module-level `io` (bound only to the HTTP server), so
+  // WSS clients would authenticate successfully and then receive NO events
+  // at all (no server:status, players:update, perf:snapshot, log:entry,
+  // chat:message, panelBridge:*, etc). `io.attach()` binds the existing
+  // engine (with its middleware and event handlers already registered) to
+  // this additional http.Server.
+  io.attach(httpsServer, {
+    cors: {
+      origin: (origin, callback) => {
+        if (isAllowedOrigin(origin)) {
+          callback(null, true);
+        } else {
+          callback(new Error(CORS_DENY_MESSAGE));
+        }
+      },
+      methods: ["GET", "POST"],
+      credentials: true,
+    },
+  });
+
+  // Registered BEFORE .listen() -- a listen failure (bad/colliding port,
+  // permission denied on a privileged port, etc.) emits 'error'
+  // asynchronously, and an httpsServer with no listener for it would
+  // otherwise become an uncaught exception that reaches index.js's global
+  // handler and calls process.exit(1) (same root cause as the cert-path
+  // crash this whole fix addresses, just via .listen() instead of
+  // loadOrCreateCerts()). Unlike httpServer's own "error" handler in
+  // start(), this one never retries or picks a different port -- HTTPS is
+  // the optional, secondary listener here; on any failure it just stays
+  // off while HTTP keeps serving on its own already-bound port, loudly
+  // logged so the operator can fix the setting.
+  httpsServer.on("error", (err) => {
+    if (err.code === "EADDRINUSE") {
+      log.error(
+        `HTTPS port ${httpsPort} is already in use. Find the offender with: ${process.platform === "win32" ? `netstat -ano | findstr :${httpsPort}` : `ss -tlnp | grep :${httpsPort}  (or: lsof -i :${httpsPort})`}`,
+      );
+    }
+    log.error(
+      `HTTPS server error: ${err.message} — HTTPS disabled, HTTP is unaffected and continues starting normally`,
+    );
+    httpsServer = null;
+  });
+
+  // .listen() also validates its `port` argument SYNCHRONOUSLY before ever
+  // reaching the socket layer -- an out-of-range or non-numeric value
+  // throws a RangeError/TypeError immediately, which the "error" handler
+  // above never sees (it only covers ASYNC failures like EADDRINUSE). Both
+  // must be guarded; this is the synchronous half.
+  try {
+    httpsServer.listen(httpsPort, () => {
+      log.info(`HTTPS server listening on port ${httpsPort}`);
+    });
+  } catch (error) {
+    log.error(
+      `Invalid HTTPS port ${JSON.stringify(httpsPort)}: ${error.message} — HTTPS disabled, HTTP is unaffected`,
+    );
+    httpsServer = null;
+  }
+
+  return httpsServer;
+}
+
 // Security middleware
 // HSTS and upgrade-insecure-requests are conditionally enabled:
 // - On LAN/HTTP setups: disabled (would break plain HTTP access)
 // - On VPS/HTTPS setups: enabled (browser enforces HTTPS)
 const httpsDetected =
   process.env.HTTPS === "true" || process.env.FORCE_HSTS === "true";
+
+// Resolved again here (duplicated from the client-dist static-serving setup
+// further down this file) because CSP has to be registered before that
+// point — this is the one thing both need, computed early rather than
+// reordering the rest of the file around it.
+const cspClientDistPath =
+  typeof process.pkg !== "undefined"
+    ? path.join(path.dirname(process.execPath), "client", "dist")
+    : path.join(__dirname, "../client/dist");
+// See utils/cspScriptHash.js: computed at startup by hashing the real
+// shipped file rather than a hardcoded hash, so this can never go stale.
+// Returns null if the script can't be found (dist not built, the tag
+// renamed/restructured) — script-src deliberately does NOT fall back to
+// 'unsafe-inline' in that case. A missing build is a build problem, not a
+// security event, so the right failure shape is the page visibly breaking
+// (blocked inline script, no theme flash prevention) rather than the
+// protection silently loosening on exactly the deployments where
+// something is already unusual.
+const inlineScriptCspSource = computeInlineScriptCspHash(
+  cspClientDistPath,
+  log,
+);
 app.use(
   helmet({
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: inlineScriptCspSource
+          ? ["'self'", inlineScriptCspSource]
+          : ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         // blob: is required by the World Map tile loader: it fetches each
         // tile, converts the response to a Blob and decodes it through
@@ -553,6 +699,7 @@ app.use(
     crossOriginEmbedderPolicy: false, // Allow loading resources
   }),
 );
+app.use(permissionsPolicy());
 
 app.use(
   cors({
@@ -569,6 +716,16 @@ app.use(
     credentials: true,
   }),
 );
+
+// Tighter body limit for the one route meant to be reachable without a
+// login (see the client-errors rate limiter below for the full reasoning):
+// message/error/url are truncated to under 2kb server-side regardless, so
+// nothing legitimate needs more than a small multiple of that. MUST be
+// registered before the app-wide express.json() two lines down — Express
+// runs body parsers in registration order, and whichever one reads the
+// request stream first is the one whose limit actually applies; a
+// path-scoped parser registered after the app-wide one would never run.
+app.use("/api/debug/client-errors", express.json({ limit: "16kb" }));
 
 // Body parser with explicit size limit
 app.use(express.json({ limit: "1mb" }));
@@ -672,6 +829,25 @@ const panelBridgeCommandLimiter = rateLimit({
   message: { error: "Too many PanelBridge commands, please slow down." },
 });
 app.use("/api/panel-bridge/command", panelBridgeCommandLimiter);
+
+// server/routes/debug.js's client-errors handler is meant to be reachable
+// WITHOUT a login — a crash on the login screen itself is exactly the case
+// it exists for — which makes it the one API route that genuinely needs an
+// auth exemption on a public panel (that exemption itself lives in
+// authService.middleware(), server/services/auth.js). An anonymous,
+// always-open endpoint is an obvious abuse target — unbounded writes, log
+// flooding, disk exhaustion — so it gets its own tight layer here on top of
+// the route's existing per-IP counter and field-length truncation, rather
+// than relying on either alone.
+const clientErrorLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 10, // 10 reports per minute per IP — a real crash storm from one tab
+  // still gets through slowly enough to see; sustained abuse does not.
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many error reports, please slow down." },
+});
+app.use("/api/debug/client-errors", clientErrorLimiter);
 
 // Initialize services
 const rconService = new RconService();
@@ -954,13 +1130,20 @@ async function tryStartPanelBridge(trigger = "unknown") {
 }
 
 // Auto-start PanelBridge when RCON connects (secondary trigger)
+// An async EventEmitter listener that rejects becomes an unhandled rejection,
+// which reaches process.on("unhandledRejection") and kills the panel — so
+// this is wrapped the same way the sibling "disconnected" handler below is.
 rconService.on("connected", async () => {
-  log.info("RCON connected - checking PanelBridge...");
-  rconConnectedAt = Date.now();
-  // Whoever is online at reconnect was not necessarily a new arrival.
-  lastPlayerList = [];
-  playerBaselineReady = false;
-  await tryStartPanelBridge("rcon-connected");
+  try {
+    log.info("RCON connected - checking PanelBridge...");
+    rconConnectedAt = Date.now();
+    // Whoever is online at reconnect was not necessarily a new arrival.
+    lastPlayerList = [];
+    playerBaselineReady = false;
+    await tryStartPanelBridge("rcon-connected");
+  } catch (err) {
+    log.debug(`RCON-connected PanelBridge check failed: ${err.message}`);
+  }
 });
 
 rconService.on("disconnected", async () => {
@@ -1081,6 +1264,7 @@ app.set("diskMonitor", diskMonitor);
 
 // Auth routes (must be before other API routes)
 app.use("/api/auth", authRoutes);
+app.use("/api/auth/oidc", oidcRoutes);
 
 // API Routes
 app.use("/api/server", serverRoutes);
@@ -1106,6 +1290,7 @@ app.use("/api/map", mapProxyRoutes);
 app.use("/api/system", systemRoutes);
 app.use("/api/templates", templatesRoutes);
 app.use("/api/docker", dockerRoutes);
+app.use("/api/permissions", permissionsRoutes);
 
 // Health check + panel version
 // In exe builds, PANEL_VERSION is injected by esbuild at compile time.
@@ -1451,10 +1636,14 @@ app.get("/api/panel/update-apply-log", (req, res) => {
   }
 });
 
-app.post(
-  "/api/panel/update-download",
-  requireRole("admin"),
-  async (req, res) => {
+// Exported (not just inline) so server/tests/errorCodeReachability.test.js
+// can call it directly with a fake req/res and assert on the actual res.json
+// body -- the three non-Docker-running branches below (already_downloading,
+// no_update, and the pass-through for anything else including
+// docker_updater_not_configured) hand `result` straight to res.json()
+// unmodified; that pass-through, not any single code literal, is the thing
+// a future refactor could quietly break.
+export async function handlePanelUpdateDownload(req, res) {
     try {
       const checker = req.app.get("panelUpdateChecker");
       if (!checker)
@@ -1478,22 +1667,26 @@ app.post(
             return res.status(409).json({
               error:
                 "Stop the Project Zomboid server before applying a Docker update. RCON is not connected, so the panel cannot safely stop it for you.",
-              code: "server_running",
+              code: ErrorCode.SERVER_RUNNING_RCON_UNAVAILABLE,
             });
           }
 
           const saved = await rconService.save();
           if (!saved?.success) {
+            const reason = saved?.error || "unknown error";
             return res.status(409).json({
-              error: `The world could not be saved (${saved?.error || "unknown error"}), so the server was left running. Applying the update now would lose everything since the last save.`,
+              error: `The world could not be saved (${reason}), so the server was left running. Applying the update now would lose everything since the last save.`,
               code: "save_failed",
+              params: sanitizeErrorParams({ reason }),
             });
           }
           const quit = await rconService.quit();
           if (!quit?.success) {
+            const reason = quit?.error || "unknown error";
             return res.status(502).json({
-              error: `The world was saved, but the server could not be shut down (${quit?.error || "unknown error"}). It is still running, so the update was not applied.`,
+              error: `The world was saved, but the server could not be shut down (${reason}). It is still running, so the update was not applied.`,
               code: "stop_failed",
+              params: sanitizeErrorParams({ reason }),
             });
           }
           await logServerEvent(
@@ -1515,7 +1708,12 @@ app.post(
       log.error(`Panel update download failed: ${error.message}`);
       res.status(500).json({ error: sanitizeError(error.message) });
     }
-  },
+}
+
+app.post(
+  "/api/panel/update-download",
+  requireRole("admin"),
+  handlePanelUpdateDownload,
 );
 
 // Serve static files in production
@@ -1548,11 +1746,35 @@ app.use(
 
 // Global API error handler — sanitize internal details from error responses
 // Must be defined before the catch-all route but after all API routes
-app.use("/api", (err, req, res, next) => {
+//
+// err.code is forwarded ONLY when it's a member of the ErrorCode registry
+// (server/utils/errorCodes.js) — deliberately, not by omission. Without the
+// allowlist, forwarding err.code unconditionally would leak Node/third-party
+// internals to the browser (ENOENT, ECONNREFUSED, ETIMEDOUT, whatever a
+// library happens to throw) — a new exposure nobody asked for. With it, a
+// thrown error carrying a REGISTERED code reaches the client with that code
+// by default, so every future coded throw doesn't need its own hand-written
+// forwarding check at whatever catch block happens to be between it and
+// here (see server/tests/errorCodeReachability.test.js for why that
+// mattered: it was the difference between the ServerNotConfiguredError bug
+// -- code set, silently dropped here -- and the apply_in_progress code that
+// only survived because index.js had a manual `err.code === "..."` check
+// upstream of this handler). An unregistered code is dropped exactly as
+// before this change -- do not "fix" that by widening the allowlist to
+// everything; that's the leak this exists to prevent.
+const REGISTERED_ERROR_CODES = new Set(Object.values(ErrorCode));
+// Exported so server/tests/errorCodeReachability.test.js can assert the
+// allowlist both ways directly against the real handler, not a reimplementation.
+export function apiErrorHandler(err, req, res, next) {
   log.error(`Unhandled API error on ${req.method} ${req.path}: ${err.message}`);
   const status = err.status || 500;
-  res.status(status).json({ error: sanitizeError(err.message) });
-});
+  const body = { error: sanitizeError(err.message) };
+  if (typeof err.code === "string" && REGISTERED_ERROR_CODES.has(err.code)) {
+    body.code = err.code;
+  }
+  res.status(status).json(body);
+}
+app.use("/api", apiErrorHandler);
 
 // SPA catch-all: serves index.html for any unmatched GET route so React
 // Router can handle client-side routing. Uses a path-less app.use()
@@ -2067,6 +2289,111 @@ function startStatusWatchdog() {
   log.info("Server status watchdog started (10s interval)");
 }
 
+// Process detection can fail with wrappers (WinGSM) or restricted permissions.
+// When that happens on startup, probe the RCON port directly as a fallback so we
+// don't wait 60s for auto-reconnect. This only makes sense for a server the
+// operator actually configured — without one, "host/port" is just the hardcoded
+// default, and probing it means repeatedly trying to authenticate against
+// whatever unrelated process happens to hold that port on the host.
+// Exported for testing. `rconServiceInstance` is injected so tests can pass a
+// stub instead of the real singleton; production always calls it with `rconService`.
+// Returns whether the RCON port was found occupied.
+export async function probeRconFallbackIfConfigured(
+  activeServer,
+  rconServiceInstance,
+  timeoutMs,
+) {
+  if (!activeServer) {
+    log.debug(
+      "No server configured yet — skipping RCON port fallback probe",
+    );
+    return false;
+  }
+
+  let rconPortOccupied = false;
+  try {
+    await rconServiceInstance.loadConfig();
+    const rconHost = rconServiceInstance.config.host || "127.0.0.1";
+    const rconPort = rconServiceInstance.config.port || 27015;
+    const portOpen = await rconServiceInstance.checkPortOpen(
+      rconHost,
+      rconPort,
+    );
+    if (portOpen) {
+      rconPortOccupied = true;
+      log.info(
+        `RCON port ${rconHost}:${rconPort} is open even though process check failed — connecting...`,
+      );
+      try {
+        await Promise.race([
+          rconServiceInstance.connect(),
+          new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error("RCON connection timeout")),
+              timeoutMs,
+            ),
+          ),
+        ]);
+        if (rconServiceInstance.connected) {
+          log.info("RCON connected via port fallback probe");
+        }
+      } catch (e) {
+        log.debug(`Fallback RCON connect failed: ${e.message}`);
+      }
+    }
+  } catch (e) {
+    log.debug(`Fallback RCON probe error: ${e.message}`);
+  }
+  return rconPortOccupied;
+}
+
+// Every /api/* route (except /api/auth/*, /api/health, and the two <img>-tag
+// proxy allowlists) is unauthenticated while first-run setup is pending —
+// see authService.middleware(). That's necessary so the setup wizard can run
+// before any password exists, and on a LAN it closes in the seconds it takes
+// to open the setup page. Exposed to the internet, it's a race: whoever
+// reaches the panel first can complete setup and claim the admin account —
+// or use any other route — before the real operator does. This can't be
+// fixed by code alone (the panel can't know its own reachability), so it's
+// surfaced as loudly as possible instead, at the exact moment an operator
+// would otherwise assume "it's running, so it's protected".
+// Exported for testing; authServiceInstance and loggerInstance are injected
+// so tests don't need a real database or to reach into the shared Winston
+// singleton (createLogger() returns a fresh child logger per call, so a test
+// spying on its own instance would never see calls made through this file's
+// own module-level `log`). Production always calls it with authService/log.
+export async function logExposureWarningIfNeeded({
+  needsSetup,
+  boundPort,
+  localIp,
+  authServiceInstance = authService,
+  loggerInstance = log,
+}) {
+  const reachableUrl =
+    localIp && localIp !== "127.0.0.1"
+      ? `http://${localIp}:${boundPort}`
+      : `http://<this-machine>:${boundPort}`;
+
+  if (needsSetup) {
+    loggerInstance.warn(
+      "SECURITY: no admin account exists yet. Every API route is open to " +
+        `anyone who can reach ${reachableUrl} until first-run setup completes. ` +
+        "If this port reaches the internet, complete setup immediately or " +
+        "block the port at your firewall/router until you have.",
+    );
+    return;
+  }
+
+  const authEnabled = await authServiceInstance.isAuthEnabled();
+  if (!authEnabled) {
+    loggerInstance.warn(
+      "SECURITY: authentication is disabled. Every API route is open to " +
+        `anyone who can reach ${reachableUrl}. Re-enable authentication ` +
+        "before exposing this port beyond a trusted LAN.",
+    );
+  }
+}
+
 // Initialize and start server
 async function start() {
   try {
@@ -2098,7 +2425,12 @@ async function start() {
         log.error(
           `If you're sure no other panel is running, delete ${lockResult.lockPath} and try again.`,
         );
-        process.exit(1);
+        // Dedicated exit code (not the generic 1) so Start.bat's supervisor
+        // can tell "deliberately refused, retrying is pointless" apart from
+        // a real crash -- retrying this exact condition is guaranteed to
+        // fail identically every time, so it must not enter the crash-loop
+        // backoff/relaunch path the way an unrecovered crash should.
+        process.exit(78);
       }
     } catch (err) {
       log.warn(`Lock check skipped: ${err.message}`);
@@ -2337,42 +2669,11 @@ async function start() {
         } else {
           log.info("PZ server not detected running on startup");
 
-          // Process detection can fail with wrappers (WinGSM) or restricted permissions.
-          // Probe the RCON port directly as a fallback so we don't wait 60s for auto-reconnect.
-          let rconPortOccupied = false;
-          try {
-            await rconService.loadConfig();
-            const rconHost = rconService.config.host || "127.0.0.1";
-            const rconPort = rconService.config.port || 27015;
-            const portOpen = await rconService.checkPortOpen(
-              rconHost,
-              rconPort,
-            );
-            if (portOpen) {
-              rconPortOccupied = true;
-              log.info(
-                `RCON port ${rconHost}:${rconPort} is open even though process check failed — connecting...`,
-              );
-              try {
-                await Promise.race([
-                  rconService.connect(),
-                  new Promise((_, reject) =>
-                    setTimeout(
-                      () => reject(new Error("RCON connection timeout")),
-                      timeoutMs,
-                    ),
-                  ),
-                ]);
-                if (rconService.connected) {
-                  log.info("RCON connected via port fallback probe");
-                }
-              } catch (e) {
-                log.debug(`Fallback RCON connect failed: ${e.message}`);
-              }
-            }
-          } catch (e) {
-            log.debug(`Fallback RCON probe error: ${e.message}`);
-          }
+          const rconPortOccupied = await probeRconFallbackIfConfigured(
+            activeServer,
+            rconService,
+            timeoutMs,
+          );
 
           // Check if auto-start is enabled
           const autoStartServer = await getSetting("autoStartServer");
@@ -2512,44 +2813,7 @@ async function start() {
     const customKeyPath = await getSetting("httpsKeyPath");
     const customCertPath = await getSetting("httpsCertPath");
 
-    if (httpsEnabled) {
-      const certs = loadOrCreateCerts(customKeyPath, customCertPath);
-      if (certs) {
-        httpsServer = createHttpsServer(certs, app);
-        // Add HTTPS origin to allowed list dynamically
-        addAllowedOrigin(`https://localhost:${httpsPort}`);
-        // Attach the SAME Socket.IO instance to the HTTPS server too, instead
-        // of creating a second `Server`. A second instance would have its own
-        // auth middleware, rooms, and connection handlers — every `.emit()`
-        // in this app targets the module-level `io` (bound only to the HTTP
-        // server), so WSS clients would authenticate successfully and then
-        // receive NO events at all (no server:status, players:update,
-        // perf:snapshot, log:entry, chat:message, panelBridge:*, etc).
-        // `io.attach()` binds the existing engine (with its middleware and
-        // event handlers already registered) to this additional http.Server.
-        io.attach(httpsServer, {
-          cors: {
-            origin: (origin, callback) => {
-              if (isAllowedOrigin(origin)) {
-                callback(null, true);
-              } else {
-                callback(new Error(CORS_DENY_MESSAGE));
-              }
-            },
-            methods: ["GET", "POST"],
-            credentials: true,
-          },
-        });
-
-        httpsServer.listen(httpsPort, () => {
-          log.info(`HTTPS server listening on port ${httpsPort}`);
-        });
-      } else {
-        log.warn(
-          "HTTPS enabled but certificate generation failed — running HTTP only",
-        );
-      }
-    }
+    setupHttpsServer({ httpsEnabled, httpsPort, customKeyPath, customCertPath });
 
     // Retry logic for EADDRINUSE (nodemon restarts can overlap)
     let listenRetries = 0;
@@ -2582,6 +2846,8 @@ async function start() {
           });
         }
         logReady(urls);
+        await logExposureWarningIfNeeded({ needsSetup, boundPort, localIp });
+        await logSetupTokenIfNeeded(needsSetup);
 
         // If PZ server files were bind-mounted in but no server profile has
         // been created yet, point the user at Settings instead of leaving
@@ -2726,6 +2992,26 @@ async function start() {
   }
 }
 
-start();
+// Skip the real auto-start when this module is imported by the test runner
+// (Vitest sets process.env.VITEST) — otherwise merely importing a function for
+// unit testing would spin up the whole Express app, sockets and timers as a
+// side effect. Vitest sets this var; it's never set in a real deployment, so
+// production startup is unaffected.
+//
+// The more precise "was I run directly" ESM entry-point idiom (comparing
+// process.argv[1] against this file, e.g. via path.resolve/realpathSync) was
+// considered instead, since it asks the question we actually mean rather
+// than inferring it from a test-runner env var. It's deliberately NOT used
+// here: this app also ships as a pkg-bundled executable (see build.js /
+// `npm run build:exe`, and utils/paths.js's own isPkg check above), where
+// process.argv[1] and import.meta.url don't behave like a normal on-disk
+// module — pkg snapshots the filesystem and rewrites module resolution, and
+// that comparison is a known trouble spot in bundled builds. Getting it
+// wrong there would mean the *packaged app* — the primary way operators run
+// this — silently never calls start(). A stray VITEST=true in a real
+// deployment is a far more contained and unlikely failure than that.
+if (!process.env.VITEST) {
+  start();
+}
 
 export { io };

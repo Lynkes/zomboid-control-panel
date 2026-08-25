@@ -277,6 +277,22 @@ if ($SkipBuild) {
     Write-Ok "Build verification passed (exe + client/dist validated)"
 }
 
+if (-not $DryRun) {
+    $manifestPath = Join-Path $RepoDir "release\release-manifest.json"
+    if (-not (Test-Path $manifestPath)) {
+        throw "Release manifest not found at $manifestPath. Build the release artifacts before publishing."
+    }
+    try {
+        $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+    } catch {
+        throw "Release manifest is not valid JSON: $manifestPath"
+    }
+    if ([string]$manifest.version -ne $Version) {
+        throw "Release artifact version mismatch: requested v$Version but release-manifest.json contains v$($manifest.version). Rebuild the artifacts; refusing to publish stale binaries."
+    }
+    Write-Ok "Release artifact version verified: v$Version"
+}
+
 # ============================================
 # STEP 4: Build Docker image
 # ============================================

@@ -20,7 +20,11 @@ function getTestHandler() {
   const layer = router.stack.find(
     (entry) => entry.route?.path === '/test' && entry.route.methods.post,
   );
-  return layer.route.stack[0].handle;
+  // LAST entry, not the first: requireRole('admin', 'technician') is now
+  // ahead of the real handler in this route's stack (role sweep), so index
+  // 0 would grab the role-gate middleware instead of the route logic this
+  // test actually exercises.
+  return layer.route.stack[layer.route.stack.length - 1].handle;
 }
 
 describe('testRconConnection', () => {

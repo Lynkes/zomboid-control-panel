@@ -1,0 +1,8 @@
+{
+  "copyWorkshopIdAria": "Kopye ID Workshop {{id}}",
+  "copyWorkshopIdTooltip": "Kopye ID Workshop",
+  "openWorkshopPageForAria": "Louvri paj Workshop pou {{label}}",
+  "openWorkshopPageHint": "Louvri Paj Workshop",
+  "openOnSteamAria": "Louvri {{label}} sou Steam Workshop",
+  "openWorkshopPageTitle": "Louvri paj Steam Workshop"
+}

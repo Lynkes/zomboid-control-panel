@@ -12,6 +12,10 @@ import { composeServerStatus } from "../utils/serverStatusModel.js";
 const log = createLogger("API:ServerStatus");
 const router = express.Router();
 
+// No requireRole, deliberately: every role needs to know whether the
+// server is up before doing anything else with it (a moderator deciding
+// whether to even attempt an in-game action, a technician deciding whether
+// to restart it). Read-only, nothing sensitive returned.
 router.get("/active/status", async (req, res) => {
   try {
     const server = await getActiveServer();
@@ -23,9 +27,21 @@ router.get("/active/status", async (req, res) => {
     const rconService = req.app.get("rconService");
     const rconConfig = rconService?.getConfig ? rconService.getConfig() : {};
 
+    // A fresh check, not serverManager.isRunning -- that cached field is
+    // forced to a confident `false` by ANY failed process-detection scan,
+    // so reading it directly here made this endpoint (which feeds the
+    // dashboard's host badge) disagree with /wipe's own fresh scanFailed
+    // check on the exact same host, at the exact same moment. See
+    // server/utils/serverStatusModel.js's buildHostSignal for how scanFailed
+    // renders as "unknown" instead of a wrong "stopped".
+    const processDetails = typeof serverManager?.getServerProcessDetails === "function"
+      ? await serverManager.getServerProcessDetails()
+      : { running: !!serverManager?.isRunning, scanFailed: false };
+
     const status = composeServerStatus({
       server,
-      isRunning: !!serverManager?.isRunning,
+      isRunning: !!processDetails.running,
+      scanFailed: !!processDetails.scanFailed,
       rcon: {
         ...rconConfig,
         connecting: !!(rconService?.connecting || rconService?.reconnecting),

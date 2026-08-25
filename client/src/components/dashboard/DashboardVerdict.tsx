@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { ChevronRight, Loader2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -69,14 +70,15 @@ function VerdictActionButton({ action }: { action: VerdictAction }) {
  * numbers from four minutes ago".
  */
 function Freshness({ lastUpdated, stale }: { lastUpdated: Date | null; stale: boolean }) {
+  const { t } = useTranslation('dashboardVerdict')
   const label = (() => {
-    if (!lastUpdated) return 'no update yet'
+    if (!lastUpdated) return t('noUpdateYet')
     const secs = Math.max(0, Math.round((Date.now() - lastUpdated.getTime()) / 1000))
-    if (secs < 10) return 'updated just now'
-    if (secs < 60) return `updated ${secs}s ago`
+    if (secs < 10) return t('updatedJustNow')
+    if (secs < 60) return t('updatedSecondsAgo', { count: secs })
     const mins = Math.floor(secs / 60)
-    if (mins < 60) return `updated ${mins}m ago`
-    return `updated ${Math.floor(mins / 60)}h ago`
+    if (mins < 60) return t('updatedMinutesAgo', { count: mins })
+    return t('updatedHoursAgo', { count: Math.floor(mins / 60) })
   })()
 
   return (
@@ -96,7 +98,7 @@ function Freshness({ lastUpdated, stale }: { lastUpdated: Date | null; stale: bo
           )}
         />
       </span>
-      {stale ? `link may be stale, ${label}` : label}
+      {stale ? t('staleLink', { label }) : label}
     </p>
   )
 }
@@ -114,6 +116,7 @@ export function VerdictBand({
   lastUpdated: Date | null
   stale: boolean
 }) {
+  const { t } = useTranslation('dashboardVerdict')
   // With nothing wrong and nobody online the band is just the freshness line,
   // so it should not reserve the space of a full section.
   const hasBody = Boolean(verdict.headline || verdict.action) || (showPresence && players.length > 0)
@@ -186,7 +189,7 @@ export function VerdictBand({
             ))}
             {players.length > 10 && (
               <li className="font-mono text-[11px] tabular-nums text-foreground/35">
-                and {players.length - 10} more
+                {t('andMore', { count: players.length - 10 })}
               </li>
             )}
           </ul>

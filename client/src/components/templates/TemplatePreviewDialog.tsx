@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Loader2, AlertTriangle } from 'lucide-react'
 import {
   Dialog,
@@ -29,6 +30,7 @@ interface TemplatePreviewDialogProps {
 }
 
 export function TemplatePreviewDialog({ template, canManage, onClose, onApplied }: TemplatePreviewDialogProps) {
+  const { t } = useTranslation('templatePreviewDialog')
   const { toast } = useToast()
   const [server, setServer] = useState<ServerInstance | null>(null)
   const [serverLoading, setServerLoading] = useState(true)
@@ -41,7 +43,7 @@ export function TemplatePreviewDialog({ template, canManage, onClose, onApplied 
   const [applyError, setApplyError] = useState<string | null>(null)
   const [applyResult, setApplyResult] = useState<SimTemplateApplyResult | null>(null)
 
-  const load = useCallback(async (t: SimTemplate) => {
+  const load = useCallback(async (tpl: SimTemplate) => {
     setServerLoading(true)
     setDiff(null)
     setDiffError(null)
@@ -61,15 +63,15 @@ export function TemplatePreviewDialog({ template, canManage, onClose, onApplied 
 
     if (active && !active.isRemote) {
       try {
-        const result = await templatesApi.preview(t.meta.id, active.id)
+        const result = await templatesApi.preview(tpl.meta.id, active.id)
         if (result.success && result.diff) setDiff(result.diff)
-        else setDiffError(result.error || 'Failed to preview template')
+        else setDiffError(result.error || t('failedToPreview'))
       } catch (error) {
-        setDiffError(error instanceof Error ? error.message : 'Failed to preview template')
+        setDiffError(error instanceof Error ? error.message : t('failedToPreview'))
       }
     }
     setServerLoading(false)
-  }, [])
+  }, [t])
 
   useEffect(() => {
     if (template) load(template)
@@ -84,12 +86,12 @@ export function TemplatePreviewDialog({ template, canManage, onClose, onApplied 
         applyIni: scopeIni,
         applySandbox: scopeSandbox,
       })
-      if (!result.success) throw new Error(result.error || 'Failed to apply template')
+      if (!result.success) throw new Error(result.error || t('failedToApply'))
       setApplyResult(result)
-      toast({ title: 'Template Applied', description: `"${template.meta.name}" was applied.`, variant: 'success' as const })
+      toast({ title: t('toastAppliedTitle'), description: t('toastAppliedDesc', { name: template.meta.name }), variant: 'success' as const })
       onApplied()
     } catch (error) {
-      setApplyError(error instanceof Error ? error.message : 'Failed to apply template')
+      setApplyError(error instanceof Error ? error.message : t('failedToApply'))
     } finally {
       setApplying(false)
     }
@@ -110,19 +112,19 @@ export function TemplatePreviewDialog({ template, canManage, onClose, onApplied 
         ) : !server ? (
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>No Active Server</AlertTitle>
-            <AlertDescription>Set up a server before previewing or applying templates.</AlertDescription>
+            <AlertTitle>{t('noActiveServerTitle')}</AlertTitle>
+            <AlertDescription>{t('noActiveServerDesc')}</AlertDescription>
           </Alert>
         ) : server.isRemote ? (
           <Alert variant="warning">
             <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>Remote Server</AlertTitle>
-            <AlertDescription>Applying templates to remote servers isn't supported yet.</AlertDescription>
+            <AlertTitle>{t('remoteServerTitle')}</AlertTitle>
+            <AlertDescription>{t('remoteServerDesc')}</AlertDescription>
           </Alert>
         ) : diffError ? (
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>Preview Failed</AlertTitle>
+            <AlertTitle>{t('previewFailedTitle')}</AlertTitle>
             <AlertDescription>{diffError}</AlertDescription>
           </Alert>
         ) : diff && template ? (

@@ -1,0 +1,14 @@
+{
+  "connected": {
+    "label": "Connecté",
+    "description": "Mises à jour en temps réel actives"
+  },
+  "reconnecting": {
+    "label": "Reconnexion...",
+    "description": "Tentative {{attempt}}/10"
+  },
+  "disconnected": {
+    "label": "Panneau déconnecté",
+    "description": "Connexion WebSocket au serveur du panneau perdue"
+  }
+}

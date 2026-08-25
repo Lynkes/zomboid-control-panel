@@ -1,4 +1,6 @@
 import { useEffect, useState, useRef, useCallback, useMemo, memo } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { Terminal as TerminalIcon, Send, Trash2, WifiOff, Loader2, Megaphone, FileText, RefreshCw, Pause, Play, Filter, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,10 +12,30 @@ import { useToast } from '@/components/ui/use-toast'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { rconApi, configApi, serverApi, serversApi, type ServerInstance } from '@/lib/api'
 import { useSocket } from '@/contexts/SocketContext'
+import { useConfirm } from '@/contexts/ConfirmContext'
 import { EmptyState } from '@/components/EmptyState'
 import { PageHeader } from '@/components/PageHeader'
 import { cn } from '@/lib/utils'
 import { usePageShortcut } from '@/hooks/useKeyboardShortcuts'
+
+// rconService.execute() routes most connection-loss cases through
+// getUserFriendlyError() (server/services/rcon.js) before they reach the
+// client, rewriting raw ECONNREFUSED/etc into prose -- so a raw-string-only
+// check misses every one of those friendly-error paths and leaves
+// rconConnected stuck at its last (stale) value. Match the friendly
+// strings too so any connection-loss report is recognized.
+const RCON_DISCONNECT_PHRASES = [
+  'Server is not running',
+  'ECONNREFUSED',
+  'Cannot connect to server',
+  'Connection timed out',
+  'Connection was reset',
+  'Could not reconnect after multiple attempts',
+  'Not connected to server',
+]
+function isRconDisconnectError(error: string | undefined): boolean {
+  return !!error && RCON_DISCONNECT_PHRASES.some((phrase) => error.includes(phrase))
+}
 
 interface CommandEntry {
   id: number
@@ -125,13 +147,17 @@ const typeBadgeColors: Record<string, string> = {
 
 // Channel tag prefixes for server broadcasts. "all" = no prefix.
 // All options become `servermsg` since RCON cannot route to real chat channels.
-const chatChannels = [
-  { value: 'all',       label: 'All players',     description: 'No tag — plain broadcast' },
-  { value: 'admin',     label: '[ADMIN] tag',      description: 'Marks the message as admin' },
-  { value: 'say',       label: '[SAY] tag',        description: 'Cosmetic local-chat label' },
-  { value: 'faction',   label: '[FACTION] tag',    description: 'Cosmetic faction label' },
-  { value: 'safehouse', label: '[SAFEHOUSE] tag',  description: 'Cosmetic safehouse label' },
-]
+// `value` is the internal id sent to the backend and must stay untranslated;
+// label/description are looked up from the console namespace at call time.
+const chatChannelValues = ['all', 'admin', 'say', 'faction', 'safehouse'] as const
+
+function getChatChannels(t: TFunction<'console'>) {
+  return chatChannelValues.map((value) => ({
+    value,
+    label: t(`broadcast.channels.${value}.label`),
+    description: t(`broadcast.channels.${value}.description`),
+  }))
+}
 
 // Memoized log line to avoid re-rendering unchanged lines
 const ServerLogLine = memo(function ServerLogLine({ line }: { line: string }) {
@@ -173,27 +199,39 @@ const ServerLogLine = memo(function ServerLogLine({ line }: { line: string }) {
   )
 })
 
-const quickCommands = [
-  { label: 'Players', command: 'players' },
-  { label: 'Save', command: 'save' },
-  { label: 'Show Options', command: 'showoptions' },
-  { label: 'Check Mods', command: 'checkModsNeedUpdate' },
-  { label: 'Help', command: 'help' },
-  { label: 'Server Info', command: 'serverinfo' },
-  { label: 'Get Memory', command: 'getmemory' },
-]
+// `command` is the literal RCON command text sent to the server and must
+// stay untranslated; only the button label is looked up.
+const quickCommandDefs = [
+  { key: 'players', command: 'players' },
+  { key: 'save', command: 'save' },
+  { key: 'showOptions', command: 'showoptions' },
+  { key: 'checkMods', command: 'checkModsNeedUpdate' },
+  { key: 'help', command: 'help' },
+  { key: 'serverInfo', command: 'serverinfo' },
+  { key: 'getMemory', command: 'getmemory' },
+] as const
 
-// Quick broadcast message templates
-const quickBroadcasts = [
-  { label: 'Restart 15min', message: 'SERVER RESTART in 15 minutes - Please find a safe location!' },
-  { label: 'Restart 5min', message: 'SERVER RESTART in 5 minutes - Save your progress!' },
-  { label: 'Restart 1min', message: 'SERVER RESTART in 1 minute - Disconnecting soon!' },
-  { label: 'Maintenance', message: 'Server entering MAINTENANCE MODE - Please disconnect' },
-  { label: 'Back Online', message: 'Server maintenance complete - Welcome back!' },
-  { label: 'Save Warning', message: 'Server is saving - Brief lag expected' },
-]
+function getQuickCommands(t: TFunction<'console'>) {
+  return quickCommandDefs.map(({ key, command }) => ({ label: t(`quickCommands.${key}`), command }))
+}
+
+// Quick broadcast message templates -- these ARE sent into the game via
+// RCON servermsg, so both the button label and the message text itself are
+// translated (a French server's canned announcements should read in French).
+const quickBroadcastKeys = ['restart15', 'restart5', 'restart1', 'maintenance', 'backOnline', 'saveWarning'] as const
+
+function getQuickBroadcasts(t: TFunction<'console'>) {
+  return quickBroadcastKeys.map((key) => ({
+    label: t(`broadcast.templates.${key}.label`),
+    message: t(`broadcast.templates.${key}.message`),
+  }))
+}
 
 export default function Console() {
+  const { t } = useTranslation('console')
+  const chatChannels = useMemo(() => getChatChannels(t), [t])
+  const quickCommands = useMemo(() => getQuickCommands(t), [t])
+  const quickBroadcasts = useMemo(() => getQuickBroadcasts(t), [t])
   const [command, setCommand] = useState('')
   const [activeServer, setActiveServer] = useState<ServerInstance | null>(null)
   const [consoleTargetLoading, setConsoleTargetLoading] = useState(true)
@@ -216,6 +254,7 @@ export default function Console() {
   const inputRef = useRef<HTMLInputElement>(null)
   const { toast } = useToast()
   const socket = useSocket()
+  const confirm = useConfirm()
   
   // Server Console Log state
   const [serverLogLines, setServerLogLines] = useState<string[]>([])
@@ -242,12 +281,12 @@ export default function Console() {
   const serverLogUnavailable = !hasServerLogSource
     ? activeServer?.isRemote
       ? {
-          title: 'Server log unavailable for remote servers',
-          description: 'Remote servers expose RCON only. Use the RCON tab for live commands.',
+          title: t('unavailable.remoteTitle'),
+          description: t('unavailable.remoteDesc'),
         }
       : {
-          title: 'Server log path not configured',
-          description: 'Set the server install path or Zomboid data path in My Servers first.',
+          title: t('unavailable.notConfiguredTitle'),
+          description: t('unavailable.notConfiguredDesc'),
         }
     : null
 
@@ -312,12 +351,12 @@ export default function Console() {
       setCommandCache(data.history?.map((h: CommandEntry) => h.command).reverse() || [])
     } catch {
       toast({
-        title: 'History Unavailable',
-        description: 'Recent RCON command history could not be loaded.',
+        title: t('toasts.historyUnavailableTitle'),
+        description: t('toasts.historyUnavailableDesc'),
         variant: 'destructive',
       })
     }
-  }, [hasActiveServer, toast])
+  }, [hasActiveServer, toast, t])
 
   const testRconConnection = useCallback(async () => {
     if (!hasRconConfig) {
@@ -387,27 +426,34 @@ export default function Console() {
     } catch {
       serverLogErrorCountRef.current += 1
       if (serverLogErrorCountRef.current >= 3) {
-        setServerLogError('Log stream unavailable — server may be offline')
+        setServerLogError(t('serverLog.streamUnavailable'))
       }
     } finally {
       setServerLogLoading(false)
     }
-  }, [hasServerLogSource])
+  }, [hasServerLogSource, t])
 
   const clearServerLog = async () => {
+    const confirmed = await confirm({
+      title: t('serverLog.clearConfirmTitle'),
+      description: t('serverLog.clearConfirmDesc'),
+      confirmLabel: t('serverLog.clearConfirmButton'),
+    })
+    if (!confirmed) return
+
     try {
       await serverApi.clearConsoleLog()
       setServerLogLines([])
       setServerLogSize(0)
       toast({
-        title: 'Log Cleared',
-        description: 'Server console log has been cleared',
+        title: t('toasts.logClearedTitle'),
+        description: t('toasts.logClearedDesc'),
         variant: 'success' as const,
       })
     } catch (error) {
       toast({
-        title: 'Error',
-        description: 'Failed to clear server log',
+        title: t('toasts.errorTitle'),
+        description: error instanceof Error ? error.message : t('toasts.clearLogFailed'),
         variant: 'destructive',
       })
     }
@@ -498,20 +544,45 @@ export default function Console() {
 
     setLoading(true)
     try {
-      const result = await rconApi.execute(command)
-      
-      // Update connection status based on result
-      if (result.error?.includes('Server is not running') || result.error?.includes('ECONNREFUSED')) {
+      // handleResponse() throws on a non-2xx status or an HTTP 200 body
+      // with success: false -- rconService.execute() resolves
+      // { success: false, error } for "server not running"/"unknown
+      // command"/etc rather than rejecting, so every RCON failure used to
+      // arrive as a caught exception here, skipping the live-log/command-
+      // cache/connection-status handling below entirely (a failed command
+      // just vanished instead of showing up in the console like a real
+      // terminal would). Reconstruct the { success, error } shape from the
+      // caught error so failures go through the same handling as successes.
+      let result: { success: boolean; response?: string; error?: string }
+      try {
+        result = await rconApi.execute(command)
+      } catch (error) {
+        result = {
+          success: false,
+          error: error instanceof Error ? error.message : t('toasts.commandFailedFallback'),
+        }
+      }
+
+      // Update connection status based on result.
+      if (isRconDisconnectError(result.error)) {
         setRconConnected(false)
       } else if (result.success) {
         setRconConnected(true)
       }
-      
+
+      if (!result.success) {
+        toast({
+          title: t('toasts.errorTitle'),
+          description: result.error || t('toasts.commandFailedFallback'),
+          variant: 'destructive',
+        })
+      }
+
       // Add to live log only when socket updates are unavailable to avoid duplicates.
       if (!socket?.connected) {
         setLiveLog(prev => [...prev, {
           command,
-          response: result.response || result.error || 'No response',
+          response: result.response || result.error || t('rcon.noResponseFallback'),
           success: result.success,
           timestamp: new Date().toISOString(),
           _id: ++liveLogIdRef.current,
@@ -522,16 +593,16 @@ export default function Console() {
       setCommandCache(prev => [...prev.slice(-99), command])
       setCommandHistoryIndex(-1)
       setCommand('')
-      
+
       // Re-focus input after command execution
       inputRef.current?.focus()
-      
+
       fetchHistory()
     } catch (error) {
       setRconConnected(false)
       toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Command failed',
+        title: t('toasts.errorTitle'),
+        description: error instanceof Error ? error.message : t('toasts.commandFailedFallback'),
         variant: 'destructive',
       })
     } finally {
@@ -583,33 +654,58 @@ export default function Console() {
       const cmd = selectedChannel === 'all'
         ? `servermsg "${cleaned}"`
         : `servermsg "[${selectedChannel.toUpperCase()}] ${cleaned}"`
-      const result = await rconApi.execute(cmd)
+      // Same shape as executeCommand above: rconService.execute() resolves
+      // { success: false, error } for a genuine RCON failure rather than
+      // rejecting, so handleResponse() throws before this ever sees
+      // result.success === false. Reconstruct it here too, so a failed
+      // broadcast still gets logged instead of silently vanishing.
+      let result: { success: boolean; response?: string; error?: string }
+      try {
+        result = await rconApi.execute(cmd)
+      } catch (error) {
+        result = {
+          success: false,
+          error: error instanceof Error ? error.message : t('toasts.broadcastFailedFallback'),
+        }
+      }
 
-      setLiveLog(prev => [...prev, {
-        command: cmd,
-        response: result.response || result.error || 'Broadcast sent',
-        success: result.success,
-        timestamp: new Date().toISOString(),
-        _id: ++liveLogIdRef.current,
-      } as RconResponse & { _id: number }].slice(-100))
+      // Same shape as executeCommand above: add to live log only when socket
+      // updates are unavailable to avoid duplicates -- the server emits its
+      // own 'rcon:response' for every /execute call, broadcasts included.
+      if (!socket?.connected) {
+        setLiveLog(prev => [...prev, {
+          command: cmd,
+          response: result.response || result.error || t('rcon.noResponseFallback'),
+          success: result.success,
+          timestamp: new Date().toISOString(),
+          _id: ++liveLogIdRef.current,
+        } as RconResponse & { _id: number }].slice(-100))
+      }
 
       if (result.success) {
         toast({
-          title: 'Broadcast Sent',
+          title: t('toasts.broadcastSentTitle'),
           description: selectedChannel === 'all'
-            ? 'Your message was broadcast to all players'
-            : `Sent with the [${selectedChannel.toUpperCase()}] tag`,
+            ? t('toasts.broadcastSentAll')
+            : t('toasts.broadcastSentTagged', { tag: selectedChannel.toUpperCase() }),
           variant: 'success' as const,
         })
         setAnnouncement('')
         setRconConnected(true)
       } else {
-        throw new Error(result.error || 'Failed to send broadcast')
+        if (isRconDisconnectError(result.error)) setRconConnected(false)
+        toast({
+          title: t('toasts.errorTitle'),
+          description: result.error || t('toasts.broadcastFailedFallback'),
+          variant: 'destructive',
+        })
       }
     } catch (error) {
+      const message = error instanceof Error ? error.message : t('toasts.broadcastFailedFallback')
+      if (isRconDisconnectError(message)) setRconConnected(false)
       toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to send broadcast',
+        title: t('toasts.errorTitle'),
+        description: message,
         variant: 'destructive',
       })
     } finally {
@@ -623,15 +719,15 @@ export default function Console() {
     return (
       <div className="space-y-6 page-transition">
         <PageHeader
-          title="Console"
-          description="Server log output and RCON commands"
+          title={t('pageHeader.title')}
+          description={t('pageHeader.description')}
           tone="ops"
           icon={<TerminalIcon className="w-5 h-5" />}
         />
         <div className="flex min-h-[18rem] items-center justify-center rounded-md border border-border/50 bg-card/50">
           <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
             <Loader2 className="w-4 h-4 animate-spin" />
-            checking server target
+            {t('checkingServerTarget')}
           </div>
         </div>
       </div>
@@ -642,16 +738,16 @@ export default function Console() {
     return (
       <div className="space-y-6 page-transition">
         <PageHeader
-          title="Console"
-          description="Server log output and RCON commands"
+          title={t('pageHeader.title')}
+          description={t('pageHeader.description')}
           tone="ops"
           icon={<TerminalIcon className="w-5 h-5" />}
         />
         <div className="rounded-md border border-border/50 bg-card/50 p-4">
           <EmptyState
             type="empty"
-            title="No active server configured"
-            description="Add or select a server in My Servers before opening the console."
+            title={t('emptyState.title')}
+            description={t('emptyState.description')}
           />
         </div>
       </div>
@@ -661,8 +757,8 @@ export default function Console() {
   return (
     <div className="space-y-6 page-transition">
       <PageHeader
-        title="Console"
-        description="Server log output and RCON commands"
+        title={t('pageHeader.title')}
+        description={t('pageHeader.description')}
         tone="ops"
         icon={<TerminalIcon className="w-5 h-5" />}
       />
@@ -673,14 +769,14 @@ export default function Console() {
             className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.2em] data-[state=active]:bg-primary/15 data-[state=active]:text-primary data-[state=active]:shadow-none rounded-sm"
           >
             <FileText className="w-3.5 h-3.5" />
-            server log
+            {t('tabs.serverLog')}
           </TabsTrigger>
           <TabsTrigger
             value="rcon"
             className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.2em] data-[state=active]:bg-primary/15 data-[state=active]:text-primary data-[state=active]:shadow-none rounded-sm"
           >
             <TerminalIcon className="w-3.5 h-3.5" />
-            rcon console
+            {t('tabs.rconConsole')}
           </TabsTrigger>
         </TabsList>
 
@@ -695,9 +791,9 @@ export default function Console() {
           {/* Tactical toolbar strip */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3 py-2 rounded-md border border-border/50 bg-card/70 backdrop-blur-sm">
             <div className="flex items-center gap-2 min-w-0">
-              <span className="font-mono text-[9px] uppercase tracking-[0.24em] text-primary/60 shrink-0">path</span>
-              <p className="text-xs text-foreground/80 font-mono truncate">
-                {serverLogPath ? serverLogPath : <span className="text-muted-foreground/50">loading…</span>}
+              <span className="font-mono text-[9px] uppercase tracking-[0.24em] text-primary/60 shrink-0">{t('serverLog.pathLabel')}</span>
+              <p className="text-xs text-foreground/80 font-mono truncate" title={serverLogPath || undefined}>
+                {serverLogPath ? serverLogPath : <span className="text-muted-foreground/50">{t('serverLog.loadingPath')}</span>}
               </p>
               {serverLogLoading && <Loader2 className="w-3 h-3 animate-spin text-primary/70 shrink-0" />}
             </div>
@@ -707,45 +803,45 @@ export default function Console() {
                 size="sm"
                 className="h-7 px-2 font-mono text-[10px] uppercase tracking-[0.16em]"
                 onClick={() => setServerLogPaused(!serverLogPaused)}
-                aria-label={serverLogPaused ? 'Resume auto-update' : 'Pause auto-update'}
+                aria-label={serverLogPaused ? t('serverLog.resumeAria') : t('serverLog.pauseAria')}
               >
                 {serverLogPaused
-                  ? <><Play className="w-3 h-3 mr-1" />resume</>
-                  : <><Pause className="w-3 h-3 mr-1" />pause</>}
+                  ? <><Play className="w-3 h-3 mr-1" />{t('serverLog.resume')}</>
+                  : <><Pause className="w-3 h-3 mr-1" />{t('serverLog.pause')}</>}
               </Button>
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setServerLogFiltered(!serverLogFiltered)}
-                aria-label={serverLogFiltered ? 'Show all messages (including noise)' : 'Filter out repetitive messages'}
+                aria-label={serverLogFiltered ? t('serverLog.showAllAria') : t('serverLog.filterAria')}
                 title={serverLogFiltered
-                  ? `Hiding ${Math.max(0, serverLogLines.length - filteredLogLines.length)} repetitive line${(serverLogLines.length - filteredLogLines.length) === 1 ? '' : 's'} — click to show all`
-                  : 'Filter out repetitive messages (joins, idle ticks, etc.)'}
+                  ? t('serverLog.hidingTooltip', { count: Math.max(0, serverLogLines.length - filteredLogLines.length) })
+                  : t('serverLog.filterOffTooltip')}
                 className={cn('h-7 px-2 font-mono text-[10px] uppercase tracking-[0.16em]', serverLogFiltered && 'text-primary')}
               >
                 <Filter className="w-3 h-3 mr-1" />
                 {serverLogFiltered
                   ? (serverLogLines.length > filteredLogLines.length
-                      ? `filter −${serverLogLines.length - filteredLogLines.length}`
-                      : 'filter')
-                  : 'all'}
+                      ? t('serverLog.filterWithCount', { count: serverLogLines.length - filteredLogLines.length })
+                      : t('serverLog.filter'))
+                  : t('serverLog.all')}
               </Button>
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setServerLogAutoScroll(!serverLogAutoScroll)}
-                aria-label={serverLogAutoScroll ? 'Disable auto-scroll' : 'Enable auto-scroll'}
-                title={serverLogAutoScroll ? 'Auto-scroll is ON — follows newest line' : 'Auto-scroll is OFF — click to follow newest line'}
+                aria-label={serverLogAutoScroll ? t('serverLog.disableAutoScrollAria') : t('serverLog.enableAutoScrollAria')}
+                title={serverLogAutoScroll ? t('serverLog.autoScrollOnTooltip') : t('serverLog.autoScrollOffTooltip')}
                 className={cn('h-7 px-2 font-mono text-[10px] uppercase tracking-[0.16em]', serverLogAutoScroll ? 'text-primary' : 'text-muted-foreground')}
               >
-                follow {serverLogAutoScroll ? 'on' : 'off'}
+                {serverLogAutoScroll ? t('serverLog.followOn') : t('serverLog.followOff')}
               </Button>
               <Button
                 variant="ghost"
                 size="sm"
                 className="h-7 w-7 p-0"
                 onClick={() => fetchServerLog(true)}
-                aria-label="Refresh log"
+                aria-label={t('serverLog.refreshAria')}
               >
                 <RefreshCw className="w-3.5 h-3.5" />
               </Button>
@@ -753,10 +849,10 @@ export default function Console() {
                 <TooltipTrigger asChild>
                   <Button variant="destructive" size="sm" className="h-7 px-2 font-mono text-[10px] uppercase tracking-[0.16em]" onClick={clearServerLog}>
                     <Trash2 className="w-3 h-3 mr-1" />
-                    clear
+                    {t('serverLog.clear')}
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Clear the log display (does not delete the server log file)</TooltipContent>
+                <TooltipContent>{t('serverLog.clearTooltip')}</TooltipContent>
               </Tooltip>
             </div>
           </div>
@@ -770,7 +866,7 @@ export default function Console() {
               <span className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse" />
               <span className="flex-1">// {serverLogError}</span>
               <Button variant="ghost" size="sm" className="h-7 px-2 font-mono text-[10px] uppercase tracking-[0.16em]" onClick={() => fetchServerLog(true)}>
-                retry
+                {t('serverLog.retry')}
               </Button>
             </div>
           )}
@@ -778,7 +874,7 @@ export default function Console() {
           {/* Terminal pane — framed tactical viewer */}
           {!serverLogExists ? (
             <div className="flex h-[calc(100vh-360px)] min-h-[300px] items-center justify-center rounded-md border border-border/50 bg-muted/20 p-4">
-              <EmptyState type="serverOffline" title="Server console log not found" description="Make sure the server is running" compact />
+              <EmptyState type="serverOffline" title={t('serverLog.notFoundTitle')} description={t('serverLog.notFoundDesc')} compact />
             </div>
           ) : (
             <div className="relative rounded-md border border-border/55 bg-card/85 overflow-hidden shadow-lg">
@@ -790,37 +886,37 @@ export default function Console() {
               {/* header strip */}
               <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-border/50 bg-muted/30 font-mono text-[9px] uppercase tracking-[0.24em] select-none">
                 <span className="flex items-center gap-1.5 text-primary/65">
-                  <span>stream</span>
+                  <span>{t('serverLog.streamLabel')}</span>
                   <span className="text-muted-foreground/40 normal-case tracking-normal">·</span>
-                  <span className="text-muted-foreground/80 normal-case tracking-normal">{serverLogPaused ? 'paused' : 'live'}</span>
+                  <span className="text-muted-foreground/80 normal-case tracking-normal">{serverLogPaused ? t('serverLog.paused') : t('serverLog.live')}</span>
                 </span>
                 <span className="flex items-center gap-1.5 text-muted-foreground/60">
                   <span className={cn('w-1.5 h-1.5 rounded-full', serverLogPaused ? 'bg-amber-400/70' : 'bg-emerald-400/80 animate-pulse')} />
-                  <span>{serverLogPaused ? 'paused' : 'streaming'}</span>
+                  <span>{serverLogPaused ? t('serverLog.paused') : t('serverLog.streaming')}</span>
                 </span>
               </div>
               <div
                 ref={serverLogRef}
                 role="log"
                 aria-live="polite"
-                aria-label="Server console output"
-                className="h-[calc(100vh-400px)] min-h-[280px] overflow-auto bg-black/60 p-3 font-mono text-xs terminal-output"
+                aria-label={t('serverLog.serverOutputAria')}
+                className="h-[calc(100vh-400px)] min-h-[280px] overflow-auto bg-background/60 p-3 font-mono text-xs terminal-output"
               >
                 {filteredLogLines.length === 0 ? (
                   <div className="p-2 font-mono text-[11px] text-muted-foreground/70">
                     {serverLogFiltered && serverLogLines.length > 0 ? (
                       <span>
-                        {serverLogLines.length} lines hidden by filter ·{' '}
+                        {t('serverLog.linesHidden', { count: serverLogLines.length })}
                         <button
                           type="button"
                           className="underline underline-offset-2 text-primary/80 hover:text-primary"
                           onClick={() => setServerLogFiltered(false)}
                         >
-                          show all
+                          {t('serverLog.showAll')}
                         </button>
                       </span>
                     ) : (
-                      <span>no stream output</span>
+                      <span>{t('serverLog.noStreamOutput')}</span>
                     )}
                   </div>
                 ) : (
@@ -833,10 +929,10 @@ export default function Console() {
               <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-t border-border/50 bg-muted/20 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 select-none">
                 <span className="tabular-nums">
                   {serverLogFiltered
-                    ? <>shown <span className="text-foreground/80">{filteredLogLines.length}</span> · hidden <span className="text-muted-foreground/50">{serverLogLines.length - filteredLogLines.length}</span></>
-                    : <>loaded <span className="text-foreground/80">{serverLogLines.length}</span></>}
+                    ? <>{t('serverLog.shown')} <span className="text-foreground/80">{filteredLogLines.length}</span> · {t('serverLog.hidden')} <span className="text-muted-foreground/50">{serverLogLines.length - filteredLogLines.length}</span></>
+                    : <>{t('serverLog.loaded')} <span className="text-foreground/80">{serverLogLines.length}</span></>}
                 </span>
-                <span>{serverLogPaused ? 'updates suspended' : 'poll · 2s'}</span>
+                <span>{serverLogPaused ? t('serverLog.updatesSuspended') : t('serverLog.pollInterval')}</span>
               </div>
             </div>
           )}
@@ -848,31 +944,31 @@ export default function Console() {
         <TabsContent value="rcon" className="space-y-3 mt-4">
           <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-md border border-border/50 bg-card/70 backdrop-blur-sm">
             <div className="flex items-center gap-2 min-w-0">
-              <span className="font-mono text-[9px] uppercase tracking-[0.24em] text-primary/60 shrink-0">link</span>
+              <span className="font-mono text-[9px] uppercase tracking-[0.24em] text-primary/60 shrink-0">{t('rcon.linkLabel')}</span>
               {testingConnection ? (
                 <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
                   <Loader2 className="w-3 h-3 animate-spin" />
-                  checking…
+                  {t('rcon.checking')}
                 </span>
               ) : !hasRconConfig ? (
                 <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-warning">
                   <WifiOff className="w-3 h-3" />
-                  rcon not configured
+                  {t('rcon.notConfigured')}
                 </span>
               ) : rconConnected === null ? (
                 <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
                   <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50" />
-                  unknown
+                  {t('rcon.unknown')}
                 </span>
               ) : rconConnected ? (
                 <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-emerald-400">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  rcon online
+                  {t('rcon.online')}
                 </span>
               ) : (
                 <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-destructive">
                   <WifiOff className="w-3 h-3" />
-                  rcon offline
+                  {t('rcon.offline')}
                 </span>
               )}
             </div>
@@ -884,7 +980,7 @@ export default function Console() {
               disabled={testingConnection || !hasRconConfig}
             >
               <RefreshCw className={cn('w-3 h-3 mr-1', testingConnection && 'animate-spin')} />
-              recheck
+              {t('rcon.recheck')}
             </Button>
           </div>
 
@@ -895,9 +991,9 @@ export default function Console() {
             >
               <WifiOff className="w-4 h-4 shrink-0 text-warning" />
               <div className="min-w-0">
-                <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-warning">rcon not configured</p>
+                <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-warning">{t('rcon.notConfiguredTitle')}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Set the host, port, and password in My Servers before using live commands.
+                  {t('rcon.notConfiguredDesc')}
                 </p>
               </div>
             </div>
@@ -911,9 +1007,9 @@ export default function Console() {
             >
               <WifiOff className="w-4 h-4 shrink-0 text-destructive" />
               <div className="min-w-0">
-                <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-destructive">host unreachable</p>
+                <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-destructive">{t('rcon.hostUnreachableTitle')}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Start the server, then confirm RCON host, port, and password in Panel Settings.
+                  {t('rcon.hostUnreachableDesc')}
                 </p>
               </div>
             </div>
@@ -928,9 +1024,9 @@ export default function Console() {
             {/* header strip */}
             <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-border/50 bg-muted/30 font-mono text-[9px] uppercase tracking-[0.24em] select-none">
               <span className="flex items-center gap-1.5 text-primary/65">
-                <span>rcon output</span>
+                <span>{t('rcon.outputLabel')}</span>
                 <span className="text-muted-foreground/40 normal-case tracking-normal">·</span>
-                <span className="text-muted-foreground/80 normal-case tracking-normal tabular-nums">{liveLog.length} entries</span>
+                <span className="text-muted-foreground/80 normal-case tracking-normal tabular-nums">{t('rcon.entries', { count: liveLog.length })}</span>
               </span>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -942,21 +1038,21 @@ export default function Console() {
                     disabled={liveLog.length === 0}
                   >
                     <Trash2 className="w-3 h-3 mr-1" />
-                    clear
+                    {t('rcon.clear')}
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Clear the visible output (does not delete history)</TooltipContent>
+                <TooltipContent>{t('rcon.clearTooltip')}</TooltipContent>
               </Tooltip>
             </div>
             <div
               ref={scrollRef}
               role="log"
               aria-live="polite"
-              aria-label="RCON command output"
-              className="h-[18rem] min-h-[220px] sm:h-[22rem] lg:h-[26rem] overflow-auto bg-black/60 p-3 terminal-output"
+              aria-label={t('rcon.outputAria')}
+              className="h-[18rem] min-h-[220px] sm:h-[22rem] lg:h-[26rem] overflow-auto bg-background/60 p-3 terminal-output"
             >
               {liveLog.length === 0 ? (
-                <EmptyState compact type="noMessages" title="No commands yet" description="Run an RCON command to see the response here." />
+                <EmptyState compact type="noMessages" title={t('rcon.noCommandsTitle')} description={t('rcon.noCommandsDesc')} />
               ) : (
                 liveLog.map((entry, idx) => (
                   <div key={(entry as RconResponse & { _id?: number })._id ?? `${entry.timestamp}-${idx}`} className="mb-3 font-mono text-sm">
@@ -980,7 +1076,7 @@ export default function Console() {
 
           {/* Quick Commands */}
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="font-mono text-[9px] uppercase tracking-[0.24em] text-primary/60 mr-1">quick</span>
+            <span className="font-mono text-[9px] uppercase tracking-[0.24em] text-primary/60 mr-1">{t('rcon.quickLabel')}</span>
             {quickCommands.map((qc) => (
               <Button
                 key={qc.command}
@@ -1002,31 +1098,31 @@ export default function Console() {
           <div className="flex gap-2">
             <div className="flex-1 relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 font-mono text-[11px] uppercase tracking-[0.18em] text-primary/70 pointer-events-none select-none" aria-hidden="true">
-                rcon $
+                {t('rcon.promptPrefix')}
               </span>
               <Input
                 ref={inputRef}
                 value={command}
                 onChange={(e) => setCommand(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="type a command…"
+                placeholder={t('rcon.placeholder')}
                 className="pl-[5.5rem] font-mono bg-card/70 border-border/55 focus-visible:border-primary/60"
                 disabled={loading || !hasRconConfig}
                 maxLength={2000}
-                aria-label="RCON command input"
+                aria-label={t('rcon.inputAria')}
               />
             </div>
             <Button
               onClick={executeCommand}
               disabled={loading || !command.trim() || !hasRconConfig}
-              aria-label="Execute command"
+              aria-label={t('rcon.executeAria')}
               className="font-mono text-[11px] uppercase tracking-[0.18em]"
             >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Send className="w-3.5 h-3.5 mr-1.5" />run</>}
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Send className="w-3.5 h-3.5 mr-1.5" />{t('rcon.run')}</>}
             </Button>
           </div>
           <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/60">
-            // enter · run · ↑↓ history
+            {t('rcon.keyboardHint')}
           </p>
 
           {/* Broadcast (collapsible) */}
@@ -1039,9 +1135,9 @@ export default function Console() {
             >
               <span className="flex items-center gap-1.5 text-primary/70">
                 <Megaphone className="w-3 h-3" />
-                <span>broadcast</span>
+                <span>{t('broadcast.toggleLabel')}</span>
                 <span className="text-muted-foreground/40 normal-case tracking-normal">·</span>
-                <span className="text-muted-foreground/70 normal-case tracking-normal">message all online</span>
+                <span className="text-muted-foreground/70 normal-case tracking-normal">{t('broadcast.toggleSubtitle')}</span>
               </span>
               <ChevronDown className={cn('w-3.5 h-3.5 text-muted-foreground transition-transform', showBroadcast && 'rotate-180')} />
             </button>
@@ -1066,7 +1162,7 @@ export default function Console() {
                 {/* Channel tag selector */}
                 <div className="grid gap-2 sm:grid-cols-[180px_1fr] sm:items-start">
                   <Select value={selectedChannel} onValueChange={setSelectedChannel}>
-                    <SelectTrigger aria-label="Channel tag">
+                    <SelectTrigger aria-label={t('broadcast.channelTagAria')}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -1084,9 +1180,9 @@ export default function Console() {
                     value={announcement}
                     onChange={(e) => setAnnouncement(e.target.value)}
                     placeholder={selectedChannel === 'all'
-                      ? 'Write the message players should see…'
-                      : `Tagged [${selectedChannel.toUpperCase()}] — write the message…`}
-                    aria-label="Broadcast message"
+                      ? t('broadcast.placeholderAll')
+                      : t('broadcast.placeholderTagged', { tag: selectedChannel.toUpperCase() })}
+                    aria-label={t('broadcast.messageAria')}
                     className="min-h-[80px]"
                     maxLength={500}
                     disabled={sendingAnnouncement || !hasRconConfig || rconConnected === false}
@@ -1095,7 +1191,7 @@ export default function Console() {
 
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-xs text-muted-foreground">
-                    Sends via <code className="text-foreground/80">servermsg</code>. Tags are cosmetic — RCON cannot route to real chat channels.
+                    <Trans i18nKey="broadcast.sendsVia" t={t} components={{ code: <code className="text-foreground/80" /> }} />
                   </p>
                   <Button
                     onClick={sendAnnouncement}
@@ -1106,7 +1202,7 @@ export default function Console() {
                     ) : (
                       <Send className="w-4 h-4 mr-2" />
                     )}
-                    Send
+                    {t('broadcast.send')}
                   </Button>
                 </div>
               </div>
@@ -1123,11 +1219,11 @@ export default function Console() {
             >
               <span className="flex items-center gap-1.5 text-primary/70">
                 <FileText className="w-3 h-3" />
-                <span>history</span>
+                <span>{t('history.toggleLabel')}</span>
                 {history.length > 0 && (
                   <>
                     <span className="text-muted-foreground/40 normal-case tracking-normal">·</span>
-                    <span className="text-muted-foreground/70 normal-case tracking-normal tabular-nums">{history.length} {history.length === 1 ? 'entry' : 'entries'}</span>
+                    <span className="text-muted-foreground/70 normal-case tracking-normal tabular-nums">{t('history.entries', { count: history.length })}</span>
                   </>
                 )}
               </span>
@@ -1138,16 +1234,16 @@ export default function Console() {
                 <div className="relative">
                   <Filter className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
-                    placeholder="Search command history..."
+                    placeholder={t('history.searchPlaceholder')}
                     value={historySearch}
                     onChange={(e) => setHistorySearch(e.target.value)}
                     className="pl-8 h-8 text-sm"
-                    aria-label="Search command history"
+                    aria-label={t('history.searchAria')}
                   />
                 </div>
-                <ScrollArea className="h-[16rem] min-h-[200px] sm:h-[20rem] rounded-lg border border-border/30 bg-black/40">
+                <ScrollArea className="h-[16rem] min-h-[200px] sm:h-[20rem] rounded-lg border border-border/30 bg-background/40">
                   {history.length === 0 ? (
-                    <EmptyState compact type="noData" title="No command history" description="Commands you run will be logged here." />
+                    <EmptyState compact type="noData" title={t('history.emptyTitle')} description={t('history.emptyDesc')} />
                   ) : (
                     <div className="space-y-1 p-2">
                       {history

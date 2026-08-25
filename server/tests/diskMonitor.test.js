@@ -24,7 +24,7 @@ beforeEach(() => {
 });
 
 describe("computeDiskStatus", () => {
-  it("returns a zeroed, non-alerting status when the path is missing", () => {
+  it("returns a zeroed, non-alerting, not-ok status when the path is missing", () => {
     expect(computeDiskStatus(null, { totalBytes: 100, freeBytes: 10 })).toEqual({
       path: null,
       totalBytes: 0,
@@ -32,15 +32,20 @@ describe("computeDiskStatus", () => {
       usedPercent: 0,
       warning: false,
       critical: false,
+      ok: false,
     });
   });
 
-  it("returns a zeroed status when the disk reading is unavailable", () => {
+  it("returns a zeroed, not-ok status when the disk reading is unavailable", () => {
+    // Regression: this used to be identical in shape to a genuinely healthy
+    // 0%-used disk, so a stat failure (unreachable mount, permission error)
+    // looked exactly like "everything's fine" to every consumer.
     const result = computeDiskStatus("/data", null);
     expect(result.path).toBe("/data");
     expect(result.totalBytes).toBe(0);
     expect(result.warning).toBe(false);
     expect(result.critical).toBe(false);
+    expect(result.ok).toBe(false);
   });
 
   it("computes usedPercent from total/free bytes", () => {

@@ -1,0 +1,14 @@
+{
+  "eyebrows": {
+    "noData": "Aucune donnée",
+    "noResults": "Aucune correspondance",
+    "serverOffline": "Serveur hors ligne",
+    "noPlayers": "Aucun joueur en ligne",
+    "noFile": "Fichier manquant",
+    "disconnected": "Déconnecté",
+    "noSchedule": "Aucune tâche armée",
+    "noMods": "Aucun mod suivi",
+    "noMessages": "Aucun message",
+    "empty": "Vide"
+  }
+}

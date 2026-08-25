@@ -14,6 +14,11 @@ RestartSec=5
 StandardOutput=journal
 StandardError=journal
 
+# If nginx or another reverse proxy is in front, trust only its hop/address so
+# express-rate-limit can identify the real client IP. Leave commented when the
+# panel is accessed directly. Examples: TRUST_PROXY=1 or TRUST_PROXY=127.0.0.1
+# Environment=TRUST_PROXY=1
+
 # Resource limits (important for CentOS/RHEL)
 LimitNOFILE=65536
 LimitNPROC=4096

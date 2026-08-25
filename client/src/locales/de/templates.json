@@ -1,0 +1,24 @@
+{
+  "pageHeader": {
+    "title": "Simulationsvorlagen",
+    "description": "Wende ein kuratiertes Regelwerk auf deinen Server an oder speichere deine eigene Konfiguration zur späteren Wiederverwendung.",
+    "import": "Importieren",
+    "saveCurrentConfig": "Aktuelle Konfiguration speichern"
+  },
+  "emptyState": {
+    "loadErrorTitle": "Vorlagen konnten nicht geladen werden",
+    "retry": "Erneut versuchen",
+    "noTemplatesTitle": "Noch keine Vorlagen",
+    "noTemplatesDesc": "Speichere deine aktuelle Serverkonfiguration als Vorlage oder importiere eine aus einer Datei."
+  },
+  "toasts": {
+    "exportFailedTitle": "Export fehlgeschlagen",
+    "exportFailedFallback": "Vorlage konnte nicht exportiert werden",
+    "deleteTemplateTitle": "Vorlage löschen",
+    "deleteTemplateDesc": "„{{name}}“ löschen? Das kann nicht rückgängig gemacht werden.",
+    "templateDeletedTitle": "Vorlage gelöscht",
+    "deleteFailedTitle": "Löschen fehlgeschlagen",
+    "deleteFailedFallback": "Vorlage konnte nicht gelöscht werden",
+    "loadFailedFallback": "Vorlagen konnten nicht geladen werden."
+  }
+}

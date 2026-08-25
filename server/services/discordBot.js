@@ -18,7 +18,9 @@ import { types } from "util";
 import { createLogger } from "../utils/logger.js";
 const log = createLogger("Discord");
 import { getActiveServer, getSetting, setSetting } from "../database/init.js";
+import { loadUiSecret, writeUiSecretFile } from "../utils/uiSecretFile.js";
 import { sanitizeError } from "../utils/sanitize.js";
+import { describeStartFailure } from "./discordStartFailure.js";
 import { readIniValues } from "../utils/templateFiles.js";
 import { runManagedLifecycle } from "./managedContainer.js";
 
@@ -142,6 +144,11 @@ export class DiscordBot {
     this.modRoleId = null;
     this.channelId = null;
     this.isRunning = false;
+    // Last start() failure, surfaced through routes/discord.js so a bad
+    // token, disallowed privileged intents, and a network timeout stop
+    // wearing the same "check configuration" message. Same pattern as
+    // DockerClient.lastError.
+    this.lastStartError = null;
     this.webhookEvents = {};
     this.commandPermissions = { ...DEFAULT_COMMAND_PERMISSIONS };
     this.chatRelayEnabled = true;
@@ -287,7 +294,14 @@ export class DiscordBot {
 
   async loadConfig() {
     log.info("Loading Discord bot config...");
-    this.token = await getSetting("discordBotToken");
+    // discordBotToken lives in its own file now, not db.json — see
+    // utils/uiSecretFile.js. legacyValue migrates a pre-upgrade value
+    // verbatim on first load; every restart after that reads the file.
+    this.token = await loadUiSecret("discordBotToken", {
+      legacyValue: await getSetting("discordBotToken"),
+      clearLegacy: () => setSetting("discordBotToken", null),
+      log,
+    });
     this.guildId = await getSetting("discordGuildId");
     this.adminRoleId = await getSetting("discordAdminRoleId");
     this.modRoleId = await getSetting("discordModRoleId");
@@ -415,7 +429,7 @@ export class DiscordBot {
   }
 
   async updateConfig(token, guildId, adminRoleId, channelId, modRoleId) {
-    await setSetting("discordBotToken", token);
+    writeUiSecretFile("discordBotToken", token);
     await setSetting("discordGuildId", guildId);
     await setSetting("discordAdminRoleId", adminRoleId);
     await setSetting("discordModRoleId", modRoleId || "");
@@ -511,7 +525,7 @@ export class DiscordBot {
       await this.stop();
     }
 
-    await setSetting("discordBotToken", "");
+    writeUiSecretFile("discordBotToken", "");
     await setSetting("discordGuildId", "");
     await setSetting("discordAdminRoleId", "");
     await setSetting("discordModRoleId", "");
@@ -1400,6 +1414,7 @@ export class DiscordBot {
 
     if (!this.token) {
       log.info("bot not configured (no token)");
+      this.lastStartError = { kind: "NoToken", message: "No bot token is configured." };
       return false;
     }
 
@@ -1548,10 +1563,11 @@ export class DiscordBot {
       // Await the 'clientReady' event so that isRunning === true before start() returns.
       // client.login() resolves when the WebSocket authenticates; 'clientReady' fires after.
       await new Promise((resolve, reject) => {
-        const timeout = setTimeout(
-          () => reject(new Error("Bot ready timeout after 30s")),
-          30000,
-        );
+        const timeout = setTimeout(() => {
+          const timeoutError = new Error("Bot ready timeout after 30s");
+          timeoutError.code = "ReadyTimeout";
+          reject(timeoutError);
+        }, 30000);
         this.client.once("clientReady", async () => {
           clearTimeout(timeout);
           log.info(`bot logged in as ${this.client.user.tag}`);
@@ -1561,6 +1577,7 @@ export class DiscordBot {
             log.warn(`Failed to register slash commands: ${e.message}`);
           }
           this.isRunning = true;
+          this.lastStartError = null;
           this._startPresenceUpdates();
           resolve();
         });
@@ -1572,6 +1589,12 @@ export class DiscordBot {
       return true;
     } catch (error) {
       log.error(`Failed to start Discord bot: ${error.message}`);
+      // "kind", not "code" -- this never reaches the client as a response
+      // code (routes/discord.js only reads it to choose which plain-text
+      // message to send), so it's outside the ErrorCode registry's remit
+      // (server/utils/errorCodes.js) despite mirroring discord.js's own
+      // internal error codes (TokenInvalid, DisallowedIntents, ...).
+      this.lastStartError = { kind: error.code || null, message: error.message };
       if (this.logTailer && this._onGameChat) {
         try {
           this.logTailer.off("chatMessage", this._onGameChat);
@@ -1636,6 +1659,13 @@ export class DiscordBot {
       guildId: this.guildId,
       channelId: this.channelId,
       modRoleId: this.modRoleId || null,
+      // Persists past the one-time toast POST /start already shows, so a
+      // user who navigates away and comes back still sees why the last
+      // start attempt failed -- cleared the moment a start actually
+      // succeeds (see the clientReady handler in start()).
+      lastStartError: this.lastStartError
+        ? { kind: this.lastStartError.kind, message: describeStartFailure(this.lastStartError) }
+        : null,
     };
   }
 }

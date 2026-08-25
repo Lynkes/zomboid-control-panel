@@ -643,6 +643,62 @@ function PanelBridge.tryGet(obj, methodName, ...)
     return nil
 end
 
+-- Standardizes the FINAL (ok, data, err) shape for any handler that has
+-- already computed a `verified` tri-state by comparing a real read-back
+-- against what it just tried to do. This is the house convention as of the
+-- 2026-08-23 handler-verification audit -- it does not decide HOW to
+-- compare (that's inherently handler-specific: exact match, a numeric
+-- tolerance, membership in a list, etc.), only what to DO with the answer.
+--
+-- The `verified` FIELD IN THE RESPONSE IS A STRING, ALWAYS PRESENT WHEN
+-- ok=true -- never a boolean, never omitted. This is a deliberate ruling,
+-- not a style choice: the bridge mod lives on the user's Project Zomboid
+-- server and can be OLDER than the panel (an operator updates the panel and
+-- forgets the mod, or runs a panel against a server someone else
+-- administers). With an omitted-key-means-unverified convention, an OLD
+-- bridge that never heard of this contract and a NEW bridge honestly saying
+-- "I can't confirm this" would both arrive at the client as a missing key,
+-- and the UI could not tell "unconfirmable operation" from "this bridge
+-- predates the contract" -- two situations that deserve different words to
+-- the operator. With the key always present, a MISSING key means exactly
+-- one thing: an old bridge. See also: an absent value carrying two
+-- different meanings is the exact shape of a separate, real bug this floor
+-- hit the same night (empty stdout meaning both "scan failed" and "nothing
+-- running", indistinguishable, that cost an operator a working button) --
+-- this rule exists so `verified` does not become a second instance of it.
+--
+--   verified (the ARGUMENT to this function) == true  -> the write is
+--       confirmed to have taken effect. Response gets verified="confirmed".
+--   verified == false -> a real read-back disagrees with what was
+--       requested. This handler must NOT report ok=true -- a false success
+--       is silent and nobody ever learns otherwise; a false failure here is
+--       loud and self-correcting (the operator just retries). Returns
+--       ok=false with failMessage; there is no "succeeded but verified is
+--       false" state for a client to special-case.
+--   verified == nil -> no read-back was possible (the underlying game API
+--       is void, or the requested change was too small to distinguish from
+--       a no-op). This is NOT a failure -- the call was made, the result
+--       cannot be confirmed. Response gets verified="unverifiable". Must
+--       not be conflated with verified == false (see the a-and-b-or-c idiom
+--       bug this file used to have: collapsing "confirmed wrong" and
+--       "can't tell" into one value is exactly the bug that made an earlier
+--       fix's gate unreachable).
+--
+-- `data` is the handler's own response table; this only adds/overwrites its
+-- `verified` field. `failMessage` is used only when verified == false.
+function PanelBridge.verifiedResult(verified, data, failMessage)
+    if verified == false then
+        return false, nil, failMessage or "Operation succeeded but did not take effect"
+    end
+    data = data or {}
+    if verified == true then
+        data.verified = "confirmed"
+    else
+        data.verified = "unverifiable"
+    end
+    return true, data
+end
+
 -- Detect PZ version and available APIs
 function PanelBridge.detectVersion()
     local version = {
@@ -3060,6 +3116,18 @@ local function serializeInventory(container, depth, maxItems, currentCount)
                     end
                 end
 
+                -- getDelta() does not exist on InventoryItem -- confirmed
+                -- 2026-08-23 against the real shipped projectzomboid.jar --
+                -- so this has always been nil. There is no single replacement:
+                -- the jar declares two distinct real floats instead, getJobDelta
+                -- (progress on a job left in the item, e.g. a partly-read book)
+                -- and getUseDelta (remaining fraction on a drainable item, e.g.
+                -- a lighter or propane tank) -- exporting both, additively,
+                -- rather than guessing which one "delta" meant. data.delta
+                -- itself is left as-is (still always nil) since fixing it would
+                -- mean picking one of the two and silently dropping the other.
+                data.jobDelta = PanelBridge.tryGet(item, "getJobDelta")
+                data.useDelta = PanelBridge.tryGet(item, "getUseDelta")
                 data.delta = PanelBridge.tryGet(item, "getDelta")
 
                 return data
@@ -3114,6 +3182,31 @@ local function getPlayerTraits(player)
     local traitList = nil
     local method = "none"
 
+    -- B42 real path, verified 2026-08-23 by reading the constant pool of the
+    -- shipped projectzomboid.jar directly (no javap/decompiler available, so
+    -- each class file's method table was parsed by hand):
+    --   zombie/characters/IsoGameCharacter.class declares
+    --     getCharacterTraits() -> Lzombie/characters/traits/CharacterTraits;
+    --   zombie/characters/traits/CharacterTraits.class declares
+    --     getKnownTraits() -> Ljava/util/List;  (also get/set/add/remove take
+    --     a single CharacterTrait, and getTraits() -> Map -- not list-shaped)
+    --   zombie/scripting/objects/CharacterTrait.class has getName()/toString()
+    --   but no getType() -- the existing per-item fallback below already
+    --   tries getType() then toString(), so toString() (which returns the
+    --   trait's script id) covers this without any change there.
+    -- The three attempts that used to run here (desc:getTraitList,
+    -- desc:getTraits, player:getTraits) were all confirmed absent from B42's
+    -- real class hierarchy by a separate full-jar audit against every
+    -- (receiver, method) pair this file calls (2026-08-23) -- kept below as
+    -- harmless fallbacks in case this ever runs against a B41 server, since
+    -- player:getTraits() was B41's real API, but they must never be tried
+    -- FIRST on B42 again.
+    local charTraits = PanelBridge.tryGet(player, "getCharacterTraits")
+    if charTraits then
+        traitList = PanelBridge.tryGet(charTraits, "getKnownTraits")
+        if traitList then method = "player:getCharacterTraits():getKnownTraits" end
+    end
+
     -- B42: Traits are accessed through SurvivorDesc
     local desc = PanelBridge.tryGet(player, "getDescriptor")
 
@@ -3136,7 +3229,7 @@ local function getPlayerTraits(player)
         if traitList then method = "player:getTraits" end
     end
 
-    if not traitList then return {}, "no trait method worked (tried: desc:getTraitList, desc:getTraits, player:getTraits)" end
+    if not traitList then return {}, "no trait method worked (tried: player:getCharacterTraits():getKnownTraits, desc:getTraitList, desc:getTraits, player:getTraits)" end
 
     -- Get size safely
     local sizeOk, listSize = pcall(function() return traitList:size() end)
@@ -3408,6 +3501,15 @@ handlers.importPlayerData = function(args)
                                     if itemData.uses and newItem.setCurrentUses then
                                         newItem:setCurrentUses(itemData.uses)
                                     end
+                                    -- setDelta() does not exist either (same jar check as the
+                                    -- export side, see serializeInventory) -- restore the two
+                                    -- real fields a newer export may carry instead.
+                                    if itemData.jobDelta and newItem.setJobDelta then
+                                        newItem:setJobDelta(itemData.jobDelta)
+                                    end
+                                    if itemData.useDelta and newItem.setUseDelta then
+                                        newItem:setUseDelta(itemData.useDelta)
+                                    end
                                     -- Set delta if available
                                     if itemData.delta and newItem.setDelta then
                                         newItem:setDelta(itemData.delta)
@@ -3491,8 +3593,21 @@ handlers.teleportPlayer = function(args)
         end
     end)
 
-    -- Step 0c: Enable network teleport flag BEFORE moving so the move itself
-    -- is flagged as an authorized teleport instead of a suspicious jump.
+    -- Step 0c: setNetworkTeleportEnabled does not exist anywhere in the real
+    -- B42 IsoPlayer/IsoGameCharacter hierarchy -- confirmed 2026-08-23 by
+    -- grepping the shipped projectzomboid.jar for the string "NetworkTeleport"
+    -- across every .class file (zero hits) and separately reading every
+    -- teleport-related method in IsoGameCharacter (only the teleportTo
+    -- overloads exist). This call has therefore always been a silent no-op
+    -- on B42; a live v1.7.14 test against 42.20.0 independently observed the
+    -- resulting symptom (server moved the player, no client was told, the
+    -- client's own stale position won -- see that changelog entry above).
+    -- There is no known direct replacement: teleportTo appears to be the
+    -- only surviving teleport-related API, so whatever authorization/
+    -- broadcast responsibility this flag used to carry either moved inside
+    -- teleportTo itself in B42 or has no Lua-exposed equivalent at all.
+    -- Left in place (harmless pcall, and the Step 6 probe below already
+    -- reports its real absence at runtime) rather than guessed at.
     if PanelBridge.invoke(player, "setNetworkTeleportEnabled", true) then
         table.insert(debugInfo, "networkTeleportEnabled(pre) set")
     end
@@ -3521,16 +3636,17 @@ handlers.teleportPlayer = function(args)
         table.insert(debugInfo, "setLxyz done")
     end
 
-    -- Step 3: Re-set network teleport flag (tells server to broadcast new position)
+    -- Step 3: same call as Step 0c, same verified-absent method (see comment
+    -- there) -- kept only in case a future PZ build re-adds it.
     if PanelBridge.invoke(player, "setNetworkTeleportEnabled", true) then
         table.insert(debugInfo, "networkTeleportEnabled(post) set")
     end
 
-    -- Step 4: Force position broadcast via sendPlayerExtraInfo (global, server-side)
+    -- Step 4: Force position broadcast via sendPlayerExtraInfo (global, server-side).
     -- PanelBridge has no client-side mod, so sendServerCommand to a custom module
-    -- would be a silent no-op. Instead, rely on teleportTo + setNetworkTeleportEnabled
-    -- to trigger PZ's built-in position sync. sendPlayerExtraInfo also pushes
-    -- an authoritative player-state update to all clients.
+    -- would be a silent no-op. sendPlayerExtraInfo is the one broadcast mechanism
+    -- here actually confirmed to exist -- setNetworkTeleportEnabled above does not
+    -- (see Step 0c) and contributes nothing to sync today.
     pcall(function()
         if sendPlayerExtraInfo then
             sendPlayerExtraInfo(player)
@@ -3569,11 +3685,61 @@ handlers.teleportPlayer = function(args)
     PanelBridge.debug("teleportPlayer: " .. username .. " from " .. oldX .. "," .. oldY .. "," .. oldZ
         .. " to " .. x .. "," .. y .. "," .. z .. " — " .. debugStr)
 
+    -- Verify the teleport actually happened. The real failure mode here is
+    -- not "landed slightly off target" -- ground snap, z-level resolution
+    -- and tile centring can all legitimately shift the final position by a
+    -- tile or more, and gating on proximity to the target would manufacture
+    -- false failures for those. The failure this file's own comments and
+    -- changelog describe is teleportTo silently not sticking AT ALL: the
+    -- player still sitting at their ORIGIN while the response claims they
+    -- moved hundreds or thousands of tiles. So this compares distance
+    -- ACTUALLY moved against distance REQUESTED, not proximity to the
+    -- target -- no "how close counts as arrived" number needed.
+    -- EPSILON is a floating-point/rounding tolerance (sub-tile), not a
+    -- guess about game mechanics -- small enough that a genuine
+    -- single-floor (z-only) teleport still registers as a real move.
+    local EPSILON = 0.5
+    local function dist3(ax, ay, az, bx, by, bz)
+        return math.sqrt((ax - bx) ^ 2 + (ay - by) ^ 2 + (az - bz) ^ 2)
+    end
+    local requestedDistance = dist3(oldX, oldY, oldZ, x, y, z)
+    local actualDistance = dist3(oldX, oldY, oldZ, verifyX, verifyY, verifyZ)
+
+    local verified
+    if requestedDistance <= EPSILON then
+        -- Origin and target are too close together to tell "stayed put"
+        -- from "arrived" apart -- report unverified rather than guess.
+        verified = nil
+    elseif actualDistance <= EPSILON then
+        -- Asked to move a meaningful distance; the position barely changed
+        -- at all. This is the silent-no-op failure, not a rounding blip.
+        verified = false
+    else
+        verified = true
+    end
+
+    if verified == false then
+        return false, {
+            oldPosition = { x = oldX, y = oldY, z = oldZ },
+            newPosition = { x = x, y = y, z = z },
+            verifyPosition = { x = verifyX, y = verifyY, z = verifyZ },
+            debug = debugStr
+        }, "Teleport call succeeded but the player did not move (still at origin)"
+    end
+
+    -- verified is a STRING, always present -- never a boolean, never
+    -- omitted. See PanelBridge.verifiedResult's own comment for why an
+    -- absent key is a distinct, meaningful signal (an out-of-date bridge
+    -- mod) that must not be confused with "unverifiable".
+    local verifiedStr = "unverifiable"
+    if verified == true then verifiedStr = "confirmed" end
+
     return true, {
         message = "Player teleported",
         oldPosition = { x = oldX, y = oldY, z = oldZ },
         newPosition = { x = x, y = y, z = z },
         verifyPosition = { x = verifyX, y = verifyY, z = verifyZ },
+        verified = verifiedStr,
         debug = debugStr
     }
 end
@@ -3701,8 +3867,17 @@ handlers.getAllSandboxOptions = function(args)
                         end
                     end
                 end)
-                -- Get selected index for enums
-                info.selectedIndex = PanelBridge.tryGet(opt, "getIntValue")
+                -- Get selected index for enums. getIntValue() does not exist
+                -- anywhere in the SandboxOption/ConfigOption hierarchy, so this
+                -- was always nil for every enum option -- verified 2026-08-23
+                -- against the real shipped projectzomboid.jar: EnumSandboxOption
+                -- extends EnumConfigOption extends IntegerConfigOption, and it is
+                -- IntegerConfigOption that actually declares getValue() -> int
+                -- (the enum's raw selected index; a plain int field under the
+                -- hood). getOptionValue() above already calls plain getValue()
+                -- first and works for enums today for exactly this reason --
+                -- this line just needed to call the same real method.
+                info.selectedIndex = PanelBridge.tryGet(opt, "getValue")
             elseif className:find("String") then
                 info.type = "string"
             else
@@ -3927,8 +4102,10 @@ handlers.setSandboxOption = function(args)
     end)
 
     local ok, err
+    local appliedValue
     if optType == "boolean" then
         local boolVal = (newValue == true or newValue == "true" or newValue == 1)
+        appliedValue = boolVal
         ok, err = pcall(function() targetOpt:setValue(boolVal) end)
     elseif optType == "enum" then
         local intVal = tonumber(newValue)
@@ -3938,6 +4115,7 @@ handlers.setSandboxOption = function(args)
         local numVals = tonumber(PanelBridge.tryGet(targetOpt, "getNumValues"))
         if numVals and intVal >= numVals then intVal = numVals - 1 end
         if intVal < 0 then intVal = 0 end
+        appliedValue = intVal
         ok, err = pcall(function() targetOpt:setValue(intVal) end)
     elseif optType == "integer" then
         local intVal = tonumber(newValue)
@@ -3948,6 +4126,7 @@ handlers.setSandboxOption = function(args)
         if type(intMin) == "number" and intVal < intMin then intVal = intMin end
         local intMax = PanelBridge.tryGet(targetOpt, "getMax")
         if type(intMax) == "number" and intVal > intMax then intVal = intMax end
+        appliedValue = intVal
         ok, err = pcall(function() targetOpt:setValue(intVal) end)
     elseif optType == "double" then
         local numVal = tonumber(newValue)
@@ -3957,11 +4136,17 @@ handlers.setSandboxOption = function(args)
         if type(numMin) == "number" and numVal < numMin then numVal = numMin end
         local numMax = PanelBridge.tryGet(targetOpt, "getMax")
         if type(numMax) == "number" and numVal > numMax then numVal = numMax end
+        appliedValue = numVal
         ok, err = pcall(function() targetOpt:setValue(numVal) end)
     elseif optType == "string" then
-        ok, err = pcall(function() targetOpt:setValue(tostring(newValue)) end)
+        local strVal = tostring(newValue)
+        appliedValue = strVal
+        ok, err = pcall(function() targetOpt:setValue(strVal) end)
     else
-        -- Unknown type — try generic setValue with the raw value
+        -- Unknown type — try generic setValue with the raw value. No
+        -- reliable comparison exists for an unknown Java type crossing the
+        -- Lua/JSON boundary, so appliedValue stays nil and this branch is
+        -- intentionally excluded from the verify-and-gate below.
         ok, err = pcall(function() targetOpt:setValue(newValue) end)
     end
 
@@ -3979,24 +4164,79 @@ handlers.setSandboxOption = function(args)
         end
     end
 
-    PanelBridge.info("Sandbox option set", { name = optName, value = tostring(newValue), confirmed = tostring(confirmed) })
+    -- Compare on MEANING, not identity: a value crossing the Lua/JSON
+    -- boundary can legitimately come back as a different Lua type than what
+    -- was sent (8 vs "8") without the write having failed. `verified` is
+    -- nil (not false) whenever the comparison itself isn't trustworthy -- an
+    -- unknown optType or a nil confirmed read -- rather than treating
+    -- "can't tell" as "it worked". Written with explicit if/then, not the
+    -- `a and b or c` idiom: that idiom silently turns a confirmed mismatch
+    -- (b == false) into nil (see setGodMode's comment for the full story).
+    -- (This field used to be called `matched` -- renamed to `verified` per
+    -- the 2026-08-23 ruling that unified every handler on one field name;
+    -- nothing had shipped carrying either name, so the rename was free.)
+    local verified
+    if appliedValue == nil or confirmed == nil then
+        verified = nil
+    elseif optType == "boolean" then
+        if type(confirmed) == "boolean" then
+            verified = (confirmed == appliedValue)
+        else
+            verified = (tostring(confirmed):lower() == tostring(appliedValue):lower())
+        end
+    elseif optType == "enum" or optType == "integer" or optType == "double" then
+        local confirmedNum = tonumber(confirmed)
+        if confirmedNum == nil then
+            verified = nil
+        else
+            verified = (confirmedNum == appliedValue)
+        end
+    elseif optType == "string" then
+        verified = (tostring(confirmed) == tostring(appliedValue))
+    end
+
+    PanelBridge.info("Sandbox option set", { name = optName, value = tostring(newValue), confirmed = tostring(confirmed), verified = verified })
+
+    if verified == false then
+        return false, nil, "Value set but did not take effect (requested " .. tostring(appliedValue) .. ", confirmed " .. tostring(confirmed) .. ")"
+    end
 
     -- setValue only touches the Java object. Mod code reads the global
     -- SandboxVars table, which stays stale until toLua() rebuilds it.
     PanelBridge.invoke(sandbox, "toLua")
 
-    -- Trigger a world save so the changed option persists across restarts
-    pcall(function()
-        local world = getWorld()
-        if world and world.saveWorld then
-            world:saveWorld()
+    -- Trigger a world save so the changed option persists across restarts.
+    -- A bare pcall here previously discarded the result, so a failed save
+    -- (e.g. disk full, world already saving) silently reported success to
+    -- the panel and the operator even though the change would be lost on
+    -- the next restart.
+    local world = getWorld()
+    local persisted = false
+    local saveErr = nil
+    if world and world.saveWorld then
+        local saveOk, saveErrMsg = pcall(function() world:saveWorld() end)
+        if saveOk then
+            persisted = true
+        else
+            saveErr = tostring(saveErrMsg)
         end
-    end)
+    else
+        saveErr = "World not available"
+    end
+    if not persisted then
+        PanelBridge.error("Sandbox option set but world save failed", { name = optName, error = saveErr })
+    end
+
+    local verifiedStr = "unverifiable"
+    if verified == true then verifiedStr = "confirmed" end
 
     return true, {
         name = optName,
         value = confirmed,
-        type = optType
+        type = optType,
+        verified = verifiedStr,
+        persisted = persisted,
+        saveError = saveErr
     }
 end
 
@@ -4776,7 +5016,7 @@ handlers.restoreUtilities = function(args, cmdId)
             message = "Utilities restored",
             power = restorePower,
             water = restoreWater,
-            hydroPowerOn = true,
+            hydroPowerOn = world:isHydroPowerOn(),
             debug = debugInfo
         }
     end
@@ -4913,7 +5153,7 @@ handlers.shutOffUtilities = function(args, cmdId)
             message = "Utilities shut off",
             power = shutPower,
             water = shutWater,
-            hydroPowerOn = false,
+            hydroPowerOn = world:isHydroPowerOn(),
             debug = debugInfo
         }
     end
@@ -4964,25 +5204,29 @@ handlers.healPlayer = function(args)
         return false, nil, "Player not found: " .. username
     end
 
-    local healed = {}
-    local errors = {}
-
     -- Build 42's documented body-part collection is the complete supported
     -- healing path. Optional Java-method probes log engine errors even inside
     -- pcall, so do not call bodyDamage/Stats/Moodles compatibility methods.
+    -- No bodyDamage means the healing block below never runs at all -- that
+    -- is not a partial heal, it is no heal, and must not report success.
     local bodyDamage = player:getBodyDamage()
-    if bodyDamage then
-        local ok1, err1 = pcall(function()
-            local bodyParts = bodyDamage:getBodyParts()
-            for i = 0, bodyParts:size() - 1 do
-                local part = bodyParts:get(i)
-                part:RestoreToFullHealth()
-                part:SetFakeInfected(false)
-                healed.bodyDamage = true
-            end
-        end)
-        if not ok1 then table.insert(errors, "bodyDamage: " .. tostring(err1)) end
+    if not bodyDamage then
+        return false, nil, "Could not access player body damage; nothing was healed"
     end
+
+    local healed = {}
+    local errors = {}
+
+    local ok1, err1 = pcall(function()
+        local bodyParts = bodyDamage:getBodyParts()
+        for i = 0, bodyParts:size() - 1 do
+            local part = bodyParts:get(i)
+            part:RestoreToFullHealth()
+            part:SetFakeInfected(false)
+            healed.bodyDamage = true
+        end
+    end)
+    if not ok1 then table.insert(errors, "bodyDamage: " .. tostring(err1)) end
 
     -- CRITICAL: Network sync — transmit changes to client
     -- Without this, the server has the healed state but the player client doesn't see it
@@ -5097,16 +5341,28 @@ handlers.setGodMode = function(args)
         return false, nil, "Failed to set godmode: " .. tostring(err)
     end
 
-    -- Verify it took effect
+    -- Verify it took effect. Written with an explicit if/then rather than
+    -- Lua's `a and b or c` idiom -- that idiom silently breaks when b (a
+    -- real, confirmed mismatch) is `false`: `true and false` short-circuits
+    -- to `false`, which is falsy, so it falls through to c (nil), making a
+    -- CONFIRMED FAILURE indistinguishable from an unverifiable state. That
+    -- would have made gating on verified==false below never actually fire.
     local godModeState = PanelBridge.tryGet(player, "isGodMod")
-    local verified = godModeState ~= nil and (godModeState == enabled) or nil
+    local verified
+    if godModeState == nil then
+        verified = nil
+    elseif godModeState == enabled then
+        verified = true
+    else
+        verified = false
+    end
 
     PanelBridge.info("Set godmode", { username = username, enabled = enabled, method = method, verified = verified })
-    return true, {
+
+    return PanelBridge.verifiedResult(verified, {
         message = "Godmode " .. (enabled and "enabled" or "disabled"),
-        username = username,
-        verified = verified
-    }
+        username = username
+    }, "Godmode call succeeded but did not take effect (state is still " .. tostring(godModeState) .. ")")
 end
 
 -- Set player's invisibility
@@ -5135,16 +5391,24 @@ handlers.setInvisible = function(args)
         return false, nil, "Failed to set invisible: " .. tostring(err)
     end
 
-    -- Verify
+    -- Verify. Explicit if/then, not `a and b or c` -- see setGodMode's comment
+    -- above for why that idiom silently turns a confirmed mismatch into nil.
     local invisibleState = PanelBridge.tryGet(player, "isInvisible")
-    local verified = invisibleState ~= nil and (invisibleState == enabled) or nil
+    local verified
+    if invisibleState == nil then
+        verified = nil
+    elseif invisibleState == enabled then
+        verified = true
+    else
+        verified = false
+    end
 
     PanelBridge.info("Set invisible", { username = username, enabled = enabled, verified = verified })
-    return true, {
+
+    return PanelBridge.verifiedResult(verified, {
         message = "Invisibility " .. (enabled and "enabled" or "disabled"),
-        username = username,
-        verified = verified
-    }
+        username = username
+    }, "Invisibility call succeeded but did not take effect (state is still " .. tostring(invisibleState) .. ")")
 end
 
 -- Set player's noclip
@@ -5173,8 +5437,23 @@ handlers.setNoclip = function(args)
         return false, nil, "Failed to set noclip: " .. tostring(err)
     end
 
-    PanelBridge.info("Set noclip", { username = username, enabled = enabled })
-    return true, { message = "Noclip " .. (enabled and "enabled" or "disabled"), username = username }
+    -- Verify. isNoClip confirmed present on IsoPlayer/IsoMovingObject by
+    -- reading the real shipped B42 jar's constant pool directly (2026-08-23).
+    local noclipState = PanelBridge.tryGet(player, "isNoClip")
+    local verified
+    if noclipState == nil then
+        verified = nil
+    elseif noclipState == enabled then
+        verified = true
+    else
+        verified = false
+    end
+
+    PanelBridge.info("Set noclip", { username = username, enabled = enabled, verified = verified })
+
+    return PanelBridge.verifiedResult(verified,
+        { message = "Noclip " .. (enabled and "enabled" or "disabled"), username = username },
+        "Noclip call succeeded but did not take effect (state is still " .. tostring(noclipState) .. ")")
 end
 
 -- Give item to player
@@ -5592,6 +5871,7 @@ handlers.spawnHordeNearPlayer = function(args)
     local half = 8
     local method = "unknown"
     local spawned = 0
+    local verified = false
 
     local ok, err = pcall(function()
         -- Primary method for B41+B42: VirtualZombieManager spawns real zombies
@@ -5610,24 +5890,28 @@ handlers.spawnHordeNearPlayer = function(args)
                 if okZ then spawned = spawned + 1 end
             end
             method = "VirtualZombieManager.createRealZombieAlways"
+            verified = true
         else
             -- Fallback: ZombiePopulationManager horde APIs (may silently fail
-            -- if the area isn't fully loaded on the server)
+            -- if the area isn't fully loaded on the server). None of these
+            -- return a count, so `spawned` must not be set to `count` --
+            -- that would be a fabricated number, not an unverified one.
+            -- Report which method ran and leave spawned nil (unverified).
             local zpop = getZombiePopManager()
             if zpop and zpop.createHordeInAreaTo then
                 zpop:createHordeInAreaTo(cx - half, cy - half, half * 2, half * 2, math.floor(px), math.floor(py), count)
                 method = "createHordeInAreaTo"
-                spawned = count
+                spawned = nil
             elseif zpop and zpop.createHordeFromTo then
                 zpop:createHordeFromTo(cx, cy, math.floor(px), math.floor(py), count)
                 method = "createHordeFromTo"
-                spawned = count
+                spawned = nil
             else
                 local world = getWorld()
                 if world and world.CreateSwarm then
                     world:CreateSwarm(count, cx - half, cy - half, cx + half, cy + half)
                     method = "CreateSwarm"
-                    spawned = count
+                    spawned = nil
                 else
                     error("No zombie spawning API available (VirtualZombieManager / ZombiePopulationManager / IsoWorld.CreateSwarm all missing)")
                 end
@@ -5639,11 +5923,18 @@ handlers.spawnHordeNearPlayer = function(args)
         return false, nil, "Failed to spawn horde: " .. tostring(err)
     end
 
-    PanelBridge.warn("Spawned horde near player", { username = username, count = count, spawned = spawned, cx = cx, cy = cy, method = method })
+    PanelBridge.warn("Spawned horde near player", { username = username, count = count, spawned = spawned, verified = verified, cx = cx, cy = cy, method = method })
+
+    local verifiedStr = "unverifiable"
+    if verified == true then verifiedStr = "confirmed" end
+
     return true, {
-        message = "Spawned " .. spawned .. "/" .. count .. " zombies near " .. username,
+        message = verified
+            and ("Spawned " .. spawned .. "/" .. count .. " zombies near " .. username)
+            or ("Requested " .. count .. " zombies near " .. username .. " via " .. method .. " (spawn count not verifiable for this method)"),
         count = count,
         spawned = spawned,
+        verified = verifiedStr,
         center = { x = cx, y = cy },
         distance = dist,
         method = method
@@ -5695,6 +5986,7 @@ handlers.spawnHordeBehindPlayer = function(args)
     local half = 8
     local method = "unknown"
     local spawned = 0
+    local verified = false
 
     local ok, err = pcall(function()
         local vzm = _G.VirtualZombieManager and _G.VirtualZombieManager.instance
@@ -5710,22 +6002,26 @@ handlers.spawnHordeBehindPlayer = function(args)
                 if okZ then spawned = spawned + 1 end
             end
             method = "VirtualZombieManager.createRealZombieAlways"
+            verified = true
         else
+            -- See spawnHordeNearPlayer: these fallback APIs return no count,
+            -- so `spawned` must not be set to `count` -- that would be a
+            -- fabricated number, not an unverified one.
             local zpop = getZombiePopManager()
             if zpop and zpop.createHordeInAreaTo then
                 zpop:createHordeInAreaTo(cx - half, cy - half, half * 2, half * 2, math.floor(px), math.floor(py), count)
                 method = "createHordeInAreaTo"
-                spawned = count
+                spawned = nil
             elseif zpop and zpop.createHordeFromTo then
                 zpop:createHordeFromTo(cx, cy, math.floor(px), math.floor(py), count)
                 method = "createHordeFromTo"
-                spawned = count
+                spawned = nil
             else
                 local world = getWorld()
                 if world and world.CreateSwarm then
                     world:CreateSwarm(count, cx - half, cy - half, cx + half, cy + half)
                     method = "CreateSwarm"
-                    spawned = count
+                    spawned = nil
                 else
                     error("No zombie spawning API available")
                 end
@@ -5737,11 +6033,18 @@ handlers.spawnHordeBehindPlayer = function(args)
         return false, nil, "Failed to spawn horde behind: " .. tostring(err)
     end
 
-    PanelBridge.warn("Spawned horde behind player", { username = username, count = count, spawned = spawned, direction = dirName, cx = cx, cy = cy, method = method })
+    PanelBridge.warn("Spawned horde behind player", { username = username, count = count, spawned = spawned, verified = verified, direction = dirName, cx = cx, cy = cy, method = method })
+
+    local verifiedStr = "unverifiable"
+    if verified == true then verifiedStr = "confirmed" end
+
     return true, {
-        message = "Spawned " .. spawned .. "/" .. count .. " zombies behind " .. username,
+        message = verified
+            and ("Spawned " .. spawned .. "/" .. count .. " zombies behind " .. username)
+            or ("Requested " .. count .. " zombies behind " .. username .. " via " .. method .. " (spawn count not verifiable for this method)"),
         count = count,
         spawned = spawned,
+        verified = verifiedStr,
         center = { x = cx, y = cy },
         playerDirection = dirName,
         distance = dist,
@@ -5834,7 +6137,28 @@ handlers.safehouseAddPlayer = function(args)
         return false, nil, "Failed to add player to safehouse: " .. tostring(addErr)
     end
 
-    return true, { message = "Player added to safehouse", safehouseRef = args.safehouseRef, username = username }
+    -- SafeHouse.addPlayer is declared void (confirmed 2026-08-23 against
+    -- the real B42 jar), so the only way to check it actually happened is
+    -- to read the membership list back via getPlayers() (also confirmed
+    -- present, and already used by handlers.getSafehouses).
+    local verified
+    local ok2, players = pcall(function() return sh:getPlayers() end)
+    if ok2 and players then
+        local found = false
+        local ok3 = pcall(function()
+            for i = 0, players:size() - 1 do
+                if tostring(players:get(i)) == username then
+                    found = true
+                    break
+                end
+            end
+        end)
+        if ok3 then verified = found end
+    end
+
+    return PanelBridge.verifiedResult(verified,
+        { message = "Player added to safehouse", safehouseRef = args.safehouseRef, username = username },
+        "Add player call succeeded but " .. username .. " is not in the safehouse player list")
 end
 
 handlers.safehouseRemovePlayer = function(args)
@@ -5851,7 +6175,26 @@ handlers.safehouseRemovePlayer = function(args)
         return false, nil, "Failed to remove player from safehouse: " .. tostring(removeErr)
     end
 
-    return true, { message = "Player removed from safehouse", safehouseRef = args.safehouseRef, username = username }
+    -- Same void-method situation as safehouseAddPlayer -- verify via the
+    -- membership list read-back instead.
+    local verified
+    local ok2, players = pcall(function() return sh:getPlayers() end)
+    if ok2 and players then
+        local found = false
+        local ok3 = pcall(function()
+            for i = 0, players:size() - 1 do
+                if tostring(players:get(i)) == username then
+                    found = true
+                    break
+                end
+            end
+        end)
+        if ok3 then verified = not found end
+    end
+
+    return PanelBridge.verifiedResult(verified,
+        { message = "Player removed from safehouse", safehouseRef = args.safehouseRef, username = username },
+        "Remove player call succeeded but " .. username .. " is still in the safehouse player list")
 end
 
 handlers.safehouseSetOwner = function(args)
@@ -5868,7 +6211,21 @@ handlers.safehouseSetOwner = function(args)
         return false, nil, "Failed to set safehouse owner: " .. tostring(setErr)
     end
 
-    return true, { message = "Safehouse owner updated", safehouseRef = args.safehouseRef, owner = owner }
+    -- SafeHouse.setOwner is declared void; getOwner() (confirmed present,
+    -- also used by handlers.getSafehouses) reads the real result back.
+    local ok2, actualOwner = pcall(function() return sh:getOwner() end)
+    local verified
+    if not ok2 then
+        verified = nil
+    elseif actualOwner == owner then
+        verified = true
+    else
+        verified = false
+    end
+
+    return PanelBridge.verifiedResult(verified,
+        { message = "Safehouse owner updated", safehouseRef = args.safehouseRef, owner = owner },
+        "Set owner call succeeded but safehouse owner is still " .. tostring(actualOwner))
 end
 
 handlers.safehouseSetRespawn = function(args)
@@ -5886,12 +6243,25 @@ handlers.safehouseSetRespawn = function(args)
         return false, nil, "Failed to set safehouse respawn: " .. tostring(setErr)
     end
 
-    return true, {
+    -- SafeHouse.setRespawnInSafehouse is declared void; isRespawnInSafehouse
+    -- (confirmed present on the real B42 jar, takes the same username) reads
+    -- the real per-player result back.
+    local ok2, actualRespawn = pcall(function() return sh:isRespawnInSafehouse(username) end)
+    local verified
+    if not ok2 then
+        verified = nil
+    elseif actualRespawn == enabled then
+        verified = true
+    else
+        verified = false
+    end
+
+    return PanelBridge.verifiedResult(verified, {
         message = "Safehouse respawn updated",
         safehouseRef = args.safehouseRef,
         username = username,
         enabled = enabled
-    }
+    }, "Set respawn call succeeded but did not take effect (still " .. tostring(actualRespawn) .. ")")
 end
 
 -- ============================================
@@ -5960,6 +6330,19 @@ handlers.createFaction = function(args)
         end
     end
 
+    -- Faction.createFaction does not exist ANYWHERE in the real B42 jar --
+    -- confirmed 2026-08-23 by scanning every one of the jar's 23,740 class
+    -- files for a method literally named createFaction: zero hits. (Two
+    -- near-miss names exist on Faction itself, canCreateFaction() -- a
+    -- permission check, not a creator -- and the unrelated createFactionChat.)
+    -- FactionCreatePacket.class exists, suggesting real faction creation on
+    -- B42 goes through a network packet flow rather than a direct Lua-callable
+    -- method -- not investigated further here (out of scope for a
+    -- verification-gating pass; a real replacement would need someone to
+    -- trace that packet handler). The guard above and the pcall below already
+    -- make this fail safely and honestly every time (verified: this returns
+    -- ok=false, not a false success) -- nothing to fix for THIS audit's
+    -- purposes, but "Create Faction" has likely never worked on a B42 server.
     local ok, factionOrErr = pcall(function()
         return Faction.createFaction(name, owner)
     end)
@@ -5998,7 +6381,20 @@ handlers.factionAddPlayer = function(args)
         return false, nil, "Failed to add player to faction: " .. tostring(err)
     end
 
-    return true, { message = "Player added to faction", factionName = factionName, username = username }
+    -- Faction.addPlayer is declared void (confirmed 2026-08-23 against the
+    -- real B42 jar), so isMember(username) (also confirmed present) is the
+    -- only way to check the add actually took effect.
+    local ok2, isMemberNow = pcall(function() return faction:isMember(username) end)
+    local verified
+    if not ok2 then
+        verified = nil
+    else
+        verified = (isMemberNow == true)
+    end
+
+    return PanelBridge.verifiedResult(verified,
+        { message = "Player added to faction", factionName = factionName, username = username },
+        "Add player call succeeded but " .. username .. " is not a faction member")
 end
 
 handlers.factionRemovePlayer = function(args)
@@ -6022,7 +6418,18 @@ handlers.factionRemovePlayer = function(args)
         return false, nil, "Failed to remove player from faction: " .. tostring(err)
     end
 
-    return true, { message = "Player removed from faction", factionName = factionName, username = username }
+    -- Same void-method situation as factionAddPlayer -- verify via isMember.
+    local ok2, isMemberNow = pcall(function() return faction:isMember(username) end)
+    local verified
+    if not ok2 then
+        verified = nil
+    else
+        verified = (isMemberNow == false)
+    end
+
+    return PanelBridge.verifiedResult(verified,
+        { message = "Player removed from faction", factionName = factionName, username = username },
+        "Remove player call succeeded but " .. username .. " is still a faction member")
 end
 
 handlers.factionSetTag = function(args)
@@ -6046,7 +6453,21 @@ handlers.factionSetTag = function(args)
         return false, nil, "Failed to set faction tag: " .. tostring(err)
     end
 
-    return true, { message = "Faction tag updated", factionName = factionName, tag = tag }
+    -- Faction.setTag is declared void; getTag() (confirmed present on the
+    -- real B42 jar) reads the real result back.
+    local ok2, actualTag = pcall(function() return faction:getTag() end)
+    local verified
+    if not ok2 then
+        verified = nil
+    elseif actualTag == tag then
+        verified = true
+    else
+        verified = false
+    end
+
+    return PanelBridge.verifiedResult(verified,
+        { message = "Faction tag updated", factionName = factionName, tag = tag },
+        "Set tag call succeeded but faction tag is still " .. tostring(actualTag))
 end
 
 handlers.removeFaction = function(args)
@@ -6060,6 +6481,12 @@ handlers.removeFaction = function(args)
     local faction = Faction.getFaction(factionName)
     if not faction then return false, nil, "Faction not found: " .. factionName end
 
+    -- faction:removeFaction does not exist ANYWHERE in the real B42 jar --
+    -- same full-jar scan as createFaction's comment above, zero hits. See
+    -- that comment for the FactionCreatePacket/FactionDisbandPacket lead
+    -- that was not chased further here. Fails safely and honestly today
+    -- (ok=false, not a false success) -- "Remove Faction" has likely never
+    -- worked on a B42 server either.
     local ok, err = pcall(function()
         faction:removeFaction()
     end)
@@ -6237,7 +6664,19 @@ handlers.vehicleSetAlarm = function(args)
     end)
     if not ok then return false, nil, "Failed to update vehicle alarm: " .. tostring(err) end
 
-    return true, { message = "Vehicle alarm updated", vehicleId = tonumber(args.vehicleId), enabled = enabled }
+    -- isAlarmed is already read elsewhere in this file (getVehiclesDetailed)
+    -- -- reuse it here to confirm the write actually took effect.
+    local okGet, actualAlarmed = PanelBridge.invoke(vehicle, "isAlarmed")
+    local verified
+    if not okGet then
+        verified = nil
+    else
+        verified = ((actualAlarmed == true) == enabled)
+    end
+
+    return PanelBridge.verifiedResult(verified,
+        { message = "Vehicle alarm updated", vehicleId = tonumber(args.vehicleId), enabled = enabled },
+        "Alarm call succeeded but did not take effect (still " .. tostring(actualAlarmed) .. ")")
 end
 
 handlers.vehicleSetSiren = function(args)
@@ -6254,7 +6693,19 @@ handlers.vehicleSetSiren = function(args)
     end)
     if not ok then return false, nil, "Failed to set vehicle siren mode: " .. tostring(err) end
 
-    return true, { message = "Vehicle siren mode updated", vehicleId = tonumber(args.vehicleId), mode = mode }
+    -- getLightbarSirenMode is already read elsewhere in this file
+    -- (getVehiclesDetailed) -- reuse it here to confirm the write stuck.
+    local okGet, actualMode = PanelBridge.invoke(vehicle, "getLightbarSirenMode")
+    local verified
+    if not okGet then
+        verified = nil
+    else
+        verified = (tonumber(actualMode) == mode)
+    end
+
+    return PanelBridge.verifiedResult(verified,
+        { message = "Vehicle siren mode updated", vehicleId = tonumber(args.vehicleId), mode = mode },
+        "Siren mode call succeeded but did not take effect (still " .. tostring(actualMode) .. ")")
 end
 
 handlers.vehicleSetTrunkLocked = function(args)
@@ -6269,7 +6720,19 @@ handlers.vehicleSetTrunkLocked = function(args)
     end)
     if not ok then return false, nil, "Failed to set trunk lock state: " .. tostring(err) end
 
-    return true, { message = "Vehicle trunk lock updated", vehicleId = tonumber(args.vehicleId), locked = locked }
+    -- isTrunkLocked is already read elsewhere in this file (getVehiclesDetailed)
+    -- -- reuse it here to confirm the write actually took effect.
+    local okGet, actualLocked = PanelBridge.invoke(vehicle, "isTrunkLocked")
+    local verified
+    if not okGet then
+        verified = nil
+    else
+        verified = ((actualLocked == true) == locked)
+    end
+
+    return PanelBridge.verifiedResult(verified,
+        { message = "Vehicle trunk lock updated", vehicleId = tonumber(args.vehicleId), locked = locked },
+        "Trunk lock call succeeded but did not take effect (still " .. tostring(actualLocked) .. ")")
 end
 
 handlers.vehicleSetFuel = function(args)
@@ -6299,7 +6762,22 @@ handlers.vehicleSetFuel = function(args)
     end)
     if not ok then return false, nil, "Failed to set fuel: " .. tostring(err) end
 
-    return true, { message = "Vehicle fuel set to " .. pct .. "%", vehicleId = tonumber(args.vehicleId), percent = pct }
+    -- getRemainingFuelPercentage is already read elsewhere in this file
+    -- (getVehiclesDetailed) -- reuse it to confirm the write took effect.
+    -- 1.0 percentage-point tolerance is float/rounding slack on a 0-100
+    -- scale, not a guess about game mechanics.
+    local FUEL_TOLERANCE = 1.0
+    local okGet, actualPct = PanelBridge.invoke(vehicle, "getRemainingFuelPercentage")
+    local verified
+    if not okGet or tonumber(actualPct) == nil then
+        verified = nil
+    else
+        verified = (math.abs(tonumber(actualPct) - pct) <= FUEL_TOLERANCE)
+    end
+
+    return PanelBridge.verifiedResult(verified,
+        { message = "Vehicle fuel set to " .. pct .. "%", vehicleId = tonumber(args.vehicleId), percent = pct },
+        "Fuel call succeeded but did not take effect (still " .. tostring(actualPct) .. "%)")
 end
 
 handlers.vehicleSetBattery = function(args)
@@ -6325,7 +6803,23 @@ handlers.vehicleSetBattery = function(args)
     end)
     if not ok then return false, nil, "Failed to set battery: " .. tostring(err) end
 
-    return true, { message = "Vehicle battery set to " .. charge, vehicleId = tonumber(args.vehicleId), charge = charge }
+    -- getBatteryCharge is already read elsewhere in this file
+    -- (getVehiclesDetailed) -- reuse it to confirm the write took effect.
+    -- 1.0 percentage-point tolerance is float/rounding slack on a 0-100
+    -- scale (the B42 path applies a computed DELTA via VehicleUtils, so
+    -- exact-equality would be brittle), not a guess about game mechanics.
+    local BATTERY_TOLERANCE = 1.0
+    local okGet, actualCharge = PanelBridge.invoke(vehicle, "getBatteryCharge")
+    local verified
+    if not okGet or tonumber(actualCharge) == nil then
+        verified = nil
+    else
+        verified = (math.abs(tonumber(actualCharge) - charge) <= BATTERY_TOLERANCE)
+    end
+
+    return PanelBridge.verifiedResult(verified,
+        { message = "Vehicle battery set to " .. charge, vehicleId = tonumber(args.vehicleId), charge = charge },
+        "Battery call succeeded but did not take effect (still " .. tostring(actualCharge) .. ")")
 end
 
 handlers.removeVehicle = function(args)
@@ -6496,15 +6990,6 @@ handlers.vehicleHotwire = function(args)
         return false, nil, "Hotwire failed: " .. tostring(err) .. " (completed: " .. table.concat(actions, ", ") .. ")"
     end
 
-    local failed = 0
-    for _, result in ipairs(results) do
-        if not result.success then failed = failed + 1 end
-    end
-    if failed > 0 then
-        return false, { executed = executed, failed = failed, results = results },
-            tostring(failed) .. " event sequence step(s) failed"
-    end
-
     return true, {
         message = "Vehicle hotwired and engine started",
         vehicleId = tonumber(args.vehicleId),
@@ -6667,6 +7152,11 @@ handlers.moderationKickUser = function(args)
 
     if not username then return false, nil, "Username required" end
 
+    -- BanSystem.KickUser is declared `void` in the real B42 jar (verified
+    -- 2026-08-23 by reading zombie/network/BanSystem.class's method table
+    -- directly: KickUser(String,String,String)V) -- there is no return
+    -- value to read back, ever. pcall not throwing is the only signal this
+    -- API can give, and that ceiling is already what this handler checks.
     local ok, err = pcall(function()
         if BanSystem and BanSystem.KickUser then
             BanSystem.KickUser(username, reason, description)
@@ -6694,10 +7184,28 @@ handlers.moderationBanUser = function(args)
     end)
     if not ok then return false, nil, "Ban user failed: " .. tostring(resultOrErr) end
 
+    -- BanSystem.BanUser returns a String (verified 2026-08-23 against the
+    -- real B42 jar's method table: BanUser(String,UdpConnection,String,Z)
+    -- Ljava/lang/String;). Reading the method's own bytecode string
+    -- constants shows literal rejection messages baked in --
+    -- "You don't have capability to ban/unban users." and "This user
+    -- can't be banned." -- alongside an empty string on the path that
+    -- reaches the actual ban/unban. Gate on that: empty/nil means nothing
+    -- rejected the request, anything else is the game's own reason it did
+    -- not happen -- this was previously captured as `details` and thrown away.
+    if resultOrErr ~= nil and resultOrErr ~= "" then
+        return false, nil, "Ban user rejected: " .. tostring(resultOrErr)
+    end
+
+    -- Reaching here means BanSystem's own rejection check passed (empty
+    -- string) -- that IS the confirmation this API can give, per the
+    -- 2026-08-23 ruling that every handler emits `verified` as a string,
+    -- always, when ok=true.
     return true, {
         message = ban and "User banned" or "User unbanned",
         username = username,
-        details = resultOrErr
+        details = resultOrErr,
+        verified = "confirmed"
     }
 end
 
@@ -6716,10 +7224,18 @@ handlers.moderationBanIP = function(args)
     end)
     if not ok then return false, nil, "Ban IP failed: " .. tostring(resultOrErr) end
 
+    -- Same String-return contract as BanUser -- see its comment for the
+    -- jar evidence. Empty/nil means nothing rejected the request.
+    if resultOrErr ~= nil and resultOrErr ~= "" then
+        return false, nil, "Ban IP rejected: " .. tostring(resultOrErr)
+    end
+
+    -- See moderationBanUser's comment: reaching here IS the confirmation.
     return true, {
         message = ban and "IP banned" or "IP unbanned",
         ip = ip,
-        details = resultOrErr
+        details = resultOrErr,
+        verified = "confirmed"
     }
 end
 
@@ -6738,10 +7254,18 @@ handlers.moderationBanSteamID = function(args)
     end)
     if not ok then return false, nil, "Ban SteamID failed: " .. tostring(resultOrErr) end
 
+    -- Same String-return contract as BanUser -- see its comment for the
+    -- jar evidence. Empty/nil means nothing rejected the request.
+    if resultOrErr ~= nil and resultOrErr ~= "" then
+        return false, nil, "Ban SteamID rejected: " .. tostring(resultOrErr)
+    end
+
+    -- See moderationBanUser's comment: reaching here IS the confirmation.
     return true, {
         message = ban and "SteamID banned" or "SteamID unbanned",
         steamId = steamId,
-        details = resultOrErr
+        details = resultOrErr,
+        verified = "confirmed"
     }
 end
 
@@ -7193,5 +7717,13 @@ end
 Events.OnServerStarted.Add(PanelBridge.onServerStarted)
 -- Use OnTickEvenPaused so the bridge works even when no players are connected
 Events.OnTickEvenPaused.Add(PanelBridge.onTick)
+
+-- Exposes the handler table for the JS test harness (fengari) to call
+-- directly. Additive only: nothing in this file or on the panel side does
+-- pairs(PanelBridge)/ipairs(PanelBridge) or otherwise enumerates this table
+-- (verified by grep before landing) -- the only enumeration in this file is
+-- pairs(handlers) inside handlers.getAvailableHandlers, which walks the
+-- separate `handlers` local and is unaffected by this field.
+PanelBridge.handlers = handlers
 
 return PanelBridge

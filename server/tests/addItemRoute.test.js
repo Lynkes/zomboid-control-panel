@@ -31,7 +31,11 @@ function getHandler(path, method = "post") {
   const layer = router.stack.find(
     (entry) => entry.route?.path === path && entry.route.methods[method],
   );
-  return layer.route.stack[0].handle;
+  // LAST handler, not the first: /add-item now has requirePermission(...)
+  // ahead of the real logic this file exercises (players.js's role split),
+  // so index 0 would grab the gate instead. Matches the pattern already
+  // used by playersBanRecordIntegrity.test.js and whitelistRoute.test.js.
+  return layer.route.stack.at(-1).handle;
 }
 
 const addItem = vi.fn();

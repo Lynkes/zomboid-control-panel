@@ -6,7 +6,9 @@ const probeInstallPath = vi.fn();
 const probeDataPath = vi.fn();
 const readServerIniSettings = vi.fn();
 
-vi.mock("../database/init.js", () => ({ createServer }));
+import { mockGetRoleByName } from "./helpers/mockPermissionsDb.js";
+
+vi.mock("../database/init.js", () => ({ createServer, getRoleByName: mockGetRoleByName }));
 vi.mock("../services/mountDiscovery.js", () => ({
   discoverMounts,
   probeInstallPath,

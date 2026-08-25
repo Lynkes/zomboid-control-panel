@@ -1,0 +1,11 @@
+{
+  "failedToPreview": "Failed to preview template",
+  "failedToApply": "Failed to apply template",
+  "toastAppliedTitle": "Template Applied",
+  "toastAppliedDesc": "\"{{name}}\" was applied.",
+  "noActiveServerTitle": "No Active Server",
+  "noActiveServerDesc": "Set up a server before previewing or applying templates.",
+  "remoteServerTitle": "Remote Server",
+  "remoteServerDesc": "Applying templates to remote servers isn't supported yet.",
+  "previewFailedTitle": "Preview Failed"
+}

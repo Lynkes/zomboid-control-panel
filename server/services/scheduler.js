@@ -36,6 +36,22 @@ const SCHEDULABLE_BRIDGE_ACTIONS = new Set([
   "sendToAdminChat",
 ]);
 
+// The single source of truth for which scheduled-task commands are the
+// curated, validated verbs automation.manage alone is meant to reach, vs.
+// "raw" -- forwarded to rconService.execute() as an arbitrary RCON command,
+// the same power routes/rcon.js gates behind rcon.execute. executeTask()'s
+// dispatch and routes/scheduler.js's write-time/run-time permission checks
+// both call this so the two can never silently drift apart on what counts
+// as "safe" -- see docs/qa/kevin-adversarial-findings.md Finding 1.
+export function classifyScheduledCommand(command) {
+  const commandLower = String(command ?? "").toLowerCase();
+  if (commandLower === "restart") return "restart";
+  if (commandLower === "save") return "save";
+  if (commandLower.startsWith("servermsg ")) return "servermsg";
+  if (commandLower.startsWith("bridge:")) return "bridge";
+  return "raw";
+}
+
 export class Scheduler {
   constructor(rconService, serverManager) {
     this.rconService = rconService;
@@ -202,7 +218,7 @@ export class Scheduler {
   }
 
   async executeTask(task) {
-    const commandLower = task.command.toLowerCase();
+    const commandKind = classifyScheduledCommand(task.command);
 
     // Resolve which RconService/ServerManager to run this task against.
     // Tasks targeting the currently-active server reuse the shared
@@ -217,7 +233,7 @@ export class Scheduler {
 
     try {
       // Handle special commands - skip logging for automated scheduled tasks
-      if (commandLower === "restart") {
+      if (commandKind === "restart") {
         const result = await this.performRestart(null, {
           rconService,
           serverManager,
@@ -229,12 +245,12 @@ export class Scheduler {
         ) {
           throw new Error("Restart skipped - already in progress");
         }
-      } else if (commandLower === "save") {
+      } else if (commandKind === "save") {
         const saved = await rconService.save({ skipLog: true });
         if (!saved?.success) {
           throw new Error(`Save failed: ${saved?.error || "unknown error"}`);
         }
-      } else if (commandLower.startsWith("servermsg ")) {
+      } else if (commandKind === "servermsg") {
         // Preserve original casing for the message text
         const message = task.command.substring(10);
         const sent = await rconService.serverMessage(message, {
@@ -245,7 +261,7 @@ export class Scheduler {
             `Broadcast failed: ${sent?.error || "unknown error"}`,
           );
         }
-      } else if (commandLower.startsWith("bridge:")) {
+      } else if (commandKind === "bridge") {
         // PanelBridge action: `bridge:<action>` optionally followed by a
         // JSON args object. Validates against the SCHEDULABLE_BRIDGE_ACTIONS
         // allow list so we don't accidentally let admins schedule god-mode
@@ -264,7 +280,18 @@ export class Scheduler {
         }
         await this.executeBridgeAction(task.command);
       } else {
-        // Execute as raw RCON command - skip logging for scheduled tasks
+        // commandKind === "raw": arbitrary RCON command, the same power
+        // routes/rcon.js's POST /execute gates behind rcon.execute. A cron
+        // fire has no request and no req.user to check a permission
+        // against, so the gate lives upstream instead, at the only points
+        // a raw command can actually enter or run: routes/scheduler.js
+        // requires rcon.execute (in addition to automation.manage) to save
+        // a task whose command isn't one of the three kinds above, and
+        // again to manually "Run now" one — both of those ARE request-bound.
+        // By the time a raw command reaches here, either check already
+        // ran. skip logging for automated scheduled tasks (matches the
+        // other branches above; this file's raw-command execution never
+        // appears in the RCON command history, only in Schedule History).
         const result = await rconService.execute(task.command, {
           skipLog: true,
         });
@@ -544,10 +571,17 @@ export class Scheduler {
           );
         }
       } catch (err) {
-        // performRestart re-throws on failure. node-cron does not consume the
-        // returned promise, so without this catch the rejection is unhandled
-        // and takes the whole panel process down. Errors are already logged
-        // + schedule-execution-logged inside performRestart's catch block.
+        // performRestart re-throws on failure. Verified against the
+        // installed node-cron@4.6.0 (InlineScheduledTask.execute(),
+        // node_modules/node-cron/dist/_shared.js ~266-283): the task
+        // callback is already wrapped in try/catch internally and routed to
+        // onError, so an unhandled rejection here would NOT take the panel
+        // down even without this catch -- confirmed by running a throwing
+        // task under it directly. This catch is belt-and-braces, kept so the
+        // failure is logged in our own terms (schedule history, our log
+        // format) rather than only node-cron's. If node-cron's error
+        // containment ever changes in a future upgrade, re-verify before
+        // trusting this comment.
         log.error(`Auto-restart cron tick failed: ${err.message}`);
       }
     });
@@ -628,7 +662,18 @@ export class Scheduler {
   // hijacking the shared singleton the live admin UI reads from.
   async performRestart(
     warningMinutesParam = null,
-    { rconService = this.rconService, serverManager = this.serverManager } = {},
+    {
+      rconService = this.rconService,
+      serverManager = this.serverManager,
+      // Schedule History's task-name column for this run. Every call site
+      // left this at the default "Auto Restart" before this label existed,
+      // even a human clicking Restart Now -- see
+      // docs/qa/kevin-adversarial-findings.md Finding 3. Callers that ARE a
+      // live, request-bound manual trigger should pass "Manual restart";
+      // genuinely unattended triggers (the AUTO_RESTART_CRON job, a
+      // mod-update restart, a scheduled task's cron fire) keep the default.
+      label = "Auto Restart",
+    } = {},
   ) {
     // Prevent concurrent restarts
     if (this.restartInProgress) {
@@ -708,7 +753,7 @@ export class Scheduler {
         if (isNowRunning) {
           await logScheduleExecution(
             null,
-            "Auto Restart",
+            label,
             "restart",
             true,
             "Server was offline - started successfully",
@@ -722,7 +767,7 @@ export class Scheduler {
         } else {
           await logScheduleExecution(
             null,
-            "Auto Restart",
+            label,
             "restart",
             false,
             "Server was offline - failed to start",
@@ -758,7 +803,7 @@ export class Scheduler {
         log.error(`Auto-restart failed: ${errorMsg}`);
         await logScheduleExecution(
           null,
-          "Auto Restart",
+          label,
           "restart",
           false,
           errorMsg,
@@ -862,7 +907,7 @@ export class Scheduler {
         log.error(`Auto-restart: ${errorMsg}`);
         await logScheduleExecution(
           null,
-          "Auto Restart",
+          label,
           "restart",
           false,
           errorMsg,
@@ -886,7 +931,7 @@ export class Scheduler {
         log.error(`Auto-restart failed: ${errorMsg}`);
         await logScheduleExecution(
           null,
-          "Auto Restart",
+          label,
           "restart",
           false,
           errorMsg,
@@ -979,7 +1024,7 @@ export class Scheduler {
         const restartDuration = Date.now() - restartStartTime;
         await logScheduleExecution(
           null,
-          "Auto Restart",
+          label,
           "restart",
           false,
           "Server stopped but failed to start",
@@ -1079,7 +1124,7 @@ export class Scheduler {
           : " (RCON not yet connected)";
         await logScheduleExecution(
           null,
-          "Auto Restart",
+          label,
           "restart",
           true,
           "Server restarted successfully" + rconStatus,
@@ -1095,7 +1140,7 @@ export class Scheduler {
       } else {
         await logScheduleExecution(
           null,
-          "Auto Restart",
+          label,
           "restart",
           false,
           "Server stopped but failed to start",
@@ -1114,7 +1159,7 @@ export class Scheduler {
       log.error(`Auto-restart failed: ${error.message}`);
       await logScheduleExecution(
         null,
-        "Auto Restart",
+        label,
         "restart",
         false,
         error.message,

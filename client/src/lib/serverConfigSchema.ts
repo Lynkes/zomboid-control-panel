@@ -1,6 +1,8 @@
 // Server INI settings schema with descriptions from PZ Wiki
 // https://pzwiki.net/wiki/Server_settings
 
+import { resolveRegisteredTranslation } from './paramTranslation'
+
 export interface IniSetting {
   key: string
   label: string
@@ -49,7 +51,7 @@ const ANTI_CHEAT_POLICY_OPTIONS = [
 ]
 
 const B42_ANTI_CHEAT_SETTINGS: IniSetting[] = [
-  { key: 'AntiCheatSafety', label: 'Safety System', description: 'Anti-cheat protection for the safety system.', type: 'select', options: ANTI_CHEAT_POLICY_OPTIONS, default: '2', category: 'anticheat' },
+  { key: 'AntiCheatSafety', label: 'Safety', description: 'Anti-cheat protection for the safety system.', type: 'select', options: ANTI_CHEAT_POLICY_OPTIONS, default: '2', category: 'anticheat' },
   { key: 'AntiCheatSpeed', label: 'Speed', description: 'Anti-cheat protection for player speed.', type: 'select', options: ANTI_CHEAT_POLICY_OPTIONS, default: '2', category: 'anticheat' },
   { key: 'AntiCheatNoClip', label: 'No Clip', description: 'Anti-cheat protection against moving through solid objects.', type: 'select', options: ANTI_CHEAT_POLICY_OPTIONS, default: '4', category: 'anticheat' },
   { key: 'AntiCheatHit', label: 'Hit Detection', description: 'Anti-cheat protection for character hits.', type: 'select', options: ANTI_CHEAT_POLICY_OPTIONS, default: '2', category: 'anticheat' },
@@ -4698,6 +4700,85 @@ export function getIniSetting(key: string): IniSetting | undefined {
 
 export function getSandboxSetting(key: string): SandboxSetting | undefined {
   return SANDBOX_SCHEMA.find(s => s.key === key)
+}
+
+// ---------------------------------------------------------------------------
+// Translated accessors.
+//
+// The schema arrays above are DATA, not JSX -- t() can't be sprinkled into a
+// literal string in a const array the way it can into a template. Every
+// label/description/option-label here doubles as the English fallback text,
+// so there is nothing to keep in sync: a locale that has no entry for a key
+// falls straight through to the schema's own string, byte-for-byte identical
+// to today's rendering. English therefore never needs a locale entry for any
+// of these ~1,400 strings; only fr/es/zh-CN/de do, once a translation pass
+// actually adds them.
+//
+// Keys are derived mechanically from data already on each entry:
+//   serverconfig.iniSettings.<category>.<key>.label / .description
+//   serverconfig.iniSettings.<category>.<key>.options.<value>.label
+//   serverconfig.iniCategories.<id>.label
+//   serverconfig.iniCategoryGroups.<id>.label
+// and the sandbox equivalents under sandboxSettings / sandboxCategories /
+// sandboxCategoryGroups. `category` is prefixed onto `key` (not used alone)
+// because a bare `key` collides twice within SANDBOX_SCHEMA (Farming and
+// Strength each name two unrelated settings in different sections) --
+// `category.key` is unique within each schema, verified by script against
+// the live schema data, not asserted. ini/sandbox get separate top-level
+// namespaces rather than sharing one keyed by category.key: `loot` and
+// `vehicles` are category ids in BOTH schemas, and nothing here should rely
+// on no INI setting ever sharing a raw key with a Sandbox one just because
+// today's two schemas happen not to (that invariant lives in
+// serverConfigSchema.test.ts and is about schema ownership, not i18n).
+//
+// A generator script can walk INI_SCHEMA/SANDBOX_SCHEMA/*_CATEGORIES/
+// *_CATEGORY_GROUPS with these exact same derivations to emit a complete,
+// exhaustive locale skeleton per language -- nobody hand-writes these keys.
+
+function translatedOrFallback(key: string, fallback: string): string {
+  return resolveRegisteredTranslation('serverconfig', key, undefined) ?? fallback
+}
+
+export function getIniSettingLabel(setting: IniSetting): string {
+  return translatedOrFallback(`iniSettings.${setting.category}.${setting.key}.label`, setting.label)
+}
+
+export function getIniSettingDescription(setting: IniSetting): string {
+  return translatedOrFallback(`iniSettings.${setting.category}.${setting.key}.description`, setting.description)
+}
+
+export function getIniSettingOptionLabel(setting: IniSetting, value: string): string {
+  const fallback = setting.options?.find(o => o.value === value)?.label ?? value
+  return translatedOrFallback(`iniSettings.${setting.category}.${setting.key}.options.${value}.label`, fallback)
+}
+
+export function getIniCategoryLabel(category: { id: string; label: string }): string {
+  return translatedOrFallback(`iniCategories.${category.id}.label`, category.label)
+}
+
+export function getIniCategoryGroupLabel(group: { id: string; label: string }): string {
+  return translatedOrFallback(`iniCategoryGroups.${group.id}.label`, group.label)
+}
+
+export function getSandboxSettingLabel(setting: SandboxSetting): string {
+  return translatedOrFallback(`sandboxSettings.${setting.category}.${setting.key}.label`, setting.label)
+}
+
+export function getSandboxSettingDescription(setting: SandboxSetting): string {
+  return translatedOrFallback(`sandboxSettings.${setting.category}.${setting.key}.description`, setting.description)
+}
+
+export function getSandboxSettingOptionLabel(setting: SandboxSetting, value: number): string {
+  const fallback = setting.options?.find(o => o.value === value)?.label ?? String(value)
+  return translatedOrFallback(`sandboxSettings.${setting.category}.${setting.key}.options.${value}.label`, fallback)
+}
+
+export function getSandboxCategoryLabel(category: { id: string; label: string }): string {
+  return translatedOrFallback(`sandboxCategories.${category.id}.label`, category.label)
+}
+
+export function getSandboxCategoryGroupLabel(group: { id: string; label: string }): string {
+  return translatedOrFallback(`sandboxCategoryGroups.${group.id}.label`, group.label)
 }
 
 // Group settings by category

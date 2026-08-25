@@ -2,9 +2,19 @@ import express from "express";
 import { createLogger } from "../utils/logger.js";
 import { sanitizeError } from "../utils/sanitize.js";
 import { normalizeChatRelayScope } from "../services/discordBot.js";
+import { describeStartFailure } from "../services/discordStartFailure.js";
+import { requirePermission } from "../services/permissions.js";
 const log = createLogger("API:Discord");
 
 const router = express.Router();
+
+// Bot config/lifecycle/permissions — "config" is technician's job per the
+// role brief; moderator has no need to reconfigure the Discord integration.
+// Applied once at the router level (matches panelBridge.js's identical
+// integration-config routes, already admin+technician) rather than
+// per-route. Previously any logged-in role could reach every route here,
+// including reconfiguring the webhook and bot permissions.
+router.use(requirePermission("integrations.manage"));
 
 // Get Discord bot status
 router.get("/status", async (req, res) => {
@@ -167,7 +177,24 @@ router.put("/config", async (req, res) => {
       prevToken !== finalToken || prevGuildId !== (guildId || null);
     if (discordBot.isRunning && credentialsChanged) {
       await discordBot.stop();
-      await discordBot.start();
+      // start()'s return value used to be discarded here even though the
+      // sibling route POST /start (below) already checks it correctly --
+      // start() genuinely returns false (not a throw) on a bad token or a
+      // ready-timeout, so a failed reconnect looked identical to a
+      // successful one. The saved config really is correct either way
+      // (that part doesn't depend on the reconnect), so this stays
+      // success:true and surfaces the reconnect outcome separately rather
+      // than conflating "your settings were saved" with "the bot is now
+      // running".
+      const started = await discordBot.start();
+      if (!started) {
+        return res.json({
+          success: true,
+          message: "Discord bot configuration saved, but the bot failed to reconnect.",
+          botStarted: false,
+          botStartError: describeStartFailure(discordBot.lastStartError),
+        });
+      }
     }
 
     res.json({
@@ -198,9 +225,16 @@ router.post("/start", async (req, res) => {
     if (started) {
       res.json({ success: true, message: "Discord bot started" });
     } else {
-      res
-        .status(400)
-        .json({ error: "Failed to start bot - check configuration" });
+      // "check configuration" used to be the ENTIRE message for every cause
+      // -- a bad token, a network timeout, and privileged intents not being
+      // enabled in the Discord Developer Portal (the classic one: correct
+      // token and IDs, still fails, and no amount of re-checking credentials
+      // would ever find it) all looked identical. discordBot.lastStartError
+      // carries the real discord.js error code now; describeStartFailure()
+      // is the same mapping getStatus() uses for the persistent version of
+      // this same message, so the toast here and the record that survives a
+      // page refresh never say two different things about the same failure.
+      res.status(400).json({ error: describeStartFailure(discordBot.lastStartError) });
     }
   } catch (error) {
     log.error(`Failed to start Discord bot: ${error.message}`);
@@ -271,6 +305,25 @@ router.post("/test", async (req, res) => {
     });
 
     if (!response.ok) {
+      // Discord's own status distinguishes "this token is wrong" from "this
+      // token is fine, Discord just isn't answering right now" -- collapsing
+      // every non-2xx into "Invalid token" sent people rotating a token that
+      // was never wrong.
+      if (response.status === 429) {
+        return res.status(429).json({
+          error: "Discord is rate-limiting this request. Wait a moment and try again.",
+        });
+      }
+      if (response.status >= 500) {
+        return res.status(502).json({
+          error: `Discord's API is unavailable right now (HTTP ${response.status}). This isn't your token -- try again shortly.`,
+        });
+      }
+      if (response.status !== 401) {
+        return res.status(400).json({
+          error: `Discord rejected the request (HTTP ${response.status}).`,
+        });
+      }
       return res.status(400).json({ error: "Invalid token" });
     }
 

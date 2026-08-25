@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 import { Search, RefreshCw, Loader2, X, ChevronDown, AlertCircle, SearchX, Car, Users, Truck, Bus, Shield, Zap, Mountain, Package, type LucideIcon } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -75,7 +76,9 @@ export const TYPE_ICON: Record<string, LucideIcon> = {
 
 const MAX_VISIBLE = 100
 
-export function VehiclePicker({ value, onChange, disabled, placeholder = 'Search vehicles...' }: VehiclePickerProps) {
+export function VehiclePicker({ value, onChange, disabled, placeholder }: VehiclePickerProps) {
+  const { t } = useTranslation('vehiclePicker')
+  const resolvedPlaceholder = placeholder ?? t('searchVehiclesPlaceholder')
   const [vehicles, setVehicles] = useState<CatalogVehicle[]>([])
   const [initialLoad, setInitialLoad] = useState(true)
   const [scanning, setScanning] = useState(false)
@@ -133,21 +136,21 @@ export function VehiclePicker({ value, onChange, disabled, placeholder = 'Search
       const data = await panelBridgeApi.scanCatalogVehicles()
       setVehicles(data.vehicles || [])
       setScannedAt(data.scannedAt)
-      toast({ title: 'Vehicle catalog updated', description: `Found ${data.count || 0} vehicles` })
+      toast({ title: t('toastCatalogUpdatedTitle'), description: t('toastCatalogUpdatedDesc', { count: data.count || 0 }) })
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Scan failed'
+      const msg = err instanceof Error ? err.message : t('scanFailed')
       setScanError(msg)
       toast({
-        title: 'Vehicle scan failed',
+        title: t('toastScanFailedTitle'),
         description: msg.includes('Bridge not running')
-          ? 'Server must be online with PanelBridge mod active'
+          ? t('bridgeNotRunning')
           : msg,
         variant: 'destructive',
       })
     } finally {
       setScanning(false)
     }
-  }, [scanning, toast])
+  }, [scanning, toast, t])
 
   const { visibleVehicles, totalFiltered, capped, groupedVehicles } = useMemo(() => {
     const q = search.toLowerCase().trim()
@@ -235,7 +238,7 @@ export function VehiclePicker({ value, onChange, disabled, placeholder = 'Search
     return (
       <div className="flex items-center gap-2 h-11 sm:h-9 rounded-md border border-input bg-background px-3 text-sm">
         <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground shrink-0" />
-        <span className="text-muted-foreground truncate">Loading vehicles...</span>
+        <span className="text-muted-foreground truncate">{t('loadingVehicles')}</span>
       </div>
     )
   }
@@ -247,7 +250,7 @@ export function VehiclePicker({ value, onChange, disabled, placeholder = 'Search
           <Input
             value={value}
             onChange={e => onChange(e.target.value)}
-            placeholder="e.g., Base.CarNormal"
+            placeholder={t('manualIdPlaceholder')}
             disabled={disabled || scanning}
             className="flex-1 min-w-0"
           />
@@ -256,11 +259,11 @@ export function VehiclePicker({ value, onChange, disabled, placeholder = 'Search
             size="sm"
             onClick={handleScan}
             disabled={scanning || disabled}
-            title="Scan server for vehicles (requires running server with PanelBridge)"
+            title={t('scanTitle')}
             className="shrink-0"
           >
             {scanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-            <span className="ml-1.5 hidden sm:inline">Scan</span>
+            <span className="ml-1.5 hidden sm:inline">{t('scan')}</span>
           </Button>
         </div>
         {scanError ? (
@@ -270,7 +273,7 @@ export function VehiclePicker({ value, onChange, disabled, placeholder = 'Search
           </p>
         ) : (
           <p className="text-[11px] text-muted-foreground">
-            {scanning ? 'Scanning server vehicles…' : 'Enter vehicle ID manually, or scan while the server is running'}
+            {scanning ? t('scanningVehicles') : t('enterManuallyOrScan')}
           </p>
         )}
       </div>
@@ -285,7 +288,7 @@ export function VehiclePicker({ value, onChange, disabled, placeholder = 'Search
         aria-expanded={open}
         aria-haspopup="listbox"
         aria-controls={open ? 'vehpicker-listbox' : undefined}
-        aria-label="Select vehicle"
+        aria-label={t('selectVehicleAria')}
         tabIndex={disabled ? -1 : 0}
         className={cn(
           'flex items-center gap-2 h-11 sm:h-9 rounded-md border border-input bg-background px-3 text-sm cursor-pointer',
@@ -310,14 +313,14 @@ export function VehiclePicker({ value, onChange, disabled, placeholder = 'Search
         ) : value ? (
           <span className="flex-1 min-w-0 truncate text-foreground">{value.replace('Base.', '')}</span>
         ) : (
-          <span className="flex-1 min-w-0 truncate text-muted-foreground">{placeholder}</span>
+          <span className="flex-1 min-w-0 truncate text-muted-foreground">{resolvedPlaceholder}</span>
         )}
         {value && !disabled && (
           <button
             type="button"
             onClick={e => { e.stopPropagation(); handleClear() }}
             className="-mr-1 flex items-center justify-center w-6 h-6 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring shrink-0 motion-safe:transition-colors"
-            aria-label="Clear selection"
+            aria-label={t('clearSelectionAria')}
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -347,9 +350,9 @@ export function VehiclePicker({ value, onChange, disabled, placeholder = 'Search
               ref={inputRef}
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder={`Search ${vehicles.length} vehicles...`}
+              placeholder={t('searchNVehiclesPlaceholder', { count: vehicles.length })}
               className="flex-1 min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-              aria-label="Filter vehicles"
+              aria-label={t('filterVehiclesAria')}
               autoFocus
             />
             {search && (
@@ -367,19 +370,19 @@ export function VehiclePicker({ value, onChange, disabled, placeholder = 'Search
               onClick={e => { e.stopPropagation(); handleScan() }}
               disabled={scanning}
               className="h-7 w-7 p-0 shrink-0"
-              title="Re-scan server vehicles"
+              title={t('rescanTitle')}
             >
               {scanning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
             </Button>
           </div>
 
           {/* Vehicle list — grouped by type */}
-          <div className="max-h-[320px] overflow-y-auto overscroll-contain" role="listbox" id="vehpicker-listbox" aria-label="Vehicle list">
+          <div className="max-h-[320px] overflow-y-auto overscroll-contain" role="listbox" id="vehpicker-listbox" aria-label={t('vehicleListAria')}>
             {totalFiltered === 0 ? (
               <div className="py-10 text-center text-muted-foreground">
                 <SearchX className="w-6 h-6 mx-auto mb-2 opacity-30" />
                 <p className="text-sm">
-                  {search ? <>No vehicles match &ldquo;{search}&rdquo;</> : 'No vehicles found'}
+                  {search ? t('noVehiclesMatch', { search }) : t('noVehiclesFound')}
                 </p>
               </div>
             ) : (
@@ -392,7 +395,7 @@ export function VehiclePicker({ value, onChange, disabled, placeholder = 'Search
                       return (
                         <div className="sticky top-0 z-10 flex items-center gap-2 px-3 h-7 bg-muted/50 backdrop-blur-sm text-[11px] text-muted-foreground font-medium border-b border-border/20">
                           <Icon className="w-3 h-3 opacity-50" />
-                          {type}
+                          {t(`types.${type}`)}
                           <span className="opacity-40 tabular-nums">({vehs.length})</span>
                         </div>
                       )
@@ -417,7 +420,7 @@ export function VehiclePicker({ value, onChange, disabled, placeholder = 'Search
                         >
                           <span className="flex-1 min-w-0 truncate font-medium">{formatVehicleName(veh)}</span>
                           {veh.seats > 0 && (
-                            <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground/60 shrink-0 tabular-nums" title={`${veh.seats} seats`}>
+                            <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground/60 shrink-0 tabular-nums" title={t('seatsTitle', { count: veh.seats })}>
                               <Users className="w-2.5 h-2.5" />
                               {veh.seats}
                             </span>
@@ -441,13 +444,20 @@ export function VehiclePicker({ value, onChange, disabled, placeholder = 'Search
           <div className="border-t border-border/40 px-3 h-8 flex items-center justify-between gap-3 text-[11px] text-muted-foreground bg-card/30">
             <span className="shrink-0 tabular-nums">
               {capped
-                ? <><span className="text-warning">{MAX_VISIBLE}</span> of {totalFiltered} — type to filter</>
-                : `${totalFiltered} vehicles`}
+                ? (
+                  <Trans
+                    i18nKey="cappedFooter"
+                    t={t}
+                    values={{ max: MAX_VISIBLE, total: totalFiltered }}
+                    components={{ 1: <span className="text-warning" /> }}
+                  />
+                )
+                : t('vehiclesCount', { count: totalFiltered })}
             </span>
             <div className="flex items-center gap-3 text-[10px] opacity-60">
-              <span>↑↓ navigate</span>
-              <span>↵ select</span>
-              <span>esc close</span>
+              <span>{t('navigateHint')}</span>
+              <span>{t('selectHint')}</span>
+              <span>{t('closeHint')}</span>
             </div>
             {scannedAt && (
               <span className="truncate text-right opacity-50">

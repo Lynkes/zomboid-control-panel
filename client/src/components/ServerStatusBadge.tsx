@@ -1,4 +1,7 @@
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
+
+type TFn = (key: string, opts?: Record<string, unknown>) => string
 
 /**
  * A single status signal from GET /api/servers/active/status (host, server,
@@ -53,35 +56,36 @@ const TEXT_CLASS: Record<IndicatorState, string> = {
   unknown: 'text-muted-foreground',
 }
 
-const DISPLAY_WORD: Record<string, string> = {
-  running: 'Running',
-  stopped: 'Stopped',
-  connected: 'Connected',
-  disconnected: 'Disconnected',
-  connecting: 'Connecting',
-  active: 'Active',
-  offline: 'Offline',
-  unknown: 'Unknown',
-  'not-applicable': 'N/A',
-  'not-installed': 'Not Installed',
+const DISPLAY_WORD_KEYS: Record<string, string> = {
+  running: 'displayWord.running',
+  stopped: 'displayWord.stopped',
+  connected: 'displayWord.connected',
+  disconnected: 'displayWord.disconnected',
+  connecting: 'displayWord.connecting',
+  active: 'displayWord.active',
+  offline: 'displayWord.offline',
+  unknown: 'displayWord.unknown',
+  'not-applicable': 'displayWord.not-applicable',
+  'not-installed': 'displayWord.not-installed',
 }
 
-function displayWord(status: string): string {
-  return DISPLAY_WORD[status] ?? status
+function displayWord(status: string, t: TFn): string {
+  const key = DISPLAY_WORD_KEYS[status]
+  return key ? t(key) : status
 }
 
 // Short form for the compact dot-row summary — "Up"/"Down" reads faster than
 // per-signal wording ("Running"/"Connected"/"Active") in a tight card badge.
-function shortWord(status: string): string {
+function shortWord(status: string, t: TFn): string {
   const state = toIndicatorState(status)
-  if (state === 'online') return 'Up'
-  if (state === 'offline') return 'Down'
-  if (state === 'connecting') return 'Connecting'
-  return status === 'not-installed' ? 'Not installed' : 'Unknown'
+  if (state === 'online') return t('shortWord.up')
+  if (state === 'offline') return t('shortWord.down')
+  if (state === 'connecting') return t('shortWord.connecting')
+  return status === 'not-installed' ? t('shortWord.notInstalled') : t('shortWord.unknown')
 }
 
-function CompactBadge({ signals, className }: { signals: StatusSignal[]; className?: string }) {
-  const title = signals.map((s) => `${s.label}: ${displayWord(s.status)}`).join(' · ')
+function CompactBadge({ signals, className, t }: { signals: StatusSignal[]; className?: string; t: TFn }) {
+  const title = signals.map((s) => `${s.label}: ${displayWord(s.status, t)}`).join(' · ')
   return (
     <div className={cn('flex flex-wrap items-center gap-x-2 gap-y-1', className)} title={title}>
       {signals.map((signal) => {
@@ -89,7 +93,7 @@ function CompactBadge({ signals, className }: { signals: StatusSignal[]; classNa
         return (
           <span key={signal.label} className={cn('inline-flex items-center gap-1 text-xs', TEXT_CLASS[state])}>
             <span className={cn('h-1.5 w-1.5 rounded-full', DOT_CLASS[state])} aria-hidden="true" />
-            {signal.label} {shortWord(signal.status)}
+            {signal.label} {shortWord(signal.status, t)}
           </span>
         )
       })}
@@ -104,6 +108,7 @@ function CompactBadge({ signals, className }: { signals: StatusSignal[]; classNa
  * cards where only the host signal is known for non-selected servers.
  */
 export function ServerStatusBadge({ host, server, bridge, compact, className }: ServerStatusBadgeProps) {
+  const { t } = useTranslation('serverStatusBadge')
   const signals = [host, server, bridge].filter((s): s is StatusSignal => Boolean(s))
 
   if (signals.length === 0) {
@@ -111,7 +116,7 @@ export function ServerStatusBadge({ host, server, bridge, compact, className }: 
   }
 
   if (compact) {
-    return <CompactBadge signals={signals} className={className} />
+    return <CompactBadge signals={signals} className={className} t={t} />
   }
 
   return (
@@ -121,7 +126,7 @@ export function ServerStatusBadge({ host, server, bridge, compact, className }: 
         return (
           <span key={signal.label} role="status" className={cn('inline-flex items-center gap-1.5 text-xs', TEXT_CLASS[state])}>
             <span className={cn('h-1.5 w-1.5 rounded-full', DOT_CLASS[state])} aria-hidden="true" />
-            {signal.label}: {displayWord(signal.status)}
+            {signal.label}: {displayWord(signal.status, t)}
           </span>
         )
       })}

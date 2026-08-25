@@ -249,6 +249,161 @@ describe('RconService', () => {
       expect(executeSpy).not.toHaveBeenCalled();
       expect(result.success).toBe(false);
     });
+
+    it('transliterates common accented Latin letters instead of dropping them', async () => {
+      const liveRcon = new RconService();
+      const executeSpy = vi.spyOn(liveRcon, 'execute').mockResolvedValue({ success: true, response: 'ok' });
+
+      await liveRcon.serverMessage('Redemarrage du serveur \u00e0 20h, merci de vous d\u00e9connecter');
+
+      const sent = executeSpy.mock.calls[0][0];
+      expect(sent).toContain('Redemarrage du serveur a 20h');
+      expect(sent).toContain('deconnecter');
+      expect(sent).not.toMatch(/[\u00C0-\u024F]/);
+    });
+  });
+
+  // Finding 2 (docs/qa/kevin-adversarial-findings.md): sanitizeForBanReason()
+  // used to have its own, less careful character-folding rules than
+  // serverMessage() -- same class of user-typed text, different treatment
+  // depending on which RCON call carried it. Both now share
+  // foldToRconAscii().
+  describe('sanitizeForBanReason / banPlayer (shared ASCII folding)', () => {
+    it('transliterates accents and normalizes curly quotes the same way serverMessage() does', () => {
+      const liveRcon = new RconService();
+      const sanitized = liveRcon.sanitizeForBanReason(
+        'Comportement toxique r\u00e9p\u00e9t\u00e9, insultes \u00e0 d\u2019autres joueurs',
+      );
+      expect(sanitized).toBe("Comportement toxique repete, insultes a d'autres joueurs");
+    });
+
+    it('still strips characters outside the ban-reason whitelist after folding (quotes, backslash, symbols)', () => {
+      const liveRcon = new RconService();
+      const sanitized = liveRcon.sanitizeForBanReason('griefing "the base" \\ 100% <script>');
+      expect(sanitized).not.toMatch(/["\\<>]/);
+    });
+
+    it('banPlayer() returns sentReason -- the ACTUAL text sent to RCON, which callers should log instead of the raw input', async () => {
+      const liveRcon = new RconService();
+      vi.spyOn(liveRcon, 'sanitizeQuotedArg').mockReturnValue('Bob');
+      const executeSpy = vi.spyOn(liveRcon, 'execute').mockResolvedValue({ success: true, response: 'ok' });
+
+      const result = await liveRcon.banPlayer(
+        'Bob',
+        false,
+        'Comportement toxique r\u00e9p\u00e9t\u00e9',
+      );
+
+      expect(result.sentReason).toBe('Comportement toxique repete');
+      const cmd = executeSpy.mock.calls[0][0];
+      expect(cmd).toContain('Comportement toxique repete');
+      expect(cmd).not.toContain('r\u00e9p\u00e9t\u00e9');
+    });
+  });
+
+  describe('classifyRconResponse (rejection shapes execute() recognizes as failure)', () => {
+    it('still classifies "Unknown command" as a failure', () => {
+      const liveRcon = new RconService();
+      const result = liveRcon.classifyRconResponse('Unknown command "foo"');
+      expect(result).not.toBeNull();
+      expect(result.error).toContain('not available on this server build');
+    });
+
+    it('classifies "Wrong arguments!" as a failure -- seen verbatim in GodModePlayerCommand.class/InvisiblePlayerCommand.class', () => {
+      const liveRcon = new RconService();
+      const result = liveRcon.classifyRconResponse('Wrong arguments!');
+      expect(result).not.toBeNull();
+      expect(result.error).toMatch(/syntax may have changed/i);
+    });
+
+    it('classifies "Not enough rights" as a failure -- seen verbatim in NoClipCommand.class', () => {
+      const liveRcon = new RconService();
+      const result = liveRcon.classifyRconResponse('Not enough rights');
+      expect(result).not.toBeNull();
+      expect(result.error).toMatch(/does not have permission/i);
+    });
+
+    it('classifies "<command> can be executed only from the game" as a failure -- seen verbatim in ReleaseSafehouseCommand.class', () => {
+      const liveRcon = new RconService();
+      const result = liveRcon.classifyRconResponse('releasesafehouse can be executed only from the game');
+      expect(result).not.toBeNull();
+      expect(result.error).toMatch(/only be run from in-game/i);
+    });
+
+    it('does not classify an ordinary informative response as a failure', () => {
+      const liveRcon = new RconService();
+      expect(liveRcon.classifyRconResponse('Players connected (2):\n-Alice\n-Bob')).toBeNull();
+      expect(liveRcon.classifyRconResponse('')).toBeNull();
+      expect(liveRcon.classifyRconResponse(undefined)).toBeNull();
+    });
+  });
+
+  describe('setGodMode / setInvisible player targeting', () => {
+    it('setGodMode sends godmodplayer (not the self-only godmod) when a username is given', async () => {
+      const liveRcon = new RconService();
+      const executeSpy = vi.spyOn(liveRcon, 'execute').mockResolvedValue({ success: true, response: 'ok' });
+
+      await liveRcon.setGodMode('Bob', true);
+
+      expect(executeSpy).toHaveBeenCalledWith('godmodplayer "Bob" -true');
+    });
+
+    it('setGodMode still sends the self-only godmod when no username is given', async () => {
+      const liveRcon = new RconService();
+      const executeSpy = vi.spyOn(liveRcon, 'execute').mockResolvedValue({ success: true, response: 'ok' });
+
+      await liveRcon.setGodMode(null, false);
+
+      expect(executeSpy).toHaveBeenCalledWith('godmod -false');
+    });
+
+    it('setInvisible sends invisibleplayer (not the self-only invisible) when a username is given', async () => {
+      const liveRcon = new RconService();
+      const executeSpy = vi.spyOn(liveRcon, 'execute').mockResolvedValue({ success: true, response: 'ok' });
+
+      await liveRcon.setInvisible('Bob', true);
+
+      expect(executeSpy).toHaveBeenCalledWith('invisibleplayer "Bob" -true');
+    });
+
+    it('setInvisible still sends the self-only invisible when no username is given', async () => {
+      const liveRcon = new RconService();
+      const executeSpy = vi.spyOn(liveRcon, 'execute').mockResolvedValue({ success: true, response: 'ok' });
+
+      await liveRcon.setInvisible(null, false);
+
+      expect(executeSpy).toHaveBeenCalledWith('invisible -false');
+    });
+  });
+
+  describe('releaseSafehouse', () => {
+    it('refuses honestly instead of sending a command the real server always rejects over RCON', async () => {
+      const liveRcon = new RconService();
+      const executeSpy = vi.spyOn(liveRcon, 'execute');
+
+      await expect(liveRcon.releaseSafehouse()).rejects.toThrow(/only be done from in-game/i);
+      expect(executeSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('kickPlayer reason', () => {
+    it('sends -r "<reason>" -- KickUserCommand.class carries the same -r AltCommandArgs flag as BanUserCommand in the real B42 jar', async () => {
+      const liveRcon = new RconService();
+      const executeSpy = vi.spyOn(liveRcon, 'execute').mockResolvedValue({ success: true, response: 'ok' });
+
+      await liveRcon.kickPlayer('Bob', 'Comportement toxique répété');
+
+      expect(executeSpy).toHaveBeenCalledWith('kickuser "Bob" -r "Comportement toxique repete"');
+    });
+
+    it('omits -r entirely when no reason is given', async () => {
+      const liveRcon = new RconService();
+      const executeSpy = vi.spyOn(liveRcon, 'execute').mockResolvedValue({ success: true, response: 'ok' });
+
+      await liveRcon.kickPlayer('Bob');
+
+      expect(executeSpy).toHaveBeenCalledWith('kickuser "Bob"');
+    });
   });
 
   describe('quoted argument safety', () => {

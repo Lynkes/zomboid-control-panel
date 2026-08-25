@@ -1,0 +1,82 @@
+{
+  "pageHeader": {
+    "title": "Ingame-Chat",
+    "description": "Sende Nachrichten an alle verbundenen Spieler und verfolge ihren Chat in Echtzeit.",
+    "refresh": "Aktualisieren"
+  },
+  "chatWindow": {
+    "streamLabel": "Chat-Stream",
+    "msgCount_one": "{{count}} Nachricht",
+    "msgCount_other": "{{count}} Nachrichten",
+    "live": "LIVE",
+    "offline": "OFFLINE",
+    "messagesAria": "Chat-Nachrichten"
+  },
+  "emptyState": {
+    "title": "Noch keine Chat-Nachrichten",
+    "description": "Spielernachrichten und deine Broadcasts erscheinen hier in Echtzeit."
+  },
+  "channel": {
+    "aria": "Chat-Kanal",
+    "server": "Server-Broadcast",
+    "admin": "Admin-Chat",
+    "general": "Allgemeiner Chat"
+  },
+  "input": {
+    "aria": "Chat-Nachricht",
+    "placeholderAdmin": "nur für Admins — Enter zum Senden…",
+    "placeholderGeneral": "als Admin posten — Enter zum Senden…",
+    "placeholderServer": "an alle Spieler senden — Enter zum Senden…",
+    "sendButton": "senden"
+  },
+  "footer": {
+    "adminOnly": "nur für Admins — für normale Spieler ausgeblendet",
+    "noPlayersOnline": "keine Spieler online — nur Server-Protokoll",
+    "broadcastingTo_one": "Broadcast an {{count}} Spieler",
+    "broadcastingTo_other": "Broadcast an {{count}} Spieler"
+  },
+  "playersPanel": {
+    "label": "Spieler",
+    "onlineCount": "{{count}} online",
+    "noPlayersConnected": "keine Spieler verbunden"
+  },
+  "quickBroadcasts": {
+    "label": "Schnell-Broadcasts",
+    "edit": "bearbeiten",
+    "done": "fertig",
+    "editAria": "Vorlagen bearbeiten",
+    "doneAria": "Bearbeiten der Vorlagen beendet",
+    "noPresets": "// keine Vorlagen — zum Hinzufügen auf Bearbeiten klicken",
+    "addPlaceholder": "neue Schnellnachricht hinzufügen…",
+    "addAria": "Vorlage hinzufügen",
+    "saveAria": "Speichern",
+    "cancelAria": "Abbrechen",
+    "deleteAria": "Vorlage {{index}} löschen"
+  },
+  "toasts": {
+    "adminSentTitle": "Admin-Nachricht gesendet",
+    "adminSentDesc": "Nur für Admins im Spiel sichtbar.",
+    "generalSentTitle": "Im Chat gepostet",
+    "generalSentDesc": "In den öffentlichen Chat-Stream gepostet.",
+    "broadcastSentTitle": "Broadcast gesendet",
+    "broadcastSentDesc": "Nachricht an alle verbundenen Spieler zugestellt.",
+    "errorTitle": "Fehler",
+    "sendFailedFallback": "Nachricht konnte nicht gesendet werden",
+    "presetsSaveFailedTitle": "Vorlagen konnten nicht gespeichert werden",
+    "unknownError": "Unbekannter Fehler"
+  },
+  "labels": {
+    "server": "Server",
+    "admin": "Admin",
+    "player": "Spieler"
+  },
+  "presets": {
+    "default": [
+      "Der Server wird in 5 Minuten neu gestartet!",
+      "Willkommen auf dem Server!",
+      "Bitte lest die Regeln unter /rules",
+      "Serverwartung beginnt in Kürze",
+      "Habt Spaß und bleibt sicher!"
+    ]
+  }
+}

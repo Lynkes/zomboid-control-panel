@@ -1,0 +1,24 @@
+{
+  "pageHeader": {
+    "title": "Simulation Templates",
+    "description": "Apply a curated ruleset to your server, or save your own configuration to reuse later.",
+    "import": "Import",
+    "saveCurrentConfig": "Save Current Config"
+  },
+  "emptyState": {
+    "loadErrorTitle": "Couldn't load templates",
+    "retry": "Retry",
+    "noTemplatesTitle": "No templates yet",
+    "noTemplatesDesc": "Save your current server configuration as a template, or import one from a file."
+  },
+  "toasts": {
+    "exportFailedTitle": "Export Failed",
+    "exportFailedFallback": "Failed to export template",
+    "deleteTemplateTitle": "Delete Template",
+    "deleteTemplateDesc": "Delete \"{{name}}\"? This can't be undone.",
+    "templateDeletedTitle": "Template Deleted",
+    "deleteFailedTitle": "Delete Failed",
+    "deleteFailedFallback": "Failed to delete template",
+    "loadFailedFallback": "Failed to load templates."
+  }
+}

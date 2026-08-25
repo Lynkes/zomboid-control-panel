@@ -4,7 +4,13 @@
  * falls back to splitting the raw PZ key (e.g. "PVPMeleeDamageModifier")
  * into words for settings that schema doesn't (yet) describe.
  */
-import { getIniSetting, getSandboxSetting } from "./serverConfigSchema";
+import {
+  getIniSetting,
+  getSandboxSetting,
+  getIniSettingLabel,
+  getSandboxSettingLabel,
+} from "./serverConfigSchema";
+import { resolveRegisteredTranslation } from "./paramTranslation";
 
 const ACRONYM_LABELS: Record<string, string> = {
   pvp: "PVP",
@@ -21,16 +27,18 @@ export function humanizeTemplateKey(key: string): string {
 }
 
 export function getIniKeyLabel(key: string): string {
-  return getIniSetting(key)?.label || humanizeTemplateKey(key);
+  const setting = getIniSetting(key);
+  return setting ? getIniSettingLabel(setting) : humanizeTemplateKey(key);
 }
 
 export function getSandboxKeyLabel(key: string): string {
-  return getSandboxSetting(key)?.label || humanizeTemplateKey(key);
+  const setting = getSandboxSetting(key);
+  return setting ? getSandboxSettingLabel(setting) : humanizeTemplateKey(key);
 }
 
 /** e.g. "hardcore" -> "Hardcore", "pvp" -> "PVP", "first-week" -> "First Week". */
 export function formatDifficultyLabel(level: string | undefined): string {
-  if (!level) return "Custom";
+  if (!level) return resolveRegisteredTranslation("templateCard", "custom", undefined) ?? "Custom";
   return level
     .split(/[\s_-]+/)
     .filter(Boolean)
@@ -40,8 +48,15 @@ export function formatDifficultyLabel(level: string | undefined): string {
 
 /** Renders a diff value for display: booleans as On/Off, undefined as "(not set)". */
 export function formatDiffValue(value: unknown): string {
-  if (value === undefined || value === null || value === "") return "(not set)";
-  if (typeof value === "boolean") return value ? "On" : "Off";
-  if (value === "true" || value === "false") return value === "true" ? "On" : "Off";
+  if (value === undefined || value === null || value === "") {
+    return resolveRegisteredTranslation("templateDiffList", "notSet", undefined) ?? "(not set)";
+  }
+  if (typeof value === "boolean") {
+    return resolveRegisteredTranslation("templateDiffList", value ? "on" : "off", undefined) ?? (value ? "On" : "Off");
+  }
+  if (value === "true" || value === "false") {
+    const isOn = value === "true";
+    return resolveRegisteredTranslation("templateDiffList", isOn ? "on" : "off", undefined) ?? (isOn ? "On" : "Off");
+  }
   return String(value);
 }

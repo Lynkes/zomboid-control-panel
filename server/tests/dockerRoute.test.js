@@ -7,7 +7,13 @@ const { getServer, connect, save, disconnect } = vi.hoisted(() => ({
   disconnect: vi.fn(),
 }));
 
-vi.mock("../database/init.js", () => ({ getServer }));
+import { mockGetRoleByName } from "./helpers/mockPermissionsDb.js";
+
+// docker.js now gates with requirePermission("docker.manage") (DB-backed
+// capability lookup) instead of requireRole -- getRoleByName needs mocking
+// alongside getServer. The old hand-rolled requireRole mock (admin-only) is
+// gone: docker.js doesn't import from services/auth.js at all anymore.
+vi.mock("../database/init.js", () => ({ getServer, getRoleByName: mockGetRoleByName }));
 vi.mock("../services/rcon.js", () => ({
   RconService: class {
     connected = false;
@@ -18,13 +24,6 @@ vi.mock("../services/rcon.js", () => ({
     }
     save = save;
     disconnect = disconnect;
-  },
-}));
-
-vi.mock("../services/auth.js", () => ({
-  requireRole: () => (req, res, next) => {
-    if (req.user?.role !== "admin") return res.status(403).json({ error: "Forbidden" });
-    return next();
   },
 }));
 
@@ -181,6 +180,32 @@ describe("POST /api/docker/containers/:id/:action", () => {
     expect(connect).not.toHaveBeenCalled();
     expect(save).not.toHaveBeenCalled();
     expect(runManagedAction).toHaveBeenCalledWith("managed", "restart");
+  });
+
+  it("passes through the real Docker error instead of a generic message, with any path redacted", async () => {
+    const response = createResponse();
+    const runManagedAction = vi.fn(async () => ({
+      success: false,
+      error: "connect EACCES /var/run/docker.sock",
+    }));
+    getServer.mockResolvedValue({ id: "server-1", dockerContainerName: "managed" });
+
+    await runRoute("/containers/:id/:action", "post", {
+      user: { role: "admin" },
+      params: { id: "managed", action: "start" },
+      body: { serverId: "server-1" },
+      app: { get: () => ({
+        enabled: true,
+        available: true,
+        inspectManagedContainer: vi.fn(async () => ({ State: { Running: false } })),
+        runManagedAction,
+      }) },
+    }, response);
+
+    expect(response.status).toHaveBeenCalledWith(403);
+    const payload = response.json.mock.calls[0][0];
+    expect(payload.error).toMatch(/EACCES/);
+    expect(payload.error).not.toContain("/var/run/docker.sock");
   });
 });
 

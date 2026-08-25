@@ -13,10 +13,20 @@ vi.mock("os", async (importOriginal) => {
   };
 });
 
-const { isLocalPanelRequest } = await import("../routes/auth.js");
+const { isLocalPanelRequest, isPanelBehindTrustProxy } = await import(
+  "../routes/auth.js"
+);
 
 function reqWithRemoteAddress(address) {
   return { socket: { remoteAddress: address }, connection: {} };
+}
+
+function reqBehindTrustProxy(address) {
+  return {
+    socket: { remoteAddress: address },
+    connection: {},
+    app: { get: (key) => (key === "trust proxy" ? 1 : undefined) },
+  };
 }
 
 describe("isLocalPanelRequest (Finding 8: Docker bridge bypass)", () => {
@@ -62,6 +72,41 @@ describe("isLocalPanelRequest (Finding 8: Docker bridge bypass)", () => {
       eth0: [{ address: "192.168.1.85", family: "IPv4", internal: false }],
     });
     expect(isLocalPanelRequest(reqWithRemoteAddress("203.0.113.9"))).toBe(
+      false,
+    );
+  });
+});
+
+// Fail-closed ruling: when trust proxy is configured, the socket peer is
+// always the reverse proxy, not the real client -- the panel cannot verify
+// origin at all, so it must not grant local trust to anyone, not even a
+// request whose socket address happens to be loopback (that's still just
+// the proxy's own connection to this process).
+describe("isLocalPanelRequest: fails closed when trust proxy is configured", () => {
+  afterEach(() => {
+    networkInterfacesMock.mockReset();
+  });
+
+  it("isPanelBehindTrustProxy reads req.app.get('trust proxy')", () => {
+    expect(isPanelBehindTrustProxy(reqBehindTrustProxy("127.0.0.1"))).toBe(
+      true,
+    );
+    expect(isPanelBehindTrustProxy(reqWithRemoteAddress("127.0.0.1"))).toBe(
+      false,
+    );
+  });
+
+  it("refuses a loopback socket peer once trust proxy is configured (this is the whole fix)", () => {
+    networkInterfacesMock.mockReturnValue({});
+    expect(isLocalPanelRequest(reqBehindTrustProxy("127.0.0.1"))).toBe(false);
+    expect(isLocalPanelRequest(reqBehindTrustProxy("::ffff:127.0.0.1"))).toBe(
+      false,
+    );
+  });
+
+  it("still refuses a genuine remote address once trust proxy is configured (unchanged outcome, same reasoning)", () => {
+    networkInterfacesMock.mockReturnValue({});
+    expect(isLocalPanelRequest(reqBehindTrustProxy("203.0.113.9"))).toBe(
       false,
     );
   });

@@ -23,6 +23,15 @@ const isWindows = process.platform === "win32";
 // dashboard would show a stale, no-longer-yours address indefinitely.
 const PUBLIC_IP_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
+// Matches the timeout already used by the process-scan exec calls in
+// _scanDedicatedServerProcesses below. taskkill/kill/pkill must never be
+// allowed to hang indefinitely (AV interference, a wedged syscall): if they
+// do, the awaiting stopServer() never returns, so its `finally` never runs,
+// so this._stopping never clears, and the server becomes permanently
+// un-start/stop/restartable until the whole panel is restarted. See
+// stopServer()'s handling of the { timedOut } result below.
+const KILL_EXEC_TIMEOUT_MS = 8000;
+
 function getConfiguredIpv4Address(variableName) {
   const address = process.env[variableName]?.trim();
   return address && net.isIP(address) === 4 ? address : null;
@@ -120,6 +129,37 @@ export function isWindowsDedicatedServerCommandLine(commandLine) {
   return false;
 }
 
+// Linux/macOS equivalent of isWindowsDedicatedServerCommandLine above. Kept
+// as a standalone module-level function (not just inline in the scan) so
+// the pidfile fast path can classify a single live command line with the
+// exact same rule the full OS scan uses, instead of a second copy that
+// could drift out of sync.
+function isLinuxDedicatedServerCommandLine(commandLine) {
+  const lower = String(commandLine || "").toLowerCase();
+  if (!lower) return false;
+  if (lower.includes("zombie.network.gameserver")) return true;
+  if (
+    lower.includes("projectzomboid64") ||
+    lower.includes("projectzomboid32")
+  ) {
+    if (
+      lower.includes("-server") ||
+      lower.includes("startserver") ||
+      lower.includes("-servername")
+    ) {
+      return true;
+    }
+    return false;
+  }
+  if (
+    lower.includes("zomboid") &&
+    (lower.includes("-server") || lower.includes("startserver"))
+  ) {
+    return true;
+  }
+  return false;
+}
+
 // Pull the value of a PZ launch argument (`-servername X`, `-cachedir="Y"`)
 // out of a raw command line.
 function extractLaunchArgValue(commandLine, flag) {
@@ -191,7 +231,7 @@ export class ServerManager {
     this.serverPath = process.env.PZ_SERVER_PATH || "";
     this.serverBat = process.env.PZ_SERVER_BAT || getDefaultStartupScript();
     this.savePath = process.env.PZ_SAVE_PATH || "";
-    this.serverName = "servertest";
+    this.serverName = null;
     this.startCommand = "";
     this.rconHost = null;
     this.rconPort = null;
@@ -207,6 +247,10 @@ export class ServerManager {
     this.publicIp = null;
     this.gamePort = null;
     this.fetchingIp = false;
+    // Instance field (not just the module constant) so tests can exercise
+    // the real timeout wiring in _killPids/_genericForceStop without
+    // waiting out the full production value.
+    this._killTimeoutMs = KILL_EXEC_TIMEOUT_MS;
   }
 
   // Reload config (called when active server changes)
@@ -215,7 +259,7 @@ export class ServerManager {
     this.serverPath = process.env.PZ_SERVER_PATH || "";
     this.serverBat = process.env.PZ_SERVER_BAT || getDefaultStartupScript();
     this.savePath = process.env.PZ_SAVE_PATH || "";
-    this.serverName = "servertest";
+    this.serverName = null;
     this.startCommand = "";
     this.rconHost = null;
     this.rconPort = null;
@@ -373,6 +417,17 @@ export class ServerManager {
    */
   async getServerProcessDetails() {
     await this.loadConfig(this._serverId);
+
+    // Fast path: if we recorded the PID we spawned and it's still alive
+    // with a command line that still looks like (and is attributable to)
+    // this server, skip the full host-wide OS scan. On ANY doubt at all —
+    // no pidfile, dead PID, or a live PID whose command line no longer
+    // matches (including PID reuse by an unrelated process) — this
+    // resolves to null and falls through to the exact same scan as before,
+    // which remains the ground truth for every uncertain case.
+    const fastPath = await this._tryPidFileFastPath();
+    if (fastPath) return fastPath;
+
     const scan = await this._scanDedicatedServerProcesses();
     const descriptor = this._getOwnershipDescriptor();
 
@@ -395,7 +450,19 @@ export class ServerManager {
       );
     }
 
-    this.isRunning = resolved.length > 0;
+    // A failed scan always resolves to an empty `matched` list, so
+    // `resolved.length > 0` is unconditionally false here whenever
+    // scanFailed is true -- writing it into the cached this.isRunning would
+    // silently overwrite the last known-good state with a confident "not
+    // running" the moment detection starts failing, which is exactly the
+    // false confidence scanFailed exists to prevent elsewhere. Every reader
+    // of this cached field (server/routes/serverStatus.js, the dashboard's
+    // host signal) gets the SAME wrong "stopped" a failed detection scan
+    // gives it, instead of "we don't know." Leave it at its previous value
+    // when the scan couldn't tell.
+    if (!scan.scanFailed) {
+      this.isRunning = resolved.length > 0;
+    }
     return {
       running: resolved.length > 0,
       matched: resolved.slice(0, 3).map((entry) => ({
@@ -424,75 +491,96 @@ export class ServerManager {
 
       const timeout = setTimeout(() => {
         log.warn(
-          "getServerProcessDetails: process detection timed out, assuming server is not running",
+          "getServerProcessDetails: process detection timed out, cannot determine server state",
         );
         resolve({ running: false, matched: [], scanFailed: true });
       }, 10000);
 
       if (isWindows) {
-        const psCmd =
-          "powershell -Command \"Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(java\\.exe|ProjectZomboid64\\.exe|ProjectZomboid32\\.exe)$' } | Select-Object ProcessId,CommandLine | ConvertTo-Csv -NoTypeInformation\"";
-        exec(psCmd, { timeout: 8000 }, (psError, psStdout) => {
-          clearTimeout(timeout);
-          if (psError || !psStdout) {
-            this.isRunning = false;
-            resolve({ running: false, matched: [], scanFailed: true });
-            return;
-          }
-
-          const lines = psStdout.split(/\r?\n/);
-          for (let raw of lines) {
-            raw = raw.trim();
-            if (!raw || raw.startsWith('"ProcessId"')) continue;
-            // CSV: "<pid>","<cmd>" — strip outer quotes / un-double internal "" pairs.
-            const csvMatch = raw.match(/^"([^"]*)","((?:[^"]|"")*)"$/);
-            if (!csvMatch) continue;
-            const pid = csvMatch[1];
-            const cmd = csvMatch[2].replace(/""/g, '"');
-            if (!cmd) continue;
-            if (isWindowsDedicatedServerCommandLine(cmd)) {
-              log.debug(
-                `getServerProcessDetails: matched PZ server process pid=${pid}: ${cmd.substring(0, 200)}`,
+        const powershellPath = path.join(
+          process.env.SystemRoot || "C:\\Windows",
+          "System32",
+          "WindowsPowerShell",
+          "v1.0",
+          "powershell.exe",
+        );
+        const powershellScript =
+          "Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(java\\.exe|ProjectZomboid64\\.exe|ProjectZomboid32\\.exe)$' } | Select-Object ProcessId,CommandLine | ConvertTo-Csv -NoTypeInformation";
+        execFile(
+          powershellPath,
+          [
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            powershellScript,
+          ],
+          { timeout: 8000 },
+          (psError, psStdout, psStderr) => {
+            clearTimeout(timeout);
+            const stderr = String(psStderr || "").trim();
+            if (psError || stderr) {
+              const detail = [
+                psError?.message,
+                stderr,
+              ]
+                .filter(Boolean)
+                .join(": ");
+              log.warn(
+                `getServerProcessDetails: Windows process scan failed (${detail}), cannot determine server state`,
               );
-              pushMatch(cmd, pid);
+              resolve({ running: false, matched: [], scanFailed: true });
+              return;
             }
-          }
 
-          this.isRunning = matched.length > 0;
-          resolve({ running: matched.length > 0, matched });
-        });
+            // Empty stdout with NO error is a legitimate, successful result,
+            // not a failure: ConvertTo-Csv derives its header from the first
+            // object it receives, so an empty filtered Win32_Process pipeline
+            // (the normal, expected shape when no PZ server process exists)
+            // produces NO output at all -- not even a header row. Confirmed
+            // empirically on a real Windows host (2026-08-23): psError is
+            // null, exit code 0, psStdout is "". Treating that identically to
+            // a real exec failure meant a genuinely STOPPED Windows server
+            // could never be confirmed stopped -- deterministically, on every
+            // check -- which is exactly the state every fail-closed guard
+            // (/wipe included) exists to detect. This is what a real user hit.
+            if (!psStdout) {
+              this.isRunning = false;
+              resolve({ running: false, matched: [] });
+              return;
+            }
+
+            const lines = psStdout.split(/\r?\n/);
+            for (let raw of lines) {
+              raw = raw.trim();
+              if (!raw || raw.startsWith('"ProcessId"')) continue;
+              // CSV: "<pid>","<cmd>" — strip outer quotes / un-double internal "" pairs.
+              const csvMatch = raw.match(/^"([^"]*)","((?:[^"]|"")*)"$/);
+              if (!csvMatch) continue;
+              const pid = csvMatch[1];
+              const cmd = csvMatch[2].replace(/""/g, '"');
+              if (!cmd) continue;
+              if (isWindowsDedicatedServerCommandLine(cmd)) {
+                log.debug(
+                  `getServerProcessDetails: matched PZ server process pid=${pid}: ${cmd.substring(0, 200)}`,
+                );
+                pushMatch(cmd, pid);
+              }
+            }
+
+            this.isRunning = matched.length > 0;
+            resolve({ running: matched.length > 0, matched });
+          },
+        );
       } else {
         // Linux/macOS: pgrep first (faster, more reliable), fall back to ps aux -ww.
-        // Use the same dedicated-server heuristics as Windows so a player
-        // running the *game* (ProjectZomboid64) on the same box doesn't
-        // false-positive as a running dedicated server. Direct
-        // `zombie.network.GameServer` java invocations always qualify.
-        const isLinuxDedicatedServerCommandLine = (cmd) => {
-          const lower = String(cmd || "").toLowerCase();
-          if (!lower) return false;
-          if (lower.includes("zombie.network.gameserver")) return true;
-          if (
-            lower.includes("projectzomboid64") ||
-            lower.includes("projectzomboid32")
-          ) {
-            if (
-              lower.includes("-server") ||
-              lower.includes("startserver") ||
-              lower.includes("-servername")
-            ) {
-              return true;
-            }
-            return false;
-          }
-          if (
-            lower.includes("zomboid") &&
-            (lower.includes("-server") || lower.includes("startserver"))
-          ) {
-            return true;
-          }
-          return false;
-        };
-
+        // Use the same dedicated-server heuristics as Windows (module-level
+        // isLinuxDedicatedServerCommandLine above) so a player running the
+        // *game* (ProjectZomboid64) on the same box doesn't false-positive
+        // as a running dedicated server. Direct `zombie.network.GameServer`
+        // java invocations always qualify.
         log.debug("getServerProcessDetails: trying pgrep -af first...");
         exec(
           'pgrep -af "zombie.network.[Gg]ame[Ss]erver|[Pp]roject[Zz]omboid64|[Pp]roject[Zz]omboid32"',
@@ -529,7 +617,9 @@ export class ServerManager {
             exec("ps aux -ww", { timeout: 8000 }, (err, stdout) => {
               clearTimeout(timeout);
               if (err || !stdout) {
-                this.isRunning = false;
+                log.warn(
+                  `getServerProcessDetails: ps aux scan failed (${err ? err.message : "empty output"}), cannot determine server state`,
+                );
                 resolve({ running: false, matched: [], scanFailed: true });
                 return;
               }
@@ -570,6 +660,133 @@ export class ServerManager {
         );
       }
     });
+  }
+
+  // Pidfile path is scoped by server name, not a single shared file — this
+  // host can run several dedicated servers (see the two-server tests above),
+  // and a shared pidfile would let one server's start/stop clobber another's
+  // fast-path record. Sanitized because serverName can come from user-edited
+  // settings.
+  _pidFilePath() {
+    const safeName = String(this.serverName || "default").replace(
+      /[^a-zA-Z0-9_-]/g,
+      "_",
+    );
+    return path.join(getDataPaths().dataDir, `server-process-${safeName}.json`);
+  }
+
+  // Best-effort — a failure to persist the pidfile never blocks a start; it
+  // only means the next reacquisition falls through to the full OS scan,
+  // which is the existing, already-safe behavior.
+  _writePidFile(pid) {
+    try {
+      const data = {
+        pid: String(pid),
+        serverName: this.serverName,
+        writtenAt: Date.now(),
+      };
+      fs.writeFileSync(this._pidFilePath(), JSON.stringify(data), "utf-8");
+    } catch (e) {
+      log.debug(`Could not write server pidfile: ${e.message}`);
+    }
+  }
+
+  _readPidFile() {
+    try {
+      const raw = fs.readFileSync(this._pidFilePath(), "utf-8");
+      const data = JSON.parse(raw);
+      if (!data || !/^\d+$/.test(String(data.pid))) return null;
+      return data;
+    } catch {
+      return null; // Missing, corrupt, or unreadable — treated the same as "no pidfile".
+    }
+  }
+
+  _deletePidFile() {
+    try {
+      fs.unlinkSync(this._pidFilePath());
+    } catch {
+      /* already absent — fine, this is best-effort cleanup */
+    }
+  }
+
+  // Single-PID command-line lookup used only by the pidfile fast path — far
+  // cheaper than the full host-wide scan. Resolves to null (never throws)
+  // when the PID isn't alive or the lookup fails/times out, which the fast
+  // path treats identically to "no usable pidfile".
+  _getLiveCommandLine(pid) {
+    if (!/^\d+$/.test(String(pid || ""))) return Promise.resolve(null);
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+      const timeout = setTimeout(() => finish(null), 3000);
+
+      if (isWindows) {
+        // Single quotes inside -Filter avoid the nested-double-quote
+        // escaping the full scan's exec calls need elsewhere; pid is
+        // pre-validated as digits-only above so this interpolation is safe.
+        const psCmd = `powershell -Command "Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}' | Select-Object -ExpandProperty CommandLine"`;
+        exec(psCmd, { timeout: 2500 }, (err, stdout) => {
+          clearTimeout(timeout);
+          finish(err ? null : String(stdout || "").trim() || null);
+        });
+      } else {
+        execFile(
+          "ps",
+          ["-ww", "-o", "cmd=", "-p", String(pid)],
+          { timeout: 2500 },
+          (err, stdout) => {
+            clearTimeout(timeout);
+            finish(err ? null : String(stdout || "").trim() || null);
+          },
+        );
+      }
+    });
+  }
+
+  // Resolves to a getServerProcessDetails()-shaped result if the recorded
+  // pidfile checks out, or null on any doubt (caller then runs the full
+  // scan). Deliberately reuses the SAME classification
+  // (isWindowsDedicatedServerCommandLine / isLinuxDedicatedServerCommandLine)
+  // and the SAME ownership scoring (scoreServerProcessOwnership) as the full
+  // scan, rather than a second set of rules — a live PID whose command line
+  // no longer matches (e.g. reused by an unrelated process, or now belongs
+  // to a different configured server) is exactly the case this must not
+  // trust, which is why it falls through instead of reporting "not running".
+  async _tryPidFileFastPath() {
+    const recorded = this._readPidFile();
+    if (!recorded) return null;
+
+    const cmd = await this._getLiveCommandLine(recorded.pid);
+    if (!cmd) return null;
+
+    const looksLikeDedicatedServer = isWindows
+      ? isWindowsDedicatedServerCommandLine(cmd)
+      : isLinuxDedicatedServerCommandLine(cmd);
+    if (!looksLikeDedicatedServer) return null;
+
+    const score = scoreServerProcessOwnership(
+      cmd,
+      this._getOwnershipDescriptor(),
+    );
+    if (score === -1) return null; // Cmdline now proves this PID belongs to a different server.
+
+    log.debug(
+      `getServerProcessDetails: pidfile fast path hit for pid=${recorded.pid}, skipping full scan`,
+    );
+    this.isRunning = true;
+    const entry = { pid: String(recorded.pid), cmd: String(cmd) };
+    return {
+      running: true,
+      matched: [{ pid: entry.pid, cmd: entry.cmd.slice(0, 240) }],
+      owned: [entry],
+      scanFailed: false,
+    };
   }
 
   async getProcessUptimeSeconds(pid) {
@@ -772,6 +989,7 @@ export class ServerManager {
 
         await logServerEvent("server_start", "Server started via manager");
         log.info("Server start command executed");
+        this._writePidFile(this.serverProcess.pid);
 
         return { success: true, message: "Server start command executed" };
       }
@@ -845,6 +1063,7 @@ export class ServerManager {
 
       await logServerEvent("server_start", "Server started via manager");
       log.info("Server start command executed");
+      this._writePidFile(this.serverProcess.pid);
 
       return { success: true, message: "Server start command executed" };
     } finally {
@@ -952,8 +1171,22 @@ export class ServerManager {
         log.info(
           `stopServer: force killing PID(s) for "${this.serverName}": ${pids.join(", ")}`,
         );
-        await this._killPids(pids);
+        const { timedOut } = await this._killPids(pids);
         this._clearRunState();
+        if (timedOut) {
+          log.warn(
+            `stopServer: kill command for "${this.serverName}" (PIDs: ${pids.join(", ")}) did not finish within ${this._killTimeoutMs}ms — could not confirm the process actually exited`,
+          );
+          await logServerEvent(
+            "server_stop",
+            `Server stop timed out waiting for kill confirmation (PIDs: ${pids.join(", ")})`,
+          ).catch((e) => log.warn(`Failed to log event: ${e.message}`));
+          return {
+            success: true,
+            message:
+              "Stop signal sent, but confirmation timed out — check whether the server actually exited before starting it again",
+          };
+        }
         await logServerEvent(
           "server_stop",
           `Server force stopped (killed PIDs: ${pids.join(", ")})`,
@@ -982,7 +1215,21 @@ export class ServerManager {
         "stopServer: process detection failed. Falling back to generic force stop.",
       );
       this._clearRunState();
-      await this._genericForceStop();
+      const { timedOut } = await this._genericForceStop();
+      if (timedOut) {
+        log.warn(
+          `stopServer: generic force stop did not finish within ${this._killTimeoutMs}ms — could not confirm the process actually exited`,
+        );
+        await logServerEvent(
+          "server_stop",
+          "Server stop timed out waiting for kill confirmation (generic fallback)",
+        ).catch((e) => log.warn(`Failed to log event: ${e.message}`));
+        return {
+          success: true,
+          message:
+            "Stop signal sent, but confirmation timed out — check whether the server actually exited before starting it again",
+        };
+      }
       await logServerEvent("server_stop", "Server force stopped").catch((e) =>
         log.warn(`Failed to log event: ${e.message}`),
       );
@@ -1002,6 +1249,7 @@ export class ServerManager {
     this.isRunning = false;
     this.serverProcess = null;
     this.startTime = null;
+    this._deletePidFile();
   }
 
   async _isOnlyLocalServer() {
@@ -1014,45 +1262,83 @@ export class ServerManager {
     }
   }
 
+  // Resolves to { timedOut }. `timedOut` is true when at least one
+  // taskkill/kill call didn't finish on its own and had to be aborted by
+  // the exec timeout below -- meaning we could NOT confirm the process
+  // actually exited, only that we stopped waiting. Distinguished from an
+  // ordinary fast kill error (e.g. "process already exited", already
+  // treated as harmless) via killErr.killed, which Node sets specifically
+  // when its own timeout is what ended the child -- not on a normal
+  // nonzero-exit failure.
   _killPids(pids) {
     return new Promise((resolve) => {
       if (isWindows) {
         let remaining = pids.length;
+        let timedOut = false;
         for (const pid of pids) {
-          execFile("taskkill", ["/PID", pid, "/F"], (killErr) => {
-            if (killErr) log.debug(`taskkill ${pid}: ${killErr.message}`);
-            if (--remaining === 0) resolve();
-          });
+          execFile(
+            "taskkill",
+            ["/PID", pid, "/F"],
+            { timeout: this._killTimeoutMs },
+            (killErr) => {
+              if (killErr) {
+                if (killErr.killed) timedOut = true;
+                log.debug(`taskkill ${pid}: ${killErr.message}`);
+              }
+              if (--remaining === 0) resolve({ timedOut });
+            },
+          );
         }
         return;
       }
 
-      execFile("kill", ["-9", ...pids], (killErr) => {
-        if (killErr) {
-          log.warn(
-            `Kill returned error (may be normal if process already exited): ${killErr.message}`,
-          );
-        }
-        resolve();
-      });
+      execFile(
+        "kill",
+        ["-9", ...pids],
+        { timeout: this._killTimeoutMs },
+        (killErr) => {
+          let timedOut = false;
+          if (killErr) {
+            timedOut = Boolean(killErr.killed);
+            log.warn(
+              `Kill returned error (may be normal if process already exited): ${killErr.message}`,
+            );
+          }
+          resolve({ timedOut });
+        },
+      );
     });
   }
 
+  // Resolves to { timedOut }, same meaning as _killPids above.
   _genericForceStop() {
     return new Promise((resolve) => {
       if (isWindows) {
-        exec("taskkill /IM ProjectZomboid64.exe /F", () => {
-          exec(
-            "powershell -Command \"Get-CimInstance Win32_Process -Filter \\\"Name='java.exe'\\\" | Where-Object { $_.CommandLine -like '*zombie.network.gameserver*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }\"",
-            () => resolve(),
-          );
-        });
+        let timedOut = false;
+        exec(
+          "taskkill /IM ProjectZomboid64.exe /F",
+          { timeout: this._killTimeoutMs },
+          (err1) => {
+            if (err1?.killed) timedOut = true;
+            exec(
+              "powershell -Command \"Get-CimInstance Win32_Process -Filter \\\"Name='java.exe'\\\" | Where-Object { $_.CommandLine -like '*zombie.network.gameserver*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }\"",
+              { timeout: this._killTimeoutMs },
+              (err2) => {
+                if (err2?.killed) timedOut = true;
+                resolve({ timedOut });
+              },
+            );
+          },
+        );
         return;
       }
 
       exec(
         "pkill -9 -f 'zombie.network.[Gg]ame[Ss]erver|[Pp]roject[Zz]omboid64|[Pp]roject[Zz]omboid32'",
-        () => resolve(),
+        { timeout: this._killTimeoutMs },
+        (err) => {
+          resolve({ timedOut: Boolean(err?.killed) });
+        },
       );
     });
   }
@@ -1222,6 +1508,12 @@ export class ServerManager {
 
     return {
       running: isRunning,
+      // Distinguishes a confirmed-stopped server from "the process scan
+      // itself failed" -- both used to collapse to running: false here,
+      // so a hung/erroring OS scan (AV interference, WMI timeout,
+      // ps/pgrep unavailable) looked identical to a real stop. Callers
+      // that only checked .running had no way to tell.
+      scanFailed: Boolean(processDetails.scanFailed),
       startTime: this.startTime,
       uptime: uptimeSeconds,
       serverPath: this.serverPath,

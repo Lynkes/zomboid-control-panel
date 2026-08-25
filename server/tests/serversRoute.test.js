@@ -6,6 +6,8 @@ const getServers = vi.fn();
 const getSetting = vi.fn();
 const testRconConnection = vi.fn();
 
+import { mockGetRoleByName } from "./helpers/mockPermissionsDb.js";
+
 vi.mock("../database/init.js", () => ({
   getServers,
   getSetting,
@@ -15,6 +17,7 @@ vi.mock("../database/init.js", () => ({
   updateServer,
   deleteServer: vi.fn(),
   setActiveServer: vi.fn(),
+  getRoleByName: mockGetRoleByName,
 }));
 
 vi.mock("../services/rcon.js", () => ({
@@ -23,6 +26,7 @@ vi.mock("../services/rcon.js", () => ({
 }));
 
 const { default: router } = await import("../routes/servers.js");
+const { getServer, getActiveServer, deleteServer } = await import("../database/init.js");
 const {
   getSteamLoginArgs,
   hasSteamManifestAccessDeniedState,
@@ -46,8 +50,14 @@ function getLayer(routePath, method) {
   );
 }
 
+// POST / now has requireRole("admin", "technician") ahead of the real
+// handler (see roles.test.js for coverage of that gate itself) — grab the
+// last stack entry rather than the first, same as getUpdateHandler() below,
+// so this keeps working regardless of how many gating middlewares precede
+// the handler.
 function getCreateHandler() {
-  return getLayer("/", "post").route.stack[0].handle;
+  const layer = getLayer("/", "post");
+  return layer.route.stack[layer.route.stack.length - 1].handle;
 }
 
 function getUpdateHandler() {
@@ -331,5 +341,95 @@ describe("Admin-gated server discovery routes", () => {
       response,
     );
     expect(response.status).toHaveBeenCalledWith(403);
+  });
+});
+
+// DELETE /:id silently reassigns which server the DATABASE calls active
+// (deleteServer()'s own fallback: promote db.data.servers[0]) when the
+// deleted server was active. Unlike the sibling POST /:id/activate route,
+// which explicitly reloads serverManager, disconnects/reconnects RCON, and
+// re-installs PanelBridge for the newly-active server, DELETE /:id used to
+// do none of that -- the live in-memory services stayed pointed at the
+// just-deleted server's stale config (old paths, old RCON credentials)
+// until something else happened to reload them.
+describe("DELETE /api/servers/:id: deleting the active server must reload live services for whichever server becomes active, same as POST /:id/activate does", () => {
+  let serverManager;
+  let rconService;
+  let io;
+
+  function buildReq(id, overrides = {}) {
+    return {
+      params: { id },
+      user: { role: "admin" },
+      app: {
+        get: (key) => ({ serverManager, rconService, io, modChecker: null })[key],
+      },
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    getServer.mockReset();
+    getActiveServer.mockReset();
+    deleteServer.mockReset();
+    serverManager = { reloadConfig: vi.fn(async () => {}) };
+    rconService = {
+      isConnected: vi.fn(() => false),
+      disconnect: vi.fn(async () => {}),
+      reloadConfig: vi.fn(async () => {}),
+      connect: vi.fn(async () => {}),
+    };
+    io = { emit: vi.fn() };
+  });
+
+  it("reloads serverManager and RCON for the newly-active server after deleting the active one", async () => {
+    getServer.mockResolvedValue({ id: "deleted-1", name: "Deleted", isActive: true });
+    deleteServer.mockResolvedValue(true);
+    getActiveServer.mockResolvedValue({
+      id: "promoted-2",
+      name: "Promoted",
+      isActive: true,
+      rconPassword: "secret",
+    });
+
+    const response = createResponse();
+    await runRoute("/:id", "delete", buildReq("deleted-1"), response);
+
+    expect(serverManager.reloadConfig).toHaveBeenCalled();
+    expect(rconService.reloadConfig).toHaveBeenCalled();
+    expect(rconService.connect).toHaveBeenCalled();
+    // The client-facing event must carry the NEW active server, same shape
+    // POST /:id/activate emits -- not the old {deleted: id}-only payload,
+    // which told listeners nothing about who is active now.
+    expect(io.emit).toHaveBeenCalledWith(
+      "activeServerChanged",
+      expect.objectContaining({ server: expect.objectContaining({ id: "promoted-2" }) }),
+    );
+  });
+
+  it("does NOT reload services when the deleted server was not the active one", async () => {
+    getServer.mockResolvedValue({ id: "deleted-1", name: "Deleted", isActive: false });
+    deleteServer.mockResolvedValue(true);
+
+    const response = createResponse();
+    await runRoute("/:id", "delete", buildReq("deleted-1"), response);
+
+    expect(serverManager.reloadConfig).not.toHaveBeenCalled();
+    expect(rconService.reloadConfig).not.toHaveBeenCalled();
+    expect(io.emit).toHaveBeenCalledWith("activeServerChanged", { deleted: "deleted-1" });
+  });
+
+  it("still succeeds (no reload attempted) when deleting the last remaining server leaves nothing active", async () => {
+    getServer.mockResolvedValue({ id: "deleted-1", name: "Deleted", isActive: true });
+    deleteServer.mockResolvedValue(true);
+    getActiveServer.mockResolvedValue(null);
+
+    const response = createResponse();
+    await runRoute("/:id", "delete", buildReq("deleted-1"), response);
+
+    expect(serverManager.reloadConfig).not.toHaveBeenCalled();
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({ success: true }),
+    );
   });
 });

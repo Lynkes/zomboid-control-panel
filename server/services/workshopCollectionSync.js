@@ -15,12 +15,15 @@
  * -------------
  * `steamLoginSecure` is effectively a Steam login token. Treat it like a
  * password: never log it, mask it in API responses (see config.js
- * SENSITIVE_KEYS). Storage is plaintext in db.json — same trust level as
- * the RCON password.
+ * SENSITIVE_KEYS). Stored in its own file under the data dir now (see
+ * utils/uiSecretFile.js), not db.json — same relocation as the JWT signing
+ * key and the Discord bot token, for the same reason: db.json is copied
+ * wholesale by two backup paths, this file is copied by neither.
  */
 
 import { createLogger } from '../utils/logger.js';
-import { getSetting } from '../database/init.js';
+import { getSetting, setSetting } from '../database/init.js';
+import { loadUiSecret, writeUiSecretFile } from '../utils/uiSecretFile.js';
 
 const log = createLogger('WorkshopCollectionSync');
 
@@ -132,11 +135,43 @@ export async function fetchPublishedFileTitles(workshopIds) {
 }
 
 /**
+ * Read the Steam session cookie pair, migrating a legacy db.json value the
+ * first time this runs on an upgraded install. See utils/uiSecretFile.js.
+ * The only exported reader — every call site (here and routes/mods.js)
+ * goes through this instead of getSetting directly, so the migration logic
+ * lives in one place.
+ */
+export async function getSteamSessionCredentials() {
+  const [legacySessionId, legacyLoginSecure] = await Promise.all([
+    getSetting('steamSessionId'),
+    getSetting('steamLoginSecure'),
+  ]);
+  const [sessionId, loginSecure] = await Promise.all([
+    loadUiSecret('steamSessionId', {
+      legacyValue: legacySessionId,
+      clearLegacy: () => setSetting('steamSessionId', null),
+      log,
+    }),
+    loadUiSecret('steamLoginSecure', {
+      legacyValue: legacyLoginSecure,
+      clearLegacy: () => setSetting('steamLoginSecure', null),
+      log,
+    }),
+  ]);
+  return { sessionId, loginSecure };
+}
+
+/** Synchronous — file I/O, not a settings-store write. */
+export function setSteamSessionCredentials(sessionId, loginSecure) {
+  writeUiSecretFile('steamSessionId', sessionId);
+  writeUiSecretFile('steamLoginSecure', loginSecure);
+}
+
+/**
  * Build the cookie header from settings. Returns null if either piece is missing.
  */
 async function buildAuthCookies() {
-  const sessionId = await getSetting('steamSessionId');
-  const loginSecure = await getSetting('steamLoginSecure');
+  const { sessionId, loginSecure } = await getSteamSessionCredentials();
   if (typeof sessionId !== 'string' || sessionId.trim().length < 8) return null;
   if (typeof loginSecure !== 'string' || loginSecure.trim().length < 16) return null;
   const sid = sessionId.trim();

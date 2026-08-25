@@ -48,6 +48,13 @@ export function computeDiskStatus(targetPath, disk) {
       usedPercent: 0,
       warning: false,
       critical: false,
+      // Distinguishes "we genuinely don't know" (no path configured, or the
+      // stat itself failed -- unreachable mount, permission error) from a
+      // real, healthy, near-empty disk. Both used to collapse to this same
+      // zeroed shape, so the one feature that exists to warn before a full
+      // disk breaks writes went silently inert exactly when its target
+      // volume became unreachable.
+      ok: false,
     };
   }
   const usedPercent =
@@ -59,6 +66,7 @@ export function computeDiskStatus(targetPath, disk) {
     usedPercent,
     warning: usedPercent >= WARNING_PERCENT,
     critical: usedPercent >= CRITICAL_PERCENT,
+    ok: true,
   };
 }
 

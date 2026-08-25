@@ -1,10 +1,11 @@
 import { ReactNode } from 'react'
-import { 
-  InboxIcon, 
-  SearchX, 
-  ServerOff, 
-  UsersRound, 
-  FileQuestion, 
+import { useTranslation } from 'react-i18next'
+import {
+  InboxIcon,
+  SearchX,
+  ServerOff,
+  UsersRound,
+  FileQuestion,
   WifiOff,
   CalendarX,
   Package,
@@ -25,19 +26,6 @@ const emptyStateIcons = {
   noMods: Package,
   noMessages: MessageSquareOff,
   empty: FolderOpen,
-} as const
-
-const emptyStateEyebrows = {
-  noData: 'No Data',
-  noResults: 'Nothing Matched',
-  serverOffline: 'Server Offline',
-  noPlayers: 'No Players Online',
-  noFile: 'Missing File',
-  disconnected: 'Disconnected',
-  noSchedule: 'No Tasks Armed',
-  noMods: 'No Mods Tracked',
-  noMessages: 'No Messages',
-  empty: 'Empty',
 } as const
 
 export type EmptyStateType = keyof typeof emptyStateIcons
@@ -71,8 +59,9 @@ export function EmptyState({
   compact = false,
   className = ''
 }: EmptyStateProps) {
+  const { t } = useTranslation('emptyState')
   const IconComponent = emptyStateIcons[type]
-  const eyebrow = emptyStateEyebrows[type]
+  const eyebrow = t(`eyebrows.${type}`)
   const iconSize = compact ? 'w-10 h-10' : 'w-14 h-14'
   const containerSize = compact ? 'w-16 h-16' : 'w-20 h-20'
   const padding = compact ? 'py-8' : 'py-16'

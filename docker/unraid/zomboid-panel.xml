@@ -13,7 +13,7 @@
   <Category>GameServers:Management</Category>
   <WebUI>http://[IP]:[PORT:3001]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/fpsacha/zomboid-control-panel/main/docker/unraid/zomboid-panel.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/fpsacha/zomboid-control-panel/main/client/public/favicon.svg</Icon>
+  <Icon>https://raw.githubusercontent.com/fpsacha/zomboid-control-panel/main/client/public/zombie.svg</Icon>
   <ExtraParams/>
   <PostArgs/>
   <CPUset/>

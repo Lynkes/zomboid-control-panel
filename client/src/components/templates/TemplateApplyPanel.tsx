@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
@@ -34,22 +35,23 @@ export function TemplateApplyPanel({
   onApply,
   onClose,
 }: TemplateApplyPanelProps) {
+  const { t } = useTranslation('templateApplyPanel')
   if (!canManage) return null
 
   if (applyResult) {
     return (
       <Alert variant="success">
         <CheckCircle2 className="h-4 w-4" />
-        <AlertTitle>Template Applied</AlertTitle>
+        <AlertTitle>{t('appliedTitle')}</AlertTitle>
         <AlertDescription className="space-y-1">
           <p>
-            {applyResult.ini ? `${applyResult.ini.appliedKeys.length} INI key(s) updated. ` : ''}
+            {applyResult.ini ? t('iniKeysUpdated', { count: applyResult.ini.appliedKeys.length }) : ''}
             {applyResult.sandbox && 'applied' in applyResult.sandbox
-              ? `${applyResult.sandbox.applied.length} sandbox setting(s) updated. `
+              ? t('sandboxSettingsUpdated', { count: applyResult.sandbox.applied.length })
               : ''}
-            {applyResult.backups.length > 0 && `${applyResult.backups.length} backup file(s) created. `}
+            {applyResult.backups.length > 0 && t('backupFilesCreated', { count: applyResult.backups.length })}
           </p>
-          <p className="font-medium">Changes will take effect the next time the server restarts.</p>
+          <p className="font-medium">{t('effectNextRestart')}</p>
         </AlertDescription>
       </Alert>
     )
@@ -60,11 +62,11 @@ export function TemplateApplyPanel({
       {running !== false && (
         <Alert variant="warning">
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>{running ? 'Server is running' : 'Server state unavailable'}</AlertTitle>
+          <AlertTitle>{running ? t('serverRunning') : t('serverStateUnavailable')}</AlertTitle>
           <AlertDescription>
             {running
-              ? 'Stop the server before applying this template.'
-              : 'Confirm the server is stopped, then retry.'}
+              ? t('stopBeforeApplying')
+              : t('confirmStoppedRetry')}
           </AlertDescription>
         </Alert>
       )}
@@ -72,29 +74,29 @@ export function TemplateApplyPanel({
       <div className="flex flex-wrap items-center gap-5">
         <div className="flex items-center gap-2">
           <Checkbox id="scope-sandbox" checked={scopeSandbox} onCheckedChange={(v) => onScopeSandboxChange(v === true)} />
-          <Label htmlFor="scope-sandbox" className="text-sm font-normal">Apply sandbox changes</Label>
+          <Label htmlFor="scope-sandbox" className="text-sm font-normal">{t('applySandboxChanges')}</Label>
         </div>
         <div className="flex items-center gap-2">
           <Checkbox id="scope-ini" checked={scopeIni} onCheckedChange={(v) => onScopeIniChange(v === true)} />
-          <Label htmlFor="scope-ini" className="text-sm font-normal">Apply server.ini changes</Label>
+          <Label htmlFor="scope-ini" className="text-sm font-normal">{t('applyIniChanges')}</Label>
         </div>
       </div>
 
       {applyError && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Apply Failed</AlertTitle>
+          <AlertTitle>{t('applyFailedTitle')}</AlertTitle>
           <AlertDescription>{applyError}</AlertDescription>
         </Alert>
       )}
 
       <div className="flex justify-end gap-2">
         <Button variant="outline" onClick={onClose} disabled={applying}>
-          Cancel
+          {t('cancel')}
         </Button>
         <Button onClick={onApply} disabled={applying || running !== false || !canApply || (!scopeIni && !scopeSandbox)}>
           {applying && <Loader2 className="h-4 w-4 animate-spin" />}
-          Apply Template
+          {t('applyTemplate')}
         </Button>
       </div>
     </div>

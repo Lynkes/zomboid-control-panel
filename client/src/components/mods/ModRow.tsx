@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ExternalLink } from 'lucide-react'
 import { copyText } from '@/lib/utils'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -18,6 +19,7 @@ export function WorkshopIdChip({
   onCopied?: (wsId: string) => void
   className?: string
 }) {
+  const { t } = useTranslation('modRow')
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -28,19 +30,20 @@ export function WorkshopIdChip({
             copyText(wsId).then(() => onCopied?.(wsId)).catch(() => { /* clipboard blocked — ignore */ })
           }}
           className={`inline-flex items-center gap-1 rounded border border-border/40 bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] leading-none tabular-nums text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 ${className}`}
-          aria-label={`Copy workshop ID ${wsId}`}
+          aria-label={t('copyWorkshopIdAria', { id: wsId })}
         >
           <span className="text-[9px] font-semibold uppercase tracking-wider opacity-70">WS</span>
           <span>{wsId}</span>
         </button>
       </TooltipTrigger>
-      <TooltipContent>Click to copy Workshop ID</TooltipContent>
+      <TooltipContent>{t('copyWorkshopIdTooltip')}</TooltipContent>
     </Tooltip>
   )
 }
 
 /** "Open on Steam Workshop" action, sized to sit in a row's action cluster. */
 export function WorkshopLinkAction({ wsId, label, hint }: { wsId: string; label: string; hint?: string }) {
+  const { t } = useTranslation('modRow')
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -50,12 +53,12 @@ export function WorkshopLinkAction({ wsId, label, hint }: { wsId: string; label:
           rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
           className="inline-flex shrink-0 rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
-          aria-label={`Open workshop page for ${label}`}
+          aria-label={t('openWorkshopPageForAria', { label })}
         >
           <ExternalLink className="h-4 w-4" />
         </a>
       </TooltipTrigger>
-      <TooltipContent>{hint || 'Open Workshop page'}</TooltipContent>
+      <TooltipContent>{hint || t('openWorkshopPageHint')}</TooltipContent>
     </Tooltip>
   )
 }
@@ -74,14 +77,15 @@ export function WorkshopThumb({
   fallbackIcon: ReactNode
   demo?: boolean
 }) {
+  const { t } = useTranslation('modRow')
   return (
     <a
       href={workshopUrl(wsId)}
       target="_blank"
       rel="noreferrer"
       className={`relative grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-md border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 ${tone}`}
-      aria-label={`Open ${label} on Steam Workshop`}
-      title="Open Steam Workshop page"
+      aria-label={t('openOnSteamAria', { label })}
+      title={t('openWorkshopPageTitle')}
     >
       {fallbackIcon}
       <img

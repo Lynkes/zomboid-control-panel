@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import SftpClient from 'ssh2-sftp-client';
 import { createLogger } from '../utils/logger.js';
+import { getDataPaths } from '../utils/paths.js';
 
 const log = createLogger('Bridge:SFTP');
 
@@ -76,7 +77,11 @@ export function validateSftpBridgeConfig(config) {
 
 export function getSftpCachePath(config) {
   const key = crypto.createHash('sha256').update(`${config.host}:${config.port}:${config.username}:${config.bridgePath}`).digest('hex').slice(0, 24);
-  return path.join(process.cwd(), 'data', 'panelbridge-sftp-cache', key);
+  // process.cwd() ignores the panel's "move data directory" setting --
+  // same defect as debug.js's crash-log scan, different file. An operator
+  // who relocates their data dir would find this cache silently pinned to
+  // wherever the process happened to be launched from instead.
+  return path.join(getDataPaths().dataDir, 'panelbridge-sftp-cache', key);
 }
 
 // ─── Read-only remote log access ────────────────────────────────────────────

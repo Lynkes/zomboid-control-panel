@@ -1,8 +1,9 @@
 import express from "express";
-import { requireRole } from "../services/auth.js";
-import { sanitizeError } from "../utils/sanitize.js";
+import { requirePermission } from "../services/permissions.js";
+import { sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
 import { getServer } from "../database/init.js";
 import { RconService } from "../services/rcon.js";
+import { ErrorCode } from "../utils/errorCodes.js";
 
 const router = express.Router();
 
@@ -19,7 +20,7 @@ async function mapWithConcurrency(items, limit, mapper) {
   return results;
 }
 
-router.get("/status", requireRole("admin"), async (req, res) => {
+router.get("/status", requirePermission("docker.manage"), async (req, res) => {
   try {
     const dockerClient = req.app.get("dockerClient");
     if (!dockerClient?.enabled) {
@@ -45,7 +46,7 @@ router.get("/status", requireRole("admin"), async (req, res) => {
   }
 });
 
-router.get("/stats", requireRole("admin"), async (req, res) => {
+router.get("/stats", requirePermission("docker.manage"), async (req, res) => {
   try {
     const dockerClient = req.app.get("dockerClient");
     if (!dockerClient?.enabled || !dockerClient.available) return res.json({ containers: {} });
@@ -67,38 +68,66 @@ router.get("/stats", requireRole("admin"), async (req, res) => {
   }
 });
 
-router.post("/containers/:id/:action", requireRole("admin"), async (req, res) => {
+router.post("/containers/:id/:action", requirePermission("docker.manage"), async (req, res) => {
   let rconService = null;
   try {
     const dockerClient = req.app.get("dockerClient");
     if (!dockerClient?.enabled || !dockerClient.available) {
-      return res.status(503).json({ error: "Docker control is unavailable" });
+      return res.status(503).json({
+        error: "Docker control is unavailable",
+        code: ErrorCode.DOCKER_UNAVAILABLE,
+      });
     }
     const server = await getServer(req.body?.serverId);
-    if (!server) return res.status(404).json({ error: "Server profile not found" });
+    if (!server) {
+      return res.status(404).json({
+        error: "Server profile not found",
+        code: ErrorCode.SERVER_PROFILE_NOT_FOUND,
+      });
+    }
     if (
       server.dockerContainerName !== req.params.id &&
       server.dockerContainerId !== req.params.id
     ) {
-      return res.status(403).json({ error: "Container is not mapped to this server" });
+      return res.status(403).json({
+        error: "Container is not mapped to this server",
+        code: ErrorCode.CONTAINER_NOT_MAPPED,
+      });
     }
     const container = await dockerClient.inspectManagedContainer(req.params.id);
     if (!container) {
-      return res.status(403).json({ error: "Container is not managed by this panel" });
+      return res.status(403).json({
+        error: "Container is not managed by this panel",
+        code: ErrorCode.CONTAINER_NOT_MANAGED,
+      });
     }
     if (["stop", "restart"].includes(req.params.action) && container.State?.Running) {
       rconService = new RconService();
       await rconService.loadConfig(server.id);
       if (!(await rconService.connect())) {
-        return res.status(409).json({ error: "RCON connection failed; container was not changed" });
+        return res.status(409).json({
+          error: "RCON connection failed; container was not changed",
+          code: ErrorCode.DOCKER_ACTION_RCON_CONNECT_FAILED,
+        });
       }
       const saved = await rconService.save({ skipLog: true });
       if (!saved?.success) {
-        return res.status(409).json({ error: `World save failed: ${saved?.error || "unknown error"}` });
+        const reason = saved?.error || "unknown error";
+        return res.status(409).json({
+          error: `World save failed: ${reason}`,
+          code: ErrorCode.DOCKER_ACTION_SAVE_FAILED,
+          params: sanitizeErrorParams({ reason }),
+        });
       }
     }
     const result = await dockerClient.runManagedAction(req.params.id, req.params.action);
-    if (!result.success) return res.status(403).json(result);
+    if (!result.success) {
+      // Same redaction the /status route above already applies to this
+      // client's errors -- runManagedAction now returns the real Docker
+      // error text (was a static "Docker action failed" for every cause),
+      // which can include a filesystem path (e.g. a socket permission error).
+      return res.status(403).json({ ...result, error: sanitizeError(result.error) });
+    }
     return res.json(result);
   } catch (error) {
     return res.status(500).json({ error: sanitizeError(error.message) });

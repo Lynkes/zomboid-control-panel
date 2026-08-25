@@ -5,6 +5,13 @@ interface User {
   id: string
   username: string
   role: string
+  // UX-only signal for hiding controls the caller's role can't use (e.g. a
+  // Settings tab) -- NOT an access-control boundary; every route this could
+  // gate is (and remains) independently enforced server-side via
+  // requirePermission(). null means "couldn't resolve" (role renamed out
+  // from under the session, a lookup failure, or an older cached response) --
+  // treat that as "unknown", never as "no capabilities".
+  capabilities: string[] | null
 }
 
 interface AuthState {
@@ -17,9 +24,15 @@ interface AuthState {
 
 interface AuthContextType extends AuthState {
   login: (username: string, password: string, rememberMe?: boolean) => Promise<void>
-  setup: (username: string, password: string, rememberMe?: boolean, panelPort?: string) => Promise<void>
+  setup: (username: string, password: string, rememberMe?: boolean, panelPort?: string, setupToken?: string) => Promise<void>
   logout: () => Promise<void>
   getToken: () => string | null
+  // Fails OPEN: unknown capabilities (null, or no user yet) return true.
+  // Hiding a UI control from a real administrator because a field failed to
+  // load is a lockout-shaped support problem with no security benefit --
+  // the server still says no to anyone who shouldn't be there regardless of
+  // what this returns.
+  can: (capability: string) => boolean
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
@@ -172,16 +185,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const setup = useCallback(async (username: string, password: string, rememberMe = true, panelPort = '3001') => {
+  const setup = useCallback(async (username: string, password: string, rememberMe = true, panelPort = '3001', setupToken = '') => {
     const res = await fetch('/api/auth/setup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ username, password, rememberMe, panelPort }),
+      body: JSON.stringify({ username, password, rememberMe, panelPort, setupToken }),
     })
 
     if (!res.ok) {
       const data = await res.json()
+      // Setup.tsx recognizes this exact message and swaps in a localized,
+      // token-specific explanation instead of the generic setup-failed copy.
+      if (data.code === 'SETUP_TOKEN_REQUIRED') {
+        throw new Error('SETUP_TOKEN_REQUIRED')
+      }
       throw new Error(data.error || "We couldn't create the admin account. Try again.")
     }
 
@@ -210,8 +228,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }))
   }, [])
 
+  const can = useCallback(
+    (capability: string) => {
+      const capabilities = state.user?.capabilities
+      if (capabilities == null) return true
+      return capabilities.includes(capability)
+    },
+    [state.user],
+  )
+
   return (
-    <AuthContext.Provider value={useMemo(() => ({ ...state, login, setup, logout, getToken }), [state, login, setup, logout, getToken])}>
+    <AuthContext.Provider value={useMemo(() => ({ ...state, login, setup, logout, getToken, can }), [state, login, setup, logout, getToken, can])}>
       {children}
     </AuthContext.Provider>
   )

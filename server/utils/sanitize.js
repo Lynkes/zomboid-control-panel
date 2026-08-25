@@ -85,6 +85,26 @@ export function sanitizeError(message) {
 }
 
 /**
+ * Apply the same filesystem-path redaction as sanitizeError() to every
+ * string value in a structured-error `params` object, so the params
+ * channel can't leak a path the plain `error` message text would have
+ * redacted (e.g. a `reason` param sourced from raw RCON output). Numbers
+ * pass through unchanged; params is only ever string|number by the time
+ * it reaches a response (see errorMessage.ts on the client for the
+ * matching contract).
+ * @param {Record<string, string|number>|undefined} params
+ * @returns {Record<string, string|number>|undefined}
+ */
+export function sanitizeErrorParams(params) {
+  if (!params || typeof params !== 'object') return params;
+  const out = {};
+  for (const [key, value] of Object.entries(params)) {
+    out[key] = typeof value === 'string' ? sanitizeError(value) : value;
+  }
+  return out;
+}
+
+/**
  * Strip INI-sensitive characters from values to prevent injection.
  * Removes \r, \n (line injection), ; (comment / list delimiter), = (key separator).
  */

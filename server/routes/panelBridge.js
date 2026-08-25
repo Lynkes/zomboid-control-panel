@@ -19,9 +19,9 @@ import {
   commitNow,
   logBridgeCommand,
 } from "../database/init.js";
-import { sanitizeError, isMaskedSecret } from "../utils/sanitize.js";
+import { sanitizeError, sanitizeErrorParams, isMaskedSecret } from "../utils/sanitize.js";
 import { persistSandboxValues } from "./serverFiles.js";
-import { requireRole } from "../services/auth.js";
+import { requirePermission } from "../services/permissions.js";
 import {
   getEmbeddedPanelBridgeLua,
   compareModVersions,
@@ -47,6 +47,7 @@ import {
   resetRemoteConfigSession,
   validateRemoteConfigTransport,
 } from "../services/remoteConfigFiles.js";
+import { ErrorCode } from "../utils/errorCodes.js";
 const log = createLogger("API:PanelBridge");
 
 // ES Module __dirname equivalent
@@ -209,6 +210,54 @@ const VALID_ACTIONS = new Set([
 // Allow normal in-game names (spaces/symbols) while blocking control chars and quote/backslash.
 const BRIDGE_USERNAME_REGEX = /^(?=.*\S)[^\x00-\x1F\x7F"\\]{1,64}$/;
 
+// Shared path safety check for /configure, /configure-direct and
+// /auto-detect: bridge.configure()/autoDetect() (services/panelBridge.js)
+// perform no validation of their own -- whatever path reaches them becomes
+// this.bridgePath, which mkdirSync/writeFileSync/readFileSync then act on
+// directly once the bridge starts polling. Must be absolute and not a
+// protected system directory. Checks isAbsolute() on the RAW input, not on
+// the result of path.resolve() -- resolve() always returns an absolute path
+// by resolving against cwd, so checking absoluteness after resolving can
+// never reject anything and silently accepted relative paths.
+const BLOCKED_BRIDGE_PATH_PREFIXES =
+  process.platform === "win32"
+    ? ["c:\\windows", "c:\\program files"]
+    : ["/etc", "/usr", "/bin", "/sbin", "/proc", "/sys", "/dev"];
+
+function isValidBridgePath(inputPath) {
+  if (!inputPath || typeof inputPath !== "string") return false;
+  if (!path.isAbsolute(inputPath)) return false;
+  const resolved = path.resolve(inputPath);
+  const lower = process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  return !BLOCKED_BRIDGE_PATH_PREFIXES.some((p) => lower.startsWith(p));
+}
+
+// The 60 curated in-game GM/world routes below (weather, climate, time,
+// sound, zombies, visual, chat, utilities, character export/import,
+// teleport/give-item/heal/kill/godmode/invisible, plus /message) were
+// previously reachable by any signed-in role with no gate at all. Folded
+// into the matrix now, split by target: world-wide effects (weather,
+// climate, zombies, sound, visual, utilities, chat, /message, /time,
+// /world/stats) are requirePermission("server.world_events"); actions
+// aimed at a specific player or character, plus the read-only catalogue/
+// sandbox reads that support them, are requirePermission("players.gm_tools")
+// -- the same capability players.js's own teleport/give-item-equivalent
+// routes use. Both default to admin+technician+moderator, so this is a
+// zero-behaviour-change addition (adding a capability, not restricting
+// one). /status and /ping stay deliberately outside the matrix -- see
+// server.js's equivalent comment for why: dashboard-wide reads that
+// protect nothing if gated and can break a screen for a role if mis-set.
+// /commands stays outside the matrix too, for its own reason: the handler
+// returns a static hardcoded array of action names and argument shapes --
+// no live data, no server state, nothing that differs by who's asking. It's
+// API documentation, not a read of anything. Gating it would add a
+// permission check that protects nothing.
+// /server-info is NOT in that class: handlers.getServerInfo returns every
+// online player's exact x/y/z position and current health, unauthenticated,
+// to anyone who can reach the panel. Gated requirePermission("players.view")
+// -- same capability players.js uses for reading player details/status, and
+// held by all three default roles, so no legitimate caller loses access.
+
 // Get bridge status
 router.get("/status", async (req, res) => {
   const status = bridge.getStatus();
@@ -245,7 +294,7 @@ router.get("/status", async (req, res) => {
 });
 
 // Auto-configure bridge from server settings (optionally specify serverId)
-router.post("/auto-configure", async (req, res) => {
+router.post("/auto-configure", requirePermission("bridge.setup"), async (req, res) => {
   try {
     const { serverId } = req.body;
     log.info(`POST /auto-configure (serverId=${serverId || "active"})`);
@@ -255,9 +304,11 @@ router.post("/auto-configure", async (req, res) => {
     if (serverId) {
       targetServer = await getServer(serverId);
       if (!targetServer) {
-        return res
-          .status(400)
-          .json({ error: `Server with ID ${serverId} not found.` });
+        return res.status(400).json({
+          error: `Server with ID ${serverId} not found.`,
+          code: ErrorCode.PANELBRIDGE_SERVER_ID_NOT_FOUND,
+          params: sanitizeErrorParams({ serverId }),
+        });
       }
     } else {
       targetServer = await getActiveServer();
@@ -265,13 +316,17 @@ router.post("/auto-configure", async (req, res) => {
         return res.status(400).json({
           error:
             "No active server configured. Please configure a server first.",
+          code: ErrorCode.PANELBRIDGE_AUTO_CONFIGURE_NO_ACTIVE_SERVER,
         });
       }
     }
 
     const serverName = targetServer.serverName || targetServer.name;
     if (!serverName) {
-      return res.status(400).json({ error: "Server name not configured." });
+      return res.status(400).json({
+        error: "Server name not configured.",
+        code: ErrorCode.PANELBRIDGE_SERVER_NAME_NOT_CONFIGURED,
+      });
     }
 
     // The PanelBridge mod writes to: {RuntimeDataPath}/Lua/panelbridge/{serverName}/
@@ -412,6 +467,7 @@ router.post("/auto-configure", async (req, res) => {
     if (!foundPath) {
       return res.status(400).json({
         error: `Could not determine bridge path for server "${serverName}". Make sure server installPath is set.`,
+        code: ErrorCode.PANELBRIDGE_PATH_NOT_DETERMINED,
         searchedPaths: searchedLocations,
       });
     }
@@ -541,7 +597,7 @@ router.post("/auto-configure", async (req, res) => {
 });
 
 // Scan for bridge paths for a specific server (preview before applying)
-router.get("/scan-server/:serverId", async (req, res) => {
+router.get("/scan-server/:serverId", requirePermission("bridge.setup"), async (req, res) => {
   try {
     const { serverId } = req.params;
     const targetServer = await getServer(serverId);
@@ -550,6 +606,8 @@ router.get("/scan-server/:serverId", async (req, res) => {
       return res.status(404).json({
         success: false,
         error: `Server with ID ${serverId} not found.`,
+        code: ErrorCode.PANELBRIDGE_SERVER_ID_NOT_FOUND,
+        params: sanitizeErrorParams({ serverId }),
       });
     }
 
@@ -557,7 +615,11 @@ router.get("/scan-server/:serverId", async (req, res) => {
     if (!serverName) {
       return res
         .status(400)
-        .json({ success: false, error: "Server name not configured." });
+        .json({
+          success: false,
+          error: "Server name not configured.",
+          code: ErrorCode.PANELBRIDGE_SERVER_NAME_NOT_CONFIGURED,
+        });
     }
 
     const possiblePaths = [];
@@ -692,11 +754,21 @@ router.get("/scan-server/:serverId", async (req, res) => {
 });
 
 // Auto-detect bridge path from server name
-router.post("/auto-detect", async (req, res) => {
+router.post("/auto-detect", requirePermission("bridge.setup"), async (req, res) => {
   const { serverName, zomboidUserFolder } = req.body;
 
   if (!serverName) {
-    return res.status(400).json({ error: "serverName is required" });
+    return res.status(400).json({
+      error: "serverName is required",
+      code: ErrorCode.PANELBRIDGE_SERVER_NAME_REQUIRED,
+    });
+  }
+
+  if (zomboidUserFolder && !isValidBridgePath(zomboidUserFolder)) {
+    return res.status(400).json({
+      error: "Invalid zomboidUserFolder path",
+      code: ErrorCode.PANELBRIDGE_INVALID_ZOMBOID_USER_FOLDER,
+    });
   }
 
   try {
@@ -718,11 +790,21 @@ router.post("/auto-detect", async (req, res) => {
 });
 
 // Configure the bridge with Zomboid save path
-router.post("/configure", async (req, res) => {
+router.post("/configure", requirePermission("bridge.setup"), async (req, res) => {
   const { zomboidSavePath } = req.body;
 
   if (!zomboidSavePath) {
-    return res.status(400).json({ error: "zomboidSavePath is required" });
+    return res.status(400).json({
+      error: "zomboidSavePath is required",
+      code: ErrorCode.PANELBRIDGE_SAVE_PATH_REQUIRED,
+    });
+  }
+
+  if (!isValidBridgePath(zomboidSavePath)) {
+    return res.status(400).json({
+      error: "Invalid zomboidSavePath",
+      code: ErrorCode.PANELBRIDGE_INVALID_SAVE_PATH,
+    });
   }
 
   try {
@@ -745,30 +827,38 @@ router.post("/configure", async (req, res) => {
 });
 
 // Configure the bridge with a direct panelbridge folder path (manual override)
-router.post("/configure-direct", async (req, res) => {
+router.post("/configure-direct", requirePermission("bridge.setup"), async (req, res) => {
   const { bridgePath: reqPath } = req.body;
 
   if (!reqPath || typeof reqPath !== "string") {
-    return res.status(400).json({ error: "bridgePath is required" });
+    return res.status(400).json({
+      error: "bridgePath is required",
+      code: ErrorCode.PANELBRIDGE_BRIDGE_PATH_REQUIRED,
+    });
   }
 
-  // Basic validation: must be an absolute path
-  const resolved = path.resolve(reqPath);
-  if (!path.isAbsolute(resolved)) {
-    return res.status(400).json({ error: "Path must be absolute" });
+  // Must check isAbsolute() on the raw input: path.resolve() always returns
+  // an absolute path (resolved against cwd), so this check would never
+  // reject anything if run on its result -- it was a no-op that silently
+  // accepted relative paths.
+  if (!path.isAbsolute(reqPath)) {
+    return res.status(400).json({
+      error: "Path must be absolute",
+      code: ErrorCode.PANELBRIDGE_PATH_MUST_BE_ABSOLUTE,
+    });
   }
+  const resolved = path.resolve(reqPath);
 
   // Block obvious system dirs
   const lower =
     process.platform === "win32" ? resolved.toLowerCase() : resolved;
-  const blocked =
-    process.platform === "win32"
-      ? ["c:\\windows", "c:\\program files"]
-      : ["/etc", "/usr", "/bin", "/sbin", "/proc", "/sys", "/dev"];
-  if (blocked.some((p) => lower.startsWith(p))) {
+  if (BLOCKED_BRIDGE_PATH_PREFIXES.some((p) => lower.startsWith(p))) {
     return res
       .status(400)
-      .json({ error: "Path targets a protected system directory" });
+      .json({
+      error: "Path targets a protected system directory",
+      code: ErrorCode.PANELBRIDGE_PATH_PROTECTED_SYSTEM_DIR,
+    });
   }
 
   try {
@@ -788,7 +878,7 @@ router.post("/configure-direct", async (req, res) => {
   }
 });
 
-router.post("/sftp/test", requireRole("admin"), async (req, res) => {
+router.post("/sftp/test", requirePermission("bridge.setup"), async (req, res) => {
   try {
     const config = await resolveSftpConfig(req.body);
     const result = await testSftpBridge(config);
@@ -798,7 +888,7 @@ router.post("/sftp/test", requireRole("admin"), async (req, res) => {
   }
 });
 
-router.post("/sftp/configure", requireRole("admin"), async (req, res) => {
+router.post("/sftp/configure", requirePermission("bridge.setup"), async (req, res) => {
   try {
     const config = await resolveSftpConfig(req.body);
     const cachePath = getSftpCachePath(config);
@@ -813,7 +903,7 @@ router.post("/sftp/configure", requireRole("admin"), async (req, res) => {
   }
 });
 
-router.post("/sftp/logs/list", requireRole("admin"), async (req, res) => {
+router.post("/sftp/logs/list", requirePermission("bridge.setup"), async (req, res) => {
   try {
     const config = await resolveSftpLogConfig(req.body);
     const result = await listSftpLogs(config);
@@ -824,7 +914,7 @@ router.post("/sftp/logs/list", requireRole("admin"), async (req, res) => {
   }
 });
 
-router.post("/sftp/logs/tail", requireRole("admin"), async (req, res) => {
+router.post("/sftp/logs/tail", requirePermission("bridge.setup"), async (req, res) => {
   try {
     const config = await resolveSftpLogConfig(req.body);
     const result = await readSftpLogTail(config, req.body?.name, req.body?.maxBytes);
@@ -835,7 +925,7 @@ router.post("/sftp/logs/tail", requireRole("admin"), async (req, res) => {
 });
 
 // Verify the remote Server/ folder the config editor mirrors for a remote server.
-router.post("/sftp/config/list", requireRole("admin"), async (req, res) => {
+router.post("/sftp/config/list", requirePermission("bridge.setup"), async (req, res) => {
   try {
     const settings = await getAllSettings();
     const password =
@@ -861,7 +951,7 @@ router.post("/sftp/config/list", requireRole("admin"), async (req, res) => {
 });
 
 // Start the bridge polling
-router.post("/start", (req, res) => {
+router.post("/start", requirePermission("bridge.setup"), (req, res) => {
   try {
     bridge.start();
     res.json({ success: true, message: "Bridge started" });
@@ -871,7 +961,7 @@ router.post("/start", (req, res) => {
 });
 
 // Stop the bridge
-router.post("/stop", async (req, res) => {
+router.post("/stop", requirePermission("bridge.setup"), async (req, res) => {
   try {
     await bridge.stopSftp();
     bridge.stop();
@@ -882,7 +972,7 @@ router.post("/stop", async (req, res) => {
 });
 
 // Scan for all panelbridge folders across known locations
-router.get("/scan-paths", async (req, res) => {
+router.get("/scan-paths", requirePermission("bridge.setup"), async (req, res) => {
   try {
     const activeServer = await getActiveServer();
     const foundBridges = [];
@@ -1019,7 +1109,7 @@ router.get("/scan-paths", async (req, res) => {
 });
 
 // Force refresh - restart bridge with fresh state
-router.post("/refresh", (req, res) => {
+router.post("/refresh", requirePermission("bridge.setup"), (req, res) => {
   try {
     if (bridge.isRunning) {
       bridge.stop(); // stop() already resets all internal state
@@ -1046,7 +1136,10 @@ router.post("/refresh", (req, res) => {
 // Ping the mod
 router.get("/ping", async (req, res) => {
   if (!bridge.bridgePath) {
-    return res.status(400).json({ error: "Bridge not configured" });
+    return res.status(400).json({
+      error: "Bridge not configured",
+      code: ErrorCode.BRIDGE_NOT_CONFIGURED,
+    });
   }
 
   try {
@@ -1057,31 +1150,42 @@ router.get("/ping", async (req, res) => {
   }
 });
 
-// Send a command to the game. Admin-gated for consistency with the other
-// powerful/destructive routes (backup restore, chunk deletion, server wipe)
-// — this is the generic passthrough for ANY PanelBridge handler (teleport,
-// giveItem, character import/export, horde spawning, etc.), not just the
-// curated preset buttons in the Events UI. Every account is currently
-// created as 'admin' (see auth.js), so this has no effect today, but keeps
-// the route safe if a lower-privilege role is ever introduced.
-router.post("/command", requireRole("admin"), async (req, res) => {
+// Send a command to the game. Gated on bridge.command for consistency with
+// the other powerful/destructive routes (backup restore, chunk deletion,
+// server wipe) — this is the generic passthrough for ANY PanelBridge
+// handler (teleport, giveItem, character import/export, horde spawning,
+// etc.), not just the curated preset buttons in the Events UI. Neither
+// technician nor moderator holds bridge.command in the default role seed
+// (see permissions.js's DEFAULT_ROLE_CAPABILITIES) — only admin does,
+// automatically, by holding every capability. This gate is live and doing
+// real work today: roles are data now, an operator can create a custom
+// role and grant it bridge.command deliberately, and this is exactly what
+// stops that role also getting the unrestricted passthrough by accident.
+router.post("/command", requirePermission("bridge.command"), async (req, res) => {
   const activeServer = await getActiveServer();
   if (activeServer?.isRemote && !bridge.isSftpRunning() && !bridge.isRunning) {
     return res.status(400).json({
       error:
         "PanelBridge requires a configured mapped drive or a running SFTP bridge transport for remote servers.",
+      code: ErrorCode.PANELBRIDGE_COMMAND_REMOTE_TRANSPORT_UNAVAILABLE,
     });
   }
 
   const { action, args } = req.body;
 
   if (!action) {
-    return res.status(400).json({ error: "action is required" });
+    return res.status(400).json({
+      error: "action is required",
+      code: ErrorCode.PANELBRIDGE_ACTION_REQUIRED,
+    });
   }
 
   // Validate action against whitelist
   if (typeof action !== "string" || !VALID_ACTIONS.has(action)) {
-    return res.status(400).json({ error: "Unknown or invalid action" });
+    return res.status(400).json({
+      error: "Unknown or invalid action",
+      code: ErrorCode.PANELBRIDGE_UNKNOWN_ACTION,
+    });
   }
 
   // Validate args if provided
@@ -1089,7 +1193,10 @@ router.post("/command", requireRole("admin"), async (req, res) => {
     args !== undefined &&
     (typeof args !== "object" || args === null || Array.isArray(args))
   ) {
-    return res.status(400).json({ error: "args must be an object" });
+    return res.status(400).json({
+      error: "args must be an object",
+      code: ErrorCode.PANELBRIDGE_ARGS_MUST_BE_OBJECT,
+    });
   }
 
   // Build 42 does not expose a Lua vehicle-spawn API. The RCON command is
@@ -1100,14 +1207,20 @@ router.post("/command", requireRole("admin"), async (req, res) => {
     const y = Number(args?.y);
     const z = Number(args?.z ?? 0);
     if (typeof vehicle !== "string" || !VEHICLE_SCRIPT_REGEX.test(vehicle)) {
-      return res.status(400).json({ error: "Invalid vehicle script name" });
+      return res.status(400).json({
+      error: "Invalid vehicle script name",
+      code: ErrorCode.PANELBRIDGE_INVALID_VEHICLE_SCRIPT_NAME,
+    });
     }
     if (
       !Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z) ||
       x < 0 || x > 24000 || y < 0 || y > 24000 || z < 0 || z > 8 ||
       (x === 0 && y === 0)
     ) {
-      return res.status(400).json({ error: "Invalid coordinates (x/y: 0-24000, z: 0-8)" });
+      return res.status(400).json({
+      error: "Invalid coordinates (x/y: 0-24000, z: 0-8)",
+      code: ErrorCode.PANELBRIDGE_SPAWN_VEHICLE_INVALID_COORDS,
+    });
     }
 
     try {
@@ -1131,13 +1244,19 @@ router.post("/command", requireRole("admin"), async (req, res) => {
   }
 
   if (!bridge.bridgePath) {
-    return res.status(400).json({ error: "Bridge not configured" });
+    return res.status(400).json({
+      error: "Bridge not configured",
+      code: ErrorCode.BRIDGE_NOT_CONFIGURED,
+    });
   }
 
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
 
   // Action-specific validation
@@ -1162,7 +1281,10 @@ router.post("/command", requireRole("admin"), async (req, res) => {
     ) {
       return res
         .status(400)
-        .json({ error: "Invalid airdrop coordinates (valid: 0-24000)" });
+        .json({
+      error: "Invalid airdrop coordinates (valid: 0-24000)",
+      code: ErrorCode.PANELBRIDGE_AIRDROP_INVALID_COORDS,
+    });
     }
     if (
       args.preset &&
@@ -1170,26 +1292,39 @@ router.post("/command", requireRole("admin"), async (req, res) => {
     ) {
       return res
         .status(400)
-        .json({ error: `Invalid preset. Valid: ${VALID_PRESETS.join(", ")}` });
+        .json({
+      error: `Invalid preset. Valid: ${VALID_PRESETS.join(", ")}`,
+      code: ErrorCode.PANELBRIDGE_AIRDROP_INVALID_PRESET,
+      params: sanitizeErrorParams({ presets: VALID_PRESETS.join(", ") }),
+    });
     }
     if (args.items && (!Array.isArray(args.items) || args.items.length > 50)) {
       return res
         .status(400)
-        .json({ error: "items must be an array with at most 50 entries" });
+        .json({
+      error: "items must be an array with at most 50 entries",
+      code: ErrorCode.PANELBRIDGE_AIRDROP_ITEMS_ARRAY_INVALID,
+    });
     }
     if (Array.isArray(args.items)) {
       for (const entry of args.items) {
         if (!entry || typeof entry !== "object") {
           return res
             .status(400)
-            .json({ error: "Each item must be an object with itemType" });
+            .json({
+      error: "Each item must be an object with itemType",
+      code: ErrorCode.PANELBRIDGE_AIRDROP_ITEM_INVALID,
+    });
         }
         if (
           typeof entry.itemType !== "string" ||
           !ITEM_TYPE_REGEX.test(entry.itemType)
         ) {
+          const itemType = String(entry.itemType).slice(0, 60);
           return res.status(400).json({
-            error: `Invalid item type format: ${String(entry.itemType).slice(0, 60)}`,
+            error: `Invalid item type format: ${itemType}`,
+            code: ErrorCode.PANELBRIDGE_AIRDROP_ITEM_TYPE_INVALID,
+            params: sanitizeErrorParams({ itemType }),
           });
         }
         if (
@@ -1198,7 +1333,10 @@ router.post("/command", requireRole("admin"), async (req, res) => {
             entry.count < 1 ||
             entry.count > 20)
         ) {
-          return res.status(400).json({ error: "Item count must be 1-20" });
+          return res.status(400).json({
+      error: "Item count must be 1-20",
+      code: ErrorCode.PANELBRIDGE_AIRDROP_ITEM_COUNT_INVALID,
+    });
         }
       }
     }
@@ -1242,14 +1380,20 @@ router.post("/command", requireRole("admin"), async (req, res) => {
 });
 
 // Get weather info
-router.get("/weather", async (req, res) => {
+router.get("/weather", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.bridgePath) {
-    return res.status(400).json({ error: "Bridge not configured" });
+    return res.status(400).json({
+      error: "Bridge not configured",
+      code: ErrorCode.BRIDGE_NOT_CONFIGURED,
+    });
   }
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
 
   try {
@@ -1261,14 +1405,20 @@ router.get("/weather", async (req, res) => {
 });
 
 // Get server info
-router.get("/server-info", async (req, res) => {
+router.get("/server-info", requirePermission("players.view"), async (req, res) => {
   if (!bridge.bridgePath) {
-    return res.status(400).json({ error: "Bridge not configured" });
+    return res.status(400).json({
+      error: "Bridge not configured",
+      code: ErrorCode.BRIDGE_NOT_CONFIGURED,
+    });
   }
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
 
   try {
@@ -1284,11 +1434,14 @@ router.get("/server-info", async (req, res) => {
 });
 
 // Weather control endpoints
-router.post("/weather/blizzard", async (req, res) => {
+router.post("/weather/blizzard", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   const { duration } = req.body;
   try {
@@ -1299,11 +1452,14 @@ router.post("/weather/blizzard", async (req, res) => {
   }
 });
 
-router.post("/weather/tropical-storm", async (req, res) => {
+router.post("/weather/tropical-storm", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   const { duration } = req.body;
   try {
@@ -1314,11 +1470,14 @@ router.post("/weather/tropical-storm", async (req, res) => {
   }
 });
 
-router.post("/weather/storm", async (req, res) => {
+router.post("/weather/storm", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   const { duration } = req.body;
   if (
@@ -1330,7 +1489,10 @@ router.post("/weather/storm", async (req, res) => {
   ) {
     return res
       .status(400)
-      .json({ error: "duration must be a number 0-168 (hours)" });
+      .json({
+      error: "duration must be a number 0-168 (hours)",
+      code: ErrorCode.PANELBRIDGE_STORM_DURATION_INVALID,
+    });
   }
   try {
     const result = await bridge.triggerStorm(duration);
@@ -1340,11 +1502,14 @@ router.post("/weather/storm", async (req, res) => {
   }
 });
 
-router.post("/weather/stop", async (req, res) => {
+router.post("/weather/stop", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   try {
     const result = await bridge.stopWeather();
@@ -1355,11 +1520,14 @@ router.post("/weather/stop", async (req, res) => {
 });
 
 // Generate weather period
-router.post("/weather/generate", async (req, res) => {
+router.post("/weather/generate", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   const { strength, frontType } = req.body;
   if (
@@ -1369,7 +1537,10 @@ router.post("/weather/generate", async (req, res) => {
       strength < 0 ||
       strength > 1)
   ) {
-    return res.status(400).json({ error: "strength must be a number 0-1" });
+    return res.status(400).json({
+      error: "strength must be a number 0-1",
+      code: ErrorCode.PANELBRIDGE_WEATHER_STRENGTH_INVALID,
+    });
   }
   if (
     frontType !== undefined &&
@@ -1378,7 +1549,10 @@ router.post("/weather/generate", async (req, res) => {
       frontType < 0 ||
       frontType > 5)
   ) {
-    return res.status(400).json({ error: "frontType must be an integer 0-5" });
+    return res.status(400).json({
+      error: "frontType must be an integer 0-5",
+      code: ErrorCode.PANELBRIDGE_WEATHER_FRONT_TYPE_INVALID,
+    });
   }
   try {
     const result = await bridge.generateWeather(
@@ -1391,11 +1565,14 @@ router.post("/weather/generate", async (req, res) => {
   }
 });
 
-router.post("/weather/snow", async (req, res) => {
+router.post("/weather/snow", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   const { enabled, intensity } = req.body;
   if (
@@ -1406,7 +1583,10 @@ router.post("/weather/snow", async (req, res) => {
       intensity < 0 ||
       intensity > 1)
   ) {
-    return res.status(400).json({ error: "intensity must be a number 0-1" });
+    return res.status(400).json({
+      error: "intensity must be a number 0-1",
+      code: ErrorCode.BRIDGE_INTENSITY_MUST_BE_NUMBER_0_1,
+    });
   }
   try {
     const result = await bridge.setSnow(enabled !== false, intensity ?? null);
@@ -1421,11 +1601,14 @@ router.post("/weather/snow", async (req, res) => {
 // =============================================
 
 // Rain control
-router.post("/weather/rain/start", async (req, res) => {
+router.post("/weather/rain/start", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   const { intensity } = req.body;
   if (
@@ -1435,7 +1618,10 @@ router.post("/weather/rain/start", async (req, res) => {
       intensity < 0 ||
       intensity > 1)
   ) {
-    return res.status(400).json({ error: "intensity must be a number 0-1" });
+    return res.status(400).json({
+      error: "intensity must be a number 0-1",
+      code: ErrorCode.BRIDGE_INTENSITY_MUST_BE_NUMBER_0_1,
+    });
   }
   try {
     const result = await bridge.startRain(intensity ?? 0.5);
@@ -1445,11 +1631,14 @@ router.post("/weather/rain/start", async (req, res) => {
   }
 });
 
-router.post("/weather/rain/stop", async (req, res) => {
+router.post("/weather/rain/stop", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   try {
     const result = await bridge.stopRain();
@@ -1460,18 +1649,27 @@ router.post("/weather/rain/stop", async (req, res) => {
 });
 
 // Lightning
-router.post("/weather/lightning", async (req, res) => {
+router.post("/weather/lightning", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   const { x, y, strike, light, rumble } = req.body;
   if (x !== undefined && (typeof x !== "number" || !Number.isFinite(x))) {
-    return res.status(400).json({ error: "x must be a number" });
+    return res.status(400).json({
+      error: "x must be a number",
+      code: ErrorCode.PANELBRIDGE_LIGHTNING_X_INVALID,
+    });
   }
   if (y !== undefined && (typeof y !== "number" || !Number.isFinite(y))) {
-    return res.status(400).json({ error: "y must be a number" });
+    return res.status(400).json({
+      error: "y must be a number",
+      code: ErrorCode.PANELBRIDGE_LIGHTNING_Y_INVALID,
+    });
   }
   try {
     const result = await bridge.triggerLightning(x, y, strike, light, rumble);
@@ -1482,11 +1680,14 @@ router.post("/weather/lightning", async (req, res) => {
 });
 
 // Climate float control
-router.get("/climate/floats", async (req, res) => {
+router.get("/climate/floats", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   try {
     const result = await bridge.getClimateFloats();
@@ -1496,15 +1697,21 @@ router.get("/climate/floats", async (req, res) => {
   }
 });
 
-router.post("/climate/float", async (req, res) => {
+router.post("/climate/float", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   const { floatId, value, enable } = req.body;
   if (floatId === undefined || value === undefined) {
-    return res.status(400).json({ error: "floatId and value are required" });
+    return res.status(400).json({
+      error: "floatId and value are required",
+      code: ErrorCode.PANELBRIDGE_CLIMATE_FLOAT_FIELDS_REQUIRED,
+    });
   }
   if (
     typeof floatId !== "number" ||
@@ -1512,10 +1719,16 @@ router.post("/climate/float", async (req, res) => {
     floatId < 0 ||
     floatId > 12
   ) {
-    return res.status(400).json({ error: "floatId must be an integer 0-12" });
+    return res.status(400).json({
+      error: "floatId must be an integer 0-12",
+      code: ErrorCode.PANELBRIDGE_CLIMATE_FLOAT_ID_INVALID,
+    });
   }
   if (typeof value !== "number" || !Number.isFinite(value)) {
-    return res.status(400).json({ error: "value must be a number" });
+    return res.status(400).json({
+      error: "value must be a number",
+      code: ErrorCode.PANELBRIDGE_CLIMATE_FLOAT_VALUE_INVALID,
+    });
   }
   try {
     const result = await bridge.setClimateFloat(
@@ -1529,11 +1742,14 @@ router.post("/climate/float", async (req, res) => {
   }
 });
 
-router.post("/climate/reset", async (req, res) => {
+router.post("/climate/reset", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   try {
     const result = await bridge.resetClimateOverrides();
@@ -1544,11 +1760,14 @@ router.post("/climate/reset", async (req, res) => {
 });
 
 // Individual climate shortcuts
-router.post("/climate/temperature", async (req, res) => {
+router.post("/climate/temperature", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   const { value } = req.body;
   if (
@@ -1558,7 +1777,10 @@ router.post("/climate/temperature", async (req, res) => {
       value < -50 ||
       value > 50)
   ) {
-    return res.status(400).json({ error: "value must be a number -50 to 50" });
+    return res.status(400).json({
+      error: "value must be a number -50 to 50",
+      code: ErrorCode.PANELBRIDGE_TEMPERATURE_VALUE_INVALID,
+    });
   }
   try {
     const result = await bridge.setTemperature(value ?? 22);
@@ -1568,11 +1790,14 @@ router.post("/climate/temperature", async (req, res) => {
   }
 });
 
-router.post("/climate/wind", async (req, res) => {
+router.post("/climate/wind", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   const { value } = req.body;
   if (
@@ -1582,7 +1807,10 @@ router.post("/climate/wind", async (req, res) => {
       value < 0 ||
       value > 1)
   ) {
-    return res.status(400).json({ error: "value must be a number 0-1" });
+    return res.status(400).json({
+      error: "value must be a number 0-1",
+      code: ErrorCode.BRIDGE_VALUE_MUST_BE_NUMBER_0_1,
+    });
   }
   try {
     const result = await bridge.setWind(value ?? 0.5);
@@ -1592,11 +1820,14 @@ router.post("/climate/wind", async (req, res) => {
   }
 });
 
-router.post("/climate/fog", async (req, res) => {
+router.post("/climate/fog", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   const { value } = req.body;
   if (
@@ -1606,7 +1837,10 @@ router.post("/climate/fog", async (req, res) => {
       value < 0 ||
       value > 1)
   ) {
-    return res.status(400).json({ error: "value must be a number 0-1" });
+    return res.status(400).json({
+      error: "value must be a number 0-1",
+      code: ErrorCode.BRIDGE_VALUE_MUST_BE_NUMBER_0_1,
+    });
   }
   try {
     const result = await bridge.setFog(value ?? 0);
@@ -1616,11 +1850,14 @@ router.post("/climate/fog", async (req, res) => {
   }
 });
 
-router.post("/climate/clouds", async (req, res) => {
+router.post("/climate/clouds", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   const { value } = req.body;
   if (
@@ -1630,7 +1867,10 @@ router.post("/climate/clouds", async (req, res) => {
       value < 0 ||
       value > 1)
   ) {
-    return res.status(400).json({ error: "value must be a number 0-1" });
+    return res.status(400).json({
+      error: "value must be a number 0-1",
+      code: ErrorCode.BRIDGE_VALUE_MUST_BE_NUMBER_0_1,
+    });
   }
   try {
     const result = await bridge.setClouds(value ?? 0);
@@ -1641,11 +1881,14 @@ router.post("/climate/clouds", async (req, res) => {
 });
 
 // Game time endpoints
-router.get("/time", async (req, res) => {
+router.get("/time", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   try {
     const result = await bridge.getGameTime();
@@ -1655,11 +1898,14 @@ router.get("/time", async (req, res) => {
   }
 });
 
-router.post("/time", async (req, res) => {
+router.post("/time", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   const { hour, day, month, year } = req.body;
   if (
@@ -1669,13 +1915,19 @@ router.post("/time", async (req, res) => {
       hour < 0 ||
       hour > 23)
   ) {
-    return res.status(400).json({ error: "hour must be an integer 0-23" });
+    return res.status(400).json({
+      error: "hour must be an integer 0-23",
+      code: ErrorCode.PANELBRIDGE_GAMETIME_HOUR_INVALID,
+    });
   }
   if (
     day !== undefined &&
     (typeof day !== "number" || !Number.isInteger(day) || day < 1 || day > 31)
   ) {
-    return res.status(400).json({ error: "day must be an integer 1-31" });
+    return res.status(400).json({
+      error: "day must be an integer 1-31",
+      code: ErrorCode.PANELBRIDGE_GAMETIME_DAY_INVALID,
+    });
   }
   if (
     month !== undefined &&
@@ -1684,7 +1936,10 @@ router.post("/time", async (req, res) => {
       month < 1 ||
       month > 12)
   ) {
-    return res.status(400).json({ error: "month must be an integer 1-12" });
+    return res.status(400).json({
+      error: "month must be an integer 1-12",
+      code: ErrorCode.PANELBRIDGE_GAMETIME_MONTH_INVALID,
+    });
   }
   if (
     year !== undefined &&
@@ -1693,7 +1948,10 @@ router.post("/time", async (req, res) => {
       year < 1 ||
       year > 9999)
   ) {
-    return res.status(400).json({ error: "year must be an integer 1-9999" });
+    return res.status(400).json({
+      error: "year must be an integer 1-9999",
+      code: ErrorCode.PANELBRIDGE_GAMETIME_YEAR_INVALID,
+    });
   }
   try {
     const result = await bridge.setGameTime({ hour, day, month, year });
@@ -1704,11 +1962,14 @@ router.post("/time", async (req, res) => {
 });
 
 // World stats
-router.get("/world/stats", async (req, res) => {
+router.get("/world/stats", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   try {
     const result = await bridge.getWorldStats();
@@ -1718,12 +1979,16 @@ router.get("/world/stats", async (req, res) => {
   }
 });
 
-// Save world
-router.post("/world/save", async (req, res) => {
+// Save world. admin+technician, matching /api/server/save -- an operational
+// action, not player-facing GM authority.
+router.post("/world/save", requirePermission("server.control"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   try {
     const result = await bridge.saveWorld();
@@ -1734,11 +1999,14 @@ router.post("/world/save", async (req, res) => {
 });
 
 // Player endpoints
-router.get("/players", async (req, res) => {
+router.get("/players", requirePermission("players.gm_tools"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   try {
     const result = await bridge.getAllPlayerDetails();
@@ -1748,71 +2016,107 @@ router.get("/players", async (req, res) => {
   }
 });
 
-router.get("/players/:username", async (req, res) => {
+router.get("/players/:username", requirePermission("players.gm_tools"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   if (!BRIDGE_USERNAME_REGEX.test(req.params.username)) {
-    return res.status(400).json({ error: "Invalid username format" });
+    return res.status(400).json({
+      error: "Invalid username format",
+      code: ErrorCode.BRIDGE_INVALID_USERNAME_FORMAT,
+    });
   }
   try {
     const result = await bridge.getPlayerDetails(req.params.username);
     res.json(result);
   } catch (error) {
-    res.status(500).json({ error: "Failed to get player details" });
+    res.status(500).json({
+      error: "Failed to get player details",
+      code: ErrorCode.PANELBRIDGE_GET_PLAYER_DETAILS_FAILED,
+    });
   }
 });
 
-router.post("/players/:username/teleport", async (req, res) => {
+router.post("/players/:username/teleport", requirePermission("players.gm_tools"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   if (!BRIDGE_USERNAME_REGEX.test(req.params.username)) {
-    return res.status(400).json({ error: "Invalid username format" });
+    return res.status(400).json({
+      error: "Invalid username format",
+      code: ErrorCode.BRIDGE_INVALID_USERNAME_FORMAT,
+    });
   }
   const { x, y, z } = req.body;
   if (x === undefined || y === undefined) {
-    return res.status(400).json({ error: "x and y coordinates are required" });
+    return res.status(400).json({
+      error: "x and y coordinates are required",
+      code: ErrorCode.BRIDGE_XY_COORDS_REQUIRED,
+    });
   }
   if (
     typeof x !== "number" ||
     typeof y !== "number" ||
     (z !== undefined && typeof z !== "number")
   ) {
-    return res.status(400).json({ error: "Coordinates must be numbers" });
+    return res.status(400).json({
+      error: "Coordinates must be numbers",
+      code: ErrorCode.PANELBRIDGE_TELEPORT_COORDS_NOT_NUMBERS,
+    });
   }
   if (x < 0 || x > 24000 || y < 0 || y > 24000) {
     return res
       .status(400)
-      .json({ error: "x/y coordinates out of range (0-24000)" });
+      .json({
+        error: "x/y coordinates out of range (0-24000)",
+        code: ErrorCode.PANELBRIDGE_TELEPORT_XY_OUT_OF_RANGE,
+      });
   }
   if (z !== undefined && (z < 0 || z > 8)) {
-    return res.status(400).json({ error: "z coordinate out of range (0-8)" });
+    return res.status(400).json({
+      error: "z coordinate out of range (0-8)",
+      code: ErrorCode.PANELBRIDGE_TELEPORT_Z_OUT_OF_RANGE,
+    });
   }
   try {
     const result = await bridge.teleportPlayer(req.params.username, x, y, z);
     res.json(result);
   } catch (error) {
-    res.status(500).json({ error: "Teleport failed" });
+    res.status(500).json({
+      error: "Teleport failed",
+      code: ErrorCode.PANELBRIDGE_TELEPORT_FAILED,
+    });
   }
 });
 
 // Server message (routed via sendToServerChat; no dedicated sendServerMessage Lua handler)
-router.post("/message", async (req, res) => {
+router.post("/message", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   const { message } = req.body;
   if (!message || typeof message !== "string" || message.length > 2000) {
     return res
       .status(400)
-      .json({ error: "message is required (max 2000 chars)" });
+      .json({
+        error: "message is required (max 2000 chars)",
+        code: ErrorCode.BRIDGE_MESSAGE_REQUIRED,
+      });
   }
   try {
     const result = await bridge.sendCommand("sendToServerChat", {
@@ -1826,11 +2130,14 @@ router.post("/message", async (req, res) => {
 });
 
 // Sandbox options (read-only)
-router.get("/sandbox", async (req, res) => {
+router.get("/sandbox", requirePermission("players.gm_tools"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   try {
     const result = await bridge.getSandboxOptions();
@@ -2471,7 +2778,7 @@ router.get("/commands", (req, res) => {
 });
 
 // Get mod installation path (for copying mod to server)
-router.get("/mod-path", async (req, res) => {
+router.get("/mod-path", requirePermission("bridge.setup"), async (req, res) => {
   // Path to the bundled mod - check multiple locations for packaged exe
   const possiblePaths = [
     path.join(process.cwd(), "pz-mod", "PanelBridge"),
@@ -2518,13 +2825,17 @@ router.get("/mod-path", async (req, res) => {
 // Explicitly install/update PanelBridge.lua on the active server's local
 // filesystem (bind mount / same-host install). See services/panelBridgeInstaller.js
 // — this is the manual counterpart to the auto-install run on activation.
-router.post("/install-local", requireRole("admin"), async (req, res) => {
+router.post("/install-local", requirePermission("bridge.setup"), async (req, res) => {
   try {
     const server = await getActiveServer();
     if (!server) {
       return res
         .status(400)
-        .json({ success: false, error: "No active server configured." });
+        .json({
+          success: false,
+          error: "No active server configured.",
+          code: ErrorCode.PANELBRIDGE_NO_ACTIVE_SERVER,
+        });
     }
 
     if (!canAutoInstall(server)) {
@@ -2532,6 +2843,7 @@ router.post("/install-local", requireRole("admin"), async (req, res) => {
         success: false,
         error:
           "Auto-install is not available for this server. It must be a local (non-remote) server with a writable install path and the PanelBridge source present.",
+        code: ErrorCode.PANELBRIDGE_AUTO_INSTALL_NOT_AVAILABLE,
       });
     }
 
@@ -2553,7 +2865,7 @@ router.post("/install-local", requireRole("admin"), async (req, res) => {
 });
 
 // Auto-install mod to server's Lua folder (optionally specify serverId)
-router.post("/install-mod-auto", requireRole("admin"), async (req, res) => {
+router.post("/install-mod-auto", requirePermission("bridge.setup"), async (req, res) => {
   try {
     const { serverId } = req.body;
 
@@ -2562,26 +2874,33 @@ router.post("/install-mod-auto", requireRole("admin"), async (req, res) => {
     if (serverId) {
       targetServer = await getServer(serverId);
       if (!targetServer) {
-        return res
-          .status(400)
-          .json({ error: `Server with ID ${serverId} not found.` });
+        return res.status(400).json({
+          error: `Server with ID ${serverId} not found.`,
+          code: ErrorCode.PANELBRIDGE_SERVER_ID_NOT_FOUND,
+          params: sanitizeErrorParams({ serverId }),
+        });
       }
     } else {
       targetServer = await getActiveServer();
       if (!targetServer) {
-        return res.status(400).json({ error: "No active server configured." });
+        return res.status(400).json({
+          error: "No active server configured.",
+          code: ErrorCode.PANELBRIDGE_NO_ACTIVE_SERVER,
+        });
       }
     }
 
     if (targetServer.isRemote) {
       return res.status(400).json({
         error: "Automatic PanelBridge installation is unavailable for remote servers. Copy PanelBridge.lua to the remote server's Lua folder using SFTP or the hosting provider's file manager.",
+        code: ErrorCode.PANELBRIDGE_INSTALL_REMOTE_NOT_AVAILABLE,
       });
     }
 
     if (!canAutoInstall(targetServer)) {
       return res.status(400).json({
         error: "Automatic PanelBridge installation is unavailable. Configure an existing local server install folder with write permission, or use the manual install path.",
+        code: ErrorCode.PANELBRIDGE_INSTALL_CANNOT_AUTO_INSTALL,
       });
     }
 
@@ -2602,7 +2921,7 @@ router.post("/install-mod-auto", requireRole("admin"), async (req, res) => {
 });
 
 // Copy mod to server Lua folder (manual path)
-router.post("/install-mod", requireRole("admin"), (req, res) => {
+router.post("/install-mod", requirePermission("bridge.setup"), (req, res) => {
   const { serverLuaPath } = req.body;
 
   // Support legacy field name
@@ -2611,20 +2930,32 @@ router.post("/install-mod", requireRole("admin"), (req, res) => {
   if (!targetPath) {
     return res
       .status(400)
-      .json({ error: "serverLuaPath is required (path to media/lua/server/)" });
+      .json({
+        error: "serverLuaPath is required (path to media/lua/server/)",
+        code: ErrorCode.PANELBRIDGE_SERVER_LUA_PATH_REQUIRED,
+      });
   }
 
   // Validate path: must be a string, absolute, no traversal
   if (typeof targetPath !== "string" || targetPath.length > 500) {
-    return res.status(400).json({ error: "Invalid path format" });
+    return res.status(400).json({
+      error: "Invalid path format",
+      code: ErrorCode.PANELBRIDGE_SERVER_LUA_PATH_FORMAT_INVALID,
+    });
   }
 
+  // Must check isAbsolute() on the raw input: path.resolve() always
+  // returns an absolute path (resolved against cwd), so checking it after
+  // resolving would never reject anything and silently accepted relative
+  // paths as if they'd been rejected. (The real containment check is the
+  // realpath + /media/lua/server suffix check below, which does work.)
+  if (!path.isAbsolute(targetPath)) {
+    return res.status(400).json({
+      error: "Must be an absolute path",
+      code: ErrorCode.PANELBRIDGE_SERVER_LUA_PATH_NOT_ABSOLUTE,
+    });
+  }
   const resolvedTarget = path.resolve(targetPath);
-
-  // Must be absolute
-  if (!path.isAbsolute(resolvedTarget)) {
-    return res.status(400).json({ error: "Must be an absolute path" });
-  }
 
   // Resolve symlinks to prevent traversal via symlink chains
   let realTarget;
@@ -2658,7 +2989,10 @@ router.post("/install-mod", requireRole("admin"), (req, res) => {
   ) {
     return res
       .status(400)
-      .json({ error: "Path must point to a media/lua/server/ directory" });
+      .json({
+        error: "Path must point to a media/lua/server/ directory",
+        code: ErrorCode.PANELBRIDGE_SERVER_LUA_PATH_WRONG_DIRECTORY,
+      });
   }
 
   try {
@@ -2689,6 +3023,7 @@ router.post("/install-mod", requireRole("admin"), (req, res) => {
     if (!srcContent) {
       return res.status(404).json({
         error: "Source mod not found (no embedded Lua and no on-disk pz-mod).",
+        code: ErrorCode.PANELBRIDGE_SOURCE_MOD_NOT_FOUND,
       });
     }
 
@@ -2716,15 +3051,21 @@ router.post("/install-mod", requireRole("admin"), (req, res) => {
 // =============================================
 
 // Play sound at world coordinates
-router.post("/sound/world", async (req, res) => {
+router.post("/sound/world", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   const { x, y, z, radius, volume } = req.body;
   if (x === undefined || y === undefined) {
-    return res.status(400).json({ error: "x and y coordinates are required" });
+    return res.status(400).json({
+      error: "x and y coordinates are required",
+      code: ErrorCode.BRIDGE_XY_COORDS_REQUIRED,
+    });
   }
   if (
     typeof x !== "number" ||
@@ -2736,7 +3077,10 @@ router.post("/sound/world", async (req, res) => {
   ) {
     return res
       .status(400)
-      .json({ error: "Coordinates out of range (valid: 0-24000)" });
+      .json({
+        error: "Coordinates out of range (valid: 0-24000)",
+        code: ErrorCode.PANELBRIDGE_SOUND_COORDS_OUT_OF_RANGE,
+      });
   }
   try {
     const result = await bridge.playWorldSound(x, y, z, radius, volume);
@@ -2747,53 +3091,77 @@ router.post("/sound/world", async (req, res) => {
 });
 
 // Play sound near a player
-router.post("/sound/near-player", async (req, res) => {
+router.post("/sound/near-player", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   const { username, radius, volume } = req.body;
   if (!username || !BRIDGE_USERNAME_REGEX.test(username)) {
-    return res.status(400).json({ error: "Valid username is required" });
+    return res.status(400).json({
+      error: "Valid username is required",
+      code: ErrorCode.BRIDGE_VALID_USERNAME_REQUIRED,
+    });
   }
   try {
     const result = await bridge.playSoundNearPlayer(username, radius, volume);
     res.json(result);
   } catch (error) {
-    res.status(500).json({ error: "Failed to play sound" });
+    res.status(500).json({
+      error: "Failed to play sound",
+      code: ErrorCode.PANELBRIDGE_PLAY_SOUND_FAILED,
+    });
   }
 });
 
 // Trigger gunshot sound
-router.post("/sound/gunshot", async (req, res) => {
+router.post("/sound/gunshot", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   const { x, y, z, username } = req.body;
   if (username && !BRIDGE_USERNAME_REGEX.test(username)) {
-    return res.status(400).json({ error: "Invalid username format" });
+    return res.status(400).json({
+      error: "Invalid username format",
+      code: ErrorCode.BRIDGE_INVALID_USERNAME_FORMAT,
+    });
   }
   try {
     const result = await bridge.triggerGunshot({ x, y, z, username });
     res.json(result);
   } catch (error) {
-    res.status(500).json({ error: "Failed to trigger gunshot" });
+    res.status(500).json({
+      error: "Failed to trigger gunshot",
+      code: ErrorCode.PANELBRIDGE_TRIGGER_GUNSHOT_FAILED,
+    });
   }
 });
 
 // Trigger alarm sound
-router.post("/sound/alarm", async (req, res) => {
+router.post("/sound/alarm", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   const { x, y, z, username } = req.body;
   if (username && !BRIDGE_USERNAME_REGEX.test(username)) {
-    return res.status(400).json({ error: "Invalid username format" });
+    return res.status(400).json({
+      error: "Invalid username format",
+      code: ErrorCode.BRIDGE_INVALID_USERNAME_FORMAT,
+    });
   }
   try {
     const result = await bridge.triggerAlarmSound({ x, y, z, username });
@@ -2804,15 +3172,21 @@ router.post("/sound/alarm", async (req, res) => {
 });
 
 // Create custom noise
-router.post("/sound/noise", async (req, res) => {
+router.post("/sound/noise", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   const { x, y, z, radius, volume, username } = req.body;
   if (username && !BRIDGE_USERNAME_REGEX.test(username)) {
-    return res.status(400).json({ error: "Invalid username format" });
+    return res.status(400).json({
+      error: "Invalid username format",
+      code: ErrorCode.BRIDGE_INVALID_USERNAME_FORMAT,
+    });
   }
   try {
     const result = await bridge.createNoise({
@@ -2862,11 +3236,14 @@ async function persistUtilities(power, water, on) {
 }
 
 // Get utilities (power/water) status
-router.get("/utilities/status", async (req, res) => {
+router.get("/utilities/status", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   try {
     const result = await bridge.sendCommand("getUtilitiesStatus", {});
@@ -2877,11 +3254,14 @@ router.get("/utilities/status", async (req, res) => {
 });
 
 // Restore utilities (turn power/water back on)
-router.post("/utilities/restore", async (req, res) => {
+router.post("/utilities/restore", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   const { power, water } = req.body;
   log.info(
@@ -2907,11 +3287,14 @@ router.post("/utilities/restore", async (req, res) => {
 });
 
 // Shut off utilities
-router.post("/utilities/shutoff", async (req, res) => {
+router.post("/utilities/shutoff", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   const { power, water } = req.body;
   log.info(
@@ -2941,15 +3324,21 @@ router.post("/utilities/shutoff", async (req, res) => {
 // =============================================
 
 // Export character data (XP, perks, skills, traits, inventory)
-router.post("/character/export", async (req, res) => {
+router.post("/character/export", requirePermission("players.gm_tools"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   const { username } = req.body;
   if (!username || !BRIDGE_USERNAME_REGEX.test(username)) {
-    return res.status(400).json({ error: "Invalid or missing username" });
+    return res.status(400).json({
+      error: "Invalid or missing username",
+      code: ErrorCode.BRIDGE_INVALID_OR_MISSING_USERNAME,
+    });
   }
   try {
     const result = await bridge.sendCommand("exportPlayerData", { username });
@@ -2960,22 +3349,34 @@ router.post("/character/export", async (req, res) => {
 });
 
 // Import character data (apply XP, perks to player)
-router.post("/character/import", async (req, res) => {
+router.post("/character/import", requirePermission("players.gm_tools"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
-      .json({ error: "Bridge not running. Start it first." });
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
   }
   const { username, data, options } = req.body;
   if (!username || !BRIDGE_USERNAME_REGEX.test(username)) {
-    return res.status(400).json({ error: "Invalid or missing username" });
+    return res.status(400).json({
+      error: "Invalid or missing username",
+      code: ErrorCode.BRIDGE_INVALID_OR_MISSING_USERNAME,
+    });
   }
   if (!data) {
-    return res.status(400).json({ error: "Character data is required" });
+    return res.status(400).json({
+      error: "Character data is required",
+      code: ErrorCode.PANELBRIDGE_CHARACTER_DATA_REQUIRED,
+    });
   }
   // Validate data is an object with expected structure
   if (typeof data !== "object" || Array.isArray(data)) {
-    return res.status(400).json({ error: "Character data must be an object" });
+    return res.status(400).json({
+      error: "Character data must be an object",
+      code: ErrorCode.PANELBRIDGE_CHARACTER_DATA_NOT_OBJECT,
+    });
   }
   // Check for at least one valid data section
   const validSections = [
@@ -2996,6 +3397,8 @@ router.post("/character/import", async (req, res) => {
       error:
         "Character data must contain at least one of: " +
         validSections.join(", "),
+      code: ErrorCode.PANELBRIDGE_CHARACTER_DATA_NO_VALID_SECTION,
+      params: sanitizeErrorParams({ sections: validSections.join(", ") }),
     });
   }
   try {
@@ -3015,13 +3418,19 @@ router.post("/character/import", async (req, res) => {
 // ============================================
 
 // Give item to player
-router.post("/players/:username/give-item", async (req, res) => {
+router.post("/players/:username/give-item", requirePermission("players.gm_tools"), async (req, res) => {
   if (!bridge.isRunning) {
-    return res.status(400).json({ error: "Bridge not running" });
+    return res.status(400).json({
+      error: "Bridge not running",
+      code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
+    });
   }
   const { username } = req.params;
   if (!BRIDGE_USERNAME_REGEX.test(username)) {
-    return res.status(400).json({ error: "Invalid username format" });
+    return res.status(400).json({
+      error: "Invalid username format",
+      code: ErrorCode.BRIDGE_INVALID_USERNAME_FORMAT,
+    });
   }
   const { itemType, count = 1 } = req.body;
   if (
@@ -3034,7 +3443,10 @@ router.post("/players/:username/give-item", async (req, res) => {
     });
   }
   if (typeof count !== "number" || count < 1 || count > 100) {
-    return res.status(400).json({ error: "count must be 1-100" });
+    return res.status(400).json({
+      error: "count must be 1-100",
+      code: ErrorCode.PANELBRIDGE_HORDE_COUNT_INVALID,
+    });
   }
   try {
     const result = await bridge.sendCommand("giveItem", {
@@ -3049,13 +3461,19 @@ router.post("/players/:username/give-item", async (req, res) => {
 });
 
 // Heal player
-router.post("/players/:username/heal", async (req, res) => {
+router.post("/players/:username/heal", requirePermission("players.gm_tools"), async (req, res) => {
   if (!bridge.isRunning) {
-    return res.status(400).json({ error: "Bridge not running" });
+    return res.status(400).json({
+      error: "Bridge not running",
+      code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
+    });
   }
   const { username } = req.params;
   if (!BRIDGE_USERNAME_REGEX.test(username)) {
-    return res.status(400).json({ error: "Invalid username format" });
+    return res.status(400).json({
+      error: "Invalid username format",
+      code: ErrorCode.BRIDGE_INVALID_USERNAME_FORMAT,
+    });
   }
   try {
     const result = await bridge.sendCommand("healPlayer", { username });
@@ -3066,13 +3484,19 @@ router.post("/players/:username/heal", async (req, res) => {
 });
 
 // Kill player
-router.post("/players/:username/kill", async (req, res) => {
+router.post("/players/:username/kill", requirePermission("players.gm_tools"), async (req, res) => {
   if (!bridge.isRunning) {
-    return res.status(400).json({ error: "Bridge not running" });
+    return res.status(400).json({
+      error: "Bridge not running",
+      code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
+    });
   }
   const { username } = req.params;
   if (!BRIDGE_USERNAME_REGEX.test(username)) {
-    return res.status(400).json({ error: "Invalid username format" });
+    return res.status(400).json({
+      error: "Invalid username format",
+      code: ErrorCode.BRIDGE_INVALID_USERNAME_FORMAT,
+    });
   }
   try {
     const result = await bridge.sendCommand("killPlayer", { username });
@@ -3083,13 +3507,19 @@ router.post("/players/:username/kill", async (req, res) => {
 });
 
 // Set god mode for player
-router.post("/players/:username/godmode", async (req, res) => {
+router.post("/players/:username/godmode", requirePermission("players.gm_tools"), async (req, res) => {
   if (!bridge.isRunning) {
-    return res.status(400).json({ error: "Bridge not running" });
+    return res.status(400).json({
+      error: "Bridge not running",
+      code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
+    });
   }
   const { username } = req.params;
   if (!BRIDGE_USERNAME_REGEX.test(username)) {
-    return res.status(400).json({ error: "Invalid username format" });
+    return res.status(400).json({
+      error: "Invalid username format",
+      code: ErrorCode.BRIDGE_INVALID_USERNAME_FORMAT,
+    });
   }
   const { enabled } = req.body;
   try {
@@ -3104,13 +3534,19 @@ router.post("/players/:username/godmode", async (req, res) => {
 });
 
 // Set invisible for player
-router.post("/players/:username/invisible", async (req, res) => {
+router.post("/players/:username/invisible", requirePermission("players.gm_tools"), async (req, res) => {
   if (!bridge.isRunning) {
-    return res.status(400).json({ error: "Bridge not running" });
+    return res.status(400).json({
+      error: "Bridge not running",
+      code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
+    });
   }
   const { username } = req.params;
   if (!BRIDGE_USERNAME_REGEX.test(username)) {
-    return res.status(400).json({ error: "Invalid username format" });
+    return res.status(400).json({
+      error: "Invalid username format",
+      code: ErrorCode.BRIDGE_INVALID_USERNAME_FORMAT,
+    });
   }
   const { enabled } = req.body;
   try {
@@ -3129,9 +3565,12 @@ router.post("/players/:username/invisible", async (req, res) => {
 // ============================================
 
 // Get zombie statistics
-router.get("/zombies/count", async (req, res) => {
+router.get("/zombies/count", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
-    return res.status(400).json({ error: "Bridge not running" });
+    return res.status(400).json({
+      error: "Bridge not running",
+      code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
+    });
   }
   try {
     const result = await bridge.sendCommand("getZombieCount", {});
@@ -3142,16 +3581,25 @@ router.get("/zombies/count", async (req, res) => {
 });
 
 // Clear zombies near a player
-router.post("/zombies/clear-near-player", async (req, res) => {
+router.post("/zombies/clear-near-player", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
-    return res.status(400).json({ error: "Bridge not running" });
+    return res.status(400).json({
+      error: "Bridge not running",
+      code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
+    });
   }
   const { username, radius = 50 } = req.body;
   if (!username || !BRIDGE_USERNAME_REGEX.test(username)) {
-    return res.status(400).json({ error: "Valid username is required" });
+    return res.status(400).json({
+      error: "Valid username is required",
+      code: ErrorCode.BRIDGE_VALID_USERNAME_REQUIRED,
+    });
   }
   if (typeof radius !== "number" || radius < 1 || radius > 500) {
-    return res.status(400).json({ error: "radius must be 1-500" });
+    return res.status(400).json({
+      error: "radius must be 1-500",
+      code: ErrorCode.PANELBRIDGE_CLEAR_ZOMBIES_RADIUS_INVALID,
+    });
   }
   try {
     const result = await bridge.sendCommand("clearZombiesNearPlayer", {
@@ -3165,9 +3613,12 @@ router.post("/zombies/clear-near-player", async (req, res) => {
 });
 
 // Clear ALL zombies in loaded cells
-router.post("/zombies/clear-all", async (req, res) => {
+router.post("/zombies/clear-all", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
-    return res.status(400).json({ error: "Bridge not running" });
+    return res.status(400).json({
+      error: "Bridge not running",
+      code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
+    });
   }
   try {
     log.info("Clearing all zombies");
@@ -3181,13 +3632,19 @@ router.post("/zombies/clear-all", async (req, res) => {
 });
 
 // Spawn horde near a player
-router.post("/zombies/spawn-near", async (req, res) => {
+router.post("/zombies/spawn-near", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
-    return res.status(400).json({ error: "Bridge not running" });
+    return res.status(400).json({
+      error: "Bridge not running",
+      code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
+    });
   }
   const { username, count = 50 } = req.body;
   if (!username || !BRIDGE_USERNAME_REGEX.test(username)) {
-    return res.status(400).json({ error: "Valid username is required" });
+    return res.status(400).json({
+      error: "Valid username is required",
+      code: ErrorCode.BRIDGE_VALID_USERNAME_REQUIRED,
+    });
   }
   const safeCount = Math.min(Math.max(Math.floor(Number(count) || 50), 1), 500);
   try {
@@ -3205,13 +3662,19 @@ router.post("/zombies/spawn-near", async (req, res) => {
 });
 
 // Spawn horde behind a player
-router.post("/zombies/spawn-behind", async (req, res) => {
+router.post("/zombies/spawn-behind", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
-    return res.status(400).json({ error: "Bridge not running" });
+    return res.status(400).json({
+      error: "Bridge not running",
+      code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
+    });
   }
   const { username, count = 50 } = req.body;
   if (!username || !BRIDGE_USERNAME_REGEX.test(username)) {
-    return res.status(400).json({ error: "Valid username is required" });
+    return res.status(400).json({
+      error: "Valid username is required",
+      code: ErrorCode.BRIDGE_VALID_USERNAME_REQUIRED,
+    });
   }
   const safeCount = Math.min(Math.max(Math.floor(Number(count) || 50), 1), 500);
   try {
@@ -3233,15 +3696,21 @@ router.post("/zombies/spawn-behind", async (req, res) => {
 // ============================================
 
 // Set view distance
-router.post("/visual/view-distance", async (req, res) => {
+router.post("/visual/view-distance", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
-    return res.status(400).json({ error: "Bridge not running" });
+    return res.status(400).json({
+      error: "Bridge not running",
+      code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
+    });
   }
   const { value } = req.body;
   if (typeof value !== "number") {
     return res
       .status(400)
-      .json({ error: "value is required (number 0.0-1.0)" });
+      .json({
+        error: "value is required (number 0.0-1.0)",
+        code: ErrorCode.PANELBRIDGE_VALUE_REQUIRED_NUMBER_0_1,
+      });
   }
   try {
     const result = await bridge.sendCommand("setViewDistance", { value });
@@ -3252,13 +3721,19 @@ router.post("/visual/view-distance", async (req, res) => {
 });
 
 // Set daylight level
-router.post("/visual/daylight", async (req, res) => {
+router.post("/visual/daylight", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
-    return res.status(400).json({ error: "Bridge not running" });
+    return res.status(400).json({
+      error: "Bridge not running",
+      code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
+    });
   }
   const { value } = req.body;
   if (typeof value !== "number") {
-    return res.status(400).json({ error: "value is required (0.0-1.0)" });
+    return res.status(400).json({
+      error: "value is required (0.0-1.0)",
+      code: ErrorCode.BRIDGE_VALUE_REQUIRED_0_1,
+    });
   }
   try {
     const result = await bridge.sendCommand("setDayLight", { value });
@@ -3269,13 +3744,19 @@ router.post("/visual/daylight", async (req, res) => {
 });
 
 // Set night strength
-router.post("/visual/night-strength", async (req, res) => {
+router.post("/visual/night-strength", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
-    return res.status(400).json({ error: "Bridge not running" });
+    return res.status(400).json({
+      error: "Bridge not running",
+      code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
+    });
   }
   const { value } = req.body;
   if (typeof value !== "number") {
-    return res.status(400).json({ error: "value is required (0.0-1.0)" });
+    return res.status(400).json({
+      error: "value is required (0.0-1.0)",
+      code: ErrorCode.BRIDGE_VALUE_REQUIRED_0_1,
+    });
   }
   try {
     const result = await bridge.sendCommand("setNightStrength", { value });
@@ -3286,13 +3767,19 @@ router.post("/visual/night-strength", async (req, res) => {
 });
 
 // Set desaturation (color wash)
-router.post("/visual/desaturation", async (req, res) => {
+router.post("/visual/desaturation", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
-    return res.status(400).json({ error: "Bridge not running" });
+    return res.status(400).json({
+      error: "Bridge not running",
+      code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
+    });
   }
   const { value } = req.body;
   if (typeof value !== "number") {
-    return res.status(400).json({ error: "value is required (0.0-1.0)" });
+    return res.status(400).json({
+      error: "value is required (0.0-1.0)",
+      code: ErrorCode.BRIDGE_VALUE_REQUIRED_0_1,
+    });
   }
   try {
     const result = await bridge.sendCommand("setDesaturation", { value });
@@ -3303,13 +3790,19 @@ router.post("/visual/desaturation", async (req, res) => {
 });
 
 // Set ambient light
-router.post("/visual/ambient", async (req, res) => {
+router.post("/visual/ambient", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
-    return res.status(400).json({ error: "Bridge not running" });
+    return res.status(400).json({
+      error: "Bridge not running",
+      code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
+    });
   }
   const { value } = req.body;
   if (typeof value !== "number") {
-    return res.status(400).json({ error: "value is required (0.0-1.0)" });
+    return res.status(400).json({
+      error: "value is required (0.0-1.0)",
+      code: ErrorCode.BRIDGE_VALUE_REQUIRED_0_1,
+    });
   }
   try {
     const result = await bridge.sendCommand("setAmbient", { value });
@@ -3324,9 +3817,12 @@ router.post("/visual/ambient", async (req, res) => {
 // ============================================
 
 // Get chat info
-router.get("/chat/info", async (req, res) => {
+router.get("/chat/info", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
-    return res.status(400).json({ error: "Bridge not running" });
+    return res.status(400).json({
+      error: "Bridge not running",
+      code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
+    });
   }
   try {
     const result = await bridge.sendCommand("getChatInfo", {});
@@ -3345,12 +3841,15 @@ async function trySendViaRcon(req, text) {
 }
 
 // Send to admin chat
-router.post("/chat/admin", async (req, res) => {
+router.post("/chat/admin", requirePermission("server.world_events"), async (req, res) => {
   const { message } = req.body;
   if (!message || typeof message !== "string" || message.length > 2000) {
     return res
       .status(400)
-      .json({ error: "message is required (max 2000 chars)" });
+      .json({
+        error: "message is required (max 2000 chars)",
+        code: ErrorCode.BRIDGE_MESSAGE_REQUIRED,
+      });
   }
   try {
     // Try PanelBridge first (only way to target admin-only chat)
@@ -3373,7 +3872,10 @@ router.post("/chat/admin", async (req, res) => {
     }
     return res
       .status(400)
-      .json({ error: "Neither PanelBridge nor RCON available for admin chat" });
+      .json({
+        error: "Neither PanelBridge nor RCON available for admin chat",
+        code: ErrorCode.PANELBRIDGE_ADMIN_CHAT_UNAVAILABLE,
+      });
   } catch (error) {
     // Still try RCON on PanelBridge error
     try {
@@ -3390,12 +3892,15 @@ router.post("/chat/admin", async (req, res) => {
     } catch (_) {
       /* ignore */
     }
-    res.status(500).json({ error: "Failed to send admin message" });
+    res.status(500).json({
+      error: "Failed to send admin message",
+      code: ErrorCode.PANELBRIDGE_SEND_ADMIN_MESSAGE_FAILED,
+    });
   }
 });
 
 // Send to general chat with author
-router.post("/chat/general", async (req, res) => {
+router.post("/chat/general", requirePermission("server.world_events"), async (req, res) => {
   const author =
     typeof req.body.author === "string"
       ? req.body.author.trim().slice(0, 64) || "Server"
@@ -3404,7 +3909,10 @@ router.post("/chat/general", async (req, res) => {
   if (!message || typeof message !== "string" || message.length > 2000) {
     return res
       .status(400)
-      .json({ error: "message is required (max 2000 chars)" });
+      .json({
+        error: "message is required (max 2000 chars)",
+        code: ErrorCode.BRIDGE_MESSAGE_REQUIRED,
+      });
   }
   try {
     // Try PanelBridge first (supports custom author via ChatServer)
@@ -3427,7 +3935,10 @@ router.post("/chat/general", async (req, res) => {
     }
     return res
       .status(400)
-      .json({ error: "Neither PanelBridge nor RCON available for chat" });
+      .json({
+        error: "Neither PanelBridge nor RCON available for chat",
+        code: ErrorCode.PANELBRIDGE_CHAT_UNAVAILABLE,
+      });
   } catch (error) {
     try {
       const rconResult = await trySendViaRcon(req, `[${author}] ${message}`);
@@ -3445,12 +3956,15 @@ router.post("/chat/general", async (req, res) => {
 });
 
 // Send server alert
-router.post("/chat/alert", async (req, res) => {
+router.post("/chat/alert", requirePermission("server.world_events"), async (req, res) => {
   const { message, alert = true } = req.body;
   if (!message || typeof message !== "string" || message.length > 2000) {
     return res
       .status(400)
-      .json({ error: "message is required (max 2000 chars)" });
+      .json({
+        error: "message is required (max 2000 chars)",
+        code: ErrorCode.BRIDGE_MESSAGE_REQUIRED,
+      });
   }
   try {
     // RCON servermsg is the most reliable for server-wide messages
@@ -3475,7 +3989,10 @@ router.post("/chat/alert", async (req, res) => {
     }
     return res
       .status(400)
-      .json({ error: "Neither RCON nor PanelBridge available" });
+      .json({
+        error: "Neither RCON nor PanelBridge available",
+        code: ErrorCode.PANELBRIDGE_RCON_AND_BRIDGE_UNAVAILABLE,
+      });
   } catch (error) {
     res.status(500).json({ error: sanitizeError(error.message) });
   }
@@ -3486,9 +4003,12 @@ router.post("/chat/alert", async (req, res) => {
 // ============================================
 
 // Get mod debug log
-router.get("/debug/log", async (req, res) => {
+router.get("/debug/log", requirePermission("bridge.diagnostics"), async (req, res) => {
   if (!bridge.isRunning) {
-    return res.status(400).json({ error: "Bridge not running" });
+    return res.status(400).json({
+      error: "Bridge not running",
+      code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
+    });
   }
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 500);
   const VALID_LOG_LEVELS = ["DEBUG", "INFO", "WARN", "ERROR"];
@@ -3504,9 +4024,12 @@ router.get("/debug/log", async (req, res) => {
 });
 
 // Get mod statistics
-router.get("/debug/stats", async (req, res) => {
+router.get("/debug/stats", requirePermission("bridge.diagnostics"), async (req, res) => {
   if (!bridge.isRunning) {
-    return res.status(400).json({ error: "Bridge not running" });
+    return res.status(400).json({
+      error: "Bridge not running",
+      code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
+    });
   }
   try {
     const result = await bridge.sendCommand("getStats", {});
@@ -3517,9 +4040,12 @@ router.get("/debug/stats", async (req, res) => {
 });
 
 // Set debug mode
-router.post("/debug/mode", async (req, res) => {
+router.post("/debug/mode", requirePermission("bridge.diagnostics"), async (req, res) => {
   if (!bridge.isRunning) {
-    return res.status(400).json({ error: "Bridge not running" });
+    return res.status(400).json({
+      error: "Bridge not running",
+      code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
+    });
   }
   const { enabled } = req.body;
   try {
@@ -3533,9 +4059,12 @@ router.post("/debug/mode", async (req, res) => {
 });
 
 // Check API availability
-router.get("/debug/api", async (req, res) => {
+router.get("/debug/api", requirePermission("bridge.diagnostics"), async (req, res) => {
   if (!bridge.isRunning) {
-    return res.status(400).json({ error: "Bridge not running" });
+    return res.status(400).json({
+      error: "Bridge not running",
+      code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
+    });
   }
   const { object, method } = req.query;
   // Validate as identifier-like strings
@@ -3543,13 +4072,19 @@ router.get("/debug/api", async (req, res) => {
     object &&
     (typeof object !== "string" || !/^[a-zA-Z0-9_.]{1,100}$/.test(object))
   ) {
-    return res.status(400).json({ error: "Invalid object name" });
+    return res.status(400).json({
+      error: "Invalid object name",
+      code: ErrorCode.PANELBRIDGE_INVALID_OBJECT_NAME,
+    });
   }
   if (
     method &&
     (typeof method !== "string" || !/^[a-zA-Z0-9_.]{1,100}$/.test(method))
   ) {
-    return res.status(400).json({ error: "Invalid method name" });
+    return res.status(400).json({
+      error: "Invalid method name",
+      code: ErrorCode.PANELBRIDGE_INVALID_METHOD_NAME,
+    });
   }
   try {
     const result = await bridge.sendCommand("checkAPI", { object, method });
@@ -3560,9 +4095,12 @@ router.get("/debug/api", async (req, res) => {
 });
 
 // Get available handlers
-router.get("/debug/handlers", async (req, res) => {
+router.get("/debug/handlers", requirePermission("bridge.diagnostics"), async (req, res) => {
   if (!bridge.isRunning) {
-    return res.status(400).json({ error: "Bridge not running" });
+    return res.status(400).json({
+      error: "Bridge not running",
+      code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
+    });
   }
   try {
     const result = await bridge.sendCommand("getAvailableHandlers", {});
@@ -3573,9 +4111,12 @@ router.get("/debug/handlers", async (req, res) => {
 });
 
 // Clear mod errors
-router.post("/debug/clear-errors", async (req, res) => {
+router.post("/debug/clear-errors", requirePermission("bridge.diagnostics"), async (req, res) => {
   if (!bridge.isRunning) {
-    return res.status(400).json({ error: "Bridge not running" });
+    return res.status(400).json({
+      error: "Bridge not running",
+      code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
+    });
   }
   try {
     const result = await bridge.clearErrors();
@@ -3590,7 +4131,7 @@ router.post("/debug/clear-errors", async (req, res) => {
 // ============================================
 
 // Get cached item catalog
-router.get("/catalog/items", async (req, res) => {
+router.get("/catalog/items", requirePermission("players.gm_tools"), async (req, res) => {
   try {
     const db = await getDb();
     const catalog = db.data.itemCatalog || null;
@@ -3604,7 +4145,7 @@ router.get("/catalog/items", async (req, res) => {
 });
 
 // Get cached vehicle catalog
-router.get("/catalog/vehicles", async (req, res) => {
+router.get("/catalog/vehicles", requirePermission("players.gm_tools"), async (req, res) => {
   try {
     const db = await getDb();
     const catalog = db.data.vehicleCatalog || null;
@@ -3618,10 +4159,11 @@ router.get("/catalog/vehicles", async (req, res) => {
 });
 
 // Scan items from running server via PanelBridge, cache result
-router.post("/catalog/scan-items", async (req, res) => {
+router.post("/catalog/scan-items", requirePermission("bridge.diagnostics"), async (req, res) => {
   if (!bridge.isRunning) {
     return res.status(400).json({
       error: "Bridge not running — server must be online to scan items",
+      code: ErrorCode.PANELBRIDGE_SCAN_ITEMS_NOT_RUNNING,
     });
   }
   try {
@@ -3649,10 +4191,11 @@ router.post("/catalog/scan-items", async (req, res) => {
 });
 
 // Scan vehicles from running server via PanelBridge, cache result
-router.post("/catalog/scan-vehicles", async (req, res) => {
+router.post("/catalog/scan-vehicles", requirePermission("bridge.diagnostics"), async (req, res) => {
   if (!bridge.isRunning) {
     return res.status(400).json({
       error: "Bridge not running — server must be online to scan vehicles",
+      code: ErrorCode.PANELBRIDGE_SCAN_VEHICLES_NOT_RUNNING,
     });
   }
   try {
@@ -3680,9 +4223,12 @@ router.post("/catalog/scan-vehicles", async (req, res) => {
 });
 
 // Debug: probe item script methods to find working category API
-router.post("/catalog/debug-item-script", async (req, res) => {
+router.post("/catalog/debug-item-script", requirePermission("bridge.diagnostics"), async (req, res) => {
   if (!bridge.isRunning) {
-    return res.status(400).json({ error: "Bridge not running" });
+    return res.status(400).json({
+      error: "Bridge not running",
+      code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
+    });
   }
   try {
     const result = await bridge.sendCommand("debugItemScript", {});

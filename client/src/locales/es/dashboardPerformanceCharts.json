@@ -1,0 +1,9 @@
+{
+  "pzMemory": "Memoria de PZ",
+  "players": "Jugadores",
+  "hostCpu": "CPU del host",
+  "hostMemory": "Memoria del host",
+  "disk": "Disco",
+  "onlineUnit": "en línea",
+  "normal": "normal"
+}

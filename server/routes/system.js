@@ -8,6 +8,11 @@ import { getCircuitBreakerStatus } from "../database/init.js";
 const log = createLogger("API:System");
 const router = express.Router();
 
+// No requireRole, deliberately: this is the disk-space/storage-health
+// warning the frontend polls dashboard-wide, so every role sees a full
+// disk coming before it becomes their problem. Read-only, and error
+// messages already run through sanitizeError before leaving this file.
+
 // Combined disk status for both the save volume (polled by DiskMonitor) and
 // the panel's own data directory (checked fresh — it's cheap, and its
 // disk isn't necessarily the same mount as the save volume).

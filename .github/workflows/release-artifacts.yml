@@ -41,11 +41,17 @@ jobs:
           node-version: 22
           cache: npm
 
+      # npm ci is fragile on the ubuntu-22.04 leg of this matrix: the
+      # lockfile's linux gnu/musl split optional deps (rollup/lightningcss,
+      # pulled in via vite) don't reliably carry libc metadata (verified
+      # 2026-08-22, see docs/build/verification.md), same reasoning as the
+      # Dockerfile's own install steps. npm install re-resolves optional
+      # deps against the runner instead of trusting the lockfile's entry.
       - name: Install dependencies
-        run: npm ci --no-audit
+        run: npm install --no-audit --prefer-offline --include=optional
 
       - name: Install client dependencies
-        run: npm ci --no-audit
+        run: npm install --no-audit --prefer-offline --include=optional
         working-directory: client
 
       - name: Build
@@ -155,13 +161,23 @@ jobs:
             echo "Release $release_tag already exists; uploading assets."
           else
             release_version="${release_tag#v}"
+            # Match the heading by string prefix, not by regex. The previous version used
+            # "^## \\[" inside an awk STRING, where the escape is implementation-defined:
+            # gawk strips the backslash, turning [1.1.55] into a character class that cannot
+            # match "## [1.1.55]", so the section was never found and every release silently
+            # fell back to the placeholder below. mawk keeps it and the same line works. A
+            # release note that depends on which awk the runner ships is not worth debugging
+            # twice - index() has no escaping to get wrong.
             awk -v version="$release_version" '
-              $0 ~ "^## \\[" version "\\]" { in_section = 1; next }
-              in_section && /^## \\[/ { exit }
+              index($0, "## [" version "]") == 1 { in_section = 1; next }
+              in_section && index($0, "## [") == 1 { exit }
               in_section { print }
             ' CHANGELOG.md > release-notes.md
 
             if [ ! -s release-notes.md ]; then
+              # Do not fail the release for a missing changelog entry - the artifacts are
+              # already built. But say so loudly: the whole failure mode here was silence.
+              echo "::warning title=No changelog entry::CHANGELOG.md has no '## [${release_version}]' section. Publishing a placeholder instead of real release notes."
               printf 'Release %s\n\nSee CHANGELOG.md for details.\n' "$release_tag" > release-notes.md
             fi
 

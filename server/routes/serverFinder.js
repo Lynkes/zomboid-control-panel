@@ -4,11 +4,19 @@ import { createLogger } from '../utils/logger.js';
 const log = createLogger('API:Finder');
 import { getSteamApiKey } from '../services/steamApiKey.js';
 import { sanitizeError } from '../utils/sanitize.js';
+import { requirePermission } from '../services/permissions.js';
 
 const router = express.Router();
 
+// A setup/verification diagnostic (queries the Steam master server list,
+// pings arbitrary public IPs the caller supplies) rather than a player- or
+// server-operations feature — admin+technician, not moderator, matching
+// this program's default for "operate/configure the server" tooling.
+// Applied once at the router level (4 endpoints).
+router.use(requirePermission('server.install'));
+
 // Block private/reserved IP ranges to prevent SSRF
-function isPrivateIp(ip) {
+export function isPrivateIp(ip) {
   if (typeof ip !== 'string') return true;
   // Trim whitespace
   ip = ip.trim();
@@ -17,8 +25,13 @@ function isPrivateIp(ip) {
   const parts = ip.split('.').map(Number);
   if (parts.some(p => p < 0 || p > 255 || isNaN(p))) return true;
   const [a, b] = parts;
-  // 0.0.0.0/8, 10.0.0.0/8, 127.0.0.0/8, 169.254.0.0/16, 172.16-31.0.0/12, 192.168.0.0/16, 224-255 (multicast/reserved)
+  // 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16-31.0.0/12, 192.168.0.0/16, 224-255 (multicast/reserved)
   if (a === 0 || a === 10 || a === 127) return true;
+  // 100.64.0.0/10 (RFC 6598, Carrier-Grade NAT / shared address space) --
+  // increasingly used as an internal routing range by cloud providers and
+  // some Docker/Kubernetes CNI setups, so it needs the same block as the
+  // other private ranges above.
+  if (a === 100 && b >= 64 && b <= 127) return true;
   if (a === 169 && b === 254) return true;
   if (a === 172 && b >= 16 && b <= 31) return true;
   if (a === 192 && b === 168) return true;

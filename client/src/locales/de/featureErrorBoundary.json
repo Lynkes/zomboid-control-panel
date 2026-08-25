@@ -1,0 +1,9 @@
+{
+  "compactMessage": "{{featureName}}: Fehler aufgetreten",
+  "retry": "Erneut versuchen",
+  "titleSuffix": "{{featureName}} – Fehler",
+  "description": "Beim Laden dieses Bereichs ist ein Fehler aufgetreten",
+  "tryAgain": "Erneut versuchen",
+  "dashboard": "Dashboard",
+  "defaultFeatureName": "Diese Funktion"
+}

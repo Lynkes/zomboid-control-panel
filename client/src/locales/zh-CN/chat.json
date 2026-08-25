@@ -1,0 +1,82 @@
+{
+  "pageHeader": {
+    "title": "游戏内聊天",
+    "description": "向所有在线玩家广播消息，并实时查看他们的聊天内容。",
+    "refresh": "刷新"
+  },
+  "chatWindow": {
+    "streamLabel": "聊天流",
+    "msgCount_one": "{{count}} 条消息",
+    "msgCount_other": "{{count}} 条消息",
+    "live": "实时",
+    "offline": "离线",
+    "messagesAria": "聊天消息"
+  },
+  "emptyState": {
+    "title": "暂无聊天消息",
+    "description": "玩家消息和管理员广播将实时显示在此处。"
+  },
+  "channel": {
+    "aria": "聊天频道",
+    "server": "服务器广播",
+    "admin": "管理员聊天",
+    "general": "公共聊天"
+  },
+  "input": {
+    "aria": "聊天消息",
+    "placeholderAdmin": "仅管理员可见——按回车发送…",
+    "placeholderGeneral": "以管理员身份发布——按回车发送…",
+    "placeholderServer": "广播给所有玩家——按回车发送…",
+    "sendButton": "发送"
+  },
+  "footer": {
+    "adminOnly": "仅管理员可见——普通玩家不可见",
+    "noPlayersOnline": "无在线玩家——仅记录服务器日志",
+    "broadcastingTo_one": "正在广播给 {{count}} 名玩家",
+    "broadcastingTo_other": "正在广播给 {{count}} 名玩家"
+  },
+  "playersPanel": {
+    "label": "玩家",
+    "onlineCount": "{{count}} 人在线",
+    "noPlayersConnected": "无已连接玩家"
+  },
+  "quickBroadcasts": {
+    "label": "快捷广播",
+    "edit": "编辑",
+    "done": "完成",
+    "editAria": "编辑预设",
+    "doneAria": "完成编辑预设",
+    "noPresets": "// 暂无预设——点击编辑以添加",
+    "addPlaceholder": "添加新的快捷消息…",
+    "addAria": "添加预设",
+    "saveAria": "保存",
+    "cancelAria": "取消",
+    "deleteAria": "删除预设 {{index}}"
+  },
+  "toasts": {
+    "adminSentTitle": "管理员消息已发送",
+    "adminSentDesc": "仅游戏内管理员可见。",
+    "generalSentTitle": "已发布到聊天",
+    "generalSentDesc": "已发布到公共聊天流。",
+    "broadcastSentTitle": "广播已发送",
+    "broadcastSentDesc": "消息已送达所有在线玩家。",
+    "errorTitle": "错误",
+    "sendFailedFallback": "消息发送失败",
+    "presetsSaveFailedTitle": "预设保存失败",
+    "unknownError": "未知错误"
+  },
+  "labels": {
+    "server": "服务器",
+    "admin": "管理员",
+    "player": "玩家"
+  },
+  "presets": {
+    "default": [
+      "服务器将在 5 分钟后重启！",
+      "欢迎来到本服务器！",
+      "请查看规则：/rules",
+      "服务器即将开始维护",
+      "祝大家游戏愉快，注意安全！"
+    ]
+  }
+}

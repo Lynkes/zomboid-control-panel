@@ -1,5 +1,6 @@
 import { useCallback, useContext, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { AlertTriangle, ShieldAlert, HelpCircle, X } from 'lucide-react'
 import { SocketContext } from '@/contexts/SocketContext'
 import { systemApi, type StorageHealth } from '@/lib/api'
@@ -19,7 +20,7 @@ interface Banner {
   dismissible: boolean
 }
 
-function deriveBanner(health: StorageHealth | null): Banner | null {
+function deriveBanner(health: StorageHealth | null, t: (key: string, opts?: Record<string, unknown>) => string): Banner | null {
   if (!health) return null
   const { diskSpace, circuitBreaker } = health
   const save = diskSpace.saveVolume
@@ -27,24 +28,24 @@ function deriveBanner(health: StorageHealth | null): Banner | null {
   if (circuitBreaker.open) {
     return {
       level: 'critical',
-      title: 'Panel writes blocked',
-      message: 'Storage write failure',
+      title: t('writesBlockedTitle'),
+      message: t('writesBlockedMessage'),
       dismissible: false,
     }
   }
   if (save?.critical) {
     return {
       level: 'critical',
-      title: 'Save volume critical',
-      message: `${save.usedPercent}% used`,
+      title: t('saveVolumeCriticalTitle'),
+      message: t('usedPercent', { percent: save.usedPercent }),
       dismissible: false,
     }
   }
   if (save?.warning) {
     return {
       level: 'warning',
-      title: 'Save volume warning',
-      message: `${save.usedPercent}% used`,
+      title: t('saveVolumeWarningTitle'),
+      message: t('usedPercent', { percent: save.usedPercent }),
       dismissible: true,
     }
   }
@@ -52,6 +53,7 @@ function deriveBanner(health: StorageHealth | null): Banner | null {
 }
 
 export function SystemHealthBanner() {
+  const { t } = useTranslation('systemHealthBanner')
   const [health, setHealth] = useState<StorageHealth | null>(null)
   const [dismissed, setDismissed] = useState(false)
   const socket = useContext(SocketContext)
@@ -73,7 +75,7 @@ export function SystemHealthBanner() {
     return () => { DISK_SOCKET_EVENTS.forEach((evt) => socket.off(evt, refresh)) }
   }, [socket, refresh])
 
-  const banner = deriveBanner(health)
+  const banner = deriveBanner(health, t)
 
   // Reset dismissal once the condition clears so a future warning isn't pre-dismissed.
   useEffect(() => {
@@ -118,15 +120,15 @@ export function SystemHealthBanner() {
           className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
         >
           <HelpCircle className="h-3 w-3" aria-hidden="true" />
-          Diagnostics
+          {t('diagnostics')}
         </button>
         {banner.dismissible && (
           <button
             type="button"
             onClick={() => setDismissed(true)}
             className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
-            aria-label="Dismiss storage warning"
-            title="Dismiss"
+            aria-label={t('dismissAria')}
+            title={t('dismiss')}
           >
             <X className="h-3.5 w-3.5" aria-hidden="true" />
           </button>

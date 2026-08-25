@@ -1,0 +1,14 @@
+{
+  "connected": {
+    "label": "Connected",
+    "description": "Real-time updates active"
+  },
+  "reconnecting": {
+    "label": "Reconnecting...",
+    "description": "Attempt {{attempt}}/10"
+  },
+  "disconnected": {
+    "label": "Panel Disconnected",
+    "description": "WebSocket connection to the panel backend lost"
+  }
+}

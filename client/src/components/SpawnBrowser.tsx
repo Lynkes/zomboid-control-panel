@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Search, RefreshCw, Loader2, X, AlertCircle, SearchX, LayoutGrid,
   Package, Car, User, Sparkles, Minus, Plus, RotateCw, HelpCircle,
@@ -68,6 +69,7 @@ function saveRecent(mode: SpawnMode, entries: RecentEntry[]) {
 
 export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: SpawnBrowserProps) {
   const isItems = mode === 'items'
+  const { t } = useTranslation(['spawnBrowser', 'itemPicker', 'vehiclePicker'])
   const { toast } = useToast()
 
   // Catalog state
@@ -133,8 +135,8 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
   // Autofocus search on open (slight delay so Radix mounts first)
   useEffect(() => {
     if (!open) return
-    const t = setTimeout(() => searchRef.current?.focus(), 80)
-    return () => clearTimeout(t)
+    const timer = setTimeout(() => searchRef.current?.focus(), 80)
+    return () => clearTimeout(timer)
   }, [open])
 
   useEffect(() => () => {
@@ -154,27 +156,27 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
         const data = await panelBridgeApi.scanCatalogItems()
         setItems(data.items || [])
         setScannedAt(data.scannedAt)
-        toast({ title: 'Item catalog updated', description: `Found ${data.count || 0} items` })
+        toast({ title: t('toastCatalogUpdatedTitle', { ns: 'itemPicker' }), description: t('toastCatalogUpdatedDesc', { ns: 'itemPicker', count: data.count || 0 }) })
       } else {
         const data = await panelBridgeApi.scanCatalogVehicles()
         setVehicles(data.vehicles || [])
         setScannedAt(data.scannedAt)
-        toast({ title: 'Vehicle catalog updated', description: `Found ${data.count || 0} vehicles` })
+        toast({ title: t('toastCatalogUpdatedTitle', { ns: 'vehiclePicker' }), description: t('toastCatalogUpdatedDesc', { ns: 'vehiclePicker', count: data.count || 0 }) })
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Scan failed'
+      const msg = err instanceof Error ? err.message : t('scanFailed', { ns: isItems ? 'itemPicker' : 'vehiclePicker' })
       setScanError(msg)
       toast({
-        title: `${isItems ? 'Item' : 'Vehicle'} scan failed`,
+        title: t('toastScanFailedTitle', { ns: isItems ? 'itemPicker' : 'vehiclePicker' }),
         description: msg.includes('Bridge not running')
-          ? 'Server must be online with PanelBridge mod active'
+          ? t('bridgeNotRunning', { ns: isItems ? 'itemPicker' : 'vehiclePicker' })
           : msg,
         variant: 'destructive',
       })
     } finally {
       setScanning(false)
     }
-  }, [scanning, isItems, toast])
+  }, [scanning, isItems, toast, t])
 
   /* ---------- Derived: non-vehicle items / category summary / filter ---------- */
 
@@ -193,28 +195,28 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
     return Array.from(counts.entries())
       .map(([group, count]) => {
         const meta = GROUP_META[group] || GROUP_META['Other']
-        return { raw: group, label: group, order: meta.order, count, Icon: meta.icon }
+        return { raw: group, label: t(`groups.${group}`, { ns: 'itemPicker' }), order: meta.order, count, Icon: meta.icon }
       })
       .sort((a, b) => a.order - b.order || a.label.localeCompare(b.label))
-  }, [nonVehicleItems, isItems])
+  }, [nonVehicleItems, isItems, t])
 
   const vehicleCategories = useMemo(() => {
     if (isItems) return []
     const counts = new Map<string, number>()
     for (const v of vehicles) {
-      const t = getVehicleType(v)
-      counts.set(t, (counts.get(t) || 0) + 1)
+      const vt = getVehicleType(v)
+      counts.set(vt, (counts.get(vt) || 0) + 1)
     }
     return Array.from(counts.entries())
       .map(([type, count]) => ({
         raw: type,
-        label: type,
+        label: t(`types.${type}`, { ns: 'vehiclePicker' }),
         order: TYPE_ORDER[type] ?? 99,
         count,
         Icon: TYPE_ICON[type] || Car,
       }))
       .sort((a, b) => a.order - b.order || a.label.localeCompare(b.label))
-  }, [vehicles, isItems])
+  }, [vehicles, isItems, t])
 
   const categories = isItems ? itemCategories : vehicleCategories
 
@@ -352,11 +354,12 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
   /* ---------- Render ---------- */
 
   const Hero = isItems ? Package : Car
-  const modeLabel = isItems ? 'Give Items' : 'Spawn Vehicle'
+  const modeLabel = isItems ? t('giveItemsTitle') : t('spawnVehicleTitle')
   const catalogEmpty = isItems ? nonVehicleItems.length === 0 : vehicles.length === 0
-  const contextVerb = isItems ? 'Giving to' : 'Spawning near'
+  const contextVerb = isItems ? t('givingTo') : t('spawningNear')
   const contextPlayer = playerName || '—'
-  const activeLabel = activeCategory || (isItems ? 'All items' : 'All vehicles')
+  const activeCategoryLabel = categories.find(c => c.raw === activeCategory)?.label
+  const activeLabel = activeCategoryLabel || (isItems ? t('allItems') : t('allVehicles'))
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -389,7 +392,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
               </span>
               {scannedAt && (
                 <span className="ml-auto text-[11px] text-muted-foreground/50 tabular-nums shrink-0 hidden sm:inline">
-                  scanned {new Date(scannedAt).toLocaleDateString()}
+                  {t('scannedOn', { date: new Date(scannedAt).toLocaleDateString() })}
                 </span>
               )}
             </DialogDescription>
@@ -406,11 +409,13 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
             onChange={e => setSearch(e.target.value)}
             placeholder={
               catalogEmpty
-                ? `Scan the server to load ${isItems ? 'items' : 'vehicles'}…`
-                : `Search ${(isItems ? nonVehicleItems.length : vehicles.length).toLocaleString()} ${isItems ? 'items' : 'vehicles'}…  (↑↓ navigate · enter select)`
+                ? (isItems ? t('loadToScanItems') : t('loadToScanVehicles'))
+                : (isItems
+                  ? t('searchNItems', { count: nonVehicleItems.length.toLocaleString() })
+                  : t('searchNVehicles', { count: vehicles.length.toLocaleString() }))
             }
             className="flex-1 min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
-            aria-label={`Search ${isItems ? 'items' : 'vehicles'}`}
+            aria-label={isItems ? t('searchItemsAria') : t('searchVehiclesAria')}
             disabled={catalogEmpty}
           />
           {search && (
@@ -418,7 +423,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
               type="button"
               onClick={() => { setSearch(''); searchRef.current?.focus() }}
               className="flex items-center justify-center w-6 h-6 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              aria-label="Clear search"
+              aria-label={t('clearSearchAria')}
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -430,10 +435,10 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
             onClick={handleScan}
             disabled={scanning}
             className="h-8 px-2.5 text-xs"
-            title="Re-scan the server catalog via PanelBridge"
+            title={t('rescanTitle')}
           >
             {scanning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-            <span className="ml-1.5 hidden sm:inline">{catalogEmpty ? 'Scan' : 'Rescan'}</span>
+            <span className="ml-1.5 hidden sm:inline">{catalogEmpty ? t('scan') : t('rescan')}</span>
           </Button>
         </div>
 
@@ -442,7 +447,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
           {/* ----- Category sidebar ----- */}
           <aside className="border-r border-border/70 bg-card/40 overflow-y-auto overscroll-contain">
             <div className="sticky top-0 z-10 bg-card/80 backdrop-blur-sm px-3 pt-3 pb-1.5 text-[10px] uppercase tracking-[0.2em] font-semibold text-muted-foreground/60">
-              Categories
+              {t('categories')}
             </div>
 
             <button
@@ -458,7 +463,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
             >
               <LayoutGrid className="w-4 h-4 shrink-0" />
               <span className="flex-1 min-w-0 font-medium">
-                {isItems ? 'All items' : 'All vehicles'}
+                {isItems ? t('allItems') : t('allVehicles')}
               </span>
               <span className="text-[10px] tabular-nums opacity-60">
                 {(isItems ? nonVehicleItems.length : vehicles.length).toLocaleString()}
@@ -499,11 +504,11 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
                 {activeLabel}
               </span>
               <span className="text-[11px] text-muted-foreground/40 tabular-nums">
-                {totalFiltered.toLocaleString()} result{totalFiltered === 1 ? '' : 's'}
+                {t('resultsCount', { count: totalFiltered })}
               </span>
               {capped && (
                 <span className="text-[10px] uppercase tracking-wider text-warning/80 font-semibold ml-auto">
-                  showing first {MAX_VISIBLE} · narrow search
+                  {t('showingFirstN', { max: MAX_VISIBLE })}
                 </span>
               )}
             </div>
@@ -513,12 +518,12 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
               ref={listRef}
               className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
               role="listbox"
-              aria-label={isItems ? 'Item catalog' : 'Vehicle catalog'}
+              aria-label={isItems ? t('itemCatalogAria') : t('vehicleCatalogAria')}
             >
               {initialLoad ? (
                 <div className="h-full flex items-center justify-center text-muted-foreground text-sm gap-2">
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Loading catalog…
+                  {t('loadingCatalog')}
                 </div>
               ) : catalogEmpty ? (
                 <EmptyCatalog
@@ -531,7 +536,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
                 <div className="h-full flex flex-col items-center justify-center text-muted-foreground py-10 px-6 text-center">
                   <SearchX className="w-8 h-8 mb-2 opacity-30" />
                   <p className="text-sm">
-                    {search ? <>No {isItems ? 'items' : 'vehicles'} match &ldquo;{search}&rdquo;</> : 'No results'}
+                    {search ? (isItems ? t('noItemsMatch', { search }) : t('noVehiclesMatch', { search })) : t('noResults')}
                   </p>
                   {activeCategory && (
                     <button
@@ -539,7 +544,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
                       onClick={() => setActiveCategory(null)}
                       className="mt-3 text-xs text-primary hover:underline"
                     >
-                      Search across all categories
+                      {t('searchAcrossAllCategories')}
                     </button>
                   )}
                 </div>
@@ -579,7 +584,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
           {recent.length > 0 && (
             <div className="flex items-center gap-2 border-b border-border/40 px-4 h-10 overflow-x-auto overscroll-contain">
               <span className="text-[10px] uppercase tracking-[0.18em] font-semibold text-muted-foreground/60 shrink-0">
-                Recent
+                {t('recent')}
               </span>
               <div className="flex items-center gap-1.5 min-w-0">
                 {recent.map(r => (
@@ -597,7 +602,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
                       'motion-safe:transition-colors duration-100',
                       'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-background/40 disabled:hover:border-border/60 disabled:hover:text-foreground/90'
                     )}
-                    title={`Spawn ${r.name}${isItems ? ` × ${r.qty}` : ''} again`}
+                    title={isItems ? t('spawnAgainTitleWithQty', { name: r.name, qty: r.qty }) : t('spawnAgainTitle', { name: r.name })}
                   >
                     <RotateCw className="w-3 h-3 opacity-50 motion-safe:group-hover:opacity-100 motion-safe:transition-opacity" />
                     <span className="truncate max-w-[160px]">{r.name}</span>
@@ -617,7 +622,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
               {selectedRow ? (
                 <div className="flex flex-col gap-0.5 min-w-0">
                   <span className="text-[10px] uppercase tracking-[0.18em] font-semibold text-muted-foreground/60 leading-none">
-                    Selected
+                    {t('selected')}
                   </span>
                   <div className="flex items-baseline gap-2 min-w-0">
                     <span className="text-sm font-medium truncate text-foreground">
@@ -632,7 +637,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
                 </div>
               ) : (
                 <span className="text-sm text-muted-foreground/60">
-                  {catalogEmpty ? 'No catalog loaded yet' : 'Pick something from the list'}
+                  {catalogEmpty ? t('noCatalogLoadedYet') : t('pickSomethingFromList')}
                 </span>
               )}
             </div>
@@ -645,7 +650,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
                   onClick={() => setQty(q => Math.max(1, q - 1))}
                   disabled={qty <= 1 || spawning}
                   className="h-9 w-8 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent/10 disabled:opacity-30 disabled:hover:bg-transparent focus-visible:outline-none focus-visible:bg-accent/10"
-                  aria-label="Decrease quantity"
+                  aria-label={t('decreaseQuantityAria')}
                 >
                   <Minus className="w-3.5 h-3.5" />
                 </button>
@@ -660,14 +665,14 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
                   max={100}
                   disabled={spawning}
                   className="w-12 h-9 text-center text-sm tabular-nums bg-transparent outline-none border-x border-border/70 focus-visible:bg-accent/10 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                  aria-label="Quantity"
+                  aria-label={t('quantityAria')}
                 />
                 <button
                   type="button"
                   onClick={() => setQty(q => Math.min(100, q + 1))}
                   disabled={qty >= 100 || spawning}
                   className="h-9 w-8 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent/10 disabled:opacity-30 disabled:hover:bg-transparent focus-visible:outline-none focus-visible:bg-accent/10"
-                  aria-label="Increase quantity"
+                  aria-label={t('increaseQuantityAria')}
                 >
                   <Plus className="w-3.5 h-3.5" />
                 </button>
@@ -684,12 +689,12 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
               {spawning ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Sending…
+                  {t('sending')}
                 </>
               ) : (
                 <>
                   <Sparkles className="w-4 h-4 mr-2" />
-                  {isItems ? `Give${qty > 1 ? ` × ${qty}` : ''}` : 'Spawn'}
+                  {isItems ? (qty > 1 ? t('giveWithQty', { qty }) : t('give')) : t('spawn')}
                 </>
               )}
             </Button>
@@ -699,11 +704,11 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
           <div className="flex items-center justify-between gap-3 px-4 pb-2 text-[10px] text-muted-foreground/50">
             <span>
               {isItems && !playerName
-                ? 'Pick a player before giving items'
-                : 'Dialog stays open — keep spawning until you close it'}
+                ? t('pickPlayerFirst')
+                : t('dialogStaysOpen')}
             </span>
             <span className="tabular-nums hidden sm:inline">
-              ↵ spawn selected · esc close
+              {t('keyboardHint')}
             </span>
           </div>
         </footer>
@@ -731,6 +736,7 @@ function ResultRow({
   row, index, isSelected, isHighlighted, isFlashing,
   showCategoryIcon, onSelect, onDoubleSpawn,
 }: ResultRowProps) {
+  const { t } = useTranslation('vehiclePicker')
   const isItem = row.kind === 'item'
   const id = isItem ? row.it.id : row.v.id
 
@@ -781,7 +787,7 @@ function ResultRow({
           )}
           {!isItem && row.v.seats > 0 && (
             <span className="text-[10px] text-muted-foreground/60 tabular-nums shrink-0 px-1.5 py-0.5 rounded bg-muted/40">
-              {row.v.seats} seat{row.v.seats === 1 ? '' : 's'}
+              {t('seatsTitle', { count: row.v.seats })}
             </span>
           )}
           {!isItem && row.v.mass > 0 && (
@@ -808,21 +814,22 @@ interface EmptyCatalogProps {
 }
 
 function EmptyCatalog({ mode, scanning, scanError, onScan }: EmptyCatalogProps) {
+  const { t } = useTranslation('spawnBrowser')
+  const isItems = mode === 'items'
   return (
     <div className="h-full flex flex-col items-center justify-center text-center px-8 py-10">
       <div className="w-12 h-12 rounded-md border border-border/60 bg-muted/20 flex items-center justify-center mb-4">
-        {mode === 'items' ? <Package className="w-5 h-5 text-muted-foreground/60" /> : <Car className="w-5 h-5 text-muted-foreground/60" />}
+        {isItems ? <Package className="w-5 h-5 text-muted-foreground/60" /> : <Car className="w-5 h-5 text-muted-foreground/60" />}
       </div>
       <p className="text-sm font-medium text-foreground mb-1">
-        No {mode === 'items' ? 'items' : 'vehicles'} cached yet
+        {isItems ? t('noItemsCachedYet') : t('noVehiclesCachedYet')}
       </p>
       <p className="text-[12px] text-muted-foreground max-w-xs leading-snug mb-4">
-        Scan the running server via PanelBridge to pull the full {mode === 'items' ? 'item' : 'vehicle'} catalog.
-        The server must be online with the PanelBridge mod active.
+        {isItems ? t('scanItemsBody') : t('scanVehiclesBody')}
       </p>
       <Button onClick={onScan} disabled={scanning} size="sm">
         {scanning ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
-        {scanning ? 'Scanning…' : `Scan ${mode === 'items' ? 'items' : 'vehicles'}`}
+        {scanning ? t('scanning') : (isItems ? t('scanItems') : t('scanVehicles'))}
       </Button>
       {scanError && (
         <p className="mt-3 text-[11px] text-destructive flex items-center gap-1">

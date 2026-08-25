@@ -1,0 +1,14 @@
+{
+  "connected": {
+    "label": "Verbunden",
+    "description": "Echtzeit-Updates aktiv"
+  },
+  "reconnecting": {
+    "label": "Verbindet erneut...",
+    "description": "Versuch {{attempt}}/10"
+  },
+  "disconnected": {
+    "label": "Panel getrennt",
+    "description": "WebSocket-Verbindung zum Panel-Backend verloren"
+  }
+}

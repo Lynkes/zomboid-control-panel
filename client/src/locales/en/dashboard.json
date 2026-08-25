@@ -1,0 +1,292 @@
+{
+  "loading": "Establishing link…",
+  "errors": {
+    "failedToConnect": "Failed to connect to server.",
+    "failedToLoad": "Failed to load dashboard status.",
+    "takingLongerThanExpected": "The dashboard is taking longer than expected to respond."
+  },
+  "header": {
+    "ariaLabel": "Server status",
+    "everythingNominal": "Everything nominal",
+    "upPrefix": "up {{uptime}}",
+    "remoteBadge": "remote",
+    "noActiveServer": "No active server"
+  },
+  "addresses": {
+    "lan": {
+      "label": "LAN",
+      "tooltip": "Connect from your home network",
+      "copyAria": "Copy LAN address: {{address}}",
+      "copyLabel": "LAN address"
+    },
+    "wan": {
+      "label": "WAN",
+      "tooltip": "Share this address with internet players",
+      "copyAria": "Copy WAN address: {{address}}",
+      "copyLabel": "WAN address"
+    },
+    "panel": {
+      "label": "Panel",
+      "tooltip": "Open or copy the control panel address",
+      "copyAria": "Copy panel address: {{address}}",
+      "copyLabel": "Panel address"
+    },
+    "join": {
+      "label": "Join",
+      "aria": "Join with Steam at {{address}}",
+      "tooltip": "Connect with Steam"
+    }
+  },
+  "toasts": {
+    "copied": "Copied",
+    "copiedDesc": "{{label}} copied to clipboard",
+    "copyFailedTitle": "Failed to copy",
+    "copyFailedDesc": "Could not copy to clipboard",
+    "autoStartEnabledTitle": "Auto-start enabled",
+    "autoStartDisabledTitle": "Auto-start disabled",
+    "autoStartEnabledDesc": "Server will start automatically when the panel launches",
+    "autoStartDisabledDesc": "Server will not start automatically",
+    "autoStartSaveFailed": "Failed to save auto-start setting",
+    "errorTitle": "Error",
+    "actionFailedFallback": "Action failed. Please try again."
+  },
+  "actions": {
+    "start": "Start",
+    "stop": "Stop",
+    "forceStop": "Force stop",
+    "restart": "Restart",
+    "restartNow": "Restart now",
+    "save": "Save",
+    "refreshStatus": "Refresh status",
+    "createBackup": "Create backup",
+    "bridgeSettings": "Bridge settings",
+    "connectRcon": "Connect RCON",
+    "wipeServer": "Wipe server",
+    "moreActionsAria": "More server actions",
+    "addServerFirst": "Add or select a server first",
+    "notAvailableRemote": "Not available for remote (RCON-only) servers",
+    "forceStopTooltip": "Immediately stops the game without saving"
+  },
+  "confirm": {
+    "cancel": "Cancel",
+    "stopServer": {
+      "title": "Stop server",
+      "description": "Are you sure you want to stop the server? All connected players will be disconnected."
+    },
+    "forceStopServer": {
+      "title": "Force stop server",
+      "description": "This will immediately kill the game process without saving.",
+      "descriptionPlayers": " {{count}} player(s) will be disconnected!"
+    },
+    "restartServer": {
+      "title": "Restart server",
+      "description": "This will send a 5-minute warning to all players, then restart the server."
+    },
+    "restartServerNow": {
+      "title": "Restart server now",
+      "description": "This will immediately restart the server without warning.",
+      "descriptionPlayers": " {{count}} player(s) will be disconnected!"
+    }
+  },
+  "successCopy": {
+    "startServer": { "title": "Server starting", "description": "Watch the dashboard for live status." },
+    "stopServer": { "title": "Server stopped", "description": "Session closed cleanly." },
+    "forceStopServer": { "title": "Server force stopped", "description": "The game process was terminated without RCON." },
+    "restartServer": { "title": "Restart scheduled", "description": "The server will restart shortly." },
+    "restartServerNow": { "title": "Restart triggered", "description": "Hard restart command sent." },
+    "saveWorld": { "title": "World saved", "description": "Current state written to disk." },
+    "createBackup": { "title": "Backup started", "description": "Packaging a fresh recovery point." },
+    "connectRcon": { "title": "RCON connected", "description": "Remote command control ready." },
+    "defaultTitle": "Action complete",
+    "defaultDescription": "{{action}} completed successfully."
+  },
+  "verdict": {
+    "noServerConfigured": "No server configured",
+    "openSetup": "Open setup",
+    "panelCannotReach": "Panel cannot reach the server",
+    "retry": "Retry",
+    "serverStatusUnknown": "Server status unknown",
+    "serverStopped": "Server stopped",
+    "rconDisconnected": "RCON disconnected",
+    "hostMemory": "Host memory {{percent}}%",
+    "diskAlmostFull": "Disk almost full, {{gb}} GB left",
+    "diskPercent": "Disk {{percent}}%, {{gb}} GB left",
+    "hostCpu": "Host CPU {{percent}}%",
+    "bridgeOffline": "PanelBridge offline",
+    "bridgeSettingsLink": "Bridge settings",
+    "modUpdatesWaiting_one": "{{count}} mod update waiting",
+    "modUpdatesWaiting_other": "{{count}} mod updates waiting",
+    "reviewMods": "Review mods",
+    "noBackups": "No backups"
+  },
+  "panelUpdateBanner": {
+    "applyFailed": "Apply failed",
+    "updateStaged": "Update staged",
+    "panelUpdate": "Panel update",
+    "lastApplyFailedDesc": "Last apply attempt failed — see Settings for diagnostics.",
+    "stagedDesc": "Downloaded and ready. Restart the panel to apply.",
+    "newVersionDesc": "A new panel version is available.",
+    "dismissAria": "Dismiss update notification",
+    "dismissTooltip": "Dismiss until next version",
+    "applyUpdate": "Apply update",
+    "viewUpdate": "View update"
+  },
+  "connectionError": {
+    "label": "Connection error",
+    "suffix": ". Some features may be unavailable.",
+    "retry": "Retry"
+  },
+  "notConfigured": {
+    "label": "Not configured",
+    "description": "Open Server Setup to add or configure a server.",
+    "openSetup": "open setup →"
+  },
+  "quickStart": {
+    "dismissAria": "Dismiss quick start guide",
+    "eyebrow": "First server",
+    "heading": "Get one server up, RCON working, then layer on the rest.",
+    "step1Title": "Bring in a server",
+    "step1Desc": "Add an existing install, connect remote RCON, or create a new server.",
+    "step2Title": "Verify connectivity",
+    "step2Desc": "Confirm paths, RCON credentials, and active server.",
+    "step3Title": "Reach live control",
+    "step3Desc": "When status, players, and chat update, live control is ready.",
+    "installNewServer": "Install new server",
+    "addExistingServer": "Add existing server",
+    "addRemoteServer": "Add remote server"
+  },
+  "liveActivity": {
+    "heading": "Live activity",
+    "eventsCount_one": "{{count}} event",
+    "eventsCount_other": "{{count}} events",
+    "idle": "idle",
+    "offline": "offline",
+    "emptyOnline": "Listening for player joins, departures, deaths, and moderation events.",
+    "emptyConfiguredNotRunning": "Start the server to begin tracking player activity.",
+    "emptyNotConfigured": "Configure a server to start tracking activity.",
+    "verbs": {
+      "joined": "joined",
+      "left": "left",
+      "died": "died",
+      "killed": "killed",
+      "banned": "banned",
+      "kicked": "kicked"
+    }
+  },
+  "telemetry": {
+    "heading": "Server telemetry",
+    "sampling": "sampling",
+    "standby": "standby",
+    "live": "live",
+    "lastSecondsLive": "last {{seconds}}s · live",
+    "lastMinutesLive": "last {{minutes}} min · live",
+    "placeholderOnline": "Telemetry will appear within the next sample cycle.",
+    "placeholderOffline": "Start the server to track CPU, RAM, and player metrics."
+  },
+  "connLine": {
+    "rcon": "RCON",
+    "bridge": "Bridge",
+    "connected": "connected",
+    "pending": "pending",
+    "offline": "offline"
+  },
+  "maintenance": {
+    "heading": "Maintenance",
+    "refreshStatus": "Refresh status",
+    "createBackup": "Create backup",
+    "wipeServer": "Wipe server",
+    "wipeTooltipOnline": "Stop the server before wiping",
+    "wipeTooltipOffline": "Delete map / players / world state",
+    "autoStartLabel": "Auto-start on launch"
+  },
+  "bridgeOfflineNotice": {
+    "title": "Bridge offline",
+    "description": "Advanced world controls require PanelBridge.",
+    "configureLink": "Configure bridge"
+  },
+  "workItems": {
+    "players": "Players",
+    "console": "Console",
+    "mods": "Mods",
+    "schedule": "Schedule",
+    "errors": "Errors",
+    "backups": "Backups",
+    "config": "Config",
+    "rconReady": "rcon ready",
+    "rconOffline": "rcon offline",
+    "modsToUpdate_one": "{{count}} to update",
+    "modsToUpdate_other": "{{count}} to update",
+    "modsTracked_one": "{{count}} tracked",
+    "modsTracked_other": "{{count}} tracked",
+    "errorsNone": "none",
+    "errorsLogged": "{{count}} logged",
+    "backupsNoneYet": "none yet",
+    "backupsStored_one": "{{count}} stored",
+    "backupsStored_other": "{{count}} stored",
+    "backupsStoredLast_one": "{{count}} stored, last {{age}}",
+    "backupsStoredLast_other": "{{count}} stored, last {{age}}",
+    "scheduleNoneActive": "none active",
+    "scheduleActive_one": "{{count}} active",
+    "scheduleActive_other": "{{count}} active"
+  },
+  "age": {
+    "justNow": "just now",
+    "minutesAgo_one": "{{count}}m ago",
+    "minutesAgo_other": "{{count}}m ago",
+    "hoursAgo_one": "{{count}}h ago",
+    "hoursAgo_other": "{{count}}h ago",
+    "daysAgo_one": "{{count}}d ago",
+    "daysAgo_other": "{{count}}d ago",
+    "justJoined": "just joined",
+    "forMinutes_one": "for {{count}}m",
+    "forMinutes_other": "for {{count}}m",
+    "forHours_one": "for {{count}}h",
+    "forHours_other": "for {{count}}h",
+    "forDays_one": "for {{count}}d",
+    "forDays_other": "for {{count}}d"
+  },
+  "eta": {
+    "anyMoment": "any moment",
+    "inMinutes_one": "in {{count}}m",
+    "inMinutes_other": "in {{count}}m",
+    "inHours_one": "in {{count}}h",
+    "inHours_other": "in {{count}}h",
+    "inHoursMinutes": "in {{hours}}h {{minutes}}m",
+    "inDays_one": "in {{count}}d",
+    "inDays_other": "in {{count}}d"
+  },
+  "wipeDialog": {
+    "title": "Wipe server",
+    "description": "Select what data to delete from <b>{{serverName}}</b>. The server must be stopped.",
+    "defaultServerName": "the active server",
+    "targets": {
+      "map": { "label": "Map & terrain", "desc": "Chunks, terrain, buildings, zombie population, iso regions." },
+      "players": { "label": "Players & vehicles", "desc": "Player saves, inventories, positions, vehicle data." },
+      "world": { "label": "World state", "desc": "World dictionary, metadata, erosion, game object states, radio." },
+      "accounts": { "label": "Accounts & bans", "desc": "User accounts, passwords, roles, whitelist and ban lists. Everyone re-registers on next join." }
+    },
+    "notice": "Selecting map, players and world empties the save folder completely, including anything mods left behind. Server .ini and sandbox settings are stored separately and will not be affected.",
+    "noFilesFound": "No files found for the selected targets.",
+    "willDelete": "This will permanently delete:",
+    "categoryLabels": {
+      "map": "map/terrain",
+      "players": "player/vehicle",
+      "world": "world state",
+      "leftovers": "other leftover",
+      "accounts": "account database"
+    },
+    "filesCount": "{{count}} {{category}} files ({{mb}} MB)",
+    "noCategoryFilesFound": "No {{category}} files found",
+    "total": "Total: {{count}} files ({{mb}} MB)",
+    "truncatedWarning": "The scan stopped early on a very large save — these counts are a minimum, the real numbers may be higher.",
+    "cancel": "Cancel",
+    "preview": "Preview",
+    "wipeNow": "Wipe now",
+    "previewFailedTitle": "Preview failed",
+    "previewFailedFallback": "Could not scan save directory",
+    "wipedTitle": "Server wiped",
+    "wipedDesc": "Deleted: {{targets}}",
+    "wipeFailedTitle": "Wipe failed",
+    "wipeFailedFallback": "Unknown error"
+  }
+}

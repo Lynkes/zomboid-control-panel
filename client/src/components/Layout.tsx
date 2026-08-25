@@ -1,5 +1,6 @@
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useEffect, useState, useContext } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 import {
   LayoutDashboard,
   Gauge,
@@ -53,14 +54,19 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { KeyboardShortcutsHelp } from './KeyboardShortcutsHelp'
 import { preloadRouteModule } from '@/lib/routePreload'
+import { LanguageSwitcher } from './LanguageSwitcher'
 
-// Standalone top-level nav item (not collapsible)
-const dashboardItem = { to: '/', icon: Gauge, label: 'Dashboard' }
+// Standalone top-level nav item (not collapsible). `labelKey` resolves
+// against the `shell` namespace; kept separate from `label` (English,
+// used for tooltip fallbacks/aria where a plain string is simpler to thread
+// through) so translation is additive rather than replacing the data shape.
+const dashboardItem = { to: '/', icon: Gauge, label: 'Dashboard', labelKey: 'nav.dashboard' }
 
 interface NavItem {
   to: string
   icon: typeof LayoutDashboard
   label: string
+  labelKey: string
   requiresLocal?: boolean
   // Still reachable on a remote server once its Server folder is mirrored over SFTP.
   allowRemoteConfigMirror?: boolean
@@ -71,9 +77,17 @@ interface NavItem {
 interface NavSection {
   id: string
   label: string
+  labelKey: string
   icon: typeof LayoutDashboard
   color: string
   items: NavItem[]
+  // Every item in this section is about operating a game server that
+  // already exists (live status, config, scheduled maintenance, ...), so
+  // with zero servers configured there is nothing there to show. Sections
+  // that help you GET a server (Servers) or that are panel-level facts
+  // independent of any server (Access Control, Settings & Tools) do not
+  // set this and stay reachable at zero servers.
+  requiresServer?: boolean
 }
 
 // Navigation sections with collapsible groups
@@ -81,66 +95,79 @@ const navSections: NavSection[] = [
   {
     id: 'active',
     label: 'Live',
+    labelKey: 'nav.sections.live',
     icon: Terminal,
     color: 'emerald',
+    requiresServer: true,
     items: [
-      { to: '/console', icon: Terminal, label: 'Server Console' },
-      { to: '/players', icon: Users, label: 'Online Players' },
-      { to: '/chat', icon: MessagesSquare, label: 'In-Game Chat' },
+      { to: '/console', icon: Terminal, label: 'Server Console', labelKey: 'nav.items.serverConsole' },
+      { to: '/players', icon: Users, label: 'Online Players', labelKey: 'nav.items.onlinePlayers' },
+      { to: '/chat', icon: MessagesSquare, label: 'In-Game Chat', labelKey: 'nav.items.inGameChat' },
     ]
   },
   {
     id: 'world',
     label: 'World',
+    labelKey: 'nav.sections.world',
     icon: Zap,
     color: 'amber',
+    requiresServer: true,
     items: [
-      { to: '/events', icon: Zap, label: 'Events & Weather' },
-      { to: '/world-map', icon: Map, label: 'World Map' },
+      { to: '/events', icon: Zap, label: 'Events & Weather', labelKey: 'nav.items.eventsWeather' },
+      { to: '/world-map', icon: Map, label: 'World Map', labelKey: 'nav.items.worldMap' },
     ]
   },
   {
     id: 'config',
     label: 'Config',
+    labelKey: 'nav.sections.config',
     icon: FileCog,
     color: 'blue',
+    requiresServer: true,
     items: [
-      { to: '/server-config', icon: FileCog, label: 'Server Configuration', requiresLocal: true, allowRemoteConfigMirror: true },
-      { to: '/mods', icon: Package, label: 'Mod Manager', requiresLocal: true },
-      { to: '/templates', icon: LayoutTemplate, label: 'Templates', requiresLocal: true, allowRemoteConfigMirror: true },
+      { to: '/server-config', icon: FileCog, label: 'Server Configuration', labelKey: 'nav.items.serverConfiguration', requiresLocal: true, allowRemoteConfigMirror: true },
+      { to: '/mods', icon: Package, label: 'Mod Manager', labelKey: 'nav.items.modManager', requiresLocal: true },
+      { to: '/templates', icon: LayoutTemplate, label: 'Templates', labelKey: 'nav.items.templates', requiresLocal: true, allowRemoteConfigMirror: true },
     ]
   },
   {
     id: 'maintenance',
     label: 'Maintain',
+    labelKey: 'nav.sections.maintain',
     icon: Clock,
     color: 'purple',
+    requiresServer: true,
     items: [
-      { to: '/scheduler', icon: Clock, label: 'Scheduled Tasks' },
-      { to: '/backups', icon: Archive, label: 'World Backups', requiresLocal: true },
-      { to: '/chunks', icon: Eraser, label: 'Map Cleanup', requiresLocal: true },
+      { to: '/scheduler', icon: Clock, label: 'Scheduled Tasks', labelKey: 'nav.items.scheduledTasks' },
+      { to: '/backups', icon: Archive, label: 'World Backups', labelKey: 'nav.items.worldBackups', requiresLocal: true },
+      { to: '/chunks', icon: Eraser, label: 'Map Cleanup', labelKey: 'nav.items.mapCleanup', requiresLocal: true },
     ]
   },
   {
     id: 'servers',
     label: 'Servers',
+    labelKey: 'nav.sections.servers',
     icon: Server,
     color: 'cyan',
     items: [
-      { to: '/servers', icon: Layers, label: 'My Servers' },
-      { to: '/server-setup', icon: Download, label: 'Server Setup' },
-      { to: '/server-finder', icon: Search, label: 'Browse Public' },
+      { to: '/servers', icon: Layers, label: 'My Servers', labelKey: 'nav.items.myServers' },
+      { to: '/server-setup', icon: Download, label: 'Server Setup', labelKey: 'nav.items.serverSetup' },
+      { to: '/server-finder', icon: Search, label: 'Browse Public', labelKey: 'nav.items.browsePublic' },
     ]
   },
+  // Access Control (Users, Roles & Permissions, Sign-in) is entirely gone
+  // from the left nav now -- all three moved into Settings as tabs. See
+  // Settings.tsx's "users"/"roles"/"sso" tab sections.
   {
     id: 'system',
     label: 'Settings & Tools',
+    labelKey: 'nav.sections.settingsAndTools',
     icon: Settings,
     color: 'slate',
     items: [
-      { to: '/discord', icon: MessageSquare, label: 'Discord' },
-      { to: '/settings', icon: Settings, label: 'Panel Settings' },
-      { to: '/debug', icon: Bug, label: 'Debug Logs' },
+      { to: '/discord', icon: MessageSquare, label: 'Discord', labelKey: 'nav.items.discord' },
+      { to: '/settings', icon: Settings, label: 'Panel Settings', labelKey: 'nav.items.panelSettings' },
+      { to: '/debug', icon: Bug, label: 'Debug Logs', labelKey: 'nav.items.debugLogs' },
     ]
   },
 ]
@@ -200,10 +227,20 @@ const sectionToneStyles = {
     childDot: 'bg-muted-foreground',
     childBorder: 'border-border/70',
   },
+  destructive: {
+    triggerActive: 'bg-destructive/12 border-destructive/35',
+    iconActive: 'border-destructive/45 bg-destructive/14 text-destructive',
+    iconIdle: 'text-foreground/86 group-hover:text-destructive',
+    labelActive: 'text-destructive',
+    childActive: 'border-destructive/45 bg-destructive/10',
+    childDot: 'bg-destructive',
+    childBorder: 'border-destructive/35',
+  },
 } as const
 
 // Auth footer — shows logged-in user and logout button
 function AuthFooter() {
+  const { t } = useTranslation('shell')
   const { user, authEnabled, logout } = useAuth()
 
   if (!authEnabled || !user) return null
@@ -216,7 +253,7 @@ function AuthFooter() {
         type="button"
         onClick={logout}
         className="shrink-0 text-muted-foreground/70 hover:text-foreground transition-colors"
-        title="Sign out"
+        title={t('footer.signOut')}
       >
         <LogOut className="h-3 w-3" />
       </button>
@@ -225,6 +262,7 @@ function AuthFooter() {
 }
 
 function PanelBrand({ compact = false }: { compact?: boolean }) {
+  const { t } = useTranslation('shell')
   return (
     <div className={cn("flex items-center", compact ? "gap-2" : "gap-2.5")}>
       <img
@@ -245,7 +283,7 @@ function PanelBrand({ compact = false }: { compact?: boolean }) {
             compact ? "text-[13px] tracking-[0.12em]" : "text-sm tracking-[0.14em]"
           )}
         >
-          Project Zomboid
+          {t('brand.title')}
         </p>
         <p
           className={cn(
@@ -253,7 +291,7 @@ function PanelBrand({ compact = false }: { compact?: boolean }) {
             "text-[11px] mt-0.5"
           )}
         >
-          // Control Panel
+          // {t('brand.subtitle')}
         </p>
       </div>
     </div>
@@ -265,6 +303,7 @@ interface LayoutProps {
 }
 
 export default function Layout({ children }: LayoutProps) {
+  const { t } = useTranslation('shell')
   const [activeServer, setActiveServer] = useState<ServerInstance | null>(null)
 
   const isBlockedByRemote = (item: NavItem) =>
@@ -272,6 +311,8 @@ export default function Layout({ children }: LayoutProps) {
     !!activeServer?.isRemote &&
     !(item.allowRemoteConfigMirror && activeServer.remoteConfigConfigured)
   const [servers, setServers] = useState<ServerInstance[]>([])
+  const hasServer = servers.length > 0
+  const isBlockedByNoServer = (section: NavSection) => !!section.requiresServer && !hasServer
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === 'true')
   const [updateInfo, setUpdateInfo] = useState<UpdateStatus | null>(null)
@@ -431,14 +472,14 @@ export default function Layout({ children }: LayoutProps) {
         setActiveServer(active)
       } catch {
         toast({
-          title: 'Server list unavailable',
-          description: 'The panel could not load server profiles.',
+          title: t('serverListErrors.listUnavailableTitle'),
+          description: t('serverListErrors.listUnavailableDesc'),
           variant: 'destructive',
         })
       }
     }
     fetchServers()
-  }, [toast])
+  }, [toast, t])
 
   // Listen for server changes
   useEffect(() => {
@@ -452,8 +493,8 @@ export default function Layout({ children }: LayoutProps) {
         setActiveServer(active)
       } catch {
         toast({
-          title: 'Server refresh failed',
-          description: 'The active server list could not be refreshed.',
+          title: t('serverListErrors.refreshFailedTitle'),
+          description: t('serverListErrors.refreshFailedDesc'),
           variant: 'destructive',
         })
       }
@@ -463,7 +504,7 @@ export default function Layout({ children }: LayoutProps) {
     return () => {
       socket.off('activeServerChanged', handleActiveServerChanged)
     }
-  }, [socket, toast])
+  }, [socket, toast, t])
 
   // Listen for update notifications
   useEffect(() => {
@@ -509,8 +550,8 @@ export default function Layout({ children }: LayoutProps) {
       // Socket event will refresh the list
     } catch {
       toast({
-        title: 'Switch failed',
-        description: `Could not make ${server.name} the active server.`,
+        title: t('serverListErrors.switchFailedTitle'),
+        description: t('serverListErrors.switchFailedDesc', { name: server.name }),
         variant: 'destructive',
       })
     }
@@ -518,7 +559,7 @@ export default function Layout({ children }: LayoutProps) {
 
   return (
     <div className="flex h-screen bg-background">
-      <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[60] focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground focus:text-sm">Skip to content</a>
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[60] focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground focus:text-sm">{t('skipToContent')}</a>
       {/* Mobile Header */}
       <div className="fixed top-0 left-0 right-0 z-50 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/85 lg:hidden">
         <div className="flex items-center justify-between p-3">
@@ -527,7 +568,7 @@ export default function Layout({ children }: LayoutProps) {
             variant="ghost"
             size="icon"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+            aria-label={mobileMenuOpen ? t('mobileMenu.close') : t('mobileMenu.open')}
             className="h-11 w-11 rounded-lg border border-transparent hover:border-border/70 focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2"
           >
             {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -538,7 +579,7 @@ export default function Layout({ children }: LayoutProps) {
       {/* Mobile Menu Overlay */}
       {mobileMenuOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[1px] lg:hidden"
+          className="fixed inset-0 z-40 bg-background/50 backdrop-blur-[1px] lg:hidden"
           onClick={() => setMobileMenuOpen(false)}
           aria-hidden="true"
         />
@@ -546,7 +587,7 @@ export default function Layout({ children }: LayoutProps) {
 
       {/* Sidebar - Desktop always visible, Mobile as slide-out */}
       <aside
-        aria-label="Sidebar"
+        aria-label={t('nav.sidebarAriaLabel')}
         className={cn(
         "fixed inset-y-0 left-0 z-40 flex flex-col border-r bg-card transform transition-all duration-300 ease-out will-change-[width,transform] motion-reduce:transition-none lg:relative",
         sidebarCollapsed ? "lg:w-[60px]" : "lg:w-64",
@@ -579,12 +620,12 @@ export default function Layout({ children }: LayoutProps) {
               <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
                 <div className="flex items-center gap-2">
                   <span className="shell-brand-title truncate text-[15px] uppercase leading-none tracking-[0.18em]">
-                    Zomboid
+                    {t('brand.shortTitle')}
                   </span>
-                  <span className="brand-led" aria-hidden title="Panel online" />
+                  <span className="brand-led" aria-hidden title={t('panelStatus.online')} />
                 </div>
                 <div className="flex items-center gap-1.5 text-[9.5px] font-medium uppercase leading-none tracking-[0.28em] text-muted-foreground/80">
-                  <span className="shell-brand-subtitle truncate">CONTROL PANEL</span>
+                  <span className="shell-brand-subtitle truncate uppercase">{t('brand.shortSubtitle')}</span>
                   <span className="brand-strip__version font-mono normal-case tracking-normal text-muted-foreground/55">
                     v{panelVersion || (typeof __PANEL_VERSION__ !== 'undefined' ? __PANEL_VERSION__ : '0')}
                   </span>
@@ -610,7 +651,7 @@ export default function Layout({ children }: LayoutProps) {
                 <span className="active-server-strip__edge" aria-hidden />
 
                 <div className="flex items-center gap-1.5 text-[9.5px] font-medium uppercase leading-none tracking-[0.26em] text-muted-foreground/70">
-                  <span>Active Server</span>
+                  <span>{t('activeServer.label')}</span>
                   <span className="ml-1 inline-block h-px flex-1 bg-gradient-to-r from-border/40 to-transparent" aria-hidden />
                   <ChevronDown className="h-3 w-3 text-muted-foreground/60 transition-transform duration-200 group-data-[state=open]:rotate-180" />
                 </div>
@@ -619,27 +660,27 @@ export default function Layout({ children }: LayoutProps) {
                     <span className="absolute inset-0 rounded-full" />
                   </span>
                   <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold leading-tight text-foreground transition-colors group-hover:text-primary">
-                    {activeServer?.name || 'No server selected'}
+                    {activeServer?.name || t('activeServer.none')}
                   </span>
                   {serverRunState === 'running' && playerCount > 0 && (
                     <Badge
                       variant="success"
                       className="shrink-0 px-1.5 py-0 text-[10px] leading-none"
-                      title={`${playerCount} player${playerCount === 1 ? '' : 's'} online`}
+                      title={t('activeServer.playersOnline', { count: playerCount })}
                     >
                       {playerCountLabel}
                     </Badge>
                   )}
                   {activeServer?.isRemote && (
-                    <Badge variant="outline" className="shrink-0 px-1.5 py-0 text-[10px] uppercase tracking-wider text-muted-foreground/80" title="Remote (RCON-only) server">
-                      RM
+                    <Badge variant="outline" className="shrink-0 px-1.5 py-0 text-[10px] uppercase tracking-wider text-muted-foreground/80" title={t('activeServer.remoteTitle')}>
+                      {t('activeServer.remoteBadge')}
                     </Badge>
                   )}
                   <span className="sr-only">
-                    {serverRunState === 'running' && 'Server is running'}
-                    {serverRunState === 'stopped' && 'Server is stopped'}
-                    {serverRunState === 'transitioning' && 'Server is starting or stopping'}
-                    {serverRunState === 'unknown' && 'Server status unknown'}
+                    {serverRunState === 'running' && t('activeServer.statusRunning')}
+                    {serverRunState === 'stopped' && t('activeServer.statusStopped')}
+                    {serverRunState === 'transitioning' && t('activeServer.statusTransitioning')}
+                    {serverRunState === 'unknown' && t('activeServer.statusUnknown')}
                   </span>
                 </div>
               </button>
@@ -663,13 +704,13 @@ export default function Layout({ children }: LayoutProps) {
                     </div>
                     <span className="truncate flex-1 font-medium">{server.name}</span>
                     {server.isRemote && (
-                      <Badge variant="outline" className="px-1.5 py-0 text-[10px] uppercase tracking-wider text-muted-foreground/80" title="Remote (RCON-only) server">
-                        Remote
+                      <Badge variant="outline" className="px-1.5 py-0 text-[10px] uppercase tracking-wider text-muted-foreground/80" title={t('activeServer.remoteTitle')}>
+                        {t('activeServer.remoteBadgeFull')}
                       </Badge>
                     )}
                     {server.isActive && (
                       <Badge variant="secondary" className="px-2 py-0.5 text-xs uppercase tracking-wide">
-                        Active
+                        {t('activeServer.activeBadge')}
                       </Badge>
                     )}
                   </div>
@@ -678,14 +719,14 @@ export default function Layout({ children }: LayoutProps) {
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => navigate('/servers')} className="py-2.5 px-3">
                 <Layers className="w-4 h-4 mr-2" />
-                Manage Servers
+                {t('activeServer.manageServers')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         )}
 
         {/* Navigation — flat, scannable */}
-        <nav aria-label="Main navigation" className="flex-1 overflow-y-auto nav-scroll px-2 py-2">
+        <nav aria-label={t('nav.ariaLabel')} className="flex-1 overflow-y-auto nav-scroll px-2 py-2">
           {/* Dashboard — always pinned at top */}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -707,10 +748,10 @@ export default function Layout({ children }: LayoutProps) {
                   <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[2px] rounded-r-full bg-primary" aria-hidden />
                 )}
                 <dashboardItem.icon className={cn('h-[15px] w-[15px] shrink-0', location.pathname === dashboardItem.to ? 'text-primary' : 'text-muted-foreground/80 group-hover:text-foreground')} />
-                {!sidebarCollapsed && <span className="truncate">{dashboardItem.label}</span>}
+                {!sidebarCollapsed && <span className="truncate">{t(dashboardItem.labelKey)}</span>}
               </NavLink>
             </TooltipTrigger>
-            {sidebarCollapsed && <TooltipContent side="right">{dashboardItem.label}</TooltipContent>}
+            {sidebarCollapsed && <TooltipContent side="right">{t(dashboardItem.labelKey)}</TooltipContent>}
           </Tooltip>
 
           {/* Sections */}
@@ -727,7 +768,30 @@ export default function Layout({ children }: LayoutProps) {
                 <div key={section.id} className={cn('space-y-0.5', sectionIdx === 0 ? 'mt-2 pt-2 border-t border-border/40' : 'mt-2 pt-2 border-t border-border/40')}>
                   {section.items.map((item) => {
                     const isDisabledByRemote = isBlockedByRemote(item)
-                    if (isDisabledByRemote || item.disabled) return null
+                    const isDisabledByNoServer = isBlockedByNoServer(section)
+                    const disabledReason = isDisabledByNoServer
+                      ? t('nav.requiresServer')
+                      : isDisabledByRemote
+                        ? t('nav.notAvailableRemote')
+                        : null
+
+                    if (disabledReason || item.disabled) {
+                      return (
+                        <Tooltip key={item.to}>
+                          <TooltipTrigger asChild>
+                            <div
+                              className="flex min-h-9 items-center justify-center rounded-md px-2 py-2 opacity-45 cursor-not-allowed"
+                              aria-disabled="true"
+                              aria-label={disabledReason ? `${t(item.labelKey)} — ${disabledReason}` : t(item.labelKey)}
+                            >
+                              <item.icon className="h-[15px] w-[15px] shrink-0 text-muted-foreground/50" />
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="right">{disabledReason ?? t(item.labelKey)}</TooltipContent>
+                        </Tooltip>
+                      )
+                    }
+
                     const isActive = location.pathname === item.to
                     return (
                       <Tooltip key={item.to}>
@@ -750,7 +814,7 @@ export default function Layout({ children }: LayoutProps) {
                             <item.icon className={cn('h-[15px] w-[15px] shrink-0', isActive ? tone.labelActive : 'text-muted-foreground/80 group-hover:text-foreground')} />
                           </NavLink>
                         </TooltipTrigger>
-                        <TooltipContent side="right">{item.label}</TooltipContent>
+                        <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
                       </Tooltip>
                     )
                   })}
@@ -765,7 +829,7 @@ export default function Layout({ children }: LayoutProps) {
                 <div className="mb-1 flex items-center gap-2 px-2">
                   <span className={cn('h-px w-3 rounded-full', tone.childDot)} aria-hidden />
                   <span className={cn('text-[10px] font-semibold uppercase leading-none tracking-[0.18em]', tone.labelActive)}>
-                    {section.label}
+                    {t(section.labelKey)}
                   </span>
                   {sectionHasSignal && (
                     <span
@@ -783,35 +847,61 @@ export default function Layout({ children }: LayoutProps) {
                 <div className="space-y-0.5">
                   {section.items.map((item) => {
                     const isDisabledByRemote = isBlockedByRemote(item)
+                    const isDisabledByNoServer = isBlockedByNoServer(section)
+
+                    if (isDisabledByNoServer) {
+                      return (
+                        <Tooltip key={item.to}>
+                          <TooltipTrigger asChild>
+                            <div
+                              className="flex min-h-9 items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] opacity-50 cursor-not-allowed"
+                              aria-label={`${t(item.labelKey)} — ${t('nav.requiresServer')}`}
+                              aria-disabled="true"
+                            >
+                              <item.icon className="h-[15px] w-[15px] shrink-0 text-muted-foreground/50" />
+                              <span className="truncate text-muted-foreground/70">{t(item.labelKey)}</span>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="right">{t('nav.requiresServer')}</TooltipContent>
+                        </Tooltip>
+                      )
+                    }
 
                     if (item.disabled) {
                       return (
-                        <div
-                          key={item.to}
-                          className="flex min-h-9 items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] opacity-50 cursor-not-allowed"
-                          title={item.label}
-                          aria-disabled="true"
-                        >
-                          <item.icon className="h-[15px] w-[15px] shrink-0 text-muted-foreground/50" />
-                          <span className="truncate text-muted-foreground/70">{item.label}</span>
-                        </div>
+                        <Tooltip key={item.to}>
+                          <TooltipTrigger asChild>
+                            <div
+                              className="flex min-h-9 items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] opacity-50 cursor-not-allowed"
+                              aria-disabled="true"
+                            >
+                              <item.icon className="h-[15px] w-[15px] shrink-0 text-muted-foreground/50" />
+                              <span className="truncate text-muted-foreground/70">{t(item.labelKey)}</span>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
+                        </Tooltip>
                       )
                     }
 
                     if (isDisabledByRemote) {
                       return (
-                        <div
-                          key={item.to}
-                          className="flex min-h-9 items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] opacity-55"
-                          title="Not available for remote (RCON-only) servers"
-                          aria-disabled="true"
-                        >
-                          <item.icon className="h-[15px] w-[15px] shrink-0 text-muted-foreground/50" />
-                          <span className="truncate text-muted-foreground/70 line-through decoration-muted-foreground/30">{item.label}</span>
-                          <Badge variant="outline" className="ml-auto px-1 py-0 text-[9px] uppercase tracking-wider">
-                            Local
-                          </Badge>
-                        </div>
+                        <Tooltip key={item.to}>
+                          <TooltipTrigger asChild>
+                            <div
+                              className="flex min-h-9 items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] opacity-55"
+                              aria-label={`${t(item.labelKey)} — ${t('nav.notAvailableRemote')}`}
+                              aria-disabled="true"
+                            >
+                              <item.icon className="h-[15px] w-[15px] shrink-0 text-muted-foreground/50" />
+                              <span className="truncate text-muted-foreground/70 line-through decoration-muted-foreground/30">{t(item.labelKey)}</span>
+                              <Badge variant="outline" className="ml-auto px-1 py-0 text-[9px] uppercase tracking-wider">
+                                {t('nav.localBadge')}
+                              </Badge>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="right">{t('nav.notAvailableRemote')}</TooltipContent>
+                        </Tooltip>
                       )
                     }
 
@@ -837,7 +927,7 @@ export default function Layout({ children }: LayoutProps) {
                               <span className={cn('absolute left-0 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-r-full', tone.childDot)} aria-hidden />
                             )}
                             <item.icon className={cn('h-[15px] w-[15px] shrink-0 transition-colors', isActive ? tone.labelActive : 'text-muted-foreground/80 group-hover:text-foreground')} />
-                            <span className="truncate">{item.label}</span>
+                            <span className="truncate">{t(item.labelKey)}</span>
                             {item.badge && (
                               <Badge
                                 variant={isActive ? 'secondary' : 'outline'}
@@ -858,7 +948,7 @@ export default function Layout({ children }: LayoutProps) {
                               <Badge
                                 variant="warning"
                                 className="ml-auto min-w-[24px] justify-center px-1.5 py-0 text-[10px] leading-tight"
-                                title={`${modUpdatesAvailable} mod update${modUpdatesAvailable === 1 ? '' : 's'} available`}
+                                title={t('modBadge.updatesAvailable', { count: modUpdatesAvailable })}
                               >
                                 {modUpdatesAvailable > 99 ? '99+' : modUpdatesAvailable}
                               </Badge>
@@ -866,7 +956,9 @@ export default function Layout({ children }: LayoutProps) {
                             {item.to === '/settings' && panelUpdateAvailable && (
                               <span
                                 className="ml-auto h-1.5 w-1.5 rounded-full bg-warning motion-safe:animate-pulse"
-                                title={`Panel update available${panelUpdateAvailable.version ? `: v${panelUpdateAvailable.version}` : ''}`}
+                                title={panelUpdateAvailable.version
+                                  ? t('panelUpdateBadge.titleWithVersion', { version: panelUpdateAvailable.version })
+                                  : t('panelUpdateBadge.titleNoVersion')}
                                 aria-hidden
                               />
                             )}
@@ -888,6 +980,7 @@ export default function Layout({ children }: LayoutProps) {
               <div className="flex items-center gap-2 text-[11px]">
                 <ConnectionStatus />
                 <AuthFooter />
+                <LanguageSwitcher className="ml-auto" />
               </div>
               <div className="flex items-center gap-2 text-[11px]">
                 <span className="flex items-center gap-2">
@@ -896,10 +989,12 @@ export default function Layout({ children }: LayoutProps) {
                       to="/settings"
                       onClick={() => setMobileMenuOpen(false)}
                       className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-warning/10 px-1.5 py-0 text-[10px] font-medium uppercase tracking-wider text-warning hover:bg-warning/20 transition-colors"
-                      title={`Panel update available${panelUpdateAvailable.version ? `: v${panelUpdateAvailable.version}` : ''}. Open Panel Settings.`}
+                      title={panelUpdateAvailable.version
+                        ? t('panelUpdateBadge.titleWithVersionOpenSettings', { version: panelUpdateAvailable.version })
+                        : t('panelUpdateBadge.titleNoVersionOpenSettings')}
                     >
                       <span className="h-1.5 w-1.5 rounded-full bg-warning motion-safe:animate-pulse" />
-                      Update
+                      {t('panelUpdateBadge.update')}
                     </NavLink>
                   )}
                   <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/55">
@@ -911,8 +1006,8 @@ export default function Layout({ children }: LayoutProps) {
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-muted-foreground/70 hover:text-[#FF5E5B] transition-colors"
-                    aria-label="Support on Ko-fi (opens in new tab)"
-                    title="Buy me a coffee"
+                    aria-label={t('footer.supportKofi')}
+                    title={t('footer.buyMeCoffee')}
                   >
                     <Coffee className="h-3.5 w-3.5" />
                   </a>
@@ -921,15 +1016,15 @@ export default function Layout({ children }: LayoutProps) {
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-muted-foreground/70 hover:text-foreground transition-colors"
-                    aria-label="GitHub repository (opens in new tab)"
+                    aria-label={t('footer.githubRepo')}
                   >
                     <Github className="h-3.5 w-3.5" />
                   </a>
                   <button
                     onClick={() => setHelpOpen(true)}
                     className="text-muted-foreground/70 hover:text-foreground transition-colors"
-                    aria-label="Keyboard shortcuts"
-                    title="Keyboard shortcuts (?)"
+                    aria-label={t('footer.keyboardShortcuts')}
+                    title={t('footer.keyboardShortcutsTitle')}
                   >
                     <kbd className="inline-flex h-4 w-4 items-center justify-center rounded border border-border/40 text-[10px] font-mono leading-none">?</kbd>
                   </button>
@@ -937,8 +1032,9 @@ export default function Layout({ children }: LayoutProps) {
               </div>
             </>
           ) : (
-            <div className="flex justify-center">
+            <div className="flex flex-col items-center gap-1.5">
               <ConnectionStatus className="justify-center" />
+              <LanguageSwitcher />
             </div>
           )}
           {/* Collapse toggle */}
@@ -951,12 +1047,12 @@ export default function Layout({ children }: LayoutProps) {
                     'flex h-5 w-full items-center justify-center rounded text-muted-foreground/35 hover:text-muted-foreground transition-colors',
                     sidebarCollapsed && 'mx-auto w-8'
                   )}
-                  aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                  aria-label={sidebarCollapsed ? t('footer.expandSidebar') : t('footer.collapseSidebar')}
                 >
                   {sidebarCollapsed ? <PanelLeft className="h-3.5 w-3.5" /> : <PanelLeftClose className="h-3.5 w-3.5" />}
                 </button>
               </TooltipTrigger>
-              {sidebarCollapsed && <TooltipContent side="right">Expand sidebar</TooltipContent>}
+              {sidebarCollapsed && <TooltipContent side="right">{t('footer.expandSidebar')}</TooltipContent>}
             </Tooltip>
           </div>
         </div>
@@ -976,10 +1072,15 @@ export default function Layout({ children }: LayoutProps) {
               <AlertCircle className="h-3.5 w-3.5 shrink-0 text-warning" />
               <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5">
                 <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-warning">
-                  Server update
+                  {t('updateBanner.label')}
                 </span>
                 <span className="min-w-0 truncate text-xs text-muted-foreground">
-                  New build on <span className="font-medium text-foreground">{updateInfo.installed.branch}</span> branch
+                  <Trans
+                    t={t}
+                    i18nKey="updateBanner.newBuildOn"
+                    values={{ branch: updateInfo.installed.branch }}
+                    components={{ b: <span className="font-medium text-foreground" /> }}
+                  />
                   {updateInfo.latest.description && (
                     <span className="text-muted-foreground/70"> · {updateInfo.latest.description}</span>
                   )}
@@ -1001,7 +1102,7 @@ export default function Layout({ children }: LayoutProps) {
                     if (key) localStorage.setItem(key, 'true')
                   }}
                 >
-                  Dismiss
+                  {t('updateBanner.dismiss')}
                 </Button>
                 <Button
                   size="sm"
@@ -1010,7 +1111,7 @@ export default function Layout({ children }: LayoutProps) {
                   onClick={() => navigate('/servers')}
                 >
                   <RefreshCw className="h-3 w-3" />
-                  Update server
+                  {t('updateBanner.updateServer')}
                 </Button>
               </div>
             </div>

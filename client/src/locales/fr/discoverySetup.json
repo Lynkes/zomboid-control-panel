@@ -1,0 +1,12 @@
+{
+  "title": "Ajouter le serveur découvert",
+  "description": "Créer un profil de serveur à partir d'un point de montage découvert.",
+  "install": "Installation",
+  "data": "Données",
+  "configuration": "Configuration",
+  "displayName": "Nom affiché",
+  "cancel": "Annuler",
+  "addServer": "Ajouter le serveur",
+  "toastServerAdded": "Serveur ajouté",
+  "failedToCreate": "Échec de la création du serveur"
+}

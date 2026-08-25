@@ -65,6 +65,39 @@ describe("buildHostSignal", () => {
       detail: null,
     });
   });
+
+  // Regression: a native/docker host signal had no way to represent "we
+  // could not determine this" -- isRunning is a plain boolean, so a failed
+  // process-detection scan (isRunning: false, forced by the caller because
+  // that's all a failed scan can return) rendered identically to a
+  // confirmed stop. That is the exact disagreement an operator hit: the
+  // dashboard confidently said "Server stopped" while /wipe's own fresh
+  // check refused because detection itself was failing. Reuses the same
+  // "unknown" status the client already renders correctly for remote-sftp.
+  it("reports native host state as unknown when detection itself failed, not stopped", () => {
+    const signal = buildHostSignal("native", false, true);
+    expect(signal.status).toBe("unknown");
+    expect(signal.label).toBe("Process");
+    expect(signal.detail).toBeTruthy();
+  });
+
+  it("reports docker host state as unknown when detection itself failed", () => {
+    const signal = buildHostSignal("docker-local", false, true);
+    expect(signal.status).toBe("unknown");
+    expect(signal.label).toBe("Container");
+  });
+
+  it("does not report unknown for native/docker when the scan succeeded and simply found nothing", () => {
+    expect(buildHostSignal("native", false, false).status).toBe("stopped");
+    expect(buildHostSignal("native", false).status).toBe("stopped");
+  });
+
+  it("does not let a stale isRunning:true smuggle a confirmed state past a failed scan", () => {
+    // scanFailed must win regardless of what isRunning says -- a caller
+    // should never be able to pass a truthy isRunning alongside scanFailed
+    // and get a confident "running" out the other side.
+    expect(buildHostSignal("native", true, true).status).toBe("unknown");
+  });
 });
 
 describe("buildServerSignal", () => {
@@ -152,6 +185,19 @@ describe("composeServerStatus", () => {
     expect(result.server.status).toBe("connected");
     expect(result.bridge.status).toBe("active");
     expect(result.selected).toBe(true);
+  });
+
+  it("composes a native server whose host state can't be verified because detection failed", () => {
+    const result = composeServerStatus({
+      server: { isRemote: false },
+      isRunning: false,
+      scanFailed: true,
+      rcon: { connected: false },
+      bridge: { configured: false },
+    });
+
+    expect(result.provider).toBe("native");
+    expect(result.host.status).toBe("unknown");
   });
 
   it("composes a remote server whose host state can't be verified", () => {

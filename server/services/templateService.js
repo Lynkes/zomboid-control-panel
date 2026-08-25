@@ -18,7 +18,7 @@ import {
   createTemplate,
   validateTemplate,
   diffTemplate as computeDiff,
-  DEFAULT_INI_EXCLUSIONS,
+  resolveIniExclusions,
 } from "../utils/templateSchema.js";
 import {
   readIniValues,
@@ -189,7 +189,12 @@ export async function previewTemplate(templateId, serverId) {
 }
 
 function prepareIniChange(template, paths, result) {
-  const exclusions = template.iniExclusions || DEFAULT_INI_EXCLUSIONS;
+  // resolveIniExclusions(), not `template.iniExclusions || DEFAULT_...` --
+  // the `||` version treated the template's own (attacker-controlled) list
+  // as authoritative, so `"iniExclusions": []` (truthy, so `||` never fell
+  // back) disabled the RCONPassword/port/ServerName protection at the
+  // actual apply-time write site. See 2026-08-24 conv-template-privesc.
+  const exclusions = resolveIniExclusions(template);
   const requested = Object.fromEntries(
     Object.entries(template.serverIni || {}).filter(([key]) => !exclusions.includes(key)),
   );

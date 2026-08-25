@@ -20,6 +20,7 @@ export interface ConflictScanResult {
   missingDeps: MissingDependency[]
   steamDeps?: SteamDependency[]
   modLoadOrder: string[]
+  truncated?: boolean
   warnings?: string[]
   scanDurationMs?: number
   idCollisions?: ModIdCollision[]

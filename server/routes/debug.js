@@ -3,6 +3,7 @@ import os from "os";
 import v8 from "v8";
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import { execFile } from "child_process";
 import { fileURLToPath } from "url";
 import archiver from "archiver";
@@ -24,24 +25,51 @@ import {
   getScheduledTasks,
   getTrackedMods,
   getAllSettings,
+  getCircuitBreakerStatus,
 } from "../database/init.js";
-import { sanitizeError, SENSITIVE_FIELD_RE } from "../utils/sanitize.js";
+import { sanitizeError, sanitizeErrorParams, SENSITIVE_FIELD_RE } from "../utils/sanitize.js";
 import { checkSandboxBraceBalance } from "./serverFiles.js";
 import panelBridgeService from "../services/panelBridge.js";
+import authService from "../services/auth.js";
+import { listBackupRecords } from "../services/backupRecords.js";
 import {
-  PZ_MAP_ROOT,
+  getOidcSettings,
+  getOidcEnvOverrides,
+  isOidcConfigured,
+} from "../services/oidc.js";
+import {
+  PZ_TILES_ROOT,
   getB42Dir,
   getB42TopFormat,
+  getB42ResolutionStatus,
 } from "./mapProxy.js";
+import { getThumbnailResolutionStatus } from "./mods.js";
 import {
   getCandidateZomboidPaths,
   inspectZomboidPath,
 } from "../utils/zomboidPaths.js";
+import { requirePermission, listRolesWithMemberCounts } from "../services/permissions.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const router = express.Router();
+
+// Every endpoint in this file is admin-only (requirePermission("diagnostics.manage") is
+// applied to each route below), with one deliberate exception:
+// POST /client-errors is client-side crash/error telemetry, and it is fully
+// UNAUTHENTICATED — no login required at all, not even "any logged-in
+// role". A frontend crash can happen before the client has authenticated,
+// most notably on the login page itself, where there is no token to attach
+// and no req.user to check — requiring login here would silently delete
+// exactly the crash reports an operator most needs to see. What protects it
+// instead: a per-IP rate limit, plus the fact that it only ever logs a
+// message and mutates/exposes nothing sensitive. See the comment directly
+// above that route for the full reasoning.
+//
+// This was previously the whole file's exposure: behind the central login
+// gate only, so ANY authenticated role — including a moderator — could
+// trigger a database backup, compact the database, or clear stale locks.
 
 // In-memory log buffer for real-time streaming
 const logBuffer = [];
@@ -65,7 +93,7 @@ export function addLogToBuffer(level, message, source = "server") {
 }
 
 // Get system RAM info for auto-configuration
-router.get("/ram", async (req, res) => {
+router.get("/ram", requirePermission("diagnostics.manage"), async (req, res) => {
   try {
     const totalMemBytes = os.totalmem();
     const freeMemBytes = os.freemem();
@@ -91,7 +119,7 @@ router.get("/ram", async (req, res) => {
 });
 
 // Get system information
-router.get("/system", async (req, res) => {
+router.get("/system", requirePermission("diagnostics.manage"), async (req, res) => {
   try {
     const paths = getDataPaths();
 
@@ -131,7 +159,7 @@ router.get("/system", async (req, res) => {
 });
 
 // Get recent logs from buffer
-router.get("/logs", async (req, res) => {
+router.get("/logs", requirePermission("diagnostics.manage"), async (req, res) => {
   try {
     const limit = parseInt(req.query.limit, 10) || 200;
     res.json({
@@ -335,11 +363,57 @@ async function safeStatfs(target) {
   }
 }
 
-async function buildSystemInfo(activeServer) {
+// The bundle-download request is the only place the panel's UI language
+// reaches the server -- otherwise it lives only in the reporting browser's
+// localStorage (see buildBundleReadme). Treated as untrusted input: bounded
+// length and checked against a generic BCP-47-shaped pattern, not a
+// hardcoded list of languages this build currently ships (client/src/i18n's
+// LANGUAGE_CODES), which would go stale as languages are added without a
+// server change. MUST degrade to "not reported" rather than guessing "en"
+// for an older client, a direct curl request, or a garbage/oversized value
+// -- a support artefact that guesses and is wrong is worse than one that
+// admits it doesn't know.
+const UI_LANGUAGE_HEADER = "x-ui-language";
+const UI_LANGUAGE_MAX_LENGTH = 35; // BCP 47 language tags top out around here
+const UI_LANGUAGE_RE = /^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{1,8}){0,4}$/;
+
+function resolveReportedUiLanguage(req) {
+  const raw = req?.headers?.[UI_LANGUAGE_HEADER];
+  if (typeof raw !== "string") return "not reported";
+  const value = raw.trim();
+  if (!value || value.length > UI_LANGUAGE_MAX_LENGTH) return "not reported";
+  if (!UI_LANGUAGE_RE.test(value)) return "not reported";
+  return value;
+}
+
+async function buildSystemInfo(activeServer, serverManager, uiLanguage = "not reported") {
   const version = await readPanelVersion();
   const isPkg = typeof process.pkg !== "undefined";
   const paths = getDataPaths();
   const cpus = os.cpus();
+
+  // Whether the dedicated server process was running at the moment this
+  // bundle was generated -- nothing else in the bundle answered this before.
+  // Distinguishes a confirmed-stopped server from "detection itself failed"
+  // (scanFailed) the same way getServerProcessDetails()'s other callers do,
+  // rather than collapsing an unknown state into a false "not running".
+  // There is no PERSISTED "a config edit is pending a restart" flag anywhere
+  // in the panel to report instead (config-guard's warning is computed fresh
+  // per-request and never stored) -- this live snapshot is the closest
+  // available substitute for "what state was the server actually in".
+  let serverProcess = { checked: false };
+  if (typeof serverManager?.getServerProcessDetails === "function") {
+    try {
+      const details = await serverManager.getServerProcessDetails();
+      serverProcess = {
+        checked: true,
+        running: Boolean(details.running),
+        scanFailed: Boolean(details.scanFailed),
+      };
+    } catch (e) {
+      serverProcess = { checked: true, error: e.message };
+    }
+  }
 
   return {
     panel: {
@@ -381,6 +455,8 @@ async function buildSystemInfo(activeServer) {
       zomboidDataDir: await safeStatfs(activeServer?.zomboidDataPath || null),
       installDir: await safeStatfs(activeServer?.installPath || null),
     },
+    serverProcess,
+    uiLanguage,
   };
 }
 
@@ -504,15 +580,25 @@ async function buildServerConfigSummary(activeServer) {
         values[key],
       ]),
     );
+    const mods = splitList(values.Mods);
+    const workshopItems = splitList(values.WorkshopItems);
     result.available = true;
     result.ini = {
       ...result.ini,
       exists: true,
       sha256: crypto.createHash("sha256").update(iniContent).digest("hex"),
       settings: safeSettings,
-      mods: splitList(values.Mods),
-      workshopItems: splitList(values.WorkshopItems),
+      mods,
+      workshopItems,
       map: splitList(values.Map),
+      // Mods= and WorkshopItems= are meant to be parallel lists (same index
+      // = same mod). A length mismatch is a cheap, real signal something
+      // didn't resolve cleanly the last time mods were applied -- the actual
+      // per-ID resolution result (unresolvedModIds) is computed only inside
+      // POST /mods/apply-config's response and is never persisted anywhere,
+      // so it can't be reconstructed after the fact; this is the closest
+      // available substitute without re-running that resolution logic here.
+      modsWorkshopCountMismatch: mods.length !== workshopItems.length,
     };
   } catch (error) {
     result.ini.error = error.message;
@@ -809,6 +895,153 @@ async function buildNetworkInterfaces() {
   }
 }
 
+// Config values only, sanitized -- never a live discovery/test-connection
+// call. Every other collector in this file is a local read (DB, settings,
+// filesystem); making this one reach out to a third-party IdP would be the
+// only network dependency in the whole bundle, adding unpredictable latency
+// (or a timeout) to what is otherwise a fast, fully local diagnostic
+// collection. There is also no PERSISTED "last test authentication
+// succeeded" fact anywhere to report even if it did -- testOidcDiscovery()
+// is stateless and returns its result only to the caller of Settings' own
+// "Test connection" button; it is never written to the DB. clientSecret
+// itself is never read out of the UI secret file here at all -- only
+// whether OIDC is configured (which already requires it to be present) is
+// reported, matching how every other secret in this bundle is presence-only.
+async function buildOidcStatus() {
+  try {
+    const settings = await getOidcSettings();
+    return {
+      configured: isOidcConfigured(settings),
+      issuerUrl: settings.issuerUrl || null,
+      clientId: settings.clientId || null,
+      clientSecretSet: Boolean(settings.clientSecret),
+      redirectUri: settings.redirectUri || null,
+      scope: settings.scope || null,
+      providerName: settings.providerName || null,
+      allowInsecureHttp: settings.allowInsecureHttp,
+      // Which of the above are pinned by an environment variable (Docker/
+      // systemd/compose) rather than editable through Settings -- an
+      // operator asking "why won't my Settings edit stick" is a config-guard-
+      // shaped support question this answers directly.
+      envOverrides: getOidcEnvOverrides(),
+    };
+  } catch (e) {
+    return { _error: e.message };
+  }
+}
+
+// Which roles exist, what each grants, how many users hold each, and the
+// username -> role mapping -- "why can this person not see X" was
+// previously unanswerable from a bundle at all. Local usernames are not
+// secret-shaped (no password/token/hash), so they pass sanitizeForBundle
+// unchanged like every other non-credential field in this bundle; still
+// worth a support reader knowing this bundle names local accounts, so the
+// README says so explicitly.
+async function buildRolesAndPermissions() {
+  try {
+    const [roles, users] = await Promise.all([
+      listRolesWithMemberCounts(),
+      authService.getUsers(),
+    ]);
+    return sanitizeForBundle({
+      roles: roles.map((r) => ({
+        id: r.id,
+        name: r.name,
+        isSeeded: Boolean(r.isSeeded),
+        capabilities: r.capabilities || [],
+        memberCount: r.memberCount,
+      })),
+      users: users.map((u) => ({ username: u.username, role: u.role, roleId: u.roleId })),
+    });
+  } catch (e) {
+    return { _error: e.message };
+  }
+}
+
+// curl is a RUNTIME dependency the World Map build-resolution path shipped
+// on this now (see mapProxy.js's fetchViaCurl) -- a host missing it is
+// probably this release's single most likely new support ticket, and until
+// now a bundle had no way to tell us. `curl --version` is a cheap, local,
+// no-network subprocess call (distinct from the discovery/tile fetches
+// fetchViaCurl itself makes), so this stays consistent with every other
+// collector being local-only.
+function checkCurlAvailable() {
+  return new Promise((resolve) => {
+    execFile("curl", ["--version"], { timeout: 3000 }, (err, stdout) => {
+      if (err) {
+        resolve({
+          available: false,
+          reason: err.code === "ENOENT" ? "curl is not on PATH" : err.message,
+        });
+        return;
+      }
+      resolve({ available: true, version: stdout.split("\n")[0]?.trim() || null });
+    });
+  });
+}
+
+async function buildWorldMapDiagnostics() {
+  try {
+    const [curl, resolution] = await Promise.all([
+      checkCurlAvailable(),
+      Promise.resolve(getB42ResolutionStatus()),
+    ]);
+    return { curl, b42Resolution: resolution };
+  } catch (e) {
+    return { _error: e.message };
+  }
+}
+
+// db.json's own write path (server/database/init.js) already tracks retry
+// count / circuit-breaker state for exactly this "silent write failure"
+// question -- getCircuitBreakerStatus() surfaces it read-only, no new
+// tracking added here. writeFileAtomic (server/utils/fileWriteQueue.js,
+// used for the INI/Lua config files, not db.json) has NO equivalent
+// counters to report -- its retry path has nothing that persists across
+// calls to read. Extending it to track that would mean editing a second
+// file outside this task's boundary; noted in the report rather than done
+// unasked.
+function buildDbWriteHealth() {
+  try {
+    return getCircuitBreakerStatus();
+  } catch (e) {
+    return { _error: e.message };
+  }
+}
+
+// Schedule/retention are already visible inside panel-config.json's
+// settings (backupSchedule, backupMaxCount) -- this collector's actual job
+// is the piece that ISN'T anywhere else yet: the recent run history.
+// Failed runs are not structurally recorded (only a successful backup ever
+// gets a record — see backupRecords.js's addBackupRecord), so a failure
+// still only shows up in the raw admin-panel logs already in this bundle;
+// documented as a known gap in the README rather than silently implied to
+// be covered here.
+async function buildBackupsSummary(req) {
+  try {
+    const backupService = req?.app?.get?.("backupService");
+    const [settings, recent] = await Promise.all([
+      backupService?.getSettings?.() ?? null,
+      listBackupRecords({ limit: 20 }),
+    ]);
+    return sanitizeForBundle({ settings, recentRuns: recent });
+  } catch (e) {
+    return { _error: e.message };
+  }
+}
+
+async function buildDiscordBotStatus(req) {
+  try {
+    const discordBot = req?.app?.get?.("discordBot");
+    if (!discordBot?.getStatus) return { available: false };
+    // getStatus() already excludes the token itself (only a `configured`
+    // boolean) -- sanitizeForBundle is defense in depth, not the only guard.
+    return sanitizeForBundle(discordBot.getStatus());
+  } catch (e) {
+    return { _error: e.message };
+  }
+}
+
 function buildBundleReadme() {
   return [
     "# Project Zomboid Control Panel — Support Bundle",
@@ -816,19 +1049,25 @@ function buildBundleReadme() {
     "## Where to look first",
     "",
     "1. `support-bundle-info.txt` — high-level summary, paths used.",
-    "2. `system-info.json` — panel version, OS, RAM, disk free.",
-    "3. `panel-config.json` — sanitized settings + servers list (passwords/tokens masked).",
+    "2. `system-info.json` — panel version, OS, RAM, disk free, whether the dedicated server process was running when this bundle was generated, and which UI language the browser reported when requesting this bundle (`uiLanguage`; \"not reported\" if the request didn't include it — never guessed).",
+    "3. `panel-config.json` — sanitized settings + servers list (passwords/tokens masked). Also where backup schedule/retention and scheduled-task configuration live (`settings.backupSchedule`, `settings.backupMaxCount`, `scheduledTasks`).",
     "4. `zomboid-paths.json` — what the panel thinks the data/install paths are, all probed candidates, and dir listings of `Saves/`, `Saves/Multiplayer/`, `Server/`, `Logs/`, etc.",
     "5. `bridge-status.json` — PanelBridge connection, IPC file ages, and active transport.",
     "6. `sftp-diagnostics.json` — sanitized remote SFTP configuration and the last SFTP attempt, including failures after local fallback.",
-    "7. `recent-events.json` — last server starts/stops, RCON commands, player join/leave, scheduled task runs.",
+    "7. `recent-events.json` — last server starts/stops, RCON commands, player join/leave, scheduled task runs (`scheduleHistory` is the last-result history for scheduler entries).",
     "8. `db-stats.json` — record counts per collection.",
     "9. `performance-history.json` — recent CPU/RAM samples.",
     "10. `environment.txt` — relevant env vars (secrets show as `<set>`/`<unset>` only).",
     "11. `network-interfaces.json` — local IPs (no MACs).",
     "12. `process.json` — process flags, versions, active handle counts.",
-    "13. `server-config-summary.json` — sanitized effective server settings, mod/map lists, and sandbox integrity.",
+    "13. `server-config-summary.json` — sanitized effective server settings, mod/map lists, sandbox integrity, and whether the Mods/WorkshopItems lists are the same length (a mismatch is a cheap signal of an unresolved mod).",
     "14. `pz-build-info.json` — installed Project Zomboid branch and Steam build ID.",
+    "15. `oidc-status.json` — whether SSO is configured, issuer/client/redirect/scope, which fields are pinned by an env var, and whether a client secret is set (never its value). No live IdP check — see the file's own notes.",
+    "16. `roles-and-permissions.json` — every role, what it grants, how many/which local users hold it. Start here for \"why can't this person see X\".",
+    "17. `world-map-diagnostics.json` — whether `curl` is present on this host (a missing one is the most likely new World Map support ticket this release) and the resolved B42 tile-build source/directory/reason.",
+    "18. `db-write-health.json` — db.json's write circuit-breaker state and retry count. Does NOT cover config-file (INI/Lua) writes — see the file's own notes for why.",
+    "19. `backups-summary.json` — the last 20 backup runs. Only successful runs are recorded; a failed scheduled backup shows up in `admin-panel/error.log` instead, not here.",
+    "20. `discord-bot-status.json` — connected or not, which guild/channel/mod-role it's wired to, and the last start failure if any (token presence only, never the value).",
     "",
     "## Then the raw logs",
     "",
@@ -841,17 +1080,21 @@ function buildBundleReadme() {
     "",
     "## What is NOT in this bundle",
     "",
-    "- Plaintext RCON / Discord / Steam credentials (masked).",
+    "- Plaintext RCON / Discord / Steam / OIDC client secret credentials (masked or presence-only).",
     "- Full environment variable values (only allow-listed keys show values).",
     "- MAC addresses (network interfaces list IPs only).",
     "- The LowDB file itself (`db.json`) — only sanitized excerpts.",
+    "- Whether a config edit is still waiting on a restart to take effect. The panel computes that live per-request and never stores it — `system-info.json`'s `serverProcess` (was the server running right now) is the closest fact actually available.",
+    "- A record of the OIDC \"Test connection\" button's last result, or a live check against the identity provider run while building this bundle — `oidc-status.json` reports configuration only.",
+    "- Failed backup attempts as structured data (only successful runs are recorded) — check `admin-panel/error.log` for those.",
+    "- Retry/failure counters for config-file (INI/Lua) writes specifically — only db.json's own write health is tracked today.",
     "",
     "Generated by ZomboidControlPanel — see https://github.com/fpsacha/zomboid-control-panel",
     "",
   ].join("\n");
 }
 
-async function buildBundleDiagnostics(activeServer) {
+async function buildBundleDiagnostics(activeServer, req) {
   // Run all collectors in parallel — each one is wrapped so a single failure
   // doesn't kill the whole bundle.
   const wrap = async (name, fn) => {
@@ -862,8 +1105,11 @@ async function buildBundleDiagnostics(activeServer) {
     }
   };
 
+  const serverManager = req?.app?.get?.("serverManager") || null;
+  const uiLanguage = resolveReportedUiLanguage(req);
+
   const results = await Promise.all([
-    wrap("system-info.json", () => buildSystemInfo(activeServer)),
+    wrap("system-info.json", () => buildSystemInfo(activeServer, serverManager, uiLanguage)),
     wrap("panel-config.json", () => buildPanelConfig(activeServer)),
     wrap("zomboid-paths.json", () => buildZomboidPaths(activeServer)),
     wrap("recent-events.json", () => buildRecentEvents()),
@@ -875,6 +1121,12 @@ async function buildBundleDiagnostics(activeServer) {
     wrap("network-interfaces.json", () => buildNetworkInterfaces()),
     wrap("server-config-summary.json", () => buildServerConfigSummary(activeServer)),
     wrap("pz-build-info.json", () => buildPzBuildInfo(activeServer)),
+    wrap("oidc-status.json", () => buildOidcStatus()),
+    wrap("roles-and-permissions.json", () => buildRolesAndPermissions()),
+    wrap("world-map-diagnostics.json", () => buildWorldMapDiagnostics()),
+    wrap("db-write-health.json", async () => buildDbWriteHealth()),
+    wrap("backups-summary.json", () => buildBackupsSummary(req)),
+    wrap("discord-bot-status.json", () => buildDiscordBotStatus(req)),
     wrap("in-memory-log-buffer.json", async () => ({
       total: logBuffer.length,
       entries: logBuffer.slice(-MAX_BUFFER_SIZE),
@@ -984,7 +1236,7 @@ async function getSupportBundleEntries() {
 }
 
 // List available log files
-router.get("/logs/files", async (req, res) => {
+router.get("/logs/files", requirePermission("diagnostics.manage"), async (req, res) => {
   try {
     const paths = getDataPaths();
     const logsDir = paths.logsDir;
@@ -1006,7 +1258,7 @@ router.get("/logs/files", async (req, res) => {
 });
 
 // Download combined log file
-router.get("/logs/download", async (req, res) => {
+router.get("/logs/download", requirePermission("diagnostics.manage"), async (req, res) => {
   try {
     const paths = getDataPaths();
     const logsPath = path.join(paths.logsDir, "combined.log");
@@ -1033,7 +1285,7 @@ router.get("/logs/download", async (req, res) => {
 });
 
 // Download all log files as a zip archive
-router.get("/logs/download-zip", async (req, res) => {
+router.get("/logs/download-zip", requirePermission("diagnostics.manage"), async (req, res) => {
   try {
     log.info("GET /logs/download-zip");
 
@@ -1094,7 +1346,7 @@ router.get("/logs/download-zip", async (req, res) => {
 
     // ── Diagnostic JSON files (best-effort; collectors never throw) ──
     try {
-      const diagnostics = await buildBundleDiagnostics(activeServer);
+      const diagnostics = await buildBundleDiagnostics(activeServer, req);
       for (const f of diagnostics) {
         archive.append(f.content, { name: f.name });
       }
@@ -1117,7 +1369,7 @@ router.get("/logs/download-zip", async (req, res) => {
 });
 
 // Download specific log file by name
-router.get("/logs/download/:filename", async (req, res) => {
+router.get("/logs/download/:filename", requirePermission("diagnostics.manage"), async (req, res) => {
   try {
     const paths = getDataPaths();
     const filename = req.params.filename;
@@ -1160,7 +1412,7 @@ router.get("/logs/download/:filename", async (req, res) => {
 });
 
 // Clear in-memory log buffer
-router.post("/logs/clear", async (req, res) => {
+router.post("/logs/clear", requirePermission("diagnostics.manage"), async (req, res) => {
   try {
     log.info("POST /logs/clear");
     logBuffer.length = 0;
@@ -1171,7 +1423,7 @@ router.post("/logs/clear", async (req, res) => {
 });
 
 // Update data paths (database and logs location)
-router.post("/paths", async (req, res) => {
+router.post("/paths", requirePermission("diagnostics.manage"), async (req, res) => {
   try {
     const { dataDir, logsDir, moveFiles } = req.body;
 
@@ -1216,7 +1468,7 @@ router.post("/paths", async (req, res) => {
 });
 
 // Health check with details
-router.get("/health", async (req, res) => {
+router.get("/health", requirePermission("diagnostics.manage"), async (req, res) => {
   try {
     const rconService = req.app.get("rconService");
     const serverManager = req.app.get("serverManager");
@@ -1632,14 +1884,24 @@ async function scanLocalMods(zPath) {
 
 // Recursively scan a save folder. Returns total bytes, .bin chunk count,
 // and any stale lock files (>1h old, which prevent boot). Bounded by
-// MAX_FILES to keep huge saves from making diagnostics hang.
-async function scanSaveStats(saveDir) {
+// MAX_FILES AND by `budgetMs` (wall-clock) so huge saves can't make
+// diagnostics hang -- and so the walk itself self-terminates well before
+// the caller's own outer timeout, instead of relying on that outer race to
+// kill it. Each individual readdir/stat is already time-boxed by
+// safeReaddir/safeStat (FS_TIMEOUT_MS), so the walk checks its deadline
+// BEFORE issuing the next one rather than mid-flight -- Node's fs.promises
+// readdir/stat don't accept an AbortSignal, so a call already in flight
+// when the deadline passes can't be cancelled, only not-followed-by-another.
+// That bounds the "still running after the caller stopped waiting" tail to
+// at most one FS_TIMEOUT_MS, not the open-ended rest of a 50,000-file walk.
+async function scanSaveStats(saveDir, budgetMs) {
   if (!saveDir) return null;
   const exists = await safePathExists(saveDir);
   if (!exists) return null;
   const MAX_FILES = 50000;
   const staleAfterMs = 60 * 60 * 1000;
   const now = Date.now();
+  const deadline = now + budgetMs;
   let totalBytes = 0;
   let chunks = 0;
   let staleLocks = [];
@@ -1647,14 +1909,14 @@ async function scanSaveStats(saveDir) {
   let truncated = false;
 
   const walk = async (dir) => {
-    if (visited >= MAX_FILES) {
+    if (visited >= MAX_FILES || Date.now() >= deadline) {
       truncated = true;
       return;
     }
     const names = await safeReaddir(dir);
     if (!names) return;
     for (const name of names) {
-      if (++visited > MAX_FILES) {
+      if (++visited > MAX_FILES || Date.now() >= deadline) {
         truncated = true;
         return;
       }
@@ -1840,6 +2102,15 @@ function fmtMB(bytes) {
   if (!Number.isFinite(bytes)) return "?";
   return `${(bytes / 1024 / 1024).toFixed(0)} MB`;
 }
+
+// Extracted from the inline template it used to be so this specific
+// formatting can be unit tested directly, rather than only reachable
+// through the whole /diagnostics handler's many other dependencies.
+export function formatDbAccessibleMessage(dbStats) {
+  const collectionCount = dbStats ? Object.keys(dbStats.collections).length : "?";
+  return `${collectionCount} collections, ${fmtMB(dbStats?.fileSizeBytes)}.`;
+}
+
 function fmtGB(bytes) {
   if (!Number.isFinite(bytes)) return "?";
   return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
@@ -1855,7 +2126,192 @@ function fmtAge(ms) {
   return `${Math.round(h / 24)}d ago`;
 }
 
-router.get("/diagnostics", async (req, res) => {
+// Mod thumbnails silently fail on every real request (GET /thumbnail/:id
+// returns HTTP 200 with a 1x1 transparent GIF on every failure path, so the
+// browser's onError can never fire), so this check is the only place a
+// failed resolution is ever surfaced. DELIBERATE DEVIATION from every other
+// check in this file: it counts ALL tracked mods host-wide, not just the
+// active server's. If it were server-scoped, a host with zero Steam access
+// whose active server happens to track no mods would report "0 of 0
+// failing" -- a clean green tick while everything is actually broken.
+// Thumbnails resolve per-mod, not per-server, and
+// getThumbnailResolutionStatus() itself counts unscoped -- this follows that
+// rather than re-scoping it to match the rest of the tab. Extracted as its
+// own function (mirrors buildSystemInfo/buildServerConfigSummary etc.
+// earlier in this file) so it's independently testable without invoking the
+// whole GET /diagnostics handler.
+function buildThumbnailResolutionCheck(thumbStatus) {
+  const failing = thumbStatus?.failing;
+  const total = thumbStatus?.total;
+  const lastError = thumbStatus?.lastError ?? null;
+
+  if (typeof failing !== "number" || typeof total !== "number") {
+    // Unrecognised shape from getThumbnailResolutionStatus() -- fail closed
+    // to warn, not ok, same rule as worldmap.tiles.buildDetect.
+    return diagWarn(
+      "mods.thumbnailResolution",
+      "Mod thumbnail status unavailable",
+      "Could not determine mod thumbnail resolution status.",
+      { category: "services" },
+    );
+  }
+
+  if (failing === 0) {
+    return diagOk(
+      "mods.thumbnailResolution",
+      "Mod thumbnails resolving normally",
+      total > 0
+        ? `${total} tracked mod${total === 1 ? "" : "s"}, all thumbnails resolving.`
+        : "No thumbnail resolution failures.",
+      { category: "services", params: { total } },
+    );
+  }
+
+  if (failing < total) {
+    const reason = lastError?.reason || "unknown reason";
+    const workshopId = lastError?.workshopId || "unknown";
+    const age = lastError ? fmtAge(Date.now() - lastError.at).replace(/ ago$/, "") : "unknown";
+    return diagWarn(
+      "mods.thumbnailResolution",
+      "Some mod thumbnails are not resolving",
+      `${failing} of ${total} tracked mods currently have no thumbnail. Last failure: ${reason} (Workshop ID ${workshopId}, ${age} ago).`,
+      {
+        category: "services",
+        hint: "Usually means those specific Workshop items were deleted, made private, or region-restricted on Steam — check the Workshop ID above on steamcommunity.com. Resolution retries automatically every 5 minutes; this clears on its own if the item is public and Steam is reachable.",
+        params: { failing, total, reason, workshopId, age },
+      },
+    );
+  }
+
+  const reason = lastError?.reason || "unknown reason";
+  return diagFail(
+    "mods.thumbnailResolution",
+    "No mod thumbnails are resolving",
+    `All ${total} tracked mods currently have no thumbnail. Last failure: ${reason}.`,
+    {
+      category: "services",
+      hint: "Every mod failing at once, rather than just a few, usually means this host cannot reach Steam at all rather than a problem with any individual mod — check outbound HTTPS to api.steampowered.com and steamuserimages-a.akamaihd.net / *.steamstatic.com / *.akamaihd.net / images.steamusercontent.com (firewall, proxy, or DNS). Once reachable, thumbnails resolve automatically within 5 minutes — no restart needed.",
+      params: { total, reason },
+    },
+  );
+}
+
+// Windowed inspection of the panel's own RCON command history (the same log
+// the Console page's History panel renders) for a real refusal FROM THE
+// GAME -- deliberately EXCLUDES connection/timeout failures, which the
+// rcon.connected check above already covers; reporting one outage through
+// two checks would be redundant, not more informative.
+//
+// A game-side rejection re-matches one of RconService.classifyRconResponse's
+// known patterns even after being persisted: logCommand() stores
+// rejection.error (the already-describe()-transformed text), not the raw
+// RCON reply, and each of the 4 known patterns still matches its own
+// transformed output (verified against server/services/rcon.js's
+// KNOWN_RCON_REJECTIONS literally, not guessed). A connection-error entry
+// (e.g. "Server is starting...") also carries success:0 but was never run
+// through classifyRconResponse in the first place, so re-classifying it here
+// correctly returns null and excludes it.
+const RCON_REJECTION_WINDOW_MS = 24 * 60 * 60 * 1000;
+const RCON_REJECTION_HISTORY_SCAN_LIMIT = 500; // matches RETENTION.command_history's own cap
+
+// Keyed to the SAME 4 rejection shapes rcon.js's KNOWN_RCON_REJECTIONS
+// classifies, matched here against the persisted (already-transformed) text
+// since classifyRconResponse itself only reports THAT something matched,
+// not WHICH pattern.
+const RCON_REJECTION_REASON_HINTS = [
+  {
+    match: /^Unknown command\b/i,
+    hint: "The command does not exist on this build — commands are added and removed between PZ versions, so it's worth checking it is still right for the installed build.",
+  },
+  {
+    match: /^Wrong arguments\b/i,
+    hint: "The game rejected the arguments. If this started recently, the syntax may have changed in an update — report the exact action to the panel developers.",
+  },
+  {
+    match: /^Not enough rights\b/i,
+    hint: "The RCON account lacks permission on the GAME SERVER. This is the game's own admin access level, separate from this panel's Roles & Permissions — fix in-game or via setaccesslevel.",
+  },
+  {
+    match: /can only be run from in-game/i,
+    hint: "Only works typed in-game, never over RCON. Expected for releasing a safehouse until PanelBridge supports it — not a misconfiguration.",
+  },
+];
+
+// Always present, both states -- not filler: there is no reliable way to
+// flag an UNRECOGNISED rejection shape without an unproven heuristic, so
+// this names where a human should look instead of pretending to cover it.
+const RCON_REJECTIONS_CLOSING_LINE =
+  "Everything the panel can positively identify as a rejection is listed above. For anything that looks wrong but is not, the Console page's command history shows the exact raw response every RCON command received, so a person can spot something no automated check catches.";
+
+// Pure summarizer -- no live RconService needed, `classify` is injected so
+// this (and buildRconCommandRejectionsCheck below) are testable without a
+// real RCON connection. `history` is getCommandHistory()'s raw array
+// (newest first, per appendCapped's default). Returns null if `classify`
+// itself isn't available (no rconService registered) -- distinct from a
+// clean zero-rejections result.
+function summarizeRconRejections(history, classify, { windowMs = RCON_REJECTION_WINDOW_MS, now = Date.now() } = {}) {
+  if (typeof classify !== "function") return null;
+  const cutoff = now - windowMs;
+  const byCommand = new Map();
+  let total = 0;
+  const reasonHints = new Set();
+
+  for (const entry of history || []) {
+    if (entry?.success) continue; // classifyRconResponse only ever fails a success:0 entry
+    const executedAt = new Date(entry?.executed_at).getTime();
+    if (!Number.isFinite(executedAt) || executedAt < cutoff) continue;
+    const rejection = classify(entry?.response);
+    if (!rejection) continue; // a connection/timeout failure, not a game rejection
+
+    total++;
+    byCommand.set(entry.command, (byCommand.get(entry.command) || 0) + 1);
+    const known = RCON_REJECTION_REASON_HINTS.find((r) => r.match.test(entry.response));
+    if (known) reasonHints.add(known.hint);
+  }
+
+  return {
+    total,
+    breakdown: [...byCommand.entries()].map(([command, count]) => ({ command, count })),
+    reasonHints: [...reasonHints],
+  };
+}
+
+function buildRconCommandRejectionsCheck(summary) {
+  if (!summary || typeof summary.total !== "number" || !Array.isArray(summary.breakdown)) {
+    // Unrecognised/unavailable -- fail closed to warn, not ok, same rule as
+    // worldmap.tiles.buildDetect and mods.thumbnailResolution.
+    return diagWarn(
+      "rcon.commandRejections",
+      "RCON command rejection status unavailable",
+      "Could not determine whether the game server has rejected any RCON commands recently.",
+      { category: "rcon", hint: RCON_REJECTIONS_CLOSING_LINE },
+    );
+  }
+
+  if (summary.total === 0) {
+    return diagOk(
+      "rcon.commandRejections",
+      "No RCON command rejections",
+      "No RCON commands have been rejected by the game server recently.",
+      { category: "rcon", hint: RCON_REJECTIONS_CLOSING_LINE },
+    );
+  }
+
+  const list = summary.breakdown.map((b) => `${b.command} (x${b.count})`).join(", ");
+  const hint = [...summary.reasonHints, RCON_REJECTIONS_CLOSING_LINE].join(" ");
+  return diagWarn(
+    "rcon.commandRejections",
+    "The game server has rejected some RCON commands",
+    `${summary.total} commands were rejected by the game server in the last 24 hours: ${list}.`,
+    {
+      category: "rcon",
+      hint,
+      params: { total: summary.total, list },
+    },
+  );
+}
+
+router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, res) => {
   const t0 = Date.now();
   try {
     const rconService = req.app.get("rconService");
@@ -1950,12 +2406,14 @@ router.get("/diagnostics", async (req, res) => {
       }
 
       if (rconService?.isConnected?.()) {
+        const rconHost = rconService.config?.host || "127.0.0.1";
+        const rconPort = rconService.config?.port || 27015;
         checks.push(
           diagOk(
             "rcon.connected",
             "RCON connected",
-            `Connected to ${rconService.config?.host || "127.0.0.1"}:${rconService.config?.port || 27015}.`,
-            { category: "services" },
+            `Connected to ${rconHost}:${rconPort}.`,
+            { category: "services", params: { host: rconHost, port: rconPort } },
           ),
         );
       } else if (!serverRunning) {
@@ -1981,6 +2439,29 @@ router.get("/diagnostics", async (req, res) => {
         );
       }
 
+      // Deliberately excludes connection/timeout failures -- rcon.connected
+      // above already covers that outage; reporting it through both checks
+      // would double-report the same thing. Own try/catch so a failure here
+      // can't take out checks already pushed above it.
+      try {
+        const summary = summarizeRconRejections(
+          await getCommandHistory(RCON_REJECTION_HISTORY_SCAN_LIMIT),
+          rconService?.classifyRconResponse
+            ? rconService.classifyRconResponse.bind(rconService)
+            : null,
+        );
+        checks.push(buildRconCommandRejectionsCheck(summary));
+      } catch (e) {
+        checks.push(
+          diagWarn(
+            "rcon.commandRejections",
+            "RCON command rejection status unavailable",
+            `Could not determine whether the game server has rejected any RCON commands recently: ${e?.message || "unknown"}`,
+            { category: "rcon" },
+          ),
+        );
+      }
+
       if (modChecker?.isRunning) {
         const interval = Math.round((modChecker.checkInterval || 0) / 60000);
         checks.push(
@@ -1988,7 +2469,7 @@ router.get("/diagnostics", async (req, res) => {
             "modChecker",
             "Mod update checker",
             `Polling Steam Workshop every ${interval || "?"} min.`,
-            { category: "services" },
+            { category: "services", params: { interval: interval || "?" } },
           ),
         );
       } else if (!modChecker?.workshopAcfPath) {
@@ -2023,7 +2504,7 @@ router.get("/diagnostics", async (req, res) => {
               "scheduler",
               "Scheduler",
               `${enabledTasks} enabled task${enabledTasks === 1 ? "" : "s"}.`,
-              { category: "services" },
+              { category: "services", params: { count: enabledTasks } },
             ),
           );
         } else {
@@ -2040,12 +2521,13 @@ router.get("/diagnostics", async (req, res) => {
 
       if (discordBot?.token || settings?.discordBotToken) {
         if (discordBot?.isRunning && discordBot?.client?.user) {
+          const botTag = discordBot.client.user.tag;
           checks.push(
             diagOk(
               "discord.bot",
               "Discord bot connected",
-              `Logged in as ${discordBot.client.user.tag}.`,
-              { category: "services" },
+              `Logged in as ${botTag}.`,
+              { category: "services", params: { tag: botTag } },
             ),
           );
         } else {
@@ -2065,13 +2547,33 @@ router.get("/diagnostics", async (req, res) => {
           }),
         );
       }
+
+      // Mod thumbnails silently fail (the endpoint returns HTTP 200 with a
+      // 1x1 transparent GIF on every failure path), so this is the only
+      // place a failed resolution is ever surfaced. Own try/catch (not the
+      // shared services.error catch below) so a failure here can't take out
+      // the checks already pushed above it, matching every other
+      // collector's degrade-alone contract.
+      try {
+        checks.push(buildThumbnailResolutionCheck(await getThumbnailResolutionStatus()));
+      } catch (e) {
+        checks.push(
+          diagWarn(
+            "mods.thumbnailResolution",
+            "Mod thumbnail status unavailable",
+            `Could not determine mod thumbnail resolution status: ${e?.message || "unknown"}`,
+            { category: "services" },
+          ),
+        );
+      }
     } catch (e) {
+      const reason = e?.message || "unknown";
       checks.push(
         diagWarn(
           "services.error",
           "Service checks errored",
-          `Some service checks could not run: ${e?.message || "unknown"}`,
-          { category: "services" },
+          `Some service checks could not run: ${reason}`,
+          { category: "services", params: { reason } },
         ),
       );
     }
@@ -2088,12 +2590,13 @@ router.get("/diagnostics", async (req, res) => {
           ),
         );
       } else {
+        const activeServerName = activeServer.name || activeServer.serverName || "Unnamed";
         checks.push(
           diagOk(
             "server.active",
             "Active server",
-            `${activeServer.name || activeServer.serverName || "Unnamed"}.`,
-            { category: "server" },
+            `${activeServerName}.`,
+            { category: "server", params: { name: activeServerName } },
           ),
         );
 
@@ -2123,21 +2626,39 @@ router.get("/diagnostics", async (req, res) => {
             isUnc ||
             installPath.startsWith("/mnt/") ||
             installPath.startsWith("/media/");
-          checks.push(
-            diagFail(
-              "server.installPath",
-              "Install path not found",
-              isNetMount
-                ? "Network share or mount not reachable. Check VPN, mount, or share availability."
-                : "Configured install path does not exist or is unreadable.",
-              {
-                category: "server",
-                hint: isNetMount
-                  ? "Verify the share is mounted and credentials are valid"
-                  : "Check the path in Servers → Edit",
-              },
-            ),
-          );
+          // Two literal branches, not one call with a ternary message/hint --
+          // `variant` (below) must be a call-site string literal so the
+          // self-enforcing registry test (server/tests/
+          // diagnosticsCheckRegistry.test.js) can statically find every
+          // (id, status, variant) the handler can actually emit, the same
+          // way errorCodeRegistry.test.js requires literal `code:` values.
+          if (isNetMount) {
+            checks.push(
+              diagFail(
+                "server.installPath",
+                "Install path not found",
+                "Network share or mount not reachable. Check VPN, mount, or share availability.",
+                {
+                  category: "server",
+                  hint: "Verify the share is mounted and credentials are valid",
+                  variant: "netMount",
+                },
+              ),
+            );
+          } else {
+            checks.push(
+              diagFail(
+                "server.installPath",
+                "Install path not found",
+                "Configured install path does not exist or is unreadable.",
+                {
+                  category: "server",
+                  hint: "Check the path in Servers → Edit",
+                  variant: "local",
+                },
+              ),
+            );
+          }
         }
 
         const zPath = activeServer.zomboidDataPath;
@@ -2163,6 +2684,7 @@ router.get("/diagnostics", async (req, res) => {
             ),
           );
         } else {
+          const isLinuxPlatform = process.platform === "linux";
           checks.push(
             diagFail(
               "server.zomboidData",
@@ -2170,10 +2692,17 @@ router.get("/diagnostics", async (req, res) => {
               "Configured saves/config path does not exist.",
               {
                 category: "server",
-                hint:
-                  process.platform === "linux"
-                    ? "On Linux this is usually ~/Zomboid"
-                    : "On Windows this is usually %USERPROFILE%/Zomboid",
+                hint: isLinuxPlatform
+                  ? "On Linux this is usually ~/Zomboid"
+                  : "On Windows this is usually %USERPROFILE%/Zomboid",
+                // Same substitution in every language ("On {{platform}}
+                // this is usually {{typicalPath}}") -- a param, not a
+                // variant, since only the filled-in values change, not the
+                // sentence's structure or informational content.
+                params: {
+                  platform: isLinuxPlatform ? "Linux" : "Windows",
+                  typicalPath: isLinuxPlatform ? "~/Zomboid" : "%USERPROFILE%/Zomboid",
+                },
               },
             ),
           );
@@ -2211,12 +2740,21 @@ router.get("/diagnostics", async (req, res) => {
             // On Linux, verify the executable bit. On Windows, mode bits are
             // meaningless so we just confirm presence.
             if (!isWin && scriptStat && (scriptStat.mode & 0o111) === 0) {
+              // Two different "warn" scenarios for this id (not-executable
+              // vs not-found below) need distinct label/message text, not
+              // just different data in the same template -- variant, not
+              // params, same reasoning as server.installPath above.
               checks.push(
                 diagWarn(
                   "server.startScript",
                   "Start script not executable",
                   `${foundScript} exists but has no executable bit. The panel cannot launch it.`,
-                  { category: "server", hint: `Run: chmod +x ${foundScript}` },
+                  {
+                    category: "server",
+                    hint: `Run: chmod +x ${foundScript}`,
+                    params: { script: foundScript },
+                    variant: "notExecutable",
+                  },
                 ),
               );
             } else {
@@ -2225,17 +2763,18 @@ router.get("/diagnostics", async (req, res) => {
                   "server.startScript",
                   "Start script found",
                   `Using ${foundScript}.`,
-                  { category: "server" },
+                  { category: "server", params: { script: foundScript } },
                 ),
               );
             }
           } else {
+            const scriptPattern = isWin ? "StartServer*.bat" : "start-server*.sh";
             checks.push(
               diagWarn(
                 "server.startScript",
                 "Start script not found",
-                `No ${isWin ? "StartServer*.bat" : "start-server*.sh"} in install path. Server can't be started from the panel.`,
-                { category: "server" },
+                `No ${scriptPattern} in install path. Server can't be started from the panel.`,
+                { category: "server", params: { pattern: scriptPattern }, variant: "notFound" },
               ),
             );
           }
@@ -2259,23 +2798,45 @@ router.get("/diagnostics", async (req, res) => {
                 "server.jre",
                 "Bundled JRE present",
                 `Found ${foundJre}.`,
-                { category: "server" },
+                { category: "server", params: { path: foundJre } },
               ),
             );
           } else {
-            checks.push(
-              diagWarn(
-                "server.jre",
-                "Bundled JRE not found",
-                `Could not locate jre64/bin/${isWin ? "java.exe" : "java"} under the install path. Server may fail to start unless system Java is on PATH.`,
-                {
-                  category: "server",
-                  hint: isLinux
-                    ? "Most installs ship a JRE under jre64/. Re-run SteamCMD if missing."
-                    : "Re-run SteamCMD to restore the bundled JRE",
-                },
-              ),
-            );
+            const javaBin = isWin ? "java.exe" : "java";
+            const jreNotFoundMessage = `Could not locate jre64/bin/${javaBin} under the install path. Server may fail to start unless system Java is on PATH.`;
+            // hint's content genuinely differs by platform (not just a
+            // filled-in value) -- variant, not params, for the hint; two
+            // literal-variant branches so the registry test can statically
+            // find both, same reasoning as server.installPath above.
+            if (isLinux) {
+              checks.push(
+                diagWarn(
+                  "server.jre",
+                  "Bundled JRE not found",
+                  jreNotFoundMessage,
+                  {
+                    category: "server",
+                    hint: "Most installs ship a JRE under jre64/. Re-run SteamCMD if missing.",
+                    params: { javaBin },
+                    variant: "linux",
+                  },
+                ),
+              );
+            } else {
+              checks.push(
+                diagWarn(
+                  "server.jre",
+                  "Bundled JRE not found",
+                  jreNotFoundMessage,
+                  {
+                    category: "server",
+                    hint: "Re-run SteamCMD to restore the bundled JRE",
+                    params: { javaBin },
+                    variant: "windows",
+                  },
+                ),
+              );
+            }
           }
         }
 
@@ -2292,7 +2853,7 @@ router.get("/diagnostics", async (req, res) => {
                 "server.ini",
                 "server.ini found",
                 `${activeServer.serverName}.ini is in place.`,
-                { category: "server" },
+                { category: "server", params: { serverName: activeServer.serverName } },
               ),
             );
           } else {
@@ -2301,7 +2862,7 @@ router.get("/diagnostics", async (req, res) => {
                 "server.ini",
                 "server.ini not found",
                 `${activeServer.serverName}.ini is not in <zomboidData>/Server/. The server will create defaults on first run.`,
-                { category: "server" },
+                { category: "server", params: { serverName: activeServer.serverName } },
               ),
             );
           }
@@ -2447,6 +3008,13 @@ router.get("/diagnostics", async (req, res) => {
               crashed: wf.crashed,
               logMtime: wf.logMtime,
             };
+            // Grammar agreement (item/items, ID/IDs, is/are, this/these) is
+            // simplified to a single always-readable phrasing rather than
+            // modeled as params or variants -- these are English pluralization
+            // rules that don't transfer to French's own (different) ones, so
+            // a param carrying "is"/"are" would just be a second un-
+            // translated-English-word problem like runtime.timeSkew's
+            // direction. The count and list themselves are still real params.
             if (wf.crashed) {
               workshopCrashed = true;
               checks.push(
@@ -2458,6 +3026,7 @@ router.get("/diagnostics", async (req, res) => {
                     category: "server",
                     hint: `Open Server Config and remove ${wf.ids.length > 1 ? "these IDs" : "this ID"} from both WorkshopItems= and Mods=, then restart.`,
                     meta,
+                    params: { count: wf.ids.length, ageLabel, idList },
                   },
                 ),
               );
@@ -2471,6 +3040,7 @@ router.get("/diagnostics", async (req, res) => {
                     category: "server",
                     hint: "Verify each ID is still public on the Steam Workshop, or remove it from the server config.",
                     meta,
+                    params: { count: wf.ids.length, ageLabel, idList },
                   },
                 ),
               );
@@ -2498,22 +3068,59 @@ router.get("/diagnostics", async (req, res) => {
                 : ageMin < 1440
                   ? `${Math.round(ageMin / 60)}h ago`
                   : `${Math.round(ageMin / 1440)}d ago`;
-            const hint =
-              rc.kind === "oom"
-                ? "Raise the server's Java heap (-Xmx in the start script) or reduce mod count."
-                : "Open the Logs page and read the stack trace around the timestamp.";
-            checks.push(
-              diagFail(
-                "server.recentCrash",
-                `Recent crash: ${rc.label}`,
-                `Found in server-console.txt (last update ${ageLabel}): ${rc.line}`,
-                {
+            // rc.kind is a small fixed enum (oom/workshop/mainException/
+            // fatal), but `variant: rc.kind` would be a VARIABLE reference at
+            // the call site -- invisible to the registry test's regex scan
+            // the same way a ternary or template literal is, even though the
+            // set of values is closed. Four literal branches instead, so
+            // every kind is statically findable. Label differs per kind
+            // (baked into each variant's own locale entry, not a param);
+            // hint only really differs oom-vs-not, but each variant still
+            // carries its own complete hint per the "variants are self-
+            // contained" rule -- some duplication, deliberately.
+            const recentCrashMessage = `Found in server-console.txt (last update ${ageLabel}): ${rc.line}`;
+            const recentCrashParams = { ageLabel, line: rc.line };
+            if (rc.kind === "oom") {
+              checks.push(
+                diagFail("server.recentCrash", `Recent crash: ${rc.label}`, recentCrashMessage, {
                   category: "server",
-                  hint,
+                  hint: "Raise the server's Java heap (-Xmx in the start script) or reduce mod count.",
                   meta: { kind: rc.kind, logMtime: rc.logMtime },
-                },
-              ),
-            );
+                  params: recentCrashParams,
+                  variant: "oom",
+                }),
+              );
+            } else if (rc.kind === "workshop") {
+              checks.push(
+                diagFail("server.recentCrash", `Recent crash: ${rc.label}`, recentCrashMessage, {
+                  category: "server",
+                  hint: "Open the Logs page and read the stack trace around the timestamp.",
+                  meta: { kind: rc.kind, logMtime: rc.logMtime },
+                  params: recentCrashParams,
+                  variant: "workshop",
+                }),
+              );
+            } else if (rc.kind === "mainException") {
+              checks.push(
+                diagFail("server.recentCrash", `Recent crash: ${rc.label}`, recentCrashMessage, {
+                  category: "server",
+                  hint: "Open the Logs page and read the stack trace around the timestamp.",
+                  meta: { kind: rc.kind, logMtime: rc.logMtime },
+                  params: recentCrashParams,
+                  variant: "mainException",
+                }),
+              );
+            } else {
+              checks.push(
+                diagFail("server.recentCrash", `Recent crash: ${rc.label}`, recentCrashMessage, {
+                  category: "server",
+                  hint: "Open the Logs page and read the stack trace around the timestamp.",
+                  meta: { kind: rc.kind, logMtime: rc.logMtime },
+                  params: recentCrashParams,
+                  variant: "fatal",
+                }),
+              );
+            }
           }
         }
 
@@ -2580,6 +3187,7 @@ router.get("/diagnostics", async (req, res) => {
                   category: "server",
                   hint: "Remove these from Mods= and add them to WorkshopItems= instead.",
                   meta: { numericInMods },
+                  params: { count: numericInMods.length, list },
                 },
               ),
             );
@@ -2591,7 +3199,7 @@ router.get("/diagnostics", async (req, res) => {
                 "mods.resolved",
                 "Mods= entries all resolve",
                 `${ini.Mods.length} mod${ini.Mods.length === 1 ? "" : "s"} listed, all match an installed Workshop or local mod folder.`,
-                { category: "server" },
+                { category: "server", params: { count: ini.Mods.length } },
               ),
             );
           } else if (unresolvedMods.length > 0) {
@@ -2609,6 +3217,7 @@ router.get("/diagnostics", async (req, res) => {
                   category: "server",
                   hint: "Usually a typo, missing WorkshopItems= ID, or the mod hasn't finished downloading. Fix in Server Config.",
                   meta: { unresolvedMods },
+                  params: { count: unresolvedMods.length, total: ini.Mods.length, list },
                 },
               ),
             );
@@ -2649,22 +3258,49 @@ router.get("/diagnostics", async (req, res) => {
               parts.push(
                 `${deadWorkshop.length} not on disk (dead subscription)`,
               );
-            checks.push(
-              diagWarn(
-                "mods.orphanWorkshop",
-                "Subscribed Workshop items not enabled",
-                `${all.length} Workshop item${all.length === 1 ? " is" : "s are"} listed in WorkshopItems= but won't load: ${parts.join(", ")}. IDs: ${list}.`,
-                {
+            const orphanWorkshopHint =
+              "Auto-fix triages each ID: downloaded → resolves and adds to Mods=; ignored or missing → removes from WorkshopItems=.";
+            const orphanWorkshopMeta = {
+              orphanWorkshop: all,
+              downloadedOrphans: orphanWorkshop,
+              deadOrphans: deadWorkshop,
+            };
+            const orphanWorkshopMessage = `${all.length} Workshop item${all.length === 1 ? " is" : "s are"} listed in WorkshopItems= but won't load: ${parts.join(", ")}. IDs: ${list}.`;
+            // Which two-of-three-clauses combination the sentence needs is
+            // itself the thing that varies (downloaded-only / dead-only /
+            // both), not just the numbers inside one fixed template --
+            // variant, three literal branches.
+            if (orphanWorkshop.length > 0 && deadWorkshop.length > 0) {
+              checks.push(
+                diagWarn("mods.orphanWorkshop", "Subscribed Workshop items not enabled", orphanWorkshopMessage, {
                   category: "server",
-                  hint: "Auto-fix triages each ID: downloaded → resolves and adds to Mods=; ignored or missing → removes from WorkshopItems=.",
-                  meta: {
-                    orphanWorkshop: all,
-                    downloadedOrphans: orphanWorkshop,
-                    deadOrphans: deadWorkshop,
-                  },
-                },
-              ),
-            );
+                  hint: orphanWorkshopHint,
+                  meta: orphanWorkshopMeta,
+                  params: { count: all.length, downloadedCount: orphanWorkshop.length, deadCount: deadWorkshop.length, list },
+                  variant: "both",
+                }),
+              );
+            } else if (orphanWorkshop.length > 0) {
+              checks.push(
+                diagWarn("mods.orphanWorkshop", "Subscribed Workshop items not enabled", orphanWorkshopMessage, {
+                  category: "server",
+                  hint: orphanWorkshopHint,
+                  meta: orphanWorkshopMeta,
+                  params: { count: all.length, downloadedCount: orphanWorkshop.length, list },
+                  variant: "downloadedOnly",
+                }),
+              );
+            } else {
+              checks.push(
+                diagWarn("mods.orphanWorkshop", "Subscribed Workshop items not enabled", orphanWorkshopMessage, {
+                  category: "server",
+                  hint: orphanWorkshopHint,
+                  meta: orphanWorkshopMeta,
+                  params: { count: all.length, deadCount: deadWorkshop.length, list },
+                  variant: "deadOnly",
+                }),
+              );
+            }
           }
 
           // Duplicate Mods= / WorkshopItems= entries (cosmetic but confusing).
@@ -2682,21 +3318,45 @@ router.get("/diagnostics", async (req, res) => {
               parts.push(
                 `${dupWs.length} duplicate WorkshopItems= entr${dupWs.length === 1 ? "y" : "ies"}`,
               );
-            checks.push(
-              diagWarn(
-                "mods.duplicates",
-                "Duplicate mod entries",
-                `${parts.join(", ")} in the server config.`,
-                {
+            const dupMessage = `${parts.join(", ")} in the server config.`;
+            const dupHint = "Tidy up Server Config — duplicates can confuse mod-load order.";
+            const dupMeta = {
+              dupMods: [...new Set(dupMods)],
+              dupWs: [...new Set(dupWs)],
+            };
+            // Same "which clauses does the sentence need" variance as
+            // orphanWorkshop above -- three literal branches.
+            if (dupMods.length && dupWs.length) {
+              checks.push(
+                diagWarn("mods.duplicates", "Duplicate mod entries", dupMessage, {
                   category: "server",
-                  hint: "Tidy up Server Config — duplicates can confuse mod-load order.",
-                  meta: {
-                    dupMods: [...new Set(dupMods)],
-                    dupWs: [...new Set(dupWs)],
-                  },
-                },
-              ),
-            );
+                  hint: dupHint,
+                  meta: dupMeta,
+                  params: { dupModsCount: dupMods.length, dupWsCount: dupWs.length },
+                  variant: "both",
+                }),
+              );
+            } else if (dupMods.length) {
+              checks.push(
+                diagWarn("mods.duplicates", "Duplicate mod entries", dupMessage, {
+                  category: "server",
+                  hint: dupHint,
+                  meta: dupMeta,
+                  params: { dupModsCount: dupMods.length },
+                  variant: "modsOnly",
+                }),
+              );
+            } else {
+              checks.push(
+                diagWarn("mods.duplicates", "Duplicate mod entries", dupMessage, {
+                  category: "server",
+                  hint: dupHint,
+                  meta: dupMeta,
+                  params: { dupWsCount: dupWs.length },
+                  variant: "workshopOnly",
+                }),
+              );
+            }
           }
 
           // Map= validity. `Muldraugh, KY` is the built-in base map; everything
@@ -2726,7 +3386,7 @@ router.get("/diagnostics", async (req, res) => {
                 "mods.maps",
                 "Map= entries resolve",
                 `${ini.Map.length} map layer${ini.Map.length === 1 ? "" : "s"} configured.`,
-                { category: "server" },
+                { category: "server", params: { count: ini.Map.length } },
               ),
             );
           } else if (missingMaps.length > 0) {
@@ -2747,24 +3407,52 @@ router.get("/diagnostics", async (req, res) => {
                 `${trulyMissing.length} not found in any installed mod: ${trulyMissing.join(", ")}`,
               );
             }
-            const hint =
-              modsInMap.length > 0 && trulyMissing.length === 0
-                ? "These names are mods, not maps. Remove them from Map= — they only need to be in Mods=."
-                : trulyMissing.length > 0 && modsInMap.length === 0
-                  ? "Players will spawn into the void. Add the matching map mod or fix the spelling in Server Config."
-                  : "Remove mod names from Map=, and add the matching map mod or fix spelling for the rest.";
-            checks.push(
-              diagFail(
-                "mods.maps",
-                "Map= entries do not resolve",
-                `${missingMaps.length} entr${missingMaps.length === 1 ? "y" : "ies"} in Map= cannot be found. ${parts.join(". ")}.`,
-                {
+            const mapsMessage = `${missingMaps.length} entr${missingMaps.length === 1 ? "y" : "ies"} in Map= cannot be found. ${parts.join(". ")}.`;
+            const mapsMeta = { missingMaps, modsInMap, trulyMissing };
+            const modsInMapList = modsInMap.join(", ");
+            const trulyMissingList = trulyMissing.join(", ");
+            // Same "which clauses" variance as orphanWorkshop/duplicates
+            // above -- three literal branches, each with its own hint (the
+            // hint ternary already picked a different sentence per case, so
+            // this was already effectively three scenarios before params
+            // ever entered the picture).
+            if (modsInMap.length > 0 && trulyMissing.length > 0) {
+              checks.push(
+                diagFail("mods.maps", "Map= entries do not resolve", mapsMessage, {
                   category: "server",
-                  hint,
-                  meta: { missingMaps, modsInMap, trulyMissing },
-                },
-              ),
-            );
+                  hint: "Remove mod names from Map=, and add the matching map mod or fix spelling for the rest.",
+                  meta: mapsMeta,
+                  params: {
+                    count: missingMaps.length,
+                    modsInMapCount: modsInMap.length,
+                    modsInMapList,
+                    trulyMissingCount: trulyMissing.length,
+                    trulyMissingList,
+                  },
+                  variant: "both",
+                }),
+              );
+            } else if (modsInMap.length > 0) {
+              checks.push(
+                diagFail("mods.maps", "Map= entries do not resolve", mapsMessage, {
+                  category: "server",
+                  hint: "These names are mods, not maps. Remove them from Map= — they only need to be in Mods=.",
+                  meta: mapsMeta,
+                  params: { count: missingMaps.length, modsInMapCount: modsInMap.length, modsInMapList },
+                  variant: "modsOnly",
+                }),
+              );
+            } else {
+              checks.push(
+                diagFail("mods.maps", "Map= entries do not resolve", mapsMessage, {
+                  category: "server",
+                  hint: "Players will spawn into the void. Add the matching map mod or fix the spelling in Server Config.",
+                  meta: mapsMeta,
+                  params: { count: missingMaps.length, trulyMissingCount: trulyMissing.length, trulyMissingList },
+                  variant: "missingOnly",
+                }),
+              );
+            }
           }
         }
 
@@ -2853,6 +3541,7 @@ router.get("/diagnostics", async (req, res) => {
                   {
                     category: "server",
                     hint: "Use the automated repair below, or restore from a .bak backup in the same folder.",
+                    params: { serverName: activeServer.serverName },
                   },
                 ),
               );
@@ -2862,7 +3551,7 @@ router.get("/diagnostics", async (req, res) => {
                   "server.sandboxVars",
                   "SandboxVars present",
                   `${activeServer.serverName}_SandboxVars.lua is in place.`,
-                  { category: "server" },
+                  { category: "server", params: { serverName: activeServer.serverName } },
                 ),
               );
             }
@@ -2875,6 +3564,7 @@ router.get("/diagnostics", async (req, res) => {
                 {
                   category: "server",
                   hint: "Open Server Config → Sandbox to generate one, or copy from another server.",
+                  params: { serverName: activeServer.serverName },
                 },
               ),
             );
@@ -2902,8 +3592,15 @@ router.get("/diagnostics", async (req, res) => {
           for (const sp of saveDirCandidates) {
             const st = await safeStat(sp);
             if (st && st.isDirectory()) {
+              // scanSaveStats gets a budget comfortably under the outer
+              // withTimeout below, so it almost always finishes (with
+              // truncated: true if it ran out of room) rather than being
+              // raced away -- the outer wrap stays only as a last-resort
+              // safety net. Both `null` (raced away) and `truncated: true`
+              // (self-bounded early exit) mean the same thing to the check
+              // below: this scan could not fully confirm the save is clean.
               saveStats = await withTimeout(
-                scanSaveStats(sp),
+                scanSaveStats(sp, FS_TIMEOUT_MS * 3),
                 FS_TIMEOUT_MS * 4,
                 null,
               );
@@ -2911,20 +3608,8 @@ router.get("/diagnostics", async (req, res) => {
               break;
             }
           }
-          if (saveStats && saveStats.staleLocks.length > 0) {
-            checks.push(
-              diagFail(
-                "server.staleLocks",
-                "Stale lock files in save folder",
-                `${saveStats.staleLocks.length} .lock file${saveStats.staleLocks.length === 1 ? "" : "s"} older than 1 hour in ${saveDirUsed}. PZ will refuse to load the save until they are removed.`,
-                {
-                  category: "server",
-                  hint: "Stop the server, delete every *.lock file under the save folder, then restart.",
-                  meta: { staleLocks: saveStats.staleLocks.slice(0, 10) },
-                },
-              ),
-            );
-          }
+          const staleLocksCheck = buildStaleLocksCheck(saveStats, saveDirUsed);
+          if (staleLocksCheck) checks.push(staleLocksCheck);
           // Save-size info is emitted in the Storage section below — we
           // stash the stats on the response context via a per-request var.
           req._diagSaveStats = saveStats ? { ...saveStats, saveDirUsed } : null;
@@ -2952,37 +3637,68 @@ router.get("/diagnostics", async (req, res) => {
               error: "timeout",
             });
             if (probe.ok) {
+              // probe.version, when present, is raw `java -version` tool
+              // output -- language-agnostic, embedded as-is via a param.
+              // The fallback phrase for the rare case where nothing was
+              // captured stays untranslated English in that one case; not
+              // worth a variant for how narrow it is.
               checks.push(
                 diagOk(
                   "server.jreWorks",
                   "Bundled JRE runs",
                   probe.version || "java -version executed successfully.",
-                  { category: "server" },
-                ),
-              );
-            } else {
-              checks.push(
-                diagFail(
-                  "server.jreWorks",
-                  "Bundled JRE failed to run",
-                  `java -version did not succeed: ${probe.error || "unknown"}.${probe.output ? " Output: " + probe.output : ""}`,
                   {
                     category: "server",
-                    hint: "Re-run SteamCMD to reinstall the JRE, or ensure the bundled libraries are present alongside the binary.",
+                    params: { version: probe.version || "java -version executed successfully." },
                   },
                 ),
               );
+            } else {
+              const reason = probe.error || "unknown";
+              // Whether there's captured stdout/stderr to show is a
+              // structural difference (a whole extra clause), not just a
+              // data difference -- variant, two branches.
+              if (probe.output) {
+                checks.push(
+                  diagFail(
+                    "server.jreWorks",
+                    "Bundled JRE failed to run",
+                    `java -version did not succeed: ${reason}. Output: ${probe.output}`,
+                    {
+                      category: "server",
+                      hint: "Re-run SteamCMD to reinstall the JRE, or ensure the bundled libraries are present alongside the binary.",
+                      params: { reason, output: probe.output },
+                      variant: "withOutput",
+                    },
+                  ),
+                );
+              } else {
+                checks.push(
+                  diagFail(
+                    "server.jreWorks",
+                    "Bundled JRE failed to run",
+                    `java -version did not succeed: ${reason}.`,
+                    {
+                      category: "server",
+                      hint: "Re-run SteamCMD to reinstall the JRE, or ensure the bundled libraries are present alongside the binary.",
+                      params: { reason },
+                      variant: "withoutOutput",
+                    },
+                  ),
+                );
+              }
             }
           }
         }
       }
     } catch (e) {
+      const reason = e?.message || "unknown";
       checks.push(
         diagWarn(
           "server.error",
           "Server checks errored",
-          `Some active-server checks could not run: ${e?.message || "unknown"}`,
-          { category: "server" },
+          `Some active-server checks could not run: ${reason}`,
+          { category: "server", params: { reason } },
         ),
       );
     }
@@ -3029,6 +3745,19 @@ router.get("/diagnostics", async (req, res) => {
                 { category: "bridge" },
               ),
             );
+          } else if (process.platform === "linux") {
+            checks.push(
+              diagFail(
+                "bridge.writable",
+                "Bridge directory not writable",
+                "Panel can't write to the bridge directory. Mod won't receive commands.",
+                {
+                  category: "bridge",
+                  hint: "Check ownership / chmod on the Zomboid Lua folder (often needs the panel user to own ~/Zomboid)",
+                  variant: "linux",
+                },
+              ),
+            );
           } else {
             checks.push(
               diagFail(
@@ -3037,10 +3766,8 @@ router.get("/diagnostics", async (req, res) => {
                 "Panel can't write to the bridge directory. Mod won't receive commands.",
                 {
                   category: "bridge",
-                  hint:
-                    process.platform === "linux"
-                      ? "Check ownership / chmod on the Zomboid Lua folder (often needs the panel user to own ~/Zomboid)"
-                      : "Check filesystem permissions on the Lua write folder",
+                  hint: "Check filesystem permissions on the Lua write folder",
+                  variant: "other",
                 },
               ),
             );
@@ -3049,12 +3776,13 @@ router.get("/diagnostics", async (req, res) => {
           const status = bridgeStatus.modStatus;
           const conn = bridgeStatus.connection;
           if (status?.alive) {
+            const ageText = fmtAge(status.age || 0);
             checks.push(
               diagOk(
                 "bridge.heartbeat",
                 "Mod heartbeat fresh",
-                `Status from mod ${fmtAge(status.age || 0)}.`,
-                { category: "bridge" },
+                `Status from mod ${ageText}.`,
+                { category: "bridge", params: { age: ageText } },
               ),
             );
           } else if (!serverRunning) {
@@ -3067,14 +3795,20 @@ router.get("/diagnostics", async (req, res) => {
               ),
             );
           } else if (conn?.statusFile?.exists) {
+            // Two distinct "fail" scenarios (stale vs never-written) with
+            // different messages -- variant, same discipline as db.backup's
+            // four-way warn fan-out in batch 3.
+            const ageText = fmtAge(conn.statusFile.age || 0);
             checks.push(
               diagFail(
                 "bridge.heartbeat",
                 "Mod heartbeat stale",
-                `Last heartbeat ${fmtAge(conn.statusFile.age || 0)}. Mod may have crashed or be unloaded.`,
+                `Last heartbeat ${ageText}. Mod may have crashed or be unloaded.`,
                 {
                   category: "bridge",
                   hint: "Check server console.txt for PanelBridge errors",
+                  params: { age: ageText },
+                  variant: "stale",
                 },
               ),
             );
@@ -3087,6 +3821,7 @@ router.get("/diagnostics", async (req, res) => {
                 {
                   category: "bridge",
                   hint: "Verify PanelBridge is in the server's mod list and Workshop subscription",
+                  variant: "never",
                 },
               ),
             );
@@ -3094,12 +3829,13 @@ router.get("/diagnostics", async (req, res) => {
         }
       }
     } catch (e) {
+      const reason = e?.message || "unknown";
       checks.push(
         diagWarn(
           "bridge.error",
           "Bridge checks errored",
-          `Bridge IPC checks could not run: ${e?.message || "unknown"}`,
-          { category: "bridge" },
+          `Bridge IPC checks could not run: ${reason}`,
+          { category: "bridge", params: { reason } },
         ),
       );
     }
@@ -3117,37 +3853,66 @@ router.get("/diagnostics", async (req, res) => {
           ),
         );
       } else if (!(await safePathWritable(paths.dbPath))) {
-        checks.push(
-          diagFail(
-            "db.writable",
-            "Database not writable",
-            "db.json exists but is read-only. Settings changes will fail.",
-            {
-              category: "storage",
-              hint:
-                process.platform === "linux"
-                  ? "Run: chmod u+w data/db.json (and check the data/ directory is owned by the panel user)"
-                  : "Check file permissions on data/db.json",
-            },
-          ),
-        );
+        // hint's content genuinely differs by platform (a real command vs a
+        // generic phrase) -- variant, not params; message is identical
+        // either way, so it's written once per variant rather than shared.
+        if (process.platform === "linux") {
+          checks.push(
+            diagFail(
+              "db.writable",
+              "Database not writable",
+              "db.json exists but is read-only. Settings changes will fail.",
+              {
+                category: "storage",
+                hint: "Run: chmod u+w data/db.json (and check the data/ directory is owned by the panel user)",
+                variant: "linux",
+              },
+            ),
+          );
+        } else {
+          checks.push(
+            diagFail(
+              "db.writable",
+              "Database not writable",
+              "db.json exists but is read-only. Settings changes will fail.",
+              {
+                category: "storage",
+                hint: "Check file permissions on data/db.json",
+                variant: "other",
+              },
+            ),
+          );
+        }
       } else {
         checks.push(
           diagOk(
             "db.writable",
             "Database accessible",
-            `${dbStats?.collections?.length || "?"} collections, ${fmtMB(dbStats?.size || 0)}.`,
-            { category: "storage" },
+            // dbStats.collections is a { name: count } map, not an array --
+            // .length was always undefined, and .size was never a field on
+            // this object at all (it's fileSizeBytes) -- so this check was
+            // structurally incapable of ever printing anything but "?
+            // collections, 0 MB", on the one screen whose whole purpose is
+            // being trustworthy about the panel's own state.
+            formatDbAccessibleMessage(dbStats),
+            {
+              category: "storage",
+              params: {
+                count: dbStats ? Object.keys(dbStats.collections).length : "?",
+                size: fmtMB(dbStats?.fileSizeBytes),
+              },
+            },
           ),
         );
       }
     } catch (e) {
+      const reason = e?.message || "unknown error";
       checks.push(
         diagWarn(
           "db.exists",
           "Database check failed",
-          `Could not inspect db.json: ${e?.message || "unknown error"}`,
-          { category: "storage" },
+          `Could not inspect db.json: ${reason}`,
+          { category: "storage", params: { reason } },
         ),
       );
     }
@@ -3157,12 +3922,16 @@ router.get("/diagnostics", async (req, res) => {
       if (await safePathExists(backupsDir)) {
         const files = await safeReaddir(backupsDir);
         if (!files) {
+          // Same "warn" status as the unreadable-directory catch below and
+          // the no-backups/old-backup branches further down -- four
+          // genuinely different sentences under one id+status, so each
+          // gets its own variant rather than colliding at one locale key.
           checks.push(
             diagWarn(
               "db.backup",
               "Backup status unknown",
               "Could not read the backup directory (timeout or permission denied).",
-              { category: "storage" },
+              { category: "storage", variant: "unreadable" },
             ),
           );
         } else {
@@ -3185,27 +3954,32 @@ router.get("/diagnostics", async (req, res) => {
                 {
                   category: "storage",
                   hint: "Debug → Database → Create Backup",
+                  variant: "none",
                 },
               ),
             );
           } else if (age < 24 * 3600_000) {
+            const ageText = fmtAge(age);
             checks.push(
               diagOk(
                 "db.backup",
                 "Database backup recent",
-                `Newest backup ${fmtAge(age)}.`,
-                { category: "storage" },
+                `Newest backup ${ageText}.`,
+                { category: "storage", params: { age: ageText } },
               ),
             );
           } else {
+            const ageText = fmtAge(age);
             checks.push(
               diagWarn(
                 "db.backup",
                 "Database backup old",
-                `Newest backup ${fmtAge(age)}. Consider creating a fresh one.`,
+                `Newest backup ${ageText}. Consider creating a fresh one.`,
                 {
                   category: "storage",
                   hint: "Debug → Database → Create Backup",
+                  params: { age: ageText },
+                  variant: "old",
                 },
               ),
             );
@@ -3222,12 +3996,13 @@ router.get("/diagnostics", async (req, res) => {
         );
       }
     } catch (e) {
+      const reason = e?.message || "unknown error";
       checks.push(
         diagWarn(
           "db.backup",
           "Backup status unknown",
-          `Could not inspect backups: ${e?.message || "unknown error"}`,
-          { category: "storage" },
+          `Could not inspect backups: ${reason}`,
+          { category: "storage", params: { reason }, variant: "error" },
         ),
       );
     }
@@ -3265,33 +4040,40 @@ router.get("/diagnostics", async (req, res) => {
             ),
           );
         } else if (disk.free < 500 * 1024 * 1024) {
+          const freeText = fmtGB(disk.free);
+          const totalText = fmtGB(disk.total);
           checks.push(
             diagFail(
               "disk.free",
               "Disk almost full",
-              `Only ${fmtGB(disk.free)} free of ${fmtGB(disk.total)} on data drive.`,
+              `Only ${freeText} free of ${totalText} on data drive.`,
               {
                 category: "storage",
                 hint: "Free up disk space — saves and backups will fail",
+                params: { free: freeText, total: totalText },
               },
             ),
           );
         } else if (disk.free < 5 * 1024 * 1024 * 1024) {
+          const freeText = fmtGB(disk.free);
+          const totalText = fmtGB(disk.total);
           checks.push(
             diagWarn(
               "disk.free",
               "Low disk space",
-              `${fmtGB(disk.free)} free of ${fmtGB(disk.total)} on data drive.`,
-              { category: "storage" },
+              `${freeText} free of ${totalText} on data drive.`,
+              { category: "storage", params: { free: freeText, total: totalText } },
             ),
           );
         } else {
+          const freeText = fmtGB(disk.free);
+          const totalText = fmtGB(disk.total);
           checks.push(
             diagOk(
               "disk.free",
               "Disk space healthy",
-              `${fmtGB(disk.free)} free of ${fmtGB(disk.total)}.`,
-              { category: "storage" },
+              `${freeText} free of ${totalText}.`,
+              { category: "storage", params: { free: freeText, total: totalText } },
             ),
           );
         }
@@ -3312,6 +4094,16 @@ router.get("/diagnostics", async (req, res) => {
             truncated: ss.truncated,
             saveDir: ss.saveDirUsed,
           };
+          // Same three params for all three statuses below -- "chunk(s)"
+          // follows this codebase's existing count-suffix convention (see
+          // errors.json's ROLE_HAS_MEMBERS) rather than real i18next
+          // pluralization; truncatedSuffix is "" when not truncated, a
+          // valid param value (present, just empty), not treated as missing.
+          const sizeParams = {
+            size: fmtGB(ss.totalBytes),
+            chunks: ss.chunks.toLocaleString(),
+            truncatedSuffix: ss.truncated ? " (scan truncated)" : "",
+          };
           if (sizeGb > 30) {
             checks.push(
               diagWarn(
@@ -3322,6 +4114,7 @@ router.get("/diagnostics", async (req, res) => {
                   category: "storage",
                   hint: "Run the Chunk Cleaner to trim unloaded cells, or archive old saves.",
                   meta,
+                  params: sizeParams,
                 },
               ),
             );
@@ -3330,6 +4123,7 @@ router.get("/diagnostics", async (req, res) => {
               diagInfo("storage.saveSize", "Save folder large", `${summary}.`, {
                 category: "storage",
                 meta,
+                params: sizeParams,
               }),
             );
           } else {
@@ -3337,18 +4131,20 @@ router.get("/diagnostics", async (req, res) => {
               diagOk("storage.saveSize", "Save folder healthy", `${summary}.`, {
                 category: "storage",
                 meta,
+                params: sizeParams,
               }),
             );
           }
         }
       }
     } catch (e) {
+      const reason = e?.message || "unknown";
       checks.push(
         diagWarn(
           "storage.error",
           "Storage checks errored",
-          `Logs/disk checks could not run: ${e?.message || "unknown"}`,
-          { category: "storage" },
+          `Logs/disk checks could not run: ${reason}`,
+          { category: "storage", params: { reason } },
         ),
       );
     }
@@ -3372,13 +4168,23 @@ router.get("/diagnostics", async (req, res) => {
         const heapLimit = v8.getHeapStatistics().heap_size_limit;
         const heapPct = heapLimit > 0 ? (mem.heapUsed / heapLimit) * 100 : 0;
         const detail = `${fmtMB(mem.heapUsed)} used of ${fmtMB(heapLimit)} limit (${fmtMB(mem.heapTotal)} currently allocated).`;
+        // "detail" embeds English words ("used of", "limit", "currently
+        // allocated") -- passing it as one opaque param would leave that
+        // English fragment inside translated text. Broken into its three
+        // numbers instead so the whole sentence is real French.
+        const heapParams = {
+          pct: heapPct.toFixed(0),
+          heapUsed: fmtMB(mem.heapUsed),
+          heapLimit: fmtMB(heapLimit),
+          heapTotal: fmtMB(mem.heapTotal),
+        };
         if (heapPct >= 90) {
           checks.push(
             diagFail(
               "runtime.heap",
               "Heap usage critical",
               `Heap at ${heapPct.toFixed(0)}% of its limit. ${detail} Restart recommended.`,
-              { category: "runtime" },
+              { category: "runtime", params: heapParams },
             ),
           );
         } else if (heapPct >= 75) {
@@ -3387,7 +4193,7 @@ router.get("/diagnostics", async (req, res) => {
               "runtime.heap",
               "Heap usage high",
               `Heap at ${heapPct.toFixed(0)}% of its limit. ${detail}`,
-              { category: "runtime" },
+              { category: "runtime", params: heapParams },
             ),
           );
         } else {
@@ -3396,7 +4202,7 @@ router.get("/diagnostics", async (req, res) => {
               "runtime.heap",
               "Heap usage healthy",
               `${heapPct.toFixed(0)}% of limit. ${detail}`,
-              { category: "runtime" },
+              { category: "runtime", params: heapParams },
             ),
           );
         }
@@ -3410,7 +4216,7 @@ router.get("/diagnostics", async (req, res) => {
               "runtime.hostMem",
               "Host RAM exhausted",
               `Only ${fmtMB(freeHostMem)} free of ${fmtGB(totalHostMem)}. Server may crash.`,
-              { category: "runtime" },
+              { category: "runtime", params: { free: fmtMB(freeHostMem), total: fmtGB(totalHostMem) } },
             ),
           );
         } else if (usedPct > 90) {
@@ -3419,7 +4225,14 @@ router.get("/diagnostics", async (req, res) => {
               "runtime.hostMem",
               "Host RAM pressure",
               `${usedPct.toFixed(0)}% used (${fmtGB(totalHostMem - freeHostMem)} / ${fmtGB(totalHostMem)}).`,
-              { category: "runtime" },
+              {
+                category: "runtime",
+                params: {
+                  pct: usedPct.toFixed(0),
+                  used: fmtGB(totalHostMem - freeHostMem),
+                  total: fmtGB(totalHostMem),
+                },
+              },
             ),
           );
         } else {
@@ -3428,27 +4241,29 @@ router.get("/diagnostics", async (req, res) => {
               "runtime.hostMem",
               "Host RAM healthy",
               `${usedPct.toFixed(0)}% used of ${fmtGB(totalHostMem)}.`,
-              { category: "runtime" },
+              { category: "runtime", params: { pct: usedPct.toFixed(0), total: fmtGB(totalHostMem) } },
             ),
           );
         }
 
+        const uptimeText = fmtAge(process.uptime() * 1000).replace(" ago", "");
         checks.push(
           diagInfo(
             "runtime.uptime",
             "Panel uptime",
-            `${fmtAge(process.uptime() * 1000).replace(" ago", "")}.`,
-            { category: "runtime" },
+            `${uptimeText}.`,
+            { category: "runtime", params: { uptime: uptimeText } },
           ),
         );
       }
     } catch (e) {
+      const reason = e?.message || "unknown";
       checks.push(
         diagWarn(
           "runtime.error",
           "Runtime checks errored",
-          `Memory/uptime checks could not run: ${e?.message || "unknown"}`,
-          { category: "runtime" },
+          `Memory/uptime checks could not run: ${reason}`,
+          { category: "runtime", params: { reason } },
         ),
       );
     }
@@ -3467,18 +4282,23 @@ router.get("/diagnostics", async (req, res) => {
             "update.steamApi",
             "Steam Workshop API reachable",
             `api.steampowered.com responded in ${steamProbe.latencyMs} ms (HTTP ${steamProbe.statusCode}).`,
-            { category: "updates" },
+            {
+              category: "updates",
+              params: { latencyMs: steamProbe.latencyMs, statusCode: steamProbe.statusCode },
+            },
           ),
         );
       } else {
+        const reason = steamProbe.error || `HTTP ${steamProbe.statusCode}`;
         checks.push(
           diagWarn(
             "update.steamApi",
             "Steam Workshop API unreachable",
-            `Could not reach api.steampowered.com (${steamProbe.error || `HTTP ${steamProbe.statusCode}`}). Mod-update polling and the Workshop crash detector will both go blind.`,
+            `Could not reach api.steampowered.com (${reason}). Mod-update polling and the Workshop crash detector will both go blind.`,
             {
               category: "updates",
               hint: "Check the panel host's outbound HTTPS access.",
+              params: { reason },
             },
           ),
         );
@@ -3495,37 +4315,86 @@ router.get("/diagnostics", async (req, res) => {
             ? `${Math.round(absSkew / 1000)}s`
             : `${Math.round(absSkew / 60000)}m`;
         if (absSkew >= 5 * 60 * 1000) {
-          checks.push(
-            diagFail(
-              "runtime.timeSkew",
-              "Host clock is wrong",
-              `Panel host clock is ${fmt} ${direction} of Steam time. Scheduled tasks will fire at the wrong wall-clock time and HTTPS handshakes may fail.`,
-              {
+          // Two independent axes -- which way the clock is off, and which
+          // platform's fix instructions apply -- need four literal-variant
+          // branches, not a template-built "`${direction}_${platform}`"
+          // string: that would be exactly the same invisible-to-static-scan
+          // problem as a ternary variant, just spelled differently. Message
+          // itself only needs `skew` as a param; the direction word is part
+          // of each variant's own pre-written sentence, not substituted, so
+          // French can phrase "en avance sur"/"en retard sur" naturally
+          // instead of forcing one template to accept either.
+          const isLinuxPlatform = process.platform === "linux";
+          const failMessage = `Panel host clock is ${fmt} ${direction} of Steam time. Scheduled tasks will fire at the wrong wall-clock time and HTTPS handshakes may fail.`;
+          if (direction === "ahead" && isLinuxPlatform) {
+            checks.push(
+              diagFail("runtime.timeSkew", "Host clock is wrong", failMessage, {
                 category: "runtime",
-                hint:
-                  process.platform === "linux"
-                    ? "Run: sudo timedatectl set-ntp true"
-                    : "Settings → Date & Time → Set time automatically",
+                hint: "Run: sudo timedatectl set-ntp true",
                 meta: { skewMs },
-              },
-            ),
-          );
+                params: { skew: fmt },
+                variant: "ahead_linux",
+              }),
+            );
+          } else if (direction === "ahead") {
+            checks.push(
+              diagFail("runtime.timeSkew", "Host clock is wrong", failMessage, {
+                category: "runtime",
+                hint: "Settings → Date & Time → Set time automatically",
+                meta: { skewMs },
+                params: { skew: fmt },
+                variant: "ahead_other",
+              }),
+            );
+          } else if (isLinuxPlatform) {
+            checks.push(
+              diagFail("runtime.timeSkew", "Host clock is wrong", failMessage, {
+                category: "runtime",
+                hint: "Run: sudo timedatectl set-ntp true",
+                meta: { skewMs },
+                params: { skew: fmt },
+                variant: "behind_linux",
+              }),
+            );
+          } else {
+            checks.push(
+              diagFail("runtime.timeSkew", "Host clock is wrong", failMessage, {
+                category: "runtime",
+                hint: "Settings → Date & Time → Set time automatically",
+                meta: { skewMs },
+                params: { skew: fmt },
+                variant: "behind_other",
+              }),
+            );
+          }
         } else if (absSkew >= 30 * 1000) {
-          checks.push(
-            diagWarn(
-              "runtime.timeSkew",
-              "Host clock slightly off",
-              `Panel host clock is ${fmt} ${direction} of Steam time.`,
-              { category: "runtime", meta: { skewMs } },
-            ),
-          );
+          const warnMessage = `Panel host clock is ${fmt} ${direction} of Steam time.`;
+          if (direction === "ahead") {
+            checks.push(
+              diagWarn("runtime.timeSkew", "Host clock slightly off", warnMessage, {
+                category: "runtime",
+                meta: { skewMs },
+                params: { skew: fmt },
+                variant: "ahead",
+              }),
+            );
+          } else {
+            checks.push(
+              diagWarn("runtime.timeSkew", "Host clock slightly off", warnMessage, {
+                category: "runtime",
+                meta: { skewMs },
+                params: { skew: fmt },
+                variant: "behind",
+              }),
+            );
+          }
         } else {
           checks.push(
             diagOk(
               "runtime.timeSkew",
               "Host clock in sync",
               `Within ${fmt} of Steam time.`,
-              { category: "runtime", meta: { skewMs } },
+              { category: "runtime", meta: { skewMs }, params: { skew: fmt } },
             ),
           );
         }
@@ -3536,21 +4405,27 @@ router.get("/diagnostics", async (req, res) => {
           panelUpdateChecker.latestRelease?.tag_name ||
           panelUpdateChecker.latestRelease?.name ||
           "newer version";
+        const currentVersion = panelUpdateChecker.currentVersion || "?";
         checks.push(
           diagInfo(
             "update.panel",
             "Panel update available",
-            `${latest} is newer than your installed v${panelUpdateChecker.currentVersion || "?"}.`,
-            { category: "updates", hint: "Settings → Updates" },
+            `${latest} is newer than your installed v${currentVersion}.`,
+            {
+              category: "updates",
+              hint: "Settings → Updates",
+              params: { latest, version: currentVersion },
+            },
           ),
         );
       } else if (panelUpdateChecker) {
+        const currentVersion = panelUpdateChecker.currentVersion || "?";
         checks.push(
           diagOk(
             "update.panel",
             "Panel up to date",
-            `Running v${panelUpdateChecker.currentVersion || "?"}.`,
-            { category: "updates" },
+            `Running v${currentVersion}.`,
+            { category: "updates", params: { version: currentVersion } },
           ),
         );
       }
@@ -3565,7 +4440,7 @@ router.get("/diagnostics", async (req, res) => {
               "update.mods",
               "Mod updates available",
               `${outdated} mod${outdated === 1 ? "" : "s"} have updates on Steam Workshop.`,
-              { category: "updates", hint: "Mods → Update Subscriptions" },
+              { category: "updates", hint: "Mods → Update Subscriptions", params: { count: outdated } },
             ),
           );
         } else if ((trackedMods || []).length > 0) {
@@ -3574,18 +4449,19 @@ router.get("/diagnostics", async (req, res) => {
               "update.mods",
               "All mods current",
               `${trackedMods.length} tracked, none flagged for update.`,
-              { category: "updates" },
+              { category: "updates", params: { count: trackedMods.length } },
             ),
           );
         }
       }
     } catch (e) {
+      const reason = e?.message || "unknown";
       checks.push(
         diagWarn(
           "updates.error",
           "Update checks errored",
-          `Update checks could not run: ${e?.message || "unknown"}`,
-          { category: "updates" },
+          `Update checks could not run: ${reason}`,
+          { category: "updates", params: { reason } },
         ),
       );
     }
@@ -3596,12 +4472,20 @@ router.get("/diagnostics", async (req, res) => {
     const overall =
       summary.fail > 0 ? "fail" : summary.warn > 0 ? "warn" : "ok";
 
+    // Every check's optional `params` (interpolation data for the client's
+    // translated version of `message`/`label`/`hint` — see
+    // client/src/lib/diagnosticsTranslation.ts) goes through the same
+    // path-redaction as any other error param before it leaves the server.
+    const sanitizedChecks = checks.map((c) =>
+      c.params ? { ...c, params: sanitizeErrorParams(c.params) } : c,
+    );
+
     res.json({
       timestamp: new Date().toISOString(),
       overall,
       summary,
       categories: DIAG_CATEGORIES,
-      checks,
+      checks: sanitizedChecks,
       durationMs: Date.now() - t0,
     });
   } catch (error) {
@@ -3612,7 +4496,7 @@ router.get("/diagnostics", async (req, res) => {
 
 // ─── World Map Diagnostics ───────────────────────────────────────────
 // Dedicated checks for everything the World Map page depends on:
-// tile CDNs (b42map.com / pzmap.org), PanelBridge handlers
+// tile CDNs (tiles.pzmap.org), PanelBridge handlers
 // for live player/vehicle/safehouse data, save folder layout (B41 vs B42),
 // and the local /api/map proxy itself.
 const TILE_PROBE_TIMEOUT_MS = 5000;
@@ -3671,7 +4555,64 @@ async function detectSaveBuild(savePath) {
   return "unknown";
 }
 
-router.get("/worldmap", async (req, res) => {
+// Turns a scanSaveStats() result into the server.staleLocks diagnostics
+// check (or null, when there's nothing to report). Kept as a standalone,
+// module-level function (not inlined at its call site above, and NOT moved
+// up near scanSaveStats itself) so this decision -- fail on a confirmed
+// finding, warn honestly when the scan couldn't finish, stay silent only
+// when it actually confirmed the save is clean -- can be unit tested
+// directly (see server/tests/scanSaveStatsDeadline.test.js), while still
+// living inside the GET /diagnostics-to-GET /worldmap textual range that
+// server/tests/diagnosticsCheckRegistry.test.js scans for
+// diagOk/Fail/Warn/Skip/Info calls to enforce locale coverage -- a call
+// site outside that range is invisible to it. (Deliberately not spelling
+// out that route-registration literal here, so this comment itself can't
+// be mistaken by that test's own indexOf() scan for the boundary it's
+// looking for -- exactly the bug this comment used to cause.)
+function buildStaleLocksCheck(saveStats, saveDirUsed) {
+  if (saveStats && saveStats.staleLocks.length > 0) {
+    return diagFail(
+      "server.staleLocks",
+      "Stale lock files in save folder",
+      `${saveStats.staleLocks.length} .lock file${saveStats.staleLocks.length === 1 ? "" : "s"} older than 1 hour in ${saveDirUsed}. PZ will refuse to load the save until they are removed.`,
+      {
+        category: "server",
+        hint: "Stop the server, delete every *.lock file under the save folder, then restart.",
+        meta: { staleLocks: saveStats.staleLocks.slice(0, 10) },
+        // NOTE (flagged to god, not inherited by accident): `dir` is the
+        // save folder's absolute path. The English fallback `message`
+        // above already ships it unredacted (message/label/hint were never
+        // sanitized, only `params` is) -- but sanitizeErrorParams() WILL
+        // redact this specific param to "[path]" before a French client
+        // ever sees it, since it's an absolute path. Net effect: French
+        // users see strictly less detail here than English users for this
+        // one check (a translation-richness gap, not a new security
+        // exposure -- English was already unredacted).
+        params: { count: saveStats.staleLocks.length, dir: saveDirUsed },
+      },
+    );
+  }
+  if (saveDirUsed && (!saveStats || saveStats.truncated)) {
+    // The check could not finish (raced away by the outer timeout, or
+    // self-truncated at MAX_FILES/the wall-clock budget) -- report that
+    // honestly instead of silently omitting the check. A blank space here
+    // previously meant "confirmed clean" and "gave up looking" identically;
+    // they are not the same finding.
+    return diagWarn(
+      "server.staleLocks",
+      "Could not fully check for stale lock files",
+      `${saveDirUsed} is too large to fully scan for stale lock files within the diagnostics time budget. Stale lock files may be present but undetected.`,
+      {
+        category: "server",
+        hint: "Run \"Delete stale lock files\" to scan and clear in one pass -- it gets a much larger time budget than this automatic check -- or check the save folder manually if the server won't boot.",
+        params: { dir: saveDirUsed },
+      },
+    );
+  }
+  return null;
+}
+
+router.get("/worldmap", requirePermission("diagnostics.manage"), async (req, res) => {
   const t0 = Date.now();
   const checks = [];
 
@@ -3711,16 +4652,71 @@ router.get("/worldmap", async (req, res) => {
     try {
       b42Dir = await getB42Dir().catch(() => null);
       b42TopFormat = b42Dir ? await getB42TopFormat(b42Dir).catch(() => null) : null;
+
+      // Build auto-detect can fail while tile serving still looks healthy: the
+      // hardcoded fallback directory happens to match the live build today, so
+      // a plain tile probe below would report "reachable" even though
+      // discovery itself is dead and will silently pin the panel to an old
+      // build the moment PZ ships a new one. Report on discovery itself,
+      // separately from whether tiles for whatever build we landed on load.
+      // Two states: getB42ResolutionStatus().source is 'dynamic' (the panel
+      // resolved it from upstream itself) or 'fallback' (nobody resolved it;
+      // the hardcoded build is in use, and this is the state that goes stale
+      // silently -- see the warn branch). A third 'client' state (the
+      // browser resolving what the panel couldn't) was investigated and
+      // cancelled -- upstream sends no CORS headers on one host and
+      // inconsistent bot-challenge behavior on the other, so it could not be
+      // demonstrated to work. Do not resurrect it without new evidence.
+      const resolution = getB42ResolutionStatus();
+      if (resolution.source === "dynamic") {
+        checks.push(
+          diagOk(
+            "worldmap.tiles.buildDetect",
+            "B42 build auto-detect healthy",
+            `Build ${resolution.directory} was resolved dynamically from build_list.json.`,
+            {
+              category: "worldmap",
+              // Resolution goes through curl now (Node's fetch and https
+              // share one blocked TLS stack) and only succeeds with a
+              // realistic browser user-agent -- a generic or missing one
+              // gets a 403. That's an upstream heuristic this panel does
+              // not control and two independent checks tonight found it
+              // behaving inconsistently across identical requests, so this
+              // is "working right now", not a permanent fix.
+              hint: "Resolution depends on an upstream bot-detection heuristic outside the panel's control, which has been observed responding inconsistently to identical requests. Treat this as working right now, not permanently solved -- it can start failing again with no change on the panel's side.",
+              // i18n param key stays `build` (reads better in the message
+              // template) even though the source property is `directory`.
+              params: { build: resolution.directory },
+            },
+          ),
+        );
+      } else {
+        // 'fallback', or any value outside the current contract -- treat as
+        // the failure state rather than as healthy.
+        checks.push(
+          diagWarn(
+            "worldmap.tiles.buildDetect",
+            "B42 build auto-detect failed",
+            `Using hardcoded build ${resolution.directory} because discovery failed: ${resolution.reason || "unknown reason"}. This will not track the next PZ map build until discovery starts working again.`,
+            {
+              category: "worldmap",
+              hint: "Discovery reads build_list.json and each candidate's layer0.dzi from tiles.pzmap.org. If upstream is blocking the panel's requests specifically (e.g. bot protection keyed on the HTTP client), this may not be fixable from the panel side — watch for this warning after the next PZ map release, since that's when a stale build actually shows up as wrong map geometry.",
+              params: { build: resolution.directory, reason: resolution.reason || "unknown reason" },
+            },
+          ),
+        );
+      }
+
       [b42Probe, b41Probe, b42TopProbe] = await Promise.all([
         probeTile(
-          `${PZ_MAP_ROOT}/maps/${b42Dir || "42.19.0"}/base/layer0_files/0/0_0.jpg`,
+          `${PZ_TILES_ROOT}/${b42Dir || "42.19.0"}/base/layer0_files/0/0_0.jpg`,
         ),
         probeTile(
-          `${PZ_MAP_ROOT}/maps/41.78.16/base/layer0_files/0/0_0.jpg`,
+          `${PZ_TILES_ROOT}/41.78.16/base/layer0_files/0/0_0.jpg`,
         ),
         b42Dir && b42TopFormat
           ? probeTile(
-              `${PZ_MAP_ROOT}/maps/${b42Dir}/base_top/layer0_files/10/0_0.${b42TopFormat}`,
+              `${PZ_TILES_ROOT}/${b42Dir}/base_top/layer0_files/10/0_0.${b42TopFormat}`,
             )
           : Promise.resolve(null),
       ]);
@@ -3731,7 +4727,14 @@ router.get("/worldmap", async (req, res) => {
             "worldmap.tiles.b42",
             "B42 tile CDN reachable",
             `Build ${b42Dir || "42.19.0"} responded in ${b42Probe.latencyMs} ms (HTTP ${b42Probe.statusCode}).`,
-            { category: "worldmap" },
+            {
+              category: "worldmap",
+              params: {
+                build: b42Dir || "42.19.0",
+                latencyMs: b42Probe.latencyMs,
+                statusCode: b42Probe.statusCode,
+              },
+            },
           ),
         );
       } else {
@@ -3739,10 +4742,11 @@ router.get("/worldmap", async (req, res) => {
           diagFail(
             "worldmap.tiles.b42",
             "B42 tile CDN unreachable",
-            `Could not reach pzmap.org for B42 tiles (${b42Probe.error || `HTTP ${b42Probe.statusCode}`}). The B42 base map will not load.`,
+            `Could not reach tiles.pzmap.org for B42 tiles (${b42Probe.error || `HTTP ${b42Probe.statusCode}`}). The B42 base map will not load.`,
             {
               category: "worldmap",
               hint: "Check the panel host's outbound HTTPS access. The /api/map/tiles proxy fetches tiles server-side.",
+              params: { detail: b42Probe.error || `HTTP ${b42Probe.statusCode}` },
             },
           ),
         );
@@ -3753,8 +4757,11 @@ router.get("/worldmap", async (req, res) => {
           diagOk(
             "worldmap.tiles.b41",
             "B41 tile CDN reachable",
-            `pzmap.org responded in ${b41Probe.latencyMs} ms (HTTP ${b41Probe.statusCode}).`,
-            { category: "worldmap" },
+            `tiles.pzmap.org responded in ${b41Probe.latencyMs} ms (HTTP ${b41Probe.statusCode}).`,
+            {
+              category: "worldmap",
+              params: { latencyMs: b41Probe.latencyMs, statusCode: b41Probe.statusCode },
+            },
           ),
         );
       } else {
@@ -3762,10 +4769,11 @@ router.get("/worldmap", async (req, res) => {
           diagWarn(
             "worldmap.tiles.b41",
             "B41 tile CDN unreachable",
-            `Could not reach pzmap.org (${b41Probe.error || `HTTP ${b41Probe.statusCode}`}). B41 fallback tiles will not load.`,
+            `Could not reach tiles.pzmap.org (${b41Probe.error || `HTTP ${b41Probe.statusCode}`}). B41 fallback tiles will not load.`,
             {
               category: "worldmap",
-              hint: "Only relevant if you run a B41 server. Outbound HTTPS to pzmap.org is required.",
+              hint: "Only relevant if you run a B41 server. Outbound HTTPS to tiles.pzmap.org is required.",
+              params: { detail: b41Probe.error || `HTTP ${b41Probe.statusCode}` },
             },
           ),
         );
@@ -3781,7 +4789,15 @@ router.get("/worldmap", async (req, res) => {
             "worldmap.tiles.b42Top",
             "B42 top-down tiles reachable",
             `Build ${b42Dir} serves .${b42TopFormat} top-down tiles (HTTP ${b42TopProbe.statusCode}, ${b42TopProbe.latencyMs} ms).`,
-            { category: "worldmap" },
+            {
+              category: "worldmap",
+              params: {
+                build: b42Dir,
+                format: b42TopFormat,
+                statusCode: b42TopProbe.statusCode,
+                latencyMs: b42TopProbe.latencyMs,
+              },
+            },
           ),
         );
       } else if (b42TopProbe) {
@@ -3793,6 +4809,11 @@ router.get("/worldmap", async (req, res) => {
             {
               category: "worldmap",
               hint: "Upstream may have republished this build in a different image format. Re-run diagnostics after a few minutes; the panel re-reads the format from base_top/layer0.dzi every 24h or on restart.",
+              params: {
+                build: b42Dir,
+                format: b42TopFormat,
+                detail: b42TopProbe.error || `HTTP ${b42TopProbe.statusCode}`,
+              },
             },
           ),
         );
@@ -3828,12 +4849,13 @@ router.get("/worldmap", async (req, res) => {
         );
       }
     } catch (e) {
+      const reason = e?.message || "unknown";
       checks.push(
         diagWarn(
           "worldmap.tiles.error",
           "Tile reachability probe failed",
-          `Tile probe could not complete: ${e?.message || "unknown"}`,
-          { category: "worldmap" },
+          `Tile probe could not complete: ${reason}`,
+          { category: "worldmap", params: { reason } },
         ),
       );
     }
@@ -3878,12 +4900,27 @@ router.get("/worldmap", async (req, res) => {
         ),
       );
     } else if (statusAge !== null && statusAge > 15_000) {
+      const ageSeconds = Math.round(statusAge / 1000);
       checks.push(
         diagWarn(
           "worldmap.bridge.heartbeat",
           "Mod heartbeat stale",
-          `Last status.json update was ${Math.round(statusAge / 1000)}s ago. Live map data may be stale.`,
-          { category: "worldmap" },
+          `Last status.json update was ${ageSeconds}s ago. Live map data may be stale.`,
+          { category: "worldmap", params: { ageSeconds } },
+        ),
+      );
+    } else if (statusAge !== null) {
+      // Two genuinely different sentences (a trailing heartbeat-age clause
+      // that either exists or doesn't), not a hole to fill in one sentence
+      // -- variant, not params. See worldMapCheckRegistry.test.js's header
+      // comment for the params-vs-variant rule.
+      const ageSeconds = Math.round(statusAge / 1000);
+      checks.push(
+        diagOk(
+          "worldmap.bridge",
+          "Live data feed healthy",
+          `PanelBridge running, mod connected, last heartbeat ${ageSeconds}s ago.`,
+          { category: "worldmap", variant: "withHeartbeat", params: { ageSeconds } },
         ),
       );
     } else {
@@ -3891,8 +4928,8 @@ router.get("/worldmap", async (req, res) => {
         diagOk(
           "worldmap.bridge",
           "Live data feed healthy",
-          `PanelBridge running, mod connected${statusAge !== null ? `, last heartbeat ${Math.round(statusAge / 1000)}s ago` : ""}.`,
-          { category: "worldmap" },
+          "PanelBridge running, mod connected.",
+          { category: "worldmap", variant: "withoutHeartbeat" },
         ),
       );
     }
@@ -3956,7 +4993,11 @@ router.get("/worldmap", async (req, res) => {
               "worldmap.save.build",
               "B42 save detected",
               `${saveCount} save(s); using ${saveName} for build detection (map/X/Y.bin layout).`,
-              { category: "worldmap" },
+              {
+                category: "worldmap",
+                variant: "b42",
+                params: { saveCount, saveName },
+              },
             ),
           );
         } else if (saveBuild === "b41") {
@@ -3965,7 +5006,11 @@ router.get("/worldmap", async (req, res) => {
               "worldmap.save.build",
               "B41 save detected",
               `${saveCount} save(s); using ${saveName} (map_X_Y.bin layout). Map will switch to B41 tile source.`,
-              { category: "worldmap" },
+              {
+                category: "worldmap",
+                variant: "b41",
+                params: { saveCount, saveName },
+              },
             ),
           );
         } else {
@@ -3977,6 +5022,7 @@ router.get("/worldmap", async (req, res) => {
               {
                 category: "worldmap",
                 hint: "Start the server once to materialise chunk files.",
+                params: { saveCount },
               },
             ),
           );
@@ -4004,11 +5050,17 @@ router.get("/worldmap", async (req, res) => {
     const overall =
       summary.fail > 0 ? "fail" : summary.warn > 0 ? "warn" : "ok";
 
+    // Same params redaction pass as GET /diagnostics — see the comment
+    // there (client/src/lib/diagnosticsTranslation.ts is the consumer).
+    const sanitizedChecks = checks.map((c) =>
+      c.params ? { ...c, params: sanitizeErrorParams(c.params) } : c,
+    );
+
     res.json({
       timestamp: new Date().toISOString(),
       overall,
       summary,
-      checks,
+      checks: sanitizedChecks,
       durationMs: Date.now() - t0,
       // Extra structured data the UI surfaces in dedicated panels.
       tileSources: {
@@ -4051,7 +5103,7 @@ router.get("/worldmap", async (req, res) => {
     res.status(500).json({ error: sanitizeError(error.message) });
   }
 });
-router.get("/performance-history", async (req, res) => {
+router.get("/performance-history", requirePermission("diagnostics.manage"), async (req, res) => {
   try {
     const limit = parseInt(req.query.limit, 10) || 60;
     const history = await getPerformanceHistory(limit);
@@ -4063,7 +5115,7 @@ router.get("/performance-history", async (req, res) => {
 });
 
 // Record current performance snapshot (called periodically)
-router.post("/performance-snapshot", async (req, res) => {
+router.post("/performance-snapshot", requirePermission("diagnostics.manage"), async (req, res) => {
   try {
     const { memoryUsed, memoryTotal, cpuUsage, playerCount, serverRunning } =
       req.body || {};
@@ -4096,7 +5148,7 @@ router.post("/performance-snapshot", async (req, res) => {
 });
 
 // Database stats
-router.get("/database", async (req, res) => {
+router.get("/database", requirePermission("diagnostics.manage"), async (req, res) => {
   try {
     const stats = await getDatabaseStats();
     res.json(stats);
@@ -4107,7 +5159,7 @@ router.get("/database", async (req, res) => {
 });
 
 // Create manual database backup
-router.post("/database/backup", async (req, res) => {
+router.post("/database/backup", requirePermission("diagnostics.manage"), async (req, res) => {
   try {
     log.info("POST /database/backup");
     const result = await createDatabaseBackup();
@@ -4119,7 +5171,7 @@ router.post("/database/backup", async (req, res) => {
 });
 
 // Compact database (apply retention policies)
-router.post("/database/compact", async (req, res) => {
+router.post("/database/compact", requirePermission("diagnostics.manage"), async (req, res) => {
   try {
     log.info("POST /database/compact");
     const result = await compactDatabase();
@@ -4134,21 +5186,44 @@ router.post("/database/compact", async (req, res) => {
 // while the server is still alive so we don't yank a lock the JVM still
 // holds open. Only deletes files older than 1 hour (matches the
 // diagnostics threshold in scanSaveStats).
-router.post("/clear-stale-locks", async (req, res) => {
+router.post("/clear-stale-locks", requirePermission("diagnostics.manage"), async (req, res) => {
   try {
     log.info("POST /clear-stale-locks");
     const serverManager = req.app.get("serverManager");
-    let running = false;
+    // getServerProcessDetails(), not checkServerRunning() -- the latter
+    // discards the scan's own scanFailed flag and returns a plain boolean,
+    // so a scan that completed but couldn't determine the server's state
+    // (timeout, PowerShell/exec error) came back indistinguishable from
+    // "confirmed stopped" and let this delete proceed, exactly the "yank a
+    // lock the JVM still holds open" case this route's own comment warns
+    // about. Same fail-open class already fixed at /wipe, /delete-files,
+    // chunks.js's delete-chunks/delete-region, backup.js's restore, and
+    // templates.js's apply. A thrown check (or no serverManager at all) also
+    // fails closed now, instead of falling back to the unrelated
+    // serverManager.isRunning flag.
+    let details;
     try {
-      if (typeof serverManager?.checkServerRunning === "function") {
-        running = await serverManager.checkServerRunning();
+      if (typeof serverManager?.getServerProcessDetails === "function") {
+        details = await serverManager.getServerProcessDetails();
       } else {
-        running = !!serverManager?.isRunning;
+        return res.status(503).json({
+          success: false,
+          error: "Can't verify whether the server is actually stopped — the process-detection scan itself failed, not the server. Check the panel's log for the error. If this keeps happening, something on this host (antivirus, a full disk, or a missing system tool) may be blocking detection.",
+        });
       }
     } catch {
-      running = !!serverManager?.isRunning;
+      return res.status(503).json({
+        success: false,
+        error: "Can't verify whether the server is actually stopped — the process-detection scan itself failed, not the server. Check the panel's log for the error. If this keeps happening, something on this host (antivirus, a full disk, or a missing system tool) may be blocking detection.",
+      });
     }
-    if (running) {
+    if (details.scanFailed) {
+      return res.status(503).json({
+        success: false,
+        error: "Can't verify whether the server is actually stopped — the process-detection scan itself failed, not the server. Check the panel's log for the error. If this keeps happening, something on this host (antivirus, a full disk, or a missing system tool) may be blocking detection.",
+      });
+    }
+    if (details.running) {
       return res.status(409).json({
         success: false,
         error:
@@ -4204,34 +5279,34 @@ router.post("/clear-stale-locks", async (req, res) => {
     const MAX_FILES = 50000;
     const staleAfterMs = 60 * 60 * 1000;
     const now = Date.now();
+    // User-triggered, not a background poll -- generous budget compared to
+    // scanSaveStats's diagnostics-cycle one, since letting a deliberate
+    // delete run longer is better than truncating it early. Still bounded:
+    // same reasoning as scanSaveStats above, an unbounded raw
+    // fs.promises.readdir/stat here could hang the whole request forever on
+    // a dead network mount, so this walk gets the same FS_TIMEOUT_MS-bounded
+    // safeReaddir/safeStat plus its own wall-clock deadline.
+    const deadline = now + 30000;
     const deleted = [];
     const failed = [];
     let visited = 0;
     let truncated = false;
 
     const walk = async (dir) => {
-      if (visited >= MAX_FILES) {
+      if (visited >= MAX_FILES || Date.now() >= deadline) {
         truncated = true;
         return;
       }
-      let names;
-      try {
-        names = await fs.promises.readdir(dir);
-      } catch {
-        return;
-      }
+      const names = await safeReaddir(dir);
+      if (!names) return;
       for (const name of names) {
-        if (++visited > MAX_FILES) {
+        if (++visited > MAX_FILES || Date.now() >= deadline) {
           truncated = true;
           return;
         }
         const full = path.join(dir, name);
-        let st;
-        try {
-          st = await fs.promises.stat(full);
-        } catch {
-          continue;
-        }
+        const st = await safeStat(full);
+        if (!st) continue;
         if (st.isDirectory()) {
           await walk(full);
         } else if (
@@ -4252,7 +5327,8 @@ router.post("/clear-stale-locks", async (req, res) => {
     await walk(saveDir);
 
     log.info(
-      `Cleared ${deleted.length} stale lock file(s) from ${saveDir} (${failed.length} failed)`,
+      `Cleared ${deleted.length} stale lock file(s) from ${saveDir} (${failed.length} failed)` +
+        (truncated ? " -- scan stopped early, save too large to fully check in one pass" : ""),
     );
     res.json({
       success: true,
@@ -4263,7 +5339,9 @@ router.post("/clear-stale-locks", async (req, res) => {
       message:
         `Removed ${deleted.length} stale lock file${deleted.length === 1 ? "" : "s"}` +
         (failed.length > 0 ? ` (${failed.length} could not be deleted)` : "") +
-        ".",
+        (truncated
+          ? ". Stopped early -- this save is too large to fully check in one pass, so some stale lock files may remain undetected."
+          : ".") ,
     });
   } catch (error) {
     log.error(`Failed to clear stale locks: ${error.message}`);
@@ -4274,17 +5352,24 @@ router.post("/clear-stale-locks", async (req, res) => {
 });
 
 // Get crash logs (hs_err files from Java crashes)
-router.get("/crash-logs", async (req, res) => {
+router.get("/crash-logs", requirePermission("diagnostics.manage"), async (req, res) => {
   try {
     const serverManager = req.app.get("serverManager");
     const serverPath = serverManager?.serverPath || "";
 
-    // Look for crash logs in common locations
+    // Look for crash logs in common locations. The panel's own logs dir
+    // must come from getDataPaths(), not process.cwd() -- the panel has a
+    // "move data/logs directory" setting, and cwd is wherever the process
+    // happened to be launched from, not that configured location. Using
+    // cwd here meant a moved instance would scan (and this route would
+    // then present as "crash logs") whatever unrelated logs/ directory
+    // happened to sit next to the executable -- on a shared dev machine,
+    // that included another process's error.log, test-mock strings and
+    // all.
     const crashDirs = [
       serverPath,
       path.join(serverPath, "logs"),
-      process.cwd(),
-      path.join(process.cwd(), "logs"),
+      getDataPaths().logsDir,
     ].filter(Boolean);
 
     const crashLogs = [];
@@ -4350,7 +5435,7 @@ router.get("/crash-logs", async (req, res) => {
 });
 
 // Get crash log content
-router.get("/crash-logs/:filename", async (req, res) => {
+router.get("/crash-logs/:filename", requirePermission("diagnostics.manage"), async (req, res) => {
   try {
     const { filename } = req.params;
     const serverManager = req.app.get("serverManager");
@@ -4368,8 +5453,7 @@ router.get("/crash-logs/:filename", async (req, res) => {
     const searchDirs = [
       serverPath,
       path.join(serverPath, "logs"),
-      process.cwd(),
-      path.join(process.cwd(), "logs"),
+      getDataPaths().logsDir,
     ].filter(Boolean);
 
     for (const dir of searchDirs) {
@@ -4415,6 +5499,15 @@ const CLIENT_ERROR_MAX = 30; // max reports per minute per IP
 // left a permanent entry. Sweep expired ones once the map gets large.
 const CLIENT_ERROR_RATE_MAX_ENTRIES = 5000;
 
+// Deliberately unauthenticated -- no requirePermission gate at all, not
+// even "any logged-in role" (compare the file header above, which
+// undersells this). A frontend crash can happen before the client has
+// authenticated at all, most notably on the login page itself, where
+// there is no token to attach and no req.user to check -- gating this
+// route would silently delete exactly the crash reports an operator most
+// needs to see. What protects it instead: the per-IP rate limit right
+// below (CLIENT_ERROR_MAX = 30/min), plus the fact that it only ever
+// logs a message and mutates/exposes nothing sensitive.
 router.post("/client-errors", (req, res) => {
   try {
     // Simple per-IP rate limit to prevent abuse
@@ -4463,7 +5556,7 @@ router.post("/client-errors", (req, res) => {
 // ============================================
 
 // GET /api/debug/activity — Merge all log sources into a single chronological feed
-router.get("/activity", async (req, res) => {
+router.get("/activity", requirePermission("diagnostics.manage"), async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit, 10) || 200, 500);
     const source = req.query.source || "all"; // 'all' | 'rcon' | 'bridge' | 'player' | 'server'
@@ -4552,3 +5645,29 @@ router.get("/activity", async (req, res) => {
 
 export default router;
 export { logBuffer, getDiskFree };
+// Exported for direct unit testing of the support-bundle collectors --
+// see server/tests/supportBundleCollectors.test.js. Not used by any other
+// route in this file, which continues to call them as plain module-local
+// functions.
+export {
+  buildBundleDiagnostics,
+  buildSystemInfo,
+  buildServerConfigSummary,
+  buildOidcStatus,
+  buildRolesAndPermissions,
+  checkCurlAvailable,
+  buildWorldMapDiagnostics,
+  buildDbWriteHealth,
+  buildBackupsSummary,
+  buildDiscordBotStatus,
+};
+// Exported for direct unit testing of the GET /diagnostics thumbnail-
+// resolution check -- see server/tests/thumbnailResolutionCheck.test.js.
+export { buildThumbnailResolutionCheck };
+// Exported for direct unit testing of the GET /diagnostics RCON
+// command-rejection check -- see server/tests/rconCommandRejectionsCheck.test.js.
+export { summarizeRconRejections, buildRconCommandRejectionsCheck };
+// Exported for direct unit testing of the stale-lock save-folder walk's
+// deadline behavior and its diagnostics-check decision -- see
+// server/tests/scanSaveStatsDeadline.test.js.
+export { scanSaveStats, buildStaleLocksCheck };

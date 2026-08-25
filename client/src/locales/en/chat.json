@@ -1,0 +1,82 @@
+{
+  "pageHeader": {
+    "title": "In-Game Chat",
+    "description": "Broadcast messages to all connected players and see their chat in real time.",
+    "refresh": "Refresh"
+  },
+  "chatWindow": {
+    "streamLabel": "chat stream",
+    "msgCount_one": "{{count}} msg",
+    "msgCount_other": "{{count}} msgs",
+    "live": "LIVE",
+    "offline": "OFFLINE",
+    "messagesAria": "Chat messages"
+  },
+  "emptyState": {
+    "title": "No chat messages yet",
+    "description": "Player messages and your broadcasts will appear here in real time."
+  },
+  "channel": {
+    "aria": "Chat channel",
+    "server": "Server broadcast",
+    "admin": "Admin chat",
+    "general": "General chat"
+  },
+  "input": {
+    "aria": "Chat message",
+    "placeholderAdmin": "admins only — press enter to send…",
+    "placeholderGeneral": "post as Admin — press enter to send…",
+    "placeholderServer": "broadcast to all players — press enter to send…",
+    "sendButton": "send"
+  },
+  "footer": {
+    "adminOnly": "admins only — hidden from regular players",
+    "noPlayersOnline": "no players online — server log only",
+    "broadcastingTo_one": "broadcasting to {{count}} player",
+    "broadcastingTo_other": "broadcasting to {{count}} players"
+  },
+  "playersPanel": {
+    "label": "players",
+    "onlineCount": "{{count}} online",
+    "noPlayersConnected": "no players connected"
+  },
+  "quickBroadcasts": {
+    "label": "quick broadcasts",
+    "edit": "edit",
+    "done": "done",
+    "editAria": "Edit presets",
+    "doneAria": "Done editing presets",
+    "noPresets": "// no presets — click edit to add",
+    "addPlaceholder": "add a new quick message…",
+    "addAria": "Add preset",
+    "saveAria": "Save",
+    "cancelAria": "Cancel",
+    "deleteAria": "Delete preset {{index}}"
+  },
+  "toasts": {
+    "adminSentTitle": "Admin Message Sent",
+    "adminSentDesc": "Visible only to admins in-game.",
+    "generalSentTitle": "Posted to Chat",
+    "generalSentDesc": "Posted into the public chat stream.",
+    "broadcastSentTitle": "Broadcast Sent",
+    "broadcastSentDesc": "Message delivered to all connected players.",
+    "errorTitle": "Error",
+    "sendFailedFallback": "Failed to send message",
+    "presetsSaveFailedTitle": "Could not save presets",
+    "unknownError": "Unknown error"
+  },
+  "labels": {
+    "server": "Server",
+    "admin": "Admin",
+    "player": "Player"
+  },
+  "presets": {
+    "default": [
+      "Server will restart in 5 minutes!",
+      "Welcome to the server!",
+      "Please read the rules at /rules",
+      "Server maintenance starting soon",
+      "Have fun and stay safe!"
+    ]
+  }
+}

@@ -1,0 +1,439 @@
+import { useCallback, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
+import { Users as UsersIcon, UserPlus, ShieldAlert, Loader2, ArrowRight, Trash2 } from 'lucide-react'
+import { useAuth } from '@/contexts/AuthContext'
+import { useConfirm } from '@/contexts/ConfirmContext'
+import { PageHeader } from '@/components/PageHeader'
+import { PageSkeleton } from '@/components/PageSkeleton'
+import { EmptyState } from '@/components/EmptyState'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { HelpTip } from '@/components/HelpTip'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { useToast } from '@/components/ui/use-toast'
+import {
+  usersApi,
+  permissionsApi,
+  ApiError,
+  type ManagedUserAccount,
+  type RoleInfo,
+} from '@/lib/api'
+import { getUserErrorMessage } from '@/lib/errorMessage'
+
+// POST /api/auth/users only accepts one of these three legacy names -- it
+// has no roleId param, so it can't assign a custom role at creation time
+// (server/routes/auth.js). A role whose current name isn't literally one of
+// these (a custom role, or a seeded role renamed from the matrix) needs the
+// two-step fallback in handleCreate below.
+const LEGACY_USER_ROLES = ['admin', 'technician', 'moderator'] as const
+type LegacyUserRole = (typeof LEGACY_USER_ROLES)[number]
+function isLegacyUserRole(name: string): name is LegacyUserRole {
+  return (LEGACY_USER_ROLES as readonly string[]).includes(name)
+}
+
+// Mirrors server/services/permissions.js's RECOVERY_CAPABILITIES, checked in
+// the same order -- lets the client fill in the {{action}} placeholder in
+// errors:ROLE_LOCKOUT_LAST_MANAGER when deleting a user would remove the
+// last holder of one of these two capabilities.
+function recoveryActionKeyForRole(role: RoleInfo | undefined): 'lockout.actionManageRoles' | 'lockout.actionManageUsers' | null {
+  if (!role) return null
+  if (role.capabilities.includes('roles.manage')) return 'lockout.actionManageRoles'
+  if (role.capabilities.includes('users.manage')) return 'lockout.actionManageUsers'
+  return null
+}
+
+// `embedded`: rendered inside a Settings tab panel instead of as its own
+// route. The tab trigger already carries the page's name/icon, so the full
+// PageHeader (eyebrow/title/description) would be a second, redundant
+// header stacked on top of Settings' own -- only the action button carries
+// over, in a slim row instead.
+export default function Users({ embedded = false }: { embedded?: boolean }) {
+  const { t, i18n } = useTranslation(['users', 'errors'])
+  const { toast } = useToast()
+  const { user: currentUser } = useAuth()
+  const confirm = useConfirm()
+
+  const [users, setUsers] = useState<ManagedUserAccount[] | null>(null)
+  const [roles, setRoles] = useState<RoleInfo[]>([])
+  const [loading, setLoading] = useState(true)
+  const [permissionDenied, setPermissionDenied] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+
+  const [createOpen, setCreateOpen] = useState(false)
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [roleId, setRoleId] = useState('')
+  const [formBusy, setFormBusy] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set())
+
+  const fetchAll = useCallback(async () => {
+    setLoading(true)
+    setPermissionDenied(false)
+    setLoadError(null)
+    try {
+      const [{ users: list }, { roles: roleList }] = await Promise.all([
+        usersApi.list(),
+        permissionsApi.getRoles(),
+      ])
+      setUsers(list)
+      setRoles(roleList)
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 403) {
+        setPermissionDenied(true)
+      } else {
+        setLoadError(getUserErrorMessage(error, t('toasts.unknownError')))
+      }
+    } finally {
+      setLoading(false)
+    }
+  }, [t])
+
+  useEffect(() => {
+    fetchAll()
+  }, [fetchAll])
+
+  function openCreateDialog() {
+    setUsername('')
+    setPassword('')
+    setConfirmPassword('')
+    setRoleId(roles[0]?.id ?? '')
+    setFormError(null)
+    setCreateOpen(true)
+  }
+
+  function getRoleForUser(user: ManagedUserAccount): RoleInfo | undefined {
+    return roles.find((r) => (user.roleId ? r.id === user.roleId : r.name === user.role))
+  }
+
+  async function handleDelete(user: ManagedUserAccount) {
+    const ok = await confirm({
+      title: t('deleteDialog.title', { username: user.username }),
+      description: t('deleteDialog.description'),
+      confirmLabel: t('deleteDialog.confirm'),
+      cancelLabel: t('deleteDialog.cancel'),
+      destructive: true,
+    })
+    if (!ok) return
+
+    setDeletingIds((prev) => new Set(prev).add(user.id))
+    try {
+      await usersApi.remove(user.id)
+      setUsers((prev) => (prev ? prev.filter((u) => u.id !== user.id) : prev))
+      toast({
+        title: t('toasts.userDeletedTitle'),
+        description: t('toasts.userDeletedDescription', { username: user.username }),
+        variant: 'success',
+      })
+    } catch (error) {
+      if (error instanceof ApiError && error.code === 'ROLE_LOCKOUT_LAST_MANAGER') {
+        const actionKey = recoveryActionKeyForRole(getRoleForUser(user))
+        const action = actionKey ? t(actionKey) : ''
+        toast({
+          title: t('toasts.actionFailedTitle'),
+          description: t('errors:ROLE_LOCKOUT_LAST_MANAGER', { action }),
+          variant: 'destructive',
+        })
+      } else if (error instanceof ApiError && error.code === 'USER_SELF_DELETE_REFUSED') {
+        toast({
+          title: t('toasts.actionFailedTitle'),
+          description: t('errors:USER_SELF_DELETE_REFUSED'),
+          variant: 'destructive',
+        })
+      } else {
+        toast({
+          title: t('toasts.actionFailedTitle'),
+          description: getUserErrorMessage(error, t('toasts.unknownError')),
+          variant: 'destructive',
+        })
+      }
+    } finally {
+      setDeletingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(user.id)
+        return next
+      })
+    }
+  }
+
+  async function handleCreate() {
+    if (!username.trim()) {
+      setFormError(t('createDialog.usernameRequired'))
+      return
+    }
+    if (!password) {
+      setFormError(t('createDialog.passwordRequired'))
+      return
+    }
+    if (password !== confirmPassword) {
+      setFormError(t('createDialog.passwordsDontMatch'))
+      return
+    }
+    const targetRole = roles.find((r) => r.id === roleId)
+    if (!targetRole) {
+      setFormError(t('createDialog.roleRequired'))
+      return
+    }
+
+    setFormBusy(true)
+    setFormError(null)
+    try {
+      const creationRole: LegacyUserRole = isLegacyUserRole(targetRole.name)
+        ? targetRole.name
+        : 'moderator'
+      const { user } = await usersApi.create({
+        username: username.trim(),
+        password,
+        role: creationRole,
+      })
+
+      // Custom (or renamed-seeded) role: the account was created with the
+      // legacy fallback above, so assign the real role as a second step.
+      if (creationRole !== targetRole.name) {
+        try {
+          await usersApi.assignRole(user.id, targetRole.id)
+        } catch (error) {
+          setCreateOpen(false)
+          setUsers((prev) => (prev ? [...prev, user] : prev))
+          toast({
+            title: t('toasts.userCreatedTitle'),
+            description: t('toasts.userCreatedRoleAssignFailedDescription', {
+              username: user.username,
+              role: targetRole.name,
+              reason: getUserErrorMessage(error, t('toasts.unknownError')),
+            }),
+            variant: 'destructive',
+          })
+          return
+        }
+      }
+
+      setCreateOpen(false)
+      fetchAll()
+      toast({
+        title: t('toasts.userCreatedTitle'),
+        description: t('toasts.userCreatedDescription', {
+          username: user.username,
+          role: targetRole.name,
+        }),
+        variant: 'success',
+      })
+    } catch (error) {
+      setFormError(getUserErrorMessage(error, t('toasts.unknownError')))
+    } finally {
+      setFormBusy(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <PageSkeleton
+        variant="list"
+        eyebrow={t('pageHeader.eyebrow')}
+        title={t('pageHeader.title')}
+        description={t('pageHeader.description')}
+      />
+    )
+  }
+
+  return (
+    <div className={embedded ? 'space-y-4' : 'space-y-6 page-transition'}>
+      {embedded ? (
+        !permissionDenied && (
+          <div className="flex justify-end">
+            <Button onClick={openCreateDialog}>
+              <UserPlus className="h-4 w-4" />
+              {t('toolbar.addUser')}
+            </Button>
+          </div>
+        )
+      ) : (
+        <PageHeader
+          eyebrow={t('pageHeader.eyebrow')}
+          title={t('pageHeader.title')}
+          description={t('pageHeader.description')}
+          icon={<UsersIcon className="h-6 w-6" />}
+          tone="config"
+          actions={
+            !permissionDenied ? (
+              <Button onClick={openCreateDialog}>
+                <UserPlus className="h-4 w-4" />
+                {t('toolbar.addUser')}
+              </Button>
+            ) : undefined
+          }
+        />
+      )}
+
+      {permissionDenied ? (
+        <EmptyState
+          icon={<ShieldAlert className="h-14 w-14 text-muted-foreground/40" />}
+          title={t('permissionDenied.title')}
+          description={t('permissionDenied.description')}
+        />
+      ) : loadError ? (
+        <EmptyState
+          type="noData"
+          title={t('loadError.title')}
+          description={loadError}
+          action={{ label: t('loadError.retry'), onClick: fetchAll }}
+        />
+      ) : (
+        <Card>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border/60 bg-muted/40 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <th className="px-4 py-2.5">{t('table.account')}</th>
+                    <th className="px-4 py-2.5">{t('table.role')}</th>
+                    <th className="px-4 py-2.5">{t('table.created')}</th>
+                    <th className="px-4 py-2.5">{t('table.lastSignIn')}</th>
+                    <th className="relative px-4 py-2.5 text-right">
+                      <span className="sr-only">{t('table.actions')}</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(users || []).map((user) => {
+                    const isSelf = user.id === currentUser?.id
+                    const deleting = deletingIds.has(user.id)
+                    return (
+                      <tr key={user.id} className="border-b border-border/30 last:border-0">
+                        <td className="px-4 py-2.5 font-medium">{user.username}</td>
+                        <td className="px-4 py-2.5">
+                          <Badge variant="outline">{user.role}</Badge>
+                        </td>
+                        <td className="px-4 py-2.5 text-muted-foreground">
+                          {new Date(user.createdAt).toLocaleString(i18n.language)}
+                        </td>
+                        <td className="px-4 py-2.5 text-muted-foreground">
+                          {user.lastLogin ? new Date(user.lastLogin).toLocaleString(i18n.language) : t('table.never')}
+                        </td>
+                        <td className="px-4 py-2.5 text-right">
+                          {!isSelf && (
+                            deleting ? (
+                              <Loader2 className="ml-auto h-4 w-4 animate-spin text-muted-foreground" />
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive hover:text-destructive"
+                                title={t('table.removeTooltip', { username: user.username })}
+                                onClick={() => handleDelete(user)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="border-t border-border/40 px-4 py-3">
+              <Link
+                to="/settings?tab=roles"
+                className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+              >
+                {t('manageRolesLink')}
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Dialog open={createOpen} onOpenChange={(open) => !open && setCreateOpen(false)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('createDialog.title')}</DialogTitle>
+            <DialogDescription>{t('createDialog.description')}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="new-user-username">{t('createDialog.usernameLabel')}</Label>
+              <Input
+                id="new-user-username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder={t('createDialog.usernamePlaceholder')}
+                autoComplete="off"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="new-user-password">{t('createDialog.passwordLabel')}</Label>
+              <Input
+                id="new-user-password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="new-password"
+              />
+              <p className="text-xs text-muted-foreground">{t('createDialog.passwordHint')}</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="new-user-confirm-password">{t('createDialog.confirmPasswordLabel')}</Label>
+              <Input
+                id="new-user-confirm-password"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <Label>{t('createDialog.roleLabel')}</Label>
+                <HelpTip label={t('createDialog.roleLabel')}>{t('createDialog.roleTip')}</HelpTip>
+              </div>
+              <Select value={roleId} onValueChange={setRoleId}>
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder={t('createDialog.rolePlaceholder')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {roles.map((role) => (
+                    <SelectItem key={role.id} value={role.id}>
+                      {role.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {formError && <p className="text-sm text-destructive">{formError}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)} disabled={formBusy}>
+              {t('createDialog.cancel')}
+            </Button>
+            <Button onClick={handleCreate} disabled={formBusy}>
+              {formBusy ? t('createDialog.creating') : t('createDialog.create')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}

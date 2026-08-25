@@ -1,0 +1,10 @@
+{
+  "writesBlockedTitle": "Panel-Schreibzugriffe blockiert",
+  "writesBlockedMessage": "Speicher-Schreibfehler",
+  "saveVolumeCriticalTitle": "Speichervolumen kritisch",
+  "saveVolumeWarningTitle": "Speichervolumen-Warnung",
+  "usedPercent": "{{percent}} % verwendet",
+  "diagnostics": "Diagnose",
+  "dismiss": "Schließen",
+  "dismissAria": "Speicherwarnung schließen"
+}

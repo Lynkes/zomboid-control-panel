@@ -1,0 +1,10 @@
+{
+  "writesBlockedTitle": "Panel writes blocked",
+  "writesBlockedMessage": "Storage write failure",
+  "saveVolumeCriticalTitle": "Save volume critical",
+  "saveVolumeWarningTitle": "Save volume warning",
+  "usedPercent": "{{percent}}% used",
+  "diagnostics": "Diagnostics",
+  "dismiss": "Dismiss",
+  "dismissAria": "Dismiss storage warning"
+}

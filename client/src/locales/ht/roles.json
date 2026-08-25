@@ -1,0 +1,258 @@
+{
+  "pageHeader": {
+    "eyebrow": "Otorizasyon",
+    "title": "Wòl ak Otorizasyon",
+    "description": "Chak wòl se yon kolòn, chak kapasite se yon liy. Tcheke yon bwat pou bay li, dekoche pou retire li — chanjman yo sove imedyatman epi yo aplike sou pwochen demand itilizatè afekte a."
+  },
+  "loading": "Ap chaje wòl ak kapasite yo…",
+  "permissionDenied": {
+    "title": "Ou pa ka jere wòl yo",
+    "description": "Wòl kont ou a pa gen \"Jere wòl ak otorizasyon\". Mande yon administratè bay li si ou bezwen aksè nan ekran sa a."
+  },
+  "loadError": {
+    "title": "Pa t kapab chaje wòl yo",
+    "retry": "Eseye ankò"
+  },
+  "toolbar": {
+    "newRole": "Nouvo Wòl"
+  },
+  "matrix": {
+    "capabilityColumnHeader": "Kapasite",
+    "seededBadge": "Entegre",
+    "memberCount_one": "{{count}} manm",
+    "memberCount_other": "{{count}} manm",
+    "capabilityCount_one": "{{count}} kapasite",
+    "capabilityCount_other": "{{count}} kapasite",
+    "renameTooltip": "Chanje non wòl",
+    "deleteTooltip": "Efase wòl",
+    "deleteSeededTooltip": "Wòl entegre yo pa ka efase nan ekran sa a.",
+    "recoveryCapabilityHint": "Retire dènye moun ki gen kapasite sa a bloke aksè administratè yo — panèl la refize chanjman sa a epi eksplike poukisa.",
+    "savingCell": "Ap sove…"
+  },
+  "roleFormDialog": {
+    "createTitle": "Nouvo wòl",
+    "createDescription": "Bay wòl la yon non, epi chwazi ki kapasite li bay. Ou ka chanje toude pita.",
+    "renameTitle": "Chanje non \"{{name}}\"",
+    "renameDescription": "Sa a chanje non wòl la kote li parèt tout kote.",
+    "nameLabel": "Non wòl",
+    "namePlaceholder": "pa egzanp Animatè Evènman",
+    "cancel": "Anile",
+    "create": "Kreye wòl",
+    "creating": "Ap kreye…",
+    "save": "Sove",
+    "saving": "Ap sove…",
+    "nameRequired": "Bay wòl la yon non."
+  },
+  "deleteRoleDialog": {
+    "title": "Efase \"{{name}}\"?",
+    "descriptionNoMembers": "Wòl sa a pa gen manm. Efase li pa ka anile.",
+    "descriptionWithMembers_one": "{{count}} itilizatè kounye a gen wòl sa a. Chwazi yon wòl pou deplase yo ladan an premye — efase pa ka anile.",
+    "descriptionWithMembers_other": "{{count}} itilizatè kounye a gen wòl sa a. Chwazi yon wòl pou deplase yo ladan an premye — efase pa ka anile.",
+    "reassignLabel": "Deplase manm yo nan",
+    "reassignTip": "Chak manm nan wòl sa a ap deplase nan sa ou chwazi la a, tout an menm tan — pa gen fason pou separe yo nan diferan wòl apati bwat dyalòg sa a. Pou voye moun nan diferan wòl endividyèlman, anile epi itilize tablo \"Bay itilizatè wòl\" anba a olye de sa.",
+    "reassignPlaceholder": "Chwazi yon wòl…",
+    "cancel": "Anile",
+    "confirm": "Efase wòl",
+    "confirming": "Ap efase…"
+  },
+  "confirmSelfCapabilityLoss": {
+    "title": "Sa a retire pwòp aksè ou",
+    "description": "Kounye a ou gen kapasite sa a ou menm. Si ou kontinye ak chanjman sa a, sa ap retire pwòp kapasite ou pou {{action}} — ou ap kenbe tout lòt otorizasyon ou genyen kounye a.",
+    "confirm": "Retire li kanmenm",
+    "cancel": "Anile"
+  },
+  "userAssignment": {
+    "title": "Bay itilizatè wòl",
+    "description": "Chanje ki wòl yon kont itilizatè genyen.",
+    "usernameColumn": "Kont",
+    "roleColumn": "Wòl",
+    "rolePlaceholder": "Chwazi yon wòl…",
+    "savingRow": "Ap sove…",
+    "noUsers": "Pa gen kont itilizatè jwenn.",
+    "permissionDenied": {
+      "title": "Pa ka montre lis kont itilizatè",
+      "description": "Wòl kont ou a pa gen \"Jere kont itilizatè\". Mande yon administratè bay li, oswa konekte ak yon kont ki gen li deja."
+    }
+  },
+  "lockout": {
+    "actionManageRoles": "jere wòl",
+    "actionManageUsers": "jere kont itilizatè"
+  },
+  "toasts": {
+    "roleCreatedTitle": "Wòl kreye",
+    "roleCreatedDescription": "\"{{name}}\" pare pou bay moun.",
+    "roleRenamedTitle": "Non wòl chanje",
+    "roleRenamedDescription": "Kounye a li parèt kòm \"{{name}}\".",
+    "roleDeletedTitle": "Wòl efase",
+    "roleDeletedReassignedDescription": "\"{{name}}\" te efase epi manm li yo deplase nan \"{{target}}\".",
+    "roleDeletedDescription": "\"{{name}}\" te efase.",
+    "capabilityGranted": "Bay \"{{capability}}\" a \"{{role}}\".",
+    "capabilityRevoked": "Retire \"{{capability}}\" nan \"{{role}}\".",
+    "userRoleAssignedTitle": "Wòl bay",
+    "userRoleAssignedDescription": "{{username}} kounye a gen wòl \"{{role}}\".",
+    "actionFailedTitle": "Aksyon echwe",
+    "unknownError": "Erè enkoni"
+  },
+  "capabilityGroups": {
+    "Users & Roles": "Itilizatè ak Wòl",
+    "Backups": "Kopi Sovgad",
+    "Server Lifecycle": "Sik Vi Sèvè a",
+    "RCON": "RCON",
+    "Server Setup & Fleet": "Konfigirasyon ak Flòt Sèvè",
+    "PanelBridge Integration": "Entegrasyon PanelBridge",
+    "Player Authority": "Otorite sou Jwè",
+    "Mods": "Mod",
+    "Automation": "Otomatizasyon",
+    "Integrations": "Entegrasyon",
+    "Infrastructure": "Enfrastrikti",
+    "Panel Diagnostics & Settings": "Dyagnostik ak Paramèt Panèl la"
+  },
+  "capabilities": {
+    "users": {
+      "manage": {
+        "label": "Jere kont itilizatè",
+        "description": "Kreye kont, montre lis yo, epi chanje ki wòl chak genyen."
+      }
+    },
+    "roles": {
+      "manage": {
+        "label": "Jere wòl ak otorizasyon",
+        "description": "Kreye, modifye epi efase wòl, epi chwazi ki kapasite chak bay."
+      }
+    },
+    "backups": {
+      "manage": {
+        "label": "Kreye, efase & konfigire kopi sovgad",
+        "description": "Kreye kopi sovgad manyèl, efase oswa elimine ansyen yo, telechaje kopi sovgad ekstèn, epi chanje orè kopi sovgad la."
+      },
+      "download": {
+        "label": "Telechaje yon achiv kopi sovgad",
+        "description": "Telechaje yon .zip kopi sovgad soti nan machin lan — yon kopi konplè sovgad mond lan epi, si kopi sovgad baz done aktive, done kont pa panèl la. Yon aksyon diferan de kreye, efase, oswa retabli: sa a kite machin lan."
+      },
+      "restore": {
+        "label": "Retabli yon kopi sovgad",
+        "description": "Retounen mond aktif la nan yon ansyen kopi sovgad — afekte chak jwè ki sou sèvè a kounye a."
+      }
+    },
+    "server": {
+      "control": {
+        "label": "Demare, sispann, redemare & sove sèvè a",
+        "description": "Demare, sispann, fòse sispann, redemare oswa sove sèvè k ap fonksyone a."
+      },
+      "install": {
+        "label": "Enstale & mete ajou sèvè a",
+        "description": "Enstale oswa mete ajou sèvè a atravè SteamCMD, navige nan sistèm fichye a pou konfigire li, epi verifye yon enstalasyon dekouvri."
+      },
+      "configure": {
+        "label": "Modifye konfigirasyon sèvè a",
+        "description": "Modifye paramèt .ini sèvè a, detay koneksyon RCON, ak konfigirasyon rezo/chemen."
+      },
+      "wipe": {
+        "label": "Efase mond lan nèt",
+        "description": "Efase pou tout tan done kat, jwè oswa mond sovgad."
+      },
+      "world_events": {
+        "label": "Lanse evènman mond",
+        "description": "Move tan, klima, lè nan jounen an, son anbyans, mas zonbi, itilite, paramèt vizyèl ak mesaj anons — efè sou tout mond lan, pa vize yon jwè spesifik."
+      }
+    },
+    "rcon": {
+      "execute": {
+        "label": "Egzekite kòmand RCON",
+        "description": "Konekte ak RCON epi egzekite nenpòt kòmand konsòl."
+      }
+    },
+    "servers": {
+      "manage": {
+        "label": "Ajoute, modifye & retire sèvè konfigire",
+        "description": "Ajoute, modifye, retire oswa aktive yon antre sèvè konfigire."
+      },
+      "discover": {
+        "label": "Otomatikman dekouvri sèvè sou machin sa a",
+        "description": "Eskane sistèm fichye lame a pou jwenn enstalasyon sèvè PZ ki egziste deja."
+      }
+    },
+    "templates": {
+      "manage": {
+        "label": "Jere modèl sèvè",
+        "description": "Kreye, enpòte, aplike epi efase modèl konfigirasyon."
+      }
+    },
+    "bridge": {
+      "setup": {
+        "label": "Konekte & konfigire PanelBridge",
+        "description": "Konekte oswa rekonfigire pon mod nan jwèt la, transpò SFTP li, epi enstale mod la."
+      },
+      "diagnostics": {
+        "label": "Dyagnostik PanelBridge",
+        "description": "Gade jounal debogaj mod la ak estatistik, epi lanse eskanaj katalòg atik/veyikil."
+      },
+      "command": {
+        "label": "Egzekite nenpòt aksyon PanelBridge",
+        "description": "Pasaj san restriksyon dèyè chak zouti nan jwèt la, ansanm ak sa ki pa gen bouton dedye."
+      }
+    },
+    "players": {
+      "moderate": {
+        "label": "Disipline jwè",
+        "description": "Bani, retire baniman, mete deyò oswa mete yon jwè sou lis blan."
+      },
+      "gm_tools": {
+        "label": "Zouti mèt-jwèt",
+        "description": "Fè parèt atik, teleporte, ak lòt aksyon animatè evènman ki gen konfyans."
+      },
+      "view": {
+        "label": "Gade enfòmasyon jwè",
+        "description": "Li detay, estati ak istorik jwè."
+      }
+    },
+    "mods": {
+      "manage": {
+        "label": "Jere mod",
+        "description": "Swiv, enstale epi konfigire mod Workshop."
+      }
+    },
+    "automation": {
+      "manage": {
+        "label": "Jere tach pwograme",
+        "description": "Kreye epi modifye redemaraj otomatik, kopi sovgad ak lòt travay pwograme."
+      }
+    },
+    "integrations": {
+      "manage": {
+        "label": "Jere entegrasyon",
+        "description": "Konfigire bot Discord ak lòt koneksyon ekstèn menm jan an."
+      }
+    },
+    "docker": {
+      "manage": {
+        "label": "Jere kontenè Docker la",
+        "description": "Gade estati/estatistik epi demare, sispann oswa redemare kontenè sèvè jwèt la."
+      }
+    },
+    "chunks": {
+      "manage": {
+        "label": "Jere chunk kat",
+        "description": "Netwaye oswa efase zòn chunk kat, epi konfigire chemen sovgad chunk la."
+      }
+    },
+    "serverfiles": {
+      "manage": {
+        "label": "Jere fichye sèvè",
+        "description": "Modifye opsyon sandbox, pwen kòmansman ak lòt fichye konfigirasyon sèvè."
+      }
+    },
+    "diagnostics": {
+      "manage": {
+        "label": "Gade dyagnostik panèl la",
+        "description": "Gade jounal, istorik pèfòmans, zouti antretyen baz done ak dyagnostik CORS."
+      }
+    },
+    "panel": {
+      "settings": {
+        "label": "Jere paramèt panèl la an antye",
+        "description": "Chanje politik CORS, entèval verifikasyon mod ak lòt paramèt nivo aplikasyon."
+      }
+    }
+  }
+}

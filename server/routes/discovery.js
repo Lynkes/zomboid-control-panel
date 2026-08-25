@@ -8,7 +8,7 @@ const log = createLogger("API:Discovery");
 import { sanitizeError, sanitizeServerResponse } from "../utils/sanitize.js";
 import { normalizeRconHost } from "../services/rcon.js";
 import { createServer } from "../database/init.js";
-import { requireRole } from "../services/auth.js";
+import { requirePermission } from "../services/permissions.js";
 import {
   discoverMounts,
   probeInstallPath,
@@ -38,7 +38,7 @@ router.get("/discover-mounts", async (req, res) => {
 // POST /api/servers/create-from-discovery — turn a discover-mounts result
 // into a fully-populated local server profile, reading RCON settings from
 // the discovered server's own INI instead of asking the user to retype them.
-router.post("/create-from-discovery", requireRole("admin"), async (req, res) => {
+router.post("/create-from-discovery", requirePermission("servers.discover"), async (req, res) => {
   try {
     const { installPath, dataPath, serverName, name } = req.body || {};
     if (!installPath || !dataPath) {

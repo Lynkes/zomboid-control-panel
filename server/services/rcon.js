@@ -11,6 +11,33 @@ import {
 import { SourceRconClient } from "../utils/sourceRcon.js";
 import { readSecret } from "../utils/secrets.js";
 
+// Common accented Latin letters (French in particular -- this panel ships an
+// FR locale) transliterated to their closest plain-ASCII equivalent, for
+// foldToRconAscii() below. PZ's RCON can't carry these bytes reliably, so
+// dropping them silently used to turn "répété" into "rpt" -- readable-ish by
+// accident, not by design. Transliterating first means "repete" instead:
+// degraded but recognisable, and consistent regardless of which RCON text
+// field (broadcast, ban reason, etc.) the string passes through. Bounded to
+// Latin-1 Supplement + Latin Extended-A (players.js's own SAFE_TEXT_REGEX
+// accepts exactly this range, À-ɏ) -- other scripts still fall
+// through to foldToRconAscii()'s final drop, same as before.
+const LATIN_TRANSLITERATION_MAP = {
+  à: "a", á: "a", â: "a", ã: "a", ä: "a", å: "a",
+  À: "A", Á: "A", Â: "A", Ã: "A", Ä: "A", Å: "A",
+  ç: "c", Ç: "C",
+  è: "e", é: "e", ê: "e", ë: "e",
+  È: "E", É: "E", Ê: "E", Ë: "E",
+  ì: "i", í: "i", î: "i", ï: "i",
+  Ì: "I", Í: "I", Î: "I", Ï: "I",
+  ñ: "n", Ñ: "N",
+  ò: "o", ó: "o", ô: "o", õ: "o", ö: "o",
+  Ò: "O", Ó: "O", Ô: "O", Õ: "O", Ö: "O",
+  ù: "u", ú: "u", û: "u", ü: "u",
+  Ù: "U", Ú: "U", Û: "U", Ü: "U",
+  ý: "y", ÿ: "y", Ý: "Y",
+  œ: "oe", Œ: "OE", æ: "ae", Æ: "AE",
+};
+
 // Hosts pasted from a game-server-provider panel routinely carry surrounding
 // whitespace, which makes DNS resolution fail with ENOTFOUND and looks exactly
 // like an unreachable server.
@@ -66,6 +93,42 @@ export async function testRconConnection({ host, port, password, timeoutMs = 500
     client.disconnect();
   }
 }
+
+// Response texts the real B42 dedicated server sends back for a command it
+// accepted but refused to run -- each confirmed verbatim against the actual
+// server jar (D:/Zomboid_dev_panel/ServerB42Files/java/projectzomboid.jar,
+// zombie/commands/serverCommands/*.class: GodModePlayerCommand.class /
+// InvisiblePlayerCommand.class for "Wrong arguments!", NoClipCommand.class
+// for "Not enough rights", ReleaseSafehouseCommand.class for "...can be
+// executed only from the game"), not guessed. A normal RCON reply carrying
+// one of these means the command did NOT do what it says, so without this
+// check it's indistinguishable from a real success.
+//
+// Deliberately a denylist of PROVEN rejection shapes, not a success
+// allowlist: a success allowlist would need every one of this file's ~40
+// commands' real success text enumerated with confidence, which static
+// bytecode reading can't give, and would fail closed on every command
+// whose success text isn't in it.
+const KNOWN_RCON_REJECTIONS = [
+  {
+    pattern: /^\s*Unknown command\b/i,
+    describe: (text) => `${text}. This command is not available on this server build.`,
+  },
+  {
+    pattern: /Wrong arguments!?/i,
+    describe: () =>
+      "Wrong arguments. This command's syntax may have changed on this server build.",
+  },
+  {
+    pattern: /Not enough rights/i,
+    describe: () =>
+      "Not enough rights. The RCON account's role does not have permission to run this command.",
+  },
+  {
+    pattern: /can be executed only from the game/i,
+    describe: (text) => `${text}. This command can only be run from in-game, not over RCON.`,
+  },
+];
 
 export class RconService extends EventEmitter {
   constructor() {
@@ -301,12 +364,36 @@ export class RconService extends EventEmitter {
       const targetServer = serverId
         ? await getServer(serverId)
         : await getActiveServer();
-      if (targetServer?.rconPassword) {
-        if (!this.passwordFromSecretFile) {
-          this.config.password = targetServer.rconPassword;
-        }
+      if (targetServer) {
+        // A configured server's host and port are the right target
+        // regardless of whether it has an RCON password set yet — a freshly
+        // added PZ server with no password configured is a completely
+        // normal state. Silently falling back to a different host/port here
+        // would make "wrong/missing password" and "no server configured at
+        // all" indistinguishable: both used to fall through to the
+        // hardcoded default and probe whatever else happened to be
+        // listening there. Whether we can authenticate is decided
+        // separately, below — it never changes WHERE we try to connect.
         this.config.host = normalizeRconHost(targetServer.rconHost);
         this.config.port = parseInt(targetServer.rconPort, 10) || 27015;
+
+        if (targetServer.rconPassword) {
+          if (!this.passwordFromSecretFile) {
+            this.config.password = targetServer.rconPassword;
+          }
+        } else if (!this.passwordFromSecretFile) {
+          // Don't carry over a stale password from a previously loaded
+          // server (e.g. after reloadConfig() on server switch) — a missing
+          // password is a real, visible state to report, not a value to
+          // silently inherit from whatever this instance last connected to.
+          this.config.password = "";
+          log.warn(
+            serverId
+              ? `Server ${serverId} has no RCON password set — connection attempts will fail authentication until one is configured`
+              : "Active server has no RCON password set — connection attempts will fail authentication until one is configured",
+          );
+        }
+
         log.info(
           serverId
             ? `config loaded for server ${serverId}`
@@ -341,6 +428,36 @@ export class RconService extends EventEmitter {
       this.configLoaded = true;
     } catch (error) {
       log.debug(`Could not load RCON config from database: ${error.message}`);
+    }
+  }
+
+  // Is there an actual RCON target on record — a server row (any server ever
+  // added, active or not) or the legacy global rcon* settings some installs
+  // still rely on? Deliberately NEVER memoized, unlike loadConfig()/
+  // configLoaded above: this is checked fresh on every connection attempt so
+  // that adding a first server while the panel is already running is picked
+  // up on the very next reconnect tick, without needing reloadConfig() to be
+  // called by whatever route created it, or a panel restart.
+  // Without this check, "nothing configured" and "configured but wrong"
+  // are indistinguishable to a caller — both used to fall through to the
+  // hardcoded default host/port and attempt authentication against whatever
+  // unrelated process happened to be listening there.
+  async hasConfiguredTarget() {
+    try {
+      if (await getActiveServer()) return true;
+    } catch (e) {
+      log.debug(`hasConfiguredTarget: active server lookup failed: ${e.message}`);
+    }
+    try {
+      const [dbHost, dbPort, dbPassword] = await Promise.all([
+        getSetting("rconHost"),
+        getSetting("rconPort"),
+        getSetting("rconPassword"),
+      ]);
+      return Boolean(dbHost || dbPort || dbPassword);
+    } catch (e) {
+      log.debug(`hasConfiguredTarget: legacy settings lookup failed: ${e.message}`);
+      return false;
     }
   }
 
@@ -474,6 +591,18 @@ export class RconService extends EventEmitter {
   async _doConnect() {
     // Capture current version at start - if it changes, this attempt is stale
     const startVersion = this.connectionVersion;
+
+    // Nothing to connect to yet — the normal state for a fresh install, and
+    // for the 60s auto-reconnect interval every time it ticks before a
+    // server has been added. Checked before loadConfig() so we never even
+    // populate this.config with the hardcoded default in this case, let
+    // alone probe/authenticate against whatever else might hold that port.
+    if (!(await this.hasConfiguredTarget())) {
+      log.debug(
+        "No RCON server configured yet — skipping connection attempt",
+      );
+      return false;
+    }
 
     // Load config from database before connecting
     await this.loadConfig();
@@ -783,6 +912,21 @@ export class RconService extends EventEmitter {
     return false;
   }
 
+  // Checks a raw RCON response against KNOWN_RCON_REJECTIONS -- returns
+  // {error, response} if it matches a proven rejection shape, null
+  // otherwise (including for empty/non-string responses, which are the
+  // normal shape for most commands that don't echo anything back).
+  classifyRconResponse(response) {
+    if (typeof response !== "string" || !response) return null;
+    const trimmed = response.trim();
+    for (const { pattern, describe } of KNOWN_RCON_REJECTIONS) {
+      if (pattern.test(trimmed)) {
+        return { error: describe(trimmed), response: trimmed };
+      }
+    }
+    return null;
+  }
+
   // Execute a command with optional skipLog to avoid polluting command history with automatic commands
   async execute(command, { skipLog = false } = {}) {
     try {
@@ -818,24 +962,22 @@ export class RconService extends EventEmitter {
       this.lastSuccessfulCommand = Date.now();
       this.consecutiveHealthFailures = 0;
 
-      // Log to database (unless skipLog is set for automatic commands)
-      if (!skipLog) {
-        logCommand(command, response, true);
-      }
-
       log.debug(`response: ${response}`);
 
-      // The server answers an unrecognised command with a normal RCON reply, so
-      // without this check a command removed by a game update looks like it
-      // succeeded. Build 42 dropped several Build 41 commands this way.
-      if (typeof response === "string" && /^\s*Unknown command\b/i.test(response)) {
-        const unknown = response.trim();
-        log.warn(`Server rejected command as unknown: ${command}`);
-        return {
-          success: false,
-          error: `${unknown}. This command is not available on this server build.`,
-          response: unknown,
-        };
+      // The server answers a command it refuses to run with a normal RCON
+      // reply, so without this check -- and without checking it BEFORE the
+      // database log below -- the refusal looks like success both to the
+      // caller and in the panel's own persisted command history.
+      const rejection = this.classifyRconResponse(response);
+
+      // Log to database (unless skipLog is set for automatic commands)
+      if (!skipLog) {
+        logCommand(command, rejection ? rejection.error : response, !rejection);
+      }
+
+      if (rejection) {
+        log.warn(`Server rejected command: ${command} (${rejection.response})`);
+        return { success: false, error: rejection.error, response: rejection.response };
       }
 
       return {
@@ -905,8 +1047,17 @@ export class RconService extends EventEmitter {
             clearTimeout(retryTimeoutId);
 
             this.lastSuccessfulCommand = Date.now();
+
+            // Same rejection check as the primary attempt above -- a retry
+            // that reconnects successfully but gets a refusal back must not
+            // report success just because the connection came back up.
+            const rejection = this.classifyRconResponse(response);
             if (!skipLog) {
-              logCommand(command, response, true);
+              logCommand(command, rejection ? rejection.error : response, !rejection);
+            }
+            if (rejection) {
+              log.warn(`Server rejected command on retry: ${command} (${rejection.response})`);
+              return { success: false, error: rejection.error, response: rejection.response };
             }
             return {
               success: true,
@@ -991,36 +1142,63 @@ export class RconService extends EventEmitter {
     return value;
   }
 
+  // Shared text-folding step for every free-text field that ends up inside
+  // an RCON command string (broadcasts, ban reasons, ...): normalize the
+  // punctuation PZ's RCON silently mishandles (curly quotes/dashes/
+  // ellipsis) to plain ASCII, transliterate common accented Latin letters,
+  // then drop anything still outside printable ASCII. Used to be
+  // reimplemented separately per call site with different character-class
+  // rules (see docs/qa/kevin-adversarial-findings.md Finding 2) -- the same
+  // French text folded differently depending on which RCON call carried it,
+  // and the caller had no way to know its text had been altered. One
+  // implementation now; callers that need a narrower character set (e.g.
+  // sanitizeForBanReason()'s punctuation whitelist) apply that on top of
+  // this, not instead of it.
+  foldToRconAscii(input) {
+    return String(input ?? "")
+      .replace(/[\u2018\u2019]/g, "'") // curly single quotes -> '
+      .replace(/[\u201C\u201D]/g, '"') // curly double quotes -> "
+      .replace(/[\u2013\u2014]/g, "-") // en/em dash -> -
+      .replace(/[\u2026]/g, "...") // ellipsis
+      .replace(/[\u00C0-\u024F]/g, (ch) => LATIN_TRANSLITERATION_MAP[ch] ?? "") // transliterate known accented Latin
+      .replace(/[^\x20-\x7E]/g, "") // drop everything else outside printable ASCII
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
   // Server commands
   async save({ skipLog = false } = {}) {
     return this.execute("save", { skipLog });
   }
 
   async quit({ skipLog = false } = {}) {
-    // The quit command will shutdown the server and close the connection
-    // This may result in connection errors which are expected
-    try {
-      const result = await this.execute("quit", { skipLog });
-      // Mark as disconnected since server is shutting down
-      this.connected = false;
-      this._cleanupClient();
-      return result;
-    } catch (error) {
-      // Connection errors are expected when server shuts down
-      // The server may close the connection before we receive a response
-      if (
-        error.message.includes("ECONNRESET") ||
-        error.message.includes("EPIPE") ||
-        error.message.includes("ECONNREFUSED") ||
-        error.message.includes("socket") ||
-        error.message.includes("connection")
-      ) {
-        this.connected = false;
-        this._cleanupClient();
-        return { success: true, response: "Server shutting down" };
-      }
-      throw error;
+    // The quit command will shutdown the server and close the connection.
+    // This may result in connection errors, which are expected -- but
+    // execute() has its own try/catch spanning its whole body that never
+    // rethrows (every failure path, including every connection-error
+    // branch, resolves {success:false, ...} instead of rejecting), so a
+    // try/catch here around the await could never actually catch anything.
+    // A quit whose connection reset mid-shutdown -- the normal case --
+    // reported success:false, indistinguishable from a quit that never
+    // reached the server (e.g. scheduler.js's performRestart() used to
+    // treat every clean auto-restart quit as a failure and fall back to a
+    // forced stop). Inspect the RESULT instead of a thrown error. The two
+    // guard messages below mean execute() never actually sent "quit" at all
+    // (server already stopped / still starting) -- those stay real
+    // failures; anything else execute() can fail with for "quit"
+    // specifically is the server closing the connection as it exits.
+    const result = await this.execute("quit", { skipLog });
+    // Mark as disconnected since server is shutting down
+    this.connected = false;
+    this._cleanupClient();
+    if (
+      !result.success &&
+      result.error !== "Server is starting, please wait..." &&
+      result.error !== "Server is not running"
+    ) {
+      return { success: true, response: "Server shutting down" };
     }
+    return result;
   }
 
   async serverMessage(message, { skipLog = false } = {}) {
@@ -1028,14 +1206,7 @@ export class RconService extends EventEmitter {
     // reliably — it can return the help text instead of broadcasting. Strip to
     // a safe printable-ASCII subset before sending. We keep tabs/newlines out
     // (sanitize() already drops control chars).
-    const ascii = String(message ?? "")
-      .replace(/[\u2018\u2019]/g, "'") // curly single quotes -> '
-      .replace(/[\u201C\u201D]/g, '"') // curly double quotes -> "
-      .replace(/[\u2013\u2014]/g, "-") // en/em dash -> -
-      .replace(/[\u2026]/g, "...") // ellipsis
-      .replace(/[^\x20-\x7E]/g, "") // drop everything else outside printable ASCII
-      .replace(/\s+/g, " ")
-      .trim();
+    const ascii = this.foldToRconAscii(message);
     if (!ascii) {
       log.warn(
         "serverMessage: message reduced to empty after ASCII sanitization, skipping",
@@ -1093,14 +1264,20 @@ export class RconService extends EventEmitter {
   // Player commands
   async kickPlayer(username, reason = "") {
     const safeUser = this.sanitizeQuotedArg(username, "Username", 64);
-    // PZ RCON kick syntax: kickuser "username" — no reason flag supported
-    return this.execute(`kickuser "${safeUser}"`);
+    const safeReason = this.sanitizeForBanReason(reason);
+    let cmd = `kickuser "${safeUser}"`;
+    if (safeReason) cmd += ` -r "${safeReason}"`;
+    return this.execute(cmd);
   }
 
   sanitizeForBanReason(input) {
     if (!input) return "";
-    // Only allow alphanumeric, spaces, and basic punctuation
-    return String(input)
+    // Fold first (curly quotes/accents), THEN apply the ban-reason-specific
+    // whitelist on top -- alphanumeric, spaces, and basic punctuation only.
+    // No quotes/backslash here even though foldToRconAscii() would let a
+    // straight one through: banuser's own `-r "..."` wrapping can't carry
+    // one safely, same reasoning as sanitize() elsewhere in this file.
+    return this.foldToRconAscii(input)
       .replace(/[^a-zA-Z0-9\s.,!?'-]/g, "")
       .substring(0, 100);
   }
@@ -1111,7 +1288,14 @@ export class RconService extends EventEmitter {
     let cmd = `banuser "${safeUser}"`;
     if (banIp) cmd += " -ip";
     if (safeReason) cmd += ` -r "${safeReason}"`;
-    return this.execute(cmd);
+    const result = await this.execute(cmd);
+    // sentReason is what actually reached the server -- may differ from the
+    // caller's original `reason` (folding/whitelisting can alter or drop
+    // characters PZ's RCON can't carry). Callers that persist their own
+    // record of the ban (e.g. players.js's activity log) should log THIS,
+    // not the original input, so the panel's own record matches reality.
+    // See docs/qa/kevin-adversarial-findings.md Finding 2.
+    return { ...result, sentReason: safeReason };
   }
 
   async unbanPlayer(username) {
@@ -1273,12 +1457,19 @@ export class RconService extends EventEmitter {
     return this.execute(`createhorde ${n}`);
   }
 
-  // Admin modes
+  // Admin modes. B42 splits each of these into a self-only command (bare
+  // godmod/invisible, ToggleGodModHimself/ToggleInvisibleHimself capability,
+  // no username argument) and a separate other-player command
+  // (godmodplayer/invisibleplayer, ToggleGodModEveryone/ToggleInvisibleEveryone
+  // capability, required username) -- confirmed from the real B42 dedicated
+  // server jar's GodModeCommand/GodModePlayerCommand/InvisibleCommand/
+  // InvisiblePlayerCommand classes. Sending a username to the self-only
+  // command doesn't target that player -- there is no "self" over RCON.
   async setGodMode(username, enabled) {
     const value = enabled ? "-true" : "-false";
     if (username) {
       return this.execute(
-        `godmod "${this.sanitizeQuotedArg(username, "Username", 64)}" ${value}`,
+        `godmodplayer "${this.sanitizeQuotedArg(username, "Username", 64)}" ${value}`,
       );
     }
     return this.execute(`godmod ${value}`);
@@ -1288,7 +1479,7 @@ export class RconService extends EventEmitter {
     const value = enabled ? "-true" : "-false";
     if (username) {
       return this.execute(
-        `invisible "${this.sanitizeQuotedArg(username, "Username", 64)}" ${value}`,
+        `invisibleplayer "${this.sanitizeQuotedArg(username, "Username", 64)}" ${value}`,
       );
     }
     return this.execute(`invisible ${value}`);
@@ -1418,7 +1609,17 @@ export class RconService extends EventEmitter {
 
   // Safehouse
   async releaseSafehouse() {
-    return this.execute("releasesafehouse");
+    // ReleaseSafehouseCommand.class (real B42 dedicated server jar) calls
+    // isCommandComeFromServerConsole() and refuses with "...can be executed
+    // only from the game" for ANY console/RCON caller -- a hardcoded
+    // rejection keyed on connection type, not a syntax issue this panel
+    // could work around. Sending "releasesafehouse" here would always be
+    // rejected by the real server, and execute()'s failure detection
+    // doesn't recognise that rejection text, so it would report success
+    // while doing nothing. Refuse up front instead of lying about it.
+    throw new Error(
+      "Releasing a safehouse can only be done from in-game -- Project Zomboid's server refuses this over RCON, even from an admin console.",
+    );
   }
 
   // Test if connection is actually alive by sending a simple command

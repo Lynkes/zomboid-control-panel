@@ -1,5 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import { Trans, useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { reportClientError } from '@/lib/client-errors'
 import {
   Users,
@@ -85,6 +87,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { EmptyState } from '@/components/EmptyState'
 import { SpawnBrowser } from '@/components/SpawnBrowser'
 import { playersApi, panelBridgeApi, configApi } from '@/lib/api'
+import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
 import { PageHeader } from '@/components/PageHeader'
 import { cn, copyText } from '@/lib/utils'
 
@@ -122,14 +125,23 @@ const ACCESS_LEVELS = ['admin', 'moderator', 'overseer', 'gm', 'observer', 'user
 // and many server builds also accept `setaccesslevel "<user>" "user"` directly.
 // Some operators report that "none" silently does nothing on their build while
 // "user" works. We expose both so admins can pick whichever their build accepts.
-const ACCESS_LEVEL_LABELS: Record<string, string> = {
-  admin: 'Admin',
-  moderator: 'Moderator',
-  overseer: 'Overseer',
-  gm: 'GM',
-  observer: 'Observer',
-  user: 'User (demote — try this first)',
-  none: 'None (official demote value)',
+// Mirrors server/routes/players.js's own SteamID64 check (/^\d{17}$/ on both
+// /banid and /unbanid) so a manually-typed SteamID can't reach a submit
+// button in a shape the server will reject.
+export function sanitizeSteamId(value: string): string {
+  return value.replace(/\D/g, '').slice(0, 17);
+}
+
+function getAccessLevelLabels(t: TFunction): Record<string, string> {
+  return {
+    admin: t('accessLevels.admin'),
+    moderator: t('accessLevels.moderator'),
+    overseer: t('accessLevels.overseer'),
+    gm: t('accessLevels.gm'),
+    observer: t('accessLevels.observer'),
+    user: t('accessLevels.user'),
+    none: t('accessLevels.none'),
+  }
 }
 
 // Common teleport locations in Project Zomboid
@@ -260,6 +272,8 @@ function ActionTile({
 }
 
 export default function Players() {
+  const { t } = useTranslation('players')
+  const accessLevelLabels = useMemo(() => getAccessLevelLabels(t), [t])
   const [players, setPlayers] = useState<Player[]>([])
   const [perks, setPerks] = useState<PerkChoice[]>([])
   const [selectedPlayer, setSelectedPlayer] = useState<string>('')
@@ -382,6 +396,7 @@ export default function Players() {
   const [newTag, setNewTag] = useState('')
   const [notesLoading, setNotesLoading] = useState(false)
   const [savingNote, setSavingNote] = useState(false)
+  const [deleteNoteConfirmOpen, setDeleteNoteConfirmOpen] = useState(false)
   const [playersLoadError, setPlayersLoadError] = useState<string | null>(null)
   const [toolsLoadError, setToolsLoadError] = useState<string | null>(null)
   const [notesError, setNotesError] = useState<string | null>(null)
@@ -463,9 +478,9 @@ export default function Players() {
       setPlayersLoadError(null)
     } catch (error) {
       reportClientError('Failed to fetch players.', error)
-      setPlayersLoadError(getErrorMessage(error, 'Failed to load players.'))
+      setPlayersLoadError(getErrorMessage(error, t('loadErrors.players')))
     }
-  }, [])
+  }, [t])
 
   const fetchActivityLogs = useCallback(async (playerFilter?: string) => {
     setLogsLoading(true)
@@ -477,11 +492,11 @@ export default function Players() {
       setLogsError(null)
     } catch (error) {
       reportClientError('Failed to fetch activity logs.', error)
-      setLogsError(getErrorMessage(error, 'Failed to load activity logs.'))
+      setLogsError(getErrorMessage(error, t('loadErrors.activityLogs')))
     } finally {
       setLogsLoading(false)
     }
-  }, [])
+  }, [t])
 
   const fetchNotesAndStats = useCallback(async () => {
     setNotesLoading(true)
@@ -512,11 +527,11 @@ export default function Players() {
       setNotesError(null)
     } catch (error) {
       reportClientError('Failed to fetch notes and stats.', error)
-      setNotesError(getErrorMessage(error, 'Failed to load player notes and stats.'))
+      setNotesError(getErrorMessage(error, t('loadErrors.notesAndStats')))
     } finally {
       setNotesLoading(false)
     }
-  }, [])
+  }, [t])
 
   const handleSaveNote = async () => {
     if (!selectedPlayer) return
@@ -525,8 +540,8 @@ export default function Players() {
     try {
       await playersApi.saveNote(selectedPlayer, normalizedNote, currentTags)
       toast({
-        title: 'Note Saved',
-        description: `Note for ${selectedPlayer} has been saved`,
+        title: t('toasts.noteSavedTitle'),
+        description: t('toasts.noteSavedDesc', { player: selectedPlayer }),
         variant: 'success' as const,
       })
       // Update local state
@@ -541,8 +556,8 @@ export default function Players() {
       }))
     } catch (error) {
       toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to save note',
+        title: t('toasts.errorTitle'),
+        description: error instanceof Error ? error.message : t('toasts.saveNoteFailedFallback'),
         variant: 'destructive',
       })
     } finally {
@@ -556,8 +571,8 @@ export default function Players() {
     try {
       await playersApi.deleteNote(selectedPlayer)
       toast({
-        title: 'Note Deleted',
-        description: `Note for ${selectedPlayer} has been deleted`,
+        title: t('toasts.noteDeletedTitle'),
+        description: t('toasts.noteDeletedDesc', { player: selectedPlayer }),
         variant: 'success' as const,
       })
       // Update local state
@@ -570,12 +585,13 @@ export default function Players() {
       setCurrentTags([])
     } catch (error) {
       toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to delete note',
+        title: t('toasts.errorTitle'),
+        description: error instanceof Error ? error.message : t('toasts.deleteNoteFailedFallback'),
         variant: 'destructive',
       })
     } finally {
       setSavingNote(false)
+      setDeleteNoteConfirmOpen(false)
     }
   }
 
@@ -617,16 +633,16 @@ export default function Players() {
       // `catalog` carries the in-game skill names; older backends only send ids.
       setPerks(
         perksData.catalog ??
-          (perksData.perks || []).map((id: string) => ({ id, label: id, category: 'Skills' })),
+          (perksData.perks || []).map((id: string) => ({ id, label: id, category: t('spawn.skillsCategoryFallback') })),
       )
       setToolsLoadError(null)
     } catch (error) {
       reportClientError('Failed to fetch player data.', error)
-      setToolsLoadError(getErrorMessage(error, 'Failed to load player tools and reference data.'))
+      setToolsLoadError(getErrorMessage(error, t('loadErrors.toolsAndReference')))
     } finally {
       setInitialLoading(false)
     }
-  }, [])
+  }, [t])
 
   const fetchBannedSteamIds = useCallback(async () => {
     setLoadingBans(true)
@@ -647,14 +663,14 @@ export default function Players() {
       setWhitelistAccounts(result.accounts || [])
       setAllowedSteamIds(result.allowedSteamIds || [])
       setWhitelistAvailable(result.available !== false)
-      setWhitelistError(result.available === false ? result.reason || 'Whitelist roster unavailable' : null)
+      setWhitelistError(result.available === false ? result.reason || t('loadErrors.whitelistUnavailableFallback') : null)
     } catch (error) {
       reportClientError('Failed to fetch whitelist accounts.', error)
-      setWhitelistError(getErrorMessage(error, 'Failed to load whitelist accounts.'))
+      setWhitelistError(getErrorMessage(error, t('loadErrors.whitelist')))
     } finally {
       setWhitelistLoading(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     Promise.all([fetchPlayers(), fetchData(), fetchNotesAndStats(), fetchBannedSteamIds(), fetchWhitelist()]).catch(err => {
@@ -696,21 +712,37 @@ export default function Players() {
     }
   }, [selectedPlayer, playerNotes])
 
-  const handleAction = async (action: string, fn: () => Promise<unknown>, closeDialog?: () => void) => {
+  // `fn` normally resolves to something the caller doesn't inspect (kick,
+  // ban, teleport, etc. -- unrelated to bridge verification). A handler that
+  // DOES need to override the generic success toast (the godmode/invisible/
+  // noclip/teleport bridge actions below, when the mod couldn't confirm the
+  // change) resolves to `{ toastOverride }` instead -- runtime-checked here
+  // rather than widening `fn`'s type, so every other caller is unaffected.
+  const handleAction = async (
+    action: string,
+    fn: () => Promise<unknown>,
+    closeDialog?: () => void,
+  ) => {
     setLoading(true)
     try {
-      await fn()
-      toast({
-        title: 'Success',
-        description: `${action} completed`,
-        variant: 'success' as const,
-      })
+      const result = await fn()
+      const override =
+        result && typeof result === 'object' && 'toastOverride' in result
+          ? (result as { toastOverride: { title: string; description?: string; variant?: 'default' | 'destructive' | 'success' } }).toastOverride
+          : null
+      toast(
+        override ?? {
+          title: t('toasts.successTitle'),
+          description: t('toasts.successDesc', { action }),
+          variant: 'success' as const,
+        },
+      )
       fetchPlayers()
       closeDialog?.()
     } catch (error) {
       toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Action failed',
+        title: t('toasts.errorTitle'),
+        description: error instanceof Error ? error.message : t('toasts.actionFailedFallback'),
         variant: 'destructive',
       })
     } finally {
@@ -720,7 +752,7 @@ export default function Players() {
 
   const handleKick = () => {
     if (!selectedPlayer) return
-    handleAction('Kick player', () => playersApi.kick(selectedPlayer, kickReason), () => {
+    handleAction(t('actions.kickPlayer'), () => playersApi.kick(selectedPlayer, kickReason), () => {
       setKickDialogOpen(false)
       setKickReason('')
       setSelectedPlayer('')
@@ -730,7 +762,7 @@ export default function Players() {
 
   const handleBan = () => {
     if (!selectedPlayer) return
-    handleAction('Ban player', () => playersApi.ban(selectedPlayer, banIp, banReason), () => {
+    handleAction(t('actions.banPlayer'), () => playersApi.ban(selectedPlayer, banIp, banReason), () => {
       setBanDialogOpen(false)
       setBanConfirmOpen(false)
       setBanReason('')
@@ -742,7 +774,7 @@ export default function Players() {
 
   const handleUnban = () => {
     if (!unbanUsername) return
-    handleAction('Unban player', () => playersApi.unban(unbanUsername), () => {
+    handleAction(t('actions.unbanPlayer'), () => playersApi.unban(unbanUsername), () => {
       setUnbanUsername('')
       setUnbanDialogOpen(false)
     })
@@ -750,21 +782,53 @@ export default function Players() {
 
   const handleUnbanSteamId = () => {
     if (!unbanSteamId) return
-    handleAction('Unban SteamID', () => playersApi.unbanSteamId(unbanSteamId), () => {
+    handleAction(t('actions.unbanSteamId'), () => playersApi.unbanSteamId(unbanSteamId), () => {
       setUnbanSteamId('')
       setUnbanSteamIdDialogOpen(false)
       setBannedSteamIds(prev => prev.filter(b => b.steamId !== unbanSteamId))
     })
   }
 
+  // Builds the { toastOverride } handleAction reads instead of its default
+  // success toast, for a bridge-verify-gated action that came back
+  // 'unverifiable' or 'old-bridge'. 'confirmed' and null (action isn't
+  // verify-gated at all) both return undefined -- no override, plain
+  // success toast, exactly as before this fix.
+  const bridgeVerifyToastOverride = (actionLabel: string, actionKey: string, data: unknown) => {
+    const state = getBridgeVerifiedState(actionKey, data as { verified?: unknown } | null | undefined)
+    if (state === 'unverifiable') {
+      return {
+        toastOverride: {
+          title: actionLabel,
+          description: t('toasts.bridgeUnverifiedDesc', { action: actionLabel }),
+          variant: 'default' as const,
+        },
+      }
+    }
+    if (state === 'old-bridge') {
+      return {
+        toastOverride: {
+          title: actionLabel,
+          description: t('toasts.bridgeOldBridgeDesc', { action: actionLabel }),
+          variant: 'default' as const,
+        },
+      }
+    }
+    return undefined
+  }
+
   const handleTeleport = (targetOverride?: string) => {
     const target = (targetOverride ?? teleportTarget ?? '').trim() || selectedPlayer
     if (!target || !teleportX || !teleportY) return
-    handleAction('Teleport player', () => playersApi.teleport(target, {
-      x: Number(teleportX),
-      y: Number(teleportY),
-      z: Number(teleportZ || '0')
-    }), () => {
+    const label = t('actions.teleportPlayer')
+    handleAction(label, async () => {
+      const response = await playersApi.teleport(target, {
+        x: Number(teleportX),
+        y: Number(teleportY),
+        z: Number(teleportZ || '0'),
+      })
+      return bridgeVerifyToastOverride(label, 'teleportPlayer', response?.data)
+    }, () => {
       setTeleportDialogOpen(false)
       setTeleportX('')
       setTeleportY('')
@@ -777,7 +841,7 @@ export default function Players() {
     const steamId = banSteamId.trim()
     const reason = steamBanReason.trim()
     if (!steamId) return
-    handleAction('Ban SteamID', () => playersApi.banSteamId(steamId, reason), () => {
+    handleAction(t('actions.banSteamId'), () => playersApi.banSteamId(steamId, reason), () => {
       setSteamIdBanDialogOpen(false)
       setBanSteamId('')
       setSteamBanReason('')
@@ -785,33 +849,24 @@ export default function Players() {
     })
   }
 
-  const handleVoiceBan = () => {
-    if (!voiceBanUsername) return
-    handleAction(voiceBanEnabled ? 'Voice ban' : 'Voice unban',
-      () => playersApi.voiceBan(voiceBanUsername, voiceBanEnabled), () => {
-        setVoiceBanDialogOpen(false)
-        setVoiceBanUsername('')
-      })
-  }
-
   const handleAddUser = () => {
     if (!addUserUsername.trim()) {
       toast({
-        title: 'Error',
-        description: 'Username is required',
+        title: t('toasts.errorTitle'),
+        description: t('toasts.usernameRequired'),
         variant: 'destructive',
       })
       return
     }
     if (addUserPassword.length > 0 && addUserPassword.length < 4) {
       toast({
-        title: 'Error',
-        description: 'Password must be empty or at least 4 characters',
+        title: t('toasts.errorTitle'),
+        description: t('toasts.passwordLengthError'),
         variant: 'destructive',
       })
       return
     }
-    handleAction('Add user', () => playersApi.addUser(addUserUsername.trim(), addUserPassword), () => {
+    handleAction(t('actions.addUser'), () => playersApi.addUser(addUserUsername.trim(), addUserPassword), () => {
       setAddUserDialogOpen(false)
       setAddUserUsername('')
       setAddUserPassword('')
@@ -823,13 +878,13 @@ export default function Players() {
     const steamId = allowedSteamIdInput.trim()
     if (!/^\d{17}$/.test(steamId)) {
       toast({
-        title: 'Invalid Steam ID',
-        description: 'Steam IDs must contain exactly 17 digits.',
+        title: t('toasts.invalidSteamIdTitle'),
+        description: t('toasts.invalidSteamIdDesc'),
         variant: 'destructive',
       })
       return
     }
-    handleAction('Add allowed Steam ID', () => playersApi.addAllowedSteamId(steamId), () => {
+    handleAction(t('actions.addAllowedSteamId'), () => playersApi.addAllowedSteamId(steamId), () => {
       setAllowedSteamIdInput('')
       void fetchWhitelist()
     })
@@ -837,28 +892,32 @@ export default function Players() {
 
   const handleSetAccessLevel = () => {
     if (!selectedPlayer || !accessLevel) return
-    handleAction('Set access level', () => playersApi.setAccessLevel(selectedPlayer, accessLevel))
+    handleAction(t('actions.setAccessLevel'), () => playersApi.setAccessLevel(selectedPlayer, accessLevel))
   }
 
   // Direct spawn handlers used by the SpawnBrowser dialog. They intentionally
   // rethrow on failure so the dialog keeps the current selection (user can retry),
   // and resolve silently on success so the dialog shows its own in-place confirmation.
   const spawnItemFromBrowser = async (id: string, qty?: number) => {
-    if (!selectedPlayer) throw new Error('No player selected')
+    if (!selectedPlayer) throw new Error(t('spawn.noPlayerSelected'))
     const count = qty ?? 1
     setLoading(true)
     try {
       await playersApi.addItem(selectedPlayer, id, count)
       toast({
-        title: 'Item given',
-        description: `${id.replace(/^Base\./, '')}${count > 1 ? ` × ${count}` : ''} → ${selectedPlayer}`,
+        title: t('toasts.itemGivenTitle'),
+        description: t('toasts.itemGivenDesc', {
+          item: id.replace(/^Base\./, ''),
+          qty: count > 1 ? ` × ${count}` : '',
+          player: selectedPlayer,
+        }),
         variant: 'success' as const,
       })
       fetchPlayers()
     } catch (error) {
       toast({
-        title: 'Give item failed',
-        description: error instanceof Error ? error.message : 'Could not deliver the item',
+        title: t('toasts.giveItemFailedTitle'),
+        description: error instanceof Error ? error.message : t('toasts.giveItemFailedFallback'),
         variant: 'destructive',
       })
       throw error
@@ -871,16 +930,19 @@ export default function Players() {
     setLoading(true)
     try {
       await playersApi.addVehicle(id, selectedPlayer || undefined)
+      const vehicle = id.replace(/^Base\./, '')
       toast({
-        title: 'Vehicle spawned',
-        description: `${id.replace(/^Base\./, '')}${selectedPlayer ? ` near ${selectedPlayer}` : ''}`,
+        title: t('toasts.vehicleSpawnedTitle'),
+        description: selectedPlayer
+          ? t('toasts.vehicleSpawnedDescWithPlayer', { vehicle, player: selectedPlayer })
+          : t('toasts.vehicleSpawnedDescNoPlayer', { vehicle }),
         variant: 'success' as const,
       })
       fetchPlayers()
     } catch (error) {
       toast({
-        title: 'Vehicle spawn failed',
-        description: error instanceof Error ? error.message : 'Could not spawn the vehicle',
+        title: t('toasts.vehicleSpawnFailedTitle'),
+        description: error instanceof Error ? error.message : t('toasts.vehicleSpawnFailedFallback'),
         variant: 'destructive',
       })
       throw error
@@ -891,52 +953,67 @@ export default function Players() {
 
   const handleAddXp = () => {
     if (!selectedPlayer || !selectedPerk) return
-    handleAction('Add XP', () => playersApi.addXp(selectedPlayer, selectedPerk, xpAmount))
+    handleAction(t('actions.addXp'), () => playersApi.addXp(selectedPlayer, selectedPerk, xpAmount))
   }
 
   const handleGodMode = (enabled: boolean) => {
     const player = selectedPlayer
     if (!player) return
-    handleAction(enabled ? 'Enable god mode' : 'Disable god mode',
-      async () => {
-        await panelBridgeApi.sendCommand('setGodMode', { username: player, enabled })
+    const label = enabled ? t('actions.enableGodMode') : t('actions.disableGodMode')
+    handleAction(label, async () => {
+      const response = await panelBridgeApi.sendCommand('setGodMode', { username: player, enabled })
+      const state = getBridgeVerifiedState('setGodMode', response?.data)
+      // Only reflect the new state on the control once the mod actually
+      // confirmed it -- an 'unverifiable'/'old-bridge' response leaves the
+      // toggle showing its last KNOWN state instead of one nobody confirmed.
+      if (state === null || state === 'confirmed') {
         setPlayerPowers(prev => ({
           ...prev,
           [player]: { ...prev[player], godMode: enabled }
         }))
-      })
+      }
+      return bridgeVerifyToastOverride(label, 'setGodMode', response?.data)
+    })
   }
 
   const handleInvisible = (enabled: boolean) => {
     const player = selectedPlayer
     if (!player) return
-    handleAction(enabled ? 'Enable invisible' : 'Disable invisible',
-      async () => {
-        await panelBridgeApi.sendCommand('setInvisible', { username: player, enabled })
+    const label = enabled ? t('actions.enableInvisible') : t('actions.disableInvisible')
+    handleAction(label, async () => {
+      const response = await panelBridgeApi.sendCommand('setInvisible', { username: player, enabled })
+      const state = getBridgeVerifiedState('setInvisible', response?.data)
+      if (state === null || state === 'confirmed') {
         setPlayerPowers(prev => ({
           ...prev,
           [player]: { ...prev[player], invisible: enabled }
         }))
-      })
+      }
+      return bridgeVerifyToastOverride(label, 'setInvisible', response?.data)
+    })
   }
 
   const handleNoclip = (enabled: boolean) => {
     const player = selectedPlayer
     if (!player) return
-    handleAction(enabled ? 'Enable noclip' : 'Disable noclip',
-      async () => {
-        await panelBridgeApi.sendCommand('setNoclip', { username: player, enabled })
+    const label = enabled ? t('actions.enableNoclip') : t('actions.disableNoclip')
+    handleAction(label, async () => {
+      const response = await panelBridgeApi.sendCommand('setNoclip', { username: player, enabled })
+      const state = getBridgeVerifiedState('setNoclip', response?.data)
+      if (state === null || state === 'confirmed') {
         setPlayerPowers(prev => ({
           ...prev,
           [player]: { ...prev[player], noclip: enabled }
         }))
-      })
+      }
+      return bridgeVerifyToastOverride(label, 'setNoclip', response?.data)
+    })
   }
 
   const handleHealPlayer = () => {
     const player = selectedPlayer
     if (!player) return
-    handleAction('Heal player',
+    handleAction(t('actions.healPlayer'),
       async () => {
         await panelBridgeApi.sendCommand('healPlayer', { username: player })
       })
@@ -952,19 +1029,19 @@ export default function Players() {
     <div className="space-y-6 page-transition">
       {/* Header */}
       <PageHeader
-        title="Players"
-        description="Manage connected players and their permissions"
+        title={t('pageHeader.title')}
+        description={t('pageHeader.description')}
         icon={<Users className="w-5 h-5 text-primary" />}
         actions={
           <div className="flex items-center gap-2">
             {lastRefresh && (
               <span className="text-xs text-muted-foreground">
-                Updated {lastRefresh.toLocaleTimeString()}
+                {t('pageHeader.updated', { time: lastRefresh.toLocaleTimeString() })}
               </span>
             )}
             <Button onClick={() => { fetchPlayers(); void fetchWhitelist() }} variant="outline" size="sm" className="gap-2">
               <RefreshCw className="w-4 h-4" />
-              Refresh
+              {t('pageHeader.refresh')}
             </Button>
           </div>
         }
@@ -973,7 +1050,7 @@ export default function Players() {
       {(playersLoadError || toolsLoadError) && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Players page is partially unavailable</AlertTitle>
+          <AlertTitle>{t('errorBanner.title')}</AlertTitle>
           <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <span className="min-w-0 break-words">
               {playersLoadError || toolsLoadError}
@@ -987,7 +1064,7 @@ export default function Players() {
               }}
               className="self-start"
             >
-              <RefreshCw className="mr-2 h-4 w-4" /> Retry
+              <RefreshCw className="mr-2 h-4 w-4" /> {t('errorBanner.retry')}
             </Button>
           </AlertDescription>
         </Alert>
@@ -997,29 +1074,29 @@ export default function Players() {
       <div className="flex flex-col gap-2 stagger-in sm:flex-row sm:flex-wrap">
         <SummaryCard
           icon={<Users className="h-4 w-4" />}
-          label="Online"
+          label={t('summary.online')}
           value={players.length}
           tone={players.length > 0 ? 'success' : 'default'}
-          caption={players.length === 1 ? 'player' : 'players'}
+          caption={t('summary.onlineCaption', { count: players.length })}
         />
         <SummaryCard
           icon={<TrendingUp className="h-4 w-4" />}
-          label="Peak Today"
+          label={t('summary.peakToday')}
           value={peakPlayers}
           tone="default"
         />
         <SummaryCard
           icon={<Users className="h-4 w-4" />}
-          label="Roster"
+          label={t('summary.roster')}
           value={offlineRoster.length}
-          caption="seen"
+          caption={t('summary.rosterCaption')}
         />
         {bannedSteamIds.length > 0 && (
           <button
             type="button"
             onClick={() => setUnbanSteamIdDialogOpen(true)}
             className="group relative flex flex-1 items-center gap-3 overflow-hidden rounded-md border border-border/55 bg-card/70 px-4 py-3 text-left shadow-sm transition-colors hover:border-destructive/45 hover:bg-destructive/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
-            aria-label={`View ${bannedSteamIds.length} banned SteamIDs`}
+            aria-label={t('summary.bannedAria', { count: bannedSteamIds.length })}
           >
             <span aria-hidden="true" className="absolute inset-y-0 left-0 w-[2px] bg-destructive/60" />
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-sm border border-destructive/30 bg-destructive/10 text-destructive">
@@ -1028,9 +1105,9 @@ export default function Players() {
             <div className="min-w-0">
               <div className="flex items-baseline gap-1.5">
                 <p className="text-xl font-semibold tabular-nums leading-none tracking-tight">{bannedSteamIds.length}</p>
-                <span className="text-xs font-medium text-muted-foreground/70">manage</span>
+                <span className="text-xs font-medium text-muted-foreground/70">{t('summary.bannedManage')}</span>
               </div>
-              <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.22em] text-destructive/80">Banned SteamIDs</p>
+              <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.22em] text-destructive/80">{t('summary.bannedLabel')}</p>
             </div>
           </button>
         )}
@@ -1042,10 +1119,10 @@ export default function Players() {
           <div className="flex items-center justify-between border-b border-border/40 bg-muted/20 px-4 py-2">
             <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.28em] text-muted-foreground">
               <span className="text-primary/80">//</span>
-              <span>roster</span>
+              <span>{t('roster.headerLabel')}</span>
               <span className="text-muted-foreground/50">·</span>
               <span>
-                {rosterTab === 'online' ? 'live' : rosterTab === 'roster' ? 'history' : rosterTab === 'banned' ? 'bans' : 'accounts'}
+                {rosterTab === 'online' ? t('roster.subheaderLive') : rosterTab === 'roster' ? t('roster.subheaderHistory') : rosterTab === 'banned' ? t('roster.subheaderBans') : t('roster.subheaderAccounts')}
               </span>
             </div>
             <span className="font-mono text-[11px] tabular-nums text-foreground/80">
@@ -1065,7 +1142,7 @@ export default function Players() {
                     : 'text-muted-foreground hover:text-foreground'
                 )}
               >
-                <span>Online</span>
+                <span>{t('roster.tabOnline')}</span>
                 <span className="tabular-nums text-foreground/70">{players.length}</span>
               </button>
               <button
@@ -1078,7 +1155,7 @@ export default function Players() {
                     : 'text-muted-foreground hover:text-foreground'
                 )}
               >
-                <span>Roster</span>
+                <span>{t('roster.tabRoster')}</span>
                 <span className="tabular-nums text-foreground/70">{offlineRoster.length}</span>
               </button>
               <button
@@ -1091,7 +1168,7 @@ export default function Players() {
                     : 'text-muted-foreground hover:text-foreground'
                 )}
               >
-                <span>Banned</span>
+                <span>{t('roster.tabBanned')}</span>
                 <span className="tabular-nums text-foreground/70">{bannedSteamIds.length}</span>
               </button>
               <button
@@ -1104,7 +1181,7 @@ export default function Players() {
                     : 'text-muted-foreground hover:text-foreground'
                 )}
               >
-                <span>Whitelist</span>
+                <span>{t('roster.tabWhitelist')}</span>
                 <span className="tabular-nums text-foreground/70">{whitelistAccounts.length}</span>
               </button>
             </div>
@@ -1117,17 +1194,17 @@ export default function Players() {
                 ref={searchInputRef}
                 placeholder={
                   rosterTab === 'online'
-                    ? 'Search players...'
+                    ? t('roster.searchOnline')
                     : rosterTab === 'roster'
-                      ? 'Search roster...'
+                      ? t('roster.searchRoster')
                       : rosterTab === 'banned'
-                        ? 'Search bans...'
-                        : 'Search whitelist...'
+                        ? t('roster.searchBanned')
+                        : t('roster.searchWhitelist')
                 }
                 value={playerSearchFilter}
                 onChange={(e) => setPlayerSearchFilter(e.target.value)}
                 className="pl-9"
-                aria-label="Search players"
+                aria-label={t('roster.searchAria')}
               />
             </div>
 
@@ -1142,14 +1219,14 @@ export default function Players() {
                     <div className="flex h-12 w-12 items-center justify-center rounded-full border border-border/60 bg-muted/30">
                       <Users className="h-6 w-6 text-muted-foreground/70" />
                     </div>
-                    <p className="mt-3 text-sm font-medium">No players online</p>
+                    <p className="mt-3 text-sm font-medium">{t('roster.onlineEmptyTitle')}</p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Players appear here when they connect.
+                      {t('roster.onlineEmptyDesc')}
                     </p>
                     {offlineRoster.length > 0 && (
                       <Button variant="ghost" size="sm" className="mt-4 text-xs text-muted-foreground" onClick={() => setRosterTab('roster')}>
                         <Users className="mr-1.5 h-3.5 w-3.5" />
-                        See {offlineRoster.length} previously seen {offlineRoster.length === 1 ? 'player' : 'players'}
+                        {t('roster.seePreviouslySeen', { count: offlineRoster.length })}
                       </Button>
                     )}
                     {bannedSteamIds.length > 0 && (
@@ -1160,12 +1237,12 @@ export default function Players() {
                         onClick={() => setRosterTab('banned')}
                       >
                         <Ban className="mr-1.5 h-3.5 w-3.5" />
-                        Review {bannedSteamIds.length} banned {bannedSteamIds.length === 1 ? 'SteamID' : 'SteamIDs'}
+                        {t('roster.reviewBanned', { count: bannedSteamIds.length })}
                       </Button>
                     )}
                   </div>
                 ) : filteredPlayers.length === 0 ? (
-                  <EmptyState type="noResults" title={`No matches for "${playerSearchFilter}"`} description="Try a different search term" compact />
+                  <EmptyState type="noResults" title={t('roster.noMatchesTitle', { query: playerSearchFilter })} description={t('roster.noMatchesDesc')} compact />
                 ) : (
                   <div className="space-y-1">
                     {filteredPlayers.map((player) => {
@@ -1190,7 +1267,7 @@ export default function Players() {
                             <div className="flex items-center gap-2 min-w-0">
                               <div className="w-2 h-2 rounded-full bg-primary motion-safe:animate-pulse shrink-0" aria-hidden="true" />
                               <span className="font-medium truncate">{player.name}</span>
-                              <span className="sr-only">Online</span>
+                              <span className="sr-only">{t('roster.tabOnline')}</span>
                               {note && note.tags && note.tags.length > 0 && (
                                 <div className="flex gap-1">
                                   {note.tags.slice(0, 2).map(tag => (
@@ -1247,12 +1324,12 @@ export default function Players() {
                   <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
                     <Users className="h-6 w-6 text-muted-foreground/70" />
                     <p className="mt-3 text-sm font-medium">
-                      {playerSearchFilter ? 'No matches' : 'Roster is empty'}
+                      {playerSearchFilter ? t('roster.rosterEmptySearchTitle') : t('roster.rosterEmptyNoSearchTitle')}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {playerSearchFilter
-                        ? 'Try a different search term.'
-                        : 'Players you\u2019ve seen before will appear here once they disconnect.'}
+                        ? t('roster.rosterEmptySearchDesc')
+                        : t('roster.rosterEmptyNoSearchDesc')}
                     </p>
                   </div>
                 ) : (
@@ -1272,7 +1349,7 @@ export default function Players() {
                               : 'hover:bg-muted/50 border-transparent hover:border-border'
                           }`}
                           onClick={() => setSelectedPlayer(name)}
-                          title={`Last seen ${lastSeen ? lastSeen.toLocaleString() : 'unknown'}`}
+                          title={t('roster.lastSeenTitle', { when: lastSeen ? lastSeen.toLocaleString() : t('roster.lastSeenUnknown') })}
                         >
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2 min-w-0">
@@ -1307,12 +1384,12 @@ export default function Players() {
                   <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
                     <Ban className="h-6 w-6 text-muted-foreground/70" />
                     <p className="mt-3 text-sm font-medium">
-                      {playerSearchFilter ? 'No matches' : 'No SteamID bans'}
+                      {playerSearchFilter ? t('roster.bannedEmptySearchTitle') : t('roster.bannedEmptyNoSearchTitle')}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {playerSearchFilter
-                        ? 'Try a different search term.'
-                        : 'Banned SteamIDs will appear here.'}
+                        ? t('roster.bannedEmptySearchDesc')
+                        : t('roster.bannedEmptyNoSearchDesc')}
                     </p>
                   </div>
                 ) : (
@@ -1341,9 +1418,9 @@ export default function Players() {
                               setUnbanSteamId(ban.steamId)
                               setUnbanSteamIdDialogOpen(true)
                             }}
-                            title={`Unban ${ban.steamId}`}
+                            title={t('roster.unbanTitle', { steamId: ban.steamId })}
                           >
-                            Unban
+                            {t('roster.unbanButton')}
                           </Button>
                         </div>
                       </div>
@@ -1356,8 +1433,8 @@ export default function Players() {
                 !whitelistAvailable ? (
                   <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
                     <Shield className="h-6 w-6 text-muted-foreground/70" />
-                    <p className="mt-3 text-sm font-medium">Whitelist roster unavailable</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{whitelistError || 'The account database could not be read for this server.'}</p>
+                    <p className="mt-3 text-sm font-medium">{t('roster.whitelistUnavailableTitle')}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{whitelistError || t('roster.whitelistUnavailableFallback')}</p>
                   </div>
                 ) : whitelistLoading ? (
                   <div className="flex items-center justify-center py-8">
@@ -1366,8 +1443,8 @@ export default function Players() {
                 ) : filteredWhitelist.length === 0 ? (
                   <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
                     <Shield className="h-6 w-6 text-muted-foreground/70" />
-                    <p className="mt-3 text-sm font-medium">{playerSearchFilter ? 'No matches' : 'Whitelist is empty'}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{playerSearchFilter ? 'Try a different search term.' : 'Add an account with a username and password.'}</p>
+                    <p className="mt-3 text-sm font-medium">{playerSearchFilter ? t('roster.whitelistEmptySearchTitle') : t('roster.whitelistEmptyNoSearchTitle')}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{playerSearchFilter ? t('roster.whitelistEmptySearchDesc') : t('roster.whitelistEmptyNoSearchDesc')}</p>
                   </div>
                 ) : (
                   <div className="space-y-1">
@@ -1384,20 +1461,20 @@ export default function Players() {
                               </div>
                               <div className="mt-1 flex flex-wrap gap-x-2 text-[10px] text-muted-foreground">
                                 {account.steamId && <span className="font-mono">{account.steamId}</span>}
-                                {account.lastConnection && <span>last {new Date(account.lastConnection).toLocaleDateString()}</span>}
-                                <span>{online ? 'online' : 'offline'}</span>
+                                {account.lastConnection && <span>{t('roster.whitelistLastConnection', { date: new Date(account.lastConnection).toLocaleDateString() })}</span>}
+                                <span>{online ? t('roster.whitelistOnline') : t('roster.whitelistOffline')}</span>
                               </div>
                             </div>
                             <Button
                               variant="outline"
                               size="sm"
                               className="shrink-0"
-                              onClick={() => handleAction('Remove from whitelist', () => playersApi.removeFromWhitelist(account.username), () => { void fetchWhitelist() })}
+                              onClick={() => handleAction(t('actions.removeFromWhitelist'), () => playersApi.removeFromWhitelist(account.username), () => { void fetchWhitelist() })}
                               disabled={loading}
-                              title={`Remove ${account.username} from whitelist`}
+                              title={t('roster.removeTitle', { username: account.username })}
                             >
                               <UserMinus className="mr-1.5 h-3.5 w-3.5" />
-                              Remove
+                              {t('roster.removeButton')}
                             </Button>
                           </div>
                         </div>
@@ -1410,20 +1487,20 @@ export default function Players() {
               {rosterTab === 'whitelist' && whitelistAvailable && !whitelistLoading && (
                 <div className="mt-3 space-y-2 border-t border-border/40 pt-3">
                   <div className="flex items-center justify-between">
-                    <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Allowed Steam IDs</span>
+                    <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">{t('roster.allowedSteamIdsLabel')}</span>
                     <span className="font-mono text-[11px] tabular-nums text-foreground/70">{allowedSteamIds.length}</span>
                   </div>
                   <div className="flex gap-2">
                     <Input
                       value={allowedSteamIdInput}
-                      onChange={(event) => setAllowedSteamIdInput(event.target.value.replace(/\D/g, '').slice(0, 17))}
+                      onChange={(event) => setAllowedSteamIdInput(sanitizeSteamId(event.target.value))}
                       placeholder="76561198XXXXXXXXX"
                       inputMode="numeric"
                       className="h-8 font-mono text-xs"
-                      aria-label="Allowed Steam ID"
+                      aria-label={t('roster.allowedSteamIdAria')}
                     />
                     <Button onClick={handleAddAllowedSteamId} disabled={loading || allowedSteamIdInput.length !== 17} size="sm" className="shrink-0">
-                      <Plus className="mr-1.5 h-3.5 w-3.5" /> Add
+                      <Plus className="mr-1.5 h-3.5 w-3.5" /> {t('roster.addButton')}
                     </Button>
                   </div>
                   {allowedSteamIds.filter(id => !playerSearchFilter.trim() || id.includes(playerSearchFilter.trim())).map((steamId) => (
@@ -1433,11 +1510,11 @@ export default function Players() {
                         variant="ghost"
                         size="sm"
                         className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
-                        onClick={() => handleAction('Remove allowed Steam ID', () => playersApi.removeAllowedSteamId(steamId), () => { void fetchWhitelist() })}
+                        onClick={() => handleAction(t('actions.removeAllowedSteamId'), () => playersApi.removeAllowedSteamId(steamId), () => { void fetchWhitelist() })}
                         disabled={loading}
-                        title={`Remove allowed Steam ID ${steamId}`}
+                        title={t('roster.removeAllowedTitle', { steamId })}
                       >
-                        <Trash2 className="mr-1 h-3.5 w-3.5" /> Remove
+                        <Trash2 className="mr-1 h-3.5 w-3.5" /> {t('roster.removeAllowedButton')}
                       </Button>
                     </div>
                   ))}
@@ -1448,10 +1525,10 @@ export default function Players() {
             {/* Manual entry — for offline or unlisted usernames */}
             <div className="space-y-1.5 border-t border-border/40 pt-3">
               <Label className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground/80">
-                <span className="text-primary/70">›</span> Manual target
+                <span className="text-primary/70">›</span> {t('roster.manualTargetLabelText')}
               </Label>
               <Input
-                placeholder="Enter username…"
+                placeholder={t('roster.manualTargetPlaceholder')}
                 value={selectedPlayer}
                 onChange={(e) => setSelectedPlayer(e.target.value)}
                 className="h-9 font-mono text-sm"
@@ -1466,17 +1543,17 @@ export default function Players() {
           <div className="flex items-center justify-between border-b border-border/40 bg-muted/20 px-4 py-2">
             <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.28em] text-muted-foreground">
               <span className="text-primary/80">//</span>
-              <span>dossier</span>
+              <span>{t('dossier.subheaderLabel')}</span>
               <span className="text-muted-foreground/50">·</span>
               <span className={selectedPlayer ? 'text-foreground/85' : 'text-amber-400/85'}>
-                {selectedPlayer ? 'target.acquired' : 'standby'}
+                {selectedPlayer ? t('dossier.targetAcquired') : t('dossier.standby')}
               </span>
             </div>
             {selectedPlayer && (
               <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground/70">
                 {(() => {
                   const online = players.some(p => p.name === selectedPlayer)
-                  return online ? 'online' : 'offline'
+                  return online ? t('dossier.online') : t('dossier.offline')
                 })()}
               </span>
             )}
@@ -1508,7 +1585,7 @@ export default function Players() {
                             />
                             <h2 className="truncate text-xl font-semibold tracking-tight">{selectedPlayer}</h2>
                             <span className="text-xs font-medium text-muted-foreground/80">
-                              {isOnline ? 'connected' : 'last seen'}
+                              {isOnline ? t('dossier.connected') : t('dossier.lastSeen')}
                             </span>
                           </div>
                           {/* Inline stats */}
@@ -1518,21 +1595,21 @@ export default function Players() {
                                 <span className="flex items-center gap-1.5">
                                   <Clock className="h-3 w-3 text-primary/70" />
                                   <span className="tabular-nums text-foreground/85">{formatPlaytime(stat.total_playtime_seconds)}</span>
-                                  <span className="text-muted-foreground/70">played</span>
+                                  <span className="text-muted-foreground/70">{t('dossier.played')}</span>
                                 </span>
                                 <span className="flex items-center gap-1.5">
                                   <TrendingUp className="h-3 w-3 text-primary/70" />
                                   <span className="tabular-nums text-foreground/85">{stat.session_count}</span>
-                                  <span className="text-muted-foreground/70">sessions</span>
+                                  <span className="text-muted-foreground/70">{t('dossier.sessions')}</span>
                                 </span>
                                 {stat.last_seen && (
                                   <span className="text-muted-foreground/70">
-                                    last: <span className="text-foreground/80">{new Date(stat.last_seen).toLocaleDateString()}</span>
+                                    {t('dossier.lastLabel')} <span className="text-foreground/80">{new Date(stat.last_seen).toLocaleDateString()}</span>
                                   </span>
                                 )}
                               </>
                             ) : (
-                              <span className="text-muted-foreground/60">No history recorded yet</span>
+                              <span className="text-muted-foreground/60">{t('dossier.noHistory')}</span>
                             )}
                           </div>
                           {/* Tags + powers row */}
@@ -1540,17 +1617,17 @@ export default function Players() {
                             <div className="mt-3 flex flex-wrap items-center gap-1.5">
                               {selectedPlayerPowers?.godMode && (
                                 <Badge variant="outline" className="gap-1 border-primary/40 bg-primary/10 px-1.5 py-0 text-[10px] font-mono uppercase tracking-wider text-primary">
-                                  <Ghost className="h-3 w-3" /> God
+                                  <Ghost className="h-3 w-3" /> {t('dossier.godBadge')}
                                 </Badge>
                               )}
                               {selectedPlayerPowers?.invisible && (
                                 <Badge variant="outline" className="gap-1 border-primary/40 bg-primary/10 px-1.5 py-0 text-[10px] font-mono uppercase tracking-wider text-primary">
-                                  <Eye className="h-3 w-3" /> Invisible
+                                  <Eye className="h-3 w-3" /> {t('dossier.invisibleBadge')}
                                 </Badge>
                               )}
                               {selectedPlayerPowers?.noclip && (
                                 <Badge variant="outline" className="gap-1 border-primary/40 bg-primary/10 px-1.5 py-0 text-[10px] font-mono uppercase tracking-wider text-primary">
-                                  <Layers className="h-3 w-3" /> Noclip
+                                  <Layers className="h-3 w-3" /> {t('dossier.noclipBadge')}
                                 </Badge>
                               )}
                               {note?.tags?.map(tag => (
@@ -1560,7 +1637,7 @@ export default function Players() {
                               ))}
                               {note?.note && (
                                 <Badge variant="outline" className="gap-1 px-1.5 py-0 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                                  <StickyNote className="h-3 w-3" /> Note
+                                  <StickyNote className="h-3 w-3" /> {t('dossier.noteBadge')}
                                 </Badge>
                               )}
                             </div>
@@ -1574,39 +1651,39 @@ export default function Players() {
                             size="sm"
                             onClick={() => setKickDialogOpen(true)}
                             className="h-8 gap-1.5 border-amber-500/40 text-xs font-medium text-amber-300 hover:border-amber-500/60 hover:bg-amber-500/10 hover:text-amber-200"
-                            title="Kick player"
+                            title={t('dossier.kickTitle')}
                           >
                             <UserX className="h-3.5 w-3.5" />
-                            <span className="hidden sm:inline">Kick</span>
+                            <span className="hidden sm:inline">{t('dossier.kickButton')}</span>
                           </Button>
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={() => setBanDialogOpen(true)}
                             className="h-8 gap-1.5 border-destructive/45 text-xs font-medium text-destructive hover:border-destructive/65 hover:bg-destructive/10"
-                            title="Ban player"
+                            title={t('dossier.banTitle')}
                           >
                             <Ban className="h-3.5 w-3.5" />
-                            <span className="hidden sm:inline">Ban</span>
+                            <span className="hidden sm:inline">{t('dossier.banButton')}</span>
                           </Button>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button variant="outline" size="sm" className="h-8 w-8 p-0" aria-label="More player actions">
+                              <Button variant="outline" size="sm" className="h-8 w-8 p-0" aria-label={t('dossier.moreActionsAria')}>
                                 <MoreHorizontal className="h-4 w-4" />
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem onClick={() => handleGodMode(!selectedPlayerPowers?.godMode)} disabled={loading}>
                                 <Ghost className="w-4 h-4 mr-2" />
-                                {selectedPlayerPowers?.godMode ? 'Disable' : 'Enable'} God Mode
+                                {selectedPlayerPowers?.godMode ? t('dossier.disableGodMode') : t('dossier.enableGodMode')}
                               </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => handleInvisible(!selectedPlayerPowers?.invisible)} disabled={loading}>
                                 <Eye className="w-4 h-4 mr-2" />
-                                {selectedPlayerPowers?.invisible ? 'Disable' : 'Enable'} Invisible
+                                {selectedPlayerPowers?.invisible ? t('dossier.disableInvisible') : t('dossier.enableInvisible')}
                               </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => handleNoclip(!selectedPlayerPowers?.noclip)} disabled={loading}>
                                 <Layers className="w-4 h-4 mr-2" />
-                                {selectedPlayerPowers?.noclip ? 'Disable' : 'Enable'} Noclip
+                                {selectedPlayerPowers?.noclip ? t('dossier.disableNoclip') : t('dossier.enableNoclip')}
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
@@ -1618,14 +1695,14 @@ export default function Players() {
                                 disabled={loading}
                               >
                                 <UserPlus className="w-4 h-4 mr-2" />
-                                Add to Whitelist
+                                {t('dossier.addToWhitelist')}
                               </DropdownMenuItem>
                               <DropdownMenuItem
-                                onClick={() => handleAction('Remove from whitelist', () => playersApi.removeFromWhitelist(selectedPlayer), () => { void fetchWhitelist() })}
+                                onClick={() => handleAction(t('actions.removeFromWhitelist'), () => playersApi.removeFromWhitelist(selectedPlayer), () => { void fetchWhitelist() })}
                                 disabled={loading}
                               >
                                 <UserMinus className="w-4 h-4 mr-2" />
-                                Remove from Whitelist
+                                {t('dossier.removeFromWhitelist')}
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
@@ -1633,7 +1710,7 @@ export default function Players() {
                                 disabled={!bridgeConnected}
                               >
                                 <Download className="w-4 h-4 mr-2" />
-                                Import/Export Character
+                                {t('dossier.importExportCharacter')}
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
@@ -1650,10 +1727,10 @@ export default function Players() {
                 <span aria-hidden="true" className="pointer-events-none absolute -left-px -bottom-px h-3 w-3 border-b-2 border-l-2 border-border/60" />
                 <span aria-hidden="true" className="pointer-events-none absolute -right-px -bottom-px h-3 w-3 border-b-2 border-r-2 border-border/60" />
                 <p className="font-mono text-[10px] uppercase tracking-[0.32em] text-muted-foreground/70">
-                  no target selected
+                  {t('dossier.noTargetTitle')}
                 </p>
                 <p className="mx-auto mt-3 max-w-xs text-sm text-muted-foreground">
-                  Pick a player from the roster to view their dossier, or type a username under <span className="font-mono text-foreground/80">› Manual target</span>.
+                  <Trans i18nKey="dossier.noTargetDesc" t={t} components={{ 1: <span className="font-mono text-foreground/80" /> }} />
                 </p>
               </div>
             )}
@@ -1662,10 +1739,10 @@ export default function Players() {
             <Tabs defaultValue="moderation">
               <div className="overflow-x-auto pb-1">
                 <TabsList className="inline-flex h-auto min-w-max gap-1 rounded-md border border-border/55 bg-muted/30 p-1">
-                  <TabsTrigger value="moderation" className="min-h-8 shrink-0 px-3 text-xs font-medium">Moderation</TabsTrigger>
-                  <TabsTrigger value="spawn" className="min-h-8 shrink-0 px-3 text-xs font-medium">Spawn</TabsTrigger>
-                  <TabsTrigger value="powers" className="min-h-8 shrink-0 px-3 text-xs font-medium">Powers</TabsTrigger>
-                  <TabsTrigger value="notes" className="min-h-8 shrink-0 px-3 text-xs font-medium" onClick={() => fetchActivityLogs()}>Notes &amp; Log</TabsTrigger>
+                  <TabsTrigger value="moderation" className="min-h-8 shrink-0 px-3 text-xs font-medium">{t('tabs.moderation')}</TabsTrigger>
+                  <TabsTrigger value="spawn" className="min-h-8 shrink-0 px-3 text-xs font-medium">{t('tabs.spawn')}</TabsTrigger>
+                  <TabsTrigger value="powers" className="min-h-8 shrink-0 px-3 text-xs font-medium">{t('tabs.powers')}</TabsTrigger>
+                  <TabsTrigger value="notes" className="min-h-8 shrink-0 px-3 text-xs font-medium" onClick={() => fetchActivityLogs()}>{t('tabs.notesLog')}</TabsTrigger>
                 </TabsList>
               </div>
 
@@ -1678,31 +1755,31 @@ export default function Players() {
                   <Dialog open={kickDialogOpen} onOpenChange={setKickDialogOpen}>
                     <DialogTrigger asChild>
                       <button type="button" disabled={!selectedPlayer} className="block h-auto w-full p-0 text-left">
-                        <ActionTile icon={<UserX className="w-4 h-4" />} label="Kick" description="Boot player with reason" disabled={!selectedPlayer} emphasis="warning" />
+                        <ActionTile icon={<UserX className="w-4 h-4" />} label={t('dossier.kickButton')} description={t('actionTiles.kickDesc')} disabled={!selectedPlayer} emphasis="warning" />
                       </button>
                     </DialogTrigger>
                     <DialogContent>
                       <DialogHeader>
-                        <DialogTitle>Kick Player</DialogTitle>
+                        <DialogTitle>{t('kickDialog.title')}</DialogTitle>
                         <DialogDescription>
-                          Kick {selectedPlayer} from the server
+                          {t('kickDialog.description', { player: selectedPlayer })}
                         </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4">
                         <div>
-                          <Label htmlFor="kick-reason">Reason (optional)</Label>
+                          <Label htmlFor="kick-reason">{t('kickDialog.reasonLabel')}</Label>
                           <Input
                             id="kick-reason"
                             value={kickReason}
                             onChange={(e) => setKickReason(e.target.value)}
-                            placeholder="Enter reason..."
+                            placeholder={t('kickDialog.reasonPlaceholder')}
                           />
                         </div>
                       </div>
                       <DialogFooter>
                         <Button variant="destructive" onClick={handleKick} disabled={loading}>
                           {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-                          Kick Player
+                          {t('kickDialog.submit')}
                         </Button>
                       </DialogFooter>
                     </DialogContent>
@@ -1712,27 +1789,27 @@ export default function Players() {
                   <Dialog open={banDialogOpen} onOpenChange={setBanDialogOpen}>
                     <DialogTrigger asChild>
                       <button type="button" disabled={!selectedPlayer} className="block h-auto w-full p-0 text-left">
-                        <ActionTile icon={<Ban className="w-4 h-4" />} label="Ban" description="Permanent · two-step" disabled={!selectedPlayer} emphasis="danger" />
+                        <ActionTile icon={<Ban className="w-4 h-4" />} label={t('dossier.banButton')} description={t('actionTiles.banDesc')} disabled={!selectedPlayer} emphasis="danger" />
                       </button>
                     </DialogTrigger>
                     <DialogContent>
                       <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                           <AlertTriangle className="w-5 h-5 text-destructive" />
-                          Ban Player
+                          {t('banDialog.title')}
                         </DialogTitle>
                         <DialogDescription>
-                          Ban {selectedPlayer} from the server
+                          {t('banDialog.description', { player: selectedPlayer })}
                         </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4">
                         <div>
-                          <Label htmlFor="ban-reason">Reason (optional)</Label>
+                          <Label htmlFor="ban-reason">{t('banDialog.reasonLabel')}</Label>
                           <Input
                             id="ban-reason"
                             value={banReason}
                             onChange={(e) => setBanReason(e.target.value)}
-                            placeholder="Enter reason..."
+                            placeholder={t('banDialog.reasonPlaceholder')}
                           />
                         </div>
                         <div className="flex items-center gap-2">
@@ -1741,15 +1818,15 @@ export default function Players() {
                             checked={banIp}
                             onCheckedChange={(checked) => setBanIp(checked === true)}
                           />
-                          <Label htmlFor="banIp">Also ban IP address</Label>
+                          <Label htmlFor="banIp">{t('banDialog.banIpLabel')}</Label>
                         </div>
                       </div>
                       <DialogFooter>
                         <Button variant="outline" onClick={() => setBanDialogOpen(false)}>
-                          Cancel
+                          {t('banDialog.cancel')}
                         </Button>
                         <Button variant="destructive" onClick={() => setBanConfirmOpen(true)}>
-                          Continue to Ban
+                          {t('banDialog.continue')}
                         </Button>
                       </DialogFooter>
                     </DialogContent>
@@ -1759,21 +1836,24 @@ export default function Players() {
                   <AlertDialog open={banConfirmOpen} onOpenChange={setBanConfirmOpen}>
                     <AlertDialogContent>
                       <AlertDialogHeader>
-                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                        <AlertDialogTitle>{t('banConfirm.title')}</AlertDialogTitle>
                         <AlertDialogDescription>
-                          This will permanently ban <strong>{selectedPlayer}</strong> from the server
-                          {banIp ? ' and their IP address' : ''}.
-                          {banReason && <><br />Reason: {banReason}</>}
+                          {banIp ? (
+                            <Trans i18nKey="banConfirm.descriptionWithIp" t={t} values={{ player: selectedPlayer }} components={{ 1: <strong /> }} />
+                          ) : (
+                            <Trans i18nKey="banConfirm.description" t={t} values={{ player: selectedPlayer }} components={{ 1: <strong /> }} />
+                          )}
+                          {banReason && <><br />{t('banConfirm.reasonLine', { reason: banReason })}</>}
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogCancel>{t('banConfirm.cancel')}</AlertDialogCancel>
                         <AlertDialogAction
                           onClick={handleBan}
                           className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                         >
                           {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-                          Yes, Ban Player
+                          {t('banConfirm.confirm')}
                         </AlertDialogAction>
                       </AlertDialogFooter>
                     </AlertDialogContent>
@@ -1783,26 +1863,26 @@ export default function Players() {
                   <Dialog>
                     <DialogTrigger asChild>
                       <button type="button" disabled={!selectedPlayer} className="block h-auto w-full p-0 text-left">
-                        <ActionTile icon={<Shield className="w-4 h-4" />} label="Access Level" description="Admin · Mod · User" disabled={!selectedPlayer} emphasis="primary" />
+                        <ActionTile icon={<Shield className="w-4 h-4" />} label={t('actionTiles.accessLevelLabel')} description={t('actionTiles.accessLevelDesc')} disabled={!selectedPlayer} emphasis="primary" />
                       </button>
                     </DialogTrigger>
                     <DialogContent>
                       <DialogHeader>
-                        <DialogTitle>Set Access Level</DialogTitle>
+                        <DialogTitle>{t('accessLevelDialog.title')}</DialogTitle>
                         <DialogDescription>
-                          Change access level for {selectedPlayer}
+                          {t('accessLevelDialog.description', { player: selectedPlayer })}
                         </DialogDescription>
                       </DialogHeader>
                       <div>
-                        <Label htmlFor="access-level">Access Level</Label>
+                        <Label htmlFor="access-level">{t('accessLevelDialog.label')}</Label>
                         <Select value={accessLevel} onValueChange={setAccessLevel}>
                           <SelectTrigger id="access-level">
-                            <SelectValue placeholder="Select level..." />
+                            <SelectValue placeholder={t('accessLevelDialog.placeholder')} />
                           </SelectTrigger>
                           <SelectContent>
                             {ACCESS_LEVELS.map((level) => (
                               <SelectItem key={level} value={level}>
-                                {ACCESS_LEVEL_LABELS[level] || level.charAt(0).toUpperCase() + level.slice(1)}
+                                {accessLevelLabels[level] || level.charAt(0).toUpperCase() + level.slice(1)}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -1810,7 +1890,7 @@ export default function Players() {
                       </div>
                       <DialogFooter>
                         <Button onClick={handleSetAccessLevel} disabled={loading || !accessLevel}>
-                          Set Level
+                          {t('accessLevelDialog.submit')}
                         </Button>
                       </DialogFooter>
                     </DialogContent>
@@ -1824,30 +1904,30 @@ export default function Players() {
                   }}>
                     <DialogTrigger asChild>
                       <button type="button" className="block h-auto w-full p-0 text-left">
-                        <ActionTile icon={<MapPin className="w-4 h-4" />} label="Teleport" description="B42 MP · may not sync" />
+                        <ActionTile icon={<MapPin className="w-4 h-4" />} label={t('actionTiles.teleportLabel')} description={t('actionTiles.teleportDesc')} />
                       </button>
                     </DialogTrigger>
                     <DialogContent className="max-w-md">
                       <DialogHeader>
-                        <DialogTitle>Teleport Player</DialogTitle>
+                        <DialogTitle>{t('teleportDialog.title')}</DialogTitle>
                         <DialogDescription>
-                          Teleport {selectedPlayer} to coordinates
+                          {t('teleportDialog.description', { player: selectedPlayer })}
                         </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4">
                         <div>
-                          <Label htmlFor="teleport-target">Target Player</Label>
+                          <Label htmlFor="teleport-target">{t('teleportDialog.targetLabel')}</Label>
                           <Input
                             id="teleport-target"
                             value={teleportTarget || selectedPlayer}
                             onChange={(e) => setTeleportTarget(e.target.value)}
-                            placeholder="Player to teleport"
+                            placeholder={t('teleportDialog.targetPlaceholder')}
                           />
                         </div>
 
                         {/* Quick Location Presets */}
                         <div>
-                          <Label className="text-xs text-muted-foreground mb-2 block">Quick Locations</Label>
+                          <Label className="text-xs text-muted-foreground mb-2 block">{t('teleportDialog.quickLocations')}</Label>
                           <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
                             {TELEPORT_PRESETS.map((preset) => (
                               <Button
@@ -1869,7 +1949,7 @@ export default function Players() {
 
                         <div className="grid grid-cols-3 gap-2">
                           <div>
-                            <Label htmlFor="teleport-x">X</Label>
+                            <Label htmlFor="teleport-x">{t('teleportDialog.xLabel')}</Label>
                             <Input
                               id="teleport-x"
                               type="number"
@@ -1881,7 +1961,7 @@ export default function Players() {
                             />
                           </div>
                           <div>
-                            <Label htmlFor="teleport-y">Y</Label>
+                            <Label htmlFor="teleport-y">{t('teleportDialog.yLabel')}</Label>
                             <Input
                               id="teleport-y"
                               type="number"
@@ -1893,7 +1973,7 @@ export default function Players() {
                             />
                           </div>
                           <div>
-                            <Label htmlFor="teleport-z">Z</Label>
+                            <Label htmlFor="teleport-z">{t('teleportDialog.zLabel')}</Label>
                             <Input
                               id="teleport-z"
                               type="number"
@@ -1912,7 +1992,7 @@ export default function Players() {
                           disabled={loading || !teleportX || !teleportY || !(teleportTarget || selectedPlayer)}
                         >
                           {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-                          Teleport
+                          {t('teleportDialog.submit')}
                         </Button>
                       </DialogFooter>
                     </DialogContent>
@@ -1924,31 +2004,31 @@ export default function Players() {
                 <div className="pt-4 mt-2 border-t border-border/30">
                   <div className="mb-2 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.28em] text-muted-foreground/80">
                     <span className="text-primary/70">//</span>
-                    <span>standalone ops</span>
+                    <span>{t('secondaryOpsHeader')}</span>
                     <span className="h-px flex-1 bg-border/40" aria-hidden="true" />
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                   {/* Voice Ban */}
                   <Dialog open={voiceBanDialogOpen} onOpenChange={setVoiceBanDialogOpen}>
                     <DialogTrigger asChild>
-                      <button type="button" title="Mute or unmute a player from in-game voice chat. They stay connected, but can't talk in proximity voice." className="block h-auto w-full p-0 text-left">
-                        <ActionTile icon={<MicOff className="w-4 h-4" />} label="Voice Ban" compact />
+                      <button type="button" title={t('actionTiles.voiceBanTooltip')} className="block h-auto w-full p-0 text-left">
+                        <ActionTile icon={<MicOff className="w-4 h-4" />} label={t('actionTiles.voiceBanLabel')} compact />
                       </button>
                     </DialogTrigger>
                     <DialogContent>
                       <DialogHeader>
-                        <DialogTitle>Voice Ban</DialogTitle>
+                        <DialogTitle>{t('voiceBanDialog.title')}</DialogTitle>
                         <DialogDescription>
-                          Mute or unmute a player's voice chat
+                          {t('voiceBanDialog.description')}
                         </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4">
                         <div>
-                          <Label>Username</Label>
+                          <Label>{t('voiceBanDialog.usernameLabel')}</Label>
                           <Input
                             value={voiceBanUsername || selectedPlayer}
                             onChange={(e) => setVoiceBanUsername(e.target.value)}
-                            placeholder="Enter username..."
+                            placeholder={t('voiceBanDialog.usernamePlaceholder')}
                           />
                         </div>
                         <div className="flex items-center gap-2">
@@ -1958,23 +2038,29 @@ export default function Players() {
                             onCheckedChange={(checked) => setVoiceBanEnabled(checked === true)}
                           />
                           <Label htmlFor="voiceBanEnabled">
-                            {voiceBanEnabled ? 'Ban from voice chat' : 'Unban from voice chat'}
+                            {voiceBanEnabled ? t('voiceBanDialog.banLabel') : t('voiceBanDialog.unbanLabel')}
                           </Label>
                         </div>
                       </div>
                       <DialogFooter>
                         <Button
                           onClick={() => {
-                            if (!voiceBanUsername) setVoiceBanUsername(selectedPlayer)
-                            handleVoiceBan()
+                            const target = voiceBanUsername || selectedPlayer
+                            if (!target) return
+                            setVoiceBanUsername(target)
+                            handleAction(voiceBanEnabled ? t('actions.voiceBan') : t('actions.voiceUnban'),
+                              () => playersApi.voiceBan(target, voiceBanEnabled), () => {
+                                setVoiceBanDialogOpen(false)
+                                setVoiceBanUsername('')
+                              })
                           }}
                           disabled={loading || (!voiceBanUsername && !selectedPlayer)}
                         >
                           {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
                           {voiceBanEnabled ? (
-                            <><MicOff className="w-4 h-4 mr-2" /> Mute</>
+                            <><MicOff className="w-4 h-4 mr-2" /> {t('voiceBanDialog.muteButton')}</>
                           ) : (
-                            <><Mic className="w-4 h-4 mr-2" /> Unmute</>
+                            <><Mic className="w-4 h-4 mr-2" /> {t('voiceBanDialog.unmuteButton')}</>
                           )}
                         </Button>
                       </DialogFooter>
@@ -1984,49 +2070,49 @@ export default function Players() {
                   {/* SteamID Ban */}
                   <Dialog open={steamIdBanDialogOpen} onOpenChange={setSteamIdBanDialogOpen}>
                     <DialogTrigger asChild>
-                      <button type="button" title="Ban a player by their Steam ID, even when they're offline. Works without needing them to be connected." className="block h-auto w-full p-0 text-left">
-                        <ActionTile icon={<Ban className="w-4 h-4" />} label="SteamID Ban" emphasis="danger" compact />
+                      <button type="button" title={t('actionTiles.steamIdBanTooltip')} className="block h-auto w-full p-0 text-left">
+                        <ActionTile icon={<Ban className="w-4 h-4" />} label={t('actionTiles.steamIdBanLabel')} emphasis="danger" compact />
                       </button>
                     </DialogTrigger>
                     <DialogContent>
                       <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                           <AlertTriangle className="w-5 h-5 text-destructive" />
-                          Ban by SteamID
+                          {t('steamIdBanDialog.title')}
                         </DialogTitle>
                         <DialogDescription>
-                          Ban a player by their Steam ID (useful for offline bans)
+                          {t('steamIdBanDialog.description')}
                         </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4">
                         <div>
-                          <Label>Steam ID</Label>
+                          <Label>{t('steamIdBanDialog.steamIdLabel')}</Label>
                           <Input
                             value={banSteamId}
-                            onChange={(e) => setBanSteamId(e.target.value)}
+                            onChange={(e) => setBanSteamId(sanitizeSteamId(e.target.value))}
                             placeholder="76561198XXXXXXXXX"
                           />
                         </div>
                         <div>
-                          <Label>Reason (optional)</Label>
+                          <Label>{t('steamIdBanDialog.reasonLabel')}</Label>
                           <Input
                             value={steamBanReason}
                             onChange={(e) => setSteamBanReason(e.target.value)}
-                            placeholder="Enter ban reason..."
+                            placeholder={t('steamIdBanDialog.reasonPlaceholder')}
                           />
                         </div>
                       </div>
                       <DialogFooter>
                         <Button variant="outline" onClick={() => setSteamIdBanDialogOpen(false)}>
-                          Cancel
+                          {t('steamIdBanDialog.cancel')}
                         </Button>
                         <Button
                           variant="destructive"
                           onClick={handleSteamIdBan}
-                          disabled={loading || !banSteamId}
+                          disabled={loading || banSteamId.length !== 17}
                         >
                           {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-                          Ban SteamID
+                          {t('steamIdBanDialog.submit')}
                         </Button>
                       </DialogFooter>
                     </DialogContent>
@@ -2035,48 +2121,48 @@ export default function Players() {
                   {/* Add User */}
                   <Dialog open={addUserDialogOpen} onOpenChange={setAddUserDialogOpen}>
                     <DialogTrigger asChild>
-                      <button type="button" title="Create a new account on the server (username + password). Mostly used for whitelist-only servers." className="block h-auto w-full p-0 text-left">
-                        <ActionTile icon={<UserPlus className="w-4 h-4" />} label="Add User" compact />
+                      <button type="button" title={t('actionTiles.addUserTooltip')} className="block h-auto w-full p-0 text-left">
+                        <ActionTile icon={<UserPlus className="w-4 h-4" />} label={t('actionTiles.addUserLabel')} compact />
                       </button>
                     </DialogTrigger>
                     <DialogContent>
                       <DialogHeader>
-                        <DialogTitle>Add User</DialogTitle>
+                        <DialogTitle>{t('addUserDialog.title')}</DialogTitle>
                         <DialogDescription>
-                          Create a new user account for whitelist servers. Build 42 allows an empty password.
+                          {t('addUserDialog.description')}
                         </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4">
                         <div>
-                          <Label>Username</Label>
+                          <Label>{t('addUserDialog.usernameLabel')}</Label>
                           <Input
                             value={addUserUsername}
                             onChange={(e) => setAddUserUsername(e.target.value)}
-                            placeholder="Enter username..."
+                            placeholder={t('addUserDialog.usernamePlaceholder')}
                             maxLength={64}
                           />
                         </div>
                         <div>
-                          <Label>Password (optional)</Label>
+                          <Label>{t('addUserDialog.passwordLabel')}</Label>
                           <Input
                             type="password"
                             value={addUserPassword}
                             onChange={(e) => setAddUserPassword(e.target.value)}
-                            placeholder="Optional password (min 4 characters)..."
+                            placeholder={t('addUserDialog.passwordPlaceholder')}
                             maxLength={128}
                           />
                         </div>
                       </div>
                       <DialogFooter>
                         <Button variant="outline" onClick={() => setAddUserDialogOpen(false)}>
-                          Cancel
+                          {t('addUserDialog.cancel')}
                         </Button>
                         <Button
                           onClick={handleAddUser}
                           disabled={loading || !addUserUsername.trim() || (addUserPassword.length > 0 && addUserPassword.length < 4)}
                         >
                           {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-                          Add User
+                          {t('addUserDialog.submit')}
                         </Button>
                       </DialogFooter>
                     </DialogContent>
@@ -2085,26 +2171,26 @@ export default function Players() {
                   {/* Unban */}
                   <Dialog open={unbanDialogOpen} onOpenChange={setUnbanDialogOpen}>
                     <DialogTrigger asChild>
-                      <button type="button" title="Lift a ban by username so the player can rejoin." className="block h-auto w-full p-0 text-left">
-                        <ActionTile icon={<UserPlus className="w-4 h-4" />} label="Unban" compact />
+                      <button type="button" title={t('actionTiles.unbanTooltip')} className="block h-auto w-full p-0 text-left">
+                        <ActionTile icon={<UserPlus className="w-4 h-4" />} label={t('actionTiles.unbanLabel')} compact />
                       </button>
                     </DialogTrigger>
                     <DialogContent>
                       <DialogHeader>
-                        <DialogTitle>Unban Player</DialogTitle>
+                        <DialogTitle>{t('unbanDialog.title')}</DialogTitle>
                       </DialogHeader>
                       <div>
-                        <Label htmlFor="unban-username">Username</Label>
+                        <Label htmlFor="unban-username">{t('unbanDialog.usernameLabel')}</Label>
                         <Input
                           id="unban-username"
                           value={unbanUsername}
                           onChange={(e) => setUnbanUsername(e.target.value)}
-                          placeholder="Enter username to unban..."
+                          placeholder={t('unbanDialog.usernamePlaceholder')}
                         />
                       </div>
                       <DialogFooter>
                         <Button onClick={handleUnban} disabled={loading || !unbanUsername}>
-                          Unban Player
+                          {t('unbanDialog.submit')}
                         </Button>
                       </DialogFooter>
                     </DialogContent>
@@ -2117,21 +2203,21 @@ export default function Players() {
                     else setUnbanSteamId('')
                   }}>
                     <DialogTrigger asChild>
-                      <button type="button" title="Lift a SteamID ban. Pick from the list of banned IDs or paste one manually." className="block h-auto w-full p-0 text-left">
-                        <ActionTile icon={<UserPlus className="w-4 h-4" />} label="Unban SteamID" compact />
+                      <button type="button" title={t('actionTiles.unbanSteamIdTooltip')} className="block h-auto w-full p-0 text-left">
+                        <ActionTile icon={<UserPlus className="w-4 h-4" />} label={t('actionTiles.unbanSteamIdLabel')} compact />
                       </button>
                     </DialogTrigger>
                     <DialogContent>
                       <DialogHeader>
-                        <DialogTitle>Unban SteamID</DialogTitle>
+                        <DialogTitle>{t('unbanSteamIdDialog.title')}</DialogTitle>
                       </DialogHeader>
                       <div className="space-y-3">
                         {bannedSteamIds.length > 0 && (
                           <div>
-                            <Label>Select banned SteamID</Label>
+                            <Label>{t('unbanSteamIdDialog.selectLabel')}</Label>
                             <Select value={unbanSteamId} onValueChange={setUnbanSteamId}>
                               <SelectTrigger>
-                                <SelectValue placeholder={loadingBans ? 'Loading...' : 'Select a banned SteamID...'} />
+                                <SelectValue placeholder={loadingBans ? t('unbanSteamIdDialog.selectPlaceholderLoading') : t('unbanSteamIdDialog.selectPlaceholder')} />
                               </SelectTrigger>
                               <SelectContent>
                                 {bannedSteamIds.map((ban) => (
@@ -2145,18 +2231,18 @@ export default function Players() {
                           </div>
                         )}
                         <div>
-                          <Label htmlFor="unban-steamid">{bannedSteamIds.length > 0 ? 'Or enter manually' : 'Steam ID'}</Label>
+                          <Label htmlFor="unban-steamid">{bannedSteamIds.length > 0 ? t('unbanSteamIdDialog.orEnterManually') : t('unbanSteamIdDialog.steamIdLabel')}</Label>
                           <Input
                             id="unban-steamid"
                             value={unbanSteamId}
-                            onChange={(e) => setUnbanSteamId(e.target.value)}
-                            placeholder="Enter Steam ID to unban..."
+                            onChange={(e) => setUnbanSteamId(sanitizeSteamId(e.target.value))}
+                            placeholder={t('unbanSteamIdDialog.placeholder')}
                           />
                         </div>
                       </div>
                       <DialogFooter>
-                        <Button onClick={handleUnbanSteamId} disabled={loading || !unbanSteamId}>
-                          Unban SteamID
+                        <Button onClick={handleUnbanSteamId} disabled={loading || unbanSteamId.length !== 17}>
+                          {t('unbanSteamIdDialog.submit')}
                         </Button>
                       </DialogFooter>
                     </DialogContent>
@@ -2191,15 +2277,15 @@ export default function Players() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-foreground flex items-center gap-2">
-                        Give items
+                        {t('spawn.giveItemsTitle')}
                         <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/60 font-semibold">
-                          browser
+                          {t('spawn.browserBadge')}
                         </span>
                       </p>
                       <p className="text-xs text-muted-foreground mt-0.5 truncate">
                         {selectedPlayer
-                          ? <>Weapons, food, medical, tools — give as many items as you want to <span className="text-primary font-medium">{selectedPlayer}</span> without closing the dialog.</>
-                          : <>Pick a player first, then browse the full item catalog to fill their inventory.</>}
+                          ? <Trans i18nKey="spawn.giveItemsDescWithPlayer" t={t} values={{ player: selectedPlayer }} components={{ 1: <span className="text-primary font-medium" /> }} />
+                          : t('spawn.giveItemsDescNoPlayer')}
                       </p>
                     </div>
                     <div className={cn(
@@ -2209,7 +2295,7 @@ export default function Players() {
                         ? 'text-muted-foreground/60 group-hover:text-primary group-hover:translate-x-0.5'
                         : 'text-muted-foreground/30'
                     )}>
-                      <span className="uppercase tracking-wider text-[10px] font-semibold">Browse</span>
+                      <span className="uppercase tracking-wider text-[10px] font-semibold">{t('spawn.browse')}</span>
                       <ChevronRight className="w-3.5 h-3.5" />
                     </div>
                   </div>
@@ -2240,15 +2326,15 @@ export default function Players() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-foreground flex items-center gap-2">
-                        Spawn vehicles
+                        {t('spawn.spawnVehiclesTitle')}
                         <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/60 font-semibold">
-                          browser
+                          {t('spawn.browserBadge')}
                         </span>
                       </p>
                       <p className="text-xs text-muted-foreground mt-0.5 truncate">
                         {selectedPlayer
-                          ? <>Sedans, trucks, emergency, military — spawn one after another near <span className="text-primary font-medium">{selectedPlayer}</span>.</>
-                          : <>Spawns at the caller's position — select a player to spawn vehicles near them instead.</>}
+                          ? <Trans i18nKey="spawn.spawnVehiclesDescWithPlayer" t={t} values={{ player: selectedPlayer }} components={{ 1: <span className="text-primary font-medium" /> }} />
+                          : t('spawn.spawnVehiclesDescNoPlayer')}
                       </p>
                     </div>
                     <div className={cn(
@@ -2258,7 +2344,7 @@ export default function Players() {
                         ? 'text-muted-foreground/60 group-hover:text-primary group-hover:translate-x-0.5'
                         : 'text-muted-foreground/30'
                     )}>
-                      <span className="uppercase tracking-wider text-[10px] font-semibold">Browse</span>
+                      <span className="uppercase tracking-wider text-[10px] font-semibold">{t('spawn.browse')}</span>
                       <ChevronRight className="w-3.5 h-3.5" />
                     </div>
                   </div>
@@ -2271,9 +2357,11 @@ export default function Players() {
                       <TrendingUp className="w-5 h-5" />
                     </div>
                     <div>
-                      <p className="font-medium">Give XP</p>
+                      <p className="font-medium">{t('spawn.giveXpTitle')}</p>
                       <p className="text-xs text-muted-foreground">
-                        Grant experience to {selectedPlayer ? <span className="text-foreground font-medium">{selectedPlayer}</span> : 'the selected player'}
+                        {selectedPlayer
+                          ? <Trans i18nKey="spawn.giveXpDescWithPlayer" t={t} values={{ player: selectedPlayer }} components={{ 1: <span className="text-foreground font-medium" /> }} />
+                          : t('spawn.giveXpDescNoPlayer')}
                       </p>
                     </div>
                   </div>
@@ -2281,7 +2369,7 @@ export default function Players() {
                     <div className="flex-1 min-w-0">
                       <Select value={selectedPerk} onValueChange={setSelectedPerk}>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select perk..." />
+                          <SelectValue placeholder={t('spawn.perkPlaceholder')} />
                         </SelectTrigger>
                         <SelectContent>
                           {perkGroups.map(([category, items]) => (
@@ -2298,7 +2386,7 @@ export default function Players() {
                       </Select>
                     </div>
                     <div className="w-full sm:w-24 shrink-0">
-                      <Label className="text-xs text-muted-foreground">Amount</Label>
+                      <Label className="text-xs text-muted-foreground">{t('spawn.amountLabel')}</Label>
                       <Input
                         type="number"
                         value={xpAmount}
@@ -2314,7 +2402,7 @@ export default function Players() {
                       className="shrink-0 sm:min-w-[100px]"
                     >
                       <TrendingUp className="w-4 h-4 mr-2" />
-                      Give XP
+                      {t('spawn.giveXpButton')}
                     </Button>
                   </div>
                 </div>
@@ -2323,7 +2411,7 @@ export default function Players() {
               {/* Powers Tab */}
               <TabsContent value="powers" className="space-y-4 mt-4">
                 <p className="text-sm text-muted-foreground">
-                  Toggle special abilities for {selectedPlayer || 'the selected player'}.
+                  {selectedPlayer ? t('powers.introWithPlayer', { player: selectedPlayer }) : t('powers.introNoPlayer')}
                 </p>
                 <div className="grid gap-3">
                   {/* God Mode */}
@@ -2333,14 +2421,14 @@ export default function Players() {
                         <Ghost className="w-5 h-5" />
                       </div>
                       <div>
-                        <p className="font-medium">God Mode</p>
-                        <p className="text-xs text-muted-foreground">Invulnerable to damage</p>
+                        <p className="font-medium">{t('powers.godModeLabel')}</p>
+                        <p className="text-xs text-muted-foreground">{t('powers.godModeDesc')}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
                       {selectedPlayer && selectedPlayerPowers?.godMode !== undefined && (
                         <Badge variant={selectedPlayerPowers.godMode ? 'default' : 'secondary'} className="text-xs">
-                          {selectedPlayerPowers.godMode ? 'ON' : 'OFF'}
+                          {selectedPlayerPowers.godMode ? t('powers.on') : t('powers.off')}
                         </Badge>
                       )}
                       <Button
@@ -2349,7 +2437,7 @@ export default function Players() {
                         disabled={!selectedPlayer || loading}
                         onClick={() => handleGodMode(!selectedPlayerPowers?.godMode)}
                       >
-                        {selectedPlayerPowers?.godMode ? 'Disable' : 'Enable'}
+                        {selectedPlayerPowers?.godMode ? t('powers.disable') : t('powers.enable')}
                       </Button>
                     </div>
                   </div>
@@ -2361,14 +2449,14 @@ export default function Players() {
                         <Eye className="w-5 h-5" />
                       </div>
                       <div>
-                        <p className="font-medium">Invisible</p>
-                        <p className="text-xs text-muted-foreground">Hidden from other players</p>
+                        <p className="font-medium">{t('powers.invisibleLabel')}</p>
+                        <p className="text-xs text-muted-foreground">{t('powers.invisibleDesc')}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
                       {selectedPlayer && selectedPlayerPowers?.invisible !== undefined && (
                         <Badge variant={selectedPlayerPowers.invisible ? 'default' : 'secondary'} className="text-xs">
-                          {selectedPlayerPowers.invisible ? 'ON' : 'OFF'}
+                          {selectedPlayerPowers.invisible ? t('powers.on') : t('powers.off')}
                         </Badge>
                       )}
                       <Button
@@ -2377,7 +2465,7 @@ export default function Players() {
                         disabled={!selectedPlayer || loading}
                         onClick={() => handleInvisible(!selectedPlayerPowers?.invisible)}
                       >
-                        {selectedPlayerPowers?.invisible ? 'Disable' : 'Enable'}
+                        {selectedPlayerPowers?.invisible ? t('powers.disable') : t('powers.enable')}
                       </Button>
                     </div>
                   </div>
@@ -2389,14 +2477,14 @@ export default function Players() {
                         <Layers className="w-5 h-5" />
                       </div>
                       <div>
-                        <p className="font-medium">Noclip</p>
-                        <p className="text-xs text-muted-foreground">Walk through walls</p>
+                        <p className="font-medium">{t('powers.noclipLabel')}</p>
+                        <p className="text-xs text-muted-foreground">{t('powers.noclipDesc')}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
                       {selectedPlayer && selectedPlayerPowers?.noclip !== undefined && (
                         <Badge variant={selectedPlayerPowers.noclip ? 'default' : 'secondary'} className="text-xs">
-                          {selectedPlayerPowers.noclip ? 'ON' : 'OFF'}
+                          {selectedPlayerPowers.noclip ? t('powers.on') : t('powers.off')}
                         </Badge>
                       )}
                       <Button
@@ -2405,7 +2493,7 @@ export default function Players() {
                         disabled={!selectedPlayer || loading}
                         onClick={() => handleNoclip(!selectedPlayerPowers?.noclip)}
                       >
-                        {selectedPlayerPowers?.noclip ? 'Disable' : 'Enable'}
+                        {selectedPlayerPowers?.noclip ? t('powers.disable') : t('powers.enable')}
                       </Button>
                     </div>
                   </div>
@@ -2417,8 +2505,8 @@ export default function Players() {
                         <Heart className="w-5 h-5" />
                       </div>
                       <div>
-                        <p className="font-medium">Heal</p>
-                        <p className="text-xs text-muted-foreground">Restore full health & stats</p>
+                        <p className="font-medium">{t('powers.healLabel')}</p>
+                        <p className="text-xs text-muted-foreground">{t('powers.healDesc')}</p>
                       </div>
                     </div>
                     <Button
@@ -2427,7 +2515,7 @@ export default function Players() {
                       disabled={!selectedPlayer || loading}
                       onClick={handleHealPlayer}
                     >
-                      Heal
+                      {t('powers.healButton')}
                     </Button>
                   </div>
                 </div>
@@ -2440,7 +2528,7 @@ export default function Players() {
                     <Loader2 className="w-6 h-6 animate-spin text-primary" />
                   </div>
                 ) : !selectedPlayer ? (
-                  <EmptyState type="noData" title="Select a player to view or add notes" />
+                  <EmptyState type="noData" title={t('notes.selectPlayerEmpty')} />
                 ) : (
                   <div className="space-y-4">
                     {/* Player Stats Card */}
@@ -2451,23 +2539,23 @@ export default function Players() {
                             <div className="flex items-center gap-2">
                               <Clock className="w-4 h-4 text-primary" />
                               <div>
-                                <div className="text-muted-foreground text-xs">Total Playtime</div>
+                                <div className="text-muted-foreground text-xs">{t('notes.totalPlaytime')}</div>
                                 <div className="font-medium">{formatPlaytime(playerStats[selectedPlayer].total_playtime_seconds)}</div>
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
                               <TrendingUp className="w-4 h-4 text-primary" />
                               <div>
-                                <div className="text-muted-foreground text-xs">Sessions</div>
+                                <div className="text-muted-foreground text-xs">{t('notes.sessions')}</div>
                                 <div className="font-medium">{playerStats[selectedPlayer].session_count}</div>
                               </div>
                             </div>
                             <div>
-                              <div className="text-muted-foreground text-xs">First Seen</div>
+                              <div className="text-muted-foreground text-xs">{t('notes.firstSeen')}</div>
                               <div className="font-medium text-xs">{new Date(playerStats[selectedPlayer].first_seen).toLocaleDateString()}</div>
                             </div>
                             <div>
-                              <div className="text-muted-foreground text-xs">Last Seen</div>
+                              <div className="text-muted-foreground text-xs">{t('notes.lastSeen')}</div>
                               <div className="font-medium text-xs">{new Date(playerStats[selectedPlayer].last_seen).toLocaleString()}</div>
                             </div>
                           </div>
@@ -2479,7 +2567,7 @@ export default function Players() {
                     <div className="space-y-2">
                       <Label className="text-sm font-medium flex items-center gap-2">
                         <Tag className="w-4 h-4" />
-                        Tags
+                        {t('notes.tagsLabel')}
                       </Label>
                       <div className="flex flex-wrap gap-2 min-h-[32px]">
                         {currentTags.map(tag => (
@@ -2489,7 +2577,7 @@ export default function Players() {
                               type="button"
                               onClick={() => removeTag(tag)}
                               className="ml-1 rounded p-1.5 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                              aria-label={`Remove ${tag} tag`}
+                              aria-label={t('notes.removeTagAria', { tag })}
                             >
                               <X className="w-3.5 h-3.5" />
                             </button>
@@ -2505,17 +2593,17 @@ export default function Players() {
                                 addTag()
                               }
                             }}
-                            placeholder="Add tag..."
+                            placeholder={t('notes.addTagPlaceholder')}
                             className="h-8 w-28 text-xs"
                             maxLength={24}
                           />
-                          <Button size="sm" variant="ghost" onClick={addTag} className="h-8 w-8 p-0" aria-label="Add tag">
+                          <Button size="sm" variant="ghost" onClick={addTag} className="h-8 w-8 p-0" aria-label={t('notes.addTagAria')}>
                             <Plus className="w-4 h-4" />
                           </Button>
                         </div>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        Common tags: trusted, suspicious, new, vip, builder, griefer, afk. Up to 10 tags, 24 characters each.
+                        {t('notes.commonTagsHint')}
                       </p>
                     </div>
 
@@ -2524,34 +2612,34 @@ export default function Players() {
                       {notesError && (
                         <Alert variant="destructive">
                           <AlertTriangle className="h-4 w-4" />
-                          <AlertTitle>Notes could not be loaded</AlertTitle>
+                          <AlertTitle>{t('notes.notesErrorTitle')}</AlertTitle>
                           <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                             <span className="min-w-0 break-words">{notesError}</span>
                             <Button variant="outline" size="sm" onClick={() => fetchNotesAndStats()} className="self-start">
-                              <RefreshCw className="mr-2 h-4 w-4" /> Retry
+                              <RefreshCw className="mr-2 h-4 w-4" /> {t('notes.retry')}
                             </Button>
                           </AlertDescription>
                         </Alert>
                       )}
                       <Label className="text-sm font-medium flex items-center gap-2">
                         <StickyNote className="w-4 h-4" />
-                        Admin Note
+                        {t('notes.adminNoteLabel')}
                       </Label>
                       <Textarea
                         value={currentNote}
                         onChange={(e) => setCurrentNote(e.target.value.slice(0, 1000))}
-                        placeholder="Add notes about this player..."
+                        placeholder={t('notes.notePlaceholder')}
                         className="min-h-[120px] resize-y"
                         maxLength={1000}
                       />
-                      <p className="text-xs text-muted-foreground">{currentNote.length}/1000 characters</p>
+                      <p className="text-xs text-muted-foreground">{t('notes.charCount', { count: currentNote.length })}</p>
                     </div>
 
                     {/* Actions */}
                     <div className="flex justify-between items-center pt-2">
                       <div className="text-xs text-muted-foreground">
                         {playerNotes[selectedPlayer]?.updated_at && (
-                          <span>Last updated: {new Date(playerNotes[selectedPlayer].updated_at).toLocaleString()}</span>
+                          <span>{t('notes.lastUpdated', { date: new Date(playerNotes[selectedPlayer].updated_at).toLocaleString() })}</span>
                         )}
                       </div>
                       <div className="flex gap-2">
@@ -2559,21 +2647,42 @@ export default function Players() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={handleDeleteNote}
+                            onClick={() => setDeleteNoteConfirmOpen(true)}
                             disabled={savingNote}
                             className="text-destructive hover:text-destructive"
                           >
                             <Trash2 className="w-4 h-4 mr-1" />
-                            Delete
+                            {t('notes.deleteButton')}
                           </Button>
                         )}
+                        <AlertDialog open={deleteNoteConfirmOpen} onOpenChange={setDeleteNoteConfirmOpen}>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>{t('notes.deleteConfirmTitle')}</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                {t('notes.deleteConfirmDesc', { player: selectedPlayer })}
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel disabled={savingNote}>{t('notes.deleteConfirmCancel')}</AlertDialogCancel>
+                              <AlertDialogAction
+                                disabled={savingNote}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                onClick={(e) => { e.preventDefault(); void handleDeleteNote() }}
+                              >
+                                {savingNote ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
+                                {t('notes.deleteConfirmConfirm')}
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                         <Button
                           size="sm"
                           onClick={handleSaveNote}
                           disabled={savingNote || (!currentNote.trim() && currentTags.length === 0)}
                         >
                           {savingNote ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Save className="w-4 h-4 mr-1" />}
-                          Save Note
+                          {t('notes.saveButton')}
                         </Button>
                       </div>
                     </div>
@@ -2585,17 +2694,17 @@ export default function Players() {
                   <div className="flex items-center justify-between">
                     <h4 className="text-sm font-medium flex items-center gap-2">
                       <Clock className="w-4 h-4" />
-                      Activity Log
+                      {t('notes.activityLogTitle')}
                     </h4>
                   </div>
                   {logsError && (
                     <Alert variant="destructive">
                       <AlertTriangle className="h-4 w-4" />
-                      <AlertTitle>Activity log unavailable</AlertTitle>
+                      <AlertTitle>{t('notes.logsErrorTitle')}</AlertTitle>
                       <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <span className="min-w-0 break-words">{logsError}</span>
                         <Button variant="outline" size="sm" onClick={() => fetchActivityLogs(logPlayerFilter || undefined)} className="self-start">
-                          <RefreshCw className="mr-2 h-4 w-4" /> Retry
+                          <RefreshCw className="mr-2 h-4 w-4" /> {t('notes.retry')}
                         </Button>
                       </AlertDescription>
                     </Alert>
@@ -2604,14 +2713,14 @@ export default function Players() {
                     <div className="relative flex-1">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                       <Input
-                        placeholder="Filter by player name..."
+                        placeholder={t('notes.filterPlaceholder')}
                         value={logPlayerFilter}
                         onChange={(e) => setLogPlayerFilter(e.target.value)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') fetchActivityLogs(logPlayerFilter || undefined)
                         }}
                         className="pl-9"
-                        aria-label="Filter activity logs by player name"
+                        aria-label={t('notes.filterAria')}
                       />
                     </div>
                     <Button
@@ -2629,17 +2738,17 @@ export default function Players() {
                     <table className="w-full text-sm">
                       <thead className="bg-muted/50 sticky top-0">
                         <tr>
-                          <th className="text-left p-2 font-medium text-xs">Time</th>
-                          <th className="text-left p-2 font-medium text-xs">Player</th>
-                          <th className="text-left p-2 font-medium text-xs">Action</th>
-                          <th className="text-left p-2 font-medium text-xs hidden sm:table-cell">Details</th>
+                          <th className="text-left p-2 font-medium text-xs">{t('notes.tableTime')}</th>
+                          <th className="text-left p-2 font-medium text-xs">{t('notes.tablePlayer')}</th>
+                          <th className="text-left p-2 font-medium text-xs">{t('notes.tableAction')}</th>
+                          <th className="text-left p-2 font-medium text-xs hidden sm:table-cell">{t('notes.tableDetails')}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y">
                         {activityLogs.length === 0 ? (
                           <tr>
                             <td colSpan={4} className="p-4 text-center text-muted-foreground text-sm">
-                              {logsLoading ? 'Loading...' : 'No activity logs'}
+                              {logsLoading ? t('notes.loadingRow') : t('notes.noLogsRow')}
                             </td>
                           </tr>
                         ) : (
@@ -2666,7 +2775,7 @@ export default function Players() {
                                 </Badge>
                               </td>
                               <td className="max-w-[220px] p-2 text-xs text-muted-foreground break-words hidden sm:table-cell">
-                                {log.details || '-'}
+                                {log.details || t('notes.detailsFallback')}
                               </td>
                             </tr>
                           ))
@@ -2687,19 +2796,22 @@ export default function Players() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Download className="w-5 h-5" />
-              Import/Export Character
+              {t('importExport.title')}
             </DialogTitle>
             <DialogDescription>
-              Export or restore a player's XP, perks, and skills via PanelBridge.
+              {t('importExport.description')}
             </DialogDescription>
           </DialogHeader>
           {!bridgeConnected && (
             <Alert className="border-warning/40 bg-warning/10">
               <AlertTriangle className="h-4 w-4 text-warning" />
-              <AlertTitle className="text-warning">Bridge Offline</AlertTitle>
+              <AlertTitle className="text-warning">{t('importExport.bridgeOfflineTitle')}</AlertTitle>
               <AlertDescription>
-                Character export and import require PanelBridge to be connected.{' '}
-                <Link to="/settings" className="text-primary underline hover:text-foreground">Open Bridge Setup</Link>
+                <Trans
+                  i18nKey="importExport.bridgeOfflineDesc"
+                  t={t}
+                  components={{ 1: <Link to="/settings" className="text-primary underline hover:text-foreground" /> }}
+                />
               </AlertDescription>
             </Alert>
           )}
@@ -2708,9 +2820,9 @@ export default function Players() {
             <div className="space-y-3">
               <h4 className="text-sm font-medium flex items-center gap-2">
                 <Download className="w-4 h-4" />
-                Export Character
+                {t('importExport.exportTitle')}
               </h4>
-              <p className="text-xs text-muted-foreground">Export XP, perks, skills, and inventory</p>
+              <p className="text-xs text-muted-foreground">{t('importExport.exportDesc')}</p>
               <Button
                 variant="outline"
                 disabled={!selectedPlayer || exporting}
@@ -2723,13 +2835,13 @@ export default function Players() {
                     const jsonStr = JSON.stringify(exportData, null, 2)
                     setCharacterData(jsonStr)
                     toast({
-                      title: 'Character Exported',
-                      description: `Exported character data for ${selectedPlayer}`,
+                      title: t('toasts.characterExportedTitle'),
+                      description: t('toasts.characterExportedDesc', { player: selectedPlayer }),
                     })
                   } catch (error) {
                     toast({
-                      title: 'Export Failed',
-                      description: error instanceof Error ? error.message : 'Failed to export character',
+                      title: t('toasts.exportFailedTitle'),
+                      description: error instanceof Error ? error.message : t('toasts.exportFailedFallback'),
                       variant: 'destructive',
                     })
                   } finally {
@@ -2744,13 +2856,13 @@ export default function Players() {
                 ) : (
                   <Download className="w-4 h-4 mr-2" />
                 )}
-                Export {selectedPlayer || 'Player'}
+                {t('importExport.exportButton', { player: selectedPlayer || t('importExport.exportButtonFallback') })}
               </Button>
 
               {characterData && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium">Character Data</span>
+                    <span className="text-xs font-medium">{t('importExport.characterDataLabel')}</span>
                     <Button
                       size="sm"
                       variant="ghost"
@@ -2785,7 +2897,7 @@ export default function Players() {
                     }}
                   >
                     <Download className="w-4 h-4 mr-2" />
-                    Download File
+                    {t('importExport.downloadFileButton')}
                   </Button>
                 </div>
               )}
@@ -2795,13 +2907,13 @@ export default function Players() {
             <div className="space-y-3">
               <h4 className="text-sm font-medium flex items-center gap-2">
                 <Upload className="w-4 h-4" />
-                Import Character
+                {t('importExport.importTitle')}
               </h4>
-              <p className="text-xs text-muted-foreground">Restore XP, perks, skills, and exported inventory</p>
+              <p className="text-xs text-muted-foreground">{t('importExport.importDesc')}</p>
               <Textarea
                 value={importCharacterData}
                 onChange={(e) => setImportCharacterData(e.target.value)}
-                placeholder='Paste character JSON here...'
+                placeholder={t('importExport.importPlaceholder')}
                 className="h-24 resize-none font-mono text-xs"
               />
               <div className="flex gap-2">
@@ -2813,8 +2925,8 @@ export default function Players() {
                       data = JSON.parse(importCharacterData)
                     } catch {
                       toast({
-                        title: 'Invalid JSON',
-                        description: 'The character data is not valid JSON format',
+                        title: t('toasts.invalidJsonTitle'),
+                        description: t('toasts.invalidJsonDesc'),
                         variant: 'destructive',
                       })
                       return
@@ -2826,14 +2938,14 @@ export default function Players() {
                       const response = await panelBridgeApi.importCharacter(selectedPlayer, data)
                       const restored = response.data?.restored
                       toast({
-                        title: 'Character Imported',
-                        description: `Applied ${restored?.perks ?? 0} skills and ${restored?.items ?? 0} items to ${selectedPlayer}`,
+                        title: t('toasts.characterImportedTitle'),
+                        description: t('toasts.characterImportedDesc', { perks: restored?.perks ?? 0, items: restored?.items ?? 0, player: selectedPlayer }),
                       })
                       setImportCharacterData('')
                     } catch (error) {
                       toast({
-                        title: 'Import Failed',
-                        description: error instanceof Error ? error.message : 'Failed to import character',
+                        title: t('toasts.importFailedTitle'),
+                        description: error instanceof Error ? error.message : t('toasts.importFailedFallback'),
                         variant: 'destructive',
                       })
                     } finally {
@@ -2848,13 +2960,13 @@ export default function Players() {
                   ) : (
                     <Upload className="w-4 h-4 mr-2" />
                   )}
-                  Apply
+                  {t('importExport.applyButton')}
                 </Button>
                 <label className="cursor-pointer">
                   <Button variant="outline" size="sm" asChild>
                     <span>
                       <Upload className="w-4 h-4 mr-1" />
-                      File
+                      {t('importExport.fileButton')}
                     </span>
                   </Button>
                   <input
@@ -2866,8 +2978,8 @@ export default function Players() {
                       if (file) {
                         if (file.size > 5 * 1024 * 1024) {
                           toast({
-                            title: 'File Too Large',
-                            description: 'Character data file must be under 5MB',
+                            title: t('toasts.fileTooLargeTitle'),
+                            description: t('toasts.fileTooLargeDesc'),
                             variant: 'destructive',
                           })
                           e.target.value = ''
@@ -2884,7 +2996,7 @@ export default function Players() {
                   />
                 </label>
               </div>
-              <p className="text-xs text-muted-foreground">Player must be online.</p>
+              <p className="text-xs text-muted-foreground">{t('importExport.playerMustBeOnline')}</p>
             </div>
           </div>
 
@@ -2892,8 +3004,8 @@ export default function Players() {
           <div className="border-t border-border/40 pt-4 mt-2 space-y-3">
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
-                <h4 className="text-sm font-medium">Auto-export on login</h4>
-                <p className="text-xs text-muted-foreground">Automatically save a character backup when players join the server</p>
+                <h4 className="text-sm font-medium">{t('importExport.autoExportTitle')}</h4>
+                <p className="text-xs text-muted-foreground">{t('importExport.autoExportDesc')}</p>
               </div>
               <Checkbox
                 id="autoExportOnLogin"
@@ -2904,7 +3016,7 @@ export default function Players() {
                     await configApi.updateAppSettings({ autoExportOnLogin: checked })
                   } catch {
                     setAutoExportEnabled(!checked)
-                    toast({ title: 'Failed to update setting', variant: 'destructive' })
+                    toast({ title: t('toasts.updateSettingFailed'), variant: 'destructive' })
                   }
                 }}
               />
@@ -2912,7 +3024,7 @@ export default function Players() {
 
             {savedExports.length > 0 && (
               <div className="space-y-2">
-                <h4 className="text-xs font-medium text-muted-foreground">Saved Exports ({savedExports.length})</h4>
+                <h4 className="text-xs font-medium text-muted-foreground">{t('importExport.savedExportsTitle', { count: savedExports.length })}</h4>
                 <ScrollArea className="max-h-[180px]">
                   <div className="space-y-1">
                     {savedExports.map((exp) => (
@@ -2920,14 +3032,14 @@ export default function Players() {
                         <div className="min-w-0 flex-1">
                           <span className="font-medium">{exp.username}</span>
                           <span className="text-muted-foreground ml-2">{new Date(exp.timestamp).toLocaleString()}</span>
-                          <span className="text-muted-foreground ml-2">({(exp.size / 1024).toFixed(1)} KB)</span>
+                          <span className="text-muted-foreground ml-2">{t('importExport.sizeKb', { size: (exp.size / 1024).toFixed(1) })}</span>
                         </div>
                         <div className="flex gap-1 shrink-0">
                           <Button
                             variant="ghost"
                             size="sm"
                             className="h-6 w-6 p-0"
-                            title="Download"
+                            title={t('importExport.downloadTitle')}
                             onClick={async () => {
                               try {
                                 const data = await playersApi.getExport(exp.username, exp.filename)
@@ -2939,7 +3051,7 @@ export default function Players() {
                                 a.click()
                                 URL.revokeObjectURL(url)
                               } catch {
-                                toast({ title: 'Download failed', variant: 'destructive' })
+                                toast({ title: t('toasts.downloadFailed'), variant: 'destructive' })
                               }
                             }}
                           >
@@ -2949,13 +3061,13 @@ export default function Players() {
                             variant="ghost"
                             size="sm"
                             className="h-6 w-6 p-0 text-destructive hover:text-destructive"
-                            title="Delete"
+                            title={t('importExport.deleteTitle')}
                             onClick={async () => {
                               try {
                                 await playersApi.deleteExport(exp.username, exp.filename)
                                 setSavedExports(prev => prev.filter(e => e.filename !== exp.filename || e.username !== exp.username))
                               } catch {
-                                toast({ title: 'Delete failed', variant: 'destructive' })
+                                toast({ title: t('toasts.deleteFailed'), variant: 'destructive' })
                               }
                             }}
                           >

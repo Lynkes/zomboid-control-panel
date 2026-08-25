@@ -13,6 +13,38 @@ import path from "path";
 
 const fileLocks = new Map(); // resolved path -> tail of the pending promise chain
 
+// Codes that mean "something else has a momentary handle on the target
+// file" -- an antivirus scanner, the search indexer, or any process briefly
+// opening it -- rather than a real, permanent failure. Windows surfaces this
+// contention as EPERM as often as the more obviously-named EBUSY; EACCES is
+// the same shape from a transient permissions/lock check. Anything else
+// (ENOENT, ENOSPC, a real permission problem, ...) is not transient and must
+// fail immediately, not spend time retrying a rename that was never going to
+// succeed.
+const TRANSIENT_RENAME_ERROR_CODES = new Set(["EPERM", "EBUSY", "EACCES"]);
+
+// Small, fixed, bounded backoff -- three retries max, in whole milliseconds.
+// This is a SYNCHRONOUS call on a request path (writeFileAtomic has no
+// callers to `await`, unlike database/init.js's own debounced/async write
+// path, which is why this doesn't reuse that shape's much longer
+// exponential backoff verbatim): an unbounded or slow retry here would turn
+// a failed save into a hung request instead of a fast one. ~175ms worst
+// case is enough to ride out a sub-100ms transient scan lock without making
+// a request noticeably slow.
+const RENAME_RETRY_DELAYS_MS = [25, 50, 100];
+
+// Blocks the calling thread for `ms` without a busy-loop (Atomics.wait
+// parks on the OS wait primitive instead of spinning). There is no
+// non-blocking way to delay inside a synchronous function, and keeping
+// writeFileAtomic synchronous avoids threading `await` through every one of
+// its callers across mods.js, server.js, serverFiles.js, serverManager.js,
+// templateService.js and templateFiles.js for what must stay a small,
+// bounded wait.
+function sleepSync(ms) {
+  const buffer = new Int32Array(new SharedArrayBuffer(4));
+  Atomics.wait(buffer, 0, 0, ms);
+}
+
 /**
  * Serialize an async critical section per file path. Concurrent callers for
  * the SAME path run one after another, in call order; different paths run
@@ -44,6 +76,15 @@ export function withFileLock(filePath, fn) {
  * Writing to a temp file and renaming means the live file is only ever
  * replaced by a COMPLETE new version — a crash before the rename leaves the
  * original file untouched.
+ *
+ * The rename itself gets a small, bounded retry on a transient Windows
+ * contention error (see TRANSIENT_RENAME_ERROR_CODES above) -- without it,
+ * an antivirus scanner or the search indexer briefly holding the target
+ * file open turns a perfectly fine save into a hard failure that a retry
+ * 25-100ms later would have avoided. A non-transient error still fails on
+ * the first attempt, no delay. Either way, the tmp file never survives a
+ * failure: it's only ever cleaned up once, when this function is done
+ * retrying and about to give up for good.
  */
 export function writeFileAtomic(filePath, data, options = "utf-8") {
   const dir = path.dirname(filePath);
@@ -55,14 +96,26 @@ export function writeFileAtomic(filePath, data, options = "utf-8") {
   // pass either an encoding string ('utf-8') or an options object
   // ({ encoding, mode }) exactly as they would to writeFileSync directly.
   fs.writeFileSync(tmpPath, data, options);
-  try {
-    fs.renameSync(tmpPath, filePath);
-  } catch (err) {
+
+  let attempt = 0;
+  for (;;) {
     try {
-      fs.unlinkSync(tmpPath);
-    } catch {
-      /* best effort */
+      fs.renameSync(tmpPath, filePath);
+      return;
+    } catch (err) {
+      const canRetry =
+        TRANSIENT_RENAME_ERROR_CODES.has(err.code) &&
+        attempt < RENAME_RETRY_DELAYS_MS.length;
+      if (!canRetry) {
+        try {
+          fs.unlinkSync(tmpPath);
+        } catch {
+          /* best effort */
+        }
+        throw err;
+      }
+      sleepSync(RENAME_RETRY_DELAYS_MS[attempt]);
+      attempt++;
     }
-    throw err;
   }
 }

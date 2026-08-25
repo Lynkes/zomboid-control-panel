@@ -209,16 +209,30 @@ function pemToDer(pem, label) {
  * Returns null if HTTPS should not be used.
  */
 export function loadOrCreateCerts(customKeyPath, customCertPath) {
-  // Check for custom certs first
+  // Check for custom certs first. Never let a bad custom path (missing,
+  // a directory instead of a file, unreadable) throw out of this
+  // function -- existsSync alone doesn't rule out a directory, and a
+  // path that was a valid file when the setting was saved can still be
+  // moved/deleted/permission-changed before the panel next restarts.
+  // Falling through to the self-signed branch below on ANY problem here
+  // is what keeps a bad custom-cert setting from taking the whole panel
+  // down (see server/routes/config.js's PUT /app-settings for the other
+  // half of this fix -- validating at save time so this path is rarely
+  // hit for real, not a substitute for it).
   if (customKeyPath && customCertPath) {
-    if (fs.existsSync(customKeyPath) && fs.existsSync(customCertPath)) {
-      log.info(`Using custom certificates: ${customCertPath}`);
-      return {
-        key: fs.readFileSync(customKeyPath),
-        cert: fs.readFileSync(customCertPath),
-      };
-    } else {
-      log.warn('Custom certificate paths specified but files not found — falling back to self-signed');
+    try {
+      const keyIsFile = fs.statSync(customKeyPath).isFile();
+      const certIsFile = fs.statSync(customCertPath).isFile();
+      if (keyIsFile && certIsFile) {
+        log.info(`Using custom certificates: ${customCertPath}`);
+        return {
+          key: fs.readFileSync(customKeyPath),
+          cert: fs.readFileSync(customCertPath),
+        };
+      }
+      log.warn('Custom certificate paths specified but one or both are not regular files — falling back to self-signed');
+    } catch (error) {
+      log.warn(`Custom certificate paths specified but could not be read (${error.message}) — falling back to self-signed`);
     }
   }
 

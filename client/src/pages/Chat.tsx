@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   MessagesSquare,
   Send,
@@ -40,21 +41,15 @@ interface Player {
 
 type ChatChannel = 'server' | 'admin' | 'general'
 
-const DEFAULT_PRESETS = [
-  'Server will restart in 5 minutes!',
-  'Welcome to the server!',
-  'Please read the rules at /rules',
-  'Server maintenance starting soon',
-  'Have fun and stay safe!',
-]
-
 export default function Chat() {
+  const { t } = useTranslation('chat')
+  const defaultPresets = t('presets.default', { returnObjects: true }) as string[]
   const [message, setMessage] = useState('')
   const [players, setPlayers] = useState<Player[]>([])
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([])
   const [sending, setSending] = useState(false)
   const [channel, setChannel] = useState<ChatChannel>('server')
-  const [presets, setPresets] = useState<string[]>(DEFAULT_PRESETS)
+  const [presets, setPresets] = useState<string[]>(defaultPresets)
   const [presetsEditing, setPresetsEditing] = useState(false)
   const [editingIdx, setEditingIdx] = useState<number | null>(null)
   const [editingDraft, setEditingDraft] = useState('')
@@ -167,52 +162,53 @@ export default function Chat() {
       //   server  → yellow broadcast banner (RCON servermsg)
       //   admin   → red admin-only chat (visible only to admins in-game)
       //   general → posts as a custom author into the public chat stream
-      let result: { success?: boolean; error?: string } | undefined
+      // Every branch below posts through the generic /panel-bridge/command
+      // passthrough (or its chat-specific siblings), which only ever
+      // resolves on success -- an in-game failure rejects the promise
+      // instead (see teleportPlayerTo in WorldMap.tsx for the full
+      // explanation) -- so this never sees result.success === false, only
+      // the catch below.
       let localType: ChatMessage['type'] = 'server'
-      let localAuthor = 'Server'
+      let localAuthor = t('labels.server')
       if (channel === 'admin') {
-        result = await panelBridgeApi.sendToAdminChat(message)
+        await panelBridgeApi.sendToAdminChat(message)
         localType = 'admin'
-        localAuthor = 'Admin'
+        localAuthor = t('labels.admin')
       } else if (channel === 'general') {
-        result = await panelBridgeApi.sendToGeneralChat(message, 'Admin')
+        await panelBridgeApi.sendToGeneralChat(message, 'Admin')
         localType = 'general'
-        localAuthor = 'Admin'
+        localAuthor = t('labels.admin')
       } else {
-        result = await panelBridgeApi.sendToServerChat(message, false)
+        await panelBridgeApi.sendToServerChat(message, false)
       }
 
-      if (result?.success) {
-        const sentAt = new Date()
-        setChatHistory(prev => [...prev, {
-          id: `local-${sentAt.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
-          type: localType,
-          author: localAuthor,
-          message: message,
-          timestamp: sentAt
-        }].slice(-200))
-        // Sending always pins the user back to the bottom — they just
-        // posted, so they want to see the result.
-        stickToBottomRef.current = true
-        setMessage('')
-        toast({
-          title:
-            channel === 'admin' ? 'Admin Message Sent'
-            : channel === 'general' ? 'Posted to Chat'
-            : 'Broadcast Sent',
-          description:
-            channel === 'admin' ? 'Visible only to admins in-game.'
-            : channel === 'general' ? 'Posted into the public chat stream.'
-            : 'Message delivered to all connected players.',
-          variant: 'success' as const,
-        })
-      } else {
-        throw new Error(result?.error || 'Failed to send message')
-      }
+      const sentAt = new Date()
+      setChatHistory(prev => [...prev, {
+        id: `local-${sentAt.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
+        type: localType,
+        author: localAuthor,
+        message: message,
+        timestamp: sentAt
+      }].slice(-200))
+      // Sending always pins the user back to the bottom — they just
+      // posted, so they want to see the result.
+      stickToBottomRef.current = true
+      setMessage('')
+      toast({
+        title:
+          channel === 'admin' ? t('toasts.adminSentTitle')
+          : channel === 'general' ? t('toasts.generalSentTitle')
+          : t('toasts.broadcastSentTitle'),
+        description:
+          channel === 'admin' ? t('toasts.adminSentDesc')
+          : channel === 'general' ? t('toasts.generalSentDesc')
+          : t('toasts.broadcastSentDesc'),
+        variant: 'success' as const,
+      })
     } catch (error) {
       toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to send message',
+        title: t('toasts.errorTitle'),
+        description: error instanceof Error ? error.message : t('toasts.sendFailedFallback'),
         variant: 'destructive',
       })
     } finally {
@@ -229,22 +225,27 @@ export default function Chat() {
         if (cancelled) return
         const saved = settings?.chatPresets
         if (Array.isArray(saved) && saved.every((p: unknown) => typeof p === 'string')) {
-          setPresets(saved.length > 0 ? saved : DEFAULT_PRESETS)
+          setPresets(saved.length > 0 ? saved : defaultPresets)
         }
       })
       .catch(() => { /* fall back to defaults silently */ })
     return () => { cancelled = true }
-  }, [])
+  }, [defaultPresets])
 
   const persistPresets = useCallback(async (next: string[]) => {
-    setPresets(next)
+    let previous: string[] = []
+    setPresets(prev => {
+      previous = prev
+      return next
+    })
     try {
       await configApi.updateAppSettings({ chatPresets: next })
     } catch (error) {
+      setPresets(previous)
       reportClientError('Failed to save chat presets.', error)
       toast({
-        title: 'Could not save presets',
-        description: error instanceof Error ? error.message : 'Unknown error',
+        title: t('toasts.presetsSaveFailedTitle'),
+        description: error instanceof Error ? error.message : t('toasts.unknownError'),
         variant: 'destructive',
       })
     }
@@ -292,21 +293,21 @@ export default function Chat() {
   }
 
   const getMessageMeta = (msg: ChatMessage) => {
-    if (msg.type === 'server') return { icon: <Megaphone className="w-3 h-3" />, label: msg.author || 'Server', labelClass: 'text-amber-400', dotClass: 'bg-amber-400/80' }
-    if (msg.type === 'admin')  return { icon: <Shield className="w-3 h-3" />,    label: msg.author || 'Admin',  labelClass: 'text-destructive', dotClass: 'bg-destructive/80' }
-    return { icon: <MessageSquare className="w-3 h-3" />, label: msg.author || 'Player', labelClass: 'text-primary', dotClass: 'bg-primary/80' }
+    if (msg.type === 'server') return { icon: <Megaphone className="w-3 h-3" />, label: msg.author || t('labels.server'), labelClass: 'text-amber-400', dotClass: 'bg-amber-400/80' }
+    if (msg.type === 'admin')  return { icon: <Shield className="w-3 h-3" />,    label: msg.author || t('labels.admin'),  labelClass: 'text-destructive', dotClass: 'bg-destructive/80' }
+    return { icon: <MessageSquare className="w-3 h-3" />, label: msg.author || t('labels.player'), labelClass: 'text-primary', dotClass: 'bg-primary/80' }
   }
 
   return (
     <div className="space-y-6 page-transition">
       <PageHeader
-        title="In-Game Chat"
-        description="Broadcast messages to all connected players and see their chat in real time."
+        title={t('pageHeader.title')}
+        description={t('pageHeader.description')}
         icon={<MessagesSquare className="w-5 h-5" />}
         actions={
           <Button variant="outline" size="sm" onClick={fetchPlayers} className="gap-2">
             <RefreshCw className="w-4 h-4" />
-            Refresh
+            {t('pageHeader.refresh')}
           </Button>
         }
       />
@@ -325,22 +326,22 @@ export default function Chat() {
             <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-border/50 bg-muted/30 font-mono text-[9px] uppercase tracking-[0.24em] select-none shrink-0">
               <span className="flex items-center gap-1.5 text-primary/70">
                 <MessagesSquare className="w-3 h-3" />
-                <span>chat stream</span>
+                <span>{t('chatWindow.streamLabel')}</span>
                 <span className="text-muted-foreground/40 normal-case tracking-normal">·</span>
-                <span className="text-muted-foreground/80 normal-case tracking-normal tabular-nums">{chatHistory.length} {chatHistory.length === 1 ? 'msg' : 'msgs'}</span>
+                <span className="text-muted-foreground/80 normal-case tracking-normal tabular-nums">{t('chatWindow.msgCount', { count: chatHistory.length })}</span>
               </span>
               <span className="flex items-center gap-1.5 text-muted-foreground/60">
                 <span className={cn('w-1.5 h-1.5 rounded-full', socket?.connected ? 'bg-emerald-400 animate-pulse' : 'bg-muted-foreground/40')} />
-                <span>{socket?.connected ? 'LIVE' : 'OFFLINE'}</span>
+                <span>{socket?.connected ? t('chatWindow.live') : t('chatWindow.offline')}</span>
               </span>
             </div>
 
             <div className="flex-1 flex flex-col p-0 min-h-0">
               {/* Messages Area */}
-              <ScrollArea className="flex-1 px-3" role="log" aria-live="polite" aria-label="Chat messages">
+              <ScrollArea className="flex-1 px-3" role="log" aria-live="polite" aria-label={t('chatWindow.messagesAria')}>
                 <div className="py-3 space-y-2">
                   {chatHistory.length === 0 ? (
-                    <EmptyState type="noMessages" title="No chat messages yet" description="Player messages and your broadcasts will appear here in real time." compact />
+                    <EmptyState type="noMessages" title={t('emptyState.title')} description={t('emptyState.description')} compact />
                   ) : (
                     chatHistory.map((msg) => {
                       const meta = getMessageMeta(msg)
@@ -371,26 +372,26 @@ export default function Chat() {
               <div className="p-3 border-t border-border/50 bg-muted/20">
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Select value={channel} onValueChange={(v) => setChannel(v as ChatChannel)} disabled={sending}>
-                    <SelectTrigger className="h-10 sm:w-52 font-mono text-[11px] uppercase tracking-[0.16em] bg-card/70 border-border/55" aria-label="Chat channel">
+                    <SelectTrigger className="h-10 sm:w-52 font-mono text-[11px] uppercase tracking-[0.16em] bg-card/70 border-border/55" aria-label={t('channel.aria')}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="server">
                         <span className="flex items-center gap-2">
                           <Megaphone className="w-3.5 h-3.5 text-amber-400" />
-                          Server broadcast
+                          {t('channel.server')}
                         </span>
                       </SelectItem>
                       <SelectItem value="admin">
                         <span className="flex items-center gap-2">
                           <Shield className="w-3.5 h-3.5 text-destructive" />
-                          Admin chat
+                          {t('channel.admin')}
                         </span>
                       </SelectItem>
                       <SelectItem value="general">
                         <span className="flex items-center gap-2">
                           <MessageSquare className="w-3.5 h-3.5 text-primary" />
-                          General chat
+                          {t('channel.general')}
                         </span>
                       </SelectItem>
                     </SelectContent>
@@ -399,12 +400,12 @@ export default function Chat() {
                     ref={messageInputRef}
                     placeholder={
                       channel === 'admin'
-                        ? 'admins only — press enter to send…'
+                        ? t('input.placeholderAdmin')
                         : channel === 'general'
-                          ? 'post as Admin — press enter to send…'
-                          : 'broadcast to all players — press enter to send…'
+                          ? t('input.placeholderGeneral')
+                          : t('input.placeholderServer')
                     }
-                    aria-label="Chat message"
+                    aria-label={t('input.aria')}
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
                     onKeyDown={handleKeyDown}
@@ -417,16 +418,16 @@ export default function Chat() {
                     disabled={sending || !message.trim()}
                     className="h-10 min-w-20 sm:min-w-24 gap-1.5 font-mono text-[11px] uppercase tracking-[0.18em]"
                   >
-                    {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Send className="w-3.5 h-3.5" />send</>}
+                    {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Send className="w-3.5 h-3.5" />{t('input.sendButton')}</>}
                   </Button>
                 </div>
                 <div className="mt-1.5 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/65">
                   <span>
                     {channel === 'admin'
-                      ? 'admins only — hidden from regular players'
+                      ? t('footer.adminOnly')
                       : players.length === 0
-                        ? 'no players online — server log only'
-                        : `broadcasting to ${players.length} ${players.length === 1 ? 'player' : 'players'}`}
+                        ? t('footer.noPlayersOnline')
+                        : t('footer.broadcastingTo', { count: players.length })}
                   </span>
                   <span className={cn('tabular-nums', message.length > 450 ? 'text-amber-400' : '')}>
                     {message.length}/500
@@ -446,19 +447,19 @@ export default function Chat() {
             <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-border/50 bg-muted/30 font-mono text-[9px] uppercase tracking-[0.24em] select-none">
               <span className="flex items-center gap-1.5 text-primary/70">
                 <Users className="w-3 h-3" />
-                <span>players</span>
+                <span>{t('playersPanel.label')}</span>
               </span>
-              <span className="text-muted-foreground/70 tabular-nums normal-case tracking-normal">{players.length} online</span>
+              <span className="text-muted-foreground/70 tabular-nums normal-case tracking-normal">{t('playersPanel.onlineCount', { count: players.length })}</span>
             </div>
             <div className="p-2">
               {players.length === 0 ? (
                 <div className="px-2 py-3 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/60 italic">
-                  no players connected
+                  {t('playersPanel.noPlayersConnected')}
                 </div>
               ) : (
                 <div className="space-y-1">
                   {players.map((player) => (
-                    <div key={player.name} className="flex items-center gap-2 px-2 py-1.5 rounded-sm border-l-2 border-transparent hover:border-primary/50 hover:bg-muted/40 transition-colors min-w-0">
+                    <div key={player.name} className="flex items-center gap-2 px-2 py-1.5 rounded-sm hover:bg-muted/40 transition-colors min-w-0">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 animate-pulse" aria-hidden="true" />
                       <span className="text-xs font-medium text-foreground/90 truncate">{player.name}</span>
                     </div>
@@ -475,7 +476,7 @@ export default function Chat() {
             <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-border/50 bg-muted/30 font-mono text-[9px] uppercase tracking-[0.24em] select-none">
               <span className="flex items-center gap-1.5 text-amber-400/80">
                 <Megaphone className="w-3 h-3" />
-                <span>quick broadcasts</span>
+                <span>{t('quickBroadcasts.label')}</span>
               </span>
               <Button
                 variant="ghost"
@@ -487,14 +488,14 @@ export default function Chat() {
                   setEditingDraft('')
                   setNewPresetDraft('')
                 }}
-                aria-label={presetsEditing ? 'Done editing presets' : 'Edit presets'}
+                aria-label={presetsEditing ? t('quickBroadcasts.doneAria') : t('quickBroadcasts.editAria')}
               >
-                {presetsEditing ? <><Check className="w-3 h-3 mr-1" />done</> : <><Pencil className="w-3 h-3 mr-1" />edit</>}
+                {presetsEditing ? <><Check className="w-3 h-3 mr-1" />{t('quickBroadcasts.done')}</> : <><Pencil className="w-3 h-3 mr-1" />{t('quickBroadcasts.edit')}</>}
               </Button>
             </div>
             <div className="p-2 space-y-1.5">
               {presets.length === 0 && !presetsEditing && (
-                <p className="px-2 py-2 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/60">// no presets — click edit to add</p>
+                <p className="px-2 py-2 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/60">{t('quickBroadcasts.noPresets')}</p>
               )}
               {presets.map((quickMsg, idx) => {
                 const isEditing = presetsEditing && editingIdx === idx
@@ -512,10 +513,10 @@ export default function Chat() {
                         autoFocus
                         className="h-9 flex-1 text-sm"
                       />
-                      <Button variant="ghost" size="icon" className="h-9 w-9" onClick={handleSaveEdit} aria-label="Save">
+                      <Button variant="ghost" size="icon" className="h-9 w-9" onClick={handleSaveEdit} aria-label={t('quickBroadcasts.saveAria')}>
                         <Check className="w-4 h-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => { setEditingIdx(null); setEditingDraft('') }} aria-label="Cancel">
+                      <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => { setEditingIdx(null); setEditingDraft('') }} aria-label={t('quickBroadcasts.cancelAria')}>
                         <X className="w-4 h-4" />
                       </Button>
                     </div>
@@ -525,7 +526,7 @@ export default function Chat() {
                   <div key={`preset-${idx}`} className="flex items-center gap-1">
                     <button
                       type="button"
-                      className="group flex-1 min-h-9 px-2 py-1.5 text-left rounded-sm border-l-2 border-transparent bg-muted/15 hover:border-amber-400/60 hover:bg-muted/40 focus-visible:border-amber-400/60 focus-visible:outline-none transition-colors text-xs text-foreground/85 whitespace-normal"
+                      className="group flex-1 min-h-9 px-2 py-1.5 text-left rounded-sm bg-muted/15 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 transition-colors text-xs text-foreground/85 whitespace-normal"
                       onClick={() => {
                         if (presetsEditing) {
                           setEditingIdx(idx)
@@ -544,7 +545,7 @@ export default function Chat() {
                         size="icon"
                         className="h-9 w-9 text-destructive hover:text-destructive"
                         onClick={() => handleDeletePreset(idx)}
-                        aria-label={`Delete preset ${idx + 1}`}
+                        aria-label={t('quickBroadcasts.deleteAria', { index: idx + 1 })}
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>
@@ -555,7 +556,7 @@ export default function Chat() {
               {presetsEditing && (
                 <div className="flex items-center gap-1 pt-2 mt-1 border-t border-border/40">
                   <Input
-                    placeholder="add a new quick message…"
+                    placeholder={t('quickBroadcasts.addPlaceholder')}
                     value={newPresetDraft}
                     onChange={(e) => setNewPresetDraft(e.target.value)}
                     onKeyDown={(e) => {
@@ -570,7 +571,7 @@ export default function Chat() {
                     className="h-9 w-9"
                     onClick={handleAddPreset}
                     disabled={!newPresetDraft.trim()}
-                    aria-label="Add preset"
+                    aria-label={t('quickBroadcasts.addAria')}
                   >
                     <Plus className="w-4 h-4" />
                   </Button>

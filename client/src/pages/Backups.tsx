@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 import {
   Archive,
   Download,
@@ -58,6 +59,7 @@ interface BackupProgress {
 }
 
 export default function Backups() {
+  const { t } = useTranslation('backups')
   const { toast } = useToast()
   const socket = useSocket()
 
@@ -116,10 +118,10 @@ export default function Backups() {
       setBackupSchedule(status.schedule)
       setBackupMaxCount(status.maxBackups)
       setLoadError(null)
-    } catch {
-      setLoadError('Failed to load backup status.')
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : t('toasts.loadStatusFailed'))
     }
-  }, [])
+  }, [t])
 
   const fetchBackups = useCallback(async () => {
     try {
@@ -137,10 +139,10 @@ export default function Backups() {
         })
         return newSelection
       })
-    } catch {
-      setLoadError('Failed to load backups.')
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : t('toasts.loadBackupsFailed'))
     }
-  }, [])
+  }, [t])
 
   const fetchHistory = useCallback(async (serverId: string | number | null) => {
     if (serverId == null) {
@@ -214,27 +216,36 @@ export default function Backups() {
   // Actions
   const handleCreateBackup = async () => {
     setCreatingBackup(true)
-    setBackupProgress({ phase: 'preparing', percent: 0, message: 'Starting backup...' })
+    setBackupProgress({ phase: 'preparing', percent: 0, message: t('progress.startingFallback') })
     try {
       const result = await backupApi.createBackup()
       if (result.success && result.backup) {
         toast({
-          title: 'Safehouse Snapshot Created',
-          description: `Stored ${result.backup.name} in ${result.duration?.toFixed(1)}s`,
+          title: t('toasts.backupCreatedTitle'),
+          description: t('toasts.backupCreatedDesc', { name: result.backup.name, seconds: result.duration?.toFixed(1) }),
           variant: 'success' as const,
         })
         await fetchBackups()
         await fetchBackupStatus()
       } else {
-        throw new Error(result.message || 'Failed to create backup')
+        throw new Error(result.message || t('toasts.createBackupFailedFallback'))
       }
     } catch (error) {
       toast({
-        title: 'Backup Failed',
-        description: error instanceof Error ? error.message : 'Failed to create backup',
+        title: t('toasts.backupFailedTitle'),
+        description: error instanceof Error ? error.message : t('toasts.createBackupFailedFallback'),
         variant: 'destructive',
       })
-      setBackupProgress({ phase: 'error', percent: 0, message: 'Backup failed' })
+      setBackupProgress({ phase: 'error', percent: 0, message: t('toasts.backupFailedMessage') })
+      // Mirror the 'backup:progress' socket handler's error-phase behavior
+      // above -- without this, a failure that never gets a corresponding
+      // socket event (e.g. the createBackup() call itself rejects before
+      // the server ever emits progress) leaves this error card on screen
+      // indefinitely instead of auto-clearing like every other transition.
+      if (progressTimeoutRef.current) {
+        clearTimeout(progressTimeoutRef.current)
+      }
+      progressTimeoutRef.current = setTimeout(() => setBackupProgress(null), 3000)
     } finally {
       setCreatingBackup(false)
     }
@@ -246,22 +257,22 @@ export default function Backups() {
   const handleUploadFile = async (file: File) => {
     if (!file) return
     if (activeServerRemote) {
-      toast({ title: 'Not available for remote servers', description: 'Backup uploads write to the local filesystem and aren’t supported for remote servers.', variant: 'destructive' })
+      toast({ title: t('toasts.notAvailableRemoteTitle'), description: t('toasts.notAvailableRemoteDesc'), variant: 'destructive' })
       return
     }
     if (!file.name.toLowerCase().endsWith('.zip')) {
-      toast({ title: 'Invalid file', description: 'Only .zip backup archives are accepted.', variant: 'destructive' })
+      toast({ title: t('toasts.invalidFileTitle'), description: t('toasts.invalidFileDesc'), variant: 'destructive' })
       return
     }
     // Hard cap matches the server-side express.raw limit (4 GB). Anything
     // larger would upload for minutes and then 413 — fail fast instead.
     const MAX_UPLOAD_BYTES = 4 * 1024 * 1024 * 1024
     if (file.size > MAX_UPLOAD_BYTES) {
-      toast({ title: 'File too large', description: `Backup archives must be 4 GB or smaller. This file is ${(file.size / (1024 * 1024 * 1024)).toFixed(2)} GB.`, variant: 'destructive' })
+      toast({ title: t('toasts.fileTooLargeTitle'), description: t('toasts.fileTooLargeDesc', { size: (file.size / (1024 * 1024 * 1024)).toFixed(2) }), variant: 'destructive' })
       return
     }
     if (file.size === 0) {
-      toast({ title: 'Empty file', description: 'The selected .zip is empty.', variant: 'destructive' })
+      toast({ title: t('toasts.emptyFileTitle'), description: t('toasts.emptyFileDesc'), variant: 'destructive' })
       return
     }
     setUploadingBackup(true)
@@ -269,16 +280,16 @@ export default function Backups() {
     try {
       const result = await backupApi.uploadBackup(file, setUploadPercent)
       toast({
-        title: 'Backup Uploaded',
-        description: `Stored as ${result.name}. Use Restore to apply it.`,
+        title: t('toasts.uploadedTitle'),
+        description: t('toasts.uploadedDesc', { name: result.name }),
         variant: 'success' as const,
       })
       await fetchBackups()
       await fetchBackupStatus()
     } catch (error) {
       toast({
-        title: 'Upload Failed',
-        description: error instanceof Error ? error.message : 'Failed to upload backup',
+        title: t('toasts.uploadFailedTitle'),
+        description: error instanceof Error ? error.message : t('toasts.uploadFailedFallback'),
         variant: 'destructive',
       })
     } finally {
@@ -292,21 +303,20 @@ export default function Backups() {
     setRestoreDialog({ open: false, backupName: null })
     setRestoringBackup(name)
     try {
+      // POST /backup/restore/:name always responds non-2xx on failure, so
+      // handleResponse() throws into the catch below -- this never sees
+      // result.success === false.
       const result = await backupApi.restoreBackup(name, { createPreRestoreBackup: true })
-      if (result.success) {
-        toast({
-          title: 'Recovery Point Restored',
-          description: `Rolled back to ${name} in ${(result.duration || 0).toFixed(1)}s`,
-          variant: 'success' as const,
-        })
-        await fetchBackups()
-      } else {
-        throw new Error(result.message || 'Failed to restore backup')
-      }
+      toast({
+        title: t('toasts.restoredTitle'),
+        description: t('toasts.restoredDesc', { name, seconds: (result.duration || 0).toFixed(1) }),
+        variant: 'success' as const,
+      })
+      await fetchBackups()
     } catch (error) {
       toast({
-        title: 'Restore Failed',
-        description: error instanceof Error ? error.message : 'Failed to restore backup',
+        title: t('toasts.restoreFailedTitle'),
+        description: error instanceof Error ? error.message : t('toasts.restoreFailedFallback'),
         variant: 'destructive',
       })
     } finally {
@@ -317,12 +327,12 @@ export default function Backups() {
   const handleViewSnapshot = async (name: string) => {
     try {
       const result = await backupApi.getSnapshot(name)
-      if (!result.success || !result.snapshot) throw new Error(result.message || 'No panel snapshot in this backup')
+      if (!result.success || !result.snapshot) throw new Error(result.message || t('toasts.snapshotMissingFallback'))
       setSnapshotDialog({ name, snapshot: result.snapshot })
     } catch (error) {
       toast({
-        title: 'Snapshot unavailable',
-        description: error instanceof Error ? error.message : 'Could not read backup snapshot',
+        title: t('toasts.snapshotUnavailableTitle'),
+        description: error instanceof Error ? error.message : t('toasts.snapshotUnavailableFallback'),
         variant: 'destructive',
       })
     }
@@ -336,12 +346,10 @@ export default function Backups() {
       let failCount = 0
       for (const name of names) {
         try {
-          const result = await backupApi.deleteBackup(name)
-          if (result.success) {
-            successCount++
-          } else {
-            failCount++
-          }
+          // DELETE /backup/:name always responds non-2xx on failure, so
+          // handleResponse() throws -- result.success is always true here.
+          await backupApi.deleteBackup(name)
+          successCount++
         } catch {
           failCount++
         }
@@ -349,15 +357,16 @@ export default function Backups() {
 
       if (successCount > 0) {
         toast({
-          title: 'Old Snapshots Cleared',
-          description: `Removed ${successCount} backup${successCount !== 1 ? 's' : ''}${failCount > 0 ? ` (${failCount} failed)` : ''}`,
+          title: t('toasts.oldSnapshotsClearedTitle'),
+          description: t('toasts.oldSnapshotsClearedDesc', { count: successCount })
+            + (failCount > 0 ? t('toasts.oldSnapshotsClearedFailSuffix', { count: failCount }) : ''),
           variant: 'success' as const,
         })
       }
       if (failCount > 0 && successCount === 0) {
         toast({
-          title: 'Delete Failed',
-          description: `Failed to delete ${failCount} backup${failCount !== 1 ? 's' : ''}`,
+          title: t('toasts.deleteFailedTitle'),
+          description: t('toasts.deleteFailedCount', { count: failCount }),
           variant: 'destructive',
         })
       }
@@ -366,8 +375,8 @@ export default function Backups() {
       await fetchBackups()
     } catch (error) {
       toast({
-        title: 'Delete Failed',
-        description: error instanceof Error ? error.message : 'Failed to delete backups',
+        title: t('toasts.deleteFailedTitle'),
+        description: error instanceof Error ? error.message : t('toasts.deleteFailedFallback'),
         variant: 'destructive',
       })
     } finally {
@@ -379,25 +388,24 @@ export default function Backups() {
     setDeleteOlderDialog(false)
     setDeletingOlder(true)
     try {
+      // POST /backup/delete-older-than relays backupService's result as-is
+      // over HTTP 200, and that service CAN return { success: false, ... }
+      // on a partial failure -- but handleResponse() throws on any 200
+      // body with success: false (see lib/api.ts), so that case lands in
+      // the catch below too, never in a result.success === false branch
+      // here. Confirmed no other codepath in this handler returns
+      // success: false with a 2xx status.
       const result = await backupApi.deleteOlderThan(deleteOlderDays)
-      if (result.success) {
-        toast({
-          title: 'Old Backups Removed',
-          description: result.message || `Removed ${result.deleted || 0} aging backups`,
-          variant: 'success' as const,
-        })
-        await fetchBackups()
-      } else {
-        toast({
-          title: 'Delete Failed',
-          description: result.message || 'Failed to delete old backups',
-          variant: 'destructive',
-        })
-      }
+      toast({
+        title: t('toasts.oldBackupsRemovedTitle'),
+        description: result.message || t('toasts.oldBackupsRemovedFallback', { count: result.deleted || 0 }),
+        variant: 'success' as const,
+      })
+      await fetchBackups()
     } catch (error) {
       toast({
-        title: 'Delete Failed',
-        description: error instanceof Error ? error.message : 'Failed to delete old backups',
+        title: t('toasts.deleteFailedTitle'),
+        description: error instanceof Error ? error.message : t('toasts.deleteOldFailedFallback'),
         variant: 'destructive',
       })
     } finally {
@@ -415,14 +423,14 @@ export default function Backups() {
       })
       await fetchBackupStatus()
       toast({
-        title: 'Backup Plan Updated',
-        description: 'The panel saved your current backup schedule and limits.',
+        title: t('toasts.planUpdatedTitle'),
+        description: t('toasts.planUpdatedDesc'),
         variant: 'success' as const,
       })
     } catch (error) {
       toast({
-        title: 'Backup Plan Update Failed',
-        description: error instanceof Error ? error.message : 'Failed to save settings',
+        title: t('toasts.planUpdateFailedTitle'),
+        description: error instanceof Error ? error.message : t('toasts.planUpdateFailedFallback'),
         variant: 'destructive',
       })
     } finally {
@@ -435,14 +443,14 @@ export default function Backups() {
       await backupApi.updateSettings({ enabled })
       await fetchBackupStatus()
       toast({
-        title: enabled ? 'Automatic Snapshots Armed' : 'Automatic Snapshots Stood Down',
-        description: enabled ? 'Recurring backup jobs are now active.' : 'Recurring backup jobs are currently paused.',
+        title: enabled ? t('toasts.autoArmedTitle') : t('toasts.autoStoodDownTitle'),
+        description: enabled ? t('toasts.autoArmedDesc') : t('toasts.autoStoodDownDesc'),
         variant: 'success' as const,
       })
     } catch (error) {
       toast({
-        title: 'Automatic Backup Update Failed',
-        description: error instanceof Error ? error.message : 'Failed to update backup settings',
+        title: t('toasts.autoUpdateFailedTitle'),
+        description: error instanceof Error ? error.message : t('toasts.autoUpdateFailedFallback'),
         variant: 'destructive',
       })
     }
@@ -486,20 +494,20 @@ export default function Backups() {
   // Falls back to the raw cron string for anything custom so the user
   // still gets meaningful information without us shipping a full parser.
   const describeSchedule = (cron: string | undefined): string => {
-    if (!cron) return 'No schedule'
+    if (!cron) return t('schedule.none')
     const map: Record<string, string> = {
-      '*/15 * * * *': 'every 15 minutes',
-      '*/30 * * * *': 'every 30 minutes',
-      '0 * * * *': 'every hour',
-      '0 */2 * * *': 'every 2 hours',
-      '0 */4 * * *': 'every 4 hours',
-      '0 */6 * * *': 'every 6 hours',
-      '0 */8 * * *': 'every 8 hours',
-      '0 */12 * * *': 'every 12 hours',
-      '0 0 * * *': 'daily at midnight',
-      '0 6 * * *': 'daily at 6 AM',
-      '0 12 * * *': 'daily at noon',
-      '0 18 * * *': 'daily at 6 PM',
+      '*/15 * * * *': t('schedule.every15Min'),
+      '*/30 * * * *': t('schedule.every30Min'),
+      '0 * * * *': t('schedule.everyHour'),
+      '0 */2 * * *': t('schedule.every2Hours'),
+      '0 */4 * * *': t('schedule.every4Hours'),
+      '0 */6 * * *': t('schedule.every6Hours'),
+      '0 */8 * * *': t('schedule.every8Hours'),
+      '0 */12 * * *': t('schedule.every12Hours'),
+      '0 0 * * *': t('schedule.dailyMidnight'),
+      '0 6 * * *': t('schedule.daily6am'),
+      '0 12 * * *': t('schedule.dailyNoon'),
+      '0 18 * * *': t('schedule.daily6pm'),
     }
     return map[cron] || cron
   }
@@ -515,23 +523,23 @@ export default function Backups() {
     <div className="space-y-6 page-transition">
       {/* Header */}
       <PageHeader
-        title="World Backups"
-        description="Create, restore, and manage your server world backups"
+        title={t('pageHeader.title')}
+        description={t('pageHeader.description')}
         icon={<Archive className="w-5 h-5 text-primary" />}
         actions={
-          <div className="flex items-center gap-2">
+          <>
             <Button
               onClick={handleCreateBackup}
               disabled={creatingBackup || restoringBackup !== null || !backupStatus?.savesExists || activeServerRemote}
               className="gap-2"
-              title={activeServerRemote ? 'Backups are not available for remote servers' : undefined}
+              title={activeServerRemote ? t('pageHeader.remoteDisabledTitle') : undefined}
             >
               {creatingBackup ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <Archive className="w-4 h-4" />
               )}
-              {creatingBackup ? 'Creating...' : 'Create Backup'}
+              {creatingBackup ? t('pageHeader.creating') : t('pageHeader.createBackup')}
             </Button>
             <input
               ref={fileInputRef}
@@ -548,14 +556,14 @@ export default function Backups() {
               onClick={() => fileInputRef.current?.click()}
               disabled={uploadingBackup || restoringBackup !== null || activeServerRemote}
               className="gap-2"
-              title={activeServerRemote ? 'Backups are not available for remote servers' : 'Upload an existing world_backup_*.zip from another machine'}
+              title={activeServerRemote ? t('pageHeader.uploadTitleRemote') : t('pageHeader.uploadTitleLocal')}
             >
               {uploadingBackup ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <Upload className="w-4 h-4" />
               )}
-              {uploadingBackup ? `Uploading ${uploadPercent}%` : 'Upload .zip'}
+              {uploadingBackup ? t('pageHeader.uploading', { percent: uploadPercent }) : t('pageHeader.uploadZip')}
             </Button>
             <Button
               variant="outline"
@@ -563,31 +571,31 @@ export default function Backups() {
               className="gap-2"
             >
               <Settings className="w-4 h-4" />
-              Settings
+              {t('pageHeader.settings')}
             </Button>
             <Button
               variant="outline"
               size="icon"
               onClick={refreshAll}
               disabled={loading}
-              aria-label="Refresh backup status"
-              title="Refresh backup status"
+              aria-label={t('pageHeader.refreshAria')}
+              title={t('pageHeader.refreshTitle')}
             >
               <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
             </Button>
-          </div>
+          </>
         }
       />
 
       {loadError && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Backup data unavailable</AlertTitle>
+          <AlertTitle>{t('alerts.loadErrorTitle')}</AlertTitle>
           <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <span>{loadError}</span>
             <Button variant="outline" size="sm" onClick={refreshAll} className="self-start sm:self-auto">
               <RefreshCw className="mr-2 h-4 w-4" />
-              Retry
+              {t('alerts.retry')}
             </Button>
           </AlertDescription>
         </Alert>
@@ -596,19 +604,18 @@ export default function Backups() {
       {activeServerRemote && (
         <Alert className="border-warning/40 bg-warning/10">
           <AlertTriangle className="h-4 w-4 text-warning" />
-          <AlertTitle>Backups disabled for remote servers</AlertTitle>
+          <AlertTitle>{t('alerts.remoteTitle')}</AlertTitle>
           <AlertDescription>
-            The active server is configured as remote, so the panel can&apos;t reach its filesystem.
-            Create, upload, and restore are unavailable until you switch to a local server.
+            {t('alerts.remoteDesc')}
           </AlertDescription>
         </Alert>
       )}
 
       {activeServerId != null && history.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-y border-border/50 py-2 text-xs text-muted-foreground">
-          <span className="font-medium text-foreground">History</span>
-          <span>{history.length} recorded backup{history.length === 1 ? '' : 's'}</span>
-          <span>Latest: {formatDate(history[0].createdAt)}</span>
+          <span className="font-medium text-foreground">{t('history.label')}</span>
+          <span>{t('history.recordedCount', { count: history.length })}</span>
+          <span>{t('history.latest', { date: formatDate(history[0].createdAt) })}</span>
           <span className="font-mono">{history[0].fileName}</span>
         </div>
       )}
@@ -622,7 +629,7 @@ export default function Backups() {
               <Archive className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Total Backups</p>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t('statusCards.totalBackups')}</p>
               <p className="text-xl font-semibold leading-tight mt-0.5 text-foreground">{backups.length}</p>
             </div>
           </CardContent>
@@ -634,7 +641,7 @@ export default function Backups() {
               <HardDrive className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Total Size</p>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t('statusCards.totalSize')}</p>
               <p className="text-xl font-semibold leading-tight mt-0.5 text-foreground tabular-nums">{formatBytes(totalSize)}</p>
             </div>
           </CardContent>
@@ -646,9 +653,9 @@ export default function Backups() {
               <Clock className="w-4 h-4" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Last Backup</p>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t('statusCards.lastBackup')}</p>
               <p className="text-sm font-semibold leading-tight mt-0.5 text-foreground truncate">
-                {backupStatus?.lastBackup ? formatDate(backupStatus.lastBackup.created) : 'Never'}
+                {backupStatus?.lastBackup ? formatDate(backupStatus.lastBackup.created) : t('statusCards.never')}
               </p>
             </div>
           </CardContent>
@@ -668,20 +675,20 @@ export default function Backups() {
               <Clock className="w-4 h-4" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Auto-Backup</p>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t('statusCards.autoBackup')}</p>
               <p className={cn('text-sm font-semibold leading-tight mt-0.5 truncate', backupStatus?.enabled ? 'text-foreground' : 'text-muted-foreground')}>
-                {backupStatus?.enabled ? 'On' : 'Off'}
+                {backupStatus?.enabled ? t('statusCards.on') : t('statusCards.off')}
               </p>
               <p className="text-[11px] text-muted-foreground/80 truncate" title={backupStatus?.schedule || ''}>
                 {backupStatus?.enabled
-                  ? `Runs ${describeSchedule(backupStatus?.schedule)} · keep ${backupStatus?.maxBackups ?? '?'}`
-                  : 'No scheduled backups'}
+                  ? t('statusCards.runsSchedule', { schedule: describeSchedule(backupStatus?.schedule), count: backupStatus?.maxBackups ?? '?' })
+                  : t('statusCards.noScheduled')}
               </p>
             </div>
             <Switch
               checked={backupStatus?.enabled || false}
               onCheckedChange={toggleBackupEnabled}
-              aria-label="Toggle scheduled backups"
+              aria-label={t('statusCards.toggleAria')}
             />
           </CardContent>
         </Card>
@@ -694,39 +701,39 @@ export default function Backups() {
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
               <Settings className="w-5 h-5" />
-              Backup Settings
+              {t('settingsPanel.title')}
             </CardTitle>
-            <CardDescription>Configure scheduled backup settings.</CardDescription>
+            <CardDescription>{t('settingsPanel.description')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="backup-schedule">Backup Frequency</Label>
+                <Label htmlFor="backup-schedule">{t('settingsPanel.frequencyLabel')}</Label>
                 <Select value={backupSchedule} onValueChange={setBackupSchedule}>
                   <SelectTrigger id="backup-schedule" className="w-full">
-                    <SelectValue placeholder="Select frequency" />
+                    <SelectValue placeholder={t('settingsPanel.frequencyPlaceholder')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="*/15 * * * *">Every 15 minutes</SelectItem>
-                    <SelectItem value="*/30 * * * *">Every 30 minutes</SelectItem>
-                    <SelectItem value="0 * * * *">Every hour</SelectItem>
-                    <SelectItem value="0 */2 * * *">Every 2 hours</SelectItem>
-                    <SelectItem value="0 */4 * * *">Every 4 hours</SelectItem>
-                    <SelectItem value="0 */6 * * *">Every 6 hours</SelectItem>
-                    <SelectItem value="0 */8 * * *">Every 8 hours</SelectItem>
-                    <SelectItem value="0 */12 * * *">Every 12 hours</SelectItem>
-                    <SelectItem value="0 0 * * *">Daily at midnight</SelectItem>
-                    <SelectItem value="0 6 * * *">Daily at 6 AM</SelectItem>
-                    <SelectItem value="0 12 * * *">Daily at noon</SelectItem>
-                    <SelectItem value="0 18 * * *">Daily at 6 PM</SelectItem>
+                    <SelectItem value="*/15 * * * *">{t('schedule.every15Min')}</SelectItem>
+                    <SelectItem value="*/30 * * * *">{t('schedule.every30Min')}</SelectItem>
+                    <SelectItem value="0 * * * *">{t('schedule.everyHour')}</SelectItem>
+                    <SelectItem value="0 */2 * * *">{t('schedule.every2Hours')}</SelectItem>
+                    <SelectItem value="0 */4 * * *">{t('schedule.every4Hours')}</SelectItem>
+                    <SelectItem value="0 */6 * * *">{t('schedule.every6Hours')}</SelectItem>
+                    <SelectItem value="0 */8 * * *">{t('schedule.every8Hours')}</SelectItem>
+                    <SelectItem value="0 */12 * * *">{t('schedule.every12Hours')}</SelectItem>
+                    <SelectItem value="0 0 * * *">{t('schedule.dailyMidnight')}</SelectItem>
+                    <SelectItem value="0 6 * * *">{t('schedule.daily6am')}</SelectItem>
+                    <SelectItem value="0 12 * * *">{t('schedule.dailyNoon')}</SelectItem>
+                    <SelectItem value="0 18 * * *">{t('schedule.daily6pm')}</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  How often to automatically create backups
+                  {t('settingsPanel.frequencyHelp')}
                 </p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="backup-max">Maximum Backups to Keep</Label>
+                <Label htmlFor="backup-max">{t('settingsPanel.maxBackupsLabel')}</Label>
                 <Input
                   id="backup-max"
                   type="number"
@@ -745,7 +752,7 @@ export default function Backups() {
                   className="max-w-24"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Oldest backups will be auto-deleted when limit is reached
+                  {t('settingsPanel.maxBackupsHelp')}
                 </p>
               </div>
             </div>
@@ -754,14 +761,31 @@ export default function Backups() {
                 {backupStatus?.savesPath && (
                   <span className="flex flex-wrap items-center gap-1 break-all">
                     <FolderOpen className="w-3 h-3" />
-                    Saves: {backupStatus.savesPath}
+                    {t('settingsPanel.savesLabel', { path: backupStatus.savesPath })}
                   </span>
                 )}
               </div>
               <Button onClick={handleSaveSettings} disabled={savingSettings} size="sm" className="h-10 gap-2 self-start sm:self-auto">
                 {savingSettings && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                Save Settings
+                {t('settingsPanel.saveButton')}
               </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Restore Progress — the server emits no progress events for restore (it's a
+          silent extract + pre-restore-backup sequence that can run minutes), so this
+          is a static reassurance rather than a real progress readout. */}
+      {restoringBackup && (
+        <Card className="border-warning/15 bg-warning/5">
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <Loader2 className="w-5 h-5 animate-spin text-warning shrink-0" />
+              <div className="min-w-0">
+                <p className="font-medium truncate">{t('restoreProgress.title', { name: restoringBackup })}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{t('restoreProgress.note')}</p>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -782,7 +806,7 @@ export default function Backups() {
                     <Loader2 className="w-5 h-5 animate-spin text-primary" />
                   )}
                   <span className="font-medium">
-                    {backupProgress?.message || 'Creating backup...'}
+                    {backupProgress?.message || t('progress.creatingFallback')}
                   </span>
                 </div>
                 <span className="text-sm text-muted-foreground">
@@ -805,11 +829,11 @@ export default function Backups() {
         <CardHeader>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
-              <CardTitle className="text-lg">Backup Files</CardTitle>
+              <CardTitle className="text-lg">{t('mainCard.title')}</CardTitle>
               {!backupStatus?.savesExists && (
                 <span className="flex items-center gap-1 text-xs text-warning">
                   <AlertTriangle className="w-3 h-3" />
-                  Saves folder not found
+                  {t('mainCard.savesNotFound')}
                 </span>
               )}
             </div>
@@ -823,7 +847,7 @@ export default function Backups() {
                   className="h-10 gap-2"
                 >
                   <Trash2 className="w-4 h-4" />
-                  Delete ({selectedBackups.size})
+                  {t('mainCard.deleteSelected', { count: selectedBackups.size })}
                 </Button>
               )}
               <Button
@@ -838,7 +862,7 @@ export default function Backups() {
                 ) : (
                   <Clock className="w-4 h-4" />
                 )}
-                Delete Older
+                {t('mainCard.deleteOlder')}
               </Button>
             </div>
           </div>
@@ -849,7 +873,7 @@ export default function Backups() {
               <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
             </div>
           ) : backups.length === 0 ? (
-            <EmptyState type="noData" title="No safety net" description="Create a backup before changing saves, mods, or server settings — one bad update away from lost progress." action={{ label: 'Create Backup', onClick: handleCreateBackup, variant: 'default' }} />
+            <EmptyState type="noData" title={t('mainCard.emptyTitle')} description={t('mainCard.emptyDesc')} action={{ label: t('mainCard.emptyAction'), onClick: handleCreateBackup, variant: 'default' }} />
           ) : (
             <div className="space-y-2">
               {/* Select All Header */}
@@ -861,10 +885,10 @@ export default function Backups() {
                 />
                 <Label htmlFor="select-all" className="text-sm font-medium cursor-pointer flex-1">
                   {selectedBackups.size === 0
-                    ? `Select all · ${backups.length} backup${backups.length === 1 ? '' : 's'}`
+                    ? t('mainCard.selectAllLabel', { count: backups.length })
                     : allSelected
-                      ? `All ${backups.length} selected · click to clear`
-                      : `${selectedBackups.size} of ${backups.length} selected`}
+                      ? t('mainCard.allSelectedLabel', { count: backups.length })
+                      : t('mainCard.partialSelectedLabel', { selected: selectedBackups.size, total: backups.length })}
                 </Label>
                 {selectedBackups.size > 0 && (
                   <span className="inline-flex h-5 items-center rounded-full bg-primary/15 px-2 font-mono text-[11px] tabular-nums text-primary">
@@ -885,50 +909,52 @@ export default function Backups() {
                       <div
                         key={backup.name}
                         className={cn(
-                          'group/backup flex items-center gap-3 p-3 rounded-lg border transition-colors',
+                          'group/backup flex flex-col gap-3 p-3 rounded-lg border transition-colors sm:flex-row sm:items-center',
                           isSelected
                             ? 'border-primary/40 bg-primary/[0.08]'
                             : 'bg-muted/20 border-border/40 hover:border-primary/30 hover:bg-muted/40'
                         )}
                       >
-                        <Checkbox
-                          checked={isSelected}
-                          onCheckedChange={() => toggleBackupSelection(backup.name)}
-                          disabled={isRestoring}
-                          aria-label={`Select backup ${backup.name}`}
-                        />
+                        <div className="flex flex-1 min-w-0 items-center gap-3">
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => toggleBackupSelection(backup.name)}
+                            disabled={isRestoring}
+                            aria-label={t('mainCard.selectBackupAria', { name: backup.name })}
+                          />
 
-                        {/* Leading archive tile — latest backup glows primary, others sit muted */}
-                        <div
-                          className={cn(
-                            'grid place-items-center w-9 h-9 rounded-md border shrink-0',
-                            isLatest
-                              ? 'border-primary/40 bg-primary/[0.08] text-primary'
-                              : 'border-border/55 bg-muted/30 text-muted-foreground'
-                          )}
-                          aria-hidden="true"
-                        >
-                          <Archive className="w-4 h-4" />
-                        </div>
-
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <p className="font-medium text-sm text-foreground truncate">{backup.name}</p>
-                            {isLatest && (
-                              <span className="shrink-0 inline-flex h-5 items-center rounded-full bg-primary/15 px-2 text-[10px] font-medium uppercase tracking-wide text-primary">
-                                Latest
-                              </span>
+                          {/* Leading archive tile — latest backup glows primary, others sit muted */}
+                          <div
+                            className={cn(
+                              'grid place-items-center w-9 h-9 rounded-md border shrink-0',
+                              isLatest
+                                ? 'border-primary/40 bg-primary/[0.08] text-primary'
+                                : 'border-border/55 bg-muted/30 text-muted-foreground'
                             )}
+                            aria-hidden="true"
+                          >
+                            <Archive className="w-4 h-4" />
                           </div>
-                          <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                            <span className="inline-flex items-center gap-1 tabular-nums">
-                              <HardDrive className="w-3 h-3" />
-                              {formatBytes(backup.size)}
-                            </span>
-                            <span className="inline-flex items-center gap-1">
-                              <Clock className="w-3 h-3" />
-                              {formatDate(backup.created)}
-                            </span>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <p className="font-medium text-sm text-foreground truncate">{backup.name}</p>
+                              {isLatest && (
+                                <span className="shrink-0 inline-flex h-5 items-center rounded-full bg-primary/15 px-2 text-[10px] font-medium uppercase tracking-wide text-primary">
+                                  {t('mainCard.latestBadge')}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                              <span className="inline-flex items-center gap-1 tabular-nums">
+                                <HardDrive className="w-3 h-3" />
+                                {formatBytes(backup.size)}
+                              </span>
+                              <span className="inline-flex items-center gap-1">
+                                <Clock className="w-3 h-3" />
+                                {formatDate(backup.created)}
+                              </span>
+                            </div>
                           </div>
                         </div>
 
@@ -938,8 +964,8 @@ export default function Backups() {
                             size="sm"
                             onClick={() => handleViewSnapshot(backup.name)}
                             className="h-9 w-9"
-                            aria-label={`View snapshot for ${backup.name}`}
-                            title="View server snapshot"
+                            aria-label={t('mainCard.viewSnapshotAria', { name: backup.name })}
+                            title={t('mainCard.viewSnapshotTitle')}
                           >
                             <FileText className="w-4 h-4" />
                           </Button>
@@ -949,8 +975,8 @@ export default function Backups() {
                             onClick={() => setRestoreDialog({ open: true, backupName: backup.name })}
                             disabled={isRestoring || restoringBackup !== null || creatingBackup}
                             className="h-9 w-9 text-warning hover:text-warning hover:bg-warning/10"
-                            aria-label={`Restore ${backup.name}`}
-                            title="Restore this backup"
+                            aria-label={t('mainCard.restoreAria', { name: backup.name })}
+                            title={t('mainCard.restoreTitle')}
                           >
                             {isRestoring ? (
                               <Loader2 className="w-4 h-4 animate-spin" />
@@ -963,8 +989,8 @@ export default function Backups() {
                             size="sm"
                             onClick={() => backupApi.downloadBackup(backup.name)}
                             className="h-9 w-9"
-                            aria-label={`Download ${backup.name}`}
-                            title="Download backup"
+                            aria-label={t('mainCard.downloadAria', { name: backup.name })}
+                            title={t('mainCard.downloadTitle')}
                           >
                             <Download className="w-4 h-4" />
                           </Button>
@@ -974,8 +1000,8 @@ export default function Backups() {
                             onClick={() => setDeleteDialog({ open: true, names: [backup.name] })}
                             disabled={deletingBackups}
                             className="h-9 w-9 text-destructive hover:text-destructive hover:bg-destructive/10"
-                            aria-label={`Delete ${backup.name}`}
-                            title="Delete backup"
+                            aria-label={t('mainCard.deleteAria', { name: backup.name })}
+                            title={t('mainCard.deleteTitle')}
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
@@ -993,28 +1019,28 @@ export default function Backups() {
       <AlertDialog open={snapshotDialog !== null} onOpenChange={(open) => !open && setSnapshotDialog(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Server Snapshot</AlertDialogTitle>
+            <AlertDialogTitle>{t('snapshotDialog.title')}</AlertDialogTitle>
             <AlertDialogDescription>{snapshotDialog?.name}</AlertDialogDescription>
           </AlertDialogHeader>
           {snapshotDialog && (
             <div className="space-y-3 text-sm">
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-muted-foreground">
-                <span>Server</span><span className="text-foreground">{snapshotDialog.snapshot.server.name}</span>
-                <span>Provider</span><span className="text-foreground">{snapshotDialog.snapshot.server.provider}</span>
-                <span>Captured</span><span className="text-foreground">{new Date(snapshotDialog.snapshot.createdAt).toLocaleString()}</span>
+                <span>{t('snapshotDialog.serverLabel')}</span><span className="text-foreground">{snapshotDialog.snapshot.server.name}</span>
+                <span>{t('snapshotDialog.providerLabel')}</span><span className="text-foreground">{snapshotDialog.snapshot.server.provider}</span>
+                <span>{t('snapshotDialog.capturedLabel')}</span><span className="text-foreground">{new Date(snapshotDialog.snapshot.createdAt).toLocaleString()}</span>
               </div>
               <div>
-                <p className="mb-1 text-xs font-medium text-muted-foreground">SERVER.INI</p>
-                <pre className="max-h-36 overflow-auto rounded border border-border/60 bg-muted/20 p-2 text-xs">{Object.entries(snapshotDialog.snapshot.serverIni).map(([key, value]) => `${key}=${value}`).join('\n') || 'No captured settings'}</pre>
+                <p className="mb-1 text-xs font-medium text-muted-foreground">{t('snapshotDialog.serverIniLabel')}</p>
+                <pre className="max-h-36 overflow-auto rounded border border-border/60 bg-muted/20 p-2 text-xs">{Object.entries(snapshotDialog.snapshot.serverIni).map(([key, value]) => `${key}=${value}`).join('\n') || t('snapshotDialog.noSettings')}</pre>
               </div>
               <div>
-                <p className="mb-1 text-xs font-medium text-muted-foreground">SANDBOX</p>
-                <pre className="max-h-36 overflow-auto rounded border border-border/60 bg-muted/20 p-2 text-xs">{Object.entries(snapshotDialog.snapshot.sandboxVars).map(([key, value]) => `${key}=${value}`).join('\n') || 'No captured settings'}</pre>
+                <p className="mb-1 text-xs font-medium text-muted-foreground">{t('snapshotDialog.sandboxLabel')}</p>
+                <pre className="max-h-36 overflow-auto rounded border border-border/60 bg-muted/20 p-2 text-xs">{Object.entries(snapshotDialog.snapshot.sandboxVars).map(([key, value]) => `${key}=${value}`).join('\n') || t('snapshotDialog.noSettings')}</pre>
               </div>
             </div>
           )}
           <AlertDialogFooter>
-            <AlertDialogAction onClick={() => setSnapshotDialog(null)}>Close</AlertDialogAction>
+            <AlertDialogAction onClick={() => setSnapshotDialog(null)}>{t('snapshotDialog.close')}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -1025,26 +1051,31 @@ export default function Backups() {
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2 text-warning">
               <AlertTriangle className="w-5 h-5" />
-              Restore Backup
+              {t('restoreDialog.title')}
             </AlertDialogTitle>
             <AlertDialogDescription className="space-y-2">
               <p>
-                Restore <strong>{restoreDialog.backupName}</strong>. This will <span className="font-medium text-destructive">replace</span> the current world data.
+                <Trans
+                  i18nKey="restoreDialog.description"
+                  t={t}
+                  values={{ name: restoreDialog.backupName }}
+                  components={{ 1: <strong />, 2: <span className="font-medium text-destructive" /> }}
+                />
               </p>
               <ul className="list-disc list-inside text-sm space-y-1 mt-2">
-                <li>Stop the server first.</li>
-                <li>The panel will create a safety backup before restoring.</li>
-                <li>This action cannot be undone.</li>
+                <li>{t('restoreDialog.bulletStopServer')}</li>
+                <li>{t('restoreDialog.bulletSafetyBackup')}</li>
+                <li>{t('restoreDialog.bulletCannotUndo')}</li>
               </ul>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t('restoreDialog.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => restoreDialog.backupName && handleRestoreBackup(restoreDialog.backupName)}
               className="bg-warning text-warning-foreground hover:bg-warning/90"
             >
-              Restore this backup
+              {t('restoreDialog.confirm')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1056,27 +1087,37 @@ export default function Backups() {
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2 text-destructive">
               <Trash2 className="w-5 h-5" />
-              Delete Backup{deleteDialog.names.length > 1 ? 's' : ''}
+              {deleteDialog.names.length > 1 ? t('deleteDialog.titlePlural') : t('deleteDialog.titleSingle')}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {deleteDialog.names.length === 1 ? (
                 <p>
-                  Delete <strong>{deleteDialog.names[0]}</strong>? This permanently removes the backup file.
+                  <Trans
+                    i18nKey="deleteDialog.descSingle"
+                    t={t}
+                    values={{ name: deleteDialog.names[0] }}
+                    components={{ 1: <strong /> }}
+                  />
                 </p>
               ) : (
                 <p>
-                  Delete <strong>{deleteDialog.names.length} backups</strong>? This permanently removes those files.
+                  <Trans
+                    i18nKey="deleteDialog.descPlural"
+                    t={t}
+                    values={{ count: deleteDialog.names.length }}
+                    components={{ 1: <strong /> }}
+                  />
                 </p>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t('deleteDialog.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => handleDeleteBackups(deleteDialog.names)}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Delete backup{deleteDialog.names.length > 1 ? 's' : ''}
+              {deleteDialog.names.length > 1 ? t('deleteDialog.confirmPlural') : t('deleteDialog.confirmSingle')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1088,13 +1129,13 @@ export default function Backups() {
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2 text-warning">
               <Clock className="w-5 h-5" />
-              Delete Old Backups
+              {t('deleteOlderDialog.title')}
             </AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-4">
-                <p>Delete every backup older than the number of days you choose here.</p>
+                <p>{t('deleteOlderDialog.description')}</p>
                 <div className="flex items-center gap-3">
-                  <Label htmlFor="delete-days" className="text-foreground whitespace-nowrap">Delete backups older than</Label>
+                  <Label htmlFor="delete-days" className="text-foreground whitespace-nowrap">{t('deleteOlderDialog.olderThanLabel')}</Label>
                   <Input
                     id="delete-days"
                     type="number"
@@ -1109,21 +1150,21 @@ export default function Backups() {
                     }}
                     className="w-20"
                   />
-                  <span className="text-foreground">days</span>
+                  <span className="text-foreground">{t('deleteOlderDialog.daysUnit')}</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  This permanently deletes backups created more than {deleteOlderDays} days ago.
+                  {t('deleteOlderDialog.warningWithDays', { days: deleteOlderDays })}
                 </p>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t('deleteOlderDialog.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteOlderThan}
               className="bg-warning text-warning-foreground hover:bg-warning/90"
             >
-              Delete older backups
+              {t('deleteOlderDialog.confirm')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

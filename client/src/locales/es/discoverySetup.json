@@ -1,0 +1,12 @@
+{
+  "title": "Añadir servidor detectado",
+  "description": "Crea un perfil de servidor a partir de un punto de montaje detectado.",
+  "install": "Instalación",
+  "data": "Datos",
+  "configuration": "Configuración",
+  "displayName": "Nombre visible",
+  "cancel": "Cancelar",
+  "addServer": "Añadir servidor",
+  "toastServerAdded": "Servidor añadido",
+  "failedToCreate": "No se pudo crear el servidor"
+}

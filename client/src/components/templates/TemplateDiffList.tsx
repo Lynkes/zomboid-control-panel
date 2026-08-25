@@ -1,4 +1,5 @@
 import { ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Sliders, FileCog, Package } from 'lucide-react'
 import { SimTemplateDiff, SimTemplateModRef } from '@/lib/api'
 import { getIniKeyLabel, getSandboxKeyLabel, formatDiffValue } from '@/lib/templateLabels'
@@ -51,6 +52,7 @@ interface TemplateDiffListProps {
 }
 
 export function TemplateDiffList({ diff, mods }: TemplateDiffListProps) {
+  const { t } = useTranslation('templateDiffList')
   const sandboxRows: DiffRow[] = diff.sandboxVars.map((c) => ({
     label: getSandboxKeyLabel(c.key),
     sub: c.section,
@@ -65,15 +67,15 @@ export function TemplateDiffList({ diff, mods }: TemplateDiffListProps) {
 
   return (
     <div className="space-y-4">
-      <Section icon={Sliders} title="Sandbox Changes">
-        <DiffRows rows={sandboxRows} emptyText="No sandbox setting changes." />
+      <Section icon={Sliders} title={t('sandboxChanges')}>
+        <DiffRows rows={sandboxRows} emptyText={t('noSandboxChanges')} />
       </Section>
-      <Section icon={FileCog} title="Server INI Changes">
-        <DiffRows rows={iniRows} emptyText="No server.ini changes." />
+      <Section icon={FileCog} title={t('serverIniChanges')}>
+        <DiffRows rows={iniRows} emptyText={t('noIniChanges')} />
       </Section>
-      <Section icon={Package} title="Mods">
+      <Section icon={Package} title={t('mods')}>
         {mods.length === 0 ? (
-          <p className="text-xs text-muted-foreground">This template doesn't reference any mods.</p>
+          <p className="text-xs text-muted-foreground">{t('noModsReferenced')}</p>
         ) : (
           <>
             <ul className="rounded-md border border-border/50 divide-y divide-border/50">
@@ -84,7 +86,7 @@ export function TemplateDiffList({ diff, mods }: TemplateDiffListProps) {
               ))}
             </ul>
             <p className="text-[11px] text-muted-foreground">
-              Referenced mods aren't installed automatically — add them from the Mod Manager.
+              {t('modsNotInstalledAutomatically')}
             </p>
           </>
         )}

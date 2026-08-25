@@ -9,6 +9,9 @@ import {
   useCallback,
 } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import { getCurrentLanguage } from "@/i18n";
 import {
   Bug,
   RefreshCw,
@@ -61,6 +64,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { reportClientError } from "@/lib/client-errors";
+import { translateDiagnosticCheck } from "@/lib/diagnosticsTranslation";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -193,6 +197,8 @@ interface DiagCheck {
   hint?: string;
   category: string;
   meta?: Record<string, unknown>;
+  params?: Record<string, string | number>;
+  variant?: string;
 }
 
 interface DiagSummary {
@@ -264,6 +270,24 @@ type DiagnosticsFixAction = {
   note?: string;
 };
 
+// This whole file fetches with authFetch() (a raw fetch, not the JSON
+// api.ts client that already parses `{ error, code }` bodies), so a
+// non-ok response needs its own body read before the real server message
+// -- "Log file not found", "No support logs found", "Invalid filename",
+// etc. -- can reach a catch block instead of just an HTTP status number.
+export async function parseDownloadError(res: Response, fallback: string): Promise<string> {
+  try {
+    const data: unknown = await res.json();
+    if (data && typeof data === "object" && "error" in data && typeof (data as { error: unknown }).error === "string") {
+      const message = (data as { error: string }).error;
+      if (message) return message;
+    }
+  } catch {
+    // Not a JSON body (e.g. an HTML error page from a proxy) -- fall through.
+  }
+  return fallback;
+}
+
 function getDiagMetaStringList(check: DiagCheck, key: string): string[] {
   const raw = check.meta?.[key];
   if (!Array.isArray(raw)) return [];
@@ -273,11 +297,20 @@ function getDiagMetaStringList(check: DiagCheck, key: string): string[] {
   );
 }
 
-function getDiagnosticsFixAction(
+// MUST be called with the RAW check straight from the API response, never
+// the output of translateDiagnosticCheck() -- `note` below falls back to
+// the literal `check.hint` verbatim, which should stay the server's own
+// English text, not a partially-translated mix. See translateDiagnosticCheck's
+// own call site in this file: it deliberately keeps this function fed the
+// untranslated `check`, only the three *displayed* text nodes use the
+// translated copy.
+export function getDiagnosticsFixAction(
   check: DiagCheck,
+  t: TFunction,
 ): DiagnosticsFixAction | null {
   // Never show a fix button for passing or skipped checks.
   if (check.status === "ok" || check.status === "skip") return null;
+  const L = (key: string) => t(`fixActions.links.${key}`);
 
   switch (check.id) {
     case "mods.numericInMods": {
@@ -285,16 +318,16 @@ function getDiagnosticsFixAction(
       return {
         label:
           count > 0
-            ? `Strip ${count} numeric IDs from Mods=`
-            : "Strip numeric IDs from Mods=",
+            ? t("fixActions.modsNumericInMods.labelWithCount", { count })
+            : t("fixActions.modsNumericInMods.labelGeneric"),
         automated: true,
         requiresConfirm: count > 10,
-        confirmMessage: `This will remove ${count} numeric Workshop ID${count === 1 ? "" : "s"} from Mods= (they belong in WorkshopItems=). Restart required.\n\nProceed?`,
+        confirmMessage: t("fixActions.modsNumericInMods.confirmMessage", { count }),
         openServerConfig: true,
         note:
           count > 0
-            ? `Removes ${count} numeric ID${count === 1 ? "" : "s"} from Mods=. Restart required.`
-            : "Removes numeric Workshop IDs from Mods=. Restart required.",
+            ? t("fixActions.modsNumericInMods.noteWithCount", { count })
+            : t("fixActions.modsNumericInMods.noteGeneric"),
       };
     }
     case "mods.resolved": {
@@ -304,13 +337,16 @@ function getDiagnosticsFixAction(
       // the orphanWorkshop fix first usually resolves many of these.
       const count = getDiagMetaStringList(check, "unresolvedMods").length;
       return {
-        label: count > 0 ? `Review ${count} unresolved` : "Review unresolved",
+        label:
+          count > 0
+            ? t("fixActions.modsResolved.labelWithCount", { count })
+            : t("fixActions.modsResolved.labelGeneric"),
         automated: false,
         openServerConfig: true,
         links: [
-          { to: "/mods?review=unresolved", label: "Open dependency review" },
+          { to: "/mods?review=unresolved", label: L("openDependencyReview") },
         ],
-        note: "Fix orphan Workshop items first (below), then re-run diagnostics. Disable manually only if entries truly don\u2019t resolve after downloads finish.",
+        note: t("fixActions.modsResolved.note"),
       };
     }
     case "mods.orphanWorkshop": {
@@ -318,255 +354,257 @@ function getDiagnosticsFixAction(
       return {
         label:
           count > 0
-            ? `Auto-fix ${count} Workshop IDs`
-            : "Auto-fix Workshop IDs",
+            ? t("fixActions.modsOrphanWorkshop.labelWithCount", { count })
+            : t("fixActions.modsOrphanWorkshop.labelGeneric"),
         automated: true,
         requiresConfirm: count > 10,
-        confirmMessage: `This will triage ${count} Workshop item${count === 1 ? "" : "s"}: downloaded → added to Mods=; ignored or missing → removed from WorkshopItems=. The server must restart for changes to take effect.\n\nProceed?`,
+        confirmMessage: t("fixActions.modsOrphanWorkshop.confirmMessage", { count }),
         openServerConfig: true,
         openMods: true,
         note:
           count > 0
-            ? `Triages ${count} Workshop item${count === 1 ? "" : "s"}: enables downloaded mods, drops ignored/missing IDs. Restart required.`
-            : "Triages Workshop items: enables downloaded mods, drops ignored/missing IDs. Restart required.",
+            ? t("fixActions.modsOrphanWorkshop.noteWithCount", { count })
+            : t("fixActions.modsOrphanWorkshop.noteGeneric"),
       };
     }
     case "mods.maps":
       return {
-        label: "Repair Map=",
+        label: t("fixActions.modsMaps.label"),
         automated: true,
         openServerConfig: true,
-        note: "Removes invalid Map= entries and re-adds detected map folders. Restart required.",
+        note: t("fixActions.modsMaps.note"),
       };
     case "mods.duplicates": {
       const dupCount =
         getDiagMetaStringList(check, "dupMods").length +
         getDiagMetaStringList(check, "dupWs").length;
       return {
-        label: dupCount > 0 ? `Deduplicate ${dupCount}` : "Deduplicate",
+        label:
+          dupCount > 0
+            ? t("fixActions.modsDuplicates.labelWithCount", { count: dupCount })
+            : t("fixActions.modsDuplicates.labelGeneric"),
         automated: true,
         openServerConfig: true,
-        note: "Removes duplicate Mods= entries. Restart required.",
+        note: t("fixActions.modsDuplicates.note"),
       };
     }
     case "mods.workshopCrash":
       return {
-        label: "Open Mods",
+        label: t("fixActions.modsWorkshopCrash.label"),
         automated: false,
         openMods: true,
-        note: "Re-check Workshop downloads and remove or replace the failing mod, then restart.",
+        note: t("fixActions.modsWorkshopCrash.note"),
       };
 
     // ─── Server / process ──────────────────────────────────────────────────
     case "server.process":
       return {
-        label: "Start server",
+        label: t("fixActions.serverProcess.label"),
         automated: true,
-        links: [{ to: "/", label: "Open Dashboard" }],
-        note: "Starts the dedicated server using the active configuration.",
+        links: [{ to: "/", label: L("openDashboard") }],
+        note: t("fixActions.serverProcess.note"),
       };
     case "server.active":
     case "server.installPath":
       return {
-        label: "Open Servers",
+        label: t("fixActions.serverActiveOrInstallPath.label"),
         automated: false,
         links: [
-          { to: "/servers", label: "Open Servers" },
-          { to: "/server-finder", label: "Auto-detect" },
+          { to: "/servers", label: L("openServers") },
+          { to: "/server-finder", label: L("autoDetect") },
         ],
-        note: "Select or configure an active server with a valid install path.",
+        note: t("fixActions.serverActiveOrInstallPath.note"),
       };
     case "server.zomboidData":
       return {
-        label: "Open Settings",
+        label: t("fixActions.serverZomboidData.label"),
         automated: false,
-        links: [{ to: "/settings", label: "Open Settings" }],
-        note: "Set the Zomboid data path in Settings.",
+        links: [{ to: "/settings", label: L("openSettings") }],
+        note: t("fixActions.serverZomboidData.note"),
       };
     case "server.startScript":
     case "server.jre":
     case "server.jreWorks":
       return {
-        label: "Open Server Finder",
+        label: t("fixActions.serverStartScriptOrJre.label"),
         automated: false,
-        links: [{ to: "/server-finder", label: "Open Server Finder" }],
-        note: "Re-run server detection or reinstall the dedicated server files.",
+        links: [{ to: "/server-finder", label: L("openServerFinder") }],
+        note: t("fixActions.serverStartScriptOrJre.note"),
       };
     case "server.ini":
     case "server.sandboxVars":
       return {
-        label: "Open Server Config",
+        label: t("fixActions.serverIniOrSandboxVars.label"),
         automated: false,
         openServerConfig: true,
-        note: "Configure server settings to generate or repair the .ini files.",
+        note: t("fixActions.serverIniOrSandboxVars.note"),
       };
     case "server.sandboxCorrupt":
       return {
-        label: "Repair SandboxVars.lua",
+        label: t("fixActions.serverSandboxCorrupt.label"),
         automated: true,
-        note: "Attempts an automated repair (missing block header/comma). A backup of the broken file is saved first. If the corruption doesn\u2019t match a known pattern, nothing is written.",
+        note: t("fixActions.serverSandboxCorrupt.note"),
       };
     case "server.rconPassword":
       return {
-        label: "Open Server Config",
+        label: t("fixActions.serverRconPassword.label"),
         automated: false,
         openServerConfig: true,
-        links: [{ to: "/settings", label: "Open Settings" }],
-        note: "Set the RCON password in Server Config (and matching value in Settings).",
+        links: [{ to: "/settings", label: L("openSettings") }],
+        note: t("fixActions.serverRconPassword.note"),
       };
     case "server.bridgeMod":
       return {
-        label: "Open Server Finder",
+        label: t("fixActions.serverBridgeMod.label"),
         automated: false,
-        links: [{ to: "/server-finder", label: "Open Server Finder" }],
-        note: "Re-deploy the PanelBridge mod via Server Finder.",
+        links: [{ to: "/server-finder", label: L("openServerFinder") }],
+        note: t("fixActions.serverBridgeMod.note"),
       };
     case "server.configDrift":
       return {
-        label: "Open Server Config",
+        label: t("fixActions.serverConfigDrift.label"),
         automated: false,
         openServerConfig: true,
-        note: "Reload the panel\u2019s config from server.ini, or push your changes back to disk.",
+        note: t("fixActions.serverConfigDrift.note"),
       };
     case "server.staleLocks":
       return {
-        label: "Delete stale lock files",
+        label: t("fixActions.serverStaleLocks.label"),
         automated: true,
         requiresConfirm: true,
-        confirmMessage:
-          "This will delete every *.lock file older than 1 hour in the active save folder. The server must be stopped first.\n\nProceed?",
-        links: [{ to: "/chunks", label: "Open Chunk Cleaner" }],
-        note: "Stops the server is NOT automated — make sure the server is stopped first. Then deletes stale .lock files.",
+        confirmMessage: t("fixActions.serverStaleLocks.confirmMessage"),
+        links: [{ to: "/chunks", label: L("openChunkCleaner") }],
+        note: t("fixActions.serverStaleLocks.note"),
       };
     case "server.recentCrash":
       return {
-        label: "View crash logs",
+        label: t("fixActions.serverRecentCrash.label"),
         automated: true,
-        note: "Opens the Crash Logs tab on this page for the latest stack trace.",
+        note: t("fixActions.serverRecentCrash.note"),
       };
 
     // ─── Services ──────────────────────────────────────────────────────────
     case "rcon.connected":
       return {
-        label: "Reconnect RCON",
+        label: t("fixActions.rconConnected.label"),
         automated: true,
         openServerConfig: true,
-        links: [{ to: "/settings", label: "Open Settings" }],
-        note: "Tries to reconnect to RCON using the saved password. If it still fails, check that the password in Server Config matches Settings, then restart the server.",
+        links: [{ to: "/settings", label: L("openSettings") }],
+        note: t("fixActions.rconConnected.note"),
       };
     case "modChecker":
     case "scheduler":
     case "services.error":
       return {
-        label: "Open Settings",
+        label: t("fixActions.servicesStuck.label"),
         automated: false,
-        links: [{ to: "/settings", label: "Open Settings" }],
-        note: "Restarting the panel usually clears stuck services.",
+        links: [{ to: "/settings", label: L("openSettings") }],
+        note: t("fixActions.servicesStuck.note"),
       };
     case "discord.bot":
       return {
-        label: "Open Discord",
+        label: t("fixActions.discordBot.label"),
         automated: false,
-        links: [{ to: "/discord", label: "Open Discord" }],
-        note: "Check the bot token and intents in Discord settings.",
+        links: [{ to: "/discord", label: L("openDiscord") }],
+        note: t("fixActions.discordBot.note"),
       };
 
     // ─── Bridge ────────────────────────────────────────────────────────────
     case "bridge.configured":
     case "worldmap.bridge.configured":
       return {
-        label: "Auto-configure bridge",
+        label: t("fixActions.bridgeConfigured.label"),
         automated: true,
-        links: [{ to: "/settings?tab=bridge", label: "Open Bridge settings" }],
-        note: "Points the panel at the active server\u2019s bridge folder and starts the watcher. The game server must then be running with PanelBridge.lua installed.",
+        links: [{ to: "/settings?tab=bridge", label: L("openBridgeSettings") }],
+        note: t("fixActions.bridgeConfigured.note"),
       };
     case "bridge.writable":
     case "bridge.heartbeat":
       return {
-        label: "Open Server Finder",
+        label: t("fixActions.bridgeWritableOrHeartbeat.label"),
         automated: false,
-        links: [{ to: "/server-finder", label: "Open Server Finder" }],
-        note: "Re-deploy PanelBridge, ensure the server is running, and check write permissions on the bridge folder.",
+        links: [{ to: "/server-finder", label: L("openServerFinder") }],
+        note: t("fixActions.bridgeWritableOrHeartbeat.note"),
       };
 
     // ─── Database / storage ────────────────────────────────────────────────
     case "db.exists":
     case "db.writable":
       return {
-        label: "Open Settings",
+        label: t("fixActions.dbExistsOrWritable.label"),
         automated: false,
-        links: [{ to: "/settings", label: "Open Settings" }],
-        note: "Verify the data directory path exists and the panel can write to it.",
+        links: [{ to: "/settings", label: L("openSettings") }],
+        note: t("fixActions.dbExistsOrWritable.note"),
       };
     case "db.backup":
       return {
-        label: "Create database backup",
+        label: t("fixActions.dbBackup.label"),
         automated: true,
-        links: [{ to: "/backups", label: "Open Backups" }],
-        note: "Creates a manual database backup right now. Schedule recurring backups from the Backups page.",
+        links: [{ to: "/backups", label: L("openBackups") }],
+        note: t("fixActions.dbBackup.note"),
       };
     case "logs.writable":
       return {
-        label: "Open Settings",
+        label: t("fixActions.logsWritable.label"),
         automated: false,
-        links: [{ to: "/settings", label: "Open Settings" }],
-        note: "Verify the logs directory path exists and is writable.",
+        links: [{ to: "/settings", label: L("openSettings") }],
+        note: t("fixActions.logsWritable.note"),
       };
     case "disk.free":
       return {
-        label: "Open Backups",
+        label: t("fixActions.diskFree.label"),
         automated: false,
         links: [
-          { to: "/backups", label: "Open Backups" },
-          { to: "/chunks", label: "Open Chunk Cleaner" },
+          { to: "/backups", label: L("openBackups") },
+          { to: "/chunks", label: L("openChunkCleaner") },
         ],
-        note: "Free up disk space — delete old backups or clean unused chunks.",
+        note: t("fixActions.diskFree.note"),
       };
     case "storage.saveSize":
       return {
-        label: "Open Chunk Cleaner",
+        label: t("fixActions.storageSaveSize.label"),
         automated: false,
-        links: [{ to: "/chunks", label: "Open Chunk Cleaner" }],
-        note: "Trim the save by removing unreachable chunks.",
+        links: [{ to: "/chunks", label: L("openChunkCleaner") }],
+        note: t("fixActions.storageSaveSize.note"),
       };
 
     // ─── Runtime ───────────────────────────────────────────────────────────
     case "runtime.heap":
     case "runtime.hostMem":
       return {
-        label: "Open Settings",
+        label: t("fixActions.runtimeHeapOrHostMem.label"),
         automated: false,
-        links: [{ to: "/settings", label: "Open Settings" }],
-        note: "Restarting the panel reclaims heap. Close other processes if host RAM is exhausted.",
+        links: [{ to: "/settings", label: L("openSettings") }],
+        note: t("fixActions.runtimeHeapOrHostMem.note"),
       };
     case "runtime.timeSkew":
       return {
-        label: "Show recommended fix",
+        label: t("fixActions.runtimeTimeSkew.label"),
         automated: false,
-        note: "Sync the host system clock (NTP / Windows Time service) and re-run diagnostics.",
+        note: t("fixActions.runtimeTimeSkew.note"),
       };
 
     // ─── Updates ───────────────────────────────────────────────────────────
     case "update.panel":
     case "updates.error":
       return {
-        label: "Open Settings",
+        label: t("fixActions.updatePanelOrError.label"),
         automated: false,
-        links: [{ to: "/settings", label: "Open Settings" }],
-        note: "Panel updates are managed from Settings → Updates.",
+        links: [{ to: "/settings", label: L("openSettings") }],
+        note: t("fixActions.updatePanelOrError.note"),
       };
     case "update.mods":
       return {
-        label: "Open Mods",
+        label: t("fixActions.updateMods.label"),
         automated: false,
         openMods: true,
-        note: "Review and apply Workshop mod updates from the Mods page.",
+        note: t("fixActions.updateMods.note"),
       };
     case "update.steamApi":
       return {
-        label: "Show recommended fix",
+        label: t("fixActions.updateSteamApi.label"),
         automated: false,
-        note: "Verify outbound internet access to api.steampowered.com.",
+        note: t("fixActions.updateSteamApi.note"),
       };
 
     default: {
@@ -580,16 +618,27 @@ function getDiagnosticsFixAction(
         category === "worldmap" &&
         !links.some((l) => l.to === "/world-map")
       ) {
-        links.push({ to: "/world-map", label: "Open World Map" });
+        links.push({ to: "/world-map", label: L("openWorldMap") });
       }
       return {
-        label: "Show recommended fix",
+        label: t("fixActions.fallback.label"),
         automated: false,
-        openServerConfig:
-          hint.includes("server config") || hint.includes("server.ini"),
+        // Only match literal tokens here, never English prose. SERVER.INI
+        // and Mods= are on the do-not-translate list in every locale
+        // glossary, so they still appear verbatim (just lowercased) inside
+        // a translated hint -- safe to match regardless of UI language.
+        // A prose phrase like "server config" is not: it used to also be
+        // matched here, and every check whose English hint contains that
+        // phrase already has an explicit case above that sets
+        // openServerConfig directly, so removing it changes nothing today
+        // -- but it would have silently dropped the Open Server Config
+        // button for non-English users the day someone added a new
+        // fallback-covered check with that phrase in its hint. Don't
+        // re-add a prose match here; add an explicit switch case instead.
+        openServerConfig: hint.includes("server.ini"),
         openMods: category === "mods" || hint.includes("mods="),
         links: links.length > 0 ? links : undefined,
-        note: check.hint || "Manual fix \u2014 see hint above.",
+        note: check.hint || t("fixActions.fallback.noteFallback"),
       };
     }
   }
@@ -600,6 +649,7 @@ const DebugPerformanceCharts = lazy(
 );
 
 export default function Debug() {
+  const { t, i18n } = useTranslation("debug");
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [healthStatus, setHealthStatus] = useState<HealthStatus | null>(null);
@@ -617,6 +667,7 @@ export default function Debug() {
   const [refreshingLogs, setRefreshingLogs] = useState(false);
   const [refreshingCrashLogs, setRefreshingCrashLogs] = useState(false);
   const [refreshingHealth, setRefreshingHealth] = useState(false);
+  const [healthError, setHealthError] = useState<string | null>(null);
   const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([]);
   const [activitySource, setActivitySource] = useState<string>("all");
   const [activitySearch, setActivitySearch] = useState("");
@@ -645,10 +696,19 @@ export default function Debug() {
     null,
   );
   const [refreshingDiagnostics, setRefreshingDiagnostics] = useState(false);
+  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
   const [diagnosticsHideOk, setDiagnosticsHideOk] = useState(false);
   const [fixingDiagnosticsCheckId, setFixingDiagnosticsCheckId] = useState<
     string | null
   >(null);
+  // Auto-fix failures otherwise only ever surfaced via a toast, which
+  // auto-dismisses and leaves the failing check row with no indication
+  // anything was attempted -- a user who steps away or switches tabs
+  // mid-attempt has no way to tell the fix ran and failed vs. was never
+  // tried. Persisted per check.id, same pattern as healthError/worldMapError.
+  const [diagnosticsFixErrors, setDiagnosticsFixErrors] = useState<
+    Record<string, string>
+  >({});
   const [worldMapDiag, setWorldMapDiag] = useState<WorldMapDiagnostics | null>(
     null,
   );
@@ -761,14 +821,17 @@ export default function Debug() {
     setRefreshingHealth(true);
     try {
       const res = await authFetch("/api/debug/health");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw new Error(await parseDownloadError(res, `HTTP ${res.status}`));
       const data = await res.json();
       if (data?.services) {
         setHealthStatus(data);
+        setHealthError(null);
       } else {
-        setHealthStatus(null);
+        setHealthError(t("worldMapTab.unexpectedResponse"));
       }
     } catch (error) {
+      const msg = error instanceof Error ? error.message : t("worldMapTab.networkError");
+      setHealthError(msg);
       reportClientError("Failed to fetch health status.", error);
     } finally {
       setRefreshingHealth(false);
@@ -780,22 +843,50 @@ export default function Debug() {
     setRefreshingDiagnostics(true);
     try {
       const res = await authFetch("/api/debug/diagnostics");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw new Error(await parseDownloadError(res, `HTTP ${res.status}`));
       const data = await res.json();
-      if (data?.checks) setDiagnostics(data);
+      if (data?.checks) {
+        setDiagnostics(data);
+        setDiagnosticsError(null);
+        // Drop persisted fix-errors for checks that no longer fail/warn --
+        // the underlying issue resolved (via this fix or another path), so
+        // the stale error banner shouldn't keep showing.
+        const stillBad = new Set(
+          (data.checks as DiagCheck[])
+            .filter((c) => c.status === "fail" || c.status === "warn")
+            .map((c) => c.id),
+        );
+        setDiagnosticsFixErrors((prev) => {
+          const next: Record<string, string> = {};
+          for (const [id, msg] of Object.entries(prev)) {
+            if (stillBad.has(id)) next[id] = msg;
+          }
+          return next;
+        });
+      } else {
+        setDiagnosticsError(t("worldMapTab.unexpectedResponse"));
+      }
     } catch (error) {
+      const msg = error instanceof Error ? error.message : t("worldMapTab.networkError");
+      setDiagnosticsError(msg);
       reportClientError("Failed to fetch diagnostics.", error);
     } finally {
       setRefreshingDiagnostics(false);
     }
-  }, [authFetch]);
+  }, [authFetch, t]);
 
   const handleDiagnosticsFix = useCallback(
     async (check: DiagCheck) => {
-      const action = getDiagnosticsFixAction(check);
+      const action = getDiagnosticsFixAction(check, t);
       if (!action) return;
 
       setFixingDiagnosticsCheckId(check.id);
+      setDiagnosticsFixErrors((prev) => {
+        if (!(check.id in prev)) return prev;
+        const next = { ...prev };
+        delete next[check.id];
+        return next;
+      });
       try {
         if (!action.automated) {
           if (check.id === "mods.resolved") {
@@ -803,49 +894,50 @@ export default function Debug() {
             return;
           }
           toast({
-            title: "Manual fix recommended",
+            title: t("diagnostics.manualFixTitle"),
             description:
               action.note ||
               check.hint ||
-              "Open the suggested page and apply the listed fix.",
+              t("diagnostics.manualFixFallback"),
           });
           return;
         }
 
         if (action.requiresConfirm) {
-          const message = action.confirmMessage || `Apply ${action.label}?`;
+          const message =
+            action.confirmMessage ||
+            t("diagnostics.applyFixFallback", { label: action.label });
           const ok = await confirm({
-            title: "Apply fix?",
+            title: t("diagnostics.applyFixTitle"),
             description: message,
-            confirmLabel: "Apply",
+            confirmLabel: t("diagnostics.applyButton"),
           });
           if (!ok) {
             return;
           }
         }
 
-        const restartHint = " Restart the server to apply the changes.";
+        const restartHint = t("common.restartHint");
 
         if (check.id === "mods.numericInMods") {
           const numericIds = getDiagMetaStringList(check, "numericInMods");
           if (numericIds.length === 0) {
-            throw new Error(
-              "No numeric Mods= entries were provided by diagnostics.",
-            );
+            throw new Error(t("diagnostics.noNumericIdsError"));
           }
           const result = await modsApi.batchToggleModIds(
             numericIds.map((modId) => ({ modId, enabled: false })),
           );
           toast({
-            title: "Numeric IDs removed from Mods=",
-            description: `Stripped ${result.changed} entry${result.changed === 1 ? "" : "ies"} from Mods=.${restartHint}`,
+            title: t("diagnostics.numericIdsRemovedTitle"),
+            description: t("diagnostics.numericIdsRemovedDesc", {
+              count: result.changed,
+              restartHint,
+            }),
           });
         } else if (check.id === "mods.orphanWorkshop") {
           const orphanWorkshop = getDiagMetaStringList(check, "orphanWorkshop");
           if (orphanWorkshop.length === 0) {
-            throw new Error(
-              "No orphan Workshop IDs were provided by diagnostics.",
-            );
+            throw new Error(t("diagnostics.noOrphanWorkshopError"));
           }
 
           const result = await modsApi.resolveOrphanWorkshop(orphanWorkshop);
@@ -857,88 +949,107 @@ export default function Debug() {
           const parts: string[] = [];
           if (counts.enabled > 0)
             parts.push(
-              `enabled ${counts.enabled} (added ${modIdsAdded} mod ID${modIdsAdded === 1 ? "" : "s"})`,
+              t("diagnostics.workshopEnabled", {
+                enabled: counts.enabled,
+                count: modIdsAdded,
+              }),
             );
           if (droppedTotal > 0) {
             const sub: string[] = [];
             if (counts.droppedIgnored)
-              sub.push(`${counts.droppedIgnored} ignored`);
+              sub.push(
+                t("diagnostics.workshopDroppedIgnored", {
+                  count: counts.droppedIgnored,
+                }),
+              );
             if (counts.droppedMissing)
-              sub.push(`${counts.droppedMissing} not on disk`);
+              sub.push(
+                t("diagnostics.workshopDroppedMissing", {
+                  count: counts.droppedMissing,
+                }),
+              );
             if (counts.droppedNoModInfo)
-              sub.push(`${counts.droppedNoModInfo} no mod.info`);
+              sub.push(
+                t("diagnostics.workshopDroppedNoInfo", {
+                  count: counts.droppedNoModInfo,
+                }),
+              );
             parts.push(
-              `dropped ${droppedTotal} from WorkshopItems= (${sub.join(", ")})`,
+              t("diagnostics.workshopDropped", {
+                count: droppedTotal,
+                sub: sub.join(", "),
+              }),
             );
           }
+          // Clause separator/terminator is a language property, not something
+          // every locale's untranslated fragment can be assumed to want a
+          // Latin "; "/"." for -- zh-CN's own fragments carry no punctuation
+          // and expect full-width equivalents instead.
+          const isZh = i18n.language === "zh-CN";
+          const clauseSep = isZh ? "；" : "; ";
+          const clauseEnd = isZh ? "。" : ".";
           toast({
-            title: "Workshop items resolved",
+            title: t("diagnostics.workshopResolvedTitle"),
             description:
               parts.length > 0
-                ? `${parts.join("; ")}.${counts.enabled > 0 ? restartHint : ""}`
-                : `Nothing to change for ${result.total} ID${result.total === 1 ? "" : "s"}.`,
+                ? `${parts.join(clauseSep)}${clauseEnd}${counts.enabled > 0 ? restartHint : ""}`
+                : t("diagnostics.workshopNothingToChange", {
+                    count: result.total,
+                  }),
           });
           void wsDropped; // count already reflected in droppedTotal
         } else if (check.id === "mods.maps") {
           const result = await modsApi.repairMapEntries();
           toast({
-            title: "Map entries repaired",
+            title: t("diagnostics.mapEntriesRepairedTitle"),
             description: `${result.message}${restartHint}`,
           });
         } else if (check.id === "mods.duplicates") {
           const result = await modsApi.deduplicateModIds();
           toast({
-            title: "Duplicates cleaned",
+            title: t("diagnostics.duplicatesCleanedTitle"),
             description: `${result.message}${restartHint}`,
           });
         } else if (check.id === "server.process") {
+          // /server/start always responds non-2xx on failure, so
+          // handleResponse() throws into this handler's surrounding catch
+          // -- this never sees result.success === false.
           const result = (await serverApi.start()) as {
             success?: boolean;
             message?: string;
             error?: string;
           };
-          if (result?.success === false) {
-            throw new Error(
-              result.error || result.message || "Server failed to start.",
-            );
-          }
           toast({
-            title: "Server starting",
+            title: t("diagnostics.serverStartingTitle"),
             description:
-              result?.message ||
-              "Dedicated server start signal sent. Check the Dashboard for status.",
+              result?.message || t("diagnostics.serverStartingFallback"),
           });
         } else if (check.id === "rcon.connected") {
+          // /rcon/connect always responds non-2xx on failure, so
+          // handleResponse() throws into this handler's surrounding catch
+          // -- the connected check below is always true when reached.
           const result = (await rconApi.connect()) as {
             success?: boolean;
             connected?: boolean;
             message?: string;
             error?: string;
           };
-          const connected =
-            result?.connected === true || result?.success === true;
-          if (!connected) {
-            throw new Error(
-              result?.error ||
-                result?.message ||
-                "RCON connect attempt failed.",
-            );
-          }
           toast({
-            title: "RCON reconnected",
-            description: result?.message || "RCON connection re-established.",
+            title: t("diagnostics.rconReconnectedTitle"),
+            description:
+              result?.message || t("diagnostics.rconReconnectedFallback"),
           });
         } else if (check.id === "db.backup") {
+          // /backup/create always responds non-2xx on failure, so
+          // handleResponse() throws into this handler's surrounding catch
+          // -- this never sees result.success === false.
           const result = await backupApi.createBackup({ includeDb: true });
-          if (result?.success === false) {
-            throw new Error(result?.message || "Backup failed.");
-          }
           const backupName = result?.backup?.name
             ? ` (${result.backup.name})`
             : "";
           toast({
-            title: "Database backup created",
-            description: `Backup completed${backupName}.`,
+            title: t("diagnostics.dbBackupCreatedTitle"),
+            description: t("diagnostics.dbBackupCreatedDesc", { backupName }),
           });
         } else if (check.id === "server.staleLocks") {
           const res = await authFetch("/api/debug/clear-stale-locks", {
@@ -957,44 +1068,62 @@ export default function Debug() {
             );
           }
           toast({
-            title: "Stale lock files removed",
+            title: t("diagnostics.staleLocksRemovedTitle"),
             description:
-              data?.message || `Deleted ${data?.deleted ?? 0} lock file(s).`,
+              data?.message ||
+              t("diagnostics.staleLocksRemovedFallback", {
+                count: data?.deleted ?? 0,
+              }),
           });
         } else if (
           check.id === "bridge.configured" ||
           check.id === "worldmap.bridge.configured"
         ) {
+          // /panel-bridge/auto-configure always responds non-2xx on
+          // failure, so handleResponse() throws into this function's
+          // surrounding catch -- this never sees result.success === false.
           const result = await panelBridgeApi.autoConfigure();
-          if (!result?.success) {
-            throw new Error(result?.message || "Could not configure the bridge.");
-          }
           toast({
-            title: "Bridge configured",
-            description: `Watching ${result.serverName || "the active server"}. Start the server to complete the handshake.`,
+            title: t("diagnostics.bridgeConfiguredTitle"),
+            description: t("diagnostics.bridgeConfiguredDesc", {
+              serverName:
+                result.serverName ||
+                t("diagnostics.bridgeConfiguredServerFallback"),
+            }),
           });
         } else if (check.id === "server.recentCrash") {
           setActiveTab("crashes");
           toast({
-            title: "Crash Logs opened",
-            description: "Review the latest crash report below.",
+            title: t("diagnostics.crashLogsOpenedTitle"),
+            description: t("diagnostics.crashLogsOpenedDesc"),
           });
         } else if (check.id === "server.sandboxCorrupt") {
+          // /server-files/sandbox/repair always responds non-2xx on
+          // failure (404/422/500), so handleResponse() throws into this
+          // function's surrounding catch -- this never sees
+          // result.success === false.
           const result = await serverFilesApi.repairSandbox();
-          if (!result?.success) {
-            throw new Error(result?.error || "Repair failed.");
-          }
           if (result.alreadyValid) {
             toast({
-              title: "Already valid",
-              description: result.message || "No repair needed.",
+              title: t("diagnostics.alreadyValidTitle"),
+              description:
+                result.message || t("diagnostics.alreadyValidFallback"),
             });
           } else {
+            // SandboxVars.lua has no live-reload path (PZ's own /reloadoptions
+            // only re-reads ServerOptions.ini, never sandbox vars — see
+            // handleSaveSandbox's comment in ServerConfig.tsx), so a repair
+            // always needs a restart to reach the running game regardless of
+            // whether the server happened to be running when it was repaired.
             toast({
-              title: "SandboxVars.lua repaired",
+              title: t("diagnostics.sandboxRepairedTitle"),
               description:
-                result.message ||
-                `Applied ${result.changes?.length ?? 0} fix(es).${restartHint}`,
+                (result.message
+                  ? `${result.message}${restartHint}`
+                  : t("diagnostics.sandboxRepairedFallback", {
+                      count: result.changes?.length ?? 0,
+                      restartHint,
+                    })),
             });
           }
         }
@@ -1003,17 +1132,20 @@ export default function Debug() {
       } catch (error) {
         reportClientError("Diagnostics auto-fix failed.", error);
         const message =
-          error instanceof Error ? error.message : "Could not apply fix.";
+          error instanceof Error
+            ? error.message
+            : t("diagnostics.fixFailedFallback");
         toast({
-          title: "Fix failed",
+          title: t("diagnostics.fixFailedTitle"),
           description: message,
           variant: "destructive",
         });
+        setDiagnosticsFixErrors((prev) => ({ ...prev, [check.id]: message }));
       } finally {
         setFixingDiagnosticsCheckId(null);
       }
     },
-    [fetchDiagnostics, toast, authFetch],
+    [fetchDiagnostics, toast, authFetch, confirm, t, i18n.language],
   );
 
   // Fetch world-map specific diagnostics
@@ -1025,23 +1157,21 @@ export default function Debug() {
     setWorldMapError(null);
     try {
       const res = await authFetch("/api/debug/worldmap");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw new Error(await parseDownloadError(res, `HTTP ${res.status}`));
       const data = await res.json();
       if (data?.checks) {
         setWorldMapDiag(data);
       } else {
-        setWorldMapError(
-          "Diagnostics endpoint returned an unexpected response.",
-        );
+        setWorldMapError(t("worldMapTab.unexpectedResponse"));
       }
     } catch (error) {
-      const msg = error instanceof Error ? error.message : "Network error";
+      const msg = error instanceof Error ? error.message : t("worldMapTab.networkError");
       setWorldMapError(msg);
       reportClientError("Failed to fetch World Map diagnostics.", error);
     } finally {
       setRefreshingWorldMap(false);
     }
-  }, [authFetch]);
+  }, [authFetch, t]);
 
   // Live probes — call PanelBridge endpoints the World Map relies on and
   // record latency/count/sample for the diagnostics UI.
@@ -1089,7 +1219,7 @@ export default function Debug() {
           },
         }));
       } catch (error) {
-        const msg = error instanceof Error ? error.message : "Request failed";
+        const msg = error instanceof Error ? error.message : t("worldMapTab.requestFailed");
         setProbeResults((prev) => ({
           ...prev,
           [id]: {
@@ -1104,7 +1234,7 @@ export default function Debug() {
         setProbeLoading(null);
       }
     },
-    [],
+    [t],
   );
 
   const probePlayers = useCallback(
@@ -1294,9 +1424,10 @@ export default function Debug() {
         await fn();
         toast({ title: successTitle, description: successDesc });
       } catch (error) {
-        const msg = error instanceof Error ? error.message : "Action failed";
+        const msg =
+          error instanceof Error ? error.message : t("common.actionFailedFallback");
         toast({
-          title: "Action failed",
+          title: t("common.actionFailedTitle"),
           description: msg,
           variant: "destructive",
         });
@@ -1304,7 +1435,7 @@ export default function Debug() {
         setActionLoading(null);
       }
     },
-    [toast],
+    [toast, t],
   );
 
   // Fetch log files list
@@ -1379,15 +1510,15 @@ export default function Debug() {
       const res = await authFetch(
         `/api/debug/crash-logs/${encodeURIComponent(filename)}`,
       );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw new Error(await parseDownloadError(res, `HTTP ${res.status}`));
       const data = await res.json();
       if (data.content !== undefined && data.content !== null) {
-        setCrashLogContent(data.content || "(empty file)");
+        setCrashLogContent(data.content || t("crashesTab.emptyFile"));
       } else {
-        setCrashLogContent("Failed to load crash log content");
+        setCrashLogContent(t("crashesTab.loadFailed"));
       }
-    } catch {
-      setCrashLogContent("Failed to load crash log content");
+    } catch (error) {
+      setCrashLogContent(error instanceof Error ? error.message : t("crashesTab.loadFailed"));
     } finally {
       setLoadingCrashLog(false);
     }
@@ -1411,6 +1542,11 @@ export default function Debug() {
       }
     } catch (error) {
       reportClientError("Failed to fetch logs.", error);
+      toast({
+        title: t("logsTab.logsFetchFailedTitle"),
+        description: t("logsTab.logsFetchFailedDesc"),
+        variant: "destructive",
+      });
     } finally {
       setRefreshingLogs(false);
     }
@@ -1558,8 +1694,8 @@ export default function Debug() {
   const clearLogs = () => {
     setLogs([]);
     toast({
-      title: "Logs Cleared",
-      description: "Display cleared. Server logs remain on disk.",
+      title: t("logsTab.logsClearedTitle"),
+      description: t("logsTab.logsClearedDesc"),
     });
   };
 
@@ -1635,13 +1771,16 @@ export default function Debug() {
         a.click();
 
         toast({
-          title: "Exported",
-          description: `${filteredLogs.length} log entries exported as ${format.toUpperCase()}`,
+          title: t("logsTab.exportedTitle"),
+          description: t("logsTab.exportedDesc", {
+            count: filteredLogs.length,
+            format: format.toUpperCase(),
+          }),
         });
       } else {
         // Download full log file from server
         const res = await authFetch("/api/debug/logs/download");
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw new Error(await parseDownloadError(res, `HTTP ${res.status}`));
         const blob = await res.blob();
         url = window.URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -1651,8 +1790,8 @@ export default function Debug() {
       }
     } catch (error) {
       toast({
-        title: "Error",
-        description: "Failed to download logs",
+        title: t("logsTab.downloadFailedTitle"),
+        description: error instanceof Error ? error.message : t("logsTab.downloadFailedDesc"),
         variant: "destructive",
       });
     } finally {
@@ -1667,7 +1806,7 @@ export default function Debug() {
         const res = await authFetch(
           `/api/debug/logs/download/${encodeURIComponent(filename)}`,
         );
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw new Error(await parseDownloadError(res, `HTTP ${res.status}`));
 
         const blob = await res.blob();
         url = window.URL.createObjectURL(blob);
@@ -1680,8 +1819,8 @@ export default function Debug() {
         a.remove();
       } catch (error) {
         toast({
-          title: "Error",
-          description: `Failed to download ${filename}`,
+          title: t("logsTab.downloadFailedTitle"),
+          description: error instanceof Error ? error.message : t("logsTab.downloadFileFailedDesc", { name: filename }),
           variant: "destructive",
         });
       } finally {
@@ -1691,15 +1830,17 @@ export default function Debug() {
         }
       }
     },
-    [authFetch, toast],
+    [authFetch, toast, t],
   );
 
   const downloadLogArchive = useCallback(async () => {
     let url: string | null = null;
     setDownloadingLogArchive(true);
     try {
-      const res = await authFetch("/api/debug/logs/download-zip");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const res = await authFetch("/api/debug/logs/download-zip", {
+        headers: { "X-UI-Language": getCurrentLanguage() },
+      });
+      if (!res.ok) throw new Error(await parseDownloadError(res, `HTTP ${res.status}`));
 
       const blob = await res.blob();
       url = window.URL.createObjectURL(blob);
@@ -1712,8 +1853,8 @@ export default function Debug() {
       a.remove();
     } catch (error) {
       toast({
-        title: "Error",
-        description: "Failed to download log archive",
+        title: t("logsTab.downloadFailedTitle"),
+        description: error instanceof Error ? error.message : t("logsTab.downloadArchiveFailedDesc"),
         variant: "destructive",
       });
     } finally {
@@ -1723,14 +1864,14 @@ export default function Debug() {
         window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1000);
       }
     }
-  }, [authFetch, toast]);
+  }, [authFetch, toast, t]);
 
   const copyLogEntry = (log: LogEntry) => {
     const text = `[${log.timestamp.toISOString()}] [${log.level.toUpperCase()}] ${log.source ? `[${log.source}] ` : ""}${log.message}`;
     copyText(text);
     toast({
-      title: "Copied",
-      description: "Log entry copied to clipboard",
+      title: t("common.copied"),
+      description: t("logsTab.logEntryCopiedDesc"),
     });
   };
 
@@ -1750,21 +1891,21 @@ export default function Debug() {
         case "relative": {
           const now = new Date();
           const diff = now.getTime() - date.getTime();
-          if (diff < 1000) return "just now";
-          if (diff < 60000) return `${Math.floor(diff / 1000)}s ago`;
-          if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-          if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-          return `${Math.floor(diff / 86400000)}d ago`;
+          if (diff < 1000) return t("common.justNow");
+          if (diff < 60000) return t("common.secondsAgo", { count: Math.floor(diff / 1000) });
+          if (diff < 3600000) return t("common.minutesAgo", { count: Math.floor(diff / 60000) });
+          if (diff < 86400000) return t("common.hoursAgo", { count: Math.floor(diff / 3600000) });
+          return t("common.daysAgo", { count: Math.floor(diff / 86400000) });
         }
         case "time":
-          return date.toLocaleTimeString();
+          return date.toLocaleTimeString(i18n.language);
         case "datetime":
-          return date.toLocaleString();
+          return date.toLocaleString(i18n.language);
         default:
-          return date.toLocaleTimeString();
+          return date.toLocaleTimeString(i18n.language);
       }
     },
-    [timeFormat],
+    [timeFormat, t, i18n.language],
   );
 
   const formatFileSize = (bytes: number) => {
@@ -1782,8 +1923,8 @@ export default function Debug() {
   const handleSavePaths = async () => {
     if (!newDataDir && !newLogsDir) {
       toast({
-        title: "Error",
-        description: "Please enter at least one path",
+        title: t("common.errorTitle"),
+        description: t("systemTab.enterAtLeastOnePath"),
         variant: "destructive",
       });
       return;
@@ -1805,7 +1946,7 @@ export default function Debug() {
 
       if (data.success) {
         toast({
-          title: "Paths Updated",
+          title: t("systemTab.pathsUpdatedTitle"),
           description: data.message,
           variant: "success" as const,
         });
@@ -1813,16 +1954,18 @@ export default function Debug() {
         fetchSystemInfo();
       } else {
         toast({
-          title: "Error",
-          description: data.error || "Failed to update paths",
+          title: t("common.errorTitle"),
+          description: data.error || t("systemTab.updatePathsFailedFallback"),
           variant: "destructive",
         });
       }
     } catch (error) {
       toast({
-        title: "Error",
+        title: t("common.errorTitle"),
         description:
-          error instanceof Error ? error.message : "Failed to update paths",
+          error instanceof Error
+            ? error.message
+            : t("systemTab.updatePathsFailedFallback"),
         variant: "destructive",
       });
     } finally {
@@ -1903,14 +2046,14 @@ export default function Debug() {
       const text = `[${ts}] [${entry.source}] ${entry.success ? "OK" : "FAIL"} ${entry.action}${durStr}\n${entry.detail}${argsStr}`;
       const ok = await copyText(text);
       toast({
-        title: ok ? "Copied" : "Copy failed",
+        title: ok ? t("activityTab.copiedTitle") : t("activityTab.copyFailedTitle"),
         description: ok
-          ? "Activity entry copied to clipboard."
-          : "Could not copy. Select the row and press Ctrl+C.",
+          ? t("activityTab.copiedDesc")
+          : t("activityTab.copyFailedDesc"),
         variant: ok ? ("success" as const) : "destructive",
       });
     },
-    [toast],
+    [toast, t],
   );
 
   // Performance stats — averages, peaks, span — derived from history
@@ -1985,11 +2128,13 @@ export default function Debug() {
     a.remove();
     window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
     toast({
-      title: "Exported",
-      description: `${performanceHistory.length} snapshots exported as CSV.`,
+      title: t("performanceTab.exportedTitle"),
+      description: t("performanceTab.exportedDesc", {
+        count: performanceHistory.length,
+      }),
       variant: "success" as const,
     });
-  }, [performanceHistory, perfRange, toast]);
+  }, [performanceHistory, perfRange, toast, t]);
 
   const getLevelIcon = (level: string) => {
     switch (level) {
@@ -2003,6 +2148,36 @@ export default function Debug() {
         return <Bug className="w-4 h-4 text-muted-foreground" />;
       default:
         return <CheckCircle className="w-4 h-4 text-primary" />;
+    }
+  };
+
+  const getLevelLabel = (level: string) => {
+    switch (level) {
+      case "error":
+        return t("common.levelError");
+      case "warn":
+        return t("common.levelWarn");
+      case "info":
+        return t("common.levelInfo");
+      case "debug":
+        return t("common.levelDebug");
+      default:
+        return level;
+    }
+  };
+
+  const getSourceLabel = (source: string) => {
+    switch (source) {
+      case "rcon":
+        return t("common.sourceRcon");
+      case "bridge":
+        return t("common.sourceBridge");
+      case "player":
+        return t("common.sourcePlayer");
+      case "server":
+        return t("common.sourceServer");
+      default:
+        return source;
     }
   };
 
@@ -2024,8 +2199,8 @@ export default function Debug() {
   return (
     <div className="space-y-6 page-transition">
       <PageHeader
-        title="Debug & Logs"
-        description="Live diagnostics, recent history, and environment details for this panel"
+        title={t("pageHeader.title")}
+        description={t("pageHeader.description")}
         icon={<Bug className="w-5 h-5 text-primary" />}
         actions={
           <div className="flex flex-wrap items-center gap-2">
@@ -2041,7 +2216,9 @@ export default function Debug() {
               ) : (
                 <Archive className="w-4 h-4" />
               )}
-              {downloadingLogArchive ? "Bundling…" : "Support Bundle (.zip)"}
+              {downloadingLogArchive
+                ? t("headerActions.bundling")
+                : t("headerActions.supportBundleZip")}
             </Button>
             <Button
               variant="outline"
@@ -2050,7 +2227,7 @@ export default function Debug() {
               className="gap-2"
             >
               <FileDown className="w-4 h-4" />
-              Full Log (.txt)
+              {t("headerActions.fullLogTxt")}
             </Button>
           </div>
         }
@@ -2073,7 +2250,7 @@ export default function Debug() {
           {/* Zone: Now */}
           <TabsTrigger value="diagnostics" className="gap-2">
             <CheckCircle className="w-4 h-4" />
-            Diagnostics
+            {t("tabs.diagnostics")}
             {diagnostics &&
               (diagnostics.summary.fail > 0 ||
                 diagnostics.summary.warn > 0) && (
@@ -2089,7 +2266,7 @@ export default function Debug() {
           </TabsTrigger>
           <TabsTrigger value="worldmap" className="gap-2">
             <MapIcon className="w-4 h-4" />
-            World Map
+            {t("tabs.worldMap")}
             {worldMapDiag &&
               (worldMapDiag.summary.fail > 0 ||
                 worldMapDiag.summary.warn > 0) && (
@@ -2105,7 +2282,7 @@ export default function Debug() {
           </TabsTrigger>
           <TabsTrigger value="performance" className="gap-2">
             <TrendingUp className="w-4 h-4" />
-            Performance
+            {t("tabs.performance")}
           </TabsTrigger>
 
           {/* Zone divider: Now → History */}
@@ -2117,15 +2294,15 @@ export default function Debug() {
           {/* Zone: History */}
           <TabsTrigger value="activity" className="gap-2">
             <Zap className="w-4 h-4" />
-            Activity
+            {t("tabs.activity")}
           </TabsTrigger>
           <TabsTrigger value="logs" className="gap-2">
             <Terminal className="w-4 h-4" />
-            Logs
+            {t("tabs.logs")}
           </TabsTrigger>
           <TabsTrigger value="crashes" className="gap-2">
             <AlertCircle className="w-4 h-4" />
-            Crashes
+            {t("tabs.crashes")}
             {crashLogs.length > 0 && (
               <Badge variant="outline" className="ml-1 h-5 px-1.5 text-[10px]">
                 {crashLogs.length}
@@ -2142,16 +2319,49 @@ export default function Debug() {
           {/* Zone: System (panel self-introspection) */}
           <TabsTrigger value="health" className="gap-2">
             <Activity className="w-4 h-4" />
-            Health
+            {t("tabs.health")}
           </TabsTrigger>
           <TabsTrigger value="system" className="gap-2">
             <Database className="w-4 h-4" />
-            Environment
+            {t("tabs.system")}
           </TabsTrigger>
         </TabsList>
 
         {/* Diagnostics Tab — Smart health checks with green/amber/red */}
         <TabsContent value="diagnostics" className="space-y-4">
+          {diagnosticsError && (
+            <Card className="border-2 border-destructive/50 bg-destructive/5">
+              <CardContent className="pt-6">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-6 h-6 text-destructive shrink-0 mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-base font-semibold">
+                      {t("worldMapTab.couldNotReachTitle")}
+                    </h3>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {t("worldMapTab.couldNotReachDesc", { error: diagnosticsError })}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={fetchDiagnostics}
+                    disabled={refreshingDiagnostics}
+                  >
+                    <RefreshCw
+                      className={cn(
+                        "w-4 h-4 mr-2",
+                        refreshingDiagnostics && "animate-spin",
+                      )}
+                    />
+                    {t("worldMapTab.retry")}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          {diagnosticsError && !diagnostics ? null : (
+          <>
           {(() => {
             const overall = diagnostics?.overall;
             const summary = diagnostics?.summary;
@@ -2165,12 +2375,12 @@ export default function Debug() {
                     : "bg-muted/30 border-border";
             const overallLabel =
               overall === "fail"
-                ? "Issues need attention"
+                ? t("diagnostics.overallFail")
                 : overall === "warn"
-                  ? "Minor warnings"
+                  ? t("diagnostics.overallWarn")
                   : overall === "ok"
-                    ? "All systems operational"
-                    : "Running checks…";
+                    ? t("diagnostics.overallOk")
+                    : t("diagnostics.overallPending");
             const OverallIcon =
               overall === "fail"
                 ? AlertCircle
@@ -2200,19 +2410,17 @@ export default function Debug() {
                         </CardTitle>
                         <CardDescription>
                           {diagnostics ? (
-                            <>
-                              Last checked{" "}
-                              {formatTimestamp(new Date(diagnostics.timestamp))}{" "}
-                              · {diagnostics.durationMs}ms · auto-refreshes
-                              every 30s
-                            </>
+                            t("diagnostics.lastChecked", {
+                              time: formatTimestamp(new Date(diagnostics.timestamp)),
+                              duration: diagnostics.durationMs,
+                            })
                           ) : (
-                            "Running smart checks across services, paths, storage, and updates…"
+                            t("diagnostics.runningDescription")
                           )}
                         </CardDescription>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center flex-wrap gap-2">
                       {summary && (
                         <div className="flex items-center gap-1.5 text-xs">
                           <Badge
@@ -2240,7 +2448,7 @@ export default function Debug() {
                               variant="outline"
                               className="gap-1 text-muted-foreground"
                             >
-                              {summary.skip} skipped
+                              {t("diagnostics.skippedCount", { count: summary.skip })}
                             </Badge>
                           )}
                         </div>
@@ -2251,7 +2459,7 @@ export default function Debug() {
                             checked={diagnosticsHideOk}
                             onCheckedChange={(v) => setDiagnosticsHideOk(!!v)}
                           />
-                          Hide passing
+                          {t("common.hidePassing")}
                         </label>
                         <Button
                           variant="outline"
@@ -2265,7 +2473,7 @@ export default function Debug() {
                               refreshingDiagnostics && "animate-spin",
                             )}
                           />
-                          Re-run
+                          {t("common.rerun")}
                         </Button>
                       </div>
                     </div>
@@ -2278,8 +2486,7 @@ export default function Debug() {
           {!diagnostics && refreshingDiagnostics && (
             <Card>
               <CardContent className="py-12 flex items-center justify-center text-muted-foreground gap-2">
-                <Loader2 className="w-4 h-4 animate-spin" /> Running
-                diagnostics…
+                <Loader2 className="w-4 h-4 animate-spin" /> {t("diagnostics.runningDiagnostics")}
               </CardContent>
             </Card>
           )}
@@ -2328,7 +2535,7 @@ export default function Debug() {
                           {catMeta.label}
                         </CardTitle>
                         <span className="text-xs text-muted-foreground">
-                          {items.length} check{items.length === 1 ? "" : "s"}
+                          {t("diagnostics.checkCount", { count: items.length })}
                         </span>
                       </div>
                     </CardHeader>
@@ -2355,7 +2562,12 @@ export default function Debug() {
                                   : check.status === "info"
                                     ? "text-primary/70"
                                     : "text-muted-foreground";
-                          const fixAction = getDiagnosticsFixAction(check);
+                          // Fix-action matching (below) keys off check.id and
+                          // sniffs check.hint's ENGLISH text — must run
+                          // against the raw, untranslated check, never the
+                          // translated display copy.
+                          const fixAction = getDiagnosticsFixAction(check, t);
+                          const translated = translateDiagnosticCheck(check);
                           return (
                             <li
                               key={check.id}
@@ -2370,26 +2582,34 @@ export default function Debug() {
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <span className="text-sm font-medium">
-                                    {check.label}
+                                    {translated.label}
                                   </span>
                                   {check.status === "skip" && (
                                     <Badge
                                       variant="outline"
                                       className="h-4 px-1 text-[10px] text-muted-foreground"
                                     >
-                                      skipped
+                                      {t("diagnostics.skippedBadge")}
                                     </Badge>
                                   )}
                                 </div>
                                 <p className="text-xs text-muted-foreground mt-0.5 break-words">
-                                  {check.message}
+                                  {translated.message}
                                 </p>
-                                {check.hint && (
+                                {translated.hint && (
                                   <p className="text-xs mt-1 text-foreground/70">
                                     <span className="font-medium text-foreground/90">
-                                      Fix:
+                                      {t("common.fixLabel")}
                                     </span>{" "}
-                                    {check.hint}
+                                    {translated.hint}
+                                  </p>
+                                )}
+                                {diagnosticsFixErrors[check.id] && (
+                                  <p className="text-xs mt-1 text-destructive">
+                                    <span className="font-medium">
+                                      {t("diagnostics.fixFailedTitle")}:
+                                    </span>{" "}
+                                    {diagnosticsFixErrors[check.id]}
                                   </p>
                                 )}
                                 {fixAction && (
@@ -2424,7 +2644,7 @@ export default function Debug() {
                                         className="h-7 px-2 text-[11px]"
                                       >
                                         <Link to="/server-config">
-                                          Open Server Config
+                                          {t("common.openServerConfig")}
                                         </Link>
                                       </Button>
                                     )}
@@ -2435,7 +2655,7 @@ export default function Debug() {
                                         variant="ghost"
                                         className="h-7 px-2 text-[11px]"
                                       >
-                                        <Link to="/mods">Open Mods</Link>
+                                        <Link to="/mods">{t("common.openMods")}</Link>
                                       </Button>
                                     )}
                                     {fixAction.links?.map((link) => (
@@ -2474,12 +2694,14 @@ export default function Debug() {
                 <CardContent className="py-10">
                   <EmptyState
                     icon={<CheckCircle className="w-14 h-14 text-primary/60" />}
-                    title="All checks pass"
-                    description="Nothing to show with passing checks hidden. Uncheck 'Hide passing' to see the full report."
+                    title={t("diagnostics.allChecksPassTitle")}
+                    description={t("diagnostics.allChecksPassDesc")}
                   />
                 </CardContent>
               </Card>
             )}
+          </>
+          )}
         </TabsContent>
 
         {/* World Map Tab — dedicated diagnostics for the live map */}
@@ -2497,12 +2719,12 @@ export default function Debug() {
                     : "bg-muted/30 border-border";
             const overallLabel =
               overall === "fail"
-                ? "World Map degraded"
+                ? t("worldMapTab.overallFail")
                 : overall === "warn"
-                  ? "World Map has warnings"
+                  ? t("worldMapTab.overallWarn")
                   : overall === "ok"
-                    ? "World Map fully operational"
-                    : "Running map checks…";
+                    ? t("worldMapTab.overallOk")
+                    : t("worldMapTab.overallPending");
             const OverallIcon =
               overall === "fail"
                 ? AlertCircle
@@ -2512,10 +2734,10 @@ export default function Debug() {
                     ? CheckCircle
                     : Loader2;
             const fmtAge = (ms: number | null) => {
-              if (ms === null || ms === undefined) return "—";
-              if (ms < 1000) return "just now";
-              if (ms < 60_000) return `${Math.round(ms / 1000)}s ago`;
-              return `${Math.round(ms / 60_000)}m ago`;
+              if (ms === null || ms === undefined) return t("worldMapTab.ageNever");
+              if (ms < 1000) return t("worldMapTab.ageJustNow");
+              if (ms < 60_000) return t("worldMapTab.ageSecondsAgo", { s: Math.round(ms / 1000) });
+              return t("worldMapTab.ageMinutesAgo", { m: Math.round(ms / 60_000) });
             };
             const lastRun = wm ? new Date(wm.timestamp) : null;
             const lastRunMs = lastRun ? lastRun.getTime() : null;
@@ -2551,11 +2773,14 @@ export default function Debug() {
               sortedChecks.find((c) => c.status === "fail") ||
               sortedChecks.find((c) => c.status === "warn") ||
               null;
+            const firstFixTranslated = firstFix
+              ? translateDiagnosticCheck(firstFix)
+              : null;
             const copyPath = async (label: string, value: string) => {
               const ok = await copyText(value);
               toast({
-                title: ok ? `${label} copied` : "Copy failed",
-                description: ok ? value : "Could not access the clipboard.",
+                title: ok ? t("worldMapTab.labelCopied", { label }) : t("common.copyFailed"),
+                description: ok ? value : t("common.couldNotAccessClipboard"),
                 variant: ok ? "default" : "destructive",
               });
             };
@@ -2569,7 +2794,7 @@ export default function Debug() {
               <button
                 type="button"
                 onClick={() => copyPath(label, value)}
-                title={`Copy ${label.toLowerCase()}`}
+                title={t("worldMapTab.copyPathTitle", { label: label.toLowerCase() })}
                 className="group inline-flex items-center gap-1.5 max-w-full text-left"
               >
                 <code className="font-mono text-[11px] break-all group-hover:text-primary transition-colors">
@@ -2611,16 +2836,17 @@ export default function Debug() {
               lines.push("");
               lines.push("Checks:");
               for (const c of sortedChecks) {
+                const translated = translateDiagnosticCheck(c);
                 lines.push(
-                  `  [${c.status.toUpperCase()}] ${c.label} — ${c.message}${c.hint ? `  Fix: ${c.hint}` : ""}`,
+                  `  [${c.status.toUpperCase()}] ${translated.label} — ${translated.message}${translated.hint ? `  Fix: ${translated.hint}` : ""}`,
                 );
               }
               const ok = await copyText(lines.join("\n"));
               toast({
-                title: ok ? "Report copied" : "Copy failed",
+                title: ok ? t("worldMapTab.reportCopiedTitle") : t("common.copyFailed"),
                 description: ok
-                  ? "Diagnostics report copied to clipboard."
-                  : "Could not access the clipboard.",
+                  ? t("worldMapTab.reportCopiedDesc")
+                  : t("common.couldNotAccessClipboard"),
                 variant: ok ? "default" : "destructive",
               });
             };
@@ -2633,11 +2859,10 @@ export default function Debug() {
                         <AlertCircle className="w-6 h-6 text-destructive shrink-0 mt-0.5" />
                         <div className="min-w-0 flex-1">
                           <h3 className="text-base font-semibold">
-                            Couldn't reach the diagnostics endpoint
+                            {t("worldMapTab.couldNotReachTitle")}
                           </h3>
                           <p className="text-sm text-muted-foreground mt-1">
-                            {worldMapError} — check that the panel backend is
-                            running and your session is still authenticated.
+                            {t("worldMapTab.couldNotReachDesc", { error: worldMapError })}
                           </p>
                         </div>
                         <Button
@@ -2652,7 +2877,7 @@ export default function Debug() {
                               refreshingWorldMap && "animate-spin",
                             )}
                           />
-                          Retry
+                          {t("worldMapTab.retry")}
                         </Button>
                       </div>
                     </CardContent>
@@ -2683,8 +2908,7 @@ export default function Debug() {
                                 {overallLabel}
                               </h3>
                               <p className="text-sm text-muted-foreground">
-                                Live tile sources, PanelBridge data feed, and
-                                active save layout.
+                                {t("worldMapTab.liveDescription")}
                               </p>
                               {wm && (
                                 <div className="flex items-center gap-2 mt-2 flex-wrap text-xs">
@@ -2693,7 +2917,7 @@ export default function Debug() {
                                     className="bg-primary/10 border-primary/30 text-primary"
                                   >
                                     <CheckCircle className="w-3 h-3 mr-1" />{" "}
-                                    {wm.summary.ok} ok
+                                    {t("worldMapTab.okCount", { count: wm.summary.ok })}
                                   </Badge>
                                   {wm.summary.warn > 0 && (
                                     <Badge
@@ -2701,13 +2925,13 @@ export default function Debug() {
                                       className="bg-warning/10 border-warning/30 text-warning"
                                     >
                                       <AlertTriangle className="w-3 h-3 mr-1" />{" "}
-                                      {wm.summary.warn} warn
+                                      {t("worldMapTab.warnCount", { count: wm.summary.warn })}
                                     </Badge>
                                   )}
                                   {wm.summary.fail > 0 && (
                                     <Badge variant="destructive">
                                       <AlertCircle className="w-3 h-3 mr-1" />{" "}
-                                      {wm.summary.fail} fail
+                                      {t("worldMapTab.failCount", { count: wm.summary.fail })}
                                     </Badge>
                                   )}
                                   {wm.summary.skip > 0 && (
@@ -2715,18 +2939,18 @@ export default function Debug() {
                                       variant="outline"
                                       className="text-muted-foreground"
                                     >
-                                      {wm.summary.skip} skipped
+                                      {t("worldMapTab.skippedCount", { count: wm.summary.skip })}
                                     </Badge>
                                   )}
                                   <span className="text-muted-foreground">
-                                    · {wm.durationMs} ms
+                                    {t("worldMapTab.durationMs", { duration: wm.durationMs })}
                                     {lastRun &&
-                                      ` · checked ${fmtAge(sinceFetchMs)}`}
+                                      t("worldMapTab.checkedAgeSuffix", { age: fmtAge(sinceFetchMs) })}
                                   </span>
                                   {refreshingWorldMap && (
                                     <span className="inline-flex items-center gap-1 text-muted-foreground">
                                       <Loader2 className="w-3 h-3 animate-spin" />
-                                      Refreshing…
+                                      {t("worldMapTab.refreshing")}
                                     </span>
                                   )}
                                 </div>
@@ -2737,7 +2961,7 @@ export default function Debug() {
                             <Button variant="outline" size="sm" asChild>
                               <Link to="/world-map">
                                 <ExternalLink className="w-4 h-4 mr-2" />
-                                Open World Map
+                                {t("worldMapTab.openWorldMap")}
                               </Link>
                             </Button>
                             <Button
@@ -2747,7 +2971,7 @@ export default function Debug() {
                               disabled={!wm}
                             >
                               <Copy className="w-4 h-4 mr-2" />
-                              Copy report
+                              {t("worldMapTab.copyReport")}
                             </Button>
                             <Button
                               variant="outline"
@@ -2761,7 +2985,7 @@ export default function Debug() {
                                   refreshingWorldMap && "animate-spin",
                                 )}
                               />
-                              Re-run
+                              {t("common.rerun")}
                             </Button>
                           </div>
                         </div>
@@ -2782,19 +3006,19 @@ export default function Debug() {
                             <div className="min-w-0 flex-1">
                               <div className="text-sm font-semibold">
                                 {firstFix.status === "fail"
-                                  ? "Action needed"
-                                  : "Heads up"}
-                                : {firstFix.label}
+                                  ? t("worldMapTab.actionNeeded")
+                                  : t("worldMapTab.headsUp")}
+                                : {firstFixTranslated?.label}
                               </div>
                               <div className="text-xs text-muted-foreground mt-0.5">
-                                {firstFix.message}
+                                {firstFixTranslated?.message}
                               </div>
-                              {firstFix.hint && (
+                              {firstFixTranslated?.hint && (
                                 <div className="text-xs mt-1.5">
                                   <span className="font-semibold text-primary">
-                                    Fix:
+                                    {t("common.fixLabel")}
                                   </span>{" "}
-                                  {firstFix.hint}
+                                  {firstFixTranslated.hint}
                                 </div>
                               )}
                             </div>
@@ -2808,11 +3032,10 @@ export default function Debug() {
                       <CardHeader className="pb-3">
                         <CardTitle className="flex items-center gap-2 text-base">
                           <Globe className="w-4 h-4 text-primary" />
-                          Tile sources
+                          {t("worldMapTab.tileSourcesTitle")}
                         </CardTitle>
                         <CardDescription>
-                          The /api/map proxy fetches tiles server-side from
-                          these CDNs.
+                          {t("worldMapTab.tileSourcesDesc")}
                         </CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-3">
@@ -2820,8 +3043,8 @@ export default function Debug() {
                           const probe = wm?.tileSources?.[kind];
                           const label =
                             kind === "b42"
-                              ? "B42 — b42map.com"
-                              : "B41 — map.projectzomboid.com";
+                              ? t("worldMapTab.tileLabelB42")
+                              : t("worldMapTab.tileLabelB41");
                           return (
                             <div
                               key={kind}
@@ -2869,7 +3092,7 @@ export default function Debug() {
                                 {probe && (
                                   <div className="mt-1 flex items-center gap-2 flex-wrap">
                                     <CopyablePath
-                                      label="Probe URL"
+                                      label={t("worldMapTab.probeUrlLabel")}
                                       value={probe.url}
                                     />
                                     <a
@@ -2877,10 +3100,10 @@ export default function Debug() {
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors"
-                                      title="Open the upstream URL in a new tab to verify reachability from your browser"
+                                      title={t("worldMapTab.openExternalTitle")}
                                     >
                                       <ExternalLink className="w-3 h-3" />
-                                      Open
+                                      {t("worldMapTab.openExternal")}
                                     </a>
                                   </div>
                                 )}
@@ -2893,7 +3116,7 @@ export default function Debug() {
                         <div className="mt-3 pt-3 border-t">
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-xs font-medium text-muted-foreground">
-                              Live tile via panel proxy
+                              {t("worldMapTab.liveTileViaProxy")}
                             </span>
                             <Button
                               variant="ghost"
@@ -2908,7 +3131,7 @@ export default function Debug() {
                                 setWorldMapTilePreviewKey((k) => k + 1);
                               }}
                             >
-                              <RefreshCw className="w-3 h-3 mr-1" /> Refresh
+                              <RefreshCw className="w-3 h-3 mr-1" /> {t("common.refresh")}
                             </Button>
                           </div>
                           {(() => {
@@ -2920,26 +3143,26 @@ export default function Debug() {
                             }> = [
                               {
                                 key: "b42",
-                                label: "B42 floor 0 / 0_0",
+                                label: t("worldMapTab.tileLabelB42Preview"),
                                 src: `/api/map/tiles/0/0_0.jpg?floor=0&t=${worldMapTilePreviewKey}`,
                                 errTone: "destructive",
                               },
                               {
                                 key: "b41",
-                                label: "B41 / 0_0",
+                                label: t("worldMapTab.tileLabelB41Preview"),
                                 src: `/api/map/b41tiles/0/0_0.jpg?t=${worldMapTilePreviewKey}`,
                                 errTone: "warning",
                               },
                             ];
                             return (
                               <div className="flex flex-wrap gap-3">
-                                {tiles.map((t) => {
-                                  const failed = worldMapTileErrors[t.key];
-                                  const meta = worldMapTileMeta[t.key];
+                                {tiles.map((tile) => {
+                                  const failed = worldMapTileErrors[tile.key];
+                                  const meta = worldMapTileMeta[tile.key];
                                   const loaded = !failed && meta !== null;
                                   return (
                                     <div
-                                      key={t.key}
+                                      key={tile.key}
                                       className="flex items-center gap-3 rounded-lg border border-border/55 bg-muted/20 p-2.5"
                                     >
                                       <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded border border-border/60 bg-muted/40">
@@ -2948,7 +3171,7 @@ export default function Debug() {
                                             <AlertCircle
                                               className={cn(
                                                 "w-4 h-4 mb-0.5",
-                                                t.errTone === "destructive"
+                                                tile.errTone === "destructive"
                                                   ? "text-destructive"
                                                   : "text-warning",
                                               )}
@@ -2956,25 +3179,25 @@ export default function Debug() {
                                             <div
                                               className={cn(
                                                 "text-[9px] font-medium leading-tight",
-                                                t.errTone === "destructive"
+                                                tile.errTone === "destructive"
                                                   ? "text-destructive"
                                                   : "text-warning",
                                               )}
                                             >
-                                              Failed
+                                              {t("worldMapTab.tileFailedIcon")}
                                             </div>
                                           </div>
                                         ) : (
                                           <img
-                                            key={`${t.key}-${worldMapTilePreviewKey}`}
-                                            src={t.src}
-                                            alt={`${t.label} preview`}
+                                            key={`${tile.key}-${worldMapTilePreviewKey}`}
+                                            src={tile.src}
+                                            alt={`${tile.label} preview`}
                                             className="h-full w-full object-cover"
                                             onLoad={(e) => {
                                               const img = e.currentTarget;
                                               setWorldMapTileMeta((prev) => ({
                                                 ...prev,
-                                                [t.key]: {
+                                                [tile.key]: {
                                                   w: img.naturalWidth,
                                                   h: img.naturalHeight,
                                                 },
@@ -2983,7 +3206,7 @@ export default function Debug() {
                                             onError={() =>
                                               setWorldMapTileErrors((prev) => ({
                                                 ...prev,
-                                                [t.key]: true,
+                                                [tile.key]: true,
                                               }))
                                             }
                                           />
@@ -2991,25 +3214,25 @@ export default function Debug() {
                                       </div>
                                       <div className="min-w-0">
                                         <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                                          {t.label}
+                                          {tile.label}
                                         </div>
                                         <div className="mt-1">
                                           {failed ? (
                                             <span
                                               className={cn(
                                                 "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
-                                                t.errTone === "destructive"
+                                                tile.errTone === "destructive"
                                                   ? "border-destructive/40 bg-destructive/10 text-destructive"
                                                   : "border-warning/40 bg-warning/10 text-warning",
                                               )}
                                             >
                                               <AlertCircle className="w-2.5 h-2.5" />{" "}
-                                              Tile failed
+                                              {t("worldMapTab.tileFailedBadge")}
                                             </span>
                                           ) : loaded ? (
                                             <span className="inline-flex items-center gap-1 rounded-full border border-primary/35 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
                                               <CheckCircle className="w-2.5 h-2.5" />{" "}
-                                              Loaded
+                                              {t("worldMapTab.tileLoadedBadge")}
                                               <span className="font-mono tabular-nums text-primary/80">
                                                 {meta!.w}×{meta!.h}
                                               </span>
@@ -3017,16 +3240,12 @@ export default function Debug() {
                                           ) : (
                                             <span className="inline-flex items-center gap-1 rounded-full border border-border/55 bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                                               <Loader2 className="w-2.5 h-2.5 animate-spin" />{" "}
-                                              Loading…
+                                              {t("worldMapTab.tileLoadingBadge")}
                                             </span>
                                           )}
                                         </div>
                                         <p className="mt-1 text-[10px] text-muted-foreground/70 leading-tight">
-                                          Tile{" "}
-                                          <span className="font-mono">0_0</span>{" "}
-                                          is the empty map corner — a solid
-                                          color square here means the proxy
-                                          works.
+                                          {t("worldMapTab.tileCornerHint")}
                                         </p>
                                       </div>
                                     </div>
@@ -3044,11 +3263,10 @@ export default function Debug() {
                       <CardHeader className="pb-3">
                         <CardTitle className="flex items-center gap-2 text-base">
                           <Wifi className="w-4 h-4 text-primary" />
-                          Live data feed
+                          {t("worldMapTab.liveDataFeedTitle")}
                         </CardTitle>
                         <CardDescription>
-                          The map polls PanelBridge every 3s for player
-                          positions, vehicles and safehouses.
+                          {t("worldMapTab.liveDataFeedDesc")}
                         </CardDescription>
                       </CardHeader>
                       <CardContent>
@@ -3056,36 +3274,36 @@ export default function Debug() {
                           <div className="grid grid-cols-2 gap-2 text-sm">
                             <div className="p-2 rounded border bg-card">
                               <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                                Configured
+                                {t("worldMapTab.configuredLabel")}
                               </div>
                               <div className="font-medium">
-                                {wm.bridge.configured ? "Yes" : "No"}
+                                {wm.bridge.configured ? t("common.yes") : t("common.no")}
                               </div>
                             </div>
                             <div className="p-2 rounded border bg-card">
                               <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                                Service running
+                                {t("worldMapTab.serviceRunningLabel")}
                               </div>
                               <div className="font-medium flex items-center gap-1">
                                 {wm.bridge.isRunning ? (
                                   <>
                                     <Wifi className="w-3 h-3 text-primary" />{" "}
-                                    Yes
+                                    {t("common.yes")}
                                   </>
                                 ) : (
                                   <>
                                     <WifiOff className="w-3 h-3 text-muted-foreground" />{" "}
-                                    No
+                                    {t("common.no")}
                                   </>
                                 )}
                               </div>
                             </div>
                             <div className="p-2 rounded border bg-card">
                               <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                                Mod connected
+                                {t("worldMapTab.modConnectedLabel")}
                               </div>
                               <div className="font-medium">
-                                {wm.bridge.modConnected ? "Yes" : "No"}
+                                {wm.bridge.modConnected ? t("common.yes") : t("common.no")}
                               </div>
                             </div>
                             {(() => {
@@ -3116,11 +3334,11 @@ export default function Debug() {
                                       label,
                                     )}
                                   >
-                                    Last heartbeat
+                                    {t("worldMapTab.lastHeartbeatLabel")}
                                   </div>
                                   <div className="font-medium">
                                     {fmtAge(age)}
-                                    {stale && " · stale"}
+                                    {stale && t("worldMapTab.staleSuffix")}
                                   </div>
                                 </div>
                               );
@@ -3128,7 +3346,7 @@ export default function Debug() {
                             {wm.bridge.consecutiveFailures > 0 && (
                               <div className="col-span-2 p-2 rounded border border-warning/30 bg-warning/5">
                                 <div className="text-[10px] uppercase tracking-wide text-warning">
-                                  Consecutive failures
+                                  {t("worldMapTab.consecutiveFailuresLabel")}
                                 </div>
                                 <div className="font-medium">
                                   {wm.bridge.consecutiveFailures}
@@ -3138,22 +3356,20 @@ export default function Debug() {
                             {wm.bridge.bridgePath && (
                               <div className="col-span-2 p-2 rounded border bg-card">
                                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-0.5">
-                                  Bridge path
+                                  {t("worldMapTab.bridgePathLabel")}
                                 </div>
                                 <CopyablePath
-                                  label="Bridge path"
+                                  label={t("worldMapTab.bridgePathLabel")}
                                   value={wm.bridge.bridgePath}
                                 />
                               </div>
                             )}
                             <div className="col-span-2 p-2 rounded border bg-card">
                               <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                                Required handlers
+                                {t("worldMapTab.requiredHandlersLabel")}
                               </div>
                               <div className="text-[11px] text-muted-foreground mb-1.5">
-                                The map calls these PanelBridge commands. If
-                                they're missing in the in-game mod, players,
-                                vehicles or airdrops won't appear.
+                                {t("worldMapTab.requiredHandlersDesc")}
                               </div>
                               <div className="flex gap-1 flex-wrap">
                                 {wm.handlers.map((h) => (
@@ -3170,7 +3386,7 @@ export default function Debug() {
                           </div>
                         ) : (
                           <div className="text-sm text-muted-foreground">
-                            No bridge data — not configured.
+                            {t("worldMapTab.noBridgeData")}
                           </div>
                         )}
                       </CardContent>
@@ -3183,12 +3399,10 @@ export default function Debug() {
                           <div className="min-w-0">
                             <CardTitle className="flex items-center gap-2 text-base">
                               <PlayCircle className="w-4 h-4 text-primary" />
-                              Live data probes
+                              {t("worldMapTab.liveProbesTitle")}
                             </CardTitle>
                             <CardDescription>
-                              Run the same PanelBridge calls the World Map page
-                              makes. Useful for confirming the mod is responding
-                              before troubleshooting on the map itself.
+                              {t("worldMapTab.liveProbesDesc")}
                             </CardDescription>
                           </div>
                           <Button
@@ -3203,7 +3417,7 @@ export default function Debug() {
                             ) : (
                               <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
                             )}
-                            Probe all
+                            {t("worldMapTab.probeAll")}
                           </Button>
                         </div>
                       </CardHeader>
@@ -3212,34 +3426,30 @@ export default function Debug() {
                           [
                             {
                               id: "players",
-                              label: "Players online",
+                              label: t("worldMapTab.probeLabelPlayers"),
                               Icon: Users,
                               run: probePlayers,
-                              unit: "player",
                             },
                             {
                               id: "vehicles",
-                              label: "Vehicles",
+                              label: t("worldMapTab.probeLabelVehicles"),
                               Icon: Car,
                               run: probeVehicles,
-                              unit: "vehicle",
                             },
                             {
                               id: "safehouses",
-                              label: "Safehouses",
+                              label: t("worldMapTab.probeLabelSafehouses"),
                               Icon: Home,
                               run: probeSafehouses,
-                              unit: "safehouse",
                             },
                             {
                               id: "gameTime",
-                              label: "Game time",
+                              label: t("worldMapTab.probeLabelGameTime"),
                               Icon: Clock,
                               run: probeGameTime,
-                              unit: "",
                             },
                           ] as const
-                        ).map(({ id, label, Icon, run, unit }) => {
+                        ).map(({ id, label, Icon, run }) => {
                           const r = probeResults[id];
                           const busy = probeLoading === id;
                           const ageMs = r ? worldMapNowTick - r.at : null;
@@ -3263,7 +3473,14 @@ export default function Debug() {
                                       {id === "gameTime"
                                         ? (r.sample as { time?: string })
                                             ?.time || "OK"
-                                        : `${r.count ?? 0} ${unit}${(r.count ?? 0) === 1 ? "" : "s"}`}
+                                        : t(
+                                            id === "players"
+                                              ? "worldMapTab.unitPlayer"
+                                              : id === "vehicles"
+                                                ? "worldMapTab.unitVehicle"
+                                                : "worldMapTab.unitSafehouse",
+                                            { count: r.count ?? 0 },
+                                          )}
                                     </Badge>
                                   )}
                                   {r && !r.ok && (
@@ -3272,7 +3489,7 @@ export default function Debug() {
                                       className="text-[10px] max-w-[18rem] truncate"
                                       title={r.error}
                                     >
-                                      {r.error || "Failed"}
+                                      {r.error || t("worldMapTab.probeFailedFallback")}
                                     </Badge>
                                   )}
                                   {r && (
@@ -3309,7 +3526,7 @@ export default function Debug() {
                                           </span>
                                           {p.alive === false && (
                                             <span className="text-destructive ml-1">
-                                              · dead
+                                              {t("worldMapTab.deadSuffix")}
                                             </span>
                                           )}
                                           {p.access && p.access !== "None" && (
@@ -3323,19 +3540,18 @@ export default function Debug() {
                                         r.count >
                                           (r.sample as unknown[]).length && (
                                           <div className="opacity-60">
-                                            …and{" "}
-                                            {r.count -
-                                              (r.sample as unknown[])
-                                                .length}{" "}
-                                            more
+                                            {t("worldMapTab.moreCount", {
+                                              count:
+                                                r.count -
+                                                (r.sample as unknown[]).length,
+                                            })}
                                           </div>
                                         )}
                                     </div>
                                   )}
                                 {id === "players" && r?.ok && r.count === 0 && (
                                   <div className="text-[11px] text-muted-foreground mt-1 italic">
-                                    No players online — test actions disabled
-                                    until someone joins.
+                                    {t("worldMapTab.noPlayersOnlineHint")}
                                   </div>
                                 )}
                               </div>
@@ -3351,7 +3567,7 @@ export default function Debug() {
                                 ) : (
                                   <RefreshCw className="w-3.5 h-3.5" />
                                 )}
-                                <span className="ml-1.5">Probe</span>
+                                <span className="ml-1.5">{t("worldMapTab.probeButton")}</span>
                               </Button>
                             </div>
                           );
@@ -3369,15 +3585,14 @@ export default function Debug() {
                           <CardHeader className="pb-3">
                             <CardTitle className="flex items-center gap-2 text-base">
                               <Zap className="w-4 h-4 text-warning" />
-                              Test live actions
+                              {t("worldMapTab.testActionsTitle")}
                             </CardTitle>
                             <CardDescription>
-                              These actions{" "}
+                              {t("worldMapTab.testActionsDescPrefix")}{" "}
                               <span className="font-semibold text-warning">
-                                affect the live game world
+                                {t("worldMapTab.testActionsDescBold")}
                               </span>{" "}
-                              and are visible to players. Click once to arm,
-                              click again within 4 seconds to fire.
+                              {t("worldMapTab.testActionsDescSuffix")}
                             </CardDescription>
                           </CardHeader>
                           <CardContent className="space-y-3">
@@ -3386,18 +3601,17 @@ export default function Debug() {
                                 <WifiOff className="w-3.5 h-3.5 text-destructive shrink-0 mt-0.5" />
                                 <div>
                                   <div className="font-medium text-destructive">
-                                    Bridge not connected
+                                    {t("worldMapTab.bridgeNotConnectedTitle")}
                                   </div>
                                   <div className="text-muted-foreground">
-                                    The PanelBridge mod must be running in-game.
-                                    Test actions are disabled.
+                                    {t("worldMapTab.bridgeNotConnectedDesc")}
                                   </div>
                                 </div>
                               </div>
                             )}
                             <div className="p-2 rounded border bg-card text-xs">
                               <span className="text-muted-foreground">
-                                Target:
+                                {t("worldMapTab.targetLabel")}
                               </span>{" "}
                               {firstPlayerCoords ? (
                                 <>
@@ -3410,19 +3624,18 @@ export default function Debug() {
                                   </span>
                                   {!firstPlayerCoords.alive && (
                                     <span className="text-destructive ml-1">
-                                      · dead
+                                      {t("worldMapTab.deadSuffix")}
                                     </span>
                                   )}
                                 </>
                               ) : probeResults["players"]?.ok &&
                                 probeResults["players"]?.count === 0 ? (
                                 <span className="text-muted-foreground italic">
-                                  No players online.
+                                  {t("worldMapTab.targetNoPlayersOnline")}
                                 </span>
                               ) : (
                                 <span className="text-muted-foreground italic">
-                                  No player probed yet — run the Players probe
-                                  first.
+                                  {t("worldMapTab.targetNoneProbedYet")}
                                 </span>
                               )}
                             </div>
@@ -3432,7 +3645,7 @@ export default function Debug() {
                               <div className="flex items-center gap-2">
                                 <Package className="w-4 h-4 text-warning shrink-0" />
                                 <span className="text-sm font-medium">
-                                  Drop airdrop at first player
+                                  {t("worldMapTab.airdropDropLabel")}
                                 </span>
                               </div>
                               <div className="flex items-center gap-2 flex-wrap">
@@ -3446,20 +3659,20 @@ export default function Debug() {
                                     <SelectValue />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    <SelectItem value="food">Food</SelectItem>
+                                    <SelectItem value="food">{t("worldMapTab.airdropFoodOption")}</SelectItem>
                                     <SelectItem value="medical">
-                                      Medical
+                                      {t("worldMapTab.airdropMedicalOption")}
                                     </SelectItem>
                                     <SelectItem value="military">
                                       Military
                                     </SelectItem>
                                     <SelectItem value="weapons">
-                                      Weapons
+                                      {t("worldMapTab.airdropWeaponsOption")}
                                     </SelectItem>
                                     <SelectItem value="building">
-                                      Building
+                                      {t("worldMapTab.airdropBuildingOption")}
                                     </SelectItem>
-                                    <SelectItem value="tools">Tools</SelectItem>
+                                    <SelectItem value="tools">{t("worldMapTab.airdropToolsOption")}</SelectItem>
                                   </SelectContent>
                                 </Select>
                                 <Button
@@ -3486,8 +3699,12 @@ export default function Debug() {
                                             announce: true,
                                             attractZombies: true,
                                           }),
-                                        "Airdrop deployed",
-                                        `${airdropPreset} package dropping at ${firstPlayerCoords.x}, ${firstPlayerCoords.y}.`,
+                                        t("worldMapTab.airdropDeployedTitle"),
+                                        t("worldMapTab.airdropDeployedDesc", {
+                                          preset: t(`worldMapTab.airdrop${airdropPreset.charAt(0).toUpperCase()}${airdropPreset.slice(1)}Option`),
+                                          x: firstPlayerCoords.x,
+                                          y: firstPlayerCoords.y,
+                                        }),
                                       ),
                                     )
                                   }
@@ -3498,8 +3715,8 @@ export default function Debug() {
                                     <Package className="w-3.5 h-3.5 mr-1.5" />
                                   )}
                                   {armedAction === "airdrop"
-                                    ? "Click again to confirm"
-                                    : "Drop now"}
+                                    ? t("worldMapTab.clickAgainToConfirm")
+                                    : t("worldMapTab.dropNow")}
                                 </Button>
                               </div>
                             </div>
@@ -3510,11 +3727,10 @@ export default function Debug() {
                                 <Volume2 className="w-4 h-4 text-warning shrink-0" />
                                 <div className="min-w-0">
                                   <div className="text-sm font-medium">
-                                    Gunshot near first player
+                                    {t("worldMapTab.gunshotLabel")}
                                   </div>
                                   <div className="text-[11px] text-muted-foreground">
-                                    Plays a loud sound that attracts nearby
-                                    zombies.
+                                    {t("worldMapTab.gunshotDesc")}
                                   </div>
                                 </div>
                               </div>
@@ -3538,8 +3754,10 @@ export default function Debug() {
                                           x: firstPlayerCoords.x,
                                           y: firstPlayerCoords.y,
                                         }),
-                                      "Gunshot triggered",
-                                      `Played near ${firstPlayerCoords.name}.`,
+                                      t("worldMapTab.gunshotTriggeredTitle"),
+                                      t("worldMapTab.gunshotTriggeredDesc", {
+                                        name: firstPlayerCoords.name,
+                                      }),
                                     ),
                                   )
                                 }
@@ -3550,8 +3768,8 @@ export default function Debug() {
                                   <Volume2 className="w-3.5 h-3.5 mr-1.5" />
                                 )}
                                 {armedAction === "gunshot"
-                                  ? "Click again to confirm"
-                                  : "Trigger"}
+                                  ? t("worldMapTab.clickAgainToConfirm")
+                                  : t("worldMapTab.trigger")}
                               </Button>
                             </div>
 
@@ -3561,10 +3779,10 @@ export default function Debug() {
                                 <Zap className="w-4 h-4 text-warning shrink-0" />
                                 <div className="min-w-0">
                                   <div className="text-sm font-medium">
-                                    Lightning near first player
+                                    {t("worldMapTab.lightningLabel")}
                                   </div>
                                   <div className="text-[11px] text-muted-foreground">
-                                    Visible flash + thunder. Harmless.
+                                    {t("worldMapTab.lightningDesc")}
                                   </div>
                                 </div>
                               </div>
@@ -3592,8 +3810,11 @@ export default function Debug() {
                                           true,
                                           true,
                                         ),
-                                      "Lightning triggered",
-                                      `Strike at ${firstPlayerCoords.x}, ${firstPlayerCoords.y}.`,
+                                      t("worldMapTab.lightningTriggeredTitle"),
+                                      t("worldMapTab.lightningTriggeredDesc", {
+                                        x: firstPlayerCoords.x,
+                                        y: firstPlayerCoords.y,
+                                      }),
                                     ),
                                   )
                                 }
@@ -3604,8 +3825,8 @@ export default function Debug() {
                                   <Zap className="w-3.5 h-3.5 mr-1.5" />
                                 )}
                                 {armedAction === "lightning"
-                                  ? "Click again to confirm"
-                                  : "Trigger"}
+                                  ? t("worldMapTab.clickAgainToConfirm")
+                                  : t("worldMapTab.trigger")}
                               </Button>
                             </div>
                           </CardContent>
@@ -3618,11 +3839,10 @@ export default function Debug() {
                       <CardHeader className="pb-3">
                         <CardTitle className="flex items-center gap-2 text-base">
                           <FolderOpen className="w-4 h-4 text-primary" />
-                          Active save & build
+                          {t("worldMapTab.activeSaveTitle")}
                         </CardTitle>
                         <CardDescription>
-                          Detects B41 vs B42 layout so the map picks the correct
-                          tile source and projection.
+                          {t("worldMapTab.activeSaveDesc")}
                         </CardDescription>
                       </CardHeader>
                       <CardContent>
@@ -3630,7 +3850,7 @@ export default function Debug() {
                           <div className="space-y-2 text-sm">
                             <div className="flex items-center gap-2">
                               <span className="text-muted-foreground">
-                                Detected build:
+                                {t("worldMapTab.detectedBuildLabel")}
                               </span>
                               <Badge
                                 variant={
@@ -3648,13 +3868,13 @@ export default function Debug() {
                                 {wm.save.build.toUpperCase()}
                               </Badge>
                               <span className="text-muted-foreground text-xs">
-                                · {wm.save.saveCount} save(s)
+                                {t("worldMapTab.saveCount", { count: wm.save.saveCount })}
                               </span>
                             </div>
                             {wm.save.activeSaveName && (
                               <div className="text-xs">
                                 <span className="text-muted-foreground">
-                                  Sample save:
+                                  {t("worldMapTab.sampleSaveLabel")}
                                 </span>{" "}
                                 <code className="font-mono">
                                   {wm.save.activeSaveName}
@@ -3664,10 +3884,10 @@ export default function Debug() {
                             {wm.save.zomboidDataPath && (
                               <div className="text-xs">
                                 <span className="text-muted-foreground">
-                                  Zomboid data:
+                                  {t("worldMapTab.zomboidDataLabel")}
                                 </span>{" "}
                                 <CopyablePath
-                                  label="Zomboid data path"
+                                  label={t("worldMapTab.zomboidDataPathLabel")}
                                   value={wm.save.zomboidDataPath}
                                 />
                               </div>
@@ -3675,10 +3895,10 @@ export default function Debug() {
                             {wm.save.activeSavePath && (
                               <div className="text-xs">
                                 <span className="text-muted-foreground">
-                                  Save path:
+                                  {t("worldMapTab.savePathLabel")}
                                 </span>{" "}
                                 <CopyablePath
-                                  label="Save path"
+                                  label={t("worldMapTab.savePathCopyLabel")}
                                   value={wm.save.activeSavePath}
                                 />
                               </div>
@@ -3686,7 +3906,7 @@ export default function Debug() {
                           </div>
                         ) : (
                           <div className="text-sm text-muted-foreground">
-                            No save data.
+                            {t("worldMapTab.noSaveData")}
                           </div>
                         )}
                       </CardContent>
@@ -3698,7 +3918,7 @@ export default function Debug() {
                         <div className="flex items-center justify-between gap-3 flex-wrap">
                           <CardTitle className="flex items-center gap-2 text-base">
                             <CheckCircle className="w-4 h-4 text-primary" />
-                            Checks
+                            {t("worldMapTab.checksTitle")}
                           </CardTitle>
                           {wm && wm.checks.length > 0 && (
                             <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
@@ -3708,7 +3928,7 @@ export default function Debug() {
                                   setWorldMapHideOk(v === true)
                                 }
                               />
-                              Hide passing
+                              {t("common.hidePassing")}
                             </label>
                           )}
                         </div>
@@ -3716,16 +3936,15 @@ export default function Debug() {
                       <CardContent>
                         {!wm ? (
                           <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
-                            <Loader2 className="w-4 h-4 animate-spin" /> Running
-                            map checks…
+                            <Loader2 className="w-4 h-4 animate-spin" /> {t("worldMapTab.runningMapChecks")}
                           </div>
                         ) : wm.checks.length === 0 ? (
                           <div className="text-sm text-muted-foreground py-4">
-                            No checks ran.
+                            {t("worldMapTab.noChecksRan")}
                           </div>
                         ) : visibleChecks.length === 0 ? (
                           <div className="flex items-center gap-2 text-sm text-primary py-4">
-                            <CheckCircle className="w-4 h-4" /> All checks pass.
+                            <CheckCircle className="w-4 h-4" /> {t("worldMapTab.allChecksPass")}
                           </div>
                         ) : (
                           <div className="space-y-1.5">
@@ -3748,6 +3967,7 @@ export default function Debug() {
                                     : c.status === "ok"
                                       ? "text-primary"
                                       : "text-muted-foreground";
+                              const translated = translateDiagnosticCheck(c);
                               return (
                                 <div
                                   key={c.id}
@@ -3761,17 +3981,17 @@ export default function Debug() {
                                   />
                                   <div className="min-w-0 flex-1">
                                     <div className="text-sm font-medium">
-                                      {c.label}
+                                      {translated.label}
                                     </div>
                                     <div className="text-xs text-muted-foreground">
-                                      {c.message}
+                                      {translated.message}
                                     </div>
-                                    {c.hint && (
+                                    {translated.hint && (
                                       <div className="text-xs mt-1 text-primary/80">
                                         <span className="font-semibold">
-                                          Fix:
+                                          {t("common.fixLabel")}
                                         </span>{" "}
-                                        {c.hint}
+                                        {translated.hint}
                                       </div>
                                     )}
                                   </div>
@@ -3797,11 +4017,10 @@ export default function Debug() {
                 <div>
                   <CardTitle className="flex items-center gap-2">
                     <Zap className="w-5 h-5 text-primary" />
-                    Activity Log
+                    {t("activityTab.title")}
                   </CardTitle>
                   <CardDescription>
-                    Unified view of RCON commands, Bridge actions, player
-                    events, and server events
+                    {t("activityTab.description")}
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
@@ -3811,37 +4030,37 @@ export default function Debug() {
                   >
                     <SelectTrigger
                       className="w-[130px] h-8"
-                      aria-label="Filter by source"
+                      aria-label={t("activityTab.filterBySourceAria")}
                     >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">
-                        All Sources
+                        {t("activityTab.allSources")}
                         {activityStats.total > 0
                           ? ` (${activityStats.total})`
                           : ""}
                       </SelectItem>
                       <SelectItem value="rcon">
-                        RCON
+                        {t("common.sourceRcon")}
                         {activityStats.rcon > 0
                           ? ` (${activityStats.rcon})`
                           : ""}
                       </SelectItem>
                       <SelectItem value="bridge">
-                        Bridge
+                        {t("common.sourceBridge")}
                         {activityStats.bridge > 0
                           ? ` (${activityStats.bridge})`
                           : ""}
                       </SelectItem>
                       <SelectItem value="player">
-                        Player
+                        {t("common.sourcePlayer")}
                         {activityStats.player > 0
                           ? ` (${activityStats.player})`
                           : ""}
                       </SelectItem>
                       <SelectItem value="server">
-                        Server
+                        {t("common.sourceServer")}
                         {activityStats.server > 0
                           ? ` (${activityStats.server})`
                           : ""}
@@ -3851,7 +4070,7 @@ export default function Debug() {
                   <div className="relative">
                     <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                     <Input
-                      placeholder="Search action / detail…"
+                      placeholder={t("activityTab.searchPlaceholder")}
                       value={activitySearch}
                       onChange={(e) => setActivitySearch(e.target.value)}
                       onKeyDown={(e) => {
@@ -3862,14 +4081,14 @@ export default function Debug() {
                       }}
                       className="w-[200px] h-8 pl-7 pr-7"
                       maxLength={200}
-                      aria-label="Search activity"
+                      aria-label={t("activityTab.searchAria")}
                     />
                     {activitySearch && (
                       <button
                         type="button"
                         onClick={() => setActivitySearch("")}
                         className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                        aria-label="Clear search"
+                        aria-label={t("activityTab.clearSearchAria")}
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>
@@ -3889,13 +4108,13 @@ export default function Debug() {
                         ) : (
                           <Pause className="w-3.5 h-3.5" />
                         )}
-                        {activityPaused ? "Resume" : "Live"}
+                        {activityPaused ? t("activityTab.resume") : t("activityTab.live")}
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
                       {activityPaused
-                        ? "Resume auto-refresh (15s)"
-                        : "Pause auto-refresh"}
+                        ? t("activityTab.resumeTooltip")
+                        : t("activityTab.pauseTooltip")}
                     </TooltipContent>
                   </Tooltip>
                   <Button
@@ -3903,7 +4122,7 @@ export default function Debug() {
                     size="sm"
                     onClick={fetchActivity}
                     disabled={refreshingActivity}
-                    aria-label="Refresh now"
+                    aria-label={t("activityTab.refreshNowAria")}
                   >
                     <RefreshCw
                       className={cn(
@@ -3921,9 +4140,11 @@ export default function Debug() {
                   <Badge variant="secondary" className="gap-1">
                     <Activity className="w-3 h-3" />
                     {activitySearch || activityResultFilter !== "all"
-                      ? `${filteredActivityEntries.length} / ${activityStats.total}`
-                      : activityStats.total}{" "}
-                    entries
+                      ? t("activityTab.filteredEntriesCount", {
+                          shown: filteredActivityEntries.length,
+                          total: activityStats.total,
+                        })
+                      : t("activityTab.entriesCount", { count: activityStats.total })}
                   </Badge>
                   <button
                     type="button"
@@ -3936,7 +4157,7 @@ export default function Debug() {
                     )}
                     aria-pressed={activityResultFilter === "all"}
                   >
-                    All
+                    {t("activityTab.allButton")}
                   </button>
                   <button
                     type="button"
@@ -3953,10 +4174,10 @@ export default function Debug() {
                         : "border-border/50 text-muted-foreground hover:border-success/40 hover:text-success",
                     )}
                     aria-pressed={activityResultFilter === "success"}
-                    title="Show only successful entries"
+                    title={t("activityTab.successButtonTitle")}
                   >
-                    <CheckCircle className="w-3 h-3" /> {activityStats.success}{" "}
-                    success
+                    <CheckCircle className="w-3 h-3" />{" "}
+                    {t("activityTab.successButton", { count: activityStats.success })}
                   </button>
                   <button
                     type="button"
@@ -3973,10 +4194,10 @@ export default function Debug() {
                         : "border-border/50 text-muted-foreground hover:border-destructive/40 hover:text-destructive",
                     )}
                     aria-pressed={activityResultFilter === "failed"}
-                    title="Show only failed entries"
+                    title={t("activityTab.failedButtonTitle")}
                   >
-                    <AlertCircle className="w-3 h-3" /> {activityStats.failed}{" "}
-                    failed
+                    <AlertCircle className="w-3 h-3" />{" "}
+                    {t("activityTab.failedButton", { count: activityStats.failed })}
                   </button>
                   {filteredActivityEntries.length > 0 && (
                     <Button
@@ -4000,11 +4221,11 @@ export default function Debug() {
                         expandedActivity.has(e.id),
                       ) ? (
                         <>
-                          <ChevronDown className="w-3 h-3" /> Collapse all
+                          <ChevronDown className="w-3 h-3" /> {t("activityTab.collapseAll")}
                         </>
                       ) : (
                         <>
-                          <ChevronRight className="w-3 h-3" /> Expand all
+                          <ChevronRight className="w-3 h-3" /> {t("activityTab.expandAll")}
                         </>
                       )}
                     </Button>
@@ -4019,8 +4240,10 @@ export default function Debug() {
                           : "text-muted-foreground/70",
                       )}
                     >
-                      {activityPaused ? "Paused · " : ""}Last refresh{" "}
-                      {activityLastLoaded.toLocaleTimeString()}
+                      {activityPaused ? t("activityTab.pausedPrefix") : ""}
+                      {t("activityTab.lastRefresh", {
+                        time: activityLastLoaded.toLocaleTimeString(),
+                      })}
                     </span>
                   )}
                 </div>
@@ -4029,15 +4252,15 @@ export default function Debug() {
             <CardContent>
               {activityEntries.length === 0 ? (
                 <EmptyState
-                  title="No activity yet"
-                  description="Commands and events will appear here as the panel is used."
+                  title={t("activityTab.noActivityTitle")}
+                  description={t("activityTab.noActivityDesc")}
                   icon={<Zap className="w-6 h-6" />}
                 />
               ) : filteredActivityEntries.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-2">
                   <Search className="w-5 h-5 opacity-60" />
                   <p className="text-sm">
-                    No entries match the current filters.
+                    {t("activityTab.noMatchesDesc")}
                   </p>
                   <div className="flex gap-2">
                     {activitySearch && (
@@ -4047,7 +4270,7 @@ export default function Debug() {
                         onClick={() => setActivitySearch("")}
                         className="text-xs"
                       >
-                        Clear search
+                        {t("activityTab.clearSearch")}
                       </Button>
                     )}
                     {activityResultFilter !== "all" && (
@@ -4057,7 +4280,7 @@ export default function Debug() {
                         onClick={() => setActivityResultFilter("all")}
                         className="text-xs"
                       >
-                        Show all results
+                        {t("activityTab.showAllResults")}
                       </Button>
                     )}
                   </div>
@@ -4106,7 +4329,7 @@ export default function Debug() {
                                   "border-orange-500/50 text-orange-400",
                               )}
                             >
-                              {entry.source}
+                              {getSourceLabel(entry.source)}
                             </Badge>
                             {entry.success ? (
                               <CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0 mt-0.5" />
@@ -4126,7 +4349,7 @@ export default function Debug() {
                                 )}
                                 title={
                                   entry.duration_ms > 1000
-                                    ? "Slow (over 1s)"
+                                    ? t("activityTab.slowTitle")
                                     : undefined
                                 }
                               >
@@ -4148,8 +4371,8 @@ export default function Debug() {
                                 copyActivityEntry(entry);
                               }}
                               className="shrink-0 mt-0.5 text-muted-foreground/50 hover:text-foreground opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
-                              aria-label="Copy entry"
-                              title="Copy entry"
+                              aria-label={t("activityTab.copyEntryAria")}
+                              title={t("activityTab.copyEntryAria")}
                             >
                               <Copy className="w-3.5 h-3.5" />
                             </button>
@@ -4165,14 +4388,14 @@ export default function Debug() {
                                 Object.keys(entry.args).length > 0 && (
                                   <div className="mb-1">
                                     <span className="text-muted-foreground">
-                                      Args:
+                                      {t("activityTab.argsLabel")}
                                     </span>{" "}
                                     {JSON.stringify(entry.args)}
                                   </div>
                                 )}
                               <div>
                                 <span className="text-muted-foreground">
-                                  Detail:
+                                  {t("activityTab.detailLabel")}
                                 </span>{" "}
                                 {entry.detail}
                               </div>
@@ -4196,40 +4419,40 @@ export default function Debug() {
               const tiles = [
                 {
                   key: "all",
-                  label: "Total",
+                  label: t("logsTab.statTotal"),
                   value: logStats.total,
                   tone: "muted",
                   Icon: Terminal,
                 },
                 {
                   key: "error",
-                  label: "Errors",
+                  label: t("logsTab.statErrors"),
                   value: logStats.errors,
                   tone: "destructive",
                   Icon: AlertCircle,
                 },
                 {
                   key: "warn",
-                  label: "Warnings",
+                  label: t("logsTab.statWarnings"),
                   value: logStats.warnings,
                   tone: "warning",
                   Icon: AlertTriangle,
                 },
                 {
                   key: "info",
-                  label: "Info",
+                  label: t("logsTab.statInfo"),
                   value: logStats.info,
                   tone: "primary",
                   Icon: Info,
                 },
                 {
                   key: "debug",
-                  label: "Debug",
+                  label: t("logsTab.statDebug"),
                   value: logStats.debug,
                   tone: "muted",
                   Icon: Bug,
                 },
-              ] as const;
+              ];
               const toneStyles: Record<
                 string,
                 { chip: string; value: string; ring: string; hover: string }
@@ -4259,21 +4482,21 @@ export default function Debug() {
                   hover: "hover:border-border",
                 },
               };
-              return tiles.map((t) => {
-                const s = toneStyles[t.tone];
-                const isActive = levelFilter === t.key;
+              return tiles.map((tile) => {
+                const s = toneStyles[tile.tone];
+                const isActive = levelFilter === tile.key;
                 return (
                   <Card
-                    key={t.key}
+                    key={tile.key}
                     role="button"
                     tabIndex={0}
                     aria-pressed={isActive}
-                    aria-label={`Filter: ${t.label}`}
-                    onClick={() => setLevelFilter(t.key as typeof levelFilter)}
+                    aria-label={t("logsTab.filterAria", { label: tile.label })}
+                    onClick={() => setLevelFilter(tile.key as typeof levelFilter)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
-                        setLevelFilter(t.key as typeof levelFilter);
+                        setLevelFilter(tile.key as typeof levelFilter);
                       }
                     }}
                     className={cn(
@@ -4289,11 +4512,11 @@ export default function Debug() {
                           s.chip,
                         )}
                       >
-                        <t.Icon className="w-4 h-4" />
+                        <tile.Icon className="w-4 h-4" />
                       </div>
                       <div className="min-w-0">
                         <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                          {t.label}
+                          {tile.label}
                         </p>
                         <p
                           className={cn(
@@ -4301,7 +4524,7 @@ export default function Debug() {
                             s.value,
                           )}
                         >
-                          {t.value.toLocaleString()}
+                          {tile.value.toLocaleString()}
                         </p>
                       </div>
                     </CardContent>
@@ -4315,22 +4538,24 @@ export default function Debug() {
           <Card>
             <CardHeader className="pb-4">
               <div className="flex flex-col gap-4">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-y-2">
                   <div>
                     <CardTitle className="flex items-center gap-2">
                       <Terminal className="w-5 h-5" />
-                      Application Logs
+                      {t("logsTab.applicationLogsTitle")}
                       {paused && (
                         <Badge variant="secondary" className="ml-2">
-                          Paused
+                          {t("logsTab.pausedBadge")}
                         </Badge>
                       )}
                     </CardTitle>
                     <CardDescription>
-                      Real-time logs • {filteredLogs.length} shown of{" "}
-                      {logs.length} total
+                      {t("logsTab.realtimeDescription", {
+                        shown: filteredLogs.length,
+                        total: logs.length,
+                      })}
                       <span className="ml-2 text-xs">
-                        (Ctrl+F to search, Space to pause)
+                        {t("logsTab.keyboardHint")}
                       </span>
                     </CardDescription>
                   </div>
@@ -4352,7 +4577,7 @@ export default function Debug() {
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>
-                          {paused ? "Resume" : "Pause"} live updates
+                          {paused ? t("logsTab.resumeLiveUpdates") : t("logsTab.pauseLiveUpdates")}
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -4374,7 +4599,7 @@ export default function Debug() {
                             />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>Refresh logs</TooltipContent>
+                        <TooltipContent>{t("logsTab.refreshLogsTooltip")}</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
 
@@ -4390,20 +4615,20 @@ export default function Debug() {
                     >
                       <SelectTrigger className="w-full sm:w-[160px]">
                         <Download className="w-4 h-4 mr-2" />
-                        Export
+                        {t("logsTab.exportTrigger")}
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="download" disabled>
-                          Export logs...
+                          {t("logsTab.exportPlaceholder")}
                         </SelectItem>
                         <SelectItem value="full-txt">
-                          Full log file (.txt)
+                          {t("logsTab.exportFullTxt")}
                         </SelectItem>
                         <SelectItem value="filtered-txt">
-                          Filtered view (.txt)
+                          {t("logsTab.exportFilteredTxt")}
                         </SelectItem>
                         <SelectItem value="filtered-json">
-                          Filtered view (.json)
+                          {t("logsTab.exportFilteredJson")}
                         </SelectItem>
                       </SelectContent>
                     </Select>
@@ -4419,7 +4644,7 @@ export default function Debug() {
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>Clear display</TooltipContent>
+                        <TooltipContent>{t("logsTab.clearDisplayTooltip")}</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
                   </div>
@@ -4432,17 +4657,17 @@ export default function Debug() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <Input
                       ref={searchInputRef}
-                      placeholder="Search logs..."
+                      placeholder={t("logsTab.searchLogsPlaceholder")}
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="pl-9 pr-8"
-                      aria-label="Search debug logs"
+                      aria-label={t("logsTab.searchLogsAria")}
                       maxLength={128}
                     />
                     {searchQuery && (
                       <button
                         onClick={() => setSearchQuery("")}
-                        aria-label="Clear debug log search"
+                        aria-label={t("logsTab.clearLogSearchAria")}
                         className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                       >
                         <X className="w-4 h-4" />
@@ -4458,24 +4683,24 @@ export default function Debug() {
                     }
                   >
                     <SelectTrigger className="w-full sm:w-[120px]">
-                      <SelectValue placeholder="Level" />
+                      <SelectValue placeholder={t("logsTab.levelPlaceholder")} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All Levels</SelectItem>
-                      <SelectItem value="error">Errors</SelectItem>
-                      <SelectItem value="warn">Warnings</SelectItem>
-                      <SelectItem value="info">Info</SelectItem>
-                      <SelectItem value="debug">Debug</SelectItem>
+                      <SelectItem value="all">{t("logsTab.allLevels")}</SelectItem>
+                      <SelectItem value="error">{t("logsTab.statErrors")}</SelectItem>
+                      <SelectItem value="warn">{t("logsTab.statWarnings")}</SelectItem>
+                      <SelectItem value="info">{t("logsTab.statInfo")}</SelectItem>
+                      <SelectItem value="debug">{t("logsTab.statDebug")}</SelectItem>
                     </SelectContent>
                   </Select>
 
                   {/* Source Filter */}
                   <Select value={sourceFilter} onValueChange={setSourceFilter}>
                     <SelectTrigger className="w-full sm:w-[160px]">
-                      <SelectValue placeholder="Source" />
+                      <SelectValue placeholder={t("logsTab.sourcePlaceholder")} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All Sources</SelectItem>
+                      <SelectItem value="all">{t("activityTab.allSources")}</SelectItem>
                       {availableSources.map((source) => (
                         <SelectItem key={source} value={source}>
                           {source}
@@ -4494,9 +4719,9 @@ export default function Debug() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="time">Time only</SelectItem>
-                      <SelectItem value="datetime">Date & Time</SelectItem>
-                      <SelectItem value="relative">Relative</SelectItem>
+                      <SelectItem value="time">{t("logsTab.timeOnly")}</SelectItem>
+                      <SelectItem value="datetime">{t("logsTab.dateAndTime")}</SelectItem>
+                      <SelectItem value="relative">{t("logsTab.relative")}</SelectItem>
                     </SelectContent>
                   </Select>
 
@@ -4511,7 +4736,7 @@ export default function Debug() {
                       htmlFor="auto-scroll"
                       className="text-sm cursor-pointer"
                     >
-                      Auto-scroll
+                      {t("logsTab.autoScroll")}
                     </Label>
                   </div>
                 </div>
@@ -4528,15 +4753,15 @@ export default function Debug() {
                       <EmptyState
                         compact
                         type="noData"
-                        title="No logs to display"
-                        description="Logs will appear here as the application runs."
+                        title={t("logsTab.noLogsTitle")}
+                        description={t("logsTab.noLogsDesc")}
                       />
                     ) : (
                       <EmptyState
                         compact
                         type="noResults"
-                        title="No logs match your filters"
-                        description="Try adjusting your search or filter criteria."
+                        title={t("logsTab.noLogsMatchTitle")}
+                        description={t("logsTab.noLogsMatchDesc")}
                       />
                     )
                   ) : (
@@ -4572,7 +4797,7 @@ export default function Debug() {
                             variant="outline"
                             className={`text-xs shrink-0 ${getLevelColor(log.level)} border-current`}
                           >
-                            {log.level.toUpperCase()}
+                            {getLevelLabel(log.level).toUpperCase()}
                           </Badge>
                           {log.source && (
                             <Badge
@@ -4616,11 +4841,10 @@ export default function Debug() {
               <CardHeader className="pb-3">
                 <CardTitle className="text-lg flex items-center gap-2">
                   <FileText className="w-5 h-5 text-primary" />
-                  Log Files on Disk
+                  {t("logsTab.logFilesTitle")}
                 </CardTitle>
                 <CardDescription>
-                  Download panel logs individually, or grab one support bundle
-                  with panel logs, Zomboid server logs, and crash files.
+                  {t("logsTab.logFilesDesc")}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -4633,14 +4857,13 @@ export default function Debug() {
                       </div>
                       <div className="min-w-0">
                         <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary">
-                          Recommended
+                          {t("logsTab.recommendedEyebrow")}
                         </p>
                         <p className="mt-0.5 text-sm font-semibold text-foreground">
-                          One-click support bundle
+                          {t("logsTab.supportBundleTitle")}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          Panel logs · Zomboid server logs · crash dumps ·
-                          diagnostics, all in a single .zip.
+                          {t("logsTab.supportBundleDesc")}
                         </p>
                       </div>
                     </div>
@@ -4656,7 +4879,7 @@ export default function Debug() {
                       ) : (
                         <Download className="w-4 h-4" />
                       )}
-                      {downloadingLogArchive ? "Bundling…" : "Download .zip"}
+                      {downloadingLogArchive ? t("headerActions.bundling") : t("logsTab.downloadZip")}
                     </Button>
                   </div>
                 </div>
@@ -4664,7 +4887,7 @@ export default function Debug() {
                 {/* Individual files */}
                 <div>
                   <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Individual files{" "}
+                    {t("logsTab.individualFiles")}{" "}
                     <span className="ml-1 font-mono tabular-nums normal-case tracking-normal text-muted-foreground/70">
                       · {logFiles.length}
                     </span>
@@ -4698,11 +4921,11 @@ export default function Debug() {
                           variant="outline"
                           size="sm"
                           onClick={() => downloadLogFile(file.name)}
-                          aria-label={`Download ${file.name}`}
+                          aria-label={t("logsTab.downloadFileAria", { name: file.name })}
                           className="gap-1.5 shrink-0"
                         >
                           <Download className="w-3.5 h-3.5" />
-                          <span className="hidden sm:inline">Download</span>
+                          <span className="hidden sm:inline">{t("logsTab.downloadButton")}</span>
                         </Button>
                       </div>
                     ))}
@@ -4730,7 +4953,7 @@ export default function Debug() {
                             : "text-muted-foreground",
                         )}
                       />
-                      Crash Logs
+                      {t("crashesTab.crashLogsTitle")}
                       {crashLogs.length > 0 && (
                         <Badge variant="destructive" className="ml-1">
                           {crashLogs.length}
@@ -4738,7 +4961,7 @@ export default function Debug() {
                       )}
                     </CardTitle>
                     <CardDescription>
-                      Java crash dumps and error logs.
+                      {t("crashesTab.crashLogsDesc")}
                     </CardDescription>
                   </div>
                   <Button
@@ -4746,7 +4969,7 @@ export default function Debug() {
                     size="sm"
                     onClick={fetchCrashLogs}
                     disabled={refreshingCrashLogs}
-                    aria-label="Refresh crash logs"
+                    aria-label={t("crashesTab.refreshCrashLogsAria")}
                   >
                     <RefreshCw
                       className={cn(
@@ -4762,8 +4985,8 @@ export default function Debug() {
                   <EmptyState
                     compact
                     type="noData"
-                    title="No crash logs found"
-                    description="That's good news!"
+                    title={t("crashesTab.noCrashLogsTitle")}
+                    description={t("crashesTab.noCrashLogsDesc")}
                   />
                 ) : (
                   <ScrollArea className="h-[calc(100vh-360px)] min-h-[300px]">
@@ -4799,7 +5022,7 @@ export default function Debug() {
                                     variant="destructive"
                                     className="text-[10px] h-5 shrink-0"
                                   >
-                                    NEW
+                                    {t("crashesTab.newBadge")}
                                   </Badge>
                                 )}
                               </div>
@@ -4830,7 +5053,7 @@ export default function Debug() {
                   <CardTitle className="flex items-center gap-2 min-w-0">
                     <FileText className="w-5 h-5 shrink-0" />
                     <span className="truncate">
-                      {selectedCrashLog || "Crash Log Viewer"}
+                      {selectedCrashLog || t("crashesTab.viewerFallbackTitle")}
                     </span>
                   </CardTitle>
                   {selectedCrashLog && !loadingCrashLog && crashLogContent && (
@@ -4843,10 +5066,10 @@ export default function Debug() {
                             onClick={async () => {
                               const ok = await copyText(crashLogContent);
                               toast({
-                                title: ok ? "Copied" : "Copy failed",
+                                title: ok ? t("common.copied") : t("common.copyFailed"),
                                 description: ok
-                                  ? `${selectedCrashLog} copied to clipboard.`
-                                  : "Could not access clipboard.",
+                                  ? t("crashesTab.copiedDesc", { name: selectedCrashLog })
+                                  : t("crashesTab.couldNotAccessClipboard"),
                                 variant: ok
                                   ? ("success" as const)
                                   : "destructive",
@@ -4856,7 +5079,7 @@ export default function Debug() {
                             <Copy className="w-4 h-4" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>Copy contents</TooltipContent>
+                        <TooltipContent>{t("crashesTab.copyContentsTooltip")}</TooltipContent>
                       </Tooltip>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -4883,7 +5106,7 @@ export default function Debug() {
                             <Download className="w-4 h-4" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>Download file</TooltipContent>
+                        <TooltipContent>{t("crashesTab.downloadFileTooltip")}</TooltipContent>
                       </Tooltip>
                     </div>
                   )}
@@ -4892,7 +5115,7 @@ export default function Debug() {
               <CardContent>
                 {!selectedCrashLog ? (
                   <div className="h-[calc(100vh-360px)] min-h-[300px] flex items-center justify-center text-muted-foreground">
-                    Select a crash log to view its contents
+                    {t("crashesTab.selectToView")}
                   </div>
                 ) : loadingCrashLog ? (
                   <div className="h-[calc(100vh-360px)] min-h-[300px] flex items-center justify-center">
@@ -4918,12 +5141,14 @@ export default function Debug() {
               <Activity className="w-4 h-4" />
               {performanceStats.spanMs > 0 ? (
                 <span>
-                  Showing {performanceHistory.length} snapshots over{" "}
-                  {formatUptime(Math.round(performanceStats.spanMs / 1000))}
+                  {t("performanceTab.showingSnapshots", {
+                    count: performanceHistory.length,
+                    duration: formatUptime(Math.round(performanceStats.spanMs / 1000)),
+                  })}
                 </span>
               ) : (
                 <span>
-                  Performance snapshots are recorded every 60 seconds.
+                  {t("performanceTab.recordedEvery60s")}
                 </span>
               )}
             </div>
@@ -4934,15 +5159,15 @@ export default function Debug() {
               >
                 <SelectTrigger
                   className="w-[110px] h-8"
-                  aria-label="Time range"
+                  aria-label={t("performanceTab.timeRangeAria")}
                 >
                   <Clock className="w-3.5 h-3.5 mr-1" />
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="1h">Last hour</SelectItem>
-                  <SelectItem value="6h">Last 6h</SelectItem>
-                  <SelectItem value="24h">Last 24h</SelectItem>
+                  <SelectItem value="1h">{t("performanceTab.lastHour")}</SelectItem>
+                  <SelectItem value="6h">{t("performanceTab.last6h")}</SelectItem>
+                  <SelectItem value="24h">{t("performanceTab.last24h")}</SelectItem>
                 </SelectContent>
               </Select>
               <Tooltip>
@@ -4956,7 +5181,7 @@ export default function Debug() {
                     <Download className="w-4 h-4" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Export as CSV</TooltipContent>
+                <TooltipContent>{t("performanceTab.exportCsvTooltip")}</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -4965,7 +5190,7 @@ export default function Debug() {
                     size="sm"
                     onClick={fetchPerformanceHistory}
                     disabled={refreshingPerformance}
-                    aria-label="Refresh"
+                    aria-label={t("common.refresh")}
                   >
                     <RefreshCw
                       className={cn(
@@ -4975,7 +5200,7 @@ export default function Debug() {
                     />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Refresh now</TooltipContent>
+                <TooltipContent>{t("performanceTab.refreshNowTooltip")}</TooltipContent>
               </Tooltip>
             </div>
           </div>
@@ -5014,7 +5239,7 @@ export default function Debug() {
                     ? "warning"
                     : null
                 : null;
-            const fmtBool = (b: boolean) => (b ? "Running" : "Stopped");
+            const fmtBool = (b: boolean) => (b ? t("common.running") : t("common.stopped"));
             return (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 <Card
@@ -5025,7 +5250,7 @@ export default function Debug() {
                 >
                   <CardContent className="p-4">
                     <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                      Host RAM
+                      {t("performanceTab.hostRam")}
                     </p>
                     <p
                       className={cn(
@@ -5036,12 +5261,14 @@ export default function Debug() {
                     >
                       {latest?.hostMemUsedGB != null
                         ? `${latest.hostMemUsedGB} / ${latest.hostMemGB} GB`
-                        : "N/A"}
+                        : t("common.notAvailable")}
                     </p>
                     {performanceStats.hostGB.avg != null && (
                       <p className="text-[11px] text-muted-foreground mt-0.5">
-                        avg {performanceStats.hostGB.avg.toFixed(1)} · max{" "}
-                        {performanceStats.hostGB.max!.toFixed(1)} GB
+                        {t("performanceTab.avgMaxGB", {
+                          avg: performanceStats.hostGB.avg.toFixed(1),
+                          max: performanceStats.hostGB.max!.toFixed(1),
+                        })}
                       </p>
                     )}
                   </CardContent>
@@ -5054,7 +5281,7 @@ export default function Debug() {
                 >
                   <CardContent className="p-4">
                     <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                      Host CPU
+                      {t("performanceTab.hostCpu")}
                     </p>
                     <p
                       className={cn(
@@ -5063,12 +5290,14 @@ export default function Debug() {
                         cpuTone === "warning" && "text-warning",
                       )}
                     >
-                      {latest?.cpuLoad != null ? `${latest.cpuLoad}%` : "N/A"}
+                      {latest?.cpuLoad != null ? `${latest.cpuLoad}%` : t("common.notAvailable")}
                     </p>
                     {performanceStats.cpu.avg != null && (
                       <p className="text-[11px] text-muted-foreground mt-0.5">
-                        avg {performanceStats.cpu.avg.toFixed(1)}% · max{" "}
-                        {performanceStats.cpu.max!.toFixed(1)}%
+                        {t("performanceTab.avgMaxPct", {
+                          avg: performanceStats.cpu.avg.toFixed(1),
+                          max: performanceStats.cpu.max!.toFixed(1),
+                        })}
                       </p>
                     )}
                   </CardContent>
@@ -5081,7 +5310,7 @@ export default function Debug() {
                 >
                   <CardContent className="p-4">
                     <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                      PZ Server RAM
+                      {t("performanceTab.pzServerRam")}
                     </p>
                     <p
                       className={cn(
@@ -5092,11 +5321,13 @@ export default function Debug() {
                     >
                       {latest?.pzMemMB != null
                         ? `${(latest.pzMemMB / 1024).toFixed(1)} GB`
-                        : "N/A"}
+                        : t("common.notAvailable")}
                     </p>
                     {performanceStats.pzMB.avg != null && (
                       <p className="text-[11px] text-muted-foreground mt-0.5">
-                        avg {(performanceStats.pzMB.avg / 1024).toFixed(1)} GB
+                        {t("performanceTab.avgGB", {
+                          avg: (performanceStats.pzMB.avg / 1024).toFixed(1),
+                        })}
                       </p>
                     )}
                   </CardContent>
@@ -5104,16 +5335,16 @@ export default function Debug() {
                 <Card>
                   <CardContent className="p-4">
                     <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                      PZ Peak
+                      {t("performanceTab.pzPeak")}
                     </p>
                     <p className="text-xl font-bold mt-1">
                       {performanceStats.pzMB.max != null
                         ? `${(performanceStats.pzMB.max / 1024).toFixed(1)} GB`
-                        : "N/A"}
+                        : t("common.notAvailable")}
                     </p>
                     {performanceStats.pzMB.count > 0 && (
                       <p className="text-[11px] text-muted-foreground mt-0.5">
-                        across {performanceStats.pzMB.count} samples
+                        {t("performanceTab.acrossSamples", { count: performanceStats.pzMB.count })}
                       </p>
                     )}
                   </CardContent>
@@ -5121,15 +5352,17 @@ export default function Debug() {
                 <Card>
                   <CardContent className="p-4">
                     <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                      Players
+                      {t("performanceTab.players")}
                     </p>
                     <p className="text-xl font-bold mt-1">
-                      {latest?.playerCount ?? "N/A"}
+                      {latest?.playerCount ?? t("common.notAvailable")}
                     </p>
                     {performanceStats.players.max != null && (
                       <p className="text-[11px] text-muted-foreground mt-0.5">
-                        peak {performanceStats.players.max} · avg{" "}
-                        {performanceStats.players.avg!.toFixed(1)}
+                        {t("performanceTab.peakAvg", {
+                          peak: performanceStats.players.max,
+                          avg: performanceStats.players.avg!.toFixed(1),
+                        })}
                       </p>
                     )}
                   </CardContent>
@@ -5137,7 +5370,7 @@ export default function Debug() {
                 <Card>
                   <CardContent className="p-4">
                     <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                      Server
+                      {t("performanceTab.server")}
                     </p>
                     <p
                       className={cn(
@@ -5147,11 +5380,10 @@ export default function Debug() {
                           : "text-muted-foreground",
                       )}
                     >
-                      {latest ? fmtBool(latest.serverRunning) : "N/A"}
+                      {latest ? fmtBool(latest.serverRunning) : t("common.notAvailable")}
                     </p>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
-                      {performanceHistory.length}{" "}
-                      {performanceHistory.length === 1 ? "sample" : "samples"}
+                      {t("performanceTab.sampleCount", { count: performanceHistory.length })}
                     </p>
                   </CardContent>
                 </Card>
@@ -5183,8 +5415,8 @@ export default function Debug() {
               <EmptyState
                 compact
                 type="noData"
-                title="Collecting data..."
-                description="Performance snapshots are recorded every 60 seconds. First data will appear shortly."
+                title={t("performanceTab.collectingTitle")}
+                description={t("performanceTab.collectingDesc")}
               />
             )}
           </Suspense>
@@ -5192,13 +5424,46 @@ export default function Debug() {
 
         {/* Health Tab */}
         <TabsContent value="health" className="space-y-4">
+          {healthError && (
+            <Card className="border-2 border-destructive/50 bg-destructive/5">
+              <CardContent className="pt-6">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-6 h-6 text-destructive shrink-0 mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-base font-semibold">
+                      {t("healthTab.couldNotReachTitle")}
+                    </h3>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {t("worldMapTab.couldNotReachDesc", { error: healthError })}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={fetchHealthStatus}
+                    disabled={refreshingHealth}
+                  >
+                    <RefreshCw
+                      className={cn(
+                        "w-4 h-4 mr-2",
+                        refreshingHealth && "animate-spin",
+                      )}
+                    />
+                    {t("worldMapTab.retry")}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          {healthError && !healthStatus ? null : (
+          <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Overall Status */}
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2">
                   <Activity className="w-5 h-5" />
-                  System Status
+                  {t("healthTab.systemStatusTitle")}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -5219,8 +5484,8 @@ export default function Debug() {
                   <div>
                     <p className="text-2xl font-bold">
                       {healthStatus?.status === "ok"
-                        ? "Healthy"
-                        : "Issues Detected"}
+                        ? t("healthTab.healthy")
+                        : t("healthTab.issuesDetected")}
                     </p>
                     <p className="text-sm text-muted-foreground">
                       {healthStatus?.timestamp ? (
@@ -5229,15 +5494,16 @@ export default function Debug() {
                             healthStatus.timestamp,
                           ).toLocaleString()}
                         >
-                          Last checked{" "}
-                          {formatTimestamp(new Date(healthStatus.timestamp))}
+                          {t("healthTab.lastChecked", {
+                            time: formatTimestamp(new Date(healthStatus.timestamp)),
+                          })}
                         </span>
                       ) : (
-                        "Never checked"
+                        t("healthTab.neverChecked")
                       )}
                     </p>
                     <p className="text-xs text-muted-foreground/70 mt-0.5">
-                      Auto-refreshes every 30s
+                      {t("healthTab.autoRefreshes")}
                     </p>
                   </div>
                 </div>
@@ -5249,7 +5515,7 @@ export default function Debug() {
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2">
                   <Database className="w-5 h-5" />
-                  Memory Usage
+                  {t("healthTab.memoryUsageTitle")}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -5276,7 +5542,7 @@ export default function Debug() {
                       <>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">
-                            Heap Used
+                            {t("healthTab.heapUsed")}
                           </span>
                           <span className="font-mono">
                             {formatMemory(healthStatus.memory.heapUsed)}
@@ -5284,7 +5550,7 @@ export default function Debug() {
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">
-                            Heap Allocated
+                            {t("healthTab.heapAllocated")}
                           </span>
                           <span className="font-mono">
                             {formatMemory(healthStatus.memory.heapTotal)}
@@ -5293,7 +5559,7 @@ export default function Debug() {
                         {heapLimit !== undefined && (
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">
-                              Heap Limit
+                              {t("healthTab.heapLimit")}
                             </span>
                             <span className="font-mono">
                               {formatMemory(heapLimit)}
@@ -5301,7 +5567,7 @@ export default function Debug() {
                           </div>
                         )}
                         <div className="flex justify-between">
-                          <span className="text-muted-foreground">RSS</span>
+                          <span className="text-muted-foreground">{t("healthTab.rss")}</span>
                           <span className="font-mono">
                             {formatMemory(healthStatus.memory.rss)}
                           </span>
@@ -5310,7 +5576,7 @@ export default function Debug() {
                           <>
                             <div className="flex justify-between text-xs">
                               <span className="text-muted-foreground">
-                                Heap usage (of limit)
+                                {t("healthTab.heapUsageOfLimit")}
                               </span>
                               <span
                                 className={cn(
@@ -5348,7 +5614,7 @@ export default function Debug() {
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
                   <Zap className="w-5 h-5" />
-                  Services
+                  {t("healthTab.servicesTitle")}
                 </CardTitle>
                 <Button
                   variant="outline"
@@ -5362,7 +5628,7 @@ export default function Debug() {
                       refreshingHealth && "animate-spin",
                     )}
                   />
-                  Refresh
+                  {t("common.refresh")}
                 </Button>
               </div>
             </CardHeader>
@@ -5376,7 +5642,7 @@ export default function Debug() {
                     ) : (
                       <WifiOff className="w-5 h-5 text-destructive" />
                     )}
-                    <span className="font-medium">RCON</span>
+                    <span className="font-medium">{t("healthTab.rconLabel")}</span>
                     <Badge
                       variant={
                         healthStatus?.services?.rcon?.connected
@@ -5386,13 +5652,14 @@ export default function Debug() {
                       className="ml-auto"
                     >
                       {healthStatus?.services?.rcon?.connected
-                        ? "Connected"
-                        : "Disconnected"}
+                        ? t("common.connected")
+                        : t("common.disconnected")}
                     </Badge>
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    Host:{" "}
-                    {healthStatus?.services?.rcon?.host || "Not configured"}
+                    {t("healthTab.hostLabel", {
+                      host: healthStatus?.services?.rcon?.host || t("healthTab.hostNotConfigured"),
+                    })}
                   </p>
                 </div>
 
@@ -5402,7 +5669,7 @@ export default function Debug() {
                     <Server
                       className={`w-5 h-5 ${healthStatus?.services?.server?.running ? "text-primary" : "text-muted-foreground"}`}
                     />
-                    <span className="font-medium">Game Server</span>
+                    <span className="font-medium">{t("healthTab.gameServerLabel")}</span>
                     <Badge
                       variant={
                         healthStatus?.services?.server?.running
@@ -5412,12 +5679,12 @@ export default function Debug() {
                       className="ml-auto"
                     >
                       {healthStatus?.services?.server?.running
-                        ? "Running"
-                        : "Stopped"}
+                        ? t("common.running")
+                        : t("common.stopped")}
                     </Badge>
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    Project Zomboid dedicated server
+                    {t("healthTab.gameServerDesc")}
                   </p>
                 </div>
 
@@ -5427,7 +5694,7 @@ export default function Debug() {
                     <Settings
                       className={`w-5 h-5 ${healthStatus?.services?.modChecker?.running ? "text-primary" : "text-muted-foreground"}`}
                     />
-                    <span className="font-medium">Mod Checker</span>
+                    <span className="font-medium">{t("healthTab.modCheckerLabel")}</span>
                     <Badge
                       variant={
                         healthStatus?.services?.modChecker?.running
@@ -5437,15 +5704,16 @@ export default function Debug() {
                       className="ml-auto"
                     >
                       {healthStatus?.services?.modChecker?.running
-                        ? "Active"
-                        : "Inactive"}
+                        ? t("common.active")
+                        : t("common.inactive")}
                     </Badge>
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    Interval:{" "}
                     {healthStatus?.services?.modChecker?.interval
-                      ? `${Math.floor((healthStatus.services?.modChecker?.interval || 0) / 60000)}m`
-                      : "N/A"}
+                      ? t("healthTab.intervalLabel", {
+                          minutes: Math.floor((healthStatus.services?.modChecker?.interval || 0) / 60000),
+                        })
+                      : t("healthTab.intervalLabelNA")}
                   </p>
                 </div>
               </div>
@@ -5457,7 +5725,7 @@ export default function Debug() {
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2">
                 <Clock className="w-5 h-5" />
-                Uptime
+                {t("healthTab.uptimeTitle")}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -5465,15 +5733,18 @@ export default function Debug() {
                 {healthStatus ? formatUptime(healthStatus.uptime) : "-"}
               </div>
               <p className="text-sm text-muted-foreground mt-1">
-                Since{" "}
-                {healthStatus
-                  ? new Date(
+                {healthStatus &&
+                  t("healthTab.since", {
+                    date: new Date(
                       Date.now() - healthStatus.uptime * 1000,
-                    ).toLocaleString()
-                  : "-"}
+                    ).toLocaleString(),
+                  })}
+                {!healthStatus && "-"}
               </p>
             </CardContent>
           </Card>
+          </>
+          )}
         </TabsContent>
 
         {/* System Tab */}
@@ -5482,7 +5753,7 @@ export default function Debug() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">Node.js</CardTitle>
+                <CardTitle className="text-sm font-medium">{t("systemTab.nodeJs")}</CardTitle>
               </CardHeader>
               <CardContent>
                 <span className="text-2xl font-bold">
@@ -5493,7 +5764,7 @@ export default function Debug() {
 
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">Platform</CardTitle>
+                <CardTitle className="text-sm font-medium">{t("systemTab.platform")}</CardTitle>
               </CardHeader>
               <CardContent>
                 <span className="text-2xl font-bold">
@@ -5504,7 +5775,7 @@ export default function Debug() {
 
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">Uptime</CardTitle>
+                <CardTitle className="text-sm font-medium">{t("systemTab.uptime")}</CardTitle>
               </CardHeader>
               <CardContent>
                 <span className="text-2xl font-bold">
@@ -5515,7 +5786,7 @@ export default function Debug() {
 
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">Memory</CardTitle>
+                <CardTitle className="text-sm font-medium">{t("systemTab.memory")}</CardTitle>
               </CardHeader>
               <CardContent>
                 <span className="text-2xl font-bold">
@@ -5524,11 +5795,11 @@ export default function Debug() {
                     : "-"}
                 </span>
                 <p className="text-xs text-muted-foreground mt-1">
-                  of{" "}
-                  {systemInfo?.memoryUsage
-                    ? formatMemory(systemInfo.memoryUsage.heapTotal)
-                    : "-"}{" "}
-                  heap
+                  {t("systemTab.ofHeap", {
+                    total: systemInfo?.memoryUsage
+                      ? formatMemory(systemInfo.memoryUsage.heapTotal)
+                      : "-",
+                  })}
                 </p>
               </CardContent>
             </Card>
@@ -5541,15 +5812,15 @@ export default function Debug() {
                 <div>
                   <CardTitle className="flex items-center gap-2">
                     <FolderOpen className="w-4 h-4 text-warning" />
-                    File Paths
+                    {t("systemTab.filePathsTitle")}
                   </CardTitle>
                   <CardDescription>
-                    Data and log file locations.
+                    {t("systemTab.filePathsDesc")}
                   </CardDescription>
                 </div>
                 {!editingPaths && (
                   <Button variant="outline" size="sm" onClick={handleEditPaths}>
-                    Change Paths
+                    {t("systemTab.changePaths")}
                   </Button>
                 )}
               </div>
@@ -5562,11 +5833,10 @@ export default function Debug() {
                       <AlertTriangle className="mt-0.5 w-4 h-4 shrink-0 text-warning" />
                       <div>
                         <p className="font-medium text-warning">
-                          Restart Required
+                          {t("systemTab.restartRequiredTitle")}
                         </p>
                         <p className="text-muted-foreground">
-                          Changing paths requires restarting the application to
-                          take effect.
+                          {t("systemTab.restartRequiredDesc")}
                         </p>
                       </div>
                     </div>
@@ -5574,7 +5844,7 @@ export default function Debug() {
 
                   <div className="space-y-2">
                     <Label htmlFor="dataDir">
-                      Data Directory (contains db.json)
+                      {t("systemTab.dataDirLabel")}
                     </Label>
                     <Input
                       id="dataDir"
@@ -5587,7 +5857,7 @@ export default function Debug() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="logsDir">Logs Directory</Label>
+                    <Label htmlFor="logsDir">{t("systemTab.logsDirLabel")}</Label>
                     <Input
                       id="logsDir"
                       value={newLogsDir}
@@ -5608,10 +5878,10 @@ export default function Debug() {
                     />
                     <div>
                       <Label htmlFor="moveFiles" className="cursor-pointer">
-                        Move existing files to new location
+                        {t("systemTab.moveFilesLabel")}
                       </Label>
                       <p className="text-sm text-muted-foreground">
-                        Copy current data and logs to the new paths
+                        {t("systemTab.moveFilesDesc")}
                       </p>
                     </div>
                   </div>
@@ -5627,14 +5897,14 @@ export default function Debug() {
                       ) : (
                         <Save className="w-4 h-4" />
                       )}
-                      Save Paths
+                      {t("systemTab.savePaths")}
                     </Button>
                     <Button
                       variant="outline"
                       onClick={() => setEditingPaths(false)}
                       disabled={savingPaths}
                     >
-                      Cancel
+                      {t("systemTab.cancel")}
                     </Button>
                   </div>
                 </div>
@@ -5642,7 +5912,7 @@ export default function Debug() {
                 <div className="space-y-3 font-mono text-sm">
                   <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
                     <span className="text-muted-foreground w-32 shrink-0">
-                      Database:
+                      {t("systemTab.databaseLabel")}
                     </span>
                     <span className="break-all flex-1">
                       {systemInfo?.dbPath || "-"}
@@ -5657,10 +5927,10 @@ export default function Debug() {
                             onClick={async () => {
                               const ok = await copyText(systemInfo.dbPath);
                               toast({
-                                title: ok ? "Copied" : "Copy failed",
+                                title: ok ? t("common.copied") : t("common.copyFailed"),
                                 description: ok
                                   ? systemInfo.dbPath
-                                  : "Could not access clipboard.",
+                                  : t("crashesTab.couldNotAccessClipboard"),
                                 variant: ok
                                   ? ("success" as const)
                                   : "destructive",
@@ -5670,13 +5940,13 @@ export default function Debug() {
                             <Copy className="w-3.5 h-3.5" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>Copy path</TooltipContent>
+                        <TooltipContent>{t("systemTab.copyPathTooltip")}</TooltipContent>
                       </Tooltip>
                     )}
                   </div>
                   <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
                     <span className="text-muted-foreground w-32 shrink-0">
-                      Logs folder:
+                      {t("systemTab.logsFolderLabel")}
                     </span>
                     <span className="break-all flex-1">
                       {systemInfo?.logsPath || "-"}
@@ -5691,10 +5961,10 @@ export default function Debug() {
                             onClick={async () => {
                               const ok = await copyText(systemInfo.logsPath);
                               toast({
-                                title: ok ? "Copied" : "Copy failed",
+                                title: ok ? t("common.copied") : t("common.copyFailed"),
                                 description: ok
                                   ? systemInfo.logsPath
-                                  : "Could not access clipboard.",
+                                  : t("crashesTab.couldNotAccessClipboard"),
                                 variant: ok
                                   ? ("success" as const)
                                   : "destructive",
@@ -5704,7 +5974,7 @@ export default function Debug() {
                             <Copy className="w-3.5 h-3.5" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>Copy path</TooltipContent>
+                        <TooltipContent>{t("systemTab.copyPathTooltip")}</TooltipContent>
                       </Tooltip>
                     )}
                   </div>

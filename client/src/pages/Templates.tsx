@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { LayoutTemplate, Plus, Upload, Loader2 } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
 import { EmptyState } from '@/components/EmptyState'
@@ -13,6 +14,7 @@ import { ImportTemplateDialog } from '@/components/templates/ImportTemplateDialo
 import { useAuth } from '@/contexts/AuthContext'
 
 export default function Templates() {
+  const { t } = useTranslation('templates')
   const { toast } = useToast()
   const confirm = useConfirm()
   const { user, authEnabled } = useAuth()
@@ -32,11 +34,11 @@ export default function Templates() {
       setTemplates(list)
       setLoadError(null)
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : 'Failed to load templates.')
+      setLoadError(error instanceof Error ? error.message : t('toasts.loadFailedFallback'))
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     fetchTemplates()
@@ -48,8 +50,8 @@ export default function Templates() {
       await templatesApi.downloadExport(template.meta.id, slug || template.meta.id)
     } catch (error) {
       toast({
-        title: 'Export Failed',
-        description: error instanceof Error ? error.message : 'Failed to export template',
+        title: t('toasts.exportFailedTitle'),
+        description: error instanceof Error ? error.message : t('toasts.exportFailedFallback'),
         variant: 'destructive',
       })
     }
@@ -57,20 +59,20 @@ export default function Templates() {
 
   const handleDelete = async (template: SimTemplate) => {
     const ok = await confirm({
-      title: 'Delete Template',
-      description: `Delete "${template.meta.name}"? This can't be undone.`,
+      title: t('toasts.deleteTemplateTitle'),
+      description: t('toasts.deleteTemplateDesc', { name: template.meta.name }),
       destructive: true,
     })
     if (!ok) return
     try {
       const result = await templatesApi.delete(template.meta.id)
-      if (!result.success) throw new Error(result.error || 'Failed to delete template')
-      toast({ title: 'Template Deleted', variant: 'success' as const })
+      if (!result.success) throw new Error(result.error || t('toasts.deleteFailedFallback'))
+      toast({ title: t('toasts.templateDeletedTitle'), variant: 'success' as const })
       fetchTemplates()
     } catch (error) {
       toast({
-        title: 'Delete Failed',
-        description: error instanceof Error ? error.message : 'Failed to delete template',
+        title: t('toasts.deleteFailedTitle'),
+        description: error instanceof Error ? error.message : t('toasts.deleteFailedFallback'),
         variant: 'destructive',
       })
     }
@@ -79,19 +81,19 @@ export default function Templates() {
   return (
     <div className="space-y-6 page-transition">
       <PageHeader
-        title="Simulation Templates"
-        description="Apply a curated ruleset to your server, or save your own configuration to reuse later."
+        title={t('pageHeader.title')}
+        description={t('pageHeader.description')}
         icon={<LayoutTemplate className="h-6 w-6" />}
         tone="config"
         actions={canManage ? (
           <>
             <Button variant="outline" onClick={() => setImportOpen(true)}>
               <Upload className="h-4 w-4" />
-              Import
+              {t('pageHeader.import')}
             </Button>
             <Button onClick={() => setCreateOpen(true)}>
               <Plus className="h-4 w-4" />
-              Save Current Config
+              {t('pageHeader.saveCurrentConfig')}
             </Button>
           </>
         ) : undefined}
@@ -104,16 +106,16 @@ export default function Templates() {
       ) : loadError ? (
         <EmptyState
           type="noData"
-          title="Couldn't load templates"
+          title={t('emptyState.loadErrorTitle')}
           description={loadError}
-          action={{ label: 'Retry', onClick: fetchTemplates }}
+          action={{ label: t('emptyState.retry'), onClick: fetchTemplates }}
         />
       ) : templates.length === 0 ? (
         <EmptyState
           type="empty"
-          title="No templates yet"
-          description="Save your current server configuration as a template, or import one from a file."
-          action={{ label: 'Save Current Config', onClick: () => setCreateOpen(true) }}
+          title={t('emptyState.noTemplatesTitle')}
+          description={t('emptyState.noTemplatesDesc')}
+          action={{ label: t('pageHeader.saveCurrentConfig'), onClick: () => setCreateOpen(true) }}
         />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

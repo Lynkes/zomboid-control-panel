@@ -2,7 +2,35 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getSftpErrorGuidance, PanelBridgeSftpTransport, validateSftpBridgeConfig } from '../services/panelBridgeSftp.js';
+
+// getSftpCachePath used to build its path from process.cwd() -- silently
+// ignoring the operator's configured data directory, the same defect found
+// in debug.js's crash-logs scan. Mocked here (the only export in this
+// module that touches getDataPaths() at all -- confirmed by reading the
+// source) rather than relying on the real, test-isolated data dir, so the
+// "configured non-default dir" direction can be proven against a path that
+// obviously isn't cwd and obviously isn't whatever default the test
+// environment happens to be using this run.
+// Default return value matters, not just for these tests: utils/logger.js
+// (imported transitively via panelBridgeSftp.js) ALSO calls getDataPaths()
+// once at module load time, before any test body runs -- an unconfigured
+// vi.fn() (undefined) crashes that unrelated import with "Cannot read
+// properties of undefined (reading 'logsDir')" the instant this file is
+// collected. os.tmpdir() keeps that real (a real dir, just unused by
+// anything below), so only the value getSftpCachePath actually reads is
+// ever mocked away.
+const mockDataPaths = vi.hoisted(() => {
+  // process is a Node global, safe to use before any of this file's own
+  // `import`s have run -- vi.hoisted callbacks execute above them. Plain
+  // string concatenation, not path.join, for the same reason.
+  const base = (process.env.TEMP || process.env.TMPDIR || '/tmp') + '/panel-bridge-sftp-test-default';
+  const fn = () => ({ dataDir: base + '/data', logsDir: base + '/logs' });
+  return { current: fn };
+});
+vi.mock('../utils/paths.js', () => ({ getDataPaths: (...args) => mockDataPaths.current(...args) }));
+
+const { getSftpErrorGuidance, PanelBridgeSftpTransport, validateSftpBridgeConfig, getSftpCachePath } =
+  await import('../services/panelBridgeSftp.js');
 
 const valid = {
   host: 'pz.example.net',
@@ -60,6 +88,55 @@ describe('PanelBridge SFTP configuration', () => {
 
   it('explains how to repair a non-regular bridge file path', () => {
     expect(getSftpErrorGuidance(new Error('Expected a regular file, but found a non-regular entry'))).toMatch(/remove or rename/i);
+  });
+});
+
+describe('getSftpCachePath: follows the configured data directory, not process.cwd()', () => {
+  const defaultDataPaths = mockDataPaths.current;
+
+  afterEach(() => {
+    mockDataPaths.current = defaultDataPaths;
+  });
+
+  it('a configured non-default data dir is honoured', () => {
+    const configuredRoot = path.join('T:', 'operator-configured-root', 'data');
+    mockDataPaths.current = () => ({ dataDir: configuredRoot, logsDir: path.join('T:', 'operator-configured-root', 'logs') });
+
+    const cachePath = getSftpCachePath(valid);
+
+    expect(cachePath.startsWith(path.join(configuredRoot, 'panelbridge-sftp-cache'))).toBe(true);
+    expect(cachePath.startsWith(process.cwd())).toBe(false);
+  });
+
+  it('a different configured data dir produces a different cache path for the same bridge config', () => {
+    mockDataPaths.current = () => ({ dataDir: path.join('T:', 'root-a', 'data') });
+    const a = getSftpCachePath(valid);
+    mockDataPaths.current = () => ({ dataDir: path.join('T:', 'root-b', 'data') });
+    const b = getSftpCachePath(valid);
+
+    expect(a).not.toBe(b);
+    expect(a.startsWith(path.join('T:', 'root-a', 'data'))).toBe(true);
+    expect(b.startsWith(path.join('T:', 'root-b', 'data'))).toBe(true);
+  });
+
+  it('the cache key is stable for the same config and changes when the config changes -- proven independently of which data dir is configured', () => {
+    mockDataPaths.current = () => ({ dataDir: path.join('T:', 'operator-configured-root', 'data') });
+
+    const a = getSftpCachePath(valid);
+    const b = getSftpCachePath(valid);
+    const c = getSftpCachePath({ ...valid, host: 'different.example.net' });
+
+    expect(a).toBe(b);
+    expect(a).not.toBe(c);
+  });
+
+  it('the real (unmocked) default paths.js resolution still works', async () => {
+    const real = await vi.importActual('../utils/paths.js');
+    mockDataPaths.current = real.getDataPaths;
+
+    const cachePath = getSftpCachePath(valid);
+
+    expect(cachePath.startsWith(path.join(real.getDataPaths().dataDir, 'panelbridge-sftp-cache'))).toBe(true);
   });
 });
 

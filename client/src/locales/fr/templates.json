@@ -1,0 +1,24 @@
+{
+  "pageHeader": {
+    "title": "Modèles de simulation",
+    "description": "Appliquez un ensemble de règles préconçu à votre serveur, ou enregistrez votre propre configuration pour la réutiliser plus tard.",
+    "import": "Importer",
+    "saveCurrentConfig": "Enregistrer la configuration actuelle"
+  },
+  "emptyState": {
+    "loadErrorTitle": "Impossible de charger les modèles",
+    "retry": "Réessayer",
+    "noTemplatesTitle": "Aucun modèle pour l'instant",
+    "noTemplatesDesc": "Enregistrez votre configuration serveur actuelle comme modèle, ou importez-en un depuis un fichier."
+  },
+  "toasts": {
+    "exportFailedTitle": "Échec de l'export",
+    "exportFailedFallback": "Échec de l'export du modèle",
+    "deleteTemplateTitle": "Supprimer le modèle",
+    "deleteTemplateDesc": "Supprimer « {{name}} » ? Cette action est irréversible.",
+    "templateDeletedTitle": "Modèle supprimé",
+    "deleteFailedTitle": "Échec de la suppression",
+    "deleteFailedFallback": "Échec de la suppression du modèle",
+    "loadFailedFallback": "Échec du chargement des modèles."
+  }
+}

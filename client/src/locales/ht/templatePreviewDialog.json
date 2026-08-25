@@ -1,0 +1,11 @@
+{
+  "failedToPreview": "Pa t kapab apèsi modèl la",
+  "failedToApply": "Pa t kapab aplike modèl la",
+  "toastAppliedTitle": "Modèl Aplike",
+  "toastAppliedDesc": "\"{{name}}\" te aplike.",
+  "noActiveServerTitle": "Pa Gen Sèvè Aktif",
+  "noActiveServerDesc": "Konfigire yon sèvè anvan ou apèsi oswa aplike modèl.",
+  "remoteServerTitle": "Sèvè Distan",
+  "remoteServerDesc": "Aplike modèl sou sèvè distan poko sipòte.",
+  "previewFailedTitle": "Apèsi Echwe"
+}

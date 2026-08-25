@@ -163,6 +163,13 @@ export class ModChecker extends EventEmitter {
     this.intervalId = null;
     this.initialCheckTimeout = null;
     this.lastCheck = null;
+    // Whether the most recent checkForUpdates() actually got data back from
+    // the Steam Web API, vs. silently degrading to the smaller, less
+    // complete ACF-only comparison (see the `steamData.size === 0` branch
+    // below). Without this, a Steam outage/rate-limit/network block looks
+    // identical to "checked, 0 updates" everywhere getStatus() is read.
+    this.steamApiHealthy = true;
+    this.lastSteamApiFailureAt = null;
     this.modsNeedingUpdate = [];
     this.onUpdateCallback = null;
     this.autoRestartEnabled = false; // Track auto-restart state
@@ -900,13 +907,20 @@ export class ModChecker extends EventEmitter {
     // RCON readiness gate — verify RCON is connected before attempting restart
     const rconService = this.scheduler?.rconService;
     if (!rconService || !rconService.connected) {
-      let serverRunning = true;
+      // Default to "running" (the safe assumption: don't silently drop a
+      // pending restart) unless detection positively confirms the server is
+      // stopped. checkServerRunning() used to collapse a failed detection
+      // scan into `false` -- indistinguishable from a confirmed-stopped
+      // server -- which meant a scan failure while the server was actually
+      // running would mark this mod update "processed" and never retry it.
+      let confirmedOffline = false;
       if (
         this.serverManager &&
-        typeof this.serverManager.checkServerRunning === "function"
+        typeof this.serverManager.getServerProcessDetails === "function"
       ) {
         try {
-          serverRunning = await this.serverManager.checkServerRunning();
+          const details = await this.serverManager.getServerProcessDetails();
+          confirmedOffline = !details.running && !details.scanFailed;
         } catch (error) {
           log.debug(
             `Could not verify server process before mod restart retry decision: ${error.message}`,
@@ -914,7 +928,7 @@ export class ModChecker extends EventEmitter {
         }
       }
 
-      if (serverRunning === false) {
+      if (confirmedOffline) {
         log.info(
           "Mod updates detected while the PZ server is offline — no restart needed until the server is running.",
         );
@@ -1262,6 +1276,15 @@ export class ModChecker extends EventEmitter {
         }
       }
 
+      // Empty result with nothing queried isn't a failure -- there was
+      // nothing to ask Steam about. Empty result with IDs queried means the
+      // API call itself failed (see fetchSteamTimestamps): every batch
+      // network-errored, timed out, or got rate-limited.
+      this.steamApiHealthy = steamData.size > 0 || workshopIds.length === 0;
+      this.lastSteamApiFailureAt = this.steamApiHealthy
+        ? this.lastSteamApiFailureAt
+        : new Date();
+
       if (steamData.size === 0) {
         // API failed entirely — fall back to ACF-only comparison
         log.warn("Steam API returned no data, falling back to ACF-only check");
@@ -1520,10 +1543,14 @@ export class ModChecker extends EventEmitter {
         log.debug("No mod updates available");
       }
 
-      return { updated: updatedMods.length > 0, mods: updatedMods };
+      return {
+        updated: updatedMods.length > 0,
+        mods: updatedMods,
+        source: this.steamApiHealthy ? "steam" : "acf-only",
+      };
     } catch (error) {
       log.error(`Mod update check failed: ${error.message}`);
-      return { updated: false, mods: [], error: error.message };
+      return { updated: false, mods: [], error: error.message, source: "error" };
     } finally {
       this.checkInProgress = false;
     }
@@ -1650,6 +1677,14 @@ export class ModChecker extends EventEmitter {
       totalModsInWorkshop: Object.keys(workshopInfo).length,
       totalModsTracked: Array.isArray(trackedMods) ? trackedMods.length : 0,
       updatesAvailable: modsWithUpdates,
+      // False only after a check that actually queried Steam and got
+      // nothing back (outage/rate-limit/network block) -- true before the
+      // first check ever runs, so this isn't itself a false alarm on a
+      // freshly-started panel.
+      steamApiHealthy: this.steamApiHealthy,
+      lastSteamApiFailureAt: this.lastSteamApiFailureAt
+        ? this.lastSteamApiFailureAt.toISOString()
+        : null,
       autoRestartEnabled: this.autoRestartEnabled,
       // Restart options
       restartWarningMinutes: this.restartWarningMinutes,

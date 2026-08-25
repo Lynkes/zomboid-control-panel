@@ -1,0 +1,14 @@
+{
+  "connected": {
+    "label": "已连接",
+    "description": "实时更新已启用"
+  },
+  "reconnecting": {
+    "label": "重新连接中…",
+    "description": "尝试 {{attempt}}/10"
+  },
+  "disconnected": {
+    "label": "面板已断开连接",
+    "description": "与面板后端的 WebSocket 连接已断开"
+  }
+}

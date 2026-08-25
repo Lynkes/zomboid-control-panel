@@ -21,7 +21,7 @@ import {
   getAllSettings,
 } from "../database/init.js";
 import { isRemoteConfigConfigured } from "../services/remoteConfigFiles.js";
-import { requireRole } from "../services/auth.js";
+import { requirePermission } from "../services/permissions.js";
 import {
   canAutoInstall,
   checkBridgeInstalled,
@@ -235,7 +235,7 @@ function scanForPzPaths(rootPath, maxDepth = 3) {
 // Reads arbitrary local server .ini files and returns their RCON passwords
 // in plaintext to prefill the "create server" form — admin-only, same
 // sensitivity tier as chunks delete / panel-bridge command execution.
-router.post("/auto-scan", requireRole("admin"), async (req, res) => {
+router.post("/auto-scan", requirePermission("servers.discover"), async (req, res) => {
   try {
     const { scanPath, maxDepth = 3 } = req.body;
 
@@ -248,12 +248,14 @@ router.post("/auto-scan", requireRole("admin"), async (req, res) => {
       return res.status(400).json({ error: "Invalid path format" });
     }
 
-    const resolvedPath = path.resolve(scanPath);
-
-    // Must be an absolute path
-    if (!path.isAbsolute(resolvedPath)) {
+    // Must check isAbsolute() on the raw input: path.resolve() always
+    // returns an absolute path (resolved against cwd), so checking it after
+    // resolving would never reject anything and silently accepted relative
+    // paths as if they'd been rejected.
+    if (!path.isAbsolute(scanPath)) {
       return res.status(400).json({ error: "Must be an absolute path" });
     }
+    const resolvedPath = path.resolve(scanPath);
 
     // Block scanning root paths directly — require at least one subfolder
     const isRootPath =
@@ -347,7 +349,7 @@ router.post("/auto-scan", requireRole("admin"), async (req, res) => {
 
 // Detect server settings from data path (folder containing Server/, Saves/, Logs/)
 // Same as /auto-scan: exposes RCON passwords read straight off disk.
-router.post("/detect", requireRole("admin"), async (req, res) => {
+router.post("/detect", requirePermission("servers.discover"), async (req, res) => {
   try {
     const { dataPath, installPath } = req.body;
     log.info(
@@ -363,11 +365,14 @@ router.post("/detect", requireRole("admin"), async (req, res) => {
       return res.status(400).json({ error: "Invalid path format" });
     }
 
-    // Must be absolute
-    const resolvedData = path.resolve(dataPath);
-    if (!path.isAbsolute(resolvedData)) {
+    // Must check isAbsolute() on the raw input: path.resolve() always
+    // returns an absolute path (resolved against cwd), so checking it after
+    // resolving would never reject anything and silently accepted relative
+    // paths as if they'd been rejected.
+    if (!path.isAbsolute(dataPath)) {
       return res.status(400).json({ error: "Must be an absolute path" });
     }
+    const resolvedData = path.resolve(dataPath);
 
     // Verify data path exists
     if (!fs.existsSync(resolvedData)) {
@@ -618,7 +623,7 @@ router.get("/:id", async (req, res) => {
 });
 
 // Create a new server
-router.post("/", async (req, res) => {
+router.post("/", requirePermission("servers.manage"), async (req, res) => {
   try {
     const config = req.body;
     log.info(
@@ -658,14 +663,24 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ error: "Invalid RCON port" });
     }
 
-    // Validate serverName against path traversal
-    const serverName = (config.serverName || "servertest").trim();
+    // Validate serverName against path traversal. This value becomes the PZ
+    // dedicated server's own internal name -- it names the .ini file and the
+    // Saves/Multiplayer/<serverName> folder the panel reads and writes.
+    // "servertest" used to fill in here when it was left blank, which is
+    // Project Zomboid's own vanilla single-player/test-server name: on a
+    // machine with a real, unrelated PZ install using that default name, the
+    // panel would silently adopt its save/config directory as this server's
+    // own. Fall back to the required display name instead of a shared,
+    // well-known default -- and reject outright if neither is usable, rather
+    // than inventing an identity.
+    const serverName = String(config.serverName || config.name || "").trim();
     if (!isValidServerName(serverName)) {
       return res
         .status(400)
         .json({
-          error:
-            "Invalid server name: only letters, numbers, underscores, hyphens and spaces allowed",
+          error: config.serverName
+            ? "Invalid server name: only letters, numbers, underscores, hyphens and spaces allowed"
+            : "Server name is required, or give the server a display name that can be reused as one (letters, numbers, underscores, hyphens and spaces only)",
         });
     }
     const dockerContainerName = String(config.dockerContainerName || "").trim();
@@ -683,7 +698,7 @@ router.post("/", async (req, res) => {
 
     const server = await createServer({
       name: config.name,
-      serverName: config.serverName || "servertest",
+      serverName,
       installPath: config.installPath || "",
       zomboidDataPath: config.zomboidDataPath || null,
       serverConfigPath: config.serverConfigPath || null,
@@ -739,7 +754,7 @@ const ALLOWED_SERVER_UPDATE_FIELDS = [
 ];
 
 // Update a server
-router.put("/:id", async (req, res) => {
+router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
   try {
     const id = req.params.id;
     if (!id) {
@@ -900,7 +915,7 @@ router.put("/:id", async (req, res) => {
 });
 
 // Delete a server
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", requirePermission("servers.manage"), async (req, res) => {
   try {
     const id = req.params.id;
     if (!id) {
@@ -910,14 +925,39 @@ router.delete("/:id", async (req, res) => {
     const isUUID = /[a-f-]/i.test(id);
     const serverId = isUUID ? id : parseInt(id, 10);
 
+    // Captured BEFORE deleting: deleteServer() silently promotes another
+    // server to active when the one being deleted was active, but the live
+    // serverManager/rconService need an explicit reload to match -- see
+    // reloadServicesForNewActiveServer's comment above /:id/activate.
+    const targetServer = await getServer(serverId);
+    const deletingActiveServer = !!targetServer?.isActive;
+
     const success = await deleteServer(serverId);
     if (!success) {
       return res.status(404).json({ error: "Server not found" });
     }
 
-    // Notify all clients so sidebar refreshes
     const io = req.app.get("io");
-    if (io) {
+
+    if (deletingActiveServer) {
+      const newActiveServer = await getActiveServer();
+      if (newActiveServer) {
+        try {
+          await reloadServicesForNewActiveServer(req, newActiveServer);
+        } catch (reloadErr) {
+          log.warn(
+            `Failed to reload services after deleting the active server: ${reloadErr.message}`,
+          );
+        }
+        if (io) {
+          io.emit("activeServerChanged", { server: sanitizeServerResponse(newActiveServer) });
+        }
+      } else if (io) {
+        // No servers left at all.
+        io.emit("activeServerChanged", { deleted: serverId });
+      }
+    } else if (io) {
+      // Sidebar/list still needs a refresh even though nothing was reloaded.
       io.emit("activeServerChanged", { deleted: serverId });
     }
 
@@ -929,8 +969,45 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
+// Reload the live in-memory services (serverManager, RCON, PanelBridge) to
+// match `server` becoming the active one. Shared by POST /:id/activate and
+// DELETE /:id below -- deleteServer() silently promotes another server to
+// active in the database when the deleted one was active, and without this
+// call the live services stayed pointed at the just-deleted server's stale
+// config (old paths, old RCON credentials) until something else happened to
+// reload them, unlike this route's own explicit activation sequence.
+async function reloadServicesForNewActiveServer(req, server) {
+  const rconService = req.app.get("rconService");
+  const serverManager = req.app.get("serverManager");
+
+  if (serverManager && serverManager.reloadConfig) {
+    await serverManager.reloadConfig();
+    log.info(`ServerManager reloaded config for server: ${server.name}`);
+  }
+
+  await refreshWorkshopCheckerIfAvailable(req);
+
+  if (rconService && rconService.isConnected()) {
+    await rconService.disconnect();
+  }
+
+  if (rconService && server.rconPassword) {
+    try {
+      await rconService.reloadConfig();
+      await rconService.connect();
+      log.info(`RCON reconnected for server: ${server.name}`);
+    } catch (rconErr) {
+      log.warn(`Failed to connect RCON for new server: ${rconErr.message}`);
+    }
+  }
+
+  // Best-effort: keep PanelBridge.lua current on servers the panel can
+  // reach directly on disk. Never let an install failure block activation.
+  autoInstallBridgeIfNeeded(server);
+}
+
 // Set active server
-router.post("/:id/activate", async (req, res) => {
+router.post("/:id/activate", requirePermission("servers.manage"), async (req, res) => {
   try {
     const id = req.params.id;
     if (!id) {
@@ -945,38 +1022,8 @@ router.post("/:id/activate", async (req, res) => {
       return res.status(404).json({ error: "Server not found" });
     }
 
-    // Notify services about the active server change
-    const rconService = req.app.get("rconService");
-    const serverManager = req.app.get("serverManager");
     const io = req.app.get("io");
-
-    // Reload ServerManager config for new active server
-    if (serverManager && serverManager.reloadConfig) {
-      await serverManager.reloadConfig();
-      log.info(`ServerManager reloaded config for server: ${server.name}`);
-    }
-
-    await refreshWorkshopCheckerIfAvailable(req);
-
-    // Disconnect current RCON if connected
-    if (rconService && rconService.isConnected()) {
-      await rconService.disconnect();
-    }
-
-    // Reload RCON config and reconnect with new server's settings
-    if (rconService && server.rconPassword) {
-      try {
-        await rconService.reloadConfig();
-        await rconService.connect();
-        log.info(`RCON reconnected for server: ${server.name}`);
-      } catch (rconErr) {
-        log.warn(`Failed to connect RCON for new server: ${rconErr.message}`);
-      }
-    }
-
-    // Best-effort: keep PanelBridge.lua current on servers the panel can
-    // reach directly on disk. Never let an install failure block activation.
-    autoInstallBridgeIfNeeded(server);
+    await reloadServicesForNewActiveServer(req, server);
 
     // Emit to clients that active server changed
     if (io) {

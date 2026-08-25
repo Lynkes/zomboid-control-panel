@@ -15,7 +15,7 @@
 # JS/CSS/HTML, no native binaries in the output), so there's nothing
 # architecture-specific to gain from building it per-target. Without this
 # pin, buildx runs `npm install`/`vite build` under QEMU for every non-native
-# target platform (e.g. arm64 on GitHub's amd64 runners) — esbuild/rollup's
+# target platform (e.g. arm64 on GitHub's amd64 runners) — Rolldown/lightningcss's
 # native binaries under emulation are dramatically slower and can hang for
 # a very long time instead of the ~30s this takes natively.
 FROM --platform=$BUILDPLATFORM node:22-alpine AS builder
@@ -23,7 +23,7 @@ FROM --platform=$BUILDPLATFORM node:22-alpine AS builder
 WORKDIR /app
 
 # Install client dependencies (includes devDeps for build tooling).
-# We use `npm install` rather than `npm ci` because esbuild/@emnapi ship
+# We use `npm install` rather than `npm ci` because Rolldown/lightningcss ship
 # OS-specific optional binaries; a Windows-generated lockfile won't contain
 # the linux/amd64 + linux/arm64 entries that `npm ci` requires.
 COPY client/package.json client/package-lock.json* ./client/

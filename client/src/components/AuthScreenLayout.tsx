@@ -1,6 +1,8 @@
 import { ReactNode, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { Card, CardContent } from '../components/ui/card'
+import { LanguageSwitcher } from './LanguageSwitcher'
 
 interface AuthScreenLayoutProps {
   /** Optional small uppercase tag rendered above the title (e.g. "Account Recovery"). Use sparingly. */
@@ -34,6 +36,7 @@ export function AuthScreenLayout({
   children,
   footer,
 }: AuthScreenLayoutProps) {
+  const { t } = useTranslation('shell')
   const [status, setStatus] = useState<PanelStatus>('checking')
   const [version, setVersion] = useState<string | null>(null)
 
@@ -70,8 +73,10 @@ export function AuthScreenLayout({
         href="#auth-content"
         className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground focus:text-sm"
       >
-        Skip to content
+        {t('skipToContent')}
       </a>
+
+      <LanguageSwitcher className="absolute right-4 top-4 z-10" />
 
       {/* Warm ember + moss radial wash */}
       <div
@@ -191,21 +196,22 @@ function BrandMark({ className = '' }: { className?: string }) {
 }
 
 function PanelStatusPill({ status, className = '' }: { status: PanelStatus; className?: string }) {
-  const map: Record<PanelStatus, { label: string; dot: string; text: string; ring: string }> = {
+  const { t } = useTranslation('shell')
+  const map: Record<PanelStatus, { labelKey: string; dot: string; text: string; ring: string }> = {
     checking: {
-      label: 'Reaching panel service',
+      labelKey: 'panelStatus.checking',
       dot: 'bg-muted-foreground/70 animate-pulse',
       text: 'text-muted-foreground',
       ring: 'border-border/55 bg-card/40',
     },
     online: {
-      label: 'Panel service online',
+      labelKey: 'panelStatus.online',
       dot: 'bg-primary shadow-[0_0_8px_hsl(var(--primary)/0.55)]',
       text: 'text-foreground/85',
       ring: 'border-primary/30 bg-primary/8',
     },
     unreachable: {
-      label: 'Panel service unreachable',
+      labelKey: 'panelStatus.unreachable',
       dot: 'bg-destructive shadow-[0_0_8px_hsl(var(--destructive)/0.6)] animate-pulse',
       text: 'text-destructive',
       ring: 'border-destructive/40 bg-destructive/8',
@@ -220,7 +226,7 @@ function PanelStatusPill({ status, className = '' }: { status: PanelStatus; clas
       className={`inline-flex items-center gap-2 rounded-sm border px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.24em] ${s.ring} ${s.text} ${className}`}
     >
       <span className={`inline-flex h-2 w-2 rounded-full ${s.dot}`} />
-      {s.label}
+      {t(s.labelKey)}
     </div>
   )
 }

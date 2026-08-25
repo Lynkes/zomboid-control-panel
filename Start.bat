@@ -34,9 +34,8 @@ if %ERRORLEVEL% neq 0 (
 echo.
 echo ============================================
 echo Starting server...
-echo Open your browser to: http://localhost:3001
+echo (the panel will print the URL to open once it is ready)
 echo ============================================
 echo.
-start "" "http://localhost:3001"
 npm start
 pause

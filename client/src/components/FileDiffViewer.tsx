@@ -1,6 +1,9 @@
 import { useState, useCallback, useRef, useEffect, memo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ChevronDown, FileCode, ImageIcon, FileQuestion, Loader2, RotateCcw } from 'lucide-react'
 import { getAccessToken } from '@/lib/authToken'
+
+type TFn = (key: string, opts?: Record<string, unknown>) => string
 
 interface DiffLine {
   type: 'context' | 'add' | 'remove'
@@ -71,27 +74,16 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-function overlapKindLabel(kind: 'lua-symbols' | 'lua-shadow' | 'script-defs' | 'clothing-items' | 'translation-keys'): string {
-  switch (kind) {
-    case 'lua-symbols': return 'function/event names'
-    case 'lua-shadow': return 'symbols'
-    case 'script-defs': return 'item/recipe definitions'
-    case 'clothing-items': return 'clothing items'
-    case 'translation-keys': return 'translation keys'
-  }
+function overlapKindLabel(kind: 'lua-symbols' | 'lua-shadow' | 'script-defs' | 'clothing-items' | 'translation-keys', t: TFn): string {
+  return t(`overlapKindLabel.${kind}`)
 }
 
-function overlapKindShortLabel(kind: 'lua-symbols' | 'lua-shadow' | 'script-defs' | 'clothing-items' | 'translation-keys'): string {
-  switch (kind) {
-    case 'lua-symbols': return 'symbol'
-    case 'lua-shadow': return 'symbol'
-    case 'script-defs': return 'definition'
-    case 'clothing-items': return 'item'
-    case 'translation-keys': return 'key'
-  }
+function overlapKindShortLabel(kind: 'lua-symbols' | 'lua-shadow' | 'script-defs' | 'clothing-items' | 'translation-keys', t: TFn): string {
+  return t(`overlapKindShort.${kind}`)
 }
 
 export const FileDiffViewer = memo(function FileDiffViewer({ file, modAId, modBId, modAName, modBName, severity, categoryLabel, winnerName, loserName, overlap }: FileDiffViewerProps) {
+  const { t } = useTranslation('fileDiffViewer')
   const [expanded, setExpanded] = useState(false)
   const [loading, setLoading] = useState(false)
   const [diff, setDiff] = useState<DiffResult | null>(null)
@@ -123,11 +115,11 @@ export const FileDiffViewer = memo(function FileDiffViewer({ file, modAId, modBI
       setDiff(data)
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') return
-      setError(e instanceof Error ? e.message : 'Failed to load diff')
+      setError(e instanceof Error ? e.message : t('failedToLoadDiff'))
     } finally {
       if (!controller.signal.aborted) setLoading(false)
     }
-  }, [file, modAId, modBId])
+  }, [file, modAId, modBId, t])
 
   const handleClick = useCallback(() => {
     if (diff) {
@@ -162,25 +154,29 @@ export const FileDiffViewer = memo(function FileDiffViewer({ file, modAId, modBI
                 ? 'bg-destructive/15 text-destructive'
                 : 'bg-warning/15 text-warning'
             }`}
-            title={`${overlap.total} overlapping ${overlapKindLabel(overlap.kind)}:\n${overlap.items.slice(0, 25).join('\n')}${overlap.items.length > 25 ? `\n+${overlap.items.length - 25} more` : ''}`}
+            title={t('overlapTooltip', {
+              count: overlap.total,
+              label: overlapKindLabel(overlap.kind, t),
+              items: overlap.items.slice(0, 25).join('\n') + (overlap.items.length > 25 ? t('moreItemsSuffix', { count: overlap.items.length - 25 }) : ''),
+            })}
           >
-            {overlap.total} {overlapKindShortLabel(overlap.kind)} clash{overlap.total !== 1 ? 'es' : ''}
+            {t('overlapClash', { count: overlap.total, kind: overlapKindShortLabel(overlap.kind, t) })}
           </span>
         )}
         {overlap && overlap.kind === 'lua-shadow' && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0 bg-muted/60 text-muted-foreground" title="Both mods ship this Lua file but no symbol names overlap — the loser is fully shadowed but nothing fights for the same name.">
-            shadowed
+          <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0 bg-muted/60 text-muted-foreground" title={t('shadowedTooltip')}>
+            {t('shadowedBadge')}
           </span>
         )}
         {winnerName && loserName && (
-          <span className="text-[10px] shrink-0 text-muted-foreground/80 max-w-[180px] truncate" title={`${winnerName} wins (loaded last) — ${loserName}'s version is ignored`}>
+          <span className="text-[10px] shrink-0 text-muted-foreground/80 max-w-[180px] truncate" title={t('winnerTooltip', { winner: winnerName, loser: loserName })}>
             <span className="text-success/80">{winnerName}</span>
             <span className="text-muted-foreground/50"> &gt; </span>
             <span className="text-muted-foreground/60 line-through">{loserName}</span>
           </span>
         )}
         {categoryLabel && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground shrink-0" title={`File type: ${categoryLabel}`}>
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground shrink-0" title={t('fileTypeTooltip', { category: categoryLabel })}>
             {categoryLabel}
           </span>
         )}
@@ -199,7 +195,7 @@ export const FileDiffViewer = memo(function FileDiffViewer({ file, modAId, modBI
           {overlap && overlap.total > 0 && overlap.kind !== 'lua-shadow' && overlap.items.length > 0 && (
             <div className="px-3 py-2 border-b border-border/30 bg-muted/20">
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground/70 mb-1">
-                Overlapping {overlapKindLabel(overlap.kind)} ({overlap.total})
+                {t('overlappingHeader', { label: overlapKindLabel(overlap.kind, t), count: overlap.total })}
               </div>
               <div className="flex flex-wrap gap-1">
                 {overlap.items.slice(0, 30).map(item => (
@@ -212,27 +208,35 @@ export const FileDiffViewer = memo(function FileDiffViewer({ file, modAId, modBI
                 ))}
                 {overlap.items.length > 30 && (
                   <span className="text-[10px] text-muted-foreground/60 self-center">
-                    +{overlap.items.length - 30} more
+                    {t('moreItems', { count: overlap.items.length - 30 })}
                   </span>
                 )}
               </div>
               {overlap.kind === 'translation-keys' && (
                 <div className="text-[10px] text-muted-foreground/60 mt-1.5 leading-relaxed">
-                  Translation files merge across mods — only these specific keys actually clash.
-                  Other keys in the diff coexist fine.
+                  {t('translationKeysNote')}
                 </div>
               )}
             </div>
           )}
+          {overlap && overlap.kind === 'lua-shadow' && (
+            // The compact row only shows the one-word "shadowed" badge; its full
+            // explanation lives in that badge's hover title, which a touch user
+            // tapping this row open can never see. Same text, shown as real
+            // content here instead of relying on hover.
+            <div className="px-3 py-2 border-b border-border/30 bg-muted/20 text-[10px] text-muted-foreground/70 leading-relaxed">
+              {t('shadowedTooltip')}
+            </div>
+          )}
           {loading && (
             <div aria-busy="true" className="flex items-center justify-center py-6 text-muted-foreground text-xs">
-              <Loader2 aria-hidden="true" className="w-3.5 h-3.5 animate-spin mr-2" /> Comparing files...
+              <Loader2 aria-hidden="true" className="w-3.5 h-3.5 animate-spin mr-2" /> {t('comparingFiles')}
             </div>
           )}
           {error && (
             <div className="p-3 text-xs text-destructive flex items-center gap-2">
               <span className="flex-1 min-w-0 break-words" dir="auto">{error}</span>
-              <button onClick={(e) => { e.stopPropagation(); fetchDiff() }} className="shrink-0 text-muted-foreground hover:text-foreground transition-colors focus-visible:ring-1 focus-visible:ring-ring rounded-sm outline-none" title="Retry" aria-label="Retry file comparison">
+              <button onClick={(e) => { e.stopPropagation(); fetchDiff() }} className="shrink-0 text-muted-foreground hover:text-foreground transition-colors focus-visible:ring-1 focus-visible:ring-ring rounded-sm outline-none" title={t('retry')} aria-label={t('retryFileComparisonAria')}>
                 <RotateCcw className="w-3 h-3" />
               </button>
             </div>
@@ -250,6 +254,7 @@ export const FileDiffViewer = memo(function FileDiffViewer({ file, modAId, modBI
 
 // ─── Text diff view ──────────────────────────────────────────────────────────
 function TextDiffView({ diff, modAName, modBName }: { diff: TextDiff; modAName: string; modBName: string }) {
+  const { t } = useTranslation('fileDiffViewer')
   const [showFull, setShowFull] = useState(false)
   const maxHunks = showFull ? diff.hunks.length : Math.min(diff.hunks.length, MAX_VISIBLE_HUNKS)
   const truncated = diff.hunks.length > MAX_VISIBLE_HUNKS && !showFull
@@ -260,10 +265,10 @@ function TextDiffView({ diff, modAName, modBName }: { diff: TextDiff; modAName: 
       <div className="flex items-center gap-3 px-3 py-1.5 bg-muted/30 border-b border-border/30 text-[11px] text-muted-foreground">
         <FileCode aria-hidden="true" className="w-3 h-3 shrink-0" />
         <span className="truncate max-w-[80px] sm:max-w-[120px]" title={modAName}>{modAName}</span>
-        <span className="text-muted-foreground/70">({diff.modA.lineCount} lines)</span>
+        <span className="text-muted-foreground/70">{t('linesCount', { count: diff.modA.lineCount })}</span>
         <span className="text-muted-foreground/70">→</span>
         <span className="truncate max-w-[80px] sm:max-w-[120px]" title={modBName}>{modBName}</span>
-        <span className="text-muted-foreground/70">({diff.modB.lineCount} lines)</span>
+        <span className="text-muted-foreground/70">{t('linesCount', { count: diff.modB.lineCount })}</span>
         <span className="ml-auto shrink-0 tabular-nums">
           <span className="text-success">+{diff.totalAdded}</span>
           {' '}
@@ -318,7 +323,7 @@ function TextDiffView({ diff, modAName, modBName }: { diff: TextDiff; modAName: 
             aria-expanded={showFull}
             className="w-full text-center py-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors border-t border-border/20 focus-visible:ring-1 focus-visible:ring-ring outline-none"
           >
-            Show {diff.hunks.length - MAX_VISIBLE_HUNKS} more section{diff.hunks.length - MAX_VISIBLE_HUNKS !== 1 ? 's' : ''}...
+            {t('showMoreSections', { count: diff.hunks.length - MAX_VISIBLE_HUNKS })}
           </button>
         )}
       </div>
@@ -328,11 +333,12 @@ function TextDiffView({ diff, modAName, modBName }: { diff: TextDiff; modAName: 
 
 // ─── Image diff view ─────────────────────────────────────────────────────────
 function ImageDiffView({ diff, modAName, modBName, file }: { diff: ImageDiff; modAName: string; modBName: string; file: string }) {
+  const { t } = useTranslation('fileDiffViewer')
   return (
     <div className="p-3">
       <div className="flex items-center gap-2 text-[11px] text-muted-foreground mb-2">
         <ImageIcon aria-hidden="true" className="w-3 h-3" />
-        Image comparison
+        {t('imageComparison')}
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
@@ -347,7 +353,7 @@ function ImageDiffView({ diff, modAName, modBName, file }: { diff: ImageDiff; mo
             />
           ) : (
             <div className="h-20 rounded border border-border/30 flex items-center justify-center text-[11px] text-muted-foreground">
-              Too large to preview
+              {t('tooLargeToPreview')}
             </div>
           )}
         </div>
@@ -363,7 +369,7 @@ function ImageDiffView({ diff, modAName, modBName, file }: { diff: ImageDiff; mo
             />
           ) : (
             <div className="h-20 rounded border border-border/30 flex items-center justify-center text-[11px] text-muted-foreground">
-              Too large to preview
+              {t('tooLargeToPreview')}
             </div>
           )}
         </div>
@@ -374,11 +380,12 @@ function ImageDiffView({ diff, modAName, modBName, file }: { diff: ImageDiff; mo
 
 // ─── Binary diff view ────────────────────────────────────────────────────────
 function BinaryDiffView({ diff, modAName, modBName }: { diff: BinaryDiff; modAName: string; modBName: string }) {
+  const { t } = useTranslation('fileDiffViewer')
   return (
     <div className="p-3 text-xs text-muted-foreground">
       <div className="flex items-center gap-2 mb-2">
         <FileQuestion aria-hidden="true" className="w-3 h-3" />
-        {diff.type === 'text-too-large' ? 'File too large to compare inline' : 'Binary file \u2014 can\u2019t show inline comparison'}
+        {diff.type === 'text-too-large' ? t('fileTooLargeInline') : t('binaryFileInline')}
       </div>
       <div className="grid grid-cols-2 gap-3 text-[11px] leading-relaxed">
         <div>

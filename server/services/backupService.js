@@ -14,6 +14,7 @@ import {
 import { sanitizeError } from "../utils/sanitize.js";
 import { captureBackupSnapshot } from "../utils/backupSnapshot.js";
 import { addBackupRecord, removeBackupRecord } from "./backupRecords.js";
+import { invalidateMapFolderScan } from "../routes/chunks.js";
 
 // Dynamic import for unzipper (CommonJS module)
 let unzipper;
@@ -22,6 +23,99 @@ async function getUnzipper() {
     unzipper = await import("unzipper");
   }
   return unzipper;
+}
+
+async function* walkDirectory(rootDir) {
+  const pending = [{ dirPath: rootDir, archivePath: "", isRoot: true }];
+
+  while (pending.length > 0) {
+    const current = pending.pop();
+    let directory;
+    try {
+      directory = await fs.promises.opendir(current.dirPath);
+    } catch (error) {
+      if (current.isRoot) throw error;
+      continue;
+    }
+
+    try {
+      let entry;
+      while ((entry = await directory.read()) !== null) {
+        const archivePath = current.archivePath
+          ? `${current.archivePath}/${entry.name}`
+          : entry.name;
+        const fullPath = path.join(current.dirPath, entry.name);
+
+        if (entry.isDirectory()) {
+          pending.push({
+            dirPath: fullPath,
+            archivePath,
+            isRoot: false,
+          });
+        }
+
+        yield { entry, fullPath, archivePath };
+      }
+    } finally {
+      await directory.close().catch(() => {});
+    }
+  }
+}
+
+async function countFiles(rootDir) {
+  let count = 0;
+  for await (const { entry } of walkDirectory(rootDir)) {
+    if (!entry.isDirectory()) count++;
+  }
+  return count;
+}
+
+function waitForArchiveEntry(archive, append) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+
+    const cleanup = () => {
+      archive.off("entry", onEntry);
+      archive.off("error", onError);
+      archive.off("warning", onWarning);
+    };
+
+    const settle = (handler, value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      handler(value);
+    };
+
+    const onEntry = () => settle(resolve);
+    const onError = (error) => settle(reject, error);
+    const onWarning = (error) => {
+      if (error.code === "ENOENT") {
+        settle(resolve);
+      } else {
+        settle(reject, error);
+      }
+    };
+
+    archive.on("entry", onEntry);
+    archive.on("error", onError);
+    archive.on("warning", onWarning);
+
+    try {
+      append();
+    } catch (error) {
+      settle(reject, error);
+    }
+  });
+}
+
+async function appendDirectoryToArchive(archive, sourceRoot, destinationRoot) {
+  for await (const { entry, fullPath, archivePath } of walkDirectory(sourceRoot)) {
+    const entryName = `${destinationRoot}/${archivePath}${entry.isDirectory() ? "/" : ""}`;
+    await waitForArchiveEntry(archive, () =>
+      archive.file(fullPath, { name: entryName }),
+    );
+  }
 }
 
 export class BackupService {
@@ -248,6 +342,12 @@ export class BackupService {
     const serverName = activeServer?.serverName || "server";
     const backupName = `${serverName}_${timestamp}.zip`;
     const backupPath = path.join(backupsPath, backupName);
+    // Write under a name listBackups() won't match (it only lists *.zip), and
+    // rename into place only after the archive closes successfully -- writing
+    // straight to backupPath meant a process kill mid-archive left a
+    // truncated file at the real, listed filename, indistinguishable in the
+    // UI from a real backup until someone tried to restore it.
+    const tempBackupPath = `${backupPath}.tmp`;
     const serverSnapshot = captureBackupSnapshot(activeServer);
 
     log.info(`Starting backup: ${backupName}`);
@@ -256,49 +356,8 @@ export class BackupService {
 
     emitProgress("preparing", 10, "Scanning files...");
 
-    // Count total files for progress (asynchronously to avoid blocking)
-    //
-    // NOTE (B28 in the backend audit): a fix was attempted here to replace
-    // this pre-count with archiver's own 'progress' event, on the theory
-    // that archiver already walks the tree internally so this walk is
-    // redundant. Live-tested against a real save and reverted: archiver's
-    // `entries.total` for a directory() source is NOT a pre-computed final
-    // count -- it grows 1:1 with `entries.processed` via lazy on-demand
-    // discovery (confirmed via raw event dumps: total===processed on every
-    // single event, all the way to completion). Using it as a percentage
-    // denominator made the progress bar jump straight from 15% to 90%
-    // instead of updating smoothly, which is a regression, not a fix. A
-    // real upfront total requires a separate walk one way or another; this
-    // one uses parallel readdir to keep it as cheap as reasonably possible.
+    // Count total files for progress without materializing directory listings.
     let totalFiles = 0;
-    // Iterative walk: recursing with Promise.all held one pending promise per
-    // entry for the whole tree at once, which on a large save is a needless
-    // heap and file-descriptor spike during an already memory-heavy operation.
-    const countFiles = async (rootDir) => {
-      let count = 0;
-      const pending = [rootDir];
-
-      while (pending.length > 0) {
-        const dir = pending.pop();
-        let entries;
-        try {
-          entries = await fs.promises.readdir(dir, { withFileTypes: true });
-        } catch {
-          // Unreadable directory (e.g. permission denied) - skip it.
-          continue;
-        }
-
-        for (const entry of entries) {
-          if (entry.isDirectory()) {
-            pending.push(path.join(dir, entry.name));
-          } else {
-            count++;
-          }
-        }
-      }
-
-      return count;
-    };
 
     try {
       totalFiles = await countFiles(savesPath);
@@ -323,7 +382,7 @@ export class BackupService {
     });
 
     // Create zip archive
-    const output = createWriteStream(backupPath);
+    const output = createWriteStream(tempBackupPath);
     const archive = archiver("zip", {
       zlib: { level: 6 }, // Moderate compression
     });
@@ -354,6 +413,21 @@ export class BackupService {
 
       output.on("close", async () => {
         emitProgress("finalizing", 95, "Finalizing backup...");
+
+        // Only now, with the archive fully written and closed, does it become
+        // the real backup. Anything that dies before this line leaves nothing
+        // but an already-excluded .tmp file behind.
+        try {
+          fs.renameSync(tempBackupPath, backupPath);
+        } catch (renameError) {
+          emitProgress(
+            "error",
+            0,
+            `Backup failed: ${renameError.message}`,
+          );
+          reject(renameError);
+          return;
+        }
 
         const duration = ((Date.now() - startTime) / 1000).toFixed(1);
         const sizeBytes = archive.pointer();
@@ -409,13 +483,29 @@ export class BackupService {
         });
       });
 
+      // Best-effort: remove whatever partial bytes made it to disk so a
+      // failed run doesn't leave a stray .tmp file behind. Not the listed
+      // backup name (already excluded by listBackups()'s .zip filter), so
+      // this is cleanliness, not the safety property -- that's the rename.
+      const cleanupTemp = () => {
+        fs.rm(tempBackupPath, { force: true }, (cleanupErr) => {
+          if (cleanupErr) {
+            log.warn(
+              `Could not remove incomplete backup file ${tempBackupPath}: ${cleanupErr.message}`,
+            );
+          }
+        });
+      };
+
       output.on("error", (err) => {
         emitProgress("error", 0, `Backup failed: ${err.message}`);
+        cleanupTemp();
         reject(err);
       });
 
       archive.on("error", (err) => {
         emitProgress("error", 0, `Archive error: ${err.message}`);
+        cleanupTemp();
         reject(err);
       });
 
@@ -423,24 +513,41 @@ export class BackupService {
         if (err.code === "ENOENT") {
           log.warn(`Backup warning: ${err.message}`);
         } else {
+          cleanupTemp();
           reject(err);
         }
       });
 
       archive.pipe(output);
 
-      // Add the saves folder to the archive
-      archive.directory(savesPath, path.basename(savesPath));
-      archive.append(JSON.stringify(serverSnapshot, null, 2), {
-        name: "panel-server-snapshot.json",
-      });
+      const appendBackupContents = async () => {
+        try {
+          await appendDirectoryToArchive(
+            archive,
+            savesPath,
+            path.basename(savesPath),
+          );
+          await waitForArchiveEntry(archive, () =>
+            archive.append(JSON.stringify(serverSnapshot, null, 2), {
+              name: "panel-server-snapshot.json",
+            }),
+          );
 
-      // Optionally include database
-      if (dbPathToInclude) {
-        archive.file(dbPathToInclude, { name: "db.json" });
-      }
+          if (dbPathToInclude) {
+            await waitForArchiveEntry(archive, () =>
+              archive.file(dbPathToInclude, { name: "db.json" }),
+            );
+          }
 
-      archive.finalize();
+          await archive.finalize();
+        } catch (error) {
+          archive.abort();
+          cleanupTemp();
+          reject(error);
+        }
+      };
+
+      void appendBackupContents();
     });
   }
 
@@ -552,19 +659,31 @@ export class BackupService {
   }
 
   /**
-   * Clean up old backups based on maxBackups setting
+   * Clean up old backups based on maxBackups setting.
+   *
+   * Uploaded archives (see routes/backup.js's /upload comment -- stored
+   * with an "uploaded-" prefix precisely so they can be told apart here)
+   * are exempt from this automatic, unattended prune, full stop -- they
+   * are never counted toward maxBackups and never selected for deletion.
+   * This runs on a schedule with nobody watching; an operator who
+   * uploaded an archive specifically to preserve it must not lose it
+   * just because enough panel-created backups piled up around it.
+   * deleteBackupsOlderThan is the other pruning path and is a deliberate
+   * choice: it is operator-initiated, not automatic, so it does the
+   * opposite and includes uploads -- see its own comment.
    */
   async cleanupOldBackups() {
     try {
       const settings = await this.getSettings();
       const backups = await this.listBackups();
+      const prunable = backups.filter((b) => !b.name.startsWith("uploaded-"));
 
-      if (backups.length <= settings.maxBackups) {
+      if (prunable.length <= settings.maxBackups) {
         return;
       }
 
       // Delete oldest backups
-      const toDelete = backups.slice(settings.maxBackups);
+      const toDelete = prunable.slice(settings.maxBackups);
       for (const backup of toDelete) {
         const deleted = await this.deleteBackup(backup.name);
         if (!deleted?.success) {
@@ -581,7 +700,16 @@ export class BackupService {
   }
 
   /**
-   * Delete backups older than X days
+   * Delete backups older than X days -- operator-initiated (the route
+   * requires a human to submit a days value), unlike cleanupOldBackups
+   * which fires unattended on a schedule. Deliberately does NOT exempt
+   * uploaded archives: an explicit "delete everything older than X days"
+   * reasonably means what it says. Automatic pruning must never surprise
+   * an operator by taking something they deliberately preserved;
+   * an explicit bulk delete they typed in themselves is a choice they
+   * made, not a surprise. To keep a specific upload past a bulk cutoff,
+   * delete everything else and re-upload it, or use DELETE /:name to
+   * remove other backups by exact name instead of by age.
    */
   async deleteBackupsOlderThan(days) {
     try {
@@ -712,6 +840,19 @@ export class BackupService {
     this.restoreInProgress = true;
     const startTime = Date.now();
     let stagingPath = null;
+    const io = options.io; // Socket.IO for progress updates
+
+    // Helper to emit progress. Mirrors createBackup's emitProgress exactly so
+    // the two events share a shape -- restore previously emitted nothing at
+    // all, not even for its own pre-restore-backup sub-step, because that
+    // inner createBackup() call never received io.
+    const emitProgress = (phase, percent, message, extra = {}) => {
+      if (io) {
+        io.emit("restore:progress", { phase, percent, message, ...extra });
+      }
+    };
+
+    emitProgress("preparing", 5, "Preparing restore...");
 
     try {
       const backupsPath = await this.getBackupsPath();
@@ -745,9 +886,19 @@ export class BackupService {
       // Create a pre-restore backup if requested
       if (options.createPreRestoreBackup !== false) {
         log.info("Creating pre-restore backup...");
-        const preBackupResult = await this.createBackup({ isPreRestore: true });
+        emitProgress("pre-backup", 10, "Backing up current world before restoring...");
+        // Passing io through means this sub-step surfaces its own normal
+        // backup:progress events (preparing/archiving/finalizing) instead of
+        // running silently -- restore no longer looks stalled during what can
+        // be the longest part of the whole operation.
+        const preBackupResult = await this.createBackup({ isPreRestore: true, io });
         if (!preBackupResult.success) {
           log.error(`Pre-restore backup failed: ${preBackupResult.message}`);
+          emitProgress(
+            "error",
+            0,
+            `Cannot restore: pre-restore backup failed (${preBackupResult.message}). Aborting to protect save data.`,
+          );
           return {
             success: false,
             message: `Cannot restore: pre-restore backup failed (${preBackupResult.message}). Aborting to protect save data.`,
@@ -776,6 +927,7 @@ export class BackupService {
 
       // Extract the backup with zip-slip protection
       log.info("Extracting backup to staging area...");
+      emitProgress("extracting", 45, "Extracting backup...");
       const unzip = await getUnzipper();
       const resolvedParent = path.resolve(stagingPath) + path.sep;
 
@@ -882,6 +1034,8 @@ export class BackupService {
         );
       }
 
+      emitProgress("finalizing", 85, "Swapping in the restored world...");
+
       const retiredPath = `${savesPath}.replaced-${Date.now()}`;
       let retired = false;
 
@@ -925,10 +1079,18 @@ export class BackupService {
         );
       }
 
+      // chunks.js's /chunks and /stats routes cache a scan of this save's
+      // map/ folder for a few seconds (see getMapFolderScan()'s comment).
+      // This restore just swapped that whole save in from the archive --
+      // without this, a page reload within the TTL window would show chunk
+      // counts for the PRE-restore map/ contents.
+      invalidateMapFolderScan(path.join(savesPath, "map"));
+
       const duration = ((Date.now() - startTime) / 1000).toFixed(1);
       log.info(`Restore completed in ${duration}s`);
 
       await logServerEvent("backup_restored", `Restored from ${safeName}`);
+      emitProgress("complete", 100, `Restored from ${safeName}`);
 
       return {
         success: true,
@@ -937,6 +1099,7 @@ export class BackupService {
       };
     } catch (error) {
       log.error(`Restore failed: ${error.message}`);
+      emitProgress("error", 0, `Restore failed: ${sanitizeError(error.message)}`);
       await logServerEvent("restore_failed", error.message);
       return { success: false, message: error.message };
     } finally {

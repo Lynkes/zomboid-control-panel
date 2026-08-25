@@ -2,10 +2,11 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { createLogger } from "../utils/logger.js";
-import { sanitizeError } from "../utils/sanitize.js";
+import { sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
 import { getActiveServer } from "../database/init.js";
-import { requireRole } from "../services/auth.js";
+import { requirePermission } from "../services/permissions.js";
 import { listBackupRecords } from "../services/backupRecords.js";
+import { ErrorCode } from "../utils/errorCodes.js";
 const log = createLogger("API:Backup");
 
 const router = express.Router();
@@ -60,7 +61,7 @@ router.get("/history", async (req, res) => {
   }
 });
 
-router.get("/:name/snapshot", requireRole("admin"), async (req, res) => {
+router.get("/:name/snapshot", requirePermission("backups.manage"), async (req, res) => {
   try {
     const backupService = req.app.get("backupService");
     const result = await backupService.getBackupSnapshot(req.params.name);
@@ -73,7 +74,7 @@ router.get("/:name/snapshot", requireRole("admin"), async (req, res) => {
 });
 
 // Update backup settings
-router.post("/settings", async (req, res) => {
+router.post("/settings", requirePermission("backups.manage"), async (req, res) => {
   try {
     const backupService = req.app.get("backupService");
     const scheduler = req.app.get("scheduler");
@@ -107,7 +108,7 @@ router.post("/settings", async (req, res) => {
 });
 
 // Create a manual backup
-router.post("/create", async (req, res) => {
+router.post("/create", requirePermission("backups.manage"), async (req, res) => {
   try {
     log.info("POST /create — creating manual backup");
     const activeServer = await getActiveServer();
@@ -117,6 +118,7 @@ router.post("/create", async (req, res) => {
         .json({
           error:
             "Backups are not available for remote servers. The server filesystem is not accessible from this panel.",
+          code: ErrorCode.BACKUP_REMOTE_NOT_AVAILABLE,
         });
     }
 
@@ -138,7 +140,7 @@ router.post("/create", async (req, res) => {
 });
 
 // Delete a backup
-router.delete("/:name", requireRole("admin"), async (req, res) => {
+router.delete("/:name", requirePermission("backups.manage"), async (req, res) => {
   try {
     log.info(`DELETE /${req.params.name}`);
     const backupService = req.app.get("backupService");
@@ -155,26 +157,36 @@ router.delete("/:name", requireRole("admin"), async (req, res) => {
   }
 });
 
-// Download a backup
-router.get("/download/:name", async (req, res) => {
+// Download a backup archive off the machine. Its own capability, not
+// folded into backups.manage: creating, deleting or restoring a backup
+// manipulates data on this machine, but downloading EXFILTRATES a full
+// copy of it -- world save data, and if includeDb was ever turned on,
+// db.json's bcrypt password hashes too. A role trusted to manage backups
+// day-to-day is not automatically a role that should be able to walk
+// away with an offline copy of everything.
+// /list and /history stay deliberately ungated (read-only status routes
+// are outside the matrix on purpose), but that pair is what makes this
+// exposure trivially reachable without the gate below: enumerate the
+// filenames, then download.
+router.get("/download/:name", requirePermission("backups.download"), async (req, res) => {
   try {
     const backupService = req.app.get("backupService");
     const backupsPath = await backupService.getBackupsPath();
 
     if (!backupsPath) {
-      return res.status(404).json({ error: "Backups folder not found" });
+      return res.status(404).json({ error: "Backups folder not found", code: ErrorCode.BACKUPS_FOLDER_NOT_FOUND });
     }
 
     // Sanitize filename to prevent path traversal
     const safeName = path.basename(req.params.name);
     if (!safeName.endsWith(".zip")) {
-      return res.status(400).json({ error: "Invalid backup file" });
+      return res.status(400).json({ error: "Invalid backup file", code: ErrorCode.BACKUP_INVALID_FILE });
     }
 
     const backupPath = path.join(backupsPath, safeName);
 
     if (!fs.existsSync(backupPath)) {
-      return res.status(404).json({ error: "Backup not found" });
+      return res.status(404).json({ error: "Backup not found", code: ErrorCode.BACKUP_NOT_FOUND });
     }
 
     res.download(backupPath, safeName);
@@ -184,8 +196,12 @@ router.get("/download/:name", async (req, res) => {
   }
 });
 
-// Restore a backup
-router.post("/restore/:name", requireRole("admin"), async (req, res) => {
+// Restore a backup. Admin-only, deliberately narrower than the other backup
+// routes: deleting a backup destroys the operator's safety net (housekeeping),
+// but restoring one rolls the live world back over every player currently
+// standing in it -- a decision about other people's time, not routine server
+// operation, and invisible to the admin until someone complains.
+router.post("/restore/:name", requirePermission("backups.restore"), async (req, res) => {
   try {
     const activeServer = await getActiveServer();
     if (activeServer?.isRemote) {
@@ -194,6 +210,7 @@ router.post("/restore/:name", requireRole("admin"), async (req, res) => {
         .json({
           error:
             "Backup restore is not available for remote servers. The server filesystem is not accessible from this panel.",
+          code: ErrorCode.BACKUP_RESTORE_REMOTE_NOT_AVAILABLE,
         });
     }
 
@@ -203,20 +220,37 @@ router.post("/restore/:name", requireRole("admin"), async (req, res) => {
     // Sanitize filename to prevent path traversal
     const safeName = path.basename(req.params.name);
     if (!safeName.endsWith(".zip")) {
-      return res.status(400).json({ error: "Invalid backup file" });
+      return res.status(400).json({ error: "Invalid backup file", code: ErrorCode.BACKUP_INVALID_FILE });
     }
 
-    // Check if server is running
-    const isRunning = await serverManager.checkServerRunning();
-    if (isRunning) {
+    // Check if server is running. checkServerRunning() collapses a FAILED
+    // detection scan into a plain `false` -- indistinguishable from a
+    // confirmed-stopped server -- which would let this restore silently
+    // overwrite the live world save while the server might still be running
+    // and holding those files open. getServerProcessDetails() exposes that
+    // distinction via scanFailed, so use it directly and fail closed when
+    // detection itself failed, same as /wipe, /delete-files and
+    // chunks.js's delete-chunks/delete-region.
+    const processDetails = await serverManager.getServerProcessDetails();
+    if (processDetails.scanFailed) {
+      return res.status(503).json({
+        success: false,
+        error: "Can't verify whether the server is actually stopped — the process-detection scan itself failed, not the server. Check the panel's log for the error. If this keeps happening, something on this host (antivirus, a full disk, or a missing system tool) may be blocking detection.",
+        code: ErrorCode.SERVER_STATE_UNKNOWN,
+      });
+    }
+    if (processDetails.running) {
       return res.status(400).json({
         success: false,
         error:
           "Server must be stopped before restoring a backup. Please stop the server first.",
+        code: ErrorCode.BACKUP_RESTORE_SERVER_RUNNING,
       });
     }
 
-    const result = await backupService.restoreBackup(safeName, req.body);
+    const io = req.app.get("io");
+    // Pass io for progress updates -- see createBackup's identical pattern above.
+    const result = await backupService.restoreBackup(safeName, { ...req.body, io });
 
     if (result.success) {
       res.json(result);
@@ -230,14 +264,14 @@ router.post("/restore/:name", requireRole("admin"), async (req, res) => {
 });
 
 // Delete backups older than X days
-router.post("/delete-older-than", requireRole("admin"), async (req, res) => {
+router.post("/delete-older-than", requirePermission("backups.manage"), async (req, res) => {
   try {
     const { days } = req.body;
 
     if (typeof days !== "number" || days < 1) {
       return res
         .status(400)
-        .json({ error: "Invalid days parameter. Must be a number >= 1" });
+        .json({ error: "Invalid days parameter. Must be a number >= 1", code: ErrorCode.BACKUP_INVALID_DAYS_PARAMETER });
     }
 
     const backupService = req.app.get("backupService");
@@ -259,7 +293,7 @@ router.post("/delete-older-than", requireRole("admin"), async (req, res) => {
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024 * 1024; // 4 GB ceiling
 router.post(
   "/upload",
-  requireRole("admin"),
+  requirePermission("backups.manage"),
   express.raw({ type: "application/zip", limit: MAX_UPLOAD_BYTES }),
   async (req, res) => {
     try {
@@ -269,6 +303,7 @@ router.post(
           .status(400)
           .json({
             error: "Backup upload is not available for remote servers.",
+            code: ErrorCode.BACKUP_UPLOAD_REMOTE_NOT_AVAILABLE,
           });
       }
 
@@ -278,6 +313,7 @@ router.post(
           .json({
             error:
               "No file uploaded. Send the zip body with Content-Type: application/zip.",
+            code: ErrorCode.BACKUP_UPLOAD_NO_FILE,
           });
       }
 
@@ -287,7 +323,7 @@ router.post(
       if (req.body.length < 4 || req.body[0] !== 0x50 || req.body[1] !== 0x4b) {
         return res
           .status(400)
-          .json({ error: "File does not look like a valid .zip archive." });
+          .json({ error: "File does not look like a valid .zip archive.", code: ErrorCode.BACKUP_UPLOAD_INVALID_ZIP_SIGNATURE });
       }
 
       const rawName = String(
@@ -302,7 +338,7 @@ router.post(
       if (!baseName.toLowerCase().endsWith(".zip")) {
         return res
           .status(400)
-          .json({ error: "Only .zip backups are accepted." });
+          .json({ error: "Only .zip backups are accepted.", code: ErrorCode.BACKUP_UPLOAD_INVALID_EXTENSION });
       }
 
       const backupService = req.app.get("backupService");
@@ -312,6 +348,7 @@ router.post(
           .status(500)
           .json({
             error: "Backups folder not available. Configure the server first.",
+            code: ErrorCode.BACKUPS_FOLDER_UNAVAILABLE,
           });
       }
       if (!fs.existsSync(backupsPath)) {
@@ -330,6 +367,8 @@ router.post(
           .status(409)
           .json({
             error: `A backup named "${finalName}" already exists. Delete it first or rename the upload.`,
+            code: ErrorCode.BACKUP_UPLOAD_NAME_CONFLICT,
+            params: sanitizeErrorParams({ name: finalName }),
           });
       }
 

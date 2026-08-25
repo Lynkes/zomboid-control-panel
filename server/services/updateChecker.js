@@ -506,7 +506,15 @@ export class UpdateChecker {
       }
       if (!activeServer?.installPath || !steamcmdPath) throw new Error("SteamCMD path or server install path is not configured");
 
-      if (await this.serverManager.checkServerRunning()) {
+      // checkServerRunning() collapses a failed detection scan into `false`
+      // -- indistinguishable from a confirmed-stopped server. This path is
+      // unattended (no human reviewing the result), so a silent scan
+      // failure here would skip the RCON save+quit entirely and run
+      // SteamCMD's `validate` straight against a possibly-live install.
+      // Use getServerProcessDetails() and fail closed on scanFailed instead.
+      const initialDetails = await this.serverManager.getServerProcessDetails();
+      if (initialDetails.scanFailed) throw new Error("Could not verify whether the server is running, so the automatic update was abandoned for safety");
+      if (initialDetails.running) {
         shouldRestart = true;
         if (!this.rconService.connected) throw new Error("RCON is not connected, so the server cannot be stopped safely");
         const saved = await this.rconService.save({ skipLog: true });
@@ -514,7 +522,10 @@ export class UpdateChecker {
         const quit = await this.rconService.quit();
         if (!quit?.success) log.warn(`Quit command failed (${quit?.error || "unknown error"}); waiting to see whether the server stops anyway`);
         const deadline = Date.now() + 5 * 60 * 1000;
-        while (await this.serverManager.checkServerRunning()) {
+        while (true) {
+          const details = await this.serverManager.getServerProcessDetails();
+          if (details.scanFailed) throw new Error("Lost the ability to verify the server had stopped, so the automatic update was abandoned for safety");
+          if (!details.running) break;
           if (Date.now() >= deadline) throw new Error("Server did not stop within 5 minutes");
           await new Promise((resolve) => setTimeout(resolve, 5000));
         }

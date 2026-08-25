@@ -1,0 +1,12 @@
+{
+  "title": "Add discovered server",
+  "description": "Create a server profile from a discovered mount.",
+  "install": "Install",
+  "data": "Data",
+  "configuration": "Configuration",
+  "displayName": "Display name",
+  "cancel": "Cancel",
+  "addServer": "Add server",
+  "toastServerAdded": "Server added",
+  "failedToCreate": "Failed to create server"
+}
