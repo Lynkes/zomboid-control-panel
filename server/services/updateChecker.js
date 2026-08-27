@@ -5,6 +5,7 @@ import { createLogger } from "../utils/logger.js";
 const log = createLogger("Updates");
 import { getSetting, setSetting, getActiveServer } from "../database/init.js";
 import { resolveManagedContainer } from "./managedContainer.js";
+import { sanitizeError } from "../utils/sanitize.js";
 
 export function parseAutoUpdateWarningMinutes(value) {
   if (value === null || value === undefined) return 15;
@@ -488,6 +489,30 @@ export class UpdateChecker {
 
   async runAutoUpdate(updateInfo) {
     let shouldRestart = false;
+    // Tracks how far the job got, recorded on failure alongside a stable
+    // reason key -- see the class doc comment on _recordAutoUpdateResult()
+    // for why phase (not a per-reason serverUp guess) is the source of
+    // truth for whether the operator's server is still up.
+    //   "not-started": nothing has been touched yet (pre-flight checks,
+    //     including the initial running-scan itself failing) -- the
+    //     server's own state is exactly whatever it was before this ran.
+    //   "before-stop": server was confirmed running and this job has not
+    //     yet confirmed it stopped -- it is still (or again) running.
+    //   "updating": server is confirmed stopped (or was never running) and
+    //     SteamCMD is what failed -- the server is down until the finally
+    //     block's restart attempt below runs.
+    let phase = "not-started";
+    // Throws with a STABLE reason key (never a raw message) so the client
+    // can translate it -- see errorMessage.ts's whole workstream tonight
+    // for why a raw string reaching the UI is the thing to avoid. `params`
+    // carries the one piece of dynamic detail a couple of these need,
+    // sanitized the same way an HTTP error response would be.
+    const fail = (reason, message, params) => {
+      const err = new Error(message);
+      err.autoUpdateReason = reason;
+      if (params) err.autoUpdateParams = params;
+      throw err;
+    };
     try {
       const enabled = await getSetting("serverAutoUpdate");
       if (enabled !== true && enabled !== "true") {
@@ -502,9 +527,9 @@ export class UpdateChecker {
       // five-minute wait that ends in a misleading timeout.
       const managed = await resolveManagedContainer({ serverId: activeServer?.id });
       if (managed.handled) {
-        throw new Error("This server runs in a panel-managed Docker container. Update the container image instead — the panel does not run SteamCMD against a managed container.");
+        fail("MANAGED_CONTAINER", "This server runs in a panel-managed Docker container. Update the container image instead — the panel does not run SteamCMD against a managed container.");
       }
-      if (!activeServer?.installPath || !steamcmdPath) throw new Error("SteamCMD path or server install path is not configured");
+      if (!activeServer?.installPath || !steamcmdPath) fail("NOT_CONFIGURED", "SteamCMD path or server install path is not configured");
 
       // checkServerRunning() collapses a failed detection scan into `false`
       // -- indistinguishable from a confirmed-stopped server. This path is
@@ -513,30 +538,32 @@ export class UpdateChecker {
       // SteamCMD's `validate` straight against a possibly-live install.
       // Use getServerProcessDetails() and fail closed on scanFailed instead.
       const initialDetails = await this.serverManager.getServerProcessDetails();
-      if (initialDetails.scanFailed) throw new Error("Could not verify whether the server is running, so the automatic update was abandoned for safety");
+      if (initialDetails.scanFailed) fail("INITIAL_SCAN_FAILED", "Could not verify whether the server is running, so the automatic update was abandoned for safety");
       if (initialDetails.running) {
         shouldRestart = true;
-        if (!this.rconService.connected) throw new Error("RCON is not connected, so the server cannot be stopped safely");
+        phase = "before-stop";
+        if (!this.rconService.connected) fail("RCON_NOT_CONNECTED", "RCON is not connected, so the server cannot be stopped safely");
         const saved = await this.rconService.save({ skipLog: true });
-        if (!saved?.success) throw new Error(`The world could not be saved (${saved?.error || "unknown error"}), so the update was abandoned rather than lose progress`);
+        if (!saved?.success) fail("SAVE_FAILED", `The world could not be saved (${saved?.error || "unknown error"}), so the update was abandoned rather than lose progress`, { reason: sanitizeError(saved?.error || "unknown error") });
         const quit = await this.rconService.quit();
         if (!quit?.success) log.warn(`Quit command failed (${quit?.error || "unknown error"}); waiting to see whether the server stops anyway`);
         const deadline = Date.now() + 5 * 60 * 1000;
         while (true) {
           const details = await this.serverManager.getServerProcessDetails();
-          if (details.scanFailed) throw new Error("Lost the ability to verify the server had stopped, so the automatic update was abandoned for safety");
+          if (details.scanFailed) fail("STOP_SCAN_FAILED", "Lost the ability to verify the server had stopped, so the automatic update was abandoned for safety");
           if (!details.running) break;
-          if (Date.now() >= deadline) throw new Error("Server did not stop within 5 minutes");
+          if (Date.now() >= deadline) fail("STOP_TIMEOUT", "Server did not stop within 5 minutes");
           await new Promise((resolve) => setTimeout(resolve, 5000));
         }
       }
 
+      phase = "updating";
       const steamcmdExe = process.platform === "win32"
         ? path.join(steamcmdPath, "steamcmd.exe")
         : fs.existsSync(path.join(steamcmdPath, "steamcmd.sh"))
           ? path.join(steamcmdPath, "steamcmd.sh")
           : path.join(steamcmdPath, "steamcmd");
-      if (!fs.existsSync(steamcmdExe)) throw new Error(`SteamCMD not found at ${steamcmdExe}`);
+      if (!fs.existsSync(steamcmdExe)) fail("STEAMCMD_NOT_FOUND", `SteamCMD not found at ${steamcmdExe}`, { path: sanitizeError(steamcmdExe) });
       const branch = ["public", "stable"].includes(updateInfo.installed.branch) ? [] : ["-beta", updateInfo.installed.branch];
       const loginArgs = await getSteamLoginArgs();
       const code = await new Promise((resolve, reject) => {
@@ -544,34 +571,113 @@ export class UpdateChecker {
         child.once("error", reject);
         child.once("close", resolve);
       });
-      if (code !== 0) throw new Error(`SteamCMD exited with code ${code}`);
+      if (code !== 0) fail("STEAMCMD_EXIT_CODE", `SteamCMD exited with code ${code}`, { code });
       this.io.emit("server:autoUpdateComplete", { success: true });
+      await this._recordAutoUpdateResult({
+        status: "success",
+        at: new Date().toISOString(),
+        appliedVersion: updateInfo?.latest?.version ?? updateInfo?.installed?.version ?? null,
+      });
     } catch (error) {
       this.io.emit("server:autoUpdateComplete", { success: false, error: error.message });
+      await this._recordAutoUpdateResult({
+        status: "failed",
+        at: new Date().toISOString(),
+        reason: error.autoUpdateReason || "UNKNOWN",
+        params: error.autoUpdateParams || null,
+        phase,
+        // Provisional -- "before-stop" means still running, "updating"
+        // means confirmed stopped and not yet restarted, "not-started"
+        // means nothing was touched (unknown/unaffected). The finally
+        // block below corrects this to the REAL outcome once it knows
+        // whether its own restart attempt succeeded.
+        serverUp: phase === "before-stop" ? true : phase === "not-started" ? null : false,
+      });
       throw error;
     } finally {
       this.autoUpdateRunning = false;
-      if (shouldRestart) {
+      // shouldRestart alone is not enough: it is set true the moment the
+      // server is found running AT THE START, before anything has
+      // attempted to stop it. Every failure in the "before-stop" phase
+      // (RCON not connected, world save failed, quit/stop never confirmed)
+      // means the server was NEVER ACTUALLY STOPPED -- so this call would
+      // be guaranteed to throw "Server is already running" (harmless,
+      // since startServer()'s own guard refuses rather than double-launch —
+      // see the class comment above runAutoUpdate for the trace), but its
+      // log line ("could not restart the server: Server is already
+      // running") reads as a failed restart that was never actually
+      // needed, the same wrong-attribution shape as the banner this
+      // feature exists to fix, just one layer down in a log file. phase
+      // having advanced past "before-stop" IS "the stop-confirmation loop
+      // completed" -- the same predicate, no new state.
+      if (shouldRestart && phase !== "before-stop") {
         try {
           const started = await this.serverManager.startServer();
-          if (!started?.success) log.error(`Automatic update could not restart the server: ${started?.error || started?.message || "unknown error"}`);
+          if (started?.success) {
+            await this._patchAutoUpdateResultServerUp(true);
+          } else {
+            log.error(`Automatic update could not restart the server: ${started?.error || started?.message || "unknown error"}`);
+            await this._patchAutoUpdateResultServerUp(false);
+          }
         } catch (error) {
           log.error(`Automatic update could not restart the server: ${error.message}`);
+          await this._patchAutoUpdateResultServerUp(false);
         }
       }
     }
   }
 
+  // Persists the outcome of an unattended run so ANY page can read it cold,
+  // long after the event fired -- a live socket notification only reaches
+  // whoever happens to be watching at that instant, which is never the
+  // operator this feature is for (they enabled it and walked away). Cached
+  // on the instance too so getStatus() stays cheap for repeated polling.
+  async _recordAutoUpdateResult(result) {
+    // dismissed starts false on every NEW run's result -- a fresh failure
+    // (or success) always re-arms the banner even if the previous one was
+    // acknowledged.
+    this.lastAutoUpdateResult = { ...result, dismissed: false };
+    await setSetting("lastAutoUpdateResult", this.lastAutoUpdateResult);
+  }
+
+  // The finally block's own restart attempt resolves AFTER the failure
+  // result above was already recorded (its outcome isn't known until now),
+  // so it patches serverUp in place rather than re-deriving the whole
+  // record.
+  async _patchAutoUpdateResultServerUp(serverUp) {
+    if (!this.lastAutoUpdateResult || this.lastAutoUpdateResult.status !== "failed") return;
+    this.lastAutoUpdateResult = { ...this.lastAutoUpdateResult, serverUp };
+    await setSetting("lastAutoUpdateResult", this.lastAutoUpdateResult);
+  }
+
+  // Shared, server-side acknowledgement (see the dismiss route's own
+  // comment for why this is not per-browser localStorage).
+  async dismissAutoUpdateResult() {
+    if (this.lastAutoUpdateResult === undefined) {
+      this.lastAutoUpdateResult = (await getSetting("lastAutoUpdateResult")) || null;
+    }
+    if (!this.lastAutoUpdateResult) return;
+    this.lastAutoUpdateResult = { ...this.lastAutoUpdateResult, dismissed: true };
+    await setSetting("lastAutoUpdateResult", this.lastAutoUpdateResult);
+  }
+
   /**
    * Get current update status without checking
    */
-  getStatus() {
+  async getStatus() {
+    // Falls back to the persisted setting on a cold instance (this process
+    // has not run an auto-update yet, but a previous one did before a panel
+    // restart) rather than reporting a false "nothing has ever run".
+    if (this.lastAutoUpdateResult === undefined) {
+      this.lastAutoUpdateResult = (await getSetting("lastAutoUpdateResult")) || null;
+    }
     return {
       updateAvailable: this.updateAvailable,
       gameVersion: this.gameVersion,
       lastCheck: this.lastCheck,
       intervalMinutes: this.intervalMs / 60000,
       isChecking: this.isChecking,
+      lastAutoUpdateResult: this.lastAutoUpdateResult,
     };
   }
 }

@@ -82,23 +82,52 @@ function findMemberReferences() {
   return found;
 }
 
-// Two ErrorCode entries are registered but deliberately never emitted --
-// each was split into narrower variants on 2026-08-22 (WRITABLE_PATH_ERROR
-// -> WRITABLE_PATH_{INSTALL,DATA}_{BAREMETAL,CONTAINER};
-// DIRECTORY_READ_FAILED -> DIRECTORY_READ_FAILED_{WINDOWS,POSIX}) because
-// each one covered multiple distinct English sentences behind an
-// unreachable {{label}}/{{guidance}} placeholder that never actually
-// received params. Both splits were additive-only: the original code stays
-// registered, with its own explanatory comment at the registry entry (see
-// server/utils/errorCodes.js) and its own client/src/locales/en/errors.json
-// key, on purpose -- "kept for registry completeness," not an oversight.
-// Verified 2026-08-23: neither appears as a literal or an ErrorCode.NAME
-// reference anywhere in server/routes, server/services, server/middleware
-// or server/index.js. Do not remove either from this allowlist without
-// first removing the registry entry and its locale key in the same commit.
+// Three ErrorCode entries are registered but deliberately never emitted --
+// each was split into narrower variants because the original covered
+// multiple distinct outcomes behind one message. WRITABLE_PATH_ERROR and
+// DIRECTORY_READ_FAILED were split on 2026-08-22 (into
+// WRITABLE_PATH_{INSTALL,DATA}_{BAREMETAL,CONTAINER} and
+// DIRECTORY_READ_FAILED_{WINDOWS,POSIX} respectively) because each covered
+// multiple distinct English sentences behind an unreachable
+// {{label}}/{{guidance}} placeholder that never actually received params.
+// RCON_CONNECT_FAILED was split on 2026-08-26 into RCON_CONNECT_UNREACHABLE
+// / RCON_CONNECT_AUTH_FAILED (server/routes/rcon.js POST /connect) because
+// it collapsed "host never reachable" and "reachable, but the password is
+// wrong" into one generic message, while POST /rcon/test already told the
+// two apart -- see conv install-idiot-proofing-2026-08. The same day,
+// server/routes/config.js POST /test-rcon picked up the identical split
+// (it had the exact same collapsed-message bug and was never migrated when
+// /connect was) and now emits the same two codes as a third call site.
+// All three splits
+// were additive-only: the original code stays registered, with its own
+// explanatory comment at the registry entry (see server/utils/errorCodes.js)
+// and its own client/src/locales/en/errors.json key, on purpose -- "kept
+// for registry completeness," not an oversight. Verified 2026-08-26: none
+// of the three appears as a literal or an ErrorCode.NAME reference anywhere
+// in server/routes, server/services, server/middleware or server/index.js.
+// Do not remove any of them from this allowlist without first removing the
+// registry entry and its locale key in the same commit.
 const KNOWN_INTENTIONALLY_UNREFERENCED = new Set([
   "WRITABLE_PATH_ERROR",
   "DIRECTORY_READ_FAILED",
+  "RCON_CONNECT_FAILED",
+]);
+
+// The mirror image of the above: an errors.json key that exists ONLY on
+// the client, with no server-emitted `code:` value behind it at all -- so
+// it can never belong in ErrorCode, which this file's own header comment
+// scopes to codes the server actually attaches to a response. Each entry
+// here must say what synthesizes it and why it has no single emission
+// site to cite in server/routes or server/services.
+const KNOWN_CLIENT_ONLY_LOCALE_KEYS = new Set([
+  // client/src/lib/errorMessage.ts's wrapUncodedServerError() wraps ANY
+  // ApiError with status >= 500 and no code that resolves to a registered
+  // translation (2026-08-26: the panelBridge.js/server.js generic
+  // catch-all convention -- uncoded 500s stay uncoded by design). It
+  // exists for every route file's uncoded catch-all at once, so unlike
+  // every other entry in this registry it has no single server call site
+  // to point at.
+  "UNEXPECTED_SERVER_ERROR",
 ]);
 
 // This is a STRUCTURE check, one level deeper than the fr/en locale parity
@@ -217,7 +246,10 @@ describe("server error codes: registry membership (structure, not meaning)", () 
         JSON.parse(fs.readFileSync(localeEnPath, "utf8")),
       );
       const registryNames = new Set(Object.keys(ErrorCode));
-      const stale = localeKeys.filter((key) => !registryNames.has(key));
+      const stale = localeKeys.filter(
+        (key) =>
+          !registryNames.has(key) && !KNOWN_CLIENT_ONLY_LOCALE_KEYS.has(key),
+      );
 
       expect(
         stale,

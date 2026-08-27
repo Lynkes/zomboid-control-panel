@@ -46,6 +46,24 @@ export function maskSensitiveObject(obj) {
 }
 
 /**
+ * Drop every field whose key looks secret-like (SENSITIVE_FIELD_RE) instead
+ * of masking its value. Use this where the result can be WRITTEN BACK
+ * somewhere a masked placeholder string would corrupt (e.g. persisted into a
+ * config snapshot that a later "apply" writes verbatim into a live file) --
+ * maskSensitiveObject()'s placeholder is only safe for values that are
+ * strictly DISPLAYED, never replayed.
+ */
+export function omitSensitiveFields(obj) {
+  if (!obj || typeof obj !== "object") return obj;
+  const out = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (SENSITIVE_FIELD_RE.test(key)) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
+/**
  * Mask a single server record's credentials (rconPassword, adminPassword,
  * ...) before it goes out over the API. Every /api/servers response —
  * list, single, create, update, activate, detect, auto-scan — must go

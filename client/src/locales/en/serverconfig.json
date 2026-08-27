@@ -2,12 +2,21 @@
   "loading": "loading configuration…",
   "loadErrorTitle": "Configuration data could not be fully loaded",
   "retry": "Retry",
+  "noAccess": {
+    "title": "You don't have access to Server Configuration",
+    "description": "This page requires the \"Manage server files\" permission. Ask an administrator to grant it to your role if you need to edit server settings here."
+  },
+  "duplicateKeysWarning": {
+    "title_one": "\"{{keys}}\" appears more than once in this configuration file",
+    "title_other": "{{count}} settings appear more than once in this configuration file: {{keys}}",
+    "desc": "This editor reads the last copy and the Mods page reads the first, so the two can show different values for the same setting."
+  },
   "pageHeader": {
     "title": "Server Configuration",
     "description": "Edit the live INI, sandbox, spawn, and mod settings for this server.",
     "eyebrow": "config",
     "unsavedChanges": "Unsaved changes",
-    "templates": "Templates",
+    "templates": "Saved Configs",
     "backups": "Backups",
     "refresh": "Refresh"
   },
@@ -33,7 +42,9 @@
   },
   "stopServerAlert": {
     "title": "The server is running",
-    "description": "You can save changes now. Depending on what you're editing, they may need a server restart to take effect — the confirmation after saving will tell you."
+    "description": "You can save changes now. Depending on what you're editing, they may need a server restart to take effect — the confirmation after saving will tell you.",
+    "unknownTitle": "Can't confirm the server is stopped",
+    "unknownDescription": "We couldn't determine whether the server is currently running. If it is, changes may need a server restart to take effect — the confirmation after saving will tell you."
   },
   "invalidValuesAlert": {
     "title": "Fix invalid values before saving",
@@ -167,7 +178,10 @@
     "collapseAll": "Collapse all",
     "expandAll": "expand all",
     "notLoadedTitle": "Mod settings not loaded",
-    "notLoadedDesc": "Click load to fetch sandbox options from all installed mods via PanelBridge. The PZ server must be running with PanelBridge active.",
+    "notLoadedDescPrefix": "Click load to fetch sandbox options from all installed mods via PanelBridge",
+    "notLoadedDescSuffix": ". The PZ server must be running with PanelBridge active.",
+    "panelBridgeLabel": "PanelBridge",
+    "panelBridgeTip": "PanelBridge is the Lua mod that runs on the game server and gives this panel live access to sandbox options, weather, teleport, and item control. Mod settings only load once it's installed on the server and the server is running.",
     "refreshFailedTitle": "Refresh failed — showing previous data",
     "loadFailedTitle": "Failed to load mod settings",
     "loadFailedNotConnected": "Failed to load mod settings. Is PanelBridge connected?",
@@ -226,45 +240,51 @@
     "sizeKb": "{{size}}KB"
   },
   "templatesDialog": {
-    "title": "Config Templates",
-    "applyTip": "Applying a template replaces ALL of your current settings — it doesn't merge with what's there now. The panel backs up what's live before applying, so Restore can undo it, but the server must be stopped first.",
-    "description": "Save your current configuration as a template or load a saved template.",
-    "savedCount_one": "{{count}} template saved",
-    "savedCount_other": "{{count}} templates saved",
-    "saveCurrentAsTemplate": "Save Current as Template",
-    "emptyTitle": "No templates saved yet",
-    "emptyDesc": "Click 'Save Current as Template' to create your first template",
+    "title": "Saved Configs",
+    "applyTip": "Applying a saved config replaces ALL of your current settings — it doesn't merge with what's there now. The panel backs up what's live before applying, so Restore can undo it, but the server must be stopped first.",
+    "description": "Save your current configuration, or load one you saved earlier.",
+    "savedCount_one": "{{count}} config saved",
+    "savedCount_other": "{{count}} configs saved",
+    "saveCurrentAsTemplate": "Save Current Config",
+    "emptyTitle": "No saved configs yet",
+    "emptyDesc": "Click 'Save Current Config' to create your first one",
     "typeBoth": "INI + Sandbox",
     "createdLabel": "Created: {{date}}",
     "apply": "Apply",
-    "applyTooltip": "Load this template (creates backup first)",
-    "deleteAria": "Delete template {{name}}",
-    "deleteTooltip": "Delete this template",
+    "applyTooltip": "Load this config (creates backup first)",
+    "deleteAria": "Delete saved config {{name}}",
+    "deleteTooltip": "Delete this saved config",
     "close": "Close"
   },
   "saveTemplateDialog": {
-    "title": "Save as Template",
-    "description": "Save your current INI and/or Sandbox settings as a reusable template.",
-    "nameLabel": "Template Name *",
+    "title": "Save Current Config",
+    "description": "Save your current INI and/or Sandbox settings so you can load them again later.",
+    "nameLabel": "Name *",
     "namePlaceholder": "e.g., PvE Casual, Hardcore Survival...",
     "nameCharCount": "{{count}}/60 characters",
     "descLabel": "Description (optional)",
-    "descPlaceholder": "Describe what this template is for...",
+    "descPlaceholder": "Describe what this is for...",
     "descCharCount": "{{count}}/240 characters",
-    "includeLabel": "Include in Template",
+    "includeLabel": "Include",
     "includeIniTitle": "Server Settings (INI)",
     "includeIniDesc": "Network, players, RCON, server behavior",
-    "includeIniAria": "Include server settings in template",
+    "includeIniAria": "Include server settings",
     "includeSandboxTitle": "Sandbox Settings",
     "includeSandboxDesc": "World, zombies, loot, survival settings",
-    "includeSandboxAria": "Include sandbox settings in template",
+    "includeSandboxAria": "Include sandbox settings",
     "cancel": "Cancel",
-    "save": "Save Template"
+    "save": "Save Config"
   },
   "deleteTemplateConfirm": {
-    "title": "Delete template?",
-    "description": "Delete template \"{{name}}\"? This cannot be undone.",
+    "title": "Delete saved config?",
+    "description": "Delete saved config \"{{name}}\"? This cannot be undone.",
     "confirmLabel": "Delete"
+  },
+  "applyTemplateConfirm": {
+    "title": "Apply saved config \"{{name}}\"?",
+    "description": "Replace your current server settings with this saved config? The panel backs up what's live first, so Restore can undo it if needed.",
+    "rconWarning": "The RCON password isn't stored in saved configs, so applying this one will remove your server's RCON password — you'll need to re-enter it afterward.",
+    "confirmLabel": "Apply"
   },
   "restoreBackupConfirm": {
     "title": "Restore this backup?",
@@ -328,6 +348,7 @@
     "bridgeUnverifiedDesc": "{{action}} was sent, but the mod could not confirm it took effect.",
     "bridgeOldBridgeDesc": "{{action}} may have worked, but this PanelBridge mod version doesn't report back whether it did. Update the mod to confirm results.",
     "appliedNotSavedTitle": "Applied, but not saved",
+    "worldSaveFailedDesc": "{{option}} was applied, but the server's world save failed ({{reason}}), so it may not survive the next restart.",
     "notPersistedDesc": "{{option}} is not in SandboxVars.lua, so it will reset when the server restarts.",
     "willResetFallback": "{{option}} will reset when the server restarts.",
     "failedToUpdateTitle": "Failed to Update",
@@ -335,17 +356,19 @@
     "setOptionFailed": "Failed to set option",
     "browseFilesFailed": "Failed to browse files",
     "navigateFailed": "Failed to navigate",
-    "templateNameRequired": "Template name is required",
+    "templateNameRequired": "Name is required",
     "loadBackupsFailed": "Failed to load backups.",
     "restoredTitle": "Restored",
     "restoredDesc": "Restored from {{filename}}",
     "restoreBackupFailed": "Failed to restore backup.",
-    "loadTemplatesFailed": "Failed to load templates.",
+    "loadTemplatesFailed": "Failed to load saved configs.",
     "appliedTitle": "Applied",
-    "applyTemplateFailed": "Failed to apply template.",
-    "saveTemplateFailed": "Failed to save template.",
+    "applyTemplateFailed": "Failed to apply saved config.",
+    "applyTemplatePartialTitle": "Partially applied",
+    "applyTemplatePartialDesc": "{{applied}} settings were written to disk before this failed: {{error}} The rest of the saved config was not applied.",
+    "saveTemplateFailed": "Failed to save config.",
     "deletedTitle": "Deleted",
-    "templateDeletedDesc": "Template \"{{name}}\" deleted",
-    "deleteTemplateFailed": "Failed to delete template."
+    "templateDeletedDesc": "Saved config \"{{name}}\" deleted",
+    "deleteTemplateFailed": "Failed to delete saved config."
   }
 }

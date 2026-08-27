@@ -2,7 +2,8 @@ import express from 'express';
 import cron from 'node-cron';
 import { createLogger } from '../utils/logger.js';
 const log = createLogger('API:Scheduler');
-import { sanitizeError } from '../utils/sanitize.js';
+import { sanitizeError, sanitizeErrorParams } from '../utils/sanitize.js';
+import { ErrorCode } from '../utils/errorCodes.js';
 import {
   getScheduledTasks,
   createScheduledTask,
@@ -14,7 +15,32 @@ import {
   getServer
 } from '../database/init.js';
 import { requirePermission } from '../services/permissions.js';
-import { classifyScheduledCommand } from '../services/scheduler.js';
+import { requiredCapabilityForScheduledCommand } from '../services/scheduler.js';
+import {
+  hasUnsupportedCronFieldCount,
+  isCronTooFrequent,
+} from '../utils/cronValidation.js';
+import { parseBoundedInteger, parseClampedInteger } from '../utils/queryNumbers.js';
+
+export { hasUnsupportedCronFieldCount };
+
+export function parseTaskId(value) {
+  return parseBoundedInteger(value, null, 1, Number.MAX_SAFE_INTEGER);
+}
+
+// Guards against a test double or a partial app.get() mock that returns
+// something truthy but not a real Socket.IO server for other keys -- a
+// bare truthy check on `io` isn't enough (2026-08-26 bug hunt, scheduler
+// blind-success family: added after this exact shape broke an existing
+// req.app mock that returns the same object for any key).
+// Exported so server.js's POST /restart -- a second, independent client
+// entry point that also calls scheduler.performRestart() directly -- can
+// reuse the exact same guard and event shape rather than drifting a second
+// copy of it (2026-08-26 bug hunt: /server/restart turned out to be the
+// same blind-success shape as /restart-now, just in a different file).
+export function emitActionResult(io, payload) {
+  if (typeof io?.emit === 'function') io.emit('scheduler:action_result', payload);
+}
 
 const router = express.Router();
 
@@ -26,25 +52,70 @@ const router = express.Router();
 // /restart-now.
 router.use(requirePermission('automation.manage'));
 
-// automation.manage alone only covers the curated, validated verbs
-// classifyScheduledCommand() recognises (restart/save/servermsg/bridge:).
-// Anything else is a RAW RCON command — the exact power routes/rcon.js
-// gates behind rcon.execute, admin+technician only, deliberately not
-// moderator. Without this, a role built with only automation.manage (a
-// real, supported thing to do via Roles & Permissions — its own label,
-// "manage scheduled tasks", says nothing about RCON) could create a task
+// automation.manage alone only covers "manage scheduled tasks" as a
+// concept — it says nothing about what a given scheduled command actually
+// DOES once it fires, and a scheduled command can do anything from an
+// arbitrary RCON command to a world-wide broadcast to a full server
+// restart. If scheduling an action performs the action, scheduling it
+// cannot cost less than performing it directly — so every curated
+// classification requires the SAME capability its own direct/interactive
+// route requires, not automation.manage alone:
+//   restart/save        -> server.control   (matches POST /server/restart,
+//                                             /server/save)
+//   servermsg, bridge:*  -> server.world_events (matches POST
+//                                             /server/message and most
+//                                             PanelBridge world-event
+//                                             routes) — except
+//                                             bridge:saveWorld, which
+//                                             matches server.control instead
+//                                             (PanelBridge's own equivalent
+//                                             of /server/save), and
+//                                             bridge:triggerGunshot/
+//                                             triggerAlarmSound/
+//                                             sendToAdminChat, which match
+//                                             players.endanger_or_impersonate
+//                                             (2026-08-27, operator ruling
+//                                             on ranked-bug #5 -- these
+//                                             three can target a named
+//                                             player, same as their direct
+//                                             routes)
+//   raw (unrecognised)   -> rcon.execute     (the exact power routes/rcon.js
+//                                             gates behind, admin+technician
+//                                             only, deliberately not
+//                                             moderator)
+// requiredCapabilityForScheduledCommand() in services/scheduler.js is the
+// single source of truth for this mapping — both the checks below and
+// executeTask()'s own dispatch draw from it, so they can never silently
+// drift on what a given command needs.
+//
+// This closes two related but DIFFERENT gaps found the same night:
+// docs/qa/kevin-adversarial-findings.md Finding 1 (raw commands reaching
+// RCON with only automation.manage, fixed 4a7dc86) verified automation.manage
+// against rcon.execute ONLY — a role built with only automation.manage (a
+// real, supported thing to do via Roles & Permissions) could create a task
 // with any RCON command and either wait for it to fire or "Run now" it
-// immediately, shutting the server down or banning anyone, invisibly
-// (the scheduled-task fallback in services/scheduler.js runs with
-// skipLog:true, so it never appears in RCON history). See
-// docs/qa/kevin-adversarial-findings.md Finding 1.
+// immediately, shutting the server down or banning anyone, invisibly (the
+// scheduled-task fallback in services/scheduler.js runs with skipLog:true,
+// so it never appears in RCON history). NOBODY ever cross-checked
+// automation.manage against server.world_events or server.control for the
+// curated verbs Finding 1's fix deliberately left alone — a role with
+// automation.manage but NOT server.world_events could still schedule a
+// servermsg broadcast and "Run now" it, reaching the exact effect
+// POST /server/message (server.world_events) exists to gate, through a
+// door that only checked a different, unrelated capability.
 //
 // A cron fire has no request and no req.user, so the gate can't live at
 // execution time for the unattended case — it has to live at the only
-// moments a raw command can actually enter the system with a real,
-// checkable identity behind the request: creating/editing a task (below),
-// and manually triggering one via "Run now" (also request-bound, checked
-// separately at that route). Reuses requirePermission() itself rather than
+// moments a scheduled command can actually enter or manually run with a
+// real, checkable identity behind the request: creating/editing a task
+// (below), and manually triggering one via "Run now" (also request-bound,
+// checked separately at that route). The cron firing itself is deliberately
+// left unchecked: authorisation happened at create/edit time, when a real
+// user session existed to check it against; the cron tick later is
+// execution, not authorisation, and a capability check there would mean
+// every existing task whose creator later loses a role starts failing
+// silently on its own schedule, with nobody watching — a worse outage than
+// the escalation this closes. Reuses requirePermission() itself rather than
 // re-deriving the role/capability lookup — same fail-closed behaviour,
 // same error shape, zero risk of drifting from what the middleware form
 // does. If requirePermission finds the caller lacks the capability it
@@ -56,81 +127,6 @@ async function requireCapabilityInline(capability, req, res) {
     passed = true;
   });
   return passed;
-}
-
-// node-cron (this app's cron engine) accepts an optional LEADING seconds
-// field -- 6 space-separated fields instead of 5 -- which nothing in this
-// app documents, exposes, or needs: the UI's format hint and every preset
-// are 5-field ("minute hour day month weekday", see
-// client/src/locales/en/scheduler.json's cronFormatHint/customExpressionPlaceholder),
-// but the free-text custom-expression input (Scheduler.tsx) accepts
-// anything cron.validate() accepts, including 6 fields. isCronTooFrequent()
-// below was built to analyse a 5-field expression and always reads parts[0]
-// as MINUTES -- for a 6-field expression parts[0] is actually SECONDS, so
-// e.g. "*/5 * * * * *" (fires every 5 SECONDS) reads as minute="*/5", which
-// looks like a harmless once-every-5-minutes value and sails through the
-// DoS guard untouched. The bypass window is narrower than "any 6-field
-// expression": "* * * * * *" and "*/1"-"*/4" seconds are caught BY ACCIDENT
-// (parts[0] still matches the every-minute checks below), which is exactly
-// why this survived -- spot-checking with the obvious "every second" case
-// would have shown the guard working. What sails through is "*/5" to
-// "*/59" seconds, which look like ordinary sub-5-minute-safe minute values.
-// Reject outright rather than teaching the guard a second field grammar
-// for a feature this app has never exposed or tested.
-export function hasUnsupportedCronFieldCount(expr) {
-  return expr.trim().split(/\s+/).length !== 5;
-}
-
-/**
- * Check if a cron expression runs more frequently than every 5 minutes.
- * Parses the minute and hour fields to detect sub-5-minute intervals.
- * Assumes a 5-field expression -- callers must reject anything else via
- * hasUnsupportedCronFieldCount() first (both scheduler.js routes do). The
- * arity check below is defense-in-depth for any other caller, not the
- * primary gate: treats anything but exactly 5 fields as too-frequent-to-be-
- * safe (fail closed) rather than silently misreading a field it was never
- * built to parse.
- */
-function isCronTooFrequent(expr) {
-  const parts = expr.trim().split(/\s+/);
-  if (parts.length !== 5) return true;
-  const [minute, hour] = parts;
-
-  // Every minute: * or */1 through */4 (also catches range-step forms like 0-59/2)
-  if (minute === '*') return true;
-  if (/^\*\/([1-4])$/.test(minute)) return true;
-
-  // Range with step: e.g. "1-59/2" or "0-30/1" — bypasses the */N check.
-  // Reject any range step <5, regardless of the range bounds.
-  const rangeStep = minute.match(/^\d+-\d+\/(\d+)$/);
-  if (rangeStep) {
-    const step = parseInt(rangeStep[1], 10);
-    if (Number.isFinite(step) && step >= 1 && step < 5) return true;
-  }
-
-  // Comma-separated minutes — reject if any two consecutive runs are <5 min apart.
-  // Within-hour gaps fire whenever the cron runs, regardless of the hour field
-  // (e.g. `0,1,2 0 * * *` still produces 1-minute gaps at midnight). Previously
-  // this branch was gated on `hour === '*'` which let hour-pinned bursts slip
-  // through the throttle.
-  if (minute.includes(',')) {
-    const values = minute
-      .split(',')
-      .map(v => parseInt(v.trim(), 10))
-      .filter(n => Number.isFinite(n) && n >= 0 && n <= 59)
-      .sort((a, b) => a - b);
-    for (let i = 1; i < values.length; i++) {
-      if (values[i] - values[i - 1] < 5) return true;
-    }
-    // Wrap-around (last of hour N → first of hour N+1) only matters when
-    // consecutive hours fire. Conservatively gate this on hour === '*'.
-    if (hour === '*' && values.length >= 2) {
-      const wrap = (60 - values[values.length - 1]) + values[0];
-      if (wrap < 5) return true;
-    }
-  }
-
-  return false;
 }
 
 // Get scheduler status
@@ -159,14 +155,14 @@ router.get('/tasks', async (req, res) => {
 // Validate cron expression
 router.post('/validate-cron', async (req, res) => {
   try {
-    const { cronExpression } = req.body;
+    const cronExpression = req.body?.cronExpression;
     if (!cronExpression) {
-      return res.status(400).json({ valid: false, error: 'cronExpression is required' });
+      return res.status(400).json({ valid: false, error: 'cronExpression is required', code: ErrorCode.SCHEDULER_CRON_EXPRESSION_REQUIRED });
     }
 
     const isValid = cron.validate(cronExpression);
     if (!isValid) {
-      return res.json({ valid: false, error: 'Invalid cron expression format' });
+      return res.json({ valid: false, error: 'Invalid cron expression format', code: ErrorCode.SCHEDULER_INVALID_CRON_EXPRESSION });
     }
 
     // Keep this preview endpoint's verdict consistent with what POST /tasks
@@ -176,6 +172,15 @@ router.post('/validate-cron', async (req, res) => {
       return res.json({
         valid: false,
         error: 'The panel does not support seconds-precision schedules. Use exactly 5 fields: minute hour day month weekday.',
+        code: ErrorCode.SCHEDULER_CRON_SECONDS_UNSUPPORTED,
+      });
+    }
+
+    if (isCronTooFrequent(cronExpression)) {
+      return res.json({
+        valid: false,
+        error: 'Tasks cannot run more frequently than every 5 minutes',
+        code: ErrorCode.SCHEDULER_CRON_TOO_FREQUENT,
       });
     }
 
@@ -189,47 +194,53 @@ router.post('/validate-cron', async (req, res) => {
 router.post('/tasks', async (req, res) => {
   try {
     const scheduler = req.app.get('scheduler');
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+      return res.status(400).json({ error: 'Request body must be an object', code: ErrorCode.SCHEDULER_REQUEST_BODY_INVALID });
+    }
     const { name, cronExpression, command, serverId } = req.body;
-    log.info(`POST /tasks: name=${name}, cron=${cronExpression}, command=${(command || '').substring(0, 80)}, serverId=${serverId}`);
+    log.info(`POST /tasks: name=${name}, cron=${cronExpression}, command=${typeof command === 'string' ? command.substring(0, 80) : ''}, serverId=${serverId}`);
 
     if (!name || !cronExpression || !command) {
-      return res.status(400).json({ error: 'Name, cronExpression, and command are required' });
+      return res.status(400).json({ error: 'Name, cronExpression, and command are required', code: ErrorCode.SCHEDULER_TASK_FIELDS_REQUIRED });
     }
 
     // Validate input types and lengths
     if (typeof name !== 'string' || name.length > 100) {
-      return res.status(400).json({ error: 'Invalid task name (max 100 chars)' });
+      return res.status(400).json({ error: 'Invalid task name (max 100 chars)', code: ErrorCode.SCHEDULER_INVALID_TASK_NAME });
     }
     if (typeof command !== 'string' || command.length > 2000) {
-      return res.status(400).json({ error: 'Invalid command (max 2000 chars)' });
+      return res.status(400).json({ error: 'Invalid command (max 2000 chars)', code: ErrorCode.SCHEDULER_INVALID_COMMAND });
     }
     if (typeof cronExpression !== 'string' || cronExpression.length > 100) {
-      return res.status(400).json({ error: 'Invalid cron expression format' });
+      return res.status(400).json({ error: 'Invalid cron expression format', code: ErrorCode.SCHEDULER_INVALID_CRON_FORMAT });
     }
 
-    // A raw (non restart/save/servermsg/bridge:) command reaches RCON with
-    // the same power as rcon.execute's own console -- require it explicitly
-    // rather than letting automation.manage alone grant that silently.
-    if (classifyScheduledCommand(command) === 'raw') {
-      const allowed = await requireCapabilityInline('rcon.execute', req, res);
+    // Scheduling an action must not cost less than performing it directly --
+    // see the router-level comment above for the full mapping and why.
+    {
+      const allowed = await requireCapabilityInline(
+        requiredCapabilityForScheduledCommand(command),
+        req,
+        res,
+      );
       if (!allowed) return;
     }
 
     // Validate cron expression before saving
     if (!cron.validate(cronExpression)) {
-      return res.status(400).json({ error: 'Invalid cron expression. Use format: minute hour day month weekday (e.g., "0 */6 * * *" for every 6 hours)' });
+      return res.status(400).json({ error: 'Invalid cron expression. Use format: minute hour day month weekday (e.g., "0 */6 * * *" for every 6 hours)', code: ErrorCode.SCHEDULER_INVALID_CRON_EXPRESSION });
     }
 
     // The panel does not support seconds-precision (6-field) schedules --
     // see hasUnsupportedCronFieldCount()'s comment for why this must be
     // checked before isCronTooFrequent, not folded into it.
     if (hasUnsupportedCronFieldCount(cronExpression)) {
-      return res.status(400).json({ error: 'The panel does not support seconds-precision schedules. Use exactly 5 fields: minute hour day month weekday (e.g., "0 */6 * * *").' });
+      return res.status(400).json({ error: 'The panel does not support seconds-precision schedules. Use exactly 5 fields: minute hour day month weekday (e.g., "0 */6 * * *").', code: ErrorCode.SCHEDULER_CRON_SECONDS_UNSUPPORTED });
     }
 
     // Security: Reject tasks that run more frequently than every 5 minutes to prevent DoS
     if (isCronTooFrequent(cronExpression)) {
-      return res.status(400).json({ error: 'Tasks cannot run more frequently than every 5 minutes' });
+      return res.status(400).json({ error: 'Tasks cannot run more frequently than every 5 minutes', code: ErrorCode.SCHEDULER_CRON_TOO_FREQUENT });
     }
 
     // Validate the target server exists, if one was explicitly given —
@@ -238,7 +249,7 @@ router.post('/tasks', async (req, res) => {
     if (resolvedServerId) {
       const target = await getServer(resolvedServerId);
       if (!target) {
-        return res.status(400).json({ error: 'Target server not found' });
+        return res.status(400).json({ error: 'Target server not found', code: ErrorCode.SCHEDULER_TARGET_SERVER_NOT_FOUND });
       }
     } else {
       const active = await getActiveServer();
@@ -257,11 +268,17 @@ router.post('/tasks', async (req, res) => {
 
     // Schedule the task — rollback DB entry if scheduling fails
     try {
-      scheduler.scheduleTask(task);
+      if (scheduler.scheduleTask(task) === false) {
+        throw new Error("Scheduler rejected the task");
+      }
     } catch (schedErr) {
       log.error(`Failed to schedule task, rolling back DB entry: ${schedErr.message}`);
       await deleteScheduledTask(result.id);
-      return res.status(500).json({ error: 'Failed to schedule task: ' + sanitizeError(schedErr.message) });
+      return res.status(500).json({
+        error: 'Failed to schedule task: ' + sanitizeError(schedErr.message),
+        code: ErrorCode.SCHEDULER_TASK_SCHEDULING_FAILED,
+        params: sanitizeErrorParams({ reason: schedErr.message }),
+      });
     }
 
     res.json({ success: true, task });
@@ -276,67 +293,82 @@ router.put('/tasks/:id', async (req, res) => {
   try {
     const scheduler = req.app.get('scheduler');
     const { id } = req.params;
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+      return res.status(400).json({ error: 'Request body must be an object', code: ErrorCode.SCHEDULER_REQUEST_BODY_INVALID });
+    }
     const { name, cronExpression, command, enabled, serverId } = req.body;
     log.info(`PUT /tasks/${id}: name=${name}, cron=${cronExpression}, enabled=${enabled}, serverId=${serverId}`);
 
-    const taskId = parseInt(id, 10);
-    if (isNaN(taskId)) {
-      return res.status(400).json({ error: 'Invalid task ID' });
+    const taskId = parseTaskId(id);
+    if (taskId === null) {
+      return res.status(400).json({ error: 'Invalid task ID', code: ErrorCode.SCHEDULER_INVALID_TASK_ID });
     }
 
     // Validate name and command length
     if (name !== undefined && (typeof name !== 'string' || name.length > 100)) {
-      return res.status(400).json({ error: 'Invalid task name (max 100 characters)' });
+      return res.status(400).json({ error: 'Invalid task name (max 100 characters)', code: ErrorCode.SCHEDULER_INVALID_TASK_NAME });
     }
     if (command !== undefined && (typeof command !== 'string' || command.length > 2000)) {
-      return res.status(400).json({ error: 'Invalid command (max 2000 characters)' });
+      return res.status(400).json({ error: 'Invalid command (max 2000 characters)', code: ErrorCode.SCHEDULER_INVALID_COMMAND });
     }
-    // Only gate on rcon.execute when THIS request is actually setting the
-    // command to something raw -- a caller who only toggles enabled/name/
-    // serverId on a task someone else created shouldn't need rcon.execute
-    // just because that task's untouched, pre-existing command happens to
-    // be raw.
-    if (command !== undefined && classifyScheduledCommand(command) === 'raw') {
-      const allowed = await requireCapabilityInline('rcon.execute', req, res);
+    // Only gate on the command's required capability when THIS request is
+    // actually setting the command -- a caller who only toggles enabled/
+    // name/serverId on a task someone else created shouldn't need any
+    // particular capability just because that task's untouched, pre-existing
+    // command happens to need one.
+    if (command !== undefined) {
+      const allowed = await requireCapabilityInline(
+        requiredCapabilityForScheduledCommand(command),
+        req,
+        res,
+      );
       if (!allowed) return;
     }
     if (
       enabled !== undefined &&
       ![true, false, 0, 1].includes(enabled)
     ) {
-      return res.status(400).json({ error: 'enabled must be a boolean or 0/1' });
+      return res.status(400).json({ error: 'enabled must be a boolean or 0/1', code: ErrorCode.SCHEDULER_INVALID_ENABLED_VALUE });
     }
     const normalizedEnabled =
       enabled === undefined ? undefined : (enabled === true || enabled === 1 ? 1 : 0);
 
     // Validate cron expression before saving to prevent DB/scheduler inconsistency
     if (cronExpression && !cron.validate(cronExpression)) {
-      return res.status(400).json({ error: 'Invalid cron expression. Use format: minute hour day month weekday (e.g., "0 */6 * * *" for every 6 hours)' });
+      return res.status(400).json({ error: 'Invalid cron expression. Use format: minute hour day month weekday (e.g., "0 */6 * * *" for every 6 hours)', code: ErrorCode.SCHEDULER_INVALID_CRON_EXPRESSION });
     }
 
     // The panel does not support seconds-precision (6-field) schedules --
     // see hasUnsupportedCronFieldCount()'s comment for why this must be
     // checked before isCronTooFrequent, not folded into it.
     if (cronExpression && hasUnsupportedCronFieldCount(cronExpression)) {
-      return res.status(400).json({ error: 'The panel does not support seconds-precision schedules. Use exactly 5 fields: minute hour day month weekday (e.g., "0 */6 * * *").' });
+      return res.status(400).json({ error: 'The panel does not support seconds-precision schedules. Use exactly 5 fields: minute hour day month weekday (e.g., "0 */6 * * *").', code: ErrorCode.SCHEDULER_CRON_SECONDS_UNSUPPORTED });
     }
 
     // Security: Reject tasks that run more frequently than every 5 minutes to prevent DoS
     if (cronExpression && isCronTooFrequent(cronExpression)) {
-      return res.status(400).json({ error: 'Tasks cannot run more frequently than every 5 minutes' });
+      return res.status(400).json({ error: 'Tasks cannot run more frequently than every 5 minutes', code: ErrorCode.SCHEDULER_CRON_TOO_FREQUENT });
     }
 
     // Validate the target server, if reassignment was requested
     if (serverId !== undefined && serverId !== null) {
       const target = await getServer(serverId);
       if (!target) {
-        return res.status(400).json({ error: 'Target server not found' });
+        return res.status(400).json({ error: 'Target server not found', code: ErrorCode.SCHEDULER_TARGET_SERVER_NOT_FOUND });
       }
     }
 
+    const tasksBeforeUpdate = await getScheduledTasks();
+    const previousTaskRecord = Array.isArray(tasksBeforeUpdate)
+      ? tasksBeforeUpdate.find((task) => String(task.id) === String(taskId))
+      : null;
+    const previousTask = previousTaskRecord
+      ? { ...previousTaskRecord }
+      : null;
+
     const updated = await updateScheduledTask(taskId, name, cronExpression, command, normalizedEnabled, serverId);
     if (!updated) {
-      return res.status(404).json({ error: 'Task not found' });
+      return res.status(404).json({ error: 'Task not found', code: ErrorCode.SCHEDULER_TASK_NOT_FOUND });
     }
 
     // Reschedule from the merged record, not the request body: a partial update
@@ -344,7 +376,7 @@ router.put('/tasks/:id', async (req, res) => {
     // its pinned server and run it against whichever server is active.
     if (updated.enabled) {
       try {
-        scheduler.scheduleTask({
+        const scheduled = scheduler.scheduleTask({
           id: taskId,
           name: updated.name,
           cron_expression: updated.cron_expression,
@@ -352,11 +384,39 @@ router.put('/tasks/:id', async (req, res) => {
           server_id: updated.server_id,
           enabled: 1
         });
+        if (scheduled === false) {
+          throw new Error("Scheduler rejected the updated task");
+        }
       } catch (schedErr) {
         log.error(`Failed to reschedule task ${taskId}, reverting DB: ${schedErr.message}`);
-        // Revert: re-save the old enabled state to avoid phantom active task in DB
-        await updateScheduledTask(taskId, undefined, undefined, undefined, 0).catch(err => log.debug(`Failed to revert task ${taskId}: ${err.message}`));
-        return res.status(500).json({ error: 'Failed to reschedule task: ' + sanitizeError(schedErr.message) });
+        if (previousTask) {
+          try {
+            await updateScheduledTask(
+              taskId,
+              previousTask.name,
+              previousTask.cron_expression,
+              previousTask.command,
+              previousTask.enabled,
+              previousTask.server_id,
+            );
+            if (previousTask.enabled) {
+              scheduler.scheduleTask(previousTask);
+            } else {
+              scheduler.cancelTask(taskId);
+            }
+          } catch (rollbackError) {
+            log.error(
+              `Failed to restore scheduled task ${taskId} after reschedule failure: ${rollbackError.message}`,
+            );
+          }
+        } else {
+          log.warn(`Could not restore scheduled task ${taskId}: previous record was unavailable`);
+        }
+        return res.status(500).json({
+          error: 'Failed to reschedule task: ' + sanitizeError(schedErr.message),
+          code: ErrorCode.SCHEDULER_TASK_RESCHEDULE_FAILED,
+          params: sanitizeErrorParams({ reason: schedErr.message }),
+        });
       }
     } else {
       scheduler.cancelTask(taskId);
@@ -376,13 +436,16 @@ router.delete('/tasks/:id', async (req, res) => {
     const { id } = req.params;
     log.info(`DELETE /tasks/${id}`);
 
-    const taskId = parseInt(id, 10);
-    if (isNaN(taskId)) {
-      return res.status(400).json({ error: 'Invalid task ID' });
+    const taskId = parseTaskId(id);
+    if (taskId === null) {
+      return res.status(400).json({ error: 'Invalid task ID', code: ErrorCode.SCHEDULER_INVALID_TASK_ID });
     }
 
+    const deleted = await deleteScheduledTask(taskId);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Task not found', code: ErrorCode.SCHEDULER_TASK_NOT_FOUND });
+    }
     scheduler.cancelTask(taskId);
-    await deleteScheduledTask(taskId);
 
     res.json({ success: true, message: 'Task deleted' });
   } catch (error) {
@@ -401,32 +464,59 @@ router.post('/tasks/:id/run', async (req, res) => {
   try {
     const scheduler = req.app.get('scheduler');
     const { id } = req.params;
-    const taskId = parseInt(id, 10);
-    if (isNaN(taskId)) {
-      return res.status(400).json({ error: 'Invalid task ID' });
+    const taskId = parseTaskId(id);
+    if (taskId === null) {
+      return res.status(400).json({ error: 'Invalid task ID', code: ErrorCode.SCHEDULER_INVALID_TASK_ID });
     }
 
     const tasks = await getScheduledTasks();
     const task = tasks.find(t => t.id === taskId);
     if (!task) {
-      return res.status(404).json({ error: 'Task not found' });
+      return res.status(404).json({ error: 'Task not found', code: ErrorCode.SCHEDULER_TASK_NOT_FOUND });
     }
 
     // Unlike a cron fire, "Run now" IS a live request with a real req.user
     // -- check the STORED command (not request body; there isn't one here)
     // against the caller's CURRENT capabilities, not whoever created the
-    // task. A task saved as raw by someone who legitimately held
-    // rcon.execute at the time still needs it to be manually triggered by
-    // someone who doesn't hold it now.
-    if (classifyScheduledCommand(task.command) === 'raw') {
-      const allowed = await requireCapabilityInline('rcon.execute', req, res);
+    // task. A task saved by someone who legitimately held the required
+    // capability at the time still needs it to be manually triggered by
+    // someone who doesn't hold it now -- this is HALF of the
+    // schedule-is-cheaper-than-doing escalation this whole check exists to
+    // close (the other half is create/edit-time, above); the cron firing
+    // itself is deliberately left unchecked, see the router-level comment.
+    {
+      const allowed = await requireCapabilityInline(
+        requiredCapabilityForScheduledCommand(task.command),
+        req,
+        res,
+      );
       if (!allowed) return;
     }
 
     log.info(`POST /tasks/${taskId}/run: ${task.name}`);
-    scheduler.runTaskNow(task).catch(err => {
-      log.error(`Manual run of task ${taskId} failed: ${err.message}`);
-    });
+    const io = req.app.get('io');
+    // Same rationale as /restart-now just below in this file: the response
+    // only confirms the task was accepted, runTaskNow() runs in the
+    // background and reports its real outcome here once it resolves
+    // (2026-08-26 bug hunt, scheduler blind-success family).
+    scheduler.runTaskNow(task)
+      .then((result) => {
+        emitActionResult(io, {
+          kind: 'task',
+          taskName: task.name,
+          success: !!result?.success,
+          message: result?.message || (result?.success ? 'Task completed' : 'Task failed'),
+        });
+      })
+      .catch(err => {
+        log.error(`Manual run of task ${taskId} failed: ${err.message}`);
+        emitActionResult(io, {
+          kind: 'task',
+          taskName: task.name,
+          success: false,
+          message: err.message,
+        });
+      });
 
     res.json({ success: true, message: 'Task triggered' });
   } catch (error) {
@@ -438,20 +528,38 @@ router.post('/tasks/:id/run', async (req, res) => {
 // Trigger immediate restart
 router.post('/restart-now', async (req, res) => {
   try {
+    // This is not a scheduled-task action -- there is no stored command to
+    // classify via requiredCapabilityForScheduledCommand() the way POST
+    // /tasks, PUT /tasks/:id and POST /tasks/:id/run already do above. It is
+    // a direct, immediate call into scheduler.performRestart(), the exact
+    // same live action POST /server/restart performs under server.control.
+    // automation.manage alone ("manage scheduled tasks") only covers the
+    // scheduling half of that same reasoning: someone holding it but not
+    // server.control could restart the live server right now through this
+    // door, which /server/restart's own gate exists specifically to
+    // require. bug-hunt-2026-08-27, Pam's undersell pass, routed as a
+    // bypass row rather than a label fix.
+    const allowed = await requireCapabilityInline('server.control', req, res);
+    if (!allowed) return;
+
     const activeServer = await getActiveServer();
     if (activeServer?.isRemote) {
-      return res.status(400).json({ error: 'Cannot restart a remote server. The process is not managed by this panel.' });
+      return res.status(400).json({ error: 'Cannot restart a remote server. The process is not managed by this panel.', code: ErrorCode.SCHEDULER_RESTART_REMOTE_NOT_SUPPORTED });
     }
 
     const scheduler = req.app.get('scheduler');
-    const { warningMinutes } = req.body;
+    const io = req.app.get('io');
+    const warningMinutes = req.body?.warningMinutes;
 
     // Parse and validate warningMinutes (0-60 range)
-    let parsedWarningMinutes = parseInt(warningMinutes, 10);
+    let parsedWarningMinutes = parseBoundedInteger(
+      warningMinutes,
+      5,
+      0,
+      Number.MAX_SAFE_INTEGER,
+    );
     log.info(`POST /restart-now: warningMinutes=${warningMinutes}`);
-    if (isNaN(parsedWarningMinutes) || parsedWarningMinutes < 0) {
-      parsedWarningMinutes = 5; // Default
-    } else if (parsedWarningMinutes > 60) {
+    if (parsedWarningMinutes > 60) {
       parsedWarningMinutes = 60; // Cap at 60 minutes
     }
 
@@ -460,11 +568,39 @@ router.post('/restart-now', async (req, res) => {
     // "Auto Restart" default -- this IS a human clicking Restart Now, and
     // the history record should say so if it later fails. See
     // docs/qa/kevin-adversarial-findings.md Finding 3.
-    scheduler.performRestart(parsedWarningMinutes, { label: 'Manual restart' }).catch(err => {
-      log.error(`Restart failed: ${err.message}`);
-    });
+    //
+    // The HTTP response below only confirms the restart was ACCEPTED --
+    // performRestart() runs in the background (the countdown + graceful
+    // shutdown can take minutes) and already computes a real {success,
+    // message} on every path, already logged to Schedule History. This is
+    // the one place that outcome can reach the client in real time instead
+    // of only being discoverable by someone who thinks to go check history
+    // (2026-08-26 bug hunt, scheduler blind-success family -- restart-now
+    // used to report success:true unconditionally regardless of what
+    // actually happened).
+    scheduler.performRestart(parsedWarningMinutes, { label: 'Manual restart' })
+      .then((result) => {
+        emitActionResult(io, {
+          kind: 'restart',
+          success: !!result?.success,
+          message: result?.message || (result?.success ? 'Restart completed' : 'Restart failed'),
+        });
+      })
+      .catch(err => {
+        log.error(`Restart failed: ${err.message}`);
+        emitActionResult(io, {
+          kind: 'restart',
+          success: false,
+          message: err.message,
+        });
+      });
 
-    res.json({ success: true, message: 'Restart initiated' });
+    // Report the value actually used, not just the request -- the operator
+    // may have typed something above the 60-minute cap above (the client's
+    // own NumberInput min/max are decorative, not a client-side clamp), and
+    // the toast this feeds should say what really happened, not echo back
+    // whatever they typed.
+    res.json({ success: true, message: 'Restart initiated', warningMinutes: parsedWarningMinutes });
   } catch (error) {
     log.error(`Failed to trigger restart: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -493,8 +629,14 @@ router.get('/cron-presets', (req, res) => {
 // Get schedule execution history
 router.get('/history', async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit, 10) || 100;
-    const taskId = req.query.taskId ? parseInt(req.query.taskId, 10) : null;
+    const limit = parseClampedInteger(req.query.limit, 100, 1, 500);
+    const taskId =
+      req.query.taskId === undefined
+        ? null
+        : parseBoundedInteger(req.query.taskId, null, 1, Number.MAX_SAFE_INTEGER);
+    if (req.query.taskId !== undefined && taskId === null) {
+      return res.status(400).json({ error: 'Invalid task ID', code: ErrorCode.SCHEDULER_INVALID_TASK_ID });
+    }
     const history = await getScheduleHistory(limit, taskId);
     res.json({ history });
   } catch (error) {

@@ -132,6 +132,35 @@ describe("RconService.loadConfig", () => {
     });
   });
 
+  it("does not truncate a malformed profile port into a different target", async () => {
+    getActiveServer.mockResolvedValue({
+      id: "srv-1",
+      rconHost: "10.20.30.40",
+      rconPort: "27016junk",
+      rconPassword: "correct-horse",
+    });
+    const service = freshService();
+    service.checkPortOpen = vi.fn(async () => true);
+
+    expect(await service.connect()).toBe(false);
+    expect(service.config.port).toBeNull();
+    expect(service.checkPortOpen).not.toHaveBeenCalled();
+  });
+
+  it("does not truncate a malformed legacy port into a different target", async () => {
+    getSetting.mockImplementation(async (key) => {
+      if (key === "rconHost") return "legacy.example.com";
+      if (key === "rconPort") return "27016junk";
+      return null;
+    });
+    const service = freshService();
+    service.checkPortOpen = vi.fn(async () => true);
+
+    expect(await service.connect()).toBe(false);
+    expect(service.config.port).toBeNull();
+    expect(service.checkPortOpen).not.toHaveBeenCalled();
+  });
+
   it("a bad serverId lookup does NOT fall back to legacy/active settings (fails loudly instead)", async () => {
     getServer.mockResolvedValue(null);
     getSetting.mockImplementation(async (key) =>

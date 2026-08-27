@@ -25,7 +25,8 @@
     "noMatches": "Ningún control coincide con esa búsqueda.",
     "bridgeBadge": "puente",
     "bridgeBadgeTitle": "Necesita PanelBridge",
-    "recentActions": "Acciones recientes"
+    "recentActions": "Acciones recientes",
+    "noRecentActions": "Sin acciones recientes — las acciones activadas desde esta página se registrarán aquí."
   },
   "bridgeOfflineAlert": {
     "title": "PanelBridge está fuera de línea",
@@ -196,7 +197,9 @@
     "statusOffline": "fuera de línea",
     "statusPending": "…",
     "restore": "restaurar",
-    "shutOff": "cortar"
+    "shutOff": "cortar",
+    "timingReasoning": "modificador {{modifier}} · día del mundo {{day}} · {{nights}} noches sobrevividas",
+    "modifierNever": "nunca"
   },
   "quickSounds": {
     "sublabel": "RCON · atrae zombis",
@@ -239,6 +242,8 @@
     "random": "aleatorio",
     "targetFallback": "objetivo",
     "clearLoadedZombies": "eliminar zombis cargados",
+    "removeAllConfirmTitle": "¿Eliminar todos los zombis cargados?",
+    "removeAllConfirmDescription": "Esto elimina al instante todos los zombis en las celdas cargadas, en todo el servidor -- incluidos los que un jugador está combatiendo ahora mismo. Los zombis reaparecen con el tiempo, pero esto termina ese combate de inmediato para quien estuviera en él.",
     "noPlayersOnlineTitle": "No hay jugadores en línea",
     "bridgeOfflineTitle": "Puente fuera de línea",
     "sizeAria": "Tamaño de la horda"
@@ -342,6 +347,11 @@
     "bridgeFileLink": "Enlace al archivo del bridge: {{summary}}",
     "bridgeConnectionRequiredTitle": "Se requiere conexión con el bridge",
     "bridgeConnectionRequiredDesc": "Estas operaciones requieren una conexión activa con PanelBridge. Configurar PanelBridge en Ajustes primero.",
+    "moderationConfirmTitle": "¿Ejecutar {{operation}}?",
+    "moderationConfirmDescription": "Esto envía un comando de moderación real a través del puente en vivo{{target}}{{reason}}. Verifica los valores anteriores antes de continuar.",
+    "moderationConfirmTarget": " dirigido a {{target}}",
+    "moderationConfirmReason": " (motivo: {{reason}})",
+    "moderationConfirmButton": "Ejecutar operación",
     "runOperation": "Ejecutar operación",
     "resetFields": "Restablecer campos",
     "clearResults": "Borrar resultados",
@@ -435,7 +445,7 @@
     },
     "moderationBanUser": {
       "label": "Banear usuario",
-      "description": "Banear o desbanear a un jugador."
+      "description": "Banea o desbanea solo por nombre de usuario -- esto no banea su dirección IP. Usa la página de Jugadores para un baneo combinado de nombre de usuario e IP."
     },
     "moderationBanIP": {
       "label": "Banear IP",
@@ -687,6 +697,7 @@
     "bridgeCommandFailedFallback": "Comando del bridge fallido.",
     "notPersistedDesc": "Aplicado únicamente al mundo en ejecución — SandboxVars.lua no se actualizó ({{reason}}), por lo que un reinicio del servidor deshará este cambio.",
     "notPersistedUnknownReason": "motivo desconocido",
+    "powerDidNotTakeEffectDesc": "El servidor indica que la energía sigue {{state}} — el cambio no surtió efecto.",
     "noPlayersOnlineError": "No hay jugadores en línea",
     "targetPlayerRequiredHorde": "Se requiere un jugador objetivo para generar la horda",
     "operationCompletedDesc": "La operación se completó correctamente.",

@@ -172,9 +172,6 @@ describe("server.js: server.world_events (folded in from previously-ungated GM/w
     ["/weather/stop", "post"],
     ["/events/chopper", "post"],
     ["/events/gunshot", "post"],
-    ["/events/lightning", "post"],
-    ["/events/thunder", "post"],
-    ["/events/horde", "post"],
     ["/alarm", "post"],
     ["/removezombies", "post"],
     ["/releasesafehouse", "post"],
@@ -187,6 +184,12 @@ describe("server.js: server.world_events (folded in from previously-ungated GM/w
   // would have narrowed moderator's access, not preserved it. Caught by
   // this exact test failing on first write: moderator refused where the
   // ruling required "not refused."
+  //
+  // /events/lightning, /events/thunder and /events/horde used to be in this
+  // list -- moved out 2026-08-27 (operator ruling on ranked-bug #5) to
+  // players.endanger_or_impersonate, see the describe block below. They
+  // take an optional username and can strike/spawn a horde AT a named
+  // player, unlike every route still in this array.
 
   it.each(WORLD_EVENTS_ROUTES)("does not refuse a moderator on %s %s", async (routePath, method) => {
     const { default: router } = await import("../routes/server.js");
@@ -197,6 +200,32 @@ describe("server.js: server.world_events (folded in from previously-ungated GM/w
   it.each(WORLD_EVENTS_ROUTES)("does not refuse a technician on %s %s", async (routePath, method) => {
     const { default: router } = await import("../routes/server.js");
     const { calledNext } = await runGate(router, routePath, method, "technician");
+    expect(calledNext).toBe(true);
+  });
+});
+
+describe("server.js: players.endanger_or_impersonate (targeted zombie/weather events at a named player) -- admin only, carved out of server.world_events", () => {
+  const ENDANGER_ROUTES = [
+    ["/events/lightning", "post"],
+    ["/events/thunder", "post"],
+    ["/events/horde", "post"],
+  ];
+
+  it.each(ENDANGER_ROUTES)("refuses a moderator on %s %s (lost with the split -- intended)", async (routePath, method) => {
+    const { default: router } = await import("../routes/server.js");
+    const { res } = await runGate(router, routePath, method, "moderator");
+    expect(res.getStatusCode()).toBe(403);
+  });
+
+  it.each(ENDANGER_ROUTES)("refuses a technician on %s %s (lost with the split -- intended)", async (routePath, method) => {
+    const { default: router } = await import("../routes/server.js");
+    const { res } = await runGate(router, routePath, method, "technician");
+    expect(res.getStatusCode()).toBe(403);
+  });
+
+  it.each(ENDANGER_ROUTES)("does not refuse an admin on %s %s", async (routePath, method) => {
+    const { default: router } = await import("../routes/server.js");
+    const { calledNext } = await runGate(router, routePath, method, "admin");
     expect(calledNext).toBe(true);
   });
 });

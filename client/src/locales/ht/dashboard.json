@@ -1,5 +1,30 @@
 {
   "loading": "N ap etabli koneksyon…",
+  "autoUpdateResult": {
+    "successTitle": "Mizajou otomatik fini",
+    "successDescription": "Mizajou otomatik sèvè a fini avèk siksè.",
+    "successDescriptionVersioned": "Mizajou otomatik sèvè a fini avèk siksè (kounye a l ap fè {{version}}).",
+    "failedTitle": "Mizajou otomatik echwe",
+    "dismiss": "Ekate",
+    "dismissAria": "Ekate avi mizajou otomatik la",
+    "dismissFailedTitle": "Pa t kapab ekate avi a",
+    "dismissFailedFallback": "Nou pa t kapab ekate avi a. Eseye ankò.",
+    "serverUp": "Sèvè ou a ap kouri kounye a.",
+    "serverDown": "Sèvè ou a sispann kounye a.",
+    "serverUnaffected": "Anyen pa chanje — eta sèvè ou a pa afekte.",
+    "reasons": {
+      "MANAGED_CONTAINER": "Sèvè sa a ap kouri nan yon kontenè Docker panèl la jere. Mete ajou imaj kontenè a olye — panèl la pa kouri SteamCMD sou yon kontenè li jere.",
+      "NOT_CONFIGURED": "Chemen SteamCMD la oswa chemen enstalasyon sèvè a pa konfigire.",
+      "INITIAL_SCAN_FAILED": "Nou pa t kapab verifye si sèvè a t ap kouri, kidonk mizajou a te abandone pou sekirite.",
+      "RCON_NOT_CONNECTED": "RCON pa t konekte, kidonk sèvè a pa t kapab sispann an sekirite.",
+      "SAVE_FAILED": "Mond lan pa t kapab sove ({{reason}}), kidonk mizajou a te abandone pou evite pèdi pwogrè.",
+      "STOP_SCAN_FAILED": "Nou pèdi kapasite pou verifye si sèvè a te sispann, kidonk mizajou a te abandone pou sekirite.",
+      "STOP_TIMEOUT": "Sèvè a pa t sispann nan 5 minit.",
+      "STEAMCMD_NOT_FOUND": "Pa jwenn SteamCMD nan {{path}}.",
+      "STEAMCMD_EXIT_CODE": "SteamCMD fini ak kòd {{code}}.",
+      "UNKNOWN": "Yon erè initil rive pandan mizajou otomatik la."
+    }
+  },
   "errors": {
     "failedToConnect": "Koneksyon ak sèvè a echwe.",
     "failedToLoad": "Chaje estati tablo a echwe.",
@@ -48,7 +73,11 @@
     "autoStartDisabledDesc": "Sèvè a pap demare otomatikman",
     "autoStartSaveFailed": "Sove paramèt demaraj otomatik la echwe",
     "errorTitle": "Erè",
-    "actionFailedFallback": "Aksyon echwe. Tanpri eseye ankò."
+    "actionFailedFallback": "Aksyon echwe. Tanpri eseye ankò.",
+    "rconAuthFailed": {
+      "openServers": "Louvri Sèvè",
+      "openServersAlt": "Louvri paj Sèvè a pou mete ajou modpas RCON la"
+    }
   },
   "actions": {
     "start": "Demare",
@@ -65,7 +94,11 @@
     "moreActionsAria": "Plis aksyon sèvè",
     "addServerFirst": "Ajoute oswa chwazi yon sèvè dabò",
     "notAvailableRemote": "Pa disponib pou sèvè aleka (RCON sèlman)",
-    "forceStopTooltip": "Sispann jwèt la imedyatman san l pa sove"
+    "forceStopTooltip": "Eseye fè yon sovgad rapid, epi sispann imedyatman kanmenm",
+    "connectRconNeedsHostRunning": "Demare sèvè a dabò",
+    "noPermissionControl": "Wòl ou pa gen pèmisyon pou kontwole sèvè a.",
+    "noPermissionWipe": "Wòl ou pa gen pèmisyon pou efase mond lan.",
+    "wipeMustStopFirst": "Sispann sèvè a anvan ou efase l."
   },
   "confirm": {
     "cancel": "Anile",
@@ -75,7 +108,7 @@
     },
     "forceStopServer": {
       "title": "Fòse sispann sèvè a",
-      "description": "Sa a pral touye pwosesis jwèt la imedyatman san l pa sove.",
+      "description": "Sa a eseye fè yon sovgad rapid (jiska 3 segond), epi li sispann jwèt la imedyatman kit sovgad la reyisi kit li pa reyisi.",
       "descriptionPlayers": " {{count}} jwè ap dekonekte!"
     },
     "restartServer": {
@@ -90,8 +123,13 @@
   },
   "successCopy": {
     "startServer": { "title": "Sèvè ap demare", "description": "Veye tablo a pou estati an dirèk." },
+    "startServerScriptBackup": { "title": "Sèvè ap demare — script demaraj sovgade", "description": "Panèl la detekte chanjman nan script demaraj ou a e li sovgade vèsyon ou anvan li rejenere l." },
     "stopServer": { "title": "Sèvè sispann", "description": "Sesyon an fèmen san pwoblèm." },
-    "forceStopServer": { "title": "Sèvè fòse sispann", "description": "Pwosesis jwèt la touye san RCON." },
+    "stopServerRequested": { "title": "Arè mande", "description": "Sèvè a ap sove epi fèmen an dousè — sa ka pran yon ti moman sou yon gwo mond. Badj estati a ap mete ajou yon fwa arè a konfime." },
+    "forceStopServer": { "title": "Sèvè fòse sispann", "description": "Mond lan te sove, epi pwosesis jwèt la te sispann." },
+    "forceStopSaveFailed": { "title": "Sèvè fòse sispann — sovgad echwe", "description": "Sovgad anvan sispann lan te refize. Pwogrè resan ka pèdi." },
+    "forceStopSaveTimedOut": { "title": "Sèvè fòse sispann — sovgad pran twòp tan", "description": "Sovgad anvan sispann lan pa t reponn nan 3 segond. Pwogrè resan ka pèdi." },
+    "forceStopSaveSkipped": { "title": "Sèvè fòse sispann — pa gen sovgad ki te eseye", "description": "RCON pa t konekte, kidonk pa gen sovgad ki te eseye anvan sispann. Pwogrè resan ka pèdi." },
     "restartServer": { "title": "Redemaraj pwograme", "description": "Sèvè a ap redemare talè." },
     "restartServerNow": { "title": "Redemaraj deklanche", "description": "Kòmand redemaraj brital voye." },
     "saveWorld": { "title": "Mond sove", "description": "Eta aktyèl ekri sou disk la." },
@@ -108,6 +146,8 @@
     "serverStatusUnknown": "Estati sèvè enkoni",
     "serverStopped": "Sèvè a sispann",
     "rconDisconnected": "RCON dekonekte",
+    "rconHelpLabel": "RCON",
+    "rconHelpTip": "RCON se pwotokòl konsòl adistans panèl sa a itilize pou voye kòmand nan jwèt k ap fonksyone a — mete jwè deyò, sove mond lan, difize mesaj, ak tout lòt bagay panèl la fè. Pandan li dekonekte, aksyon sa yo pa disponib jistan li rekonekte.",
     "hostMemory": "Memwa lame a {{percent}}%",
     "diskAlmostFull": "Disk prèske plen, {{gb}} GB rete",
     "diskPercent": "Disk {{percent}}%, {{gb}} GB rete",
@@ -265,7 +305,12 @@
       "world": { "label": "Eta mond", "desc": "Diksyonè mond, metadone, erozyon, eta objè jwèt, radyo." },
       "accounts": { "label": "Kont & baniman", "desc": "Kont itilizatè, modpas, wòl, lis blan ak lis baniman. Tout moun ap kreye kont ankò pwochen fwa y antre." }
     },
-    "notice": "Chwazi kat, jwè ak mond vide dosye sovgad la nèt, ansanm ak tout sa mods yo kite dèyè. Fichye .ini sèvè a ak paramèt sandbox sere apa, yo pap afekte.",
+    "notice": "Chwazi kat, jwè oswa mond efase done sa yo pou tout tan — pa gen mwayen pou anile sof si ou fè yon kopi sovgad anba a anvan. Chwazi kont efase lis blan ak lis baniman pou tout tan; tout moun ap gen pou reenskri pwochen fwa yo antre. Fichye .ini sèvè a ak paramèt sandbox sere apa, yo pap afekte.",
+    "backupLabel": "Fè kopi sovgad anvan efase",
+    "backupDesc": "Kreye yon kopi sovgad konplè nan pati ki aktif la (ak baz done kont yo, si li chwazi) anvan anyen efase. Ou ka restore li nan paj Kopi Sovgad la.",
+    "noBackupTitle": "Pa gen kopi sovgad ki pral kreye",
+    "noBackupDesc": "Nenpòt sa ou efase disparèt pou tout tan, san okenn mwayen pou anile sa nan panel la.",
+    "backupStarting": "Ap kòmanse kopi sovgad la…",
     "noFilesFound": "Pa jwenn dosye pou sib chwazi yo.",
     "willDelete": "Sa a pral efase pou tout tan:",
     "categoryLabels": {
@@ -286,6 +331,7 @@
     "previewFailedFallback": "Pa t kapab eskane dosye sovgad la",
     "wipedTitle": "Sèvè efase",
     "wipedDesc": "Efase: {{targets}}",
+    "wipedDescWithBackup": "Efase: {{targets}}. Te fè yon kopi sovgad anvan, sove kòm {{name}}.",
     "wipeFailedTitle": "Efasman echwe",
     "wipeFailedFallback": "Erè enkoni"
   }

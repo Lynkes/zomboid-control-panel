@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { useTheme } from '@/contexts/ThemeContext'
 import { useSocket } from '@/contexts/SocketContext'
+import { useAuth } from '@/contexts/AuthContext'
+import { DisabledReason } from '@/components/DisabledReason'
 import {
   Map as MapIcon,
   Crosshair,
@@ -48,6 +50,7 @@ import { VehiclePicker } from '@/components/VehiclePicker'
 import { ItemPicker } from '@/components/ItemPicker'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { NumberInput } from '@/components/NumberInput'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import {
@@ -69,10 +72,13 @@ import {
 } from '@/components/ui/alert-dialog'
 import { panelBridgeApi, updateApi, serversApi, mapApi, playersApi } from '@/lib/api'
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
+import { getUserErrorMessage } from '@/lib/errorMessage'
 import { useToast } from '@/components/ui/use-toast'
-import { cn } from '@/lib/utils'
+import { cn, copyText } from '@/lib/utils'
 import { createInFlightGate } from '@/lib/inFlightGate'
 import { resolveFallbackTile, conservativeRenderedMaxLevel } from './worldMapTileFallback'
+import { bridgeSupportsPlayerStatus } from './worldMapBridgeVersion'
+import { diagnoseTileFailure, tileFailureCopyKeys, type TileFailureDiagnosis } from './worldMapTileFailureDiagnosis'
 
 const TILE_RETRY_MS = [2_000, 10_000, 60_000] as const
 
@@ -588,6 +594,35 @@ export default function WorldMap() {
   const { t } = useTranslation('worldMap')
   const { theme } = useTheme()
   const socket = useSocket()
+  const { can } = useAuth()
+  // 2026-08-27 bug-hunt capability trace: most of this page's actions go
+  // through POST /panelBridge/command, gated ONLY bridge.command server-side
+  // regardless of what the action name implies -- teleport/vehicle-tool/
+  // airdrop are NOT players.gm_tools or server.world_events despite sounding
+  // like it. bridge.command is admin-only by default (TECHNICIAN_CAPABILITIES
+  // omits it even though technician holds players.gm_tools/server.world_events),
+  // so gating these on the name-implied capability would show a stock
+  // technician an enabled button that 403s on click -- worse than no gate.
+  // Only addVehicleAt is genuinely players.gm_tools alone: it hits a
+  // dedicated route (POST /players/add-vehicle-at) instead of the passthrough.
+  //
+  // setGodMode/healPlayer are a THIRD shape: as of an operator ruling
+  // (bug-hunt-2026-08-27, reverses server commit c3083d5 from earlier the
+  // same day) players.gm_tools ALONE gates them, same as Spawn Vehicle
+  // below -- bridge.command is NOT required despite routing through the
+  // generic PanelBridge passthrough. c3083d5 had briefly made it "gm_tools
+  // AND bridge.command"; the operator ruled bridge.command was only ever an
+  // accidental side effect of these two routing through the passthrough,
+  // not a deliberate second gate, and requiring it would deny Technician
+  // (who holds gm_tools but not bridge.command by default) the GM tools
+  // it's meant to have. See server/routes/panelBridge.js's
+  // BRIDGE_ACTION_CAPABILITY / GM_TOOLS_ONLY_ACTIONS. Do NOT widen this to
+  // any other action on the page -- everything else stays bridge.command
+  // alone, same reasoning as always: gating on a capability a route doesn't
+  // actually check hides a working control.
+  const canRunBridgeCommand = can('bridge.command')
+  const canWorldEvents = can('server.world_events')
+  const canGmTools = can('players.gm_tools')
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const mapWrapperRef = useRef<HTMLDivElement>(null)
@@ -605,9 +640,31 @@ export default function WorldMap() {
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 })
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null)
+  // Not a Radix primitive, so closing it doesn't automatically restore
+  // focus. The menu itself auto-focuses its first item on open (see the
+  // ref callback below); this half handles the close side, for any of the
+  // ~20 call sites that dismiss the menu (Escape, item selection, an
+  // action completing, clicking elsewhere) without each needing its own
+  // focus() call.
+  const contextMenuWasOpenRef = useRef(false)
+  useEffect(() => {
+    if (contextMenu) {
+      contextMenuWasOpenRef.current = true
+    } else if (contextMenuWasOpenRef.current) {
+      contextMenuWasOpenRef.current = false
+      canvasRef.current?.focus()
+    }
+  }, [contextMenu])
   const [selectedPlayer, setSelectedPlayer] = useState<MapPlayer | null>(null)
   const [bridgeConnected, setBridgeConnected] = useState(false)
   const [bridgeLoading, setBridgeLoading] = useState(false)
+  // Bridge's self-reported PanelBridge.VERSION -- gates the player-status
+  // fields (isAlive/isInfected/accessLevel) added in bridge v1.7.39. See
+  // worldMapBridgeVersion.ts for why this is a real version comparison
+  // rather than inferring support from field presence.
+  const [bridgeVersion, setBridgeVersion] = useState<string | null>(null)
+  const bridgeVersionRef = useRef<string | null>(null)
+  useEffect(() => { bridgeVersionRef.current = bridgeVersion }, [bridgeVersion])
   const [hasActiveServer, setHasActiveServer] = useState(false)
   const [loading, setLoading] = useState(true)
   const [hoveredPlayer, setHoveredPlayer] = useState<string | null>(null)
@@ -921,6 +978,23 @@ export default function WorldMap() {
   const [tileLoadFailing, setTileLoadFailing] = useState(false)
   const [tileFailureKind, setTileFailureKind] = useState<'network' | 'coverage'>('network')
   const tileCoverageFailRef = useRef(0)
+  // The byte-level diagnosis of the most recent coverage-classified failure
+  // (gated the same way as tileFailureDetail below: first failure of a
+  // fresh episode). When present it fully replaces the generic coverage
+  // hedge in the banner -- see worldMapTileFailureDiagnosis.ts and
+  // tileFailureCopyKeys for what each signature means and why an
+  // unrecognised one still gets its own honest message instead of being
+  // rounded into a guess.
+  const [tileByteDiagnosis, setTileByteDiagnosis] = useState<TileFailureDiagnosis | null>(null)
+  // The raw diagnostic code behind the most recent tile failure -- surfaced
+  // in the banner itself so a report carries its own diagnosis (the X-Tile-
+  // Cache header this reads was already on every tile response; nothing
+  // ever displayed it, same defect shape as the backupWarning field nobody
+  // read). Every request that ever reaches markFailed already went through
+  // loadViaProxy (the direct path always retries via proxy before giving
+  // up, see loadDziTile's directImg.onerror below), so this header is
+  // always the relevant one -- there is no "which path" ambiguity to add.
+  const [tileFailureDetail, setTileFailureDetail] = useState<string | null>(null)
 
   const loadDziTile = useCallback((level: number, col: number, row: number) => {
     const f = floorRef.current
@@ -933,7 +1007,11 @@ export default function WorldMap() {
     tileCacheRef.current[key] = null
     pendingTileLoadsRef.current++
 
-    const markFailed = (reason: 'network' | 'coverage' = 'network') => {
+    const markFailed = (
+      reason: 'network' | 'coverage' = 'network',
+      detail: string = 'no-header',
+      diagnosis: TileFailureDiagnosis | null = null,
+    ) => {
       if (floorRef.current !== f) return
       // Drop the pending entry so the per-tile backoff guard above is what
       // gates the next retry (rather than the "key in cache" check).
@@ -944,6 +1022,13 @@ export default function WorldMap() {
       tileFailRef.current[key] = { count, nextAt: Date.now() + delay }
       // Surface a user-visible warning if many distinct tiles are failing.
       if (count === 1) {
+        // Last-write-wins across whichever tile fails FIRST most recently --
+        // illustrative of what's currently going wrong, not a claim every
+        // failing tile shares one cause. Gated the same way as the counters
+        // just below (first failure of a given tile only) to avoid a
+        // re-render on every backoff retry of an already-known-failing tile.
+        setTileFailureDetail(detail)
+        setTileByteDiagnosis(diagnosis)
         tileFailureCountRef.current++
         if (reason === 'coverage') tileCoverageFailRef.current++
         if (tileFailureCountRef.current >= 6) {
@@ -968,6 +1053,8 @@ export default function WorldMap() {
           if (tileFailureCountRef.current === 0) {
             tileCoverageFailRef.current = 0
             setTileLoadFailing(false)
+            setTileFailureDetail(null)
+            setTileByteDiagnosis(null)
           }
         }
       }
@@ -991,8 +1078,29 @@ export default function WorldMap() {
     // (not in a blanket .finally()) so the concurrency cap holds the slot
     // for the full lifecycle including image decode.
     const loadViaProxy = () => {
+      // 'coverage' names tiles.pzmap.org in the failure banner; 'network'
+      // does not. That distinction must track whether upstream actually
+      // participated in THIS response, not just the HTTP status shape --
+      // serveTile (mapProxy.js) can fail a request entirely from its own
+      // memory/disk cache, never touching tiles.pzmap.org at all, and the
+      // banner must not vouch for a host that was never contacted. Only
+      // X-Tile-Cache: miss confirms an upstream fetch actually happened;
+      // hit-mem/hit-disk/absent all mean "local", regardless of status.
+      let upstreamParticipated = false
+      // Raw X-Tile-Cache value (hit-mem/hit-disk/miss), kept alongside the
+      // derived upstreamParticipated boolean so the failure banner can show
+      // the actual diagnostic code rather than just the coarse network/
+      // coverage split -- see tileFailureDetail above.
+      let cacheTierRaw: string | null = null
+      // The response's own declared size -- compared against the blob we
+      // actually receive if decoding later fails, to prove truncation
+      // rather than guess at it. See worldMapTileFailureDiagnosis.ts.
+      let contentLengthHeader: string | null = null
       fetch(proxyUrl)
         .then((res) => {
+          cacheTierRaw = res.headers.get('X-Tile-Cache')
+          contentLengthHeader = res.headers.get('Content-Length')
+          upstreamParticipated = cacheTierRaw === 'miss'
           if (floorRef.current !== f) { pendingTileLoadsRef.current--; return null } // stale — floor changed mid-flight
           if (res.status === 404) {
             pendingTileLoadsRef.current--
@@ -1025,17 +1133,47 @@ export default function WorldMap() {
           img.onerror = () => {
             URL.revokeObjectURL(objectUrl)
             pendingTileLoadsRef.current--
-            // Bytes arrived and only the decode failed, so the network is fine.
-            markFailed('coverage')
+            // Bytes arrived and only the decode failed. If upstream actually
+            // sent these bytes this request, naming it is earned ('coverage').
+            // If they came from our own cache (hit-mem/hit-disk), the
+            // corruption is local and upstream had no part in it.
+            //
+            // Classifying the blob's own bytes -- already fully in memory,
+            // no extra request, no operator devtools relay -- turns this
+            // from a hedge into a positive identification of what the
+            // response actually was, or an honest "unrecognized, here are
+            // the bytes" when it's neither our nor the operator's most
+            // likely guess. See worldMapTileFailureDiagnosis.ts.
+            blob.slice(0, 4).arrayBuffer()
+              .then((buf) => {
+                const diagnosis = diagnoseTileFailure(new Uint8Array(buf), blob.size, contentLengthHeader)
+                markFailed(upstreamParticipated ? 'coverage' : 'network', cacheTierRaw ?? 'no-header', diagnosis)
+              })
+              .catch(() => {
+                // Reading the blob's own already-in-memory bytes failed --
+                // shouldn't happen, but fall back rather than leave this
+                // tile's failure unrecorded.
+                markFailed(upstreamParticipated ? 'coverage' : 'network', cacheTierRaw ?? 'no-header')
+              })
           }
           img.src = objectUrl
         })
         .catch((err) => {
           pendingTileLoadsRef.current--
           const status = (err as { status?: number } | undefined)?.status
-          // A readable 4xx means we reached upstream and it has no tile there;
-          // 5xx or a rejected fetch means we could not reach it at all.
-          markFailed(status && status >= 400 && status < 500 ? 'coverage' : 'network')
+          // A readable 4xx WITH upstreamParticipated means we reached
+          // upstream and it has no tile there. Anything else -- a 5xx, a
+          // rejected fetch (couldn't even reach our own proxy), or a 4xx
+          // that never got as far as the upstream fetch (local validation) --
+          // means we can't vouch for tiles.pzmap.org either way.
+          // Detail: the response's own header when we got one (a 4xx/5xx
+          // passthrough still carries it), else `http-<status>` when there
+          // was a status but no header, else 'unreachable' for a fetch that
+          // never got a response at all (couldn't even reach our own proxy).
+          markFailed(
+            upstreamParticipated && status && status >= 400 && status < 500 ? 'coverage' : 'network',
+            cacheTierRaw ?? (status ? `http-${status}` : 'unreachable'),
+          )
         })
     }
 
@@ -1148,6 +1286,13 @@ export default function WorldMap() {
         : null
       if (rawPlayers) {
         setBridgeConnected(true)
+        // isAlive/isInfected/accessLevel only exist on the wire from bridge
+        // v1.7.39 onward -- an older bridge simply omits the keys. Gate on
+        // the bridge's own reported version rather than defaulting/passing
+        // the (possibly absent) raw value through: an older bridge must
+        // read as unknown, never as a specific alive/uninfected/non-admin
+        // value we don't actually have.
+        const statusFieldsSupported = bridgeSupportsPlayerStatus(bridgeVersionRef.current)
         setPlayers((prev) => {
           const prevMap = new globalThis.Map(prev.map((p) => [p.username || p.displayName, p]))
           return rawPlayers.map((p: RawBridgePlayer) => {
@@ -1158,9 +1303,9 @@ export default function WorldMap() {
               displayName: p.displayName || key,
               x: p.x, y: p.y, z: p.z ?? 0,
               health: p.health,
-              isAlive: p.isAlive ?? true,
-              isInfected: p.isInfected,
-              accessLevel: p.accessLevel,
+              isAlive: statusFieldsSupported ? p.isAlive : undefined,
+              isInfected: statusFieldsSupported ? p.isInfected : undefined,
+              accessLevel: statusFieldsSupported ? p.accessLevel : undefined,
               hunger: p.hunger, thirst: p.thirst, fatigue: p.fatigue,
               prevX: old ? old.x : p.x,
               prevY: old ? old.y : p.y,
@@ -1180,6 +1325,7 @@ export default function WorldMap() {
   const checkBridgeStatus = useCallback(async () => {
     if (!hasActiveServer) {
       setBridgeConnected(false)
+      setBridgeVersion(null)
       setBridgeLoading(false)
       return
     }
@@ -1188,8 +1334,10 @@ export default function WorldMap() {
     try {
       const res = await panelBridgeApi.getStatus()
       setBridgeConnected(res.modConnected === true)
+      setBridgeVersion(res.modStatus?.version || null)
     } catch {
       setBridgeConnected(false)
+      setBridgeVersion(null)
     } finally {
       setBridgeLoading(false)
     }
@@ -2309,6 +2457,10 @@ export default function WorldMap() {
   // ─── Actions ────────────────────────────────────────────
   const triggerLightningAt = useCallback(
     async (x: number, y: number) => {
+      // Function-level guard, not just the menu item's disabled state --
+      // 2026-08-27 bug-hunt floor rule (Angela's Console.tsx Enter-key
+      // bypass finding): assert the action is unreachable.
+      if (!canWorldEvents) return
       setActionLoading('lightning')
       try {
         const res = await panelBridgeApi.triggerLightning(x, y, true, true, true)
@@ -2322,11 +2474,12 @@ export default function WorldMap() {
         setContextMenu(null)
       }
     },
-    [toast]
+    [toast, canWorldEvents]
   )
 
   const createNoiseAt = useCallback(
     async (x: number, y: number) => {
+      if (!canWorldEvents) return
       setActionLoading('noise')
       try {
         const res = await panelBridgeApi.playWorldSound(x, y, 0, 200, 100)
@@ -2340,12 +2493,13 @@ export default function WorldMap() {
         setContextMenu(null)
       }
     },
-    [toast]
+    [toast, canWorldEvents]
   )
 
   const callAirdrop = useCallback(
     async (x: number, y: number, preset: typeof AIRDROP_PRESETS[number]['id']) => {
       if (actionLoadingRef.current) return // prevent double-submit (ref avoids stale closure)
+      if (!canRunBridgeCommand) return
       actionLoadingRef.current = 'airdrop'
       setActionLoading('airdrop')
       try {
@@ -2375,7 +2529,7 @@ export default function WorldMap() {
         })
       } catch (err) {
         if (!mountedRef.current) return
-        const msg = err instanceof Error ? err.message : t('toasts.areaNotLoaded')
+        const msg = getUserErrorMessage(err, t('toasts.areaNotLoaded'))
         toast({ title: t('toasts.airdropFailedTitle'), description: msg, variant: 'destructive' })
       } finally {
         actionLoadingRef.current = null
@@ -2385,7 +2539,7 @@ export default function WorldMap() {
         }
       }
     },
-    [toast, t, presetLabel]
+    [toast, t, presetLabel, canRunBridgeCommand]
   )
 
   // Clean up expired airdrop markers (older than 5 minutes)
@@ -2414,6 +2568,7 @@ export default function WorldMap() {
       label?: string
     }) => {
       if (actionLoadingRef.current) return
+      if (!canRunBridgeCommand) return
       const cleaned = opts.items
         .map((it) => ({
           itemType: (it.itemType || '').trim(),
@@ -2481,7 +2636,7 @@ export default function WorldMap() {
         })
       } catch (err) {
         if (!mountedRef.current) return
-        const msg = err instanceof Error ? err.message : t('toasts.areaNotLoaded')
+        const msg = getUserErrorMessage(err, t('toasts.areaNotLoaded'))
         toast({ title: t('toasts.dropFailedTitle'), description: msg, variant: 'destructive' })
       } finally {
         actionLoadingRef.current = null
@@ -2490,12 +2645,13 @@ export default function WorldMap() {
         }
       }
     },
-    [toast, t]
+    [toast, t, canRunBridgeCommand]
   )
 
   // Teleport an arbitrary online player to the right-clicked coordinate.
   const teleportPlayerTo = useCallback(
     async (username: string, x: number, y: number, z: number) => {
+      if (!canRunBridgeCommand) return
       setActionLoading('teleport')
       try {
         // bridge.sendCommand() (services/panelBridge.js) only ever resolves
@@ -2534,25 +2690,26 @@ export default function WorldMap() {
         fetchPlayerPositions()
       } catch (err) {
         if (!mountedRef.current) return
-        const msg = err instanceof Error ? err.message : t('toasts.teleportErrorFallback')
+        const msg = getUserErrorMessage(err, t('toasts.teleportErrorFallback'))
         toast({ title: t('toasts.teleportErrorTitle'), description: msg, variant: 'destructive' })
       } finally {
         if (mountedRef.current) setActionLoading(null)
       }
     },
-    [toast, fetchPlayerPositions, t]
+    [toast, fetchPlayerPositions, t, canRunBridgeCommand]
   )
 
-  // Copy map coordinates to the clipboard.
+  // Copy map coordinates to the clipboard. Goes through copyText (not the
+  // raw clipboard API directly) so this still works over a plain-HTTP LAN
+  // deployment -- navigator.clipboard requires a secure context and is
+  // unavailable there; copyText falls back to execCommand.
   const copyCoords = useCallback(
     async (x: number, y: number) => {
       const text = `${Math.round(x)}, ${Math.round(y)}`
-      try {
-        await navigator.clipboard.writeText(text)
-        toast({ title: t('toasts.copiedTitle'), description: text })
-      } catch {
-        toast({ title: t('toasts.copyFailedTitle'), description: t('toasts.copyFailedDesc'), variant: 'destructive' })
-      }
+      const ok = await copyText(text)
+      toast(ok
+        ? { title: t('toasts.copiedTitle'), description: text }
+        : { title: t('toasts.copyFailedTitle'), description: t('toasts.copyFailedDesc'), variant: 'destructive' })
     },
     [toast, t]
   )
@@ -2644,6 +2801,7 @@ export default function WorldMap() {
                   disabled={floor >= 29}
                   aria-label={t('controlRail.floorUp')}
                   className="h-6 w-9 rounded-sm border border-transparent hover:border-border/50 hover:bg-muted/60 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:border-transparent"
+                  // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (t('controlRail.floorUp') = "Floor up"), same text as the aria-label, unrelated to why the button disables at the floor cap. Triaged 2026-08-27, no disabled-reason text to lose.
                   title={t('controlRail.floorUp')}
                 >
                   <ChevronUp className="w-3.5 h-3.5" />
@@ -2666,6 +2824,7 @@ export default function WorldMap() {
                   disabled={floor <= -1}
                   aria-label={t('controlRail.floorDown')}
                   className="h-6 w-9 rounded-sm border border-transparent hover:border-border/50 hover:bg-muted/60 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:border-transparent"
+                  // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (t('controlRail.floorDown') = "Floor down"), same text as the aria-label, unrelated to why the button disables at the floor minimum. Triaged 2026-08-27, no disabled-reason text to lose.
                   title={t('controlRail.floorDown')}
                 >
                   <ChevronDown className="w-3.5 h-3.5" />
@@ -2726,7 +2885,22 @@ export default function WorldMap() {
                 <span className="text-warning/70">{t('tileFailure.tilesOffline')}</span>
               </div>
               <div className="px-3 py-2 text-xs leading-snug">
-                {tileFailureKind === 'coverage' ? (
+                {tileByteDiagnosis ? (
+                  // Bytes already in hand were classified directly instead
+                  // of guessed at -- a recognised signature earns a
+                  // specific, paste-able statement; an unrecognised one
+                  // says so plainly with the raw bytes rather than being
+                  // forced into a guess. See tileFailureCopyKeys.
+                  (() => {
+                    const keys = tileFailureCopyKeys(tileByteDiagnosis)
+                    return (
+                      <>
+                        <div className="font-semibold text-foreground">{t(keys.titleKey)}</div>
+                        <div className="text-muted-foreground mt-0.5">{t(keys.descKey, keys.descParams)}</div>
+                      </>
+                    )
+                  })()
+                ) : tileFailureKind === 'coverage' ? (
                   <>
                     <div className="font-semibold text-foreground">{t('tileFailure.coverageTitle')}</div>
                     <div className="text-muted-foreground mt-0.5">
@@ -2748,6 +2922,20 @@ export default function WorldMap() {
                       />
                     </div>
                   </>
+                )}
+                {tileFailureDetail && !tileByteDiagnosis && (
+                  // The raw X-Tile-Cache diagnostic code (hit-mem/hit-disk/
+                  // miss/http-<status>/unreachable) for network-classified
+                  // failures, which never go through the byte-level
+                  // classification above (no blob to inspect for those --
+                  // see loadViaProxy's .catch() branch). Shown as-is (not
+                  // translated) so a screenshot carries the same fact a
+                  // devtools Network tab would have shown. Suppressed
+                  // whenever the byte diagnosis above is already showing a
+                  // more specific, translated statement of the same idea.
+                  <div className="mt-1 pt-1 border-t border-warning/20 font-mono text-[10px] text-muted-foreground/70">
+                    {t('tileFailure.diagnostic', { detail: tileFailureDetail })}
+                  </div>
                 )}
               </div>
             </div>
@@ -2916,41 +3104,47 @@ export default function WorldMap() {
                 )}
               </div>
               <div className="px-2 py-1.5 border-t border-border/40 bg-muted/20 flex gap-1">
-                <Button
-                  size="sm" variant="ghost" className="h-7 text-xs gap-1 flex-1"
-                  disabled={actionLoading !== null}
-                  onClick={() => {
-                    setActionLoading('heal-card')
-                    panelBridgeApi.sendCommand('healPlayer', { username: selectedPlayer.username })
-                      .then(() => { toast({ title: t('dossier.healedTitle'), description: t('dossier.healedDesc', { username: selectedPlayer.username }) }); fetchPlayerPositions() })
-                      .catch(() => toast({ title: t('errorTitle'), variant: 'destructive' }))
-                      .finally(() => setActionLoading(null))
-                  }}
-                >
-                  <Heart className="w-3 h-3" /> {t('dossier.heal')}
-                </Button>
-                <Button
-                  size="sm" variant="ghost" className="h-7 text-xs gap-1 flex-1"
-                  disabled={actionLoading !== null}
-                  onClick={() => {
-                    setActionLoading('god-card')
-                    panelBridgeApi.sendCommand('setGodMode', { username: selectedPlayer.username, enabled: true })
-                      .then((response) => {
-                        const state = getBridgeVerifiedState('setGodMode', response?.data)
-                        if (state === 'unverifiable') {
-                          toast({ title: t('dossier.godModeEnabled'), description: t('toasts.bridgeUnverifiedDesc', { action: t('dossier.god') }), variant: 'default' })
-                        } else if (state === 'old-bridge') {
-                          toast({ title: t('dossier.godModeEnabled'), description: t('toasts.bridgeOldBridgeDesc', { action: t('dossier.god') }), variant: 'default' })
-                        } else {
-                          toast({ title: t('dossier.godModeEnabled') })
-                        }
-                      })
-                      .catch(() => toast({ title: t('errorTitle'), variant: 'destructive' }))
-                      .finally(() => setActionLoading(null))
-                  }}
-                >
-                  <Shield className="w-3 h-3" /> {t('dossier.god')}
-                </Button>
+                <DisabledReason reason={!canGmTools ? t('permissions.noGmToolsBridgeAction') : null} className="flex-1">
+                  <Button
+                    size="sm" variant="ghost" className="h-7 text-xs gap-1 w-full"
+                    disabled={actionLoading !== null || !canGmTools}
+                    onClick={() => {
+                      if (!canGmTools) return
+                      setActionLoading('heal-card')
+                      panelBridgeApi.sendCommand('healPlayer', { username: selectedPlayer.username })
+                        .then(() => { toast({ title: t('dossier.healedTitle'), description: t('dossier.healedDesc', { username: selectedPlayer.username }) }); fetchPlayerPositions() })
+                        .catch(() => toast({ title: t('errorTitle'), variant: 'destructive' }))
+                        .finally(() => setActionLoading(null))
+                    }}
+                  >
+                    <Heart className="w-3 h-3" /> {t('dossier.heal')}
+                  </Button>
+                </DisabledReason>
+                <DisabledReason reason={!canGmTools ? t('permissions.noGmToolsBridgeAction') : null} className="flex-1">
+                  <Button
+                    size="sm" variant="ghost" className="h-7 text-xs gap-1 w-full"
+                    disabled={actionLoading !== null || !canGmTools}
+                    onClick={() => {
+                      if (!canGmTools) return
+                      setActionLoading('god-card')
+                      panelBridgeApi.sendCommand('setGodMode', { username: selectedPlayer.username, enabled: true })
+                        .then((response) => {
+                          const state = getBridgeVerifiedState('setGodMode', response?.data)
+                          if (state === 'unverifiable') {
+                            toast({ title: t('dossier.godModeEnabled'), description: t('toasts.bridgeUnverifiedDesc', { action: t('dossier.god') }), variant: 'default' })
+                          } else if (state === 'old-bridge') {
+                            toast({ title: t('dossier.godModeEnabled'), description: t('toasts.bridgeOldBridgeDesc', { action: t('dossier.god') }), variant: 'default' })
+                          } else {
+                            toast({ title: t('dossier.godModeEnabled') })
+                          }
+                        })
+                        .catch(() => toast({ title: t('errorTitle'), variant: 'destructive' }))
+                        .finally(() => setActionLoading(null))
+                    }}
+                  >
+                    <Shield className="w-3 h-3" /> {t('dossier.god')}
+                  </Button>
+                </DisabledReason>
               </div>
             </div>
           </div>
@@ -3042,8 +3236,11 @@ export default function WorldMap() {
                 <ContextMenuItem
                   icon={<Heart className="w-3.5 h-3.5 text-emerald-400" />}
                   label={t('contextMenu.healPlayer')}
+                  description={!canGmTools ? t('permissions.noGmToolsBridgeAction') : undefined}
                   tone="success"
+                  disabled={!canGmTools}
                   onClick={() => {
+                    if (!canGmTools) return
                     panelBridgeApi.sendCommand('healPlayer', { username: contextMenu.player!.username })
                       .then(() => { toast({ title: t('dossier.healedTitle'), description: t('dossier.healedDesc', { username: contextMenu.player!.username }) }); fetchPlayerPositions() })
                       .catch(() => toast({ title: t('errorTitle'), variant: 'destructive' }))
@@ -3103,9 +3300,12 @@ export default function WorldMap() {
                     <ContextMenuItem
                       icon={<Wrench className="w-3.5 h-3.5 text-info" />}
                       label={t('contextMenu.repairVehicle')}
+                      description={!canRunBridgeCommand ? t('permissions.noBridgeCommand') : undefined}
                       tone="info"
                       loading={actionLoading === 'vehicle-repair'}
+                      disabled={!canRunBridgeCommand}
                       onClick={() => {
+                    if (!canRunBridgeCommand) return
                     setActionLoading('vehicle-repair')
                     // Generic /panel-bridge/command passthrough only ever
                     // resolves on success (see teleportPlayerTo above for
@@ -3115,16 +3315,19 @@ export default function WorldMap() {
                         toast({ title: t('toasts.vehicleRepaired') })
                         fetchOverlays()
                       })
-                      .catch((err) => toast({ title: t('toasts.repairFailed'), description: err instanceof Error ? err.message : t('toasts.unknownError'), variant: 'destructive' }))
+                      .catch((err) => toast({ title: t('toasts.repairFailed'), description: getUserErrorMessage(err, t('toasts.unknownError')), variant: 'destructive' }))
                       .finally(() => { setActionLoading(null); setContextMenu(null) })
                       }}
                     />
                     <ContextMenuItem
                   icon={<Fuel className="w-3.5 h-3.5 text-info" />}
                   label={t('contextMenu.fillFuel')}
+                  description={!canRunBridgeCommand ? t('permissions.noBridgeCommand') : undefined}
                   tone="info"
                   loading={actionLoading === 'vehicle-fuel'}
+                  disabled={!canRunBridgeCommand}
                   onClick={() => {
+                    if (!canRunBridgeCommand) return
                     setActionLoading('vehicle-fuel')
                     panelBridgeApi.sendCommand('vehicleSetFuel', { vehicleId: contextMenu.vehicle!.id, percent: 100 })
                       .then((response) => {
@@ -3138,16 +3341,19 @@ export default function WorldMap() {
                         }
                         fetchOverlays()
                       })
-                      .catch((err) => toast({ title: t('toasts.fuelFailed'), description: err instanceof Error ? err.message : t('toasts.unknownError'), variant: 'destructive' }))
+                      .catch((err) => toast({ title: t('toasts.fuelFailed'), description: getUserErrorMessage(err, t('toasts.unknownError')), variant: 'destructive' }))
                       .finally(() => { setActionLoading(null); setContextMenu(null) })
                       }}
                     />
                     <ContextMenuItem
                   icon={<Battery className="w-3.5 h-3.5 text-info" />}
                   label={t('contextMenu.chargeBattery')}
+                  description={!canRunBridgeCommand ? t('permissions.noBridgeCommand') : undefined}
                   tone="info"
                   loading={actionLoading === 'vehicle-battery'}
+                  disabled={!canRunBridgeCommand}
                   onClick={() => {
+                    if (!canRunBridgeCommand) return
                     setActionLoading('vehicle-battery')
                     panelBridgeApi.sendCommand('vehicleSetBattery', { vehicleId: contextMenu.vehicle!.id, charge: 100 })
                       .then((response) => {
@@ -3161,14 +3367,16 @@ export default function WorldMap() {
                         }
                         fetchOverlays()
                       })
-                      .catch((err) => toast({ title: t('toasts.batteryFailed'), description: err instanceof Error ? err.message : t('toasts.unknownError'), variant: 'destructive' }))
+                      .catch((err) => toast({ title: t('toasts.batteryFailed'), description: getUserErrorMessage(err, t('toasts.unknownError')), variant: 'destructive' }))
                       .finally(() => { setActionLoading(null); setContextMenu(null) })
                       }}
                     />
                     <ContextMenuItem
                   icon={<Trash2 className="w-3.5 h-3.5 text-destructive" />}
                   label={t('contextMenu.removeVehicle')}
+                  description={!canRunBridgeCommand ? t('permissions.noBridgeCommand') : undefined}
                   tone="danger"
+                  disabled={!canRunBridgeCommand}
                   onClick={() => {
                     const v = contextMenu.vehicle!
                     setRemoveVehicleTarget({
@@ -3183,15 +3391,18 @@ export default function WorldMap() {
                     <ContextMenuItem
                   icon={<Zap className="w-3.5 h-3.5 text-amber-400" />}
                   label={t('contextMenu.hotwire')}
+                  description={!canRunBridgeCommand ? t('permissions.noBridgeCommand') : undefined}
                   tone="warning"
                   loading={actionLoading === 'vehicle-hotwire'}
+                  disabled={!canRunBridgeCommand}
                   onClick={() => {
+                    if (!canRunBridgeCommand) return
                     setActionLoading('vehicle-hotwire')
                     panelBridgeApi.sendCommand('vehicleHotwire', { vehicleId: contextMenu.vehicle!.id })
                       .then(() => {
                         toast({ title: t('toasts.vehicleHotwired'), description: t('toasts.engineStarted') })
                       })
-                      .catch((err) => toast({ title: t('toasts.hotwireFailed'), description: err instanceof Error ? err.message : t('toasts.unknownError'), variant: 'destructive' }))
+                      .catch((err) => toast({ title: t('toasts.hotwireFailed'), description: getUserErrorMessage(err, t('toasts.unknownError')), variant: 'destructive' }))
                       .finally(() => { setActionLoading(null); setContextMenu(null) })
                       }}
                     />
@@ -3215,7 +3426,7 @@ export default function WorldMap() {
                       key={`tp-${pl.username}`}
                       icon={<Users className={cn('w-3.5 h-3.5', pColor)} />}
                       label={pl.displayName || pl.username}
-                      description={t('contextMenu.teleportDesc', {
+                      description={!canRunBridgeCommand ? t('permissions.noBridgeCommand') : t('contextMenu.teleportDesc', {
                         fromX: Math.round(pl.x),
                         fromY: Math.round(pl.y),
                         toX: Math.round(contextMenu.worldX),
@@ -3223,7 +3434,7 @@ export default function WorldMap() {
                       })}
                       tone="primary"
                       loading={actionLoading === 'teleport'}
-                      disabled={!bridgeConnected}
+                      disabled={!bridgeConnected || !canRunBridgeCommand}
                       onClick={() => {
                         teleportPlayerTo(pl.username, contextMenu.worldX, contextMenu.worldY, floor)
                         setContextMenu(null)
@@ -3245,24 +3456,26 @@ export default function WorldMap() {
               <ContextMenuItem
                 icon={<CloudLightning className="w-3.5 h-3.5 text-info" />}
                 label={t('contextMenu.lightningStrike')}
-                description={t('contextMenu.lightningDesc')}
+                description={!canWorldEvents ? t('permissions.noWorldEvents') : t('contextMenu.lightningDesc')}
                 tone="info"
                 loading={actionLoading === 'lightning'}
+                disabled={!canWorldEvents}
                 onClick={() => triggerLightningAt(contextMenu.worldX, contextMenu.worldY)}
               />
               <ContextMenuItem
                 icon={<Volume2 className="w-3.5 h-3.5 text-amber-400" />}
                 label={t('contextMenu.createNoise')}
-                description={t('contextMenu.createNoiseDesc')}
+                description={!canWorldEvents ? t('permissions.noWorldEvents') : t('contextMenu.createNoiseDesc')}
                 tone="warning"
                 loading={actionLoading === 'noise'}
+                disabled={!canWorldEvents}
                 onClick={() => createNoiseAt(contextMenu.worldX, contextMenu.worldY)}
               />
               <ContextMenuItem
                 icon={<Car className="w-3.5 h-3.5 text-muted-foreground" />}
                 label={t('contextMenu.spawnVehicleHere')}
-                description={t('contextMenu.spawnVehicleDesc')}
-                disabled={!bridgeConnected}
+                description={!canGmTools ? t('permissions.noGmTools') : t('contextMenu.spawnVehicleDesc')}
+                disabled={!bridgeConnected || !canGmTools}
                 onClick={() => {
                   setSpawnDialog({ x: Math.round(contextMenu.worldX), y: Math.round(contextMenu.worldY), z: floor })
                   setSpawnVehicleId('')
@@ -3277,9 +3490,9 @@ export default function WorldMap() {
               <ContextMenuItem
                 icon={<Package className="w-3.5 h-3.5 text-amber-400" />}
                 label={t('contextMenu.customDrop')}
-                description={t('contextMenu.customDropDesc')}
+                description={!canRunBridgeCommand ? t('permissions.noBridgeCommand') : t('contextMenu.customDropDesc')}
                 tone="warning"
-                disabled={!bridgeConnected}
+                disabled={!bridgeConnected || !canRunBridgeCommand}
                 onClick={() => {
                   setDropDialog({ x: Math.round(contextMenu.worldX), y: Math.round(contextMenu.worldY), z: floor })
                   // Seed from last drop if any, otherwise one empty row.
@@ -3301,10 +3514,10 @@ export default function WorldMap() {
                 <ContextMenuItem
                   icon={<RefreshCw className="w-3.5 h-3.5 text-amber-400/80" />}
                   label={t('contextMenu.repeatLastDrop')}
-                  description={lastDrop.label}
+                  description={!canRunBridgeCommand ? t('permissions.noBridgeCommand') : lastDrop.label}
                   tone="warning"
                   loading={actionLoading === 'drop'}
-                  disabled={!bridgeConnected}
+                  disabled={!bridgeConnected || !canRunBridgeCommand}
                   onClick={() => {
                     callCustomDrop({
                       x: contextMenu.worldX,
@@ -3327,10 +3540,10 @@ export default function WorldMap() {
                       key={tpl.id}
                       icon={<Package className="w-3.5 h-3.5 text-amber-400/70" />}
                       label={tpl.name}
-                      description={t('dropDialog.templateItemCount', { count: tpl.items.length })}
+                      description={!canRunBridgeCommand ? t('permissions.noBridgeCommand') : t('dropDialog.templateItemCount', { count: tpl.items.length })}
                       tone="warning"
                       loading={actionLoading === 'drop'}
-                      disabled={!bridgeConnected}
+                      disabled={!bridgeConnected || !canRunBridgeCommand}
                       onClick={() => {
                         callCustomDrop({
                           x: contextMenu.worldX,
@@ -3353,10 +3566,10 @@ export default function WorldMap() {
                   key={preset.id}
                   icon={<preset.icon className="w-3.5 h-3.5 text-amber-400/80" />}
                   label={presetLabel(preset.id)}
-                  description={presetDesc(preset.id)}
+                  description={!canRunBridgeCommand ? t('permissions.noBridgeCommand') : presetDesc(preset.id)}
                   tone="warning"
                   loading={actionLoading === 'airdrop'}
-                  disabled={!bridgeConnected}
+                  disabled={!bridgeConnected || !canRunBridgeCommand}
                   onClick={() => callAirdrop(contextMenu.worldX, contextMenu.worldY, preset.id)}
                 />
               ))}
@@ -3415,10 +3628,12 @@ export default function WorldMap() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSpawnDialog(null)}>{t('spawnDialog.cancel')}</Button>
+            <DisabledReason reason={!canGmTools ? t('permissions.noGmTools') : null}>
             <Button
-              disabled={!spawnVehicleId || actionLoading === 'spawn-vehicle'}
+              disabled={!spawnVehicleId || actionLoading === 'spawn-vehicle' || !canGmTools}
               onClick={() => {
                 if (!spawnDialog || !spawnVehicleId) return
+                if (!canGmTools) return
                 setActionLoading('spawn-vehicle')
                 // /players/add-vehicle-at relays rconService.execute()'s
                 // result, which resolves { success: false, error } for a
@@ -3437,13 +3652,14 @@ export default function WorldMap() {
                     fetchOverlays()
                     setSpawnDialog(null)
                   })
-                  .catch((err) => toast({ title: t('toasts.spawnFailedTitle'), description: err instanceof Error ? err.message : t('toasts.unknownError'), variant: 'destructive' }))
+                  .catch((err) => toast({ title: t('toasts.spawnFailedTitle'), description: getUserErrorMessage(err, t('toasts.unknownError')), variant: 'destructive' }))
                   .finally(() => setActionLoading(null))
               }}
             >
               {actionLoading === 'spawn-vehicle' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
               {t('spawnDialog.spawn')}
             </Button>
+            </DisabledReason>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -3560,15 +3776,14 @@ export default function WorldMap() {
                     {idx === 0 && (
                       <Label className="text-[10px] text-muted-foreground/70 mb-1 block">{t('dropDialog.qtyLabel')}</Label>
                     )}
-                    <Input
-                      type="number"
+                    <NumberInput
                       value={item.count}
                       min={1}
                       max={20}
                       className="h-9 text-center tabular-nums"
-                      onChange={(e) => {
-                        const v = parseInt(e.target.value)
-                        const count = Number.isNaN(v) ? 1 : Math.max(1, Math.min(20, v))
+                      clamp={n => Math.max(1, Math.min(20, n))}
+                      onChange={(count) => {
+                        if (!Number.isFinite(count)) return
                         setDropItems((prev) => prev.map((it, i) => (i === idx ? { ...it, count } : it)))
                         setActiveTemplateId(null)
                       }}
@@ -3729,8 +3944,9 @@ export default function WorldMap() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDropDialog(null)}>{t('dropDialog.cancel')}</Button>
+            <DisabledReason reason={!canRunBridgeCommand ? t('permissions.noBridgeCommand') : null}>
             <Button
-              disabled={dropItems.filter((it) => it.itemType.trim()).length === 0 || actionLoading === 'drop'}
+              disabled={dropItems.filter((it) => it.itemType.trim()).length === 0 || actionLoading === 'drop' || !canRunBridgeCommand}
               onClick={async () => {
                 if (!dropDialog) return
                 const valid = dropItems.filter((it) => it.itemType.trim())
@@ -3763,6 +3979,7 @@ export default function WorldMap() {
                 return t('dropDialog.dropButtonMulti', { count: validCount })
               })()}
             </Button>
+            </DisabledReason>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -3824,10 +4041,11 @@ export default function WorldMap() {
               {t('removeVehicleDialog.cancel')}
             </AlertDialogCancel>
             <AlertDialogAction
-              disabled={actionLoading === 'vehicle-remove'}
+              disabled={actionLoading === 'vehicle-remove' || !canRunBridgeCommand}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={(e) => {
                 e.preventDefault()
+                if (!canRunBridgeCommand) return
                 const target = removeVehicleTarget
                 if (!target) return
                 setActionLoading('vehicle-remove')
@@ -3836,7 +4054,7 @@ export default function WorldMap() {
                     toast({ title: t('toasts.vehicleRemoved') })
                     fetchOverlays()
                   })
-                  .catch((err) => toast({ title: t('toasts.removeFailed'), description: err instanceof Error ? err.message : t('toasts.unknownError'), variant: 'destructive' }))
+                  .catch((err) => toast({ title: t('toasts.removeFailed'), description: getUserErrorMessage(err, t('toasts.unknownError')), variant: 'destructive' }))
                   .finally(() => { setActionLoading(null); setRemoveVehicleTarget(null) })
               }}
             >
@@ -3877,6 +4095,7 @@ function ContextMenuItem({ icon, label, onClick, loading, description, disabled,
       role="menuitem"
       onClick={onClick}
       disabled={loading || disabled}
+      // eslint-disable-next-line local/no-dead-disabled-title -- description is also rendered as a visible line below (`{description && <span ...>}` a few lines down), so this title is redundant, not a hidden disabled-reason. Adjudicated 2026-08-27 (god chased the "hidden reason" hypothesis and refuted it against the actual JSX).
       title={description}
       className="group relative w-full pr-2 py-1.5 text-xs flex items-stretch gap-2.5 transition-colors duration-100 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent hover:bg-muted/45 focus-visible:bg-muted/45 focus-visible:outline-none"
     >
@@ -3923,7 +4142,10 @@ function ContextMenuSection({ label, icon, tone = 'muted' }: {
 }
 
 function getPlayerColor(player: MapPlayer, alpha: number): string {
-  if (!player.isAlive && player.isAlive !== undefined) return hslToken('--muted-foreground', alpha)
+  // isAlive is undefined (not false) when the bridge doesn't send it --
+  // an older bridge or a mid-connect gap must render as the default
+  // (unknown) color below, never as muted/"known dead".
+  if (player.isAlive === false) return hslToken('--muted-foreground', alpha)
   if (player.isInfected) return hslToken('--destructive', alpha)
   if (player.accessLevel && player.accessLevel !== '' && player.accessLevel !== 'none' && player.accessLevel !== 'user')
     return hslToken('--warning', alpha)

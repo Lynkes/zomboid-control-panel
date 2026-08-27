@@ -16,6 +16,7 @@
   "clearSelectionAria": "Effacer la sélection",
   "searchNItemsPlaceholder": "Rechercher parmi {{count}} objets…",
   "filterItemsAria": "Filtrer les objets",
+  "clearSearchAria": "Effacer la recherche",
   "rescanTitle": "Réanalyser les objets du serveur",
   "allItems": "Tous les objets",
   "itemListAria": "Liste d'objets",

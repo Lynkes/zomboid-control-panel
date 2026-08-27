@@ -24,7 +24,7 @@ vi.mock("../routes/chunks.js", () => ({
   invalidateMapFolderScan: vi.fn(),
 }));
 
-const { default: router } = await import("../routes/server.js");
+const { default: router, requireIntInRange } = await import("../routes/server.js");
 
 function createResponse() {
   const response = { status: vi.fn(), json: vi.fn() };
@@ -77,6 +77,15 @@ describe("POST /api/server/install refuses an out-of-range numeric field", () =>
     const payload = response.json.mock.calls[0][0];
     expect(payload.code).toBe("INVALID_SERVER_PORT");
     expect(payload.error).toMatch(/Game port/);
+  });
+
+  it("refuses game port 65535 because the derived UDP port would be 65536", async () => {
+    const handler = getHandler("/configure-network");
+    const response = createResponse();
+    await handler(fakeReq({ serverPort: 65535 }), response);
+
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(response.json.mock.calls[0][0].error).toMatch(/65534/);
   });
 
   it("refuses an out-of-range RCON port with a named error instead of substituting 27015", async () => {
@@ -150,6 +159,22 @@ describe("POST /api/server/install refuses an out-of-range numeric field", () =>
     expect(payload.code).not.toBe("INVALID_RCON_PORT");
     expect(payload.code).not.toBe("INVALID_MIN_MEMORY");
     expect(payload.code).not.toBe("INVALID_MAX_MEMORY");
+  });
+});
+
+describe("requireIntInRange parses whole numbers strictly", () => {
+  it.each(["27015junk", "4.9", "1e2", ""])(
+    "rejects %s instead of accepting a parseInt prefix",
+    (value) => {
+      expect(requireIntInRange(value, 1, 65535, "Port").ok).toBe(false);
+    },
+  );
+
+  it("accepts a trimmed integer string", () => {
+    expect(requireIntInRange(" 27015 ", 1, 65535, "Port")).toEqual({
+      ok: true,
+      value: 27015,
+    });
   });
 });
 
@@ -230,6 +255,18 @@ describe("POST /api/server/configure-rcon refuses an out-of-range RCON port", ()
 });
 
 describe("POST /api/server/configure-network refuses an out-of-range game port", () => {
+  it("rejects a stringified UPnP flag instead of treating false as true", async () => {
+    const handler = getHandler("/configure-network");
+    const response = createResponse();
+
+    await handler(fakeReq({ serverPort: 16261, useUpnp: "false" }), response);
+
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(response.json.mock.calls[0][0].error).toBe(
+      "useUpnp must be a boolean",
+    );
+  });
+
   it("refuses an out-of-range game port", async () => {
     const handler = getHandler("/configure-network");
     const response = createResponse();
@@ -248,5 +285,21 @@ describe("POST /api/server/configure-network refuses an out-of-range game port",
 
     expect(response.status).toHaveBeenCalledWith(400);
     expect(response.json.mock.calls[0][0].code).toBe("SERVER_CONFIG_PATH_NOT_SET");
+  });
+
+  it("uses the default restart warning when the body is omitted", async () => {
+    const handler = getHandler("/restart");
+    const performRestart = vi.fn().mockResolvedValue({ success: true });
+    const response = createResponse();
+
+    await handler(
+      { body: null, app: { get: () => ({ performRestart }) } },
+      response,
+    );
+
+    expect(performRestart).toHaveBeenCalledWith(5, { label: "Manual restart" });
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({ success: true }),
+    );
   });
 });

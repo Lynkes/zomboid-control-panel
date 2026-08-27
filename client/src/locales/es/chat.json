@@ -27,7 +27,8 @@
     "placeholderAdmin": "solo administradores — pulsar Intro para enviar…",
     "placeholderGeneral": "publicar como Administrador — pulsar Intro para enviar…",
     "placeholderServer": "difundir a todos los jugadores — pulsar Intro para enviar…",
-    "sendButton": "enviar"
+    "sendButton": "enviar",
+    "noPermission": "No tienes permiso para enviar mensajes de chat."
   },
   "footer": {
     "adminOnly": "solo administradores — oculto para los jugadores normales",
@@ -51,7 +52,11 @@
     "addAria": "Añadir preajuste",
     "saveAria": "Guardar",
     "cancelAria": "Cancelar",
-    "deleteAria": "Eliminar preajuste {{index}}"
+    "deleteAria": "Eliminar preajuste {{index}}",
+    "deleteConfirmTitle": "¿Eliminar este preajuste?",
+    "deleteConfirmDescription": "\"{{preset}}\" es compartido -- todos los administradores que usan los mensajes rápidos también lo perderán. Siempre puedes volver a añadirlo.",
+    "deleteConfirmButton": "Eliminar preajuste",
+    "noPermission": "No tienes permiso para gestionar los preajustes de difusión rápida."
   },
   "toasts": {
     "adminSentTitle": "Mensaje de administración enviado",

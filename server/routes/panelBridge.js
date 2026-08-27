@@ -18,10 +18,13 @@ import {
   getDb,
   commitNow,
   logBridgeCommand,
+  getRoleByName,
 } from "../database/init.js";
 import { sanitizeError, sanitizeErrorParams, isMaskedSecret } from "../utils/sanitize.js";
+import { getDataPaths } from "../utils/paths.js";
 import { persistSandboxValues } from "./serverFiles.js";
 import { requirePermission } from "../services/permissions.js";
+import { parseClampedInteger } from "../utils/queryNumbers.js";
 import {
   getEmbeddedPanelBridgeLua,
   compareModVersions,
@@ -37,6 +40,7 @@ import {
   getSftpCachePath,
   testSftpBridge,
   formatSftpError,
+  classifySftpErrorCode,
   validateSftpBridgeConfig,
   listSftpLogs,
   readSftpLogTail,
@@ -103,7 +107,7 @@ async function resolveSftpLogConfig(input = {}) {
 }
 
 // Valid PanelBridge actions (defense-in-depth — Lua side also validates)
-const VALID_ACTIONS = new Set([
+export const VALID_ACTIONS = new Set([
   "ping",
   "getServerInfo",
   "getWeather",
@@ -206,6 +210,98 @@ const VALID_ACTIONS = new Set([
   "getVehicleCatalog",
 ]);
 
+// POST /command is gated bridge.command alone -- deliberately, as the
+// generic passthrough for every action above, including the ~30 with no
+// dedicated route at all (vehicles, safehouses, factions, sandbox reads,
+// time-speed, infrastructure snapshot, event sequences). That breadth is
+// intentional and documented at the route below: those actions are all
+// GM-tool/world-management flavored, the same risk tier as
+// players.gm_tools or server.world_events, which bridge.command -- an
+// admin-only-by-default, deliberately-granted capability -- already
+// legitimately subsumes.
+//
+// The four moderation actions are different in kind, not just degree.
+// "Discipline a player" is carved out into its OWN capability
+// (players.moderate) everywhere else this app reaches it -- players.js's
+// own header comment names exactly why: kick/ban carries a
+// favouritism/griefing risk distinct from a GM tool's risk, which is the
+// entire reason the matrix splits players.moderate from players.gm_tools
+// in the first place. These four have no dedicated route of their own (the
+// only caller is Events.tsx's "Moderation Automation" panel, via this
+// exact endpoint), so bridge.command is currently their ONLY gate -- a
+// custom role granted bridge.command for legitimate GM/world-event
+// automation, but never granted players.moderate, gets full kick/ban/
+// ban-by-IP/ban-by-SteamID power as an undocumented side effect.
+// bug-hunt-2026-08-27: Pam's cross-route-family capability sweep.
+//
+// setGodMode/setInvisible/setNoclip/healPlayer are the SAME shape, found the
+// same day (bug-hunt-2026-08-27, were-the-dedicated-gm-tools-routes-ever-wired):
+// unlike the moderation four, these DO each have a dedicated, correctly-
+// gated players.gm_tools route (players.js's /godmode, /invisible, /noclip;
+// this file's /players/:username/heal) -- but Players.tsx has not called any
+// of them since commit 8bd0edc ("Release v1.0.2"), which silently swapped
+// three of the four onto this passthrough (and built the fourth, heal,
+// against the passthrough from the start) as an incidental side effect of an
+// unrelated 641-line UI-overhaul release commit, with no comment anywhere in
+// that diff acknowledging the capability implication.
+//
+// The two buckets below use DIFFERENT gating shapes, not the same one:
+//  - The moderation four have no dedicated route of their own, so the
+//    capability named here is ADDITIONAL, on top of this route's own
+//    bridge.command gate (still enforced for them -- see
+//    requireBridgeCommandUnlessGmToolsOnly below).
+//  - The GM four (GM_TOOLS_ONLY_ACTIONS) use REPLACEMENT semantics as of
+//    an operator ruling (bug-hunt-2026-08-27, reverses c3083d5 the same
+//    day): players.gm_tools ALONE is sufficient, and bridge.command is not
+//    required at all for these four. c3083d5 had made it "gm_tools AND
+//    bridge.command" -- the operator ruled that was never the intended
+//    fix, since bridge.command was only ever an accidental side effect of
+//    these four routing through the generic passthrough, and requiring it
+//    denies Technician (who holds gm_tools but not bridge.command by
+//    default) the GM tools it's meant to have. A role holding ONLY
+//    players.gm_tools must reach these four through this passthrough, the
+//    same as it already can through their own dedicated routes.
+export const BRIDGE_ACTION_CAPABILITY = {
+  moderationKickUser: "players.moderate",
+  moderationBanUser: "players.moderate",
+  moderationBanIP: "players.moderate",
+  moderationBanSteamID: "players.moderate",
+  setGodMode: "players.gm_tools",
+  setInvisible: "players.gm_tools",
+  setNoclip: "players.gm_tools",
+  healPlayer: "players.gm_tools",
+};
+
+// The subset of BRIDGE_ACTION_CAPABILITY that uses REPLACEMENT semantics
+// (see the comment above) -- an explicit set rather than derived from the
+// capability string, so a future action that happens to reuse
+// "players.gm_tools" with ADDITIONAL semantics can't silently fall into
+// the wrong bucket.
+export const GM_TOOLS_ONLY_ACTIONS = new Set([
+  "setGodMode",
+  "setInvisible",
+  "setNoclip",
+  "healPlayer",
+]);
+
+// POST /command's own gate can't be a flat requirePermission("bridge.command")
+// the way every other bridge.setup route above is: GM_TOOLS_ONLY_ACTIONS
+// must be reachable WITHOUT bridge.command, decided per-request by the
+// action in the body, which requirePermission()'s capability argument
+// (fixed at route-registration time) has no way to see. This still enforces
+// authentication (401) exactly like requirePermission does; it only skips
+// the bridge.command capability check when the action is one of the four
+// GM tools, leaving BRIDGE_ACTION_CAPABILITY's own inline check further
+// down in the handler as their sole gate.
+const requireBridgeCommand = requirePermission("bridge.command");
+function requireBridgeCommandUnlessGmToolsOnly(req, res, next) {
+  const { action } = req.body || {};
+  if (typeof action === "string" && GM_TOOLS_ONLY_ACTIONS.has(action)) {
+    return next();
+  }
+  return requireBridgeCommand(req, res, next);
+}
+
 // Username validation for PanelBridge player endpoints.
 // Allow normal in-game names (spaces/symbols) while blocking control chars and quote/backslash.
 const BRIDGE_USERNAME_REGEX = /^(?=.*\S)[^\x00-\x1F\x7F"\\]{1,64}$/;
@@ -236,15 +332,23 @@ function isValidBridgePath(inputPath) {
 // sound, zombies, visual, chat, utilities, character export/import,
 // teleport/give-item/heal/kill/godmode/invisible, plus /message) were
 // previously reachable by any signed-in role with no gate at all. Folded
-// into the matrix now, split by target: world-wide effects (weather,
-// climate, zombies, sound, visual, utilities, chat, /message, /time,
-// /world/stats) are requirePermission("server.world_events"); actions
-// aimed at a specific player or character, plus the read-only catalogue/
-// sandbox reads that support them, are requirePermission("players.gm_tools")
-// -- the same capability players.js's own teleport/give-item-equivalent
-// routes use. Both default to admin+technician+moderator, so this is a
-// zero-behaviour-change addition (adding a capability, not restricting
-// one). /status and /ping stay deliberately outside the matrix -- see
+// into the matrix, originally split by target: world-wide effects
+// requirePermission("server.world_events"); actions aimed at a specific
+// player or character, plus the read-only catalogue/sandbox reads that
+// support them, requirePermission("players.gm_tools") -- the same
+// capability players.js's own teleport/give-item-equivalent routes use.
+// Both defaulted to admin+technician+moderator, zero-behaviour-change.
+//
+// 2026-08-27 (operator ruling on ranked-bug #5) split world_events again:
+// /sound/near-player, /sound/gunshot, /zombies/spawn-near, /zombies/spawn-
+// behind, /chat/admin and /chat/general all take an optional target (a
+// username, or in chat/general's case an arbitrary custom author name) and
+// can spawn up to 500 zombies at a named player or make a chat message
+// read as if they said it -- gated on players.endanger_or_impersonate now,
+// admin-only by default, NOT folded into moderator's default grant the way
+// the original split was. Every other world_events route stays exactly as
+// described above: genuinely world-wide, no per-player target possible.
+// /status and /ping stay deliberately outside the matrix -- see
 // server.js's equivalent comment for why: dashboard-wide reads that
 // protect nothing if gated and can break a screen for a role if mis-set.
 // /commands stays outside the matrix too, for its own reason: the handler
@@ -296,7 +400,7 @@ router.get("/status", async (req, res) => {
 // Auto-configure bridge from server settings (optionally specify serverId)
 router.post("/auto-configure", requirePermission("bridge.setup"), async (req, res) => {
   try {
-    const { serverId } = req.body;
+    const { serverId } = req.body || {};
     log.info(`POST /auto-configure (serverId=${serverId || "active"})`);
 
     // Get specified server or active server
@@ -755,7 +859,7 @@ router.get("/scan-server/:serverId", requirePermission("bridge.setup"), async (r
 
 // Auto-detect bridge path from server name
 router.post("/auto-detect", requirePermission("bridge.setup"), async (req, res) => {
-  const { serverName, zomboidUserFolder } = req.body;
+  const { serverName, zomboidUserFolder } = req.body || {};
 
   if (!serverName) {
     return res.status(400).json({
@@ -791,7 +895,7 @@ router.post("/auto-detect", requirePermission("bridge.setup"), async (req, res) 
 
 // Configure the bridge with Zomboid save path
 router.post("/configure", requirePermission("bridge.setup"), async (req, res) => {
-  const { zomboidSavePath } = req.body;
+  const { zomboidSavePath } = req.body || {};
 
   if (!zomboidSavePath) {
     return res.status(400).json({
@@ -828,7 +932,7 @@ router.post("/configure", requirePermission("bridge.setup"), async (req, res) =>
 
 // Configure the bridge with a direct panelbridge folder path (manual override)
 router.post("/configure-direct", requirePermission("bridge.setup"), async (req, res) => {
-  const { bridgePath: reqPath } = req.body;
+  const { bridgePath: reqPath } = req.body || {};
 
   if (!reqPath || typeof reqPath !== "string") {
     return res.status(400).json({
@@ -884,7 +988,16 @@ router.post("/sftp/test", requirePermission("bridge.setup"), async (req, res) =>
     const result = await testSftpBridge(config);
     res.json(result);
   } catch (error) {
-    res.status(400).json({ error: sanitizeError(formatSftpError(error)) });
+    // error (English, unchanged) is the pre-2026-08-26-classification fallback
+    // for any client that doesn't read `code` -- code + params.detail let an
+    // updated client show the exact same classification, translated, with
+    // the original error text preserved as {{detail}} rather than replaced
+    // by a vaguer generic sentence (see errorCodes.js's SFTP_* entries).
+    res.status(400).json({
+      error: sanitizeError(formatSftpError(error)),
+      code: classifySftpErrorCode(error),
+      params: sanitizeErrorParams({ detail: error?.message || String(error) }),
+    });
   }
 });
 
@@ -899,7 +1012,11 @@ router.post("/sftp/configure", requirePermission("bridge.setup"), async (req, re
     }
     res.json({ success: true, bridgePath: cachePath, transport: bridge.getStatus().transport });
   } catch (error) {
-    res.status(400).json({ error: sanitizeError(formatSftpError(error)) });
+    res.status(400).json({
+      error: sanitizeError(formatSftpError(error)),
+      code: classifySftpErrorCode(error),
+      params: sanitizeErrorParams({ detail: error?.message || String(error) }),
+    });
   }
 });
 
@@ -1161,7 +1278,11 @@ router.get("/ping", async (req, res) => {
 // real work today: roles are data now, an operator can create a custom
 // role and grant it bridge.command deliberately, and this is exactly what
 // stops that role also getting the unrestricted passthrough by accident.
-router.post("/command", requirePermission("bridge.command"), async (req, res) => {
+// EXCEPT for GM_TOOLS_ONLY_ACTIONS (see requireBridgeCommandUnlessGmToolsOnly
+// and BRIDGE_ACTION_CAPABILITY's own comment above) — those four skip this
+// gate entirely and are enforced solely by the inline players.gm_tools
+// check further down in this handler.
+router.post("/command", requireBridgeCommandUnlessGmToolsOnly, async (req, res) => {
   const activeServer = await getActiveServer();
   if (activeServer?.isRemote && !bridge.isSftpRunning() && !bridge.isRunning) {
     return res.status(400).json({
@@ -1171,7 +1292,7 @@ router.post("/command", requirePermission("bridge.command"), async (req, res) =>
     });
   }
 
-  const { action, args } = req.body;
+  const { action, args } = req.body || {};
 
   if (!action) {
     return res.status(400).json({
@@ -1197,6 +1318,26 @@ router.post("/command", requirePermission("bridge.command"), async (req, res) =>
       error: "args must be an object",
       code: ErrorCode.PANELBRIDGE_ARGS_MUST_BE_OBJECT,
     });
+  }
+
+  // See BRIDGE_ACTION_CAPABILITY's own comment above for the two different
+  // gating shapes here: the four moderation actions need players.moderate
+  // ADDITIONALLY, on top of the bridge.command gate already enforced by
+  // requireBridgeCommandUnlessGmToolsOnly above. The GM four
+  // (GM_TOOLS_ONLY_ACTIONS) never went through that gate at all for this
+  // request -- players.gm_tools here is their ONLY gate, not an addition.
+  const requiredCapability = BRIDGE_ACTION_CAPABILITY[action];
+  if (requiredCapability) {
+    const role = req.user ? await getRoleByName(req.user.role) : null;
+    const capabilities = Array.isArray(role?.capabilities) ? role.capabilities : [];
+    if (!capabilities.includes(requiredCapability)) {
+      return res.status(403).json({
+        error: GM_TOOLS_ONLY_ACTIONS.has(action)
+          ? `"${action}" requires ${requiredCapability}.`
+          : `"${action}" also requires ${requiredCapability}.`,
+        code: ErrorCode.PANELBRIDGE_ACTION_CAPABILITY_REQUIRED,
+      });
+    }
   }
 
   // Build 42 does not expose a Lua vehicle-spawn API. The RCON command is
@@ -1443,7 +1584,7 @@ router.post("/weather/blizzard", requirePermission("server.world_events"), async
         code: ErrorCode.BRIDGE_NOT_RUNNING,
       });
   }
-  const { duration } = req.body;
+  const { duration } = req.body || {};
   try {
     const result = await bridge.triggerBlizzard(duration);
     res.json(result);
@@ -1461,7 +1602,7 @@ router.post("/weather/tropical-storm", requirePermission("server.world_events"),
         code: ErrorCode.BRIDGE_NOT_RUNNING,
       });
   }
-  const { duration } = req.body;
+  const { duration } = req.body || {};
   try {
     const result = await bridge.triggerTropicalStorm(duration);
     res.json(result);
@@ -1479,7 +1620,7 @@ router.post("/weather/storm", requirePermission("server.world_events"), async (r
         code: ErrorCode.BRIDGE_NOT_RUNNING,
       });
   }
-  const { duration } = req.body;
+  const { duration } = req.body || {};
   if (
     duration !== undefined &&
     (typeof duration !== "number" ||
@@ -1529,7 +1670,7 @@ router.post("/weather/generate", requirePermission("server.world_events"), async
         code: ErrorCode.BRIDGE_NOT_RUNNING,
       });
   }
-  const { strength, frontType } = req.body;
+  const { strength, frontType } = req.body || {};
   if (
     strength !== undefined &&
     (typeof strength !== "number" ||
@@ -1574,7 +1715,10 @@ router.post("/weather/snow", requirePermission("server.world_events"), async (re
         code: ErrorCode.BRIDGE_NOT_RUNNING,
       });
   }
-  const { enabled, intensity } = req.body;
+  const { enabled, intensity } = req.body || {};
+  if (enabled !== undefined && typeof enabled !== "boolean") {
+    return res.status(400).json({ error: "enabled must be a boolean" });
+  }
   if (
     intensity !== undefined &&
     intensity !== null &&
@@ -1610,7 +1754,7 @@ router.post("/weather/rain/start", requirePermission("server.world_events"), asy
         code: ErrorCode.BRIDGE_NOT_RUNNING,
       });
   }
-  const { intensity } = req.body;
+  const { intensity } = req.body || {};
   if (
     intensity !== undefined &&
     (typeof intensity !== "number" ||
@@ -1658,7 +1802,7 @@ router.post("/weather/lightning", requirePermission("server.world_events"), asyn
         code: ErrorCode.BRIDGE_NOT_RUNNING,
       });
   }
-  const { x, y, strike, light, rumble } = req.body;
+  const { x, y, strike, light, rumble } = req.body || {};
   if (x !== undefined && (typeof x !== "number" || !Number.isFinite(x))) {
     return res.status(400).json({
       error: "x must be a number",
@@ -1706,7 +1850,7 @@ router.post("/climate/float", requirePermission("server.world_events"), async (r
         code: ErrorCode.BRIDGE_NOT_RUNNING,
       });
   }
-  const { floatId, value, enable } = req.body;
+  const { floatId, value, enable } = req.body || {};
   if (floatId === undefined || value === undefined) {
     return res.status(400).json({
       error: "floatId and value are required",
@@ -1769,7 +1913,7 @@ router.post("/climate/temperature", requirePermission("server.world_events"), as
         code: ErrorCode.BRIDGE_NOT_RUNNING,
       });
   }
-  const { value } = req.body;
+  const { value } = req.body || {};
   if (
     value !== undefined &&
     (typeof value !== "number" ||
@@ -1799,7 +1943,7 @@ router.post("/climate/wind", requirePermission("server.world_events"), async (re
         code: ErrorCode.BRIDGE_NOT_RUNNING,
       });
   }
-  const { value } = req.body;
+  const { value } = req.body || {};
   if (
     value !== undefined &&
     (typeof value !== "number" ||
@@ -1829,7 +1973,7 @@ router.post("/climate/fog", requirePermission("server.world_events"), async (req
         code: ErrorCode.BRIDGE_NOT_RUNNING,
       });
   }
-  const { value } = req.body;
+  const { value } = req.body || {};
   if (
     value !== undefined &&
     (typeof value !== "number" ||
@@ -1859,7 +2003,7 @@ router.post("/climate/clouds", requirePermission("server.world_events"), async (
         code: ErrorCode.BRIDGE_NOT_RUNNING,
       });
   }
-  const { value } = req.body;
+  const { value } = req.body || {};
   if (
     value !== undefined &&
     (typeof value !== "number" ||
@@ -1907,7 +2051,7 @@ router.post("/time", requirePermission("server.world_events"), async (req, res) 
         code: ErrorCode.BRIDGE_NOT_RUNNING,
       });
   }
-  const { hour, day, month, year } = req.body;
+  const { hour, day, month, year } = req.body || {};
   if (
     hour !== undefined &&
     (typeof hour !== "number" ||
@@ -2057,7 +2201,7 @@ router.post("/players/:username/teleport", requirePermission("players.gm_tools")
       code: ErrorCode.BRIDGE_INVALID_USERNAME_FORMAT,
     });
   }
-  const { x, y, z } = req.body;
+  const { x, y, z } = req.body || {};
   if (x === undefined || y === undefined) {
     return res.status(400).json({
       error: "x and y coordinates are required",
@@ -2109,7 +2253,7 @@ router.post("/message", requirePermission("server.world_events"), async (req, re
         code: ErrorCode.BRIDGE_NOT_RUNNING,
       });
   }
-  const { message } = req.body;
+  const { message } = req.body || {};
   if (!message || typeof message !== "string" || message.length > 2000) {
     return res
       .status(400)
@@ -2147,7 +2291,20 @@ router.get("/sandbox", requirePermission("players.gm_tools"), async (req, res) =
   }
 });
 
-// Get available commands (complete reference for all 60 Lua handlers)
+// Get available commands. NOT verified complete -- despite the "complete
+// reference" claim this comment used to make, it has no consumer anywhere
+// in this codebase (confirmed by grep across client/src and a full-history
+// pickaxe on the client wrapper, panelBridgeApi.getCommands: zero callers
+// were ever added since the wrapper's own introduction in the initial
+// commit), so nothing has ever enforced it staying in sync with
+// VALID_ACTIONS as new actions were added. panelBridgeCommandsDocStaleness
+// .test.js gates the SAFE half (no entry here that isn't a real
+// VALID_ACTIONS member -- see its own header comment for why the other
+// half, every VALID_ACTIONS member having a doc entry, isn't gated too:
+// several missing actions have no dedicated route anywhere in this
+// codebase to verify a real argument shape through, and documenting a
+// shape nobody has confirmed would be worse than the current gap).
+// bug-hunt-2026-08-27.
 router.get("/commands", (req, res) => {
   res.json({
     commands: [
@@ -2668,28 +2825,12 @@ router.get("/commands", (req, res) => {
           z: "number (optional default: 0)",
         },
       },
-      {
-        action: "addLamppost",
-        description: "Add temporary light source",
-        args: {
-          x: "number (required)",
-          y: "number (required)",
-          z: "number (optional default: 0)",
-          r: "number 0-1",
-          g: "number 0-1",
-          b: "number 0-1",
-          radius: "number 1-30",
-        },
-      },
-      {
-        action: "removeLamppost",
-        description: "Remove temporary light source",
-        args: {
-          x: "number (required)",
-          y: "number (required)",
-          z: "number (optional default: 0)",
-        },
-      },
+      // addLamppost/removeLamppost removed here 2026 (release v0.8.0, commit
+      // f47ea1a) -- deliberately dropped from VALID_ACTIONS, but these two
+      // documentation entries were left behind and kept advertising them as
+      // callable. POST /command's whitelist check would refuse either one
+      // with "Unknown or invalid action" if anyone tried, since neither name
+      // exists in VALID_ACTIONS any more. bug-hunt-2026-08-27.
 
       // === Moderation Automation ===
       {
@@ -2867,7 +3008,7 @@ router.post("/install-local", requirePermission("bridge.setup"), async (req, res
 // Auto-install mod to server's Lua folder (optionally specify serverId)
 router.post("/install-mod-auto", requirePermission("bridge.setup"), async (req, res) => {
   try {
-    const { serverId } = req.body;
+    const { serverId } = req.body || {};
 
     // Get specified server or active server
     let targetServer;
@@ -2922,7 +3063,7 @@ router.post("/install-mod-auto", requirePermission("bridge.setup"), async (req, 
 
 // Copy mod to server Lua folder (manual path)
 router.post("/install-mod", requirePermission("bridge.setup"), (req, res) => {
-  const { serverLuaPath } = req.body;
+  const { serverLuaPath } = req.body || {};
 
   // Support legacy field name
   const targetPath = serverLuaPath || req.body.serverModsPath;
@@ -2961,10 +3102,12 @@ router.post("/install-mod", requirePermission("bridge.setup"), (req, res) => {
   let realTarget;
   try {
     // If target doesn't exist yet, resolve the parent and join
+    // codeql[js/path-injection] targetPath is required to be absolute, resolved and realpath'd, then required to end in /media/lua/server(/) (suffix-containment check) before this line runs -- see the guard chain starting a few lines above ('Validate path: must be a string, absolute, no traversal').
     if (fs.existsSync(resolvedTarget)) {
       realTarget = fs.realpathSync(resolvedTarget);
     } else {
       const parent = path.dirname(resolvedTarget);
+      // codeql[js/path-injection] targetPath is required to be absolute, resolved and realpath'd, then required to end in /media/lua/server(/) (suffix-containment check) before this line runs -- see the guard chain starting a few lines above ('Validate path: must be a string, absolute, no traversal').
       if (fs.existsSync(parent)) {
         realTarget = path.join(
           fs.realpathSync(parent),
@@ -3028,7 +3171,9 @@ router.post("/install-mod", requirePermission("bridge.setup"), (req, res) => {
     }
 
     // Ensure target directory exists (use realTarget for safety)
+    // codeql[js/path-injection] targetPath is required to be absolute, resolved and realpath'd, then required to end in /media/lua/server(/) (suffix-containment check) before this line runs -- see the guard chain starting a few lines above ('Validate path: must be a string, absolute, no traversal').
     if (!fs.existsSync(realTarget)) {
+      // codeql[js/path-injection] targetPath is required to be absolute, resolved and realpath'd, then required to end in /media/lua/server(/) (suffix-containment check) before this line runs -- see the guard chain starting a few lines above ('Validate path: must be a string, absolute, no traversal').
       fs.mkdirSync(realTarget, { recursive: true, mode: 0o755 });
     }
 
@@ -3060,7 +3205,7 @@ router.post("/sound/world", requirePermission("server.world_events"), async (req
         code: ErrorCode.BRIDGE_NOT_RUNNING,
       });
   }
-  const { x, y, z, radius, volume } = req.body;
+  const { x, y, z, radius, volume } = req.body || {};
   if (x === undefined || y === undefined) {
     return res.status(400).json({
       error: "x and y coordinates are required",
@@ -3091,7 +3236,7 @@ router.post("/sound/world", requirePermission("server.world_events"), async (req
 });
 
 // Play sound near a player
-router.post("/sound/near-player", requirePermission("server.world_events"), async (req, res) => {
+router.post("/sound/near-player", requirePermission("players.endanger_or_impersonate"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
@@ -3100,7 +3245,7 @@ router.post("/sound/near-player", requirePermission("server.world_events"), asyn
         code: ErrorCode.BRIDGE_NOT_RUNNING,
       });
   }
-  const { username, radius, volume } = req.body;
+  const { username, radius, volume } = req.body || {};
   if (!username || !BRIDGE_USERNAME_REGEX.test(username)) {
     return res.status(400).json({
       error: "Valid username is required",
@@ -3119,7 +3264,7 @@ router.post("/sound/near-player", requirePermission("server.world_events"), asyn
 });
 
 // Trigger gunshot sound
-router.post("/sound/gunshot", requirePermission("server.world_events"), async (req, res) => {
+router.post("/sound/gunshot", requirePermission("players.endanger_or_impersonate"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
@@ -3128,7 +3273,7 @@ router.post("/sound/gunshot", requirePermission("server.world_events"), async (r
         code: ErrorCode.BRIDGE_NOT_RUNNING,
       });
   }
-  const { x, y, z, username } = req.body;
+  const { x, y, z, username } = req.body || {};
   if (username && !BRIDGE_USERNAME_REGEX.test(username)) {
     return res.status(400).json({
       error: "Invalid username format",
@@ -3147,7 +3292,7 @@ router.post("/sound/gunshot", requirePermission("server.world_events"), async (r
 });
 
 // Trigger alarm sound
-router.post("/sound/alarm", requirePermission("server.world_events"), async (req, res) => {
+router.post("/sound/alarm", requirePermission("players.endanger_or_impersonate"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
@@ -3156,7 +3301,7 @@ router.post("/sound/alarm", requirePermission("server.world_events"), async (req
         code: ErrorCode.BRIDGE_NOT_RUNNING,
       });
   }
-  const { x, y, z, username } = req.body;
+  const { x, y, z, username } = req.body || {};
   if (username && !BRIDGE_USERNAME_REGEX.test(username)) {
     return res.status(400).json({
       error: "Invalid username format",
@@ -3172,7 +3317,7 @@ router.post("/sound/alarm", requirePermission("server.world_events"), async (req
 });
 
 // Create custom noise
-router.post("/sound/noise", requirePermission("server.world_events"), async (req, res) => {
+router.post("/sound/noise", requirePermission("players.endanger_or_impersonate"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
       .status(400)
@@ -3181,7 +3326,7 @@ router.post("/sound/noise", requirePermission("server.world_events"), async (req
         code: ErrorCode.BRIDGE_NOT_RUNNING,
       });
   }
-  const { x, y, z, radius, volume, username } = req.body;
+  const { x, y, z, radius, volume, username } = req.body || {};
   if (username && !BRIDGE_USERNAME_REGEX.test(username)) {
     return res.status(400).json({
       error: "Invalid username format",
@@ -3263,7 +3408,7 @@ router.post("/utilities/restore", requirePermission("server.world_events"), asyn
         code: ErrorCode.BRIDGE_NOT_RUNNING,
       });
   }
-  const { power, water } = req.body;
+  const { power, water } = req.body || {};
   log.info(
     `Restoring utilities - power: ${power !== false}, water: ${water !== false}`,
   );
@@ -3296,7 +3441,7 @@ router.post("/utilities/shutoff", requirePermission("server.world_events"), asyn
         code: ErrorCode.BRIDGE_NOT_RUNNING,
       });
   }
-  const { power, water } = req.body;
+  const { power, water } = req.body || {};
   log.info(
     `Shutting off utilities - power: ${power !== false}, water: ${water !== false}`,
   );
@@ -3333,7 +3478,7 @@ router.post("/character/export", requirePermission("players.gm_tools"), async (r
         code: ErrorCode.BRIDGE_NOT_RUNNING,
       });
   }
-  const { username } = req.body;
+  const { username } = req.body || {};
   if (!username || !BRIDGE_USERNAME_REGEX.test(username)) {
     return res.status(400).json({
       error: "Invalid or missing username",
@@ -3358,7 +3503,7 @@ router.post("/character/import", requirePermission("players.gm_tools"), async (r
         code: ErrorCode.BRIDGE_NOT_RUNNING,
       });
   }
-  const { username, data, options } = req.body;
+  const { username, data, options } = req.body || {};
   if (!username || !BRIDGE_USERNAME_REGEX.test(username)) {
     return res.status(400).json({
       error: "Invalid or missing username",
@@ -3401,13 +3546,48 @@ router.post("/character/import", requirePermission("players.gm_tools"), async (r
       params: sanitizeErrorParams({ sections: validSections.join(", ") }),
     });
   }
+  // Snapshot the target's CURRENT data before overwriting it. Unlike a
+  // config edit, another player's XP/perks/inventory can't be reconstructed
+  // by hand if the wrong file lands on the wrong player -- so a failed
+  // snapshot REFUSES the import rather than warning and proceeding, the
+  // opposite of this codebase's config-write backup policy (a false sense
+  // of safety is worse than an honest refusal here). Reuses the same bridge
+  // command GET /character/export already calls and writes into the same
+  // exports/<username>/ directory + filename convention autoExportPlayer
+  // (server/index.js) uses, so a successful snapshot is immediately visible
+  // and downloadable from Players.tsx's existing Saved Exports list with no
+  // client changes.
+  let snapshotPath;
+  try {
+    const snapshot = await bridge.sendCommand("exportPlayerData", { username });
+    const { dataDir } = getDataPaths();
+    const safeUsername = username.replace(/[^a-zA-Z0-9_-]/g, "_");
+    const exportDir = path.join(dataDir, "exports", safeUsername);
+    // codeql[js/path-injection] username is stripped to [a-zA-Z0-9_-] via safeUsername = username.replace(...) immediately above before being joined into this path.
+    fs.mkdirSync(exportDir, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    snapshotPath = path.join(
+      exportDir,
+      `${safeUsername}_pre-import_${timestamp}.json`,
+    );
+    fs.writeFileSync(
+      // codeql[js/path-injection] username is stripped to [a-zA-Z0-9_-] via safeUsername = username.replace(...) immediately above before being joined into this path.
+      snapshotPath,
+      JSON.stringify(snapshot.data ?? snapshot, null, 2),
+    );
+  } catch (error) {
+    return res.status(502).json({
+      error: `Could not snapshot ${username}'s current data before import — refusing to overwrite without a recovery copy: ${sanitizeError(error.message)}`,
+    });
+  }
+
   try {
     const result = await bridge.sendCommand("importPlayerData", {
       username,
       data,
       options,
     });
-    res.json(result);
+    res.json({ ...result, snapshotFile: path.basename(snapshotPath) });
   } catch (error) {
     res.status(500).json({ error: sanitizeError(error.message) });
   }
@@ -3432,7 +3612,7 @@ router.post("/players/:username/give-item", requirePermission("players.gm_tools"
       code: ErrorCode.BRIDGE_INVALID_USERNAME_FORMAT,
     });
   }
-  const { itemType, count = 1 } = req.body;
+  const { itemType, count = 1 } = req.body || {};
   if (
     !itemType ||
     typeof itemType !== "string" ||
@@ -3521,7 +3701,10 @@ router.post("/players/:username/godmode", requirePermission("players.gm_tools"),
       code: ErrorCode.BRIDGE_INVALID_USERNAME_FORMAT,
     });
   }
-  const { enabled } = req.body;
+  const { enabled } = req.body || {};
+  if (typeof enabled !== "boolean") {
+    return res.status(400).json({ error: "enabled must be a boolean" });
+  }
   try {
     const result = await bridge.sendCommand("setGodMode", {
       username,
@@ -3548,7 +3731,10 @@ router.post("/players/:username/invisible", requirePermission("players.gm_tools"
       code: ErrorCode.BRIDGE_INVALID_USERNAME_FORMAT,
     });
   }
-  const { enabled } = req.body;
+  const { enabled } = req.body || {};
+  if (typeof enabled !== "boolean") {
+    return res.status(400).json({ error: "enabled must be a boolean" });
+  }
   try {
     const result = await bridge.sendCommand("setInvisible", {
       username,
@@ -3588,7 +3774,7 @@ router.post("/zombies/clear-near-player", requirePermission("server.world_events
       code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
     });
   }
-  const { username, radius = 50 } = req.body;
+  const { username, radius = 50 } = req.body || {};
   if (!username || !BRIDGE_USERNAME_REGEX.test(username)) {
     return res.status(400).json({
       error: "Valid username is required",
@@ -3632,14 +3818,14 @@ router.post("/zombies/clear-all", requirePermission("server.world_events"), asyn
 });
 
 // Spawn horde near a player
-router.post("/zombies/spawn-near", requirePermission("server.world_events"), async (req, res) => {
+router.post("/zombies/spawn-near", requirePermission("players.endanger_or_impersonate"), async (req, res) => {
   if (!bridge.isRunning) {
     return res.status(400).json({
       error: "Bridge not running",
       code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
     });
   }
-  const { username, count = 50 } = req.body;
+  const { username, count = 50 } = req.body || {};
   if (!username || !BRIDGE_USERNAME_REGEX.test(username)) {
     return res.status(400).json({
       error: "Valid username is required",
@@ -3662,14 +3848,14 @@ router.post("/zombies/spawn-near", requirePermission("server.world_events"), asy
 });
 
 // Spawn horde behind a player
-router.post("/zombies/spawn-behind", requirePermission("server.world_events"), async (req, res) => {
+router.post("/zombies/spawn-behind", requirePermission("players.endanger_or_impersonate"), async (req, res) => {
   if (!bridge.isRunning) {
     return res.status(400).json({
       error: "Bridge not running",
       code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
     });
   }
-  const { username, count = 50 } = req.body;
+  const { username, count = 50 } = req.body || {};
   if (!username || !BRIDGE_USERNAME_REGEX.test(username)) {
     return res.status(400).json({
       error: "Valid username is required",
@@ -3703,7 +3889,7 @@ router.post("/visual/view-distance", requirePermission("server.world_events"), a
       code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
     });
   }
-  const { value } = req.body;
+  const { value } = req.body || {};
   if (typeof value !== "number") {
     return res
       .status(400)
@@ -3728,7 +3914,7 @@ router.post("/visual/daylight", requirePermission("server.world_events"), async 
       code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
     });
   }
-  const { value } = req.body;
+  const { value } = req.body || {};
   if (typeof value !== "number") {
     return res.status(400).json({
       error: "value is required (0.0-1.0)",
@@ -3751,7 +3937,7 @@ router.post("/visual/night-strength", requirePermission("server.world_events"), 
       code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
     });
   }
-  const { value } = req.body;
+  const { value } = req.body || {};
   if (typeof value !== "number") {
     return res.status(400).json({
       error: "value is required (0.0-1.0)",
@@ -3774,7 +3960,7 @@ router.post("/visual/desaturation", requirePermission("server.world_events"), as
       code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
     });
   }
-  const { value } = req.body;
+  const { value } = req.body || {};
   if (typeof value !== "number") {
     return res.status(400).json({
       error: "value is required (0.0-1.0)",
@@ -3797,7 +3983,7 @@ router.post("/visual/ambient", requirePermission("server.world_events"), async (
       code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
     });
   }
-  const { value } = req.body;
+  const { value } = req.body || {};
   if (typeof value !== "number") {
     return res.status(400).json({
       error: "value is required (0.0-1.0)",
@@ -3841,8 +4027,8 @@ async function trySendViaRcon(req, text) {
 }
 
 // Send to admin chat
-router.post("/chat/admin", requirePermission("server.world_events"), async (req, res) => {
-  const { message } = req.body;
+router.post("/chat/admin", requirePermission("players.endanger_or_impersonate"), async (req, res) => {
+  const { message } = req.body || {};
   if (!message || typeof message !== "string" || message.length > 2000) {
     return res
       .status(400)
@@ -3900,12 +4086,12 @@ router.post("/chat/admin", requirePermission("server.world_events"), async (req,
 });
 
 // Send to general chat with author
-router.post("/chat/general", requirePermission("server.world_events"), async (req, res) => {
+router.post("/chat/general", requirePermission("players.endanger_or_impersonate"), async (req, res) => {
   const author =
     typeof req.body.author === "string"
       ? req.body.author.trim().slice(0, 64) || "Server"
       : "Server";
-  const { message } = req.body;
+  const { message } = req.body || {};
   if (!message || typeof message !== "string" || message.length > 2000) {
     return res
       .status(400)
@@ -3957,7 +4143,7 @@ router.post("/chat/general", requirePermission("server.world_events"), async (re
 
 // Send server alert
 router.post("/chat/alert", requirePermission("server.world_events"), async (req, res) => {
-  const { message, alert = true } = req.body;
+  const { message, alert = true } = req.body || {};
   if (!message || typeof message !== "string" || message.length > 2000) {
     return res
       .status(400)
@@ -3967,19 +4153,41 @@ router.post("/chat/alert", requirePermission("server.world_events"), async (req,
       });
   }
   try {
-    // RCON servermsg is the most reliable for server-wide messages
+    // Only PanelBridge can deliver a genuine alert -- the Lua handler calls
+    // chat.server:sendServerAlertMessageToServerChat, a distinct native API
+    // from the plain sendMessageToServerChat it uses otherwise. RCON's
+    // servermsg has no alert/banner concept at all. Trying RCON first (as
+    // this route used to, unconditionally) meant a requested alert silently
+    // downgraded to a plain broadcast whenever RCON was connected -- the
+    // common case -- while the response still echoed isAlert:true as if the
+    // alert had actually been delivered. Try bridge first when an alert is
+    // actually requested; RCON remains the fallback, same as before.
+    if (alert && bridge.isRunning) {
+      const result = await bridge.sendCommand("sendToServerChat", {
+        message,
+        alert: true,
+      });
+      if (result?.success) return res.json(result);
+    }
+
     const rconResult = await trySendViaRcon(req, message);
     if (rconResult) {
       return res.json({
         success: true,
         data: {
-          message: "Alert sent via RCON",
-          isAlert: alert,
+          // Honest either way: RCON has never been able to deliver alert
+          // styling, so isAlert reflects what actually happened, not what
+          // was requested.
+          message: alert
+            ? "Alert requested but RCON has no alert styling -- sent as a plain broadcast"
+            : "Alert sent via RCON",
+          isAlert: false,
           method: "RCON",
         },
       });
     }
-    // Fallback: PanelBridge
+    // Fallback: PanelBridge (covers alert===false reaching here, or the
+    // alert-preferred bridge attempt above having failed)
     if (bridge.isRunning) {
       const result = await bridge.sendCommand("sendToServerChat", {
         message,
@@ -4010,7 +4218,7 @@ router.get("/debug/log", requirePermission("bridge.diagnostics"), async (req, re
       code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
     });
   }
-  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 500);
+  const limit = parseClampedInteger(req.query.limit, 50, 1, 500);
   const VALID_LOG_LEVELS = ["DEBUG", "INFO", "WARN", "ERROR"];
   const minLevel = VALID_LOG_LEVELS.includes(req.query.level)
     ? req.query.level
@@ -4047,7 +4255,10 @@ router.post("/debug/mode", requirePermission("bridge.diagnostics"), async (req, 
       code: ErrorCode.BRIDGE_NOT_RUNNING_BARE,
     });
   }
-  const { enabled } = req.body;
+  const { enabled } = req.body || {};
+  if (typeof enabled !== "boolean") {
+    return res.status(400).json({ error: "enabled must be a boolean" });
+  }
   try {
     const result = await bridge.sendCommand("setDebugMode", {
       enabled: enabled === true,

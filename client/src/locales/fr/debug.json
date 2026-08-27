@@ -3,6 +3,10 @@
     "title": "Débogage et journaux",
     "description": "Diagnostics en direct, historique récent et détails d'environnement pour ce panneau"
   },
+  "permissionDenied": {
+    "title": "Vous ne pouvez pas consulter les diagnostics du panneau",
+    "description": "Le rôle de votre compte n'inclut pas « Voir les diagnostics du panneau ». Demandez à un administrateur de vous l'accorder si vous avez besoin d'accéder à cette page."
+  },
   "headerActions": {
     "bundling": "Compression…",
     "supportBundleZip": "Pack de support (.zip)",
@@ -233,6 +237,7 @@
     "allChecksPassDesc": "Rien à afficher avec les réussites masquées. Décochez « Masquer les réussites » pour voir le rapport complet.",
     "manualFixTitle": "Correction manuelle recommandée",
     "manualFixFallback": "Ouvrez la page suggérée et appliquez la correction indiquée.",
+    "noPermissionFix": "Votre rôle n'a pas la permission d'appliquer cette correction.",
     "applyFixTitle": "Appliquer la correction ?",
     "applyFixFallback": "Appliquer {{label}} ?",
     "applyButton": "Appliquer",
@@ -1310,6 +1315,7 @@
   },
   "crashesTab": {
     "crashLogsTitle": "Journaux de plantage",
+    "crashLogsCountTruncated": "{{shown}} sur {{total}}",
     "crashLogsDesc": "Dumps de plantage Java et journaux d'erreurs.",
     "refreshCrashLogsAria": "Actualiser les journaux de plantage",
     "noCrashLogsTitle": "Aucun journal de plantage trouvé",
@@ -1399,6 +1405,8 @@
     "databaseLabel": "Base de données :",
     "logsFolderLabel": "Dossier de journaux :",
     "copyPathTooltip": "Copier le chemin",
+    "copyDbPathAria": "Copier le chemin de la base de données",
+    "copyLogsPathAria": "Copier le chemin du dossier des journaux",
     "pathsUpdatedTitle": "Chemins mis à jour",
     "enterAtLeastOnePath": "Veuillez saisir au moins un chemin",
     "updatePathsFailedFallback": "Échec de la mise à jour des chemins"

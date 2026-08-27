@@ -1,4 +1,7 @@
 {
+  "permissions": {
+    "noManage": "Limpiar los chunks del mapa requiere el permiso chunks.manage, del cual este rol no dispone."
+  },
   "pageHeader": {
     "title": "Limpieza del mapa",
     "description": "Restablecer áreas del mapa dañadas o sobreexplotadas para que el mundo pueda regenerarse limpiamente",
@@ -86,8 +89,8 @@
     "scanningChunks": "Escaneando mapa… {{count}} chunks",
     "loadingChunks": "Cargando chunks…",
     "noChunksTitle": "No se encontraron chunks",
-    "noChunksDesc": "La carpeta del mapa puede estar vacía o la ruta necesita ajustarse.",
-    "ariaLabel": "Mapa de chunks — seleccionar áreas para limpiar"
+    "noChunksDesc": "La carpeta del mapa de esta partida puede estar vacía, o la ruta configurada necesita ajustarse. Prueba con otra partida de la lista de arriba, o revisa la ruta en Configuración.",
+    "ariaLabel": "Mapa de chunks. Seleccionar áreas para limpiar requiere un ratón o pantalla táctil; este mapa no se puede usar con el teclado."
   },
   "help": {
     "hide": "Ocultar ayuda",
@@ -140,6 +143,8 @@
     "loadSavesFailedTitle": "No se pudieron cargar las partidas guardadas",
     "loadSavesFailedFallback": "No se pudieron cargar las carpetas de partidas guardadas.",
     "pathSavedTitle": "Ruta guardada",
+    "liveVehicleCleanupNoPermissionTitle": "Limpieza de vehículos en vivo omitida",
+    "liveVehicleCleanupNoPermissionDesc": "Los chunks y sus registros de vehículos se eliminaron. Quitar vehículos ya cargados del servidor en vivo requiere el permiso bridge.command, del cual este rol no dispone -- un administrador puede concederlo, o el vehículo obsoleto desaparecerá por sí solo la próxima vez que se recargue la zona.",
     "pathSavedServerDesc": "Guardada en la configuración del servidor activo — el panel usará esta ruta la próxima vez.",
     "pathSavedPanelDesc": "Guardada en los ajustes del panel.",
     "pathSaveFailedTitle": "No se pudo guardar la ruta",

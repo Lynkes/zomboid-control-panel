@@ -1,6 +1,6 @@
 {
   "name": "pz-server-manager",
-  "version": "1.2.5",
+  "version": "1.2.8",
   "description": "Project Zomboid Server Manager - Web-based admin panel",
   "main": "server/index.js",
   "type": "module",
@@ -54,7 +54,7 @@
     "globals": "^14.0.0",
     "jose": "^6.2.10",
     "nodemon": "^3.1.14",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   },
   "overrides": {
     "esbuild": "$esbuild",

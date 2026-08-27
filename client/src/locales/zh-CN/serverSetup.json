@@ -26,6 +26,12 @@
       "description": "如果你从未搭建过 Project Zomboid 服务器，请选择 <1>全新安装</1>。它会自动下载所需的一切。"
     }
   },
+  "resumeBanner": {
+    "title": "可能仍有安装正在进行",
+    "description": "之前的会话开始安装到 {{installPath}}（{{elapsed}}前），但页面在完成前被关闭或刷新。它可能仍在后台下载。",
+    "continueButton": "继续设置",
+    "dismissButton": "忽略"
+  },
   "stepIndicator": {
     "quick": {
       "location": "位置",
@@ -61,6 +67,8 @@
     "regeneratePasswordAria": "生成新密码",
     "regeneratePasswordTooltip": "生成新密码",
     "rconPortLabel": "RCON 端口",
+    "rconPortHelp": "面板用于向正在运行的服务器发送 RCON 命令（启动、停止、保存、踢出玩家、聊天）的端口——与玩家连接所用的端口不同。示例：27015（默认值）。该端口必须在本机上未被占用；如果已被其他程序占用，服务器可能无法启动，或面板可能无法连接并控制服务器。",
+    "rconPortDefaultHint": "默认端口：27015",
     "memoryTitle": "内存分配",
     "detectingRam": "正在检测内存...",
     "minRamLabel": "最小内存",
@@ -71,10 +79,11 @@
     "maxRamAria": "最大内存（GB）",
     "maxRamSliderAria": "最大内存：{{value}}GB",
     "gamePortLabel": "游戏端口",
+    "gamePortHelp": "玩家加入时，Project Zomboid 游戏客户端连接所用的端口。示例：16261（默认值）。如果更改此端口，玩家连接时需要在服务器地址后添加新端口号（例如 你的IP:16262），并且你的路由器或防火墙需要转发这个新端口，而不是旧端口。",
     "gamePortDefaultHint": "默认端口：16261",
     "adminPasswordLabel": "管理员密码",
     "adminPasswordPlaceholder": "首次启动服务器前必须设置",
-    "adminPasswordHelp": "首次启动服务器前必须设置。",
+    "adminPasswordHelp": "设置 Project Zomboid 内置管理员账户的密码。服务器运行后，可在游戏内通过聊天命令 /login admin，后面跟上这个密码，获得管理员权限。首次启动服务器前必须设置——不设置也能完成安装，但服务器在设置密码之前不会启动。",
     "hideAdminPassword": "隐藏管理员密码",
     "showAdminPassword": "显示管理员密码",
     "upnpLabel": "UPnP",
@@ -87,7 +96,8 @@
     "debugDesc": "启用详细的启动与运行日志",
     "debugAria": "启用调试模式",
     "customConfigLocation": "自定义配置位置",
-    "customConfigLocationHelp": "自定义数据文件夹路径",
+    "customConfigLocationHelp": "Project Zomboid 通常会把存档、服务器配置和日志保存在安装文件夹旁边。只有当这些数据确实存放在别处时才需要设置此项——例如另一块磁盘，或 Docker 中的绑定挂载文件夹。如果指向了错误的文件夹，面板将找不到你现有的存档、设置或备份。",
+    "customDataPathPlaceholder": "例如 C:\\Users\\你的用户名\\Zomboid 或 /home/你的用户名/Zomboid",
     "useCustomLocation": "使用自定义位置",
     "serverNameLabel": "服务器名称",
     "serverNamePlaceholder": "myserver",
@@ -105,7 +115,10 @@
     "progressDownloading": "下载中...",
     "progressValidating": "校验文件中...",
     "progressVerifying": "校验安装中...",
-    "progressComplete": "完成！"
+    "progressComplete": "完成！",
+    "noPermissionInstall": "安装服务器需要 server.install 权限，而该角色没有此权限。",
+    "noPermissionSettings": "保存此设置需要 panel.settings 权限，而该角色没有此权限。",
+    "noPermissionControl": "启动服务器需要 server.control 权限，而该角色没有此权限。"
   },
   "full": {
     "pageTitle": "全新安装",
@@ -134,13 +147,13 @@
       "description": "选择文件安装位置并设置服务器身份。",
       "installFolderLabel": "安装文件夹",
       "useLinuxPath": "使用 Linux 服务路径",
-      "installFolderPlaceholder": "服务器文件的安装文件夹",
-      "installFolderHelp": "SteamCMD 会在此下载约 3 GB 的文件。面板服务必须拥有对此文件夹的写入权限。",
+      "installFolderPlaceholder": "例如 C:\\PZServer 或 /home/steamuser/pzserver",
+      "installFolderHelp": "SteamCMD 会在此下载约 3 GB 的服务器文件，如果文件夹不存在会自动创建——面板只需要拥有写入权限。这与存档和设置的存放位置是分开的，参见下方的“自定义配置位置”。",
       "linuxNoteTitle": "Linux 服务安装",
       "linuxNoteBody1": "如果面板通过内置的 systemd 服务运行，请使用 <1>{{path}}</1>。使用其他文件夹需要修改 systemd 权限。",
       "linuxNoteBody2": "服务器数据文件夹会创建在安装文件夹旁：<1>{{path}}</1>。两个文件夹都必须可写。",
       "dataFolderPlaceholder": "your-install-folder_Data",
-      "serverNameHelp": "仅限字母、数字和下划线，用于配置文件命名。",
+      "serverNameHelp": "仅限字母、数字和下划线，例如 myserver。它将成为配置文件的名称（myserver.ini）——请在安装前设置好。安装后再修改会创建一个新的空配置，而不是重命名原有配置。",
       "gameVersionLabel": "游戏版本",
       "gameVersionHelp": "大多数人应选择“稳定版”——这是当前的默认构建版本。Steam 提供的其他分支是较旧或实验性的构建版本，保留它们是为了兼容尚未更新的模组或存档。存档和模组并不保证能在不同构建版本之间正常工作，因此只有在确实需要时才切换。",
       "loadingVersions": "正在加载可用版本...",
@@ -191,7 +204,7 @@
     "step2": {
       "title": "配置服务器",
       "description": "设置服务器名称、RCON 访问和内存限制。",
-      "serverNameHelp": "每台服务器需要唯一名称，用于创建独立的配置文件。",
+      "serverNameHelp": "仅限字母、数字和下划线，例如 myserver。它将成为你在上一步选择的现有服务器文件的配置文件名称（myserver.ini）。",
       "rconTitle": "远程控制（RCON）",
       "rconPortDefaultHint": "默认端口：27015",
       "ramDetectedBadge": "检测到 {{total}} GB"
@@ -243,7 +256,7 @@
     "adminPasswordRequiredInstallDesc": "开始安装前请输入管理员密码。",
     "adminPasswordRequiredCreateDesc": "创建此服务器前请输入管理员密码。",
     "invalidPortTitle": "端口无效",
-    "invalidPortDesc": "游戏端口和 RCON 端口都必须是 1024 到 65535 之间的整数。",
+    "invalidPortDesc": "游戏端口必须是 1024 到 65534 之间的整数；RCON 端口必须是 1024 到 65535 之间的整数。",
     "startingInstallLog": "正在开始安装...",
     "creatingConfigLog": "正在创建服务器配置...",
     "configCreatedLog": "服务器配置创建成功！",
@@ -259,6 +272,9 @@
     "serverStartingDesc": "正在跳转到仪表盘...",
     "startFailedTitle": "启动失败",
     "registerFailedTitle": "服务器文件已安装，但注册失败",
-    "registerFailedDesc": "游戏文件已写入磁盘，但面板未能将此服务器添加到数据库，因此它还不会出现在“我的服务器”中。请查看上方日志，然后重新运行服务器安装——重复运行是安全的。"
+    "registerFailedDesc": "游戏文件已写入磁盘，但面板未能将此服务器添加到数据库，因此它还不会出现在“我的服务器”中。请查看上方日志，然后重新运行服务器安装——重复运行是安全的。",
+    "activateFailedLog": "警告：服务器已注册，但未能设为活动服务器。",
+    "activateFailedTitle": "服务器已注册，但未设为活动状态",
+    "activateFailedDesc": "服务器已添加到“我的服务器”，但面板未能自动切换到它。请前往“我的服务器”手动选择它，然后再启动。"
   }
 }

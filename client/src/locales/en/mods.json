@@ -1,4 +1,12 @@
 {
+  "permissions": {
+    "noModsManage": "Your role does not have permission to manage mods.",
+    "noServersManage": "Your role does not have permission to manage servers."
+  },
+  "permissionDenied": {
+    "title": "You can't view mods",
+    "description": "Your account's role doesn't include \"Manage mods\". Ask an administrator to grant it if you need access to this page."
+  },
   "fetchError": {
     "title": "Mod data could not be loaded",
     "retry": "Retry"
@@ -47,6 +55,11 @@
     "reported_other": "{{count}} mod updates reported by Steam — flags out of sync",
     "desc": "The Workshop folder shows newer files than the panel has on record. Run a check to update the per-mod state.",
     "checkNow": "Check Now"
+  },
+  "duplicateKeysWarning": {
+    "title_one": "\"{{keys}}\" appears more than once in this configuration file",
+    "title_other": "{{count}} settings appear more than once in this configuration file: {{keys}}",
+    "desc": "This page reads the first copy and the Server Configuration editor reads the last, so the two can show different values for the same setting."
   },
   "nav": {
     "aria": "Mod management sections",
@@ -430,12 +443,12 @@
     "reEnable": "Re-enable",
     "reEnableCount": "Re-enable ({{count}})",
     "trackingCleanup": "Tracking cleanup",
-    "destructive": "destructive",
+    "destructive": "config only, files stay on disk",
     "deleteHint": "Delete only removes panel tracking. Workshop files stay on disk, but you will need to add the mod manually later.",
-    "deleteSelectedConfirm_one": "Delete {{count}} selected deactivated mod from tracking? This cannot be undone (re-add them manually if needed).",
-    "deleteSelectedConfirm_other": "Delete {{count}} selected deactivated mods from tracking? This cannot be undone (re-add them manually if needed).",
-    "deleteAllConfirm_one": "Delete ALL {{count}} deactivated mod from tracking? This cannot be undone (re-add them manually if needed).",
-    "deleteAllConfirm_other": "Delete ALL {{count}} deactivated mods from tracking? This cannot be undone (re-add them manually if needed).",
+    "deleteSelectedConfirm_one": "Remove {{count}} selected deactivated mod from tracking? The workshop files stay on disk -- you can re-add it later.",
+    "deleteSelectedConfirm_other": "Remove {{count}} selected deactivated mods from tracking? The workshop files stay on disk -- you can re-add them later.",
+    "deleteAllConfirm_one": "Remove ALL {{count}} deactivated mod from tracking? The workshop files stay on disk -- you can re-add it later.",
+    "deleteAllConfirm_other": "Remove ALL {{count}} deactivated mods from tracking? The workshop files stay on disk -- you can re-add them later.",
     "deleteFromTrackingTitle": "Delete from tracking?",
     "deleteConfirmButton": "Delete",
     "deleteSelected": "Delete selected ({{count}})",
@@ -602,8 +615,10 @@
     "invalidFormatDesc": "Enter a Steam Workshop collection URL or a numeric collection ID.",
     "noModsFoundInCollectionTitle": "No Mods Found",
     "noModsFoundInCollectionDesc": "This collection appears empty. Check the URL and try again.",
+    "collectionOnlySubCollectionsDesc": "Every item in this collection is itself a sub-collection ({{count}}) — Steam doesn't allow adding those as mods directly. Open the sub-collection on Steam and import it instead.",
     "modsFoundTitle": "{{count}} mods found",
     "modsFoundDesc": "Select which mods to add, then confirm.",
+    "modsFoundDescWithSkipped": "Select which mods to add, then confirm. {{count}} item(s) were skipped because they're sub-collections, not mods.",
     "collectionImportFailedTitle": "Collection Import Failed",
     "collectionImportFailedFallback": "Could not fetch collection from Steam. Check the URL and try again.",
     "noModsSelectedTitle": "No Mods Selected",

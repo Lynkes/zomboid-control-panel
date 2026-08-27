@@ -59,6 +59,10 @@
     "cancel": "Abbrechen"
   },
   "resetTokenCreated": "Wiederherstellungstoken unter data/reset-token.txt erstellt. Zum Fortfahren unten einfügen.",
+  "repeatedFailureHint": {
+    "title": "Funktioniert es immer noch nicht?",
+    "body": "Nach mehreren fehlgeschlagenen Versuchen wird ein Konto zur Sicherheit automatisch für 15 Minuten gesperrt -- dieser Bildschirm zeigt das nicht an. Ein gespeicherter Wiederherstellungscode oder das Starten des Panels mit <code>--reset-password</code> über das Server-Terminal kann das Passwort sofort zurücksetzen."
+  },
   "errors": {
     "loginFailed": "Anmeldung fehlgeschlagen",
     "resetTokenTooShort": "Das Reset-Token muss mindestens 8 Zeichen lang sein",

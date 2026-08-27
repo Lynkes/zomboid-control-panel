@@ -40,6 +40,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useToast } from '@/components/ui/use-toast'
 import { reportClientError, reportClientWarning } from '@/lib/client-errors'
+import { getUserErrorMessage } from '@/lib/errorMessage'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -81,16 +82,20 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { serversApi, serversDetectApi, dockerApi, DockerContainerStats, DockerContainerSummary, ServerInstance, configApi, serverApi, updateApi, UpdateStatus, DiscoveredMount, ComposedServerStatus } from '@/lib/api'
-import { waitForServerState } from '@/lib/serverStatus'
+import { resolveClientProvider, waitForServerState } from '@/lib/serverStatus'
 import { getInstallProgressMessage } from '@/lib/installProgressMessage'
 import { ServerStatusBadge } from '@/components/ServerStatusBadge'
 import { SocketContext } from '@/contexts/SocketContext'
+import { useConfirm } from '@/contexts/ConfirmContext'
+import { useAuth } from '@/contexts/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { PageHeader } from '@/components/PageHeader'
 import { PasswordInput } from '@/components/PasswordInput'
+import { NumberInput } from '@/components/NumberInput'
 import { RconTestConnection } from '@/components/RconTestConnection'
 import { MountDiscoveryBanner } from '@/components/MountDiscoveryBanner'
 import { DiscoverySetup } from '@/components/DiscoverySetup'
+import { DisabledReason } from '@/components/DisabledReason'
 
 interface DetectedServerConfig {
   dataPath: string
@@ -99,7 +104,6 @@ interface DetectedServerConfig {
   serverName: string
   iniFile: string
   rconPort: number
-  rconPassword: string
   serverPort: number
   publicName: string
   hasRcon: boolean
@@ -126,7 +130,6 @@ interface DetectedServer {
   serverName: string
   iniFile: string
   rconPort: number
-  rconPassword: string
   serverPort: number
   publicName: string
   hasRcon: boolean
@@ -189,11 +192,78 @@ function formatBytes(bytes: number) {
 // "Invalid RCON port" / "Invalid server port") so the client can reject
 // out-of-range ports before a round trip instead of after one.
 export function isValidPort(port: number): boolean {
-  return Number.isFinite(port) && port >= 1 && port <= 65535
+  return Number.isInteger(port) && port >= 1 && port <= 65535
+}
+
+export function isValidGamePort(port: number): boolean {
+  return Number.isInteger(port) && port >= 1 && port <= 65534
+}
+
+// Client-side mirror of server/services/serverManager.js's resolveLaunchMode()
+// -- a serverPath/installPath ending in .bat/.sh/.exe is CUSTOM LAUNCHER mode
+// (operator ruling 2026-08-27, card
+// custom-launcher-as-a-real-supported-mode-not-an-accident): the operator's
+// own script, real and supported. Display-only, matching the server's own
+// authoritative check (serverManager.js) rather than gating anything here --
+// used to decide when to show the "the panel will not manage this script"
+// notice, and by getInstallFolder() below (which used to duplicate this
+// same regex inline).
+export function isCustomLauncherPath(installPath: string | null | undefined): boolean {
+  return !!installPath && /\.(bat|sh|exe)$/i.test(installPath)
+}
+
+// Client-side mirror of server.js's /delete-files nested-path check (via
+// confineToRoots) -- informational only, so the delete dialog can warn
+// BEFORE the request round-trips instead of the operator only finding out
+// from a refusal after clicking. The server re-checks authoritatively on
+// every call; this can't be trusted as the actual safety boundary on its
+// own (no attempt at symlink resolution, case-folding is a Windows-only
+// approximation of what the OS actually does).
+export function isZomboidDataNestedInInstall(
+  zomboidDataPath: string | null | undefined,
+  installPath: string | null | undefined,
+): boolean {
+  if (!zomboidDataPath || !installPath) return false
+  const normalize = (p: string) => p.replace(/[/\\]+$/, '').toLowerCase()
+  const data = normalize(zomboidDataPath)
+  const install = normalize(installPath)
+  return data === install || data.startsWith(`${install}/`) || data.startsWith(`${install}\\`)
+}
+
+// Host status for a non-active docker-mapped server's card, from the
+// already-fetched managed-container list -- never from the local process
+// scan (serverStatuses), which can't see a process in a DIFFERENT container
+// (GH#114). Mirrors server/utils/serverStatusModel.js's buildHostSignal
+// fail-closed pattern: no container found, or Docker control itself
+// unavailable, degrades to 'unknown', never a confident 'stopped'.
+export function resolveDockerCardHostStatus(
+  dockerAvailable: boolean,
+  container: { state: string } | undefined,
+): 'running' | 'stopped' | 'unknown' {
+  if (!dockerAvailable || !container) return 'unknown'
+  return container.state === 'running' ? 'running' : 'stopped'
 }
 
 export default function Servers() {
-  const { t } = useTranslation('servers')
+  const { t, i18n } = useTranslation('servers')
+  const confirm = useConfirm()
+  const { can } = useAuth()
+  // bug-hunt-2026-08-27 (Tier 3 gating sweep): six distinct capabilities
+  // gate this one page's privileged actions -- see the mapping sent to god
+  // (dwight-tier3-table) for the full route-by-route trace. Open/true when
+  // capabilities are unknown/null, same convention as every other capability
+  // check in the app.
+  const canDockerManage = can('docker.manage')
+  const canServersManage = can('servers.manage')
+  const canServerControl = can('server.control')
+  const canServerWipe = can('server.wipe')
+  const canServerInstall = can('server.install')
+  const canServersDiscover = can('servers.discover')
+  // Inline Start/Stop fires activate (servers.manage) THEN start/stop
+  // (server.control) in sequence -- a role holding only one gets a PARTIAL
+  // execution today (activate succeeds and the server record changes state,
+  // then start/stop 403s), not a clean refusal. Gate on both present.
+  const canInlineStartStop = canServersManage && canServerControl
   const [servers, setServers] = useState<ServerInstance[]>([])
   const [serverStatuses, setServerStatuses] = useState<Record<string, { running: boolean; pid: string | null }>>({})
   const [rconStatuses, setRconStatuses] = useState<Record<string, string>>({})
@@ -201,8 +271,16 @@ export default function Servers() {
   const [dockerContainers, setDockerContainers] = useState<DockerContainerSummary[]>([])
   const [dockerStats, setDockerStats] = useState<Record<string, DockerContainerStats>>({})
   const [dockerActionPending, setDockerActionPending] = useState<string | null>(null)
-  // Full 3-signal status (host/RCON/bridge) for the active server only — the
-  // other servers' cards fall back to the host-only signal in serverStatuses.
+  // Full 3-signal status (host/RCON/bridge) for the active server only. Every
+  // other card gets a host-only signal instead, sourced per provider: a
+  // native server's card reads serverStatuses (the raw local process scan);
+  // a docker-mapped server's card reads dockerContainers/dockerAvailable
+  // (the managed-container list fetchDockerState() already fetches once for
+  // every card on this page, not a per-card lookup) -- the scan can never
+  // see a process in a DIFFERENT container, so it must never be the source
+  // for those (GH#114). A remote-sftp card gets no host signal at all
+  // (nothing here can verify it without SFTP access). There is no bridge
+  // signal on any non-active card, docker or otherwise.
   const [activeStatus, setActiveStatus] = useState<ComposedServerStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [editingServer, setEditingServer] = useState<ServerInstance | null>(null)
@@ -212,6 +290,12 @@ export default function Servers() {
   const [deleting, setDeleting] = useState(false)
   const [deleteProgress, setDeleteProgress] = useState(0)
   const deleteProgressRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // Generation counter for the branch-fetch effect below -- steamcmdPath is a
+  // live-typed text input, so a keystroke can re-fire the effect before the
+  // previous fetchBranches() call resolves; without this, a slower response
+  // from an earlier keystroke can land after a newer one and overwrite the
+  // branch list / selected branch with stale data.
+  const branchFetchIdRef = useRef(0)
   const [activating, setActivating] = useState<string | number | null>(null)
 
   // Add server dialog
@@ -255,6 +339,11 @@ export default function Servers() {
   const [detectResult, setDetectResult] = useState<DetectResult | null>(null)
   const [detectError, setDetectError] = useState<string | null>(null)
   const [selectedServerConfig, setSelectedServerConfig] = useState<string>('')
+  // Set when the selected detected config has a password (hasRcon) that was
+  // never sent to the browser -- POST /servers re-reads it server-side from
+  // this exact reference instead. Cleared whenever the operator types their
+  // own password, so a manual value always wins.
+  const [importIniFrom, setImportIniFrom] = useState<{ dataPath: string; serverName: string } | null>(null)
 
   // Auto-scan state
   const [autoScanning, setAutoScanning] = useState(false)
@@ -302,7 +391,7 @@ export default function Servers() {
       setServers(data.servers || [])
     } catch (error) {
       reportClientError('Failed to fetch servers.', error)
-      toast({ title: t('toasts.error'), description: error instanceof Error ? error.message : t('toasts.loadServersFailed'), variant: 'destructive' })
+      toast({ title: t('toasts.error'), description: getUserErrorMessage(error, t('toasts.loadServersFailed')), variant: 'destructive' })
     } finally {
       setLoading(false)
     }
@@ -360,6 +449,7 @@ export default function Servers() {
     container: DockerContainerSummary,
     action: 'start' | 'stop' | 'restart',
   ) => {
+    if (!canDockerManage) return
     setDockerActionPending(`${action}-${container.id}`)
     try {
       const server = servers.find((item) => item.dockerContainerName === container.name || item.dockerContainerName === container.id)
@@ -373,15 +463,16 @@ export default function Servers() {
       const actionLabel = t(`toasts.dockerAction${action.charAt(0).toUpperCase()}${action.slice(1)}`)
       toast({
         title: t('toasts.containerActionFailedTitle', { action: actionLabel }),
-        description: error instanceof Error ? error.message : t('toasts.containerActionFailedFallback'),
+        description: getUserErrorMessage(error, t('toasts.containerActionFailedFallback')),
         variant: 'destructive',
       })
     } finally {
       setDockerActionPending(null)
     }
-  }, [fetchDockerState, servers, toast, t])
+  }, [fetchDockerState, servers, toast, t, canDockerManage])
 
   const handleConfigureRemoteBridge = useCallback(async (server: ServerInstance) => {
+    if (!canServersManage) return
     try {
       if (!server.isActive) {
         await serversApi.activate(server.id)
@@ -391,11 +482,11 @@ export default function Servers() {
     } catch (error) {
       toast({
         title: t('toasts.couldNotSelectRemoteTitle'),
-        description: error instanceof Error ? error.message : t('toasts.serverActivationFailed'),
+        description: getUserErrorMessage(error, t('toasts.serverActivationFailed')),
         variant: 'destructive',
       })
     }
-  }, [fetchServers, navigate, toast, t])
+  }, [fetchServers, navigate, toast, t, canServersManage])
 
   // Provider-aware host/RCON/bridge status for whichever server is active —
   // shown on its card via ServerStatusBadge instead of a single Running/
@@ -476,6 +567,7 @@ export default function Servers() {
   }, [])
 
   const handleScanMounts = async () => {
+    if (!canServersDiscover) return
     setScanningMounts(true)
     try {
       const data = await serversApi.discoverMounts()
@@ -492,7 +584,7 @@ export default function Servers() {
     } catch (error) {
       toast({
         title: t('toasts.scanFailedTitle'),
-        description: error instanceof Error ? error.message : t('toasts.mountDiscoveryFailed'),
+        description: getUserErrorMessage(error, t('toasts.mountDiscoveryFailed')),
         variant: 'destructive'
       })
     } finally {
@@ -523,10 +615,13 @@ export default function Servers() {
   useEffect(() => {
     if (!steamOperation) return
 
+    const thisFetchId = ++branchFetchIdRef.current
+
     const fetchBranches = async () => {
       setLoadingBranches(true)
       try {
         const detection = await serverApi.detectSteamCmd()
+        if (thisFetchId !== branchFetchIdRef.current) return
         const resolvedSteamcmdPath = detection.found && detection.path ? detection.path : steamcmdPath
         if (resolvedSteamcmdPath) {
           // Detection is asynchronous. Do not replace a path the operator
@@ -534,6 +629,7 @@ export default function Servers() {
           setSteamcmdPath((currentPath) => currentPath.trim() || resolvedSteamcmdPath)
         }
         const data = await serverApi.getBranches(resolvedSteamcmdPath)
+        if (thisFetchId !== branchFetchIdRef.current) return
         if (data.branches && Array.isArray(data.branches)) {
           setAvailableBranches(() => {
             const fetched = data.branches as Array<{ name: string; description: string; buildId?: string | null }>
@@ -579,7 +675,7 @@ export default function Servers() {
         reportClientError('Failed to fetch branches.', error)
         // Keep default branches on error
       } finally {
-        setLoadingBranches(false)
+        if (thisFetchId === branchFetchIdRef.current) setLoadingBranches(false)
       }
     }
 
@@ -639,6 +735,7 @@ export default function Servers() {
 
   // Detect server settings from data path
   const handleDetectServer = async () => {
+    if (!canServersDiscover) return
     if (!newServer.zomboidDataPath.trim()) {
       toast({ title: t('toasts.error'), description: t('toasts.enterDataPathFirst'), variant: 'destructive' })
       return
@@ -648,6 +745,7 @@ export default function Servers() {
     setDetectError(null)
     setDetectResult(null)
     setSelectedServerConfig('')
+    setImportIniFrom(null)
 
     try {
       const data = await serversDetectApi.detect({
@@ -678,7 +776,7 @@ export default function Servers() {
       }
 
     } catch (error) {
-      setDetectError(error instanceof Error ? error.message : t('toasts.detectionFailed'))
+      setDetectError(getUserErrorMessage(error, t('toasts.detectionFailed')))
     } finally {
       setDetecting(false)
     }
@@ -686,6 +784,7 @@ export default function Servers() {
 
   // Auto-scan a folder to find all PZ server paths
   const handleAutoScan = async () => {
+    if (!canServersDiscover) return
     if (!autoScanPath.trim()) {
       toast({ title: t('toasts.error'), description: t('toasts.enterScanFolder'), variant: 'destructive' })
       return
@@ -719,7 +818,7 @@ export default function Servers() {
     } catch (error) {
       toast({
         title: t('toasts.scanFailedTitle'),
-        description: error instanceof Error ? error.message : t('toasts.autoScanFailed'),
+        description: getUserErrorMessage(error, t('toasts.autoScanFailed')),
         variant: 'destructive'
       })
     } finally {
@@ -739,10 +838,10 @@ export default function Servers() {
       zomboidDataPath: config.dataPath,
       installPath: effectiveInstallPath,
       rconPort: config.rconPort,
-      rconPassword: config.rconPassword,
       serverPort: config.serverPort,
     })
     setSelectedServerConfig(config.serverName)
+    setImportIniFrom(config.hasRcon ? { dataPath: config.dataPath, serverName: config.serverName } : null)
     setShowAutoScan(false)
 
     // Also set the detect result for consistency
@@ -757,12 +856,19 @@ export default function Servers() {
         serverName: config.serverName,
         iniFile: config.iniFile,
         rconPort: config.rconPort,
-        rconPassword: config.rconPassword,
         serverPort: config.serverPort,
         publicName: config.publicName,
         hasRcon: config.hasRcon
       }]
     })
+
+    if (!config.hasRcon) {
+      toast({
+        title: t('toasts.rconNotConfiguredTitle'),
+        description: t('toasts.rconNotConfiguredDesc'),
+        variant: 'destructive'
+      })
+    }
   }
 
   // Select a detected server config
@@ -776,9 +882,14 @@ export default function Servers() {
       zomboidDataPath: res?.dataPath || prev.zomboidDataPath,
       serverConfigPath: res?.serverConfigPath || prev.serverConfigPath,
       rconPort: config.rconPort,
-      rconPassword: config.rconPassword,
+      rconPassword: '',
       serverPort: config.serverPort
     }))
+    setImportIniFrom(
+      config.hasRcon && res?.dataPath
+        ? { dataPath: res.dataPath, serverName: config.serverName }
+        : null,
+    )
 
     if (!config.hasRcon) {
       toast({
@@ -791,6 +902,7 @@ export default function Servers() {
 
   const handleActivateServer = useCallback(async (server: ServerInstance) => {
     if (server.isActive) return
+    if (!canServersManage) return
 
     setActivating(server.id)
     try {
@@ -803,13 +915,13 @@ export default function Servers() {
     } catch (error) {
       toast({
         title: t('toasts.error'),
-        description: error instanceof Error ? error.message : t('toasts.activateFailed'),
+        description: getUserErrorMessage(error, t('toasts.activateFailed')),
         variant: 'destructive'
       })
     } finally {
       setActivating(null)
     }
-  }, [toast, fetchServers, t])
+  }, [toast, fetchServers, t, canServersManage])
 
   // Inline Start/Stop on server cards. The Node side `serverApi.start/stop`
   // operate on the currently-active instance only, so for inactive servers
@@ -831,6 +943,7 @@ export default function Servers() {
   }, [])
 
   const handleInlineStart = useCallback(async (server: ServerInstance) => {
+    if (!canInlineStartStop) return
     setServerActionPending(`start-${server.id}`)
     try {
       if (!server.isActive) {
@@ -850,15 +963,28 @@ export default function Servers() {
     } catch (error) {
       toast({
         title: t('toasts.startFailedTitle'),
-        description: error instanceof Error ? error.message : t('toasts.unknownError'),
+        description: getUserErrorMessage(error, t('toasts.unknownError')),
         variant: 'destructive',
       })
     } finally {
       setServerActionPending(null)
     }
-  }, [toast, fetchServers, fetchServerStatuses, waitForActionState, t])
+  }, [toast, fetchServers, fetchServerStatuses, waitForActionState, t, canInlineStartStop])
 
   const handleInlineStop = useCallback(async (server: ServerInstance) => {
+    if (!canInlineStartStop) return
+    // Unlike the Dashboard's Stop button (which gates behind a confirm
+    // dialog), this inline card button ran the stop immediately on click --
+    // a single misclick disconnects everyone on the server with no chance
+    // to back out. Reversible (start it again anytime), so this stays a
+    // plain, non-destructive-styled confirm rather than full alarm styling.
+    const ok = await confirm({
+      title: t('card.stopConfirmTitle'),
+      description: t('card.stopConfirmDescription'),
+      confirmLabel: t('card.stop'),
+      destructive: false,
+    })
+    if (!ok) return
     setServerActionPending(`stop-${server.id}`)
     try {
       if (!server.isActive) {
@@ -878,16 +1004,17 @@ export default function Servers() {
     } catch (error) {
       toast({
         title: t('toasts.stopFailedTitle'),
-        description: error instanceof Error ? error.message : t('toasts.unknownError'),
+        description: getUserErrorMessage(error, t('toasts.unknownError')),
         variant: 'destructive',
       })
     } finally {
       setServerActionPending(null)
     }
-  }, [toast, fetchServers, fetchServerStatuses, waitForActionState, t])
+  }, [toast, fetchServers, fetchServerStatuses, waitForActionState, t, confirm, canInlineStartStop])
 
   const handleDeleteServer = async () => {
     if (!deleteServer) return
+    if (!canServersManage) return
 
     setDeleting(true)
     setDeleteProgress(0)
@@ -900,9 +1027,24 @@ export default function Servers() {
       setDeleteProgress(prog)
     }, 200)
 
+    // Whether the files were ACTUALLY deleted, not just requested -- a
+    // refusal (wrong folder, or the new nested-data-path guard) or a
+    // thrown network error both leave the files untouched even though the
+    // panel record removal below still proceeds either way (existing
+    // behavior, unchanged: the "removingFromPanelAnyway" copy already says
+    // so explicitly for the thrown-error case). The final toast must not
+    // claim files were deleted when they were not -- that was true even
+    // before the nested-path guard existed, just less likely to fire.
+    let filesActuallyDeleted = false
+
     try {
-      // If deleteFiles is checked and server has an installPath, delete the files first
-      if (deleteFiles && deleteServer.installPath) {
+      // If deleteFiles is checked and server has an installPath, delete the files first.
+      // The checkbox itself is gated on server.wipe (can't be checked without it) --
+      // this canServerWipe re-check is defense-in-depth per Angela's Console.tsx
+      // lesson (disabled control != gate), and skips the file-delete step rather
+      // than aborting the whole action: panel-record-only deletion is a
+      // legitimately lower bar than servers.manage already grants.
+      if (deleteFiles && deleteServer.installPath && canServerWipe) {
         try {
           const result = await serversDetectApi.deleteFiles(deleteServer.installPath) as { error?: string }
           if (result?.error) {
@@ -911,9 +1053,11 @@ export default function Servers() {
               description: result.error,
               variant: 'destructive'
             })
+          } else {
+            filesActuallyDeleted = true
           }
         } catch (e) {
-          const msg = e instanceof Error ? e.message : t('toasts.couldNotDeleteFiles')
+          const msg = getUserErrorMessage(e, t('toasts.couldNotDeleteFiles'))
           toast({
             title: t('toasts.warningTitle'),
             description: t('toasts.removingFromPanelAnyway', { message: msg }),
@@ -931,7 +1075,7 @@ export default function Servers() {
 
       toast({
         title: t('toasts.deletedTitle'),
-        description: deleteFiles
+        description: filesActuallyDeleted
           ? t('toasts.deletedWithFiles', { name: deleteServer.name })
           : t('toasts.deletedFromPanel', { name: deleteServer.name })
       })
@@ -941,7 +1085,7 @@ export default function Servers() {
     } catch (error) {
       toast({
         title: t('toasts.error'),
-        description: error instanceof Error ? error.message : t('toasts.deleteServerFailed'),
+        description: getUserErrorMessage(error, t('toasts.deleteServerFailed')),
         variant: 'destructive'
       })
     } finally {
@@ -953,14 +1097,19 @@ export default function Servers() {
 
   const handleSaveEdit = async () => {
     if (!editingServer || savingEdit) return
+    if (!canServersManage) return
 
     // Validate port range
     if (!isValidPort(editingServer.rconPort)) {
       toast({ title: t('toasts.error'), description: t('toasts.rconPortRangeError'), variant: 'destructive' })
       return
     }
-    if (!isValidPort(editingServer.serverPort)) {
+    if (!isValidGamePort(editingServer.serverPort)) {
       toast({ title: t('toasts.error'), description: t('toasts.gamePortRangeError'), variant: 'destructive' })
+      return
+    }
+    if (!Number.isFinite(editingServer.minMemory) || !Number.isFinite(editingServer.maxMemory)) {
+      toast({ title: t('toasts.error'), description: t('toasts.memoryRequiredError'), variant: 'destructive' })
       return
     }
 
@@ -976,14 +1125,20 @@ export default function Servers() {
 
     setSavingEdit(true)
     try {
-      await serversApi.update(editingServer.id, editingServer)
-      toast({ title: t('toasts.savedTitle'), description: t('toasts.savedDesc') })
+      const result = await serversApi.update(editingServer.id, editingServer)
+      const warnings = result.warnings?.filter(Boolean) ?? []
+      toast({
+        title: warnings.length > 0 ? t('toasts.warningTitle') : t('toasts.savedTitle'),
+        description: warnings.length > 0
+          ? `${t('toasts.savedDesc')}. ${warnings.join(' ')}`
+          : t('toasts.savedDesc')
+      })
       setEditingServer(null)
       fetchServers()
     } catch (error) {
       toast({
         title: t('toasts.error'),
-        description: error instanceof Error ? error.message : t('toasts.updateServerFailed'),
+        description: getUserErrorMessage(error, t('toasts.updateServerFailed')),
         variant: 'destructive'
       })
     } finally {
@@ -993,6 +1148,7 @@ export default function Servers() {
 
   // Start Steam update/verify operation
   const handleStartSteamOperation = async () => {
+    if (!canServerInstall) return
     if (!steamOperation || !steamcmdPath.trim()) {
       toast({ title: t('toasts.error'), description: t('toasts.steamcmdPathRequired'), variant: 'destructive' })
       return
@@ -1025,7 +1181,7 @@ export default function Servers() {
       setSteamRunning(false)
       toast({
         title: t('toasts.error'),
-        description: error instanceof Error ? error.message : t('toasts.startOperationFailed'),
+        description: getUserErrorMessage(error, t('toasts.startOperationFailed')),
         variant: 'destructive'
       })
     }
@@ -1038,6 +1194,7 @@ export default function Servers() {
   // Delete Everything" flow uses (requires PZ marker files to be present,
   // refuses to delete folders it doesn't recognize as a PZ install).
   const handleClearInstallFolder = async () => {
+    if (!canServerWipe) return
     if (!steamOperation) return
     const installFolder = getInstallFolder(steamOperation.server.installPath)
     if (!installFolder) {
@@ -1061,7 +1218,7 @@ export default function Servers() {
     } catch (error) {
       toast({
         title: t('toasts.error'),
-        description: error instanceof Error ? error.message : t('toasts.clearFolderFailed'),
+        description: getUserErrorMessage(error, t('toasts.clearFolderFailed')),
         variant: 'destructive',
       })
     } finally {
@@ -1102,7 +1259,7 @@ export default function Servers() {
   const getInstallFolder = (installPath: string | undefined): string => {
     if (!installPath) return ''
     // If path ends with a script/executable, get the parent folder
-    if (/\.(bat|sh|exe)$/i.test(installPath)) {
+    if (isCustomLauncherPath(installPath)) {
       const lastSlash = Math.max(installPath.lastIndexOf('\\'), installPath.lastIndexOf('/'))
       return lastSlash > 0 ? installPath.substring(0, lastSlash) : installPath
     }
@@ -1110,6 +1267,7 @@ export default function Servers() {
   }
 
   const handleAddExistingServer = async () => {
+    if (!canServersManage) return
     // For remote servers, only need name, rcon credentials
     if (addMode === 'remote') {
       if (!newServer.name.trim()) {
@@ -1130,7 +1288,7 @@ export default function Servers() {
         toast({ title: t('toasts.error'), description: t('toasts.detectFirst'), variant: 'destructive' })
         return
       }
-      if (!newServer.rconPassword.trim()) {
+      if (!newServer.rconPassword.trim() && !importIniFrom) {
         toast({ title: t('toasts.error'), description: t('toasts.rconPasswordRequiredIni'), variant: 'destructive' })
         return
       }
@@ -1140,13 +1298,25 @@ export default function Servers() {
       toast({ title: t('toasts.error'), description: t('toasts.rconPortRangeError'), variant: 'destructive' })
       return
     }
-    if (!isValidPort(newServer.serverPort)) {
+    if (!isValidGamePort(newServer.serverPort)) {
       toast({ title: t('toasts.error'), description: t('toasts.gamePortRangeError'), variant: 'destructive' })
+      return
+    }
+    if (!Number.isFinite(newServer.minMemory) || !Number.isFinite(newServer.maxMemory)) {
+      toast({ title: t('toasts.error'), description: t('toasts.memoryRequiredError'), variant: 'destructive' })
       return
     }
 
     setAddingServer(true)
     try {
+      // Local mode with a detected config that has an ini password and no
+      // typed override: send a reference and let the server re-read the
+      // password itself, instead of round-tripping it through this form
+      // (which never held it in the first place -- /auto-scan and /detect
+      // don't return it).
+      const useIniImport =
+        addMode === 'local' && !!importIniFrom && !newServer.rconPassword.trim()
+
       const createResult = await serversApi.create({
         name: newServer.name || newServer.serverName,
         serverName: newServer.serverName,
@@ -1155,7 +1325,7 @@ export default function Servers() {
         serverConfigPath: newServer.serverConfigPath,
         rconHost: newServer.rconHost,
         rconPort: newServer.rconPort,
-        rconPassword: newServer.rconPassword,
+        ...(useIniImport ? { importIniFrom } : { rconPassword: newServer.rconPassword }),
         dockerContainerName: newServer.dockerContainerName || null,
         serverPort: newServer.serverPort,
         minMemory: newServer.minMemory,
@@ -1163,7 +1333,7 @@ export default function Servers() {
         useNoSteam: newServer.useNoSteam,
         useDebug: newServer.useDebug,
         isRemote: addMode === 'remote'
-      } as Partial<ServerInstance>)
+      } as Partial<ServerInstance> & { importIniFrom?: { dataPath: string; serverName: string } })
 
       if (createResult.server?.id) {
         await serversApi.activate(createResult.server.id)
@@ -1175,11 +1345,12 @@ export default function Servers() {
       setDetectResult(null)
       setDetectError(null)
       setSelectedServerConfig('')
+      setImportIniFrom(null)
       fetchServers()
     } catch (error) {
       toast({
         title: t('toasts.error'),
-        description: error instanceof Error ? error.message : t('toasts.addServerFailed'),
+        description: getUserErrorMessage(error, t('toasts.addServerFailed')),
         variant: 'destructive'
       })
     } finally {
@@ -1193,6 +1364,7 @@ export default function Servers() {
     setDetectResult(null)
     setDetectError(null)
     setSelectedServerConfig('')
+    setImportIniFrom(null)
     setAutoScanResult(null)
     setAutoScanPath('')
     setShowAutoScan(false)
@@ -1218,21 +1390,24 @@ export default function Servers() {
         icon={<Server className="w-5 h-5 text-primary" />}
         actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-9 w-9"
-              onClick={handleScanMounts}
-              disabled={scanningMounts}
-              aria-label={t('pageHeader.scanAria')}
-              title={t('pageHeader.scanTitle')}
-            >
-              {scanningMounts ? (
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <Search className="h-4 w-4" aria-hidden="true" />
-              )}
-            </Button>
+            <DisabledReason reason={!canServersDiscover ? t('pageHeader.scanNoPermission') : null}>
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-9 w-9"
+                onClick={handleScanMounts}
+                disabled={scanningMounts || !canServersDiscover}
+                aria-label={t('pageHeader.scanAria')}
+                // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, same text as the aria-label; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
+                title={t('pageHeader.scanTitle')}
+              >
+                {scanningMounts ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Search className="h-4 w-4" aria-hidden="true" />
+                )}
+              </Button>
+            </DisabledReason>
             <Button variant="outline" onClick={() => { setAddMode('remote'); setShowAddDialog(true) }}>
               <Globe className="w-4 h-4 mr-2" /> {t('pageHeader.addRemote')}
             </Button>
@@ -1373,7 +1548,8 @@ export default function Servers() {
                       {(() => {
                         // The selected server has real RCON/bridge signals from the
                         // composed status endpoint; every other card only knows
-                        // whatever the host-process scan found for it.
+                        // whatever its own provider-appropriate source found for it
+                        // (see the comment on serverStatuses above this component).
                         if (server.isActive && activeStatus) {
                           return (
                             <ServerStatusBadge
@@ -1384,12 +1560,29 @@ export default function Servers() {
                             />
                           )
                         }
-                        const status = serverStatuses[String(server.id)]
-                        const host = server.isRemote
-                          ? { status: 'unknown', label: t('card.statusHost') }
-                          : status
+                        const provider = resolveClientProvider(server)
+                        let host
+                        if (server.isRemote) {
+                          host = { status: 'unknown', label: t('card.statusHost') }
+                        } else if (provider === 'docker-local') {
+                          // GH#114: never read serverStatuses (the local process
+                          // scan) for a docker-mapped server -- it can't see a
+                          // process in a different container. dockerContainers is
+                          // already fetched in bulk for the whole page, so this is
+                          // a lookup against existing state, not a per-card fetch.
+                          const container = dockerContainers.find(
+                            (item) => item.name === server.dockerContainerName || item.id === server.dockerContainerName,
+                          )
+                          const dockerHostStatus = resolveDockerCardHostStatus(dockerAvailable, container)
+                          host = dockerHostStatus === 'unknown'
+                            ? { status: 'unknown', label: t('card.statusContainer'), detail: t('card.statusUnavailable') }
+                            : { status: dockerHostStatus, label: t('card.statusContainer') }
+                        } else {
+                          const status = serverStatuses[String(server.id)]
+                          host = status
                             ? { status: status.running ? 'running' : 'stopped', label: t('card.statusProcess') }
                             : undefined
+                        }
                         const rconStatus = rconStatuses[String(server.id)]
                         const rcon = rconStatus
                           ? rconStatus === 'connected'
@@ -1427,9 +1620,11 @@ export default function Servers() {
                         <Edit2 className="w-4 h-4 mr-2" /> {t('card.edit')}
                       </DropdownMenuItem>
                       {!server.isActive && (
-                        <DropdownMenuItem onClick={() => handleActivateServer(server)} disabled={activating !== null}>
-                          <Power className="w-4 h-4 mr-2" /> {t('card.setActive')}
-                        </DropdownMenuItem>
+                        <DisabledReason reason={!canServersManage ? t('card.noPermissionManage') : null} className="w-full">
+                          <DropdownMenuItem onClick={() => handleActivateServer(server)} disabled={activating !== null || !canServersManage}>
+                            <Power className="w-4 h-4 mr-2" /> {t('card.setActive')}
+                          </DropdownMenuItem>
+                        </DisabledReason>
                       )}
                       {!server.isRemote && (
                         <>
@@ -1498,30 +1693,52 @@ export default function Servers() {
                           </span>
                         </div>
                         <div className="flex items-center gap-1">
+                          <DisabledReason reason={!canDockerManage ? t('card.noPermissionDocker') : null}>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <Button size="iconDense" variant="ghost" disabled={pending || isRunning} onClick={() => handleDockerAction(container, 'start')} aria-label={t('card.startContainerAria', { name: container.name })}>
+                              <Button size="iconDense" variant="ghost" disabled={pending || isRunning || !canDockerManage} onClick={() => handleDockerAction(container, 'start')} aria-label={t('card.startContainerAria', { name: container.name })}>
                                 {dockerActionPending === `start-${container.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
                               </Button>
                             </TooltipTrigger>
                             <TooltipContent>{t('card.startContainer')}</TooltipContent>
                           </Tooltip>
+                          </DisabledReason>
+                          <DisabledReason reason={!canDockerManage ? t('card.noPermissionDocker') : null}>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <Button size="iconDense" variant="ghost" disabled={pending || !isRunning} onClick={() => handleDockerAction(container, 'stop')} aria-label={t('card.stopContainerAria', { name: container.name })}>
-                                {dockerActionPending === `stop-${container.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
+                              <Button size="iconDense" variant="ghost" disabled={pending || !isRunning || !canDockerManage} onClick={async () => {
+                                // Traced via Dwight: this route saves via RCON first and
+                                // refuses outright if that save fails (stricter than plain
+                                // process Stop), but the actual termination is Docker
+                                // SIGTERM-then-SIGKILL, not RCON's own graceful quit -- so
+                                // unlike plain Stop, it CAN end in a forced kill. Closer to
+                                // Force Stop's tier than plain Stop's, hence red + confirm
+                                // here despite the ghost/icon-only styling everywhere else
+                                // on this row.
+                                const ok = await confirm({
+                                  title: t('card.stopContainerConfirmTitle'),
+                                  description: t('card.stopContainerConfirmDescription', { name: container.name }),
+                                  confirmLabel: t('card.stopContainer'),
+                                })
+                                if (!ok) return
+                                handleDockerAction(container, 'stop')
+                              }} aria-label={t('card.stopContainerAria', { name: container.name })}>
+                                {dockerActionPending === `stop-${container.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4 text-destructive" />}
                               </Button>
                             </TooltipTrigger>
                             <TooltipContent>{t('card.stopContainer')}</TooltipContent>
                           </Tooltip>
+                          </DisabledReason>
+                          <DisabledReason reason={!canDockerManage ? t('card.noPermissionDocker') : null}>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <Button size="iconDense" variant="ghost" disabled={pending} onClick={() => handleDockerAction(container, 'restart')} aria-label={t('card.restartContainerAria', { name: container.name })}>
+                              <Button size="iconDense" variant="ghost" disabled={pending || !canDockerManage} onClick={() => handleDockerAction(container, 'restart')} aria-label={t('card.restartContainerAria', { name: container.name })}>
                                 {dockerActionPending === `restart-${container.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
                               </Button>
                             </TooltipTrigger>
                             <TooltipContent>{t('card.restartContainer')}</TooltipContent>
                           </Tooltip>
+                          </DisabledReason>
                         </div>
                       </div>
                       {stats && (
@@ -1619,44 +1836,54 @@ export default function Servers() {
                     const hasManagedContainer = dockerAvailable && server.dockerContainerName && dockerContainers.some((item) => item.name === server.dockerContainerName || item.id === server.dockerContainerName)
                     if (server.isRemote || hasManagedContainer) return null
                     return isRunning ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleInlineStop(server)}
-                        disabled={stopPending || serverActionPending !== null}
-                        title={t('card.stopThisServer')}
-                      >
-                        {stopPending ? (
-                          <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> {t('card.stopping')}</>
-                        ) : (
-                          <><Square className="w-4 h-4 mr-1.5" /> {t('card.stop')}</>
-                        )}
-                      </Button>
+                      <DisabledReason reason={!canInlineStartStop ? t('card.noPermissionStartStop') : null}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleInlineStop(server)}
+                          disabled={stopPending || serverActionPending !== null || !canInlineStartStop}
+                          // eslint-disable-next-line local/no-dead-disabled-title -- pure hint; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
+                          title={t('card.stopThisServer')}
+                        >
+                          {stopPending ? (
+                            <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> {t('card.stopping')}</>
+                          ) : (
+                            <><Square className="w-4 h-4 mr-1.5" /> {t('card.stop')}</>
+                          )}
+                        </Button>
+                      </DisabledReason>
                     ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleInlineStart(server)}
-                        disabled={startPending || serverActionPending !== null}
-                        title={server.isActive ? t('card.startThisServer') : t('card.switchAndStart')}
-                      >
-                        {startPending ? (
-                          <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> {t('card.starting')}</>
-                        ) : (
-                          <><Play className="w-4 h-4 mr-1.5" /> {t('card.start')}</>
-                        )}
-                      </Button>
+                      <DisabledReason reason={!canInlineStartStop ? t('card.noPermissionStartStop') : null}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleInlineStart(server)}
+                          disabled={startPending || serverActionPending !== null || !canInlineStartStop}
+                          // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (which of two enabled-state labels applies); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
+                          title={server.isActive ? t('card.startThisServer') : t('card.switchAndStart')}
+                        >
+                          {startPending ? (
+                            <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> {t('card.starting')}</>
+                          ) : (
+                            <><Play className="w-4 h-4 mr-1.5" /> {t('card.start')}</>
+                          )}
+                        </Button>
+                      </DisabledReason>
                     )
                   })()}
                   {server.isRemote && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleConfigureRemoteBridge(server)}
-                      title={t('card.configureSftpTitle')}
-                    >
-                      <Link className="w-4 h-4 mr-1.5" /> {t('card.configureSftp')}
-                    </Button>
+                    <DisabledReason reason={!canServersManage ? t('card.noPermissionManage') : null}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleConfigureRemoteBridge(server)}
+                        disabled={!canServersManage}
+                        // eslint-disable-next-line local/no-dead-disabled-title -- pure hint describing what the button does; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
+                        title={t('card.configureSftpTitle')}
+                      >
+                        <Link className="w-4 h-4 mr-1.5" /> {t('card.configureSftp')}
+                      </Button>
+                    </DisabledReason>
                   )}
                   {hasUpdate && (
                     <Button
@@ -1668,26 +1895,28 @@ export default function Servers() {
                     </Button>
                   )}
                   {!server.isActive && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="flex-1"
-                      onClick={() => handleActivateServer(server)}
-                      disabled={activating === server.id}
-                    >
-                      {activating === server.id ? (
-                        <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> {t('card.activating')}</>
-                      ) : (
-                        <><Power className="w-4 h-4 mr-1.5" /> {t('card.switchToThisServer')}</>
-                      )}
-                    </Button>
+                    <DisabledReason reason={!canServersManage ? t('card.noPermissionManage') : null}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1"
+                        onClick={() => handleActivateServer(server)}
+                        disabled={activating === server.id || !canServersManage}
+                      >
+                        {activating === server.id ? (
+                          <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> {t('card.activating')}</>
+                        ) : (
+                          <><Power className="w-4 h-4 mr-1.5" /> {t('card.switchToThisServer')}</>
+                        )}
+                      </Button>
+                    </DisabledReason>
                   )}
                 </div>
 
                 {/* Created date */}
                 {server.createdAt && (
                   <p className="text-[11px] text-muted-foreground/60 pt-1">
-                    {t('card.added', { date: new Date(server.createdAt).toLocaleDateString() })}
+                    {t('card.added', { date: new Date(server.createdAt).toLocaleDateString(i18n.language) })}
                   </p>
                 )}
               </CardContent>
@@ -1732,7 +1961,7 @@ export default function Servers() {
           {/* Mode Selector */}
           <div className="grid grid-cols-2 gap-3">
             <button
-              onClick={() => { setAddMode('local'); setNewServer(defaultNewServer); setDetectResult(null); setDetectError(null); setSelectedServerConfig('') }}
+              onClick={() => { setAddMode('local'); setNewServer(defaultNewServer); setDetectResult(null); setDetectError(null); setSelectedServerConfig(''); setImportIniFrom(null) }}
               className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-[background-color,border-color,color] ${
                 addMode === 'local'
                   ? 'border-primary bg-primary/5'
@@ -1746,7 +1975,7 @@ export default function Servers() {
               </div>
             </button>
             <button
-              onClick={() => { setAddMode('remote'); setNewServer({ ...defaultNewServer, isRemote: true, rconHost: '' }); setDetectResult(null); setDetectError(null); setSelectedServerConfig('') }}
+              onClick={() => { setAddMode('remote'); setNewServer({ ...defaultNewServer, isRemote: true, rconHost: '' }); setDetectResult(null); setDetectError(null); setSelectedServerConfig(''); setImportIniFrom(null) }}
               className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-[background-color,border-color,color] ${
                 addMode === 'remote'
                   ? 'border-primary bg-primary/5'
@@ -1799,10 +2028,9 @@ export default function Servers() {
                   </div>
                   <div className="space-y-2">
                     <Label>{t('remoteForm.rconPortLabel')}</Label>
-                    <Input
-                      type="number"
+                    <NumberInput
                       value={newServer.rconPort}
-                      onChange={e => setNewServer({ ...newServer, rconPort: parseInt(e.target.value) || 27015 })}
+                      onChange={rconPort => setNewServer({ ...newServer, rconPort })}
                     />
                   </div>
                 </div>
@@ -1824,10 +2052,11 @@ export default function Servers() {
 
                 <div className="space-y-2">
                   <Label>{t('remoteForm.gamePortLabel')}</Label>
-                  <Input
-                    type="number"
+                  <NumberInput
+                    min={1}
+                    max={65534}
                     value={newServer.serverPort}
-                    onChange={e => setNewServer({ ...newServer, serverPort: parseInt(e.target.value) || 16261 })}
+                    onChange={serverPort => setNewServer({ ...newServer, serverPort })}
                   />
                   <p className="text-xs text-muted-foreground">{t('remoteForm.gamePortHint')}</p>
                 </div>
@@ -1860,16 +2089,18 @@ export default function Servers() {
                       placeholder={t('localForm.scanPathPlaceholder')}
                       className="font-mono text-sm flex-1"
                     />
-                    <Button
-                      onClick={handleAutoScan}
-                      disabled={autoScanning || !autoScanPath.trim()}
-                    >
-                      {autoScanning ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <><Search className="w-4 h-4 mr-1" /> {t('localForm.scan')}</>
-                      )}
-                    </Button>
+                    <DisabledReason reason={!canServersDiscover ? t('localForm.discoverNoPermission') : null}>
+                      <Button
+                        onClick={handleAutoScan}
+                        disabled={autoScanning || !autoScanPath.trim() || !canServersDiscover}
+                      >
+                        {autoScanning ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <><Search className="w-4 h-4 mr-1" /> {t('localForm.scan')}</>
+                        )}
+                      </Button>
+                    </DisabledReason>
                   </div>
 
                   {/* Auto Scan Results */}
@@ -1940,22 +2171,25 @@ export default function Servers() {
                       setNewServer({ ...newServer, zomboidDataPath: e.target.value })
                       setDetectResult(null)
                       setDetectError(null)
+                      setImportIniFrom(null)
                     }}
                     placeholder={t('localForm.dataPathPlaceholder')}
                     className="font-mono text-sm flex-1"
                     maxLength={260}
                   />
-                  <Button
-                    variant="secondary"
-                    onClick={handleDetectServer}
-                    disabled={detecting || !newServer.zomboidDataPath.trim()}
-                  >
-                    {detecting ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <><Search className="w-4 h-4 mr-1" /> {t('localForm.detect')}</>
-                    )}
-                  </Button>
+                  <DisabledReason reason={!canServersDiscover ? t('localForm.discoverNoPermission') : null}>
+                    <Button
+                      variant="secondary"
+                      onClick={handleDetectServer}
+                      disabled={detecting || !newServer.zomboidDataPath.trim() || !canServersDiscover}
+                    >
+                      {detecting ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <><Search className="w-4 h-4 mr-1" /> {t('localForm.detect')}</>
+                      )}
+                    </Button>
+                  </DisabledReason>
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {t('localForm.dataPathHint')}
@@ -1971,6 +2205,13 @@ export default function Servers() {
                   className="font-mono text-sm"
                   maxLength={260}
                 />
+                {isCustomLauncherPath(newServer.installPath) && (
+                  <Alert className="border-warning/40 bg-warning/10">
+                    <AlertCircle className="h-4 w-4 text-warning" />
+                    <AlertTitle className="text-warning">{t('localForm.customLauncherNoticeTitle')}</AlertTitle>
+                    <AlertDescription>{t('localForm.customLauncherNoticeBody')}</AlertDescription>
+                  </Alert>
+                )}
               </div>
             </div>
             )}
@@ -2066,13 +2307,20 @@ export default function Servers() {
                         <div className="space-y-2 mt-2">
                           <Label>{t('localForm.rconPasswordLabel')}</Label>
                           <PasswordInput
-                            placeholder={t('localForm.rconPasswordPlaceholder')}
+                            placeholder={importIniFrom ? t('localForm.rconPasswordImportPlaceholder') : t('localForm.rconPasswordPlaceholder')}
                             value={newServer.rconPassword}
                             className="bg-background"
-                            onChange={value => setNewServer({ ...newServer, rconPassword: value })}
+                            onChange={value => {
+                              setNewServer({ ...newServer, rconPassword: value })
+                              setImportIniFrom(null)
+                            }}
                             label={t('localForm.rconPasswordAria')}
                           />
-                          {!newServer.rconPassword ? (
+                          {!newServer.rconPassword && importIniFrom ? (
+                            <p className="flex items-center gap-1 text-xs text-primary">
+                              <CheckCircle className="w-3 h-3" /> {t('localForm.passwordWillImport', { iniName: newServer.serverName })}
+                            </p>
+                          ) : !newServer.rconPassword ? (
                             <p className="text-xs text-warning">
                               <Trans
                                 i18nKey="localForm.rconPasswordRequired"
@@ -2097,24 +2345,24 @@ export default function Servers() {
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
                           <div className="space-y-2">
                             <Label>{t('localForm.minMemoryLabel')}</Label>
-                            <Input
-                              type="number"
+                            <NumberInput
                               min={1}
                               max={64}
                               value={newServer.minMemory}
                               className="bg-background"
-                              onChange={e => setNewServer({ ...newServer, minMemory: Math.max(1, parseInt(e.target.value) || 2) })}
+                              clamp={n => Math.max(1, n)}
+                              onChange={minMemory => setNewServer({ ...newServer, minMemory })}
                             />
                           </div>
                           <div className="space-y-2">
                             <Label>{t('localForm.maxMemoryLabel')}</Label>
-                            <Input
-                              type="number"
+                            <NumberInput
                               min={1}
                               max={64}
                               value={newServer.maxMemory}
                               className="bg-background"
-                              onChange={e => setNewServer({ ...newServer, maxMemory: Math.max(1, parseInt(e.target.value) || 4) })}
+                              clamp={n => Math.max(1, n)}
+                              onChange={maxMemory => setNewServer({ ...newServer, maxMemory })}
                             />
                           </div>
                         </div>
@@ -2132,16 +2380,18 @@ export default function Servers() {
             <Button variant="outline" onClick={resetAddDialog}>
               {t('addDialog.cancel')}
             </Button>
-            <Button
-              onClick={handleAddExistingServer}
-              disabled={addingServer || (addMode === 'local' ? (!selectedServerConfig || !newServer.rconPassword) : (!newServer.name || !newServer.rconHost || !newServer.rconPassword))}
-            >
-              {addingServer ? (
-                <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {t('addDialog.adding')}</>
-              ) : (
-                <><Plus className="w-4 h-4 mr-2" /> {t('addDialog.addServer')}</>
-              )}
-            </Button>
+            <DisabledReason reason={!canServersManage ? t('addDialog.noPermission') : null}>
+              <Button
+                onClick={handleAddExistingServer}
+                disabled={addingServer || !canServersManage || (addMode === 'local' ? (!selectedServerConfig || (!newServer.rconPassword && !importIniFrom)) : (!newServer.name || !newServer.rconHost || !newServer.rconPassword))}
+              >
+                {addingServer ? (
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {t('addDialog.adding')}</>
+                ) : (
+                  <><Plus className="w-4 h-4 mr-2" /> {t('addDialog.addServer')}</>
+                )}
+              </Button>
+            </DisabledReason>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2205,6 +2455,13 @@ export default function Servers() {
                   onChange={e => setEditingServer({ ...editingServer, installPath: e.target.value })}
                   className="font-mono text-sm"
                 />
+                {isCustomLauncherPath(editingServer.installPath) && (
+                  <Alert className="border-warning/40 bg-warning/10">
+                    <AlertCircle className="h-4 w-4 text-warning" />
+                    <AlertTitle className="text-warning">{t('editDialog.customLauncherNoticeTitle')}</AlertTitle>
+                    <AlertDescription>{t('editDialog.customLauncherNoticeBody')}</AlertDescription>
+                  </Alert>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -2333,32 +2590,33 @@ export default function Servers() {
               <div className={editingServer.isRemote ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 sm:grid-cols-3 gap-4"}>
                 <div className="space-y-2">
                   <Label>{t('editDialog.gamePortLabel')}</Label>
-                  <Input
-                    type="number"
+                  <NumberInput
+                    min={1}
+                    max={65534}
                     value={editingServer.serverPort}
-                    onChange={e => setEditingServer({ ...editingServer, serverPort: parseInt(e.target.value) || 16261 })}
+                    onChange={serverPort => setEditingServer({ ...editingServer, serverPort })}
                   />
                 </div>
                 {!editingServer.isRemote && (
                 <>
                 <div className="space-y-2">
                   <Label>{t('editDialog.minMemoryLabel')}</Label>
-                  <Input
-                    type="number"
+                  <NumberInput
                     min={1}
                     max={64}
                     value={editingServer.minMemory}
-                    onChange={e => setEditingServer({ ...editingServer, minMemory: Math.max(1, parseInt(e.target.value) || 2) })}
+                    clamp={n => Math.max(1, n)}
+                    onChange={minMemory => setEditingServer({ ...editingServer, minMemory })}
                   />
                 </div>
                 <div className="space-y-2">
                   <Label>{t('editDialog.maxMemoryLabel')}</Label>
-                  <Input
-                    type="number"
+                  <NumberInput
                     min={1}
                     max={64}
                     value={editingServer.maxMemory}
-                    onChange={e => setEditingServer({ ...editingServer, maxMemory: Math.max(1, parseInt(e.target.value) || 4) })}
+                    clamp={n => Math.max(1, n)}
+                    onChange={maxMemory => setEditingServer({ ...editingServer, maxMemory })}
                   />
                 </div>
                 </>
@@ -2371,9 +2629,11 @@ export default function Servers() {
             <Button variant="outline" onClick={() => setEditingServer(null)}>
               {t('editDialog.cancel')}
             </Button>
-            <Button onClick={handleSaveEdit} disabled={savingEdit}>
-              <Check className="w-4 h-4 mr-2" /> {savingEdit ? t('editDialog.saving') : t('editDialog.saveChanges')}
-            </Button>
+            <DisabledReason reason={!canServersManage ? t('editDialog.noPermission') : null}>
+              <Button onClick={handleSaveEdit} disabled={savingEdit || !canServersManage}>
+                <Check className="w-4 h-4 mr-2" /> {savingEdit ? t('editDialog.saving') : t('editDialog.saveChanges')}
+              </Button>
+            </DisabledReason>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2389,13 +2649,21 @@ export default function Servers() {
 
                 {deleteServer?.installPath && (
                   <div className="flex items-start gap-3 p-3 rounded-lg border bg-muted/50">
-                    <Checkbox
-                      id="deleteFiles"
-                      checked={deleteFiles}
-                      onCheckedChange={(checked) => setDeleteFiles(checked === true)}
-                      disabled={deleting}
-                      className="mt-1"
-                    />
+                    {/* Gated on server.wipe independently of the base Delete
+                        button (servers.manage) -- panel-record-only deletion
+                        is a legitimately lower bar, so a role missing
+                        server.wipe can still delete the record, just not
+                        check this box. The granularity goes where the
+                        capability boundary is, not where the button is. */}
+                    <DisabledReason reason={!canServerWipe ? t('deleteDialog.deleteFilesNoPermission') : null}>
+                      <Checkbox
+                        id="deleteFiles"
+                        checked={deleteFiles}
+                        onCheckedChange={(checked) => setDeleteFiles(checked === true)}
+                        disabled={deleting || !canServerWipe}
+                        className="mt-1"
+                      />
+                    </DisabledReason>
                     <label htmlFor="deleteFiles" className="text-sm cursor-pointer">
                       <span className="font-medium text-destructive">{t('deleteDialog.alsoDeleteFilesLabel')}</span>
                       <p className="text-muted-foreground mt-1">
@@ -2403,6 +2671,26 @@ export default function Servers() {
                         <code className="text-xs bg-background px-1 rounded">{deleteServer?.installPath}</code>
                       </p>
                     </label>
+                  </div>
+                )}
+
+                {/* Most installs keep the Zomboid data folder (world save)
+                    separate from the install folder above, so checking the
+                    box only means "reinstall via the Setup Wizard later" --
+                    annoying, not catastrophic. When the data path is nested
+                    inside the install path instead, this same delete also
+                    destroys the world save with no separate copy, and the
+                    panel will refuse to run it (see server.js's
+                    DELETE_FILES_DATA_PATH_NESTED check) until the data path
+                    is moved or backed up by hand. Surfaced here so that
+                    refusal isn't the first the operator hears of it. */}
+                {deleteFiles && isZomboidDataNestedInInstall(deleteServer?.zomboidDataPath, deleteServer?.installPath) && (
+                  <div className="rounded-lg border border-destructive/25 bg-destructive/8 p-3 text-sm">
+                    <p className="font-medium text-destructive">{t('deleteDialog.dataPathNestedWarningTitle')}</p>
+                    <p className="text-muted-foreground">
+                      {t('deleteDialog.dataPathNestedWarningDesc')}
+                    </p>
+                    <code className="text-xs bg-background px-1 rounded">{deleteServer?.zomboidDataPath}</code>
                   </div>
                 )}
 
@@ -2426,15 +2714,17 @@ export default function Servers() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>{t('deleteDialog.cancel')}</AlertDialogCancel>
-            <Button
-              onClick={handleDeleteServer}
-              disabled={deleting}
-              className={deleteFiles ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : ""}
-            >
-              {deleting ? (
-                <><Loader2 className="w-4 h-4 animate-spin mr-2" />{t('deleteDialog.removing')}</>
-              ) : deleteFiles ? t('deleteDialog.deleteEverything') : t('deleteDialog.removeFromPanel')}
-            </Button>
+            <DisabledReason reason={!canServersManage ? t('deleteDialog.noPermission') : null}>
+              <Button
+                onClick={handleDeleteServer}
+                disabled={deleting || !canServersManage}
+                className={deleteFiles ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : ""}
+              >
+                {deleting ? (
+                  <><Loader2 className="w-4 h-4 animate-spin mr-2" />{t('deleteDialog.removing')}</>
+                ) : deleteFiles ? t('deleteDialog.deleteEverything') : t('deleteDialog.removeFromPanel')}
+              </Button>
+            </DisabledReason>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -2480,15 +2770,20 @@ export default function Servers() {
                 disabled
                 className="font-mono text-sm bg-muted"
               />
-              <Button
-                type="button"
-                variant="destructive"
-                size="sm"
-                disabled={steamRunning || clearingInstall}
-                onClick={() => setConfirmClearInstall(true)}
-              >
-                <Trash2 className="w-3.5 h-3.5 mr-2" /> {t('steamDialog.clearFolderButton')}
-              </Button>
+              <DisabledReason reason={!canServerWipe ? t('clearInstallDialog.noPermission') : null}>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  disabled={steamRunning || clearingInstall || !canServerWipe}
+                  onClick={() => {
+                    if (!canServerWipe) return
+                    setConfirmClearInstall(true)
+                  }}
+                >
+                  <Trash2 className="w-3.5 h-3.5 mr-2" /> {t('steamDialog.clearFolderButton')}
+                </Button>
+              </DisabledReason>
               <p className="text-xs text-muted-foreground">
                 {t('steamDialog.clearFolderHint')}
               </p>
@@ -2538,7 +2833,7 @@ export default function Servers() {
                   if (!selected) return t('steamDialog.branchHintDefault')
                   const details = [selected.description]
                   if (selected.buildId) details.push(t('steamDialog.buildPrefix', { buildId: selected.buildId }))
-                  if (selected.timeUpdated) details.push(t('steamDialog.updatedPrefix', { date: new Date(selected.timeUpdated).toLocaleString() }))
+                  if (selected.timeUpdated) details.push(t('steamDialog.updatedPrefix', { date: new Date(selected.timeUpdated).toLocaleString(i18n.language) }))
                   return details.join(' - ')
                 })()}
               </p>
@@ -2565,18 +2860,20 @@ export default function Servers() {
               {steamRunning ? t('steamDialog.running') : steamCompleted ? t('steamDialog.close') : t('steamDialog.cancel')}
             </Button>
             {!steamCompleted && (
-              <Button
-                onClick={handleStartSteamOperation}
-                disabled={steamRunning || !steamcmdPath.trim()}
-              >
-                {steamRunning ? (
-                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {t('steamDialog.running')}</>
-                ) : steamOperation?.type === 'verify' ? (
-                  <><ShieldCheck className="w-4 h-4 mr-2" /> {t('steamDialog.startVerify')}</>
-                ) : (
-                  <><RefreshCw className="w-4 h-4 mr-2" /> {t('steamDialog.startUpdate')}</>
-                )}
-              </Button>
+              <DisabledReason reason={!canServerInstall ? t('steamDialog.noPermission') : null}>
+                <Button
+                  onClick={handleStartSteamOperation}
+                  disabled={steamRunning || !steamcmdPath.trim() || !canServerInstall}
+                >
+                  {steamRunning ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {t('steamDialog.running')}</>
+                  ) : steamOperation?.type === 'verify' ? (
+                    <><ShieldCheck className="w-4 h-4 mr-2" /> {t('steamDialog.startVerify')}</>
+                  ) : (
+                    <><RefreshCw className="w-4 h-4 mr-2" /> {t('steamDialog.startUpdate')}</>
+                  )}
+                </Button>
+              </DisabledReason>
             )}
             {steamCompleted === 'success' && (
               <Button
@@ -2587,12 +2884,14 @@ export default function Servers() {
               </Button>
             )}
             {steamCompleted === 'error' && (
-              <Button
-                onClick={() => { setSteamCompleted(null); handleStartSteamOperation(); }}
-                disabled={!steamcmdPath.trim()}
-              >
-                <RefreshCw className="w-4 h-4 mr-2" /> {t('steamDialog.retry')}
-              </Button>
+              <DisabledReason reason={!canServerInstall ? t('steamDialog.noPermission') : null}>
+                <Button
+                  onClick={() => { setSteamCompleted(null); handleStartSteamOperation(); }}
+                  disabled={!steamcmdPath.trim() || !canServerInstall}
+                >
+                  <RefreshCw className="w-4 h-4 mr-2" /> {t('steamDialog.retry')}
+                </Button>
+              </DisabledReason>
             )}
           </DialogFooter>
         </DialogContent>
@@ -2613,17 +2912,19 @@ export default function Servers() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={clearingInstall}>{t('clearInstallDialog.cancel')}</AlertDialogCancel>
-            <Button
-              onClick={handleClearInstallFolder}
-              disabled={clearingInstall}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {clearingInstall ? (
-                <><Loader2 className="w-4 h-4 animate-spin mr-2" />{t('clearInstallDialog.clearing')}</>
-              ) : (
-                <><Trash2 className="w-4 h-4 mr-2" />{t('clearInstallDialog.clearFolder')}</>
-              )}
-            </Button>
+            <DisabledReason reason={!canServerWipe ? t('clearInstallDialog.noPermission') : null}>
+              <Button
+                onClick={handleClearInstallFolder}
+                disabled={clearingInstall || !canServerWipe}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {clearingInstall ? (
+                  <><Loader2 className="w-4 h-4 animate-spin mr-2" />{t('clearInstallDialog.clearing')}</>
+                ) : (
+                  <><Trash2 className="w-4 h-4 mr-2" />{t('clearInstallDialog.clearFolder')}</>
+                )}
+              </Button>
+            </DisabledReason>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

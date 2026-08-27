@@ -17,7 +17,17 @@ jobs:
     name: Server (lint + tests)
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 (full history) -- roleDescriptionStalenessGate.test.js
+      # needs real git blame/log history to detect a stale capability-
+      # description translation. actions/checkout defaults to depth 1: on a
+      # shallow clone, git blame attributes every line to the single shallow-
+      # boundary commit, which silently collapses that gate to "0 findings"
+      # regardless of actual drift (verified by cloning this repo at depth 1
+      # and confirming the collapse before this fix). The client job doesn't
+      # need this and stays shallow for its usual faster checkout.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:

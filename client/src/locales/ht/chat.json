@@ -27,7 +27,8 @@
     "placeholderAdmin": "sèlman pou admin yo — peze antre pou voye…",
     "placeholderGeneral": "afiche kòm Admin — peze antre pou voye…",
     "placeholderServer": "voye bay tout jwè yo — peze antre pou voye…",
-    "sendButton": "voye"
+    "sendButton": "voye",
+    "noPermission": "Ou pa gen pèmisyon pou voye mesaj chat."
   },
   "footer": {
     "adminOnly": "sèlman pou admin yo — kache pou jwè òdinè yo",
@@ -51,7 +52,11 @@
     "addAria": "Ajoute anons rapid",
     "saveAria": "Sove",
     "cancelAria": "Anile",
-    "deleteAria": "Efase anons rapid {{index}}"
+    "deleteAria": "Efase anons rapid {{index}}",
+    "deleteConfirmTitle": "Efase anons rapid sa a?",
+    "deleteConfirmDescription": "\"{{preset}}\" pataje -- tout admin ki itilize anons rapid yo ap pèdi l tou. Ou ka toujou re-ajoute l.",
+    "deleteConfirmButton": "Efase Anons Rapid",
+    "noPermission": "Ou pa gen pèmisyon pou jere anons rapid yo."
   },
   "toasts": {
     "adminSentTitle": "Mesaj Admin Voye",

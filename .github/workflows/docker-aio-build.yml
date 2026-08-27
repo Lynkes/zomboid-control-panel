@@ -10,12 +10,10 @@ name: Build AIO Docker Image
 # paths, means it can never affect (or conflict with) the upstream-shared
 # build.
 #
-# On pull requests this only builds (no GHCR credentials are assumed
-# available/writable from a PR context) — that still catches a broken
-# Dockerfile before merge. On push to main (or a manual run) it also
-# publishes to ghcr.io/<owner>/zomboid-panel:aio, so the AIO stack becomes
-# pullable instead of only buildable-from-source via bootstrap.sh:
-#   docker pull ghcr.io/lynkes/zomboid-panel:aio
+# Pull requests build both images without publishing. Main publishes moving
+# `aio` / `updater` tags, while release tags publish immutable version tags
+# consumed by bootstrap.sh. The installer falls back to local builds if a tag
+# is still being published or predates this workflow.
 #
 # amd64-only: the base image (cm2network/steamcmd:root) and SteamCMD itself
 # have no arm64 build, so there is no usable arm64 target for this image
@@ -26,23 +24,25 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v*'
     paths:
-      - 'docker/all-in-one/Dockerfile'
-      - 'docker/all-in-one/entrypoint.sh'
+      - 'docker/all-in-one/**'
       - 'server/**'
       - 'client/**'
       - 'pz-mod/**'
       - 'package.json'
       - 'package-lock.json'
+      - '.github/workflows/docker-aio-build.yml'
   pull_request:
     paths:
-      - 'docker/all-in-one/Dockerfile'
-      - 'docker/all-in-one/entrypoint.sh'
+      - 'docker/all-in-one/**'
       - 'server/**'
       - 'client/**'
       - 'pz-mod/**'
       - 'package.json'
       - 'package-lock.json'
+      - '.github/workflows/docker-aio-build.yml'
   workflow_dispatch:
 
 permissions:
@@ -59,16 +59,25 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
-      # github.repository_owner preserves actual case ("Lynkes"), but GHCR
-      # (like all Docker registries) requires a lowercase repository name --
-      # docker-publish.yml never hits this because it goes through
-      # docker/metadata-action, which lowercases automatically; this
-      # workflow builds tags directly, so it needs to do that itself.
-      - name: Compute tag vars
-        id: vars
-        run: |
-          echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
-          echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+      - name: Extract all-in-one image metadata
+        id: panel-meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/zomboid-panel
+          tags: |
+            type=raw,value=aio,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+            type=semver,pattern={{version}},prefix=aio-
+            type=sha,format=short,prefix=aio-
+
+      - name: Extract updater image metadata
+        id: updater-meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/zomboid-panel
+          tags: |
+            type=raw,value=updater,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+            type=semver,pattern={{version}},prefix=updater-
+            type=sha,format=short,prefix=updater-
 
       # Only log in / push outside pull_request — a PR from a fork gets a
       # read-only GITHUB_TOKEN, and even a same-repo PR shouldn't publish an
@@ -88,11 +97,23 @@ jobs:
           file: docker/all-in-one/Dockerfile
           platforms: linux/amd64
           push: ${{ github.event_name != 'pull_request' }}
-          tags: |
-            ghcr.io/${{ steps.vars.outputs.owner }}/zomboid-panel:aio
-            ghcr.io/${{ steps.vars.outputs.owner }}/zomboid-panel:aio-${{ steps.vars.outputs.short_sha }}
+          tags: ${{ steps.panel-meta.outputs.tags }}
+          labels: ${{ steps.panel-meta.outputs.labels }}
           cache-from: type=gha,scope=aio
           cache-to: type=gha,mode=max,scope=aio
           # Same reasoning as docker-publish.yml: avoid the phantom
           # "unknown/unknown" provenance manifest on GHCR.
+          provenance: false
+
+      - name: Build (and publish on push/dispatch) updater image
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        with:
+          context: .
+          file: docker/all-in-one/updater/Dockerfile
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.updater-meta.outputs.tags }}
+          labels: ${{ steps.updater-meta.outputs.labels }}
+          cache-from: type=gha,scope=aio-updater
+          cache-to: type=gha,mode=max,scope=aio-updater
           provenance: false

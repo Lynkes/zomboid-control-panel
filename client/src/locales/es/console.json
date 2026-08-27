@@ -57,7 +57,8 @@
     "linesHidden_one": "{{count}} línea oculta por el filtro · ",
     "linesHidden_other": "{{count}} líneas ocultas por el filtro · ",
     "showAll": "mostrar todo",
-    "noStreamOutput": "sin salida de flujo",
+    "noStreamOutput": "Aún no hay salida de registro — el servidor no ha escrito nada desde que se abrió esta vista.",
+    "noOutputStreamDown": "Salida de registro desconocida — el flujo está caído, consulta el error de arriba.",
     "shown": "mostradas",
     "hidden": "ocultas",
     "loaded": "cargado",
@@ -76,6 +77,8 @@
     "notConfiguredDesc": "Configurar el host, el puerto y la contraseña en Mis servidores antes de usar comandos en vivo.",
     "hostUnreachableTitle": "host inaccesible",
     "hostUnreachableDesc": "Iniciar el servidor y luego confirmar el host, el puerto y la contraseña de RCON en Ajustes del panel.",
+    "authFailedTitle": "error de autenticación",
+    "authFailedDesc": "El host es accesible; confirma la contraseña de RCON en Mis servidores.",
     "outputLabel": "salida de rcon",
     "entries_one": "{{count}} entrada",
     "entries_other": "{{count}} entradas",
@@ -91,7 +94,8 @@
     "executeAria": "Ejecutar comando",
     "run": "ejecutar",
     "keyboardHint": "// intro · ejecutar · ↑↓ historial",
-    "noResponseFallback": "Sin respuesta"
+    "noResponseFallback": "Sin respuesta",
+    "noPermission": "Tu rol no tiene permiso para ejecutar comandos RCON."
   },
   "quickCommands": {
     "players": "Jugadores",
@@ -164,6 +168,7 @@
     "toggleLabel": "historial",
     "entries_one": "{{count}} entrada",
     "entries_other": "{{count}} entradas",
+    "truncatedHint": "(más recientes -- es posible que no se muestren comandos anteriores)",
     "searchPlaceholder": "buscar en el historial de comandos…",
     "searchAria": "Buscar en el historial de comandos",
     "emptyTitle": "Sin historial de comandos",

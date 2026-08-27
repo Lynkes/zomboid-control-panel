@@ -1,4 +1,12 @@
 {
+  "permissions": {
+    "noModsManage": "Wòl ou pa gen pèmisyon pou jere mods.",
+    "noServersManage": "Wòl ou pa gen pèmisyon pou jere sèvè yo."
+  },
+  "permissionDenied": {
+    "title": "Ou pa ka gade mods yo",
+    "description": "Wòl kont ou a pa gen \"Jere mods\". Mande yon administratè bay ou aksè sa a si ou bezwen l."
+  },
   "fetchError": {
     "title": "Done mods yo pa t kapab chaje",
     "retry": "Eseye ankò"
@@ -47,6 +55,11 @@
     "reported_other": "{{count}} mizajou mod Steam rapòte — drapo yo pa senkwonize",
     "desc": "Dosye Workshop la montre fichye ki pi nouvo pase sa panèl la genyen nan achiv li. Fè yon tchekaj pou mete estati chak mod ajou.",
     "checkNow": "Tcheke Kounye a"
+  },
+  "duplicateKeysWarning": {
+    "title_one": "\"{{keys}}\" parèt plis pase yon fwa nan fichye konfigirasyon sa a",
+    "title_other": "{{count}} paramèt parèt plis pase yon fwa nan fichye konfigirasyon sa a: {{keys}}",
+    "desc": "Paj sa a li premye kopi a, epi editè konfigirasyon sèvè a li dènye a — konsa toude ka montre valè diferan pou menm paramèt la."
   },
   "nav": {
     "aria": "Seksyon jesyon mods",
@@ -430,12 +443,12 @@
     "reEnable": "Reaktive",
     "reEnableCount": "Reaktive ({{count}})",
     "trackingCleanup": "Netwayaj swiv",
-    "destructive": "destriktif",
+    "destructive": "konfigirasyon sèlman, fichye yo rete",
     "deleteHint": "Efase retire sèlman swiv panèl la. Fichye Workshop yo rete sou disk, men ou ap bezwen ajoute mod la manyèlman pita.",
-    "deleteSelectedConfirm_one": "Efase {{count}} mod dezaktive chwazi nan swiv? Aksyon sa a pa ka anile (re-ajoute yo manyèlman si bezwen).",
-    "deleteSelectedConfirm_other": "Efase {{count}} mods dezaktive chwazi nan swiv? Aksyon sa a pa ka anile (re-ajoute yo manyèlman si bezwen).",
-    "deleteAllConfirm_one": "Efase TOUT {{count}} mod dezaktive nan swiv? Aksyon sa a pa ka anile (re-ajoute yo manyèlman si bezwen).",
-    "deleteAllConfirm_other": "Efase TOUT {{count}} mods dezaktive nan swiv? Aksyon sa a pa ka anile (re-ajoute yo manyèlman si bezwen).",
+    "deleteSelectedConfirm_one": "Retire {{count}} mod dezaktive chwazi nan swiv? Fichye Workshop yo rete sou disk -- ou ka re-ajoute l pita.",
+    "deleteSelectedConfirm_other": "Retire {{count}} mods dezaktive chwazi nan swiv? Fichye Workshop yo rete sou disk -- ou ka re-ajoute yo pita.",
+    "deleteAllConfirm_one": "Retire TOUT {{count}} mod dezaktive nan swiv? Fichye Workshop yo rete sou disk -- ou ka re-ajoute l pita.",
+    "deleteAllConfirm_other": "Retire TOUT {{count}} mods dezaktive nan swiv? Fichye Workshop yo rete sou disk -- ou ka re-ajoute yo pita.",
     "deleteFromTrackingTitle": "Efase nan swiv?",
     "deleteConfirmButton": "Efase",
     "deleteSelected": "Efase chwazi ({{count}})",
@@ -602,8 +615,10 @@
     "invalidFormatDesc": "Antre yon URL koleksyon Steam Workshop oswa yon ID koleksyon nimerik.",
     "noModsFoundInCollectionTitle": "Pa Jwenn Mods",
     "noModsFoundInCollectionDesc": "Koleksyon sa a sanble vid. Tcheke URL a epi eseye ankò.",
+    "collectionOnlySubCollectionsDesc": "Chak eleman nan koleksyon sa a se yon sou-koleksyon li menm ({{count}}) — Steam pa pèmèt ajoute yo dirèkteman kòm mods. Ouvri sou-koleksyon an sou Steam epi enpòte l separeman.",
     "modsFoundTitle": "{{count}} mods jwenn",
     "modsFoundDesc": "Chwazi ki mods pou ajoute, epi konfime.",
+    "modsFoundDescWithSkipped": "Chwazi ki mods pou ajoute, epi konfime. {{count}} eleman te sote paske yo se sou-koleksyon, pa mods.",
     "collectionImportFailedTitle": "Enpòtasyon Koleksyon Echwe",
     "collectionImportFailedFallback": "Pa t kapab jwenn koleksyon soti nan Steam. Tcheke URL a epi eseye ankò.",
     "noModsSelectedTitle": "Pa gen Mods Chwazi",

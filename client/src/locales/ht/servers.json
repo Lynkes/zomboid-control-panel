@@ -5,6 +5,7 @@
     "eyebrow": "Flòt",
     "scanAria": "Chèche sèvè",
     "scanTitle": "Chèche sèvè",
+    "scanNoPermission": "Pou ou eskane enstalasyon bind-mount yo, ou bezwen pèmisyon servers.discover, e wòl sa a pa genyen li.",
     "addRemote": "Ajoute Sèvè Aleka",
     "addExisting": "Ajoute Sèvè ki Egziste",
     "installNew": "Enstale Nouvo Sèvè"
@@ -40,6 +41,8 @@
     "dataPath": "Chemen Done",
     "startContainer": "Demare kontenè",
     "stopContainer": "Sispann kontenè",
+    "stopContainerConfirmTitle": "Sispann kontenè sa a?",
+    "stopContainerConfirmDescription": "{{name}} sovgade atravè RCON anvan, men se Docker ki sispann kontenè a limenm -- si li pa soti atan, Docker fòse l fèmen. Sa ka fini ak yon fèmti brital, kontrèman ak bouton Sispann nòmal la.",
     "restartContainer": "Redemare kontenè",
     "startContainerAria": "Demare {{name}}",
     "stopContainerAria": "Sispann {{name}}",
@@ -55,12 +58,15 @@
     "memory": "Memwa",
     "statusHost": "Lame",
     "statusProcess": "Pwosesis",
+    "statusContainer": "Kontenè",
     "statusNotConfigured": "Pa konfigire",
     "statusAuthFailed": "Otantifikasyon echwe",
     "statusUnavailable": "Pa disponib",
     "buildLabel": "Build:",
     "branchLabel": "Branch:",
     "stopThisServer": "Sispann sèvè sa a",
+    "stopConfirmTitle": "Sispann sèvè a?",
+    "stopConfirmDescription": "Sa ap dekonekte tout jwè ki konekte yo. Ou ka demare l ankò nenpòt lè.",
     "stopping": "N ap sispann...",
     "stop": "Sispann",
     "startThisServer": "Demare sèvè sa a",
@@ -72,7 +78,10 @@
     "updateNow": "Mete Ajou Kounye a",
     "activating": "N ap aktive...",
     "switchToThisServer": "Chanje sou Sèvè Sa a",
-    "added": "Ajoute {{date}}"
+    "added": "Ajoute {{date}}",
+    "noPermissionDocker": "Pou ou jere konteni sa a, ou bezwen pèmisyon docker.manage, e wòl sa a pa genyen li.",
+    "noPermissionManage": "Pou ou fè aksyon sa a, ou bezwen pèmisyon servers.manage, e wòl sa a pa genyen li.",
+    "noPermissionStartStop": "Ou bezwen ni servers.manage ni server.control — si w gen sèlman youn, sèvè a ta ka aktive men li pa ta demare/rete."
   },
   "tandem": {
     "sectionTitle": "Fè kouri yon dezyèm sèvè ansanm ak premye a",
@@ -113,7 +122,8 @@
     "rconOnlyDesc": "Fonksyon tankou modifikasyon konfig, jesyon mods, kopi sovgad, demaraj/sispann sèvè, ak operasyon dosye pap disponib. Ou toujou ka itilize konsòl la, jere jwè, voye mesaj chat, kontwole move tan ak evènman, epi fè kòmand pwograme kouri.",
     "cancel": "Anile",
     "adding": "N ap ajoute...",
-    "addServer": "Ajoute Sèvè"
+    "addServer": "Ajoute Sèvè",
+    "noPermission": "Pou ou ajoute yon sèvè, ou bezwen pèmisyon servers.manage, e wòl sa a pa genyen li."
   },
   "remoteForm": {
     "displayNameLabel": "Non Afichaj Sèvè *",
@@ -151,6 +161,8 @@
     "dataPathHint": "Dosye ki gen sou-dosye Server/, Saves/, Logs/",
     "installPathLabel": "Chemen Enstalasyon Sèvè (Opsyonèl)",
     "installPathPlaceholder": "Chemen pou dosye sèvè PZ la (gen StartServer64.bat oswa start-server.sh)",
+    "customLauncherNoticeTitle": "Mòd lansè pèsonalize",
+    "customLauncherNoticeBody": "Chemen sa a pwente sou yon script, pa yon dosye — panel la ap lanse li jan li ye a e li p ap janm regenere oswa modifye li. Paramèt ki nòmalman ekri otomatikman nan yon script demaraj pou ou (memwa, modpas admin, chemen done a, non sèvè a) p ap rive nan sèvè a sof si ou mete yo ou menm nan script sa a.",
     "noConfigsFoundTitle": "Pa jwenn konfig sèvè",
     "noConfigsFoundDesc": "Fè sèvè a kouri yon fwa pou kreye fichye INI a.",
     "selectConfigLabel": "Chwazi Konfigirasyon Sèvè",
@@ -162,11 +174,14 @@
     "rconPortLabel": "Pò RCON:",
     "rconPasswordLabel": "Modpas RCON *",
     "rconPasswordPlaceholder": "Antre modpas RCON",
+    "rconPasswordImportPlaceholder": "Kite l vid pou enpòte l otomatikman",
     "rconPasswordAria": "Modpas RCON",
     "rconPasswordRequired": "Obligatwa pou kontwole sèvè a. Ou ka tou defini <1>RCONPassword=yourpassword</1> nan fichye {{iniName}}.ini ou a.",
     "passwordSet": "Modpas defini",
+    "passwordWillImport": "Enpòte otomatikman soti nan {{iniName}}.ini — kite l vid pou itilize l, oswa tape yon nouvo pou ranplase l.",
     "minMemoryLabel": "Memwa Min (GB)",
-    "maxMemoryLabel": "Memwa Maks (GB)"
+    "maxMemoryLabel": "Memwa Maks (GB)",
+    "discoverNoPermission": "Pou ou detekte oswa eskane sèvè, ou bezwen pèmisyon servers.discover, e wòl sa a pa genyen li."
   },
   "editDialog": {
     "title": "Modifye Sèvè",
@@ -179,10 +194,12 @@
     "dockerContainerPlaceholder": "Non kontenè eksplisit opsyonèl",
     "dockerContainerHint": "Bezwen PANEL_DOCKER_CONTROL_ENABLED ak etikèt kontenè zomboid-panel.managed=true.",
     "installPathLabel": "Chemen Enstalasyon",
+    "customLauncherNoticeTitle": "Mòd lansè pèsonalize",
+    "customLauncherNoticeBody": "Chemen sa a pwente sou yon script, pa yon dosye — panel la ap lanse li jan li ye a e li p ap janm regenere oswa modifye li. Paramèt ki nòmalman ekri otomatikman nan yon script demaraj pou ou (memwa, modpas admin, chemen done a, non sèvè a) p ap rive nan sèvè a sof si ou mete yo ou menm nan script sa a.",
     "dataPathLabel": "Chemen Done Zomboid",
     "dataPathPlaceholder": "Kite vid pou default",
     "customStartCommandLabel": "Kòmand Demaraj Pèsonalize",
-    "customStartCommandTooltip": "Ranplase script demaraj default la ak yon kòmand pèsonalize. Sipòte agiman. Kite vid pou itilize deteksyon fichye bat/sh default la.",
+    "customStartCommandTooltip": "Ranplase script demaraj default la ak yon kòmand pèsonalize. Sipòte agiman. Kite vid, e panèl la ap rejenere script demaraj bat/sh default la apati paramèt sa yo chak fwa sèvè a demare — sa a REMPLASE fichye sa a, ansanm ak nenpòt chanjman ou fè manyèlman, menmsi yon fichye ki chanje sovgade anvan.",
     "customStartCommandPlaceholder": "pa egzanp ./start-server.sh -servername MyServer",
     "customStartCommandDisallowed": "Kòmand lan gen karaktè shell ki pa otorize",
     "noSteamLabel": "Lanse san Steam",
@@ -206,20 +223,25 @@
     "maxMemoryLabel": "Memwa Maks (GB)",
     "cancel": "Anile",
     "saving": "N ap sove...",
-    "saveChanges": "Sove Chanjman"
+    "saveChanges": "Sove Chanjman",
+    "noPermission": "Pou ou sove paramèt sèvè yo, ou bezwen pèmisyon servers.manage, e wòl sa a pa genyen li."
   },
   "deleteDialog": {
     "title": "Retire Sèvè nan Panèl la?",
     "description": "Sa a ap retire \"{{name}}\" nan jesyon panèl la.",
     "alsoDeleteFilesLabel": "Efase dosye sèvè yo tou",
     "alsoDeleteFilesDesc": "Sa a ap efase pou tout tan tout dosye nan:",
+    "dataPathNestedWarningTitle": "Sa a ap efase sovgad mond lan tou",
+    "dataPathNestedWarningDesc": "Dosye done Zomboid sèvè sa a nan anndan dosye enstalasyon anwo a, kidonk pa gen okenn kopi apa — efase l ap detwi sovgad mond lan tou. Panel la ap refize sa jiskaske ou deplase chemen done a nan Paramèt oswa fè pwòp kopi sovgad ou:",
     "filesNotDeleted": "Dosye sèvè yo PAP efase - ou ka ajoute sèvè sa a ankò pita.",
     "deletingFiles": "N ap efase dosye sèvè yo...",
     "removingServer": "N ap retire sèvè a...",
     "cancel": "Anile",
     "removing": "N ap retire...",
     "deleteEverything": "Efase Tout Bagay",
-    "removeFromPanel": "Retire nan Panèl la"
+    "removeFromPanel": "Retire nan Panèl la",
+    "noPermission": "Pou ou retire yon sèvè, ou bezwen pèmisyon servers.manage, e wòl sa a pa genyen li.",
+    "deleteFilesNoPermission": "Pou ou efase fichye sèvè yo, ou bezwen pèmisyon server.wipe, e wòl sa a pa genyen li. Ou toujou ka retire antre nan panèl la sèlman."
   },
   "steamDialog": {
     "verifyTitle": "Verifye Dosye Jwèt",
@@ -247,7 +269,8 @@
     "startVerify": "Kòmanse Verifikasyon",
     "startUpdate": "Kòmanse Mizajou",
     "done": "Fini",
-    "retry": "Eseye ankò"
+    "retry": "Eseye ankò",
+    "noPermission": "Pou ou mete ajou oswa verifye fichye sèvè yo, ou bezwen pèmisyon server.install, e wòl sa a pa genyen li."
   },
   "clearInstallDialog": {
     "title": "Efase Dosye Enstalasyon?",
@@ -255,7 +278,8 @@
     "descriptionAfter": "— ki gen ladan l dosye jwèt yo, eta telechajman SteamCMD, ak nenpòt mods enstale la a. Itilize sa a pou repran apre yon mizajou SteamCMD ki kontinye echwe (enstalasyon domaje oswa bloke). Ou ap bezwen fè Kòmanse Mizajou kouri ankò apre pou enstale ankò soti nan zewo. Sa a pa afekte done sovgad ou yo.",
     "cancel": "Anile",
     "clearing": "N ap efase...",
-    "clearFolder": "Efase Dosye a"
+    "clearFolder": "Efase Dosye a",
+    "noPermission": "Pou ou vide dosye enstalasyon an, ou bezwen pèmisyon server.wipe, e wòl sa a pa genyen li."
   },
   "branches": {
     "public": "Piblik (Stab)",
@@ -314,7 +338,8 @@
     "deletedFromPanel": "Sèvè \"{{name}}\" retire nan panèl la",
     "deleteServerFailed": "Efase sèvè a echwe",
     "rconPortRangeError": "Pò RCON dwe ant 1 ak 65535",
-    "gamePortRangeError": "Pò Jwèt la dwe ant 1 ak 65535",
+    "gamePortRangeError": "Pò Jwèt la dwe ant 1 ak 65534",
+    "memoryRequiredError": "Antre yon valè memwa minimòm ak maksimòm",
     "savedTitle": "Sove",
     "savedDesc": "Paramèt sèvè mete ajou",
     "updateServerFailed": "Mete sèvè a ajou echwe",

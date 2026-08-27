@@ -75,7 +75,10 @@ describe("POST /discord/test -- distinguishes why Discord's API said no", () => 
     mockFetchOnce(401);
     const res = await runRoute("/test", "post", req);
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json).toHaveBeenCalledWith({ error: "Invalid token" });
+    expect(res.json).toHaveBeenCalledWith({
+      error: "Invalid token",
+      code: "DISCORD_TEST_TOKEN_INVALID",
+    });
   });
 
   it("429 -- reports rate limiting, not a bad token", async () => {

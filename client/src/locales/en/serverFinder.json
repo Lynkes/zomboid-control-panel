@@ -70,6 +70,9 @@
   "emptyState": {
     "noServersTitle": "No public servers found",
     "noServersDesc": "Try refreshing the list in a moment.",
+    "noServersDescUnreachable": "The panel couldn't reach the server list at all. Check the panel's own network connection, then try refreshing.",
+    "noServersDescNoneResponded": "A server list came back, but none of those servers answered in time. This is normal on a busy scan — try refreshing.",
+    "noServersDescGenuinelyEmpty": "The server list answered and it's genuinely empty right now. Try refreshing in a moment.",
     "noApiKeyTitle": "Steam API key missing",
     "noApiKeyDesc": "Add your Steam API key in Settings to load the public Project Zomboid server list.",
     "noMatchTitle": "No servers match your filters",
@@ -80,6 +83,8 @@
     "passwordProtected": "Password Protected",
     "vacSecured": "VAC Secured",
     "pingNa": "N/A",
+    "pingFailUnparseable": "The server answered, but in a form the panel couldn't read — likely a version or protocol mismatch. It's running and reachable.",
+    "pingFailUnreachable": "The server never answered. Check it's running, the port is correct, and nothing (a firewall, a full disconnect) is blocking the connection.",
     "pingMs": "{{ping}}ms",
     "pingButton": "Ping",
     "connect": "Connect",

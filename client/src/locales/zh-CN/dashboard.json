@@ -1,5 +1,30 @@
 {
   "loading": "正在建立连接…",
+  "autoUpdateResult": {
+    "successTitle": "自动更新已完成",
+    "successDescription": "服务器自动更新已成功完成。",
+    "successDescriptionVersioned": "服务器自动更新已成功完成（当前运行版本 {{version}}）。",
+    "failedTitle": "自动更新失败",
+    "dismiss": "关闭",
+    "dismissAria": "关闭自动更新通知",
+    "dismissFailedTitle": "无法关闭通知",
+    "dismissFailedFallback": "无法关闭该通知，请重试。",
+    "serverUp": "您的服务器目前正在运行。",
+    "serverDown": "您的服务器目前已停止。",
+    "serverUnaffected": "没有发生任何更改——您的服务器状态未受影响。",
+    "reasons": {
+      "MANAGED_CONTAINER": "此服务器运行在面板管理的 Docker 容器中。请改为更新容器镜像——面板不会对受管理的容器运行 SteamCMD。",
+      "NOT_CONFIGURED": "未配置 SteamCMD 路径或服务器安装路径。",
+      "INITIAL_SCAN_FAILED": "无法确认服务器是否正在运行，出于安全考虑已放弃本次更新。",
+      "RCON_NOT_CONNECTED": "RCON 未连接，因此无法安全停止服务器。",
+      "SAVE_FAILED": "无法保存世界（{{reason}}），因此已放弃更新以避免丢失进度。",
+      "STOP_SCAN_FAILED": "无法再确认服务器是否已停止，出于安全考虑已放弃本次更新。",
+      "STOP_TIMEOUT": "服务器未在 5 分钟内停止。",
+      "STEAMCMD_NOT_FOUND": "在 {{path}} 未找到 SteamCMD。",
+      "STEAMCMD_EXIT_CODE": "SteamCMD 以代码 {{code}} 退出。",
+      "UNKNOWN": "自动更新过程中发生了意外错误。"
+    }
+  },
   "errors": {
     "failedToConnect": "无法连接到服务器。",
     "failedToLoad": "加载仪表盘状态失败。",
@@ -48,7 +73,11 @@
     "autoStartDisabledDesc": "服务器将不会自动启动",
     "autoStartSaveFailed": "保存自动启动设置失败",
     "errorTitle": "错误",
-    "actionFailedFallback": "操作失败，请重试。"
+    "actionFailedFallback": "操作失败，请重试。",
+    "rconAuthFailed": {
+      "openServers": "打开服务器",
+      "openServersAlt": "打开服务器页面以更新 RCON 密码"
+    }
   },
   "actions": {
     "start": "启动",
@@ -65,7 +94,11 @@
     "moreActionsAria": "更多服务器操作",
     "addServerFirst": "先添加或选择一个服务器",
     "notAvailableRemote": "远程（仅 RCON）服务器不可用",
-    "forceStopTooltip": "立即停止游戏且不保存"
+    "forceStopTooltip": "尝试快速保存，之后无论如何都会立即停止",
+    "connectRconNeedsHostRunning": "请先启动服务器",
+    "noPermissionControl": "您的角色没有控制服务器的权限。",
+    "noPermissionWipe": "您的角色没有清除世界的权限。",
+    "wipeMustStopFirst": "请先停止服务器再清除。"
   },
   "confirm": {
     "cancel": "取消",
@@ -75,7 +108,7 @@
     },
     "forceStopServer": {
       "title": "强制停止服务器",
-      "description": "此操作将立即终止游戏进程且不保存。",
+      "description": "此操作会先尝试快速保存（最多 3 秒），然后无论保存是否成功都会立即停止游戏。",
       "descriptionPlayers": " {{count}} 名玩家将被断开连接！"
     },
     "restartServer": {
@@ -90,8 +123,13 @@
   },
   "successCopy": {
     "startServer": { "title": "服务器正在启动", "description": "在仪表盘上查看实时状态。" },
+    "startServerScriptBackup": { "title": "服务器正在启动——启动脚本已备份", "description": "面板检测到启动脚本有变化，已在重新生成前保存了你的版本。" },
     "stopServer": { "title": "服务器已停止", "description": "会话已正常关闭。" },
-    "forceStopServer": { "title": "服务器已强制停止", "description": "游戏进程已在未使用 RCON 的情况下终止。" },
+    "stopServerRequested": { "title": "已请求关闭", "description": "服务器正在保存并正常关闭——大型存档可能需要一些时间。状态徽标会在确认已停止后更新。" },
+    "forceStopServer": { "title": "服务器已强制停止", "description": "世界已保存，然后游戏进程已停止。" },
+    "forceStopSaveFailed": { "title": "服务器已强制停止 — 保存失败", "description": "停止前的保存被拒绝。最近的进度可能会丢失。" },
+    "forceStopSaveTimedOut": { "title": "服务器已强制停止 — 保存超时", "description": "停止前的保存在 3 秒内没有响应。最近的进度可能会丢失。" },
+    "forceStopSaveSkipped": { "title": "服务器已强制停止 — 未尝试保存", "description": "RCON 未连接，因此停止前未尝试保存。最近的进度可能会丢失。" },
     "restartServer": { "title": "已安排重启", "description": "服务器即将重启。" },
     "restartServerNow": { "title": "已触发重启", "description": "已发送强制重启指令。" },
     "saveWorld": { "title": "世界已保存", "description": "当前状态已写入磁盘。" },
@@ -108,6 +146,8 @@
     "serverStatusUnknown": "服务器状态未知",
     "serverStopped": "服务器已停止",
     "rconDisconnected": "RCON 已断开",
+    "rconHelpLabel": "RCON",
+    "rconHelpTip": "RCON 是本面板用来向正在运行的游戏发送命令的远程控制台协议——踢出玩家、保存世界、广播消息，以及面板所做的其他一切操作。在它断开连接期间，这些操作将无法使用，直到重新连接为止。",
     "hostMemory": "主机内存 {{percent}}%",
     "diskAlmostFull": "磁盘空间即将耗尽，剩余 {{gb}} GB",
     "diskPercent": "磁盘 {{percent}}%，剩余 {{gb}} GB",
@@ -265,7 +305,12 @@
       "world": { "label": "世界状态", "desc": "世界字典、元数据、侵蚀、游戏对象状态、电台。" },
       "accounts": { "label": "账号与封禁", "desc": "用户账号、密码、角色、白名单及封禁列表。所有人将在下次加入时重新注册。" }
     },
-    "notice": "选择地图、玩家和世界将彻底清空存档文件夹，包括模组留下的所有内容。服务器 .ini 与沙盒设置单独存储，不会受到影响。",
+    "notice": "选择地图、玩家或世界将永久删除相应数据——除非先在下方创建备份，否则无法撤销。选择账号将永久删除白名单和封禁列表；所有人将在下次加入时重新注册。服务器 .ini 与沙盒设置单独存储，不会受到影响。",
+    "backupLabel": "清除前先备份",
+    "backupDesc": "在删除任何内容之前，创建当前存档的完整备份（如果选择了账号，也会备份账号数据库）。可在备份页面中恢复。",
+    "noBackupTitle": "不会创建备份",
+    "noBackupDesc": "你清除的内容将永久丢失，无法通过面板撤销。",
+    "backupStarting": "正在开始备份……",
     "noFilesFound": "未找到所选目标对应的文件。",
     "willDelete": "此操作将永久删除：",
     "categoryLabels": {
@@ -286,6 +331,7 @@
     "previewFailedFallback": "无法扫描存档目录",
     "wipedTitle": "服务器已清除",
     "wipedDesc": "已删除：{{targets}}",
+    "wipedDescWithBackup": "已删除：{{targets}}。已提前备份为 {{name}}。",
     "wipeFailedTitle": "清除失败",
     "wipeFailedFallback": "未知错误"
   }

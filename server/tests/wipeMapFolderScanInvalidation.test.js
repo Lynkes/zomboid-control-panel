@@ -72,7 +72,11 @@ describe("POST /api/server/wipe invalidates chunks.js's cached map/ folder scan"
     await handler(
       {
         app: { get: () => serverManager },
-        body: { targets: ["map"], confirm: true },
+        // createBackup: false -- this test is about the map/ scan cache,
+        // not about the pre-wipe backup step; the shared `app.get` mock
+        // above has no real backupService to hand back, and reaching that
+        // code here would just be testing a different route's plumbing.
+        body: { targets: ["map"], confirm: true, createBackup: false },
       },
       response,
     );
@@ -98,7 +102,7 @@ describe("POST /api/server/wipe invalidates chunks.js's cached map/ folder scan"
     await handler(
       {
         app: { get: () => serverManager },
-        body: { targets: ["players"], confirm: true },
+        body: { targets: ["players"], confirm: true, createBackup: false },
       },
       response,
     );

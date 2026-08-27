@@ -1,4 +1,9 @@
 {
+  "permissions": {
+    "noManage": "管理备份需要 backups.manage 权限，而该角色没有此权限。",
+    "noRestore": "还原备份需要 backups.restore 权限，而该角色没有此权限。",
+    "noDownload": "下载备份需要 backups.download 权限，而该角色没有此权限。"
+  },
   "pageHeader": {
     "title": "世界备份",
     "description": "创建、恢复和管理服务器世界备份",
@@ -106,7 +111,7 @@
     "description": "恢复 <1>{{name}}</1>。此操作将<2>替换</2>当前的世界数据。",
     "bulletStopServer": "请先停止服务器。",
     "bulletSafetyBackup": "面板会在恢复前创建一份安全备份。",
-    "bulletCannotUndo": "此操作无法撤销。",
+    "bulletUndoRequiresRestore": "之后要撤销此操作，需要您自己手动恢复该安全备份——这不会自动完成。",
     "cancel": "取消",
     "confirm": "恢复此备份"
   },

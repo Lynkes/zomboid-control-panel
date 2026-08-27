@@ -5,5 +5,7 @@
   "description": "Se produjo un error al cargar esta sección",
   "tryAgain": "Intentar de nuevo",
   "dashboard": "Tablero",
-  "defaultFeatureName": "Esta función"
+  "defaultFeatureName": "Esta función",
+  "showDetails": "Mostrar detalles técnicos",
+  "openRecoveryPage": "Abrir la página que puede solucionarlo"
 }

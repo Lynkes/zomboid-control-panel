@@ -1,31 +1,41 @@
 import express from "express";
 import fs from "fs";
-import path from "path";
 import { createLogger } from "../utils/logger.js";
 const log = createLogger("API:Config");
 import { getAllSettings, getSetting, setSetting } from "../database/init.js";
 import {
   sanitizeError,
+  sanitizeErrorParams,
   SENSITIVE_FIELD_RE,
   isMaskedSecret,
   maskSensitiveObject,
 } from "../utils/sanitize.js";
 import net from "net";
-import { requirePermission } from "../services/permissions.js";
+import { requirePermission, getRoleByName } from "../services/permissions.js";
 import {
   MOD_CHECK_INTERVAL_MINUTES_MAX,
   MOD_CHECK_INTERVAL_MINUTES_MIN,
   minutesToCheckIntervalMs,
 } from "../services/modChecker.js";
-import { requireStoppedForLocalConfigMutation } from "../services/configMutationGuard.js";
+import {
+  checkTcpReachable,
+  RCON_UNREACHABLE_DETAIL,
+  RCON_AUTH_FAILED_DETAIL,
+  RCON_USER_ACTION_TIMEOUT_MS,
+} from "../services/rcon.js";
+import { ErrorCode } from "../utils/errorCodes.js";
 import {
   requireIntInRange,
-  PORT_MIN,
-  PORT_MAX,
+  BIND_PORT_MIN,
+  BIND_PORT_MAX,
+  GAME_PORT_MAX,
+  DESTINATION_PORT_MIN,
+  DESTINATION_PORT_MAX,
   MEMORY_GB_MIN,
   MIN_MEMORY_GB_MAX,
   MAX_MEMORY_GB_MAX,
 } from "./server.js";
+import { parseBoundedInteger } from "../utils/queryNumbers.js";
 
 // Local to this route: autoExportMaxPerPlayer has no counterpart check in
 // server.js (or anywhere else), so unlike the port/memory constants above
@@ -34,6 +44,8 @@ import {
 // Settings.tsx's own input (min=1 max=50).
 const AUTO_EXPORT_MAX_PER_PLAYER_MIN = 1;
 const AUTO_EXPORT_MAX_PER_PLAYER_MAX = 50;
+const SFTP_POLL_INTERVAL_MIN = 2;
+const SFTP_POLL_INTERVAL_MAX = 10;
 
 // Also local: neither of these has a server.js counterpart. Ranges chased
 // from their consuming services rather than guessed -- see the comments at
@@ -121,21 +133,68 @@ const VALID_SETTINGS_KEYS = [
   "panelBridgeSftpConfigPath",
 ];
 
-const OPTION_NAME_REGEX = /^[a-zA-Z0-9_]{1,64}$/;
-const OPTION_VALUE_REGEX = /^[a-zA-Z0-9_.,:;\/ -]{0,256}$/;
+// PUT /app-settings is gated by panel.settings alone, but its real reach
+// spans five OTHER capabilities' territory: rconPassword/rconHost/rconPort
+// (server.configure), Steam credentials (server.install), PanelBridge SFTP
+// including its password (bridge.setup), the Discord guild ID
+// (integrations.manage), and Workshop session cookies + collection sync
+// (mods.manage). A panel.settings holder cannot silently rewrite any of
+// these through this one door without also holding the capability that
+// actually governs it -- found in the 2026-08-26 capability-description
+// sweep. Every key NOT listed here is the genuinely app-level remainder
+// (CORS, dark mode, mod check interval, HTTPS bind config, ...) and needs
+// nothing beyond panel.settings itself, which the route is already gated
+// on.
+//
+// serverPath/serverConfigPath/zomboidDataPath are the LEGACY, pre-multi-
+// server settings mirror of servers.js's own installPath/serverConfigPath/
+// zomboidDataPath fields -- not a separate concept that merely shares a
+// name. Confirmed by reading every real consumer, not assumed from the
+// label: server.js's getServerConfigPath()/console-log route, chunks.js's
+// getZomboidDataPath(), modChecker.js's ACF-path lookup, and updateChecker.js
+// all resolve `activeServer?.<field> || getSetting(<legacy key>)` -- a
+// PER-FIELD fallback that consults the legacy setting even while a real
+// active server exists, whenever that server's own field happens to be
+// unset. That makes this the same "one operation, two doors" shape closed
+// four other times tonight: servers.js's own writes to these fields are
+// gated servers.manage, so this door is mapped to match the sibling write
+// path (per the field being genuinely the same one, not the label) rather
+// than to server.configure. serverPort is the one exception -- grepped
+// every getSetting("serverPort") call site and found none outside this
+// file itself; nothing ever reads the legacy value, so it's dead storage
+// with no live consumer to create a two-doors risk. Left unmapped
+// (panel.settings only) rather than invented a requirement for a value
+// nothing acts on.
+const SETTINGS_KEY_CAPABILITY = {
+  rconHost: "server.configure",
+  rconPort: "server.configure",
+  rconPassword: "server.configure",
+  serverPath: "servers.manage",
+  serverConfigPath: "servers.manage",
+  zomboidDataPath: "servers.manage",
+  steamApiKey: "server.install",
+  steamUpdateAccount: "server.install",
+  steamcmdPath: "server.install",
+  panelBridgeSftpEnabled: "bridge.setup",
+  panelBridgeSftpHost: "bridge.setup",
+  panelBridgeSftpPort: "bridge.setup",
+  panelBridgeSftpUsername: "bridge.setup",
+  panelBridgeSftpPassword: "bridge.setup",
+  panelBridgeSftpBridgePath: "bridge.setup",
+  panelBridgeSftpPollIntervalSeconds: "bridge.setup",
+  panelBridgeSftpLogPath: "bridge.setup",
+  panelBridgeSftpConfigPath: "bridge.setup",
+  discordGuildId: "integrations.manage",
+  workshopCollectionId: "mods.manage",
+  workshopCollectionAutoSync: "mods.manage",
+  steamSessionId: "mods.manage",
+  steamLoginSecure: "mods.manage",
+};
+
 const ORIGIN_DELIMITER_REGEX = /[\n,;]+/;
 const MAX_CORS_ALLOWED_ORIGINS_LENGTH = 5000;
 const MAX_CORS_ALLOWED_ORIGINS = 100;
 const MAX_CORS_ORIGIN_LENGTH = 256;
-
-function isValidOptionName(name) {
-  return typeof name === "string" && OPTION_NAME_REGEX.test(name);
-}
-
-function isValidOptionValue(value) {
-  const strVal = String(value);
-  return OPTION_VALUE_REGEX.test(strVal);
-}
 
 function validateCorsAllowedOrigins(value) {
   if (typeof value !== "string") {
@@ -172,96 +231,6 @@ function validateCorsAllowedOrigins(value) {
   return null;
 }
 
-// Get server configuration
-router.get("/", async (req, res) => {
-  try {
-    const serverManager = req.app.get("serverManager");
-    const config = await serverManager.getServerConfig();
-    res.json({ config });
-  } catch (error) {
-    log.error(`Failed to get config: ${error.message}`);
-    res.status(500).json({ error: sanitizeError(error.message) });
-  }
-});
-
-// Update server configuration
-router.put("/", requirePermission("server.configure"), requireStoppedForLocalConfigMutation, async (req, res) => {
-  try {
-    log.info("PUT /config — saving server config");
-    const serverManager = req.app.get("serverManager");
-    const { config } = req.body;
-
-    if (!config) {
-      return res.status(400).json({ error: "Config is required" });
-    }
-
-    const saved = await serverManager.saveServerConfig(config);
-    if (!saved?.success) {
-      return res.status(500).json({
-        error: sanitizeError(saved?.error || "Configuration could not be written"),
-      });
-    }
-    res.json({ success: true, message: "Configuration saved" });
-  } catch (error) {
-    log.error(`Failed to save config: ${error.message}`);
-    res.status(500).json({ error: sanitizeError(error.message) });
-  }
-});
-
-// Reload server options via RCON
-router.post("/reload", requirePermission("server.configure"), async (req, res) => {
-  try {
-    const rconService = req.app.get("rconService");
-    const result = await rconService.reloadOptions();
-    res.json(result);
-  } catch (error) {
-    log.error(`Failed to reload options: ${error.message}`);
-    res.status(500).json({ error: sanitizeError(error.message) });
-  }
-});
-
-// Get server options via RCON
-router.get("/options", async (req, res) => {
-  try {
-    const rconService = req.app.get("rconService");
-    const result = await rconService.showOptions();
-    res.json(result);
-  } catch (error) {
-    log.error(`Failed to get options: ${error.message}`);
-    res.status(500).json({ error: sanitizeError(error.message) });
-  }
-});
-
-// Change a specific option via RCON
-router.post("/option", requirePermission("server.configure"), async (req, res) => {
-  try {
-    const rconService = req.app.get("rconService");
-    const { name, value } = req.body;
-    log.info(`POST /option: ${name}=${value}`);
-
-    if (!name || value === undefined) {
-      return res
-        .status(400)
-        .json({ error: "Option name and value are required" });
-    }
-
-    // Validate option name and value to prevent command injection
-    if (!isValidOptionName(name)) {
-      return res.status(400).json({ error: "Invalid option name format" });
-    }
-
-    if (!isValidOptionValue(value)) {
-      return res.status(400).json({ error: "Invalid option value format" });
-    }
-
-    const result = await rconService.changeOption(name, value);
-    res.json(result);
-  } catch (error) {
-    log.error(`Failed to change option: ${error.message}`);
-    res.status(500).json({ error: sanitizeError(error.message) });
-  }
-});
-
 // Sensitive settings are masked in API responses by pattern (see
 // SENSITIVE_FIELD_RE / maskSensitiveObject in utils/sanitize.js) rather than
 // an explicit key list, so a newly added secret-shaped setting (jwtSecret,
@@ -286,13 +255,69 @@ router.get("/app-settings", async (req, res) => {
 // account must not be able to write it.
 router.put("/app-settings", requirePermission("panel.settings"), async (req, res) => {
   try {
-    const { settings } = req.body;
+    const { settings } = req.body || {};
     log.info(
       `PUT /app-settings — updating ${settings ? Object.keys(settings).length : 0} keys: [${settings ? Object.keys(settings).join(", ") : ""}]`,
     );
 
     if (!settings || typeof settings !== "object") {
-      return res.status(400).json({ error: "Settings are required" });
+      return res.status(400).json({ error: "Settings are required", code: ErrorCode.CONFIG_APP_SETTINGS_REQUIRED });
+    }
+
+    // Fields whose validation only matters while a companion feature flag
+    // is on -- built as ONE table, not N copies of "if (key === X &&
+    // effectiveFlagEnabled)". GitHub #118 was exactly this bug for
+    // panelBridgeSftpPort alone; the 2026-08-26 bug hunt (findings 4/9-12)
+    // found FOUR more fields with the identical shape (httpsCertPath/
+    // httpsKeyPath/httpsPort gated by httpsEnabled, modRestartDelay by
+    // modAutoRestart, serverAutoUpdateWarningMinutes by serverAutoUpdate,
+    // autoExportMaxPerPlayer by autoExportOnLogin, reconnectInterval by
+    // autoReconnect) sitting unfixed right next to the one that got fixed --
+    // the exact "sibling that was never hardened" pattern this whole floor
+    // spent the day on. Five hand-written copies of the same guard
+    // disagreeing with each other by the next release is the predictable
+    // outcome of writing it five times; one table can't drift from itself.
+    // An unused field must never block an unrelated save, regardless of
+    // which feature it belongs to.
+    const FEATURE_GATED_FIELDS = {
+      panelBridgeSftpPort: "panelBridgeSftpEnabled",
+      panelBridgeSftpPollIntervalSeconds: "panelBridgeSftpEnabled",
+      httpsCertPath: "httpsEnabled",
+      httpsKeyPath: "httpsEnabled",
+      httpsPort: "httpsEnabled",
+      modRestartDelay: "modAutoRestart",
+      serverAutoUpdateWarningMinutes: "serverAutoUpdate",
+      autoExportMaxPerPlayer: "autoExportOnLogin",
+      reconnectInterval: "autoReconnect",
+    };
+
+    // What a gating flag will actually BE once this save lands -- not what
+    // it currently is in the database. Preferring the payload's own value
+    // (when this save touches the flag at all) matters both ways: a user
+    // turning a feature OFF and fixing one of its fields in the same save
+    // must not have the old, now-irrelevant field block them, and a user
+    // turning a feature ON in the same save that also sets one of its
+    // fields must still have that field validated -- reading only the
+    // stored value would validate against the state this save is about to
+    // replace, not the state it's about to create. Falls back to stored
+    // state only when this payload doesn't mention the flag at all (a
+    // partial update that never touches it shouldn't have to resend it just
+    // to stay validated correctly). Lazy and memoized PER FLAG: most saves
+    // touch at most one or two of these features, and a stored-state lookup
+    // should only happen for the flags actually needed -- an unconditional
+    // getSetting() for every gated flag on every save would be several
+    // unnecessary DB round trips per save, every time, forever.
+    const effectiveFlagCache = new Map();
+    function getEffectiveFlag(flagKey) {
+      if (!effectiveFlagCache.has(flagKey)) {
+        effectiveFlagCache.set(
+          flagKey,
+          Object.prototype.hasOwnProperty.call(settings, flagKey)
+            ? Promise.resolve(Boolean(settings[flagKey]))
+            : getSetting(flagKey).then(Boolean),
+        );
+      }
+      return effectiveFlagCache.get(flagKey);
     }
 
     // Only allow valid setting keys to prevent prototype pollution
@@ -303,11 +328,53 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
         continue;
       }
 
+      // Skip validation entirely for a field whose feature won't be on
+      // after this save -- still saved (a disabled field's stale value is
+      // harmless sitting in storage; refusing to even SAVE it would be its
+      // own new bug), just not checked. This one check replaces what used
+      // to be five separate "&& effectiveXEnabled" conditions bolted onto
+      // five separate validation blocks below.
+      const gateFlag = FEATURE_GATED_FIELDS[key];
+      if (gateFlag && !(await getEffectiveFlag(gateFlag))) {
+        validEntries.push([key, value]);
+        continue;
+      }
+
       if (key === "corsAllowedOrigins") {
         const corsValidationError = validateCorsAllowedOrigins(value);
         if (corsValidationError) {
-          return res.status(400).json({ error: corsValidationError });
+          return res.status(400).json({
+            error: corsValidationError,
+            code: ErrorCode.CONFIG_INVALID_CORS_ORIGINS,
+            params: sanitizeErrorParams({ reason: corsValidationError }),
+          });
         }
+      }
+
+      // serverName is interpolated into filesystem paths downstream
+      // (serverManager.js's getServerConfig/saveServerConfig build
+      // `${serverName}.ini`, and the same value names the launched
+      // StartServer_<name>.bat/start-server_<name>.sh script) via the
+      // legacy-settings fallback in serverManager.js's loadConfig(). The
+      // modern multi-server profile path (routes/servers.js's
+      // SERVER_NAME_REGEX) already rejects anything but a traversal-
+      // incapable name at write time for exactly this reason -- this
+      // endpoint is the one write path that never got the same check
+      // (2026-08-26 bug hunt finding 13). Same whitelist, kept local
+      // rather than imported since route files in this codebase don't
+      // currently import from one another (servers.js/server.js each keep
+      // their own copy of this same regex already).
+      if (
+        key === "serverName" &&
+        !/^[a-zA-Z0-9_-][a-zA-Z0-9_\- ]*[a-zA-Z0-9_-]$|^[a-zA-Z0-9_-]$/.test(
+          String(value),
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            "Server name may only contain letters, numbers, spaces, underscores and hyphens (and can't start or end with a space).",
+          code: ErrorCode.CONFIG_INVALID_SERVER_NAME,
+        });
       }
 
       if (
@@ -316,6 +383,7 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
       ) {
         return res.status(400).json({
           error: `modCheckInterval must be a whole number of minutes from ${MOD_CHECK_INTERVAL_MINUTES_MIN} to ${MOD_CHECK_INTERVAL_MINUTES_MAX}`,
+          code: ErrorCode.CONFIG_INVALID_MOD_CHECK_INTERVAL,
         });
       }
 
@@ -328,7 +396,9 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
       // accepts it fine would be a NEW save-vs-consumer disagreement, the
       // same bug class this whole thread closed. Settings.tsx keeping min=1
       // is fine and unrelated -- a UI recommendation, not a capability
-      // claim. See 2026-08-23 config.js numeric-field audit part 5.
+      // claim. See 2026-08-23 config.js numeric-field audit part 5. Gated
+      // by modAutoRestart via FEATURE_GATED_FIELDS above (2026-08-26 bug
+      // hunt finding 9) -- only reached when the feature will be on.
       if (key === "modRestartDelay") {
         const modRestartDelayCheck = requireIntInRange(
           value,
@@ -337,14 +407,16 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
           "Mod restart delay (minutes)",
         );
         if (!modRestartDelayCheck.ok) {
-          return res.status(400).json({ error: modRestartDelayCheck.message });
+          return res.status(400).json({ error: modRestartDelayCheck.message, code: ErrorCode.CONFIG_INVALID_NUMERIC_FIELD, params: sanitizeErrorParams({ message: modRestartDelayCheck.message }) });
         }
       }
 
       // Bound chased from the consuming service (updateChecker.js's
       // parseAutoUpdateWarningMinutes: `Math.min(60, Math.max(0, ...))`,
       // default 15) -- matches Settings.tsx's own input (min=0 max=60)
-      // exactly, no discrepancy to report for this one.
+      // exactly, no discrepancy to report for this one. Gated by
+      // serverAutoUpdate via FEATURE_GATED_FIELDS above (2026-08-26 bug
+      // hunt finding 10).
       if (key === "serverAutoUpdateWarningMinutes") {
         const warningMinutesCheck = requireIntInRange(
           value,
@@ -353,14 +425,14 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
           "Server auto-update warning (minutes)",
         );
         if (!warningMinutesCheck.ok) {
-          return res.status(400).json({ error: warningMinutesCheck.message });
+          return res.status(400).json({ error: warningMinutesCheck.message, code: ErrorCode.CONFIG_INVALID_NUMERIC_FIELD, params: sanitizeErrorParams({ message: warningMinutesCheck.message }) });
         }
       }
 
       if (key === "lanIpAddress" && value !== "" && net.isIP(value) !== 4) {
         return res
           .status(400)
-          .json({ error: "lanIpAddress must be an IPv4 address or empty" });
+          .json({ error: "lanIpAddress must be an IPv4 address or empty", code: ErrorCode.CONFIG_INVALID_LAN_IP });
       }
 
       if (
@@ -386,7 +458,11 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
         ].includes(key) &&
         typeof value !== "boolean"
       ) {
-        return res.status(400).json({ error: `${key} must be true or false` });
+        return res.status(400).json({
+          error: `${key} must be true or false`,
+          code: ErrorCode.CONFIG_INVALID_BOOLEAN_FIELD,
+          params: sanitizeErrorParams({ field: key }),
+        });
       }
 
       // httpsCertPath/httpsKeyPath used to be accepted as any string and
@@ -398,12 +474,29 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
       // place; the boot-time fix alone only stops the crash for a value
       // that goes bad AFTER being saved (moved/deleted/permissions changed
       // later), which is a real but separate case this can't catch.
+      //
+      // GitHub #118 sibling (2026-08-26 bug hunt, finding 4), REPRODUCIBLE:
+      // Settings.tsx never clears these fields when HTTPS is toggled off
+      // (only its one-click "Enable HTTPS" quick-setup resets them), so an
+      // operator who set a cert path, disabled HTTPS, and later had that
+      // file move/get deleted/lose permissions would find every UNRELATED
+      // settings save failing on a field doing nothing -- the exact SFTP
+      // bug, for a field with a much easier real-world path to a stale
+      // value. Handled generically above via FEATURE_GATED_FIELDS: this
+      // block is only reached at all when HTTPS will be on after this save.
+      // `value !== ""` here is a SEPARATE, orthogonal exemption -- clearing
+      // the field back to empty (auto-generated cert) must work even while
+      // HTTPS is enabled, which the feature-gate above does not cover.
       if (
         (key === "httpsCertPath" || key === "httpsKeyPath") &&
         value !== ""
       ) {
         if (typeof value !== "string") {
-          return res.status(400).json({ error: `${key} must be a string` });
+          return res.status(400).json({
+            error: `${key} must be a string`,
+            code: ErrorCode.CONFIG_HTTPS_PATH_NOT_STRING,
+            params: sanitizeErrorParams({ field: key }),
+          });
         }
         let stat;
         try {
@@ -411,11 +504,15 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
         } catch {
           return res.status(400).json({
             error: `${key} does not point to a file that exists: ${value}`,
+            code: ErrorCode.CONFIG_HTTPS_PATH_NOT_FOUND,
+            params: sanitizeErrorParams({ field: key, value }),
           });
         }
         if (!stat.isFile()) {
           return res.status(400).json({
             error: `${key} must be a file, not a directory: ${value}`,
+            code: ErrorCode.CONFIG_HTTPS_PATH_NOT_A_FILE,
+            params: sanitizeErrorParams({ field: key, value }),
           });
         }
         try {
@@ -423,21 +520,31 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
         } catch {
           return res.status(400).json({
             error: `${key} exists but is not readable by the panel: ${value}`,
+            code: ErrorCode.CONFIG_HTTPS_PATH_NOT_READABLE,
+            params: sanitizeErrorParams({ field: key, value }),
           });
         }
       }
 
+      // GitHub #118 sibling (2026-08-26 bug hunt, finding 4): this used a
+      // hand-rolled parseBoundedInteger floor of 1 and never joined the
+      // BIND_PORT_MIN family, even though HTTPS is unambiguously a bind
+      // port -- the panel itself opens and listens on it, exactly like
+      // panelPort three blocks below. Brought in now for the same reason
+      // panelPort uses it: one shared range instead of a second hand-typed
+      // copy that can silently drift from it. Disabled-feature skip is
+      // handled generically above via FEATURE_GATED_FIELDS.
       if (key === "httpsPort") {
-        const port = Number(value);
-        if (!Number.isInteger(port) || port < 1 || port > 65535) {
-          return res.status(400).json({
-            error: "httpsPort must be a whole number from 1 to 65535",
-          });
+        const httpsPortCheck = requireIntInRange(value, BIND_PORT_MIN, BIND_PORT_MAX, "HTTPS port");
+        if (!httpsPortCheck.ok) {
+          return res.status(400).json({ error: httpsPortCheck.message, code: ErrorCode.CONFIG_INVALID_NUMERIC_FIELD, params: sanitizeErrorParams({ message: httpsPortCheck.message }) });
         }
         const panelPort = await getSetting("panelPort");
-        if (panelPort && port === Number(panelPort)) {
+        if (panelPort && httpsPortCheck.value === Number(panelPort)) {
           return res.status(400).json({
-            error: `httpsPort cannot be the same as the panel's HTTP port (${panelPort})`,
+            error: `HTTPS port cannot be the same as the panel's HTTP port (${panelPort})`,
+            code: ErrorCode.CONFIG_HTTPS_PORT_MATCHES_PANEL_PORT,
+            params: sanitizeErrorParams({ panelPort }),
           });
         }
       }
@@ -463,14 +570,18 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
       // reachable by walking around it from the other direction isn't a
       // guard, it's a speed bump on one approach.
       if (key === "panelPort") {
-        const panelPortCheck = requireIntInRange(value, PORT_MIN, PORT_MAX, "Panel port");
+        // Bind: the panel itself listens on this. See the bind-vs-
+        // destination rule at server.js's BIND_PORT_MIN/DESTINATION_PORT_MIN.
+        const panelPortCheck = requireIntInRange(value, BIND_PORT_MIN, BIND_PORT_MAX, "Panel port");
         if (!panelPortCheck.ok) {
-          return res.status(400).json({ error: panelPortCheck.message });
+          return res.status(400).json({ error: panelPortCheck.message, code: ErrorCode.CONFIG_INVALID_NUMERIC_FIELD, params: sanitizeErrorParams({ message: panelPortCheck.message }) });
         }
         const httpsPort = await getSetting("httpsPort");
         if (httpsPort && panelPortCheck.value === Number(httpsPort)) {
           return res.status(400).json({
             error: `panelPort cannot be the same as the panel's HTTPS port (${httpsPort})`,
+            code: ErrorCode.CONFIG_PANEL_PORT_MATCHES_HTTPS_PORT,
+            params: sanitizeErrorParams({ httpsPort }),
           });
         }
       }
@@ -483,30 +594,67 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
       // lives in a completely different file. Same ranges as server.js's
       // checks so the two doors can't disagree with each other.
       if (key === "rconPort") {
-        const rconPortCheck = requireIntInRange(value, PORT_MIN, PORT_MAX, "RCON port");
+        // This key is the legacy/single-active-server RCON target that
+        // /configure-rcon (server.js) hardcodes to rconHost 127.0.0.1 --
+        // always local, so it stays on the bind floor like server.js's own
+        // rconPort checks, not the destination floor RCON gets in
+        // servers.js's per-server (and genuinely remote-capable) model.
+        // See the full bind-vs-destination writeup at server.js's
+        // BIND_PORT_MIN/DESTINATION_PORT_MIN (GitHub #118).
+        const rconPortCheck = requireIntInRange(value, BIND_PORT_MIN, BIND_PORT_MAX, "RCON port");
         if (!rconPortCheck.ok) {
-          return res.status(400).json({ error: rconPortCheck.message });
+          return res.status(400).json({ error: rconPortCheck.message, code: ErrorCode.CONFIG_INVALID_NUMERIC_FIELD, params: sanitizeErrorParams({ message: rconPortCheck.message }) });
         }
       }
 
       if (key === "serverPort") {
-        const serverPortCheck = requireIntInRange(value, PORT_MIN, PORT_MAX, "Game port");
+        const serverPortCheck = requireIntInRange(value, BIND_PORT_MIN, GAME_PORT_MAX, "Game port");
         if (!serverPortCheck.ok) {
-          return res.status(400).json({ error: serverPortCheck.message });
+          return res.status(400).json({ error: serverPortCheck.message, code: ErrorCode.CONFIG_INVALID_NUMERIC_FIELD, params: sanitizeErrorParams({ message: serverPortCheck.message }) });
+        }
+      }
+
+      // Destination, not bind: SFTP is a service on someone ELSE's machine
+      // that this panel connects out to -- 22, its standard port, is why
+      // this floor was the actual bug (GitHub #118). The disabled-feature
+      // skip is handled generically above via FEATURE_GATED_FIELDS -- by
+      // the time we reach here, either SFTP will be on after this save, or
+      // this line was never reached at all for this key.
+      if (key === "panelBridgeSftpPort") {
+        const sftpPortCheck = requireIntInRange(
+          value,
+          DESTINATION_PORT_MIN,
+          DESTINATION_PORT_MAX,
+          "SFTP port",
+        );
+        if (!sftpPortCheck.ok) {
+          return res.status(400).json({ error: sftpPortCheck.message, code: ErrorCode.CONFIG_INVALID_NUMERIC_FIELD, params: sanitizeErrorParams({ message: sftpPortCheck.message }) });
+        }
+      }
+
+      if (key === "panelBridgeSftpPollIntervalSeconds") {
+        const sftpPollCheck = requireIntInRange(
+          value,
+          SFTP_POLL_INTERVAL_MIN,
+          SFTP_POLL_INTERVAL_MAX,
+          "SFTP sync interval (seconds)",
+        );
+        if (!sftpPollCheck.ok) {
+          return res.status(400).json({ error: sftpPollCheck.message, code: ErrorCode.CONFIG_INVALID_NUMERIC_FIELD, params: sanitizeErrorParams({ message: sftpPollCheck.message }) });
         }
       }
 
       if (key === "minMemory") {
         const minMemoryCheck = requireIntInRange(value, MEMORY_GB_MIN, MIN_MEMORY_GB_MAX, "Minimum memory (GB)");
         if (!minMemoryCheck.ok) {
-          return res.status(400).json({ error: minMemoryCheck.message });
+          return res.status(400).json({ error: minMemoryCheck.message, code: ErrorCode.CONFIG_INVALID_NUMERIC_FIELD, params: sanitizeErrorParams({ message: minMemoryCheck.message }) });
         }
       }
 
       if (key === "maxMemory") {
         const maxMemoryCheck = requireIntInRange(value, MEMORY_GB_MIN, MAX_MEMORY_GB_MAX, "Maximum memory (GB)");
         if (!maxMemoryCheck.ok) {
-          return res.status(400).json({ error: maxMemoryCheck.message });
+          return res.status(400).json({ error: maxMemoryCheck.message, code: ErrorCode.CONFIG_INVALID_NUMERIC_FIELD, params: sanitizeErrorParams({ message: maxMemoryCheck.message }) });
         }
       }
 
@@ -516,23 +664,29 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
       // But an unvalidated garbage value would still sit in the database
       // forever, unreadable by that fallback's intent, as a trap for
       // whoever next reads that column expecting a real number. Range
-      // matches Settings.tsx's own input (min=1 max=50).
+      // matches Settings.tsx's own input (min=1 max=50). Gated by
+      // autoExportOnLogin via FEATURE_GATED_FIELDS above (2026-08-26 bug
+      // hunt finding 11).
       if (key === "autoExportMaxPerPlayer") {
         const autoExportMaxCheck = requireIntInRange(value, AUTO_EXPORT_MAX_PER_PLAYER_MIN, AUTO_EXPORT_MAX_PER_PLAYER_MAX, "Auto-export copies kept");
         if (!autoExportMaxCheck.ok) {
-          return res.status(400).json({ error: autoExportMaxCheck.message });
+          return res.status(400).json({ error: autoExportMaxCheck.message, code: ErrorCode.CONFIG_INVALID_NUMERIC_FIELD, params: sanitizeErrorParams({ message: autoExportMaxCheck.message }) });
         }
       }
 
       // Same missing-range-check shape as httpsPort above, but the worst
       // case if it slips through is a too-fast/too-slow reconnect timer,
       // not a lockout -- worth closing anyway since it's one check in the
-      // same loop, not worth its own investigation.
+      // same loop, not worth its own investigation. Gated by autoReconnect
+      // via FEATURE_GATED_FIELDS above (2026-08-26 bug hunt finding 12).
       if (key === "reconnectInterval") {
-        const interval = Number(value);
-        if (!Number.isInteger(interval) || interval < 1 || interval > 60) {
+        const interval = parseBoundedInteger(value, null, 1, 60);
+        if (interval === null) {
+          const message = "reconnectInterval must be a whole number from 1 to 60";
           return res.status(400).json({
-            error: "reconnectInterval must be a whole number from 1 to 60",
+            error: message,
+            code: ErrorCode.CONFIG_INVALID_NUMERIC_FIELD,
+            params: sanitizeErrorParams({ message }),
           });
         }
       }
@@ -542,16 +696,17 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
         if (!Array.isArray(value)) {
           return res
             .status(400)
-            .json({ error: "chatPresets must be an array" });
+            .json({ error: "chatPresets must be an array", code: ErrorCode.CONFIG_CHAT_PRESETS_NOT_ARRAY });
         }
         if (value.length > 50) {
           return res
             .status(400)
-            .json({ error: "chatPresets supports up to 50 entries" });
+            .json({ error: "chatPresets supports up to 50 entries", code: ErrorCode.CONFIG_CHAT_PRESETS_TOO_MANY });
         }
         if (!value.every((v) => typeof v === "string" && v.length <= 500)) {
           return res.status(400).json({
             error: "chatPresets entries must be strings up to 500 characters",
+            code: ErrorCode.CONFIG_CHAT_PRESETS_INVALID_ENTRY,
           });
         }
       }
@@ -573,6 +728,50 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
       }
       return true;
     });
+
+    // A key whose real, effective value would actually CHANGE requires the
+    // capability that governs it, not just panel.settings. Compared against
+    // the CURRENTLY STORED value (via getAllSettings(), not the masked
+    // response GET returns) rather than mere presence in the request:
+    // Settings.tsx's Save button resends the entire settings object on
+    // every save, so gating on presence alone would refuse every save by
+    // anyone who isn't already an admin -- Angela hit this identical trap
+    // in the ini editor a few hours earlier tonight. `filtered` already
+    // excludes a masked-placeholder resend of an untouched secret, so this
+    // only ever fires for a value genuinely different from what's stored.
+    const touchesGovernedKey = filtered.some(
+      ([key]) => key in SETTINGS_KEY_CAPABILITY,
+    );
+    const currentSettings = touchesGovernedKey ? await getAllSettings() : null;
+    const missingCapabilities = [];
+    let callerCapabilities = null;
+    for (const [key, value] of filtered) {
+      const requiredCapability = SETTINGS_KEY_CAPABILITY[key];
+      if (!requiredCapability) continue;
+      if (JSON.stringify(currentSettings[key]) === JSON.stringify(value)) {
+        continue;
+      }
+      if (callerCapabilities === null) {
+        const role = req.user ? await getRoleByName(req.user.role) : null;
+        callerCapabilities = Array.isArray(role?.capabilities)
+          ? role.capabilities
+          : [];
+      }
+      if (!callerCapabilities.includes(requiredCapability)) {
+        missingCapabilities.push({ key, requiredCapability });
+      }
+    }
+    if (missingCapabilities.length > 0) {
+      const detail = missingCapabilities
+        .map((m) => `"${m.key}" needs ${m.requiredCapability}`)
+        .join(", ");
+      return res.status(403).json({
+        error: `Cannot change ${detail} without holding that capability yourself.`,
+        code: ErrorCode.CONFIG_APP_SETTINGS_CAPABILITY_REQUIRED,
+        params: sanitizeErrorParams({ detail }),
+        missing: missingCapabilities,
+      });
+    }
 
     for (const [key, value] of filtered) {
       if (key === "modCheckInterval") continue;
@@ -675,7 +874,7 @@ router.get("/cors-debug", requirePermission("diagnostics.manage"), async (req, r
     if (typeof getCorsDebugSnapshot !== "function") {
       return res
         .status(500)
-        .json({ error: "CORS diagnostics are not available" });
+        .json({ error: "CORS diagnostics are not available", code: ErrorCode.CONFIG_CORS_DIAGNOSTICS_UNAVAILABLE });
     }
     res.json({ diagnostics: getCorsDebugSnapshot() });
   } catch (error) {
@@ -690,7 +889,7 @@ router.post("/cors-debug/reload", requirePermission("diagnostics.manage"), async
     if (typeof refreshCorsConfig !== "function") {
       return res
         .status(500)
-        .json({ error: "CORS config reload is not available" });
+        .json({ error: "CORS config reload is not available", code: ErrorCode.CONFIG_CORS_RELOAD_UNAVAILABLE });
     }
     const diagnostics = await refreshCorsConfig();
     res.json({ success: true, diagnostics });
@@ -710,159 +909,13 @@ router.delete("/cors-debug/blocked", requirePermission("diagnostics.manage"), as
     ) {
       return res
         .status(500)
-        .json({ error: "CORS diagnostics are not available" });
+        .json({ error: "CORS diagnostics are not available", code: ErrorCode.CONFIG_CORS_DIAGNOSTICS_UNAVAILABLE });
     }
 
     clearCorsBlockedOrigins();
     res.json({ success: true, diagnostics: getCorsDebugSnapshot() });
   } catch (error) {
     log.error(`Failed to clear blocked CORS origins: ${error.message}`);
-    res.status(500).json({ error: sanitizeError(error.message) });
-  }
-});
-
-// Get paths configuration
-router.get("/paths", async (req, res) => {
-  try {
-    res.json({
-      serverPath: process.env.PZ_SERVER_PATH || "",
-      savePath: process.env.PZ_SAVE_PATH || "",
-      serverBat:
-        process.env.PZ_SERVER_BAT ||
-        (process.platform === "win32"
-          ? "StartServer64.bat"
-          : "start-server.sh"),
-    });
-  } catch (error) {
-    res.status(500).json({ error: sanitizeError(error.message) });
-  }
-});
-
-// serverManager.savePath set here is what server.js's /wipe and
-// /wipe/preview join with "Saves/Multiplayer/{serverName}" before recursively
-// deleting -- the previous check here only rejected a literal ".." and never
-// required an absolute path, so a relative value would resolve against
-// whatever the panel process's cwd happens to be at wipe time instead of the
-// real Zomboid data folder. Matches server.js's own isValidPath: absolute,
-// no traversal.
-function isValidConfigPath(inputPath) {
-  if (typeof inputPath !== "string" || inputPath.length > 500) return false;
-  const normalized = path.normalize(inputPath);
-  if (normalized.includes("..")) return false;
-  return path.isAbsolute(normalized);
-}
-
-// Update paths (runtime only - doesn't persist to .env)
-//
-// INVESTIGATED 2026-08-24 (conv-hunt-resume, config-live-pointer-mutations-
-// no-running-guard): unlike PUT / above, this has no
-// requireStoppedForLocalConfigMutation. Concluded no guard is needed --
-// this mutates serverManager's in-memory serverPath/savePath fields only
-// (explicitly runtime-only, never touches a file or the database), and
-// every consumer that could turn a stale pointer into something worse than
-// a confusing display is independently guarded already: server.js's /wipe
-// and /wipe/preview require BOTH a real OS-level process scan confirming
-// the server is stopped (not derived from this field) AND the specific
-// Saves/Multiplayer/{serverName} subpath to exist (404s rather than
-// silently acting on an unrelated directory in the overwhelming majority of
-// misconfigurations); PUT /config's saveServerConfig() is already gated by
-// requireStoppedForLocalConfigMutation; and backupService/chunks.js resolve
-// their own paths from the database (getActiveServer()/getSetting()), not
-// from this field at all, so this route cannot affect them. The worst
-// realistic outcome while the real server keeps running unaffected on its
-// old path is the panel's own config/status displays showing stale, missing,
-// or (rarely) a different install's data -- confusing, self-correcting once
-// noticed, never destructive. A running-state guard would not close the one
-// real edge case found (a wrong-but-structurally-matching savePath later
-// enabling a misdirected wipe after a legitimate stop) since that risk
-// exists independent of the server's state when this route was called.
-router.put("/paths", requirePermission("server.configure"), async (req, res) => {
-  try {
-    const serverManager = req.app.get("serverManager");
-    const { serverPath, savePath } = req.body;
-
-    // Validate paths
-    if (serverPath !== undefined && !isValidConfigPath(serverPath)) {
-      return res.status(400).json({ error: "Invalid server path" });
-    }
-    if (savePath !== undefined && !isValidConfigPath(savePath)) {
-      return res.status(400).json({ error: "Invalid save path" });
-    }
-
-    serverManager.updatePaths(serverPath, savePath);
-
-    res.json({ success: true, message: "Paths updated" });
-  } catch (error) {
-    log.error(`Failed to update paths: ${error.message}`);
-    res.status(500).json({ error: sanitizeError(error.message) });
-  }
-});
-
-// Get RCON configuration
-router.get("/rcon", async (req, res) => {
-  try {
-    const rconService = req.app.get("rconService");
-    const config = rconService.getConfig();
-    res.json(config);
-  } catch (error) {
-    res.status(500).json({ error: sanitizeError(error.message) });
-  }
-});
-
-// Validation for RCON config
-const RCON_HOST_REGEX = /^[a-zA-Z0-9.-]{1,255}$/;
-const RCON_PASSWORD_MAX_LENGTH = 256;
-
-// Update RCON configuration
-//
-// INVESTIGATED 2026-08-24 (conv-hunt-resume, config-live-pointer-mutations-
-// no-running-guard): also has no requireStoppedForLocalConfigMutation, also
-// concluded no guard is needed, for a stronger reason than /paths above:
-// rcon.js's updateConfig() disconnects any live connection immediately on a
-// config change (see rcon.js), and every RCON action after that reconnects
-// against the NEW config -- a wrong host/port simply fails to connect. This
-// fails LOUD and immediately: there is no code path where a bad RCON
-// pointer produces plausible-but-wrong data, since RCON is a live
-// connection, not a file read. The existing /test-rcon route and RCON
-// status reporting (`connected: false`) already surface this without any
-// guard needed here.
-router.put("/rcon", requirePermission("server.configure"), async (req, res) => {
-  try {
-    const rconService = req.app.get("rconService");
-    const { host, port, password } = req.body;
-
-    // Validate host (if provided)
-    if (host !== undefined) {
-      if (typeof host !== "string" || !RCON_HOST_REGEX.test(host)) {
-        return res.status(400).json({ error: "Invalid host format" });
-      }
-    }
-
-    // Validate port (if provided)
-    if (port !== undefined) {
-      const portNum = parseInt(port, 10);
-      if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
-        return res
-          .status(400)
-          .json({ error: "Invalid port number (must be 1-65535)" });
-      }
-    }
-
-    // Validate password length (if provided)
-    if (password !== undefined) {
-      if (
-        typeof password !== "string" ||
-        password.length > RCON_PASSWORD_MAX_LENGTH
-      ) {
-        return res.status(400).json({ error: "Invalid password format" });
-      }
-    }
-
-    rconService.updateConfig(host, port, password);
-
-    res.json({ success: true, message: "RCON configuration updated" });
-  } catch (error) {
-    log.error(`Failed to update RCON config: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
   }
 });
@@ -907,10 +960,41 @@ router.post("/test-rcon", requirePermission("server.configure"), async (req, res
         });
       }
     } else {
+      // Same reachability split as /rcon/test and /rcon/connect (see
+      // 0714d91): without this, EVERY failure -- host genuinely unreachable
+      // OR host reachable but the saved password is wrong -- collapsed into
+      // one generic message, which Console.tsx's banner then rendered as
+      // "host unreachable" even for a stale password. That told a user with
+      // a correct host/port to go debug their network for a problem that
+      // was actually a wrong password one screen away. Reuses the same
+      // canonical detail strings and error codes as those two routes
+      // (services/rcon.js) rather than a third, independently-drifting
+      // mapping -- this is the same failed-handshake outcome, just reached
+      // from a third call site.
+      const { host: configuredHost, port: configuredPort } =
+        rconService.getConfig();
+      const reachable = await checkTcpReachable(
+        configuredHost,
+        configuredPort,
+        RCON_USER_ACTION_TIMEOUT_MS,
+      );
+      if (!reachable) {
+        return res.json({
+          success: false,
+          error: "unreachable",
+          detail: RCON_UNREACHABLE_DETAIL,
+          message: RCON_UNREACHABLE_DETAIL,
+          connected: false,
+          code: ErrorCode.RCON_CONNECT_UNREACHABLE,
+        });
+      }
       res.json({
         success: false,
-        message: "Failed to connect to RCON",
+        error: "auth_failed",
+        detail: RCON_AUTH_FAILED_DETAIL,
+        message: RCON_AUTH_FAILED_DETAIL,
         connected: false,
+        code: ErrorCode.RCON_CONNECT_AUTH_FAILED,
       });
     }
   } catch (error) {

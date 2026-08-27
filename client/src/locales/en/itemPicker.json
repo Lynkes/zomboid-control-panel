@@ -16,6 +16,7 @@
   "clearSelectionAria": "Clear selection",
   "searchNItemsPlaceholder": "Search {{count}} items…",
   "filterItemsAria": "Filter items",
+  "clearSearchAria": "Clear search",
   "rescanTitle": "Re-scan server items",
   "allItems": "All Items",
   "itemListAria": "Item list",

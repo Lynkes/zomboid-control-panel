@@ -1,4 +1,13 @@
 {
+  "noAccess": {
+    "title": "No tienes acceso a la configuración del servidor",
+    "description": "Esta página requiere el permiso «Administrar archivos del servidor». Pide a un administrador que se lo conceda a tu rol si necesitas editar la configuración del servidor aquí."
+  },
+  "duplicateKeysWarning": {
+    "title_one": "«{{keys}}» aparece más de una vez en este archivo de configuración",
+    "title_other": "{{count}} ajustes aparecen más de una vez en este archivo de configuración: {{keys}}",
+    "desc": "Este editor lee la última copia y la página de mods lee la primera, por lo que ambos pueden mostrar valores distintos para el mismo ajuste."
+  },
   "loading": "cargando configuración…",
   "loadErrorTitle": "No se pudieron cargar todos los datos de configuración",
   "retry": "Reintentar",
@@ -7,7 +16,7 @@
     "description": "Edita en tiempo real los ajustes de INI, sandbox, aparición y mods de este servidor.",
     "eyebrow": "config",
     "unsavedChanges": "Cambios sin guardar",
-    "templates": "Plantillas",
+    "templates": "Configs guardadas",
     "backups": "Copias de seguridad",
     "refresh": "Actualizar"
   },
@@ -33,7 +42,9 @@
   },
   "stopServerAlert": {
     "title": "El servidor está en ejecución",
-    "description": "Puedes guardar los cambios ahora. Según lo que estés editando, es posible que necesiten un reinicio del servidor para aplicarse — la confirmación tras guardar te lo indicará."
+    "description": "Puedes guardar los cambios ahora. Según lo que estés editando, es posible que necesiten un reinicio del servidor para aplicarse — la confirmación tras guardar te lo indicará.",
+    "unknownTitle": "No se puede confirmar que el servidor esté detenido",
+    "unknownDescription": "No pudimos determinar si el servidor está en ejecución actualmente. Si lo está, es posible que los cambios necesiten un reinicio del servidor para aplicarse — la confirmación tras guardar te lo indicará."
   },
   "invalidValuesAlert": {
     "title": "Corregir valores no válidos antes de guardar",
@@ -167,7 +178,10 @@
     "collapseAll": "Contraer todo",
     "expandAll": "expandir todo",
     "notLoadedTitle": "Ajustes de mods no cargados",
-    "notLoadedDesc": "Pulsa «cargar» para obtener las opciones de sandbox de todos los mods instalados mediante PanelBridge. El servidor de PZ debe estar en ejecución con PanelBridge activo.",
+    "notLoadedDescPrefix": "Pulsa «cargar» para obtener las opciones de sandbox de todos los mods instalados mediante PanelBridge",
+    "notLoadedDescSuffix": ". El servidor de PZ debe estar en ejecución con PanelBridge activo.",
+    "panelBridgeLabel": "PanelBridge",
+    "panelBridgeTip": "PanelBridge es el mod en Lua que se ejecuta en el servidor del juego y le da a este panel acceso en vivo a las opciones de sandbox, el clima, el teletransporte y el control de objetos. Los ajustes de mods solo se cargan cuando está instalado en el servidor y el servidor está en ejecución.",
     "refreshFailedTitle": "Error al actualizar; se muestran los datos anteriores",
     "loadFailedTitle": "No se pudieron cargar los ajustes de mods",
     "loadFailedNotConnected": "No se pudieron cargar los ajustes de mods. ¿Está PanelBridge conectado?",
@@ -226,45 +240,51 @@
     "sizeKb": "{{size}} KB"
   },
   "templatesDialog": {
-    "title": "Plantillas de configuración",
-    "applyTip": "Aplicar una plantilla reemplaza TODOS tus ajustes actuales; no se combina con los que ya están. El panel hace una copia de seguridad de lo que está activo antes de aplicarla, así que Restaurar puede deshacerlo, pero primero hay que detener el servidor.",
-    "description": "Guarda la configuración actual como plantilla o carga una plantilla guardada.",
-    "savedCount_one": "{{count}} plantilla guardada",
-    "savedCount_other": "{{count}} plantillas guardadas",
-    "saveCurrentAsTemplate": "Guardar actual como plantilla",
-    "emptyTitle": "Aún no hay plantillas guardadas",
-    "emptyDesc": "Pulsa «Guardar actual como plantilla» para crear la primera plantilla",
+    "title": "Configs guardadas",
+    "applyTip": "Aplicar una config guardada reemplaza TODOS tus ajustes actuales; no se combina con los que ya están. El panel hace una copia de seguridad de lo que está activo antes de aplicarla, así que Restaurar puede deshacerlo, pero primero hay que detener el servidor.",
+    "description": "Guarda la configuración actual o carga una que hayas guardado antes.",
+    "savedCount_one": "{{count}} config guardada",
+    "savedCount_other": "{{count}} configs guardadas",
+    "saveCurrentAsTemplate": "Guardar configuración actual",
+    "emptyTitle": "Aún no hay configs guardadas",
+    "emptyDesc": "Pulsa «Guardar configuración actual» para crear la primera",
     "typeBoth": "INI + Sandbox",
     "createdLabel": "Creada: {{date}}",
     "apply": "Aplicar",
-    "applyTooltip": "Cargar esta plantilla (crea una copia de seguridad antes)",
-    "deleteAria": "Eliminar plantilla {{name}}",
-    "deleteTooltip": "Eliminar esta plantilla",
+    "applyTooltip": "Cargar esta config (crea una copia de seguridad antes)",
+    "deleteAria": "Eliminar config guardada {{name}}",
+    "deleteTooltip": "Eliminar esta config guardada",
     "close": "Cerrar"
   },
   "saveTemplateDialog": {
-    "title": "Guardar como plantilla",
-    "description": "Guarda los ajustes actuales de INI o Sandbox como plantilla reutilizable.",
-    "nameLabel": "Nombre de la plantilla *",
+    "title": "Guardar configuración actual",
+    "description": "Guarda los ajustes actuales de INI o Sandbox para poder cargarlos más tarde.",
+    "nameLabel": "Nombre *",
     "namePlaceholder": "p. ej., PvE Casual, Supervivencia Hardcore…",
     "nameCharCount": "{{count}}/60 caracteres",
     "descLabel": "Descripción (opcional)",
-    "descPlaceholder": "Describir para qué sirve esta plantilla…",
+    "descPlaceholder": "Describir para qué sirve esto…",
     "descCharCount": "{{count}}/240 caracteres",
-    "includeLabel": "Incluir en la plantilla",
+    "includeLabel": "Incluir",
     "includeIniTitle": "Ajustes del servidor (INI)",
     "includeIniDesc": "Red, jugadores, RCON, comportamiento del servidor",
-    "includeIniAria": "Incluir ajustes del servidor en la plantilla",
+    "includeIniAria": "Incluir ajustes del servidor",
     "includeSandboxTitle": "Ajustes de Sandbox",
     "includeSandboxDesc": "Mundo, zombis, botín, ajustes de supervivencia",
-    "includeSandboxAria": "Incluir ajustes de sandbox en la plantilla",
+    "includeSandboxAria": "Incluir ajustes de sandbox",
     "cancel": "Cancelar",
-    "save": "Guardar plantilla"
+    "save": "Guardar configuración"
   },
   "deleteTemplateConfirm": {
-    "title": "¿Eliminar plantilla?",
-    "description": "¿Eliminar la plantilla «{{name}}»? Esta acción no se puede deshacer.",
+    "title": "¿Eliminar config guardada?",
+    "description": "¿Eliminar la config guardada «{{name}}»? Esta acción no se puede deshacer.",
     "confirmLabel": "Eliminar"
+  },
+  "applyTemplateConfirm": {
+    "title": "¿Aplicar la config guardada «{{name}}»?",
+    "description": "¿Reemplazar la configuración actual del servidor con esta config guardada? El panel hace primero una copia de seguridad de lo que está activo, así que puedes deshacerlo con Restaurar si lo necesitas.",
+    "rconWarning": "La contraseña de RCON no se guarda en las configs guardadas, así que aplicar esta eliminará la contraseña de RCON de tu servidor; tendrás que volver a introducirla después.",
+    "confirmLabel": "Aplicar"
   },
   "fileBrowserDialog": {
     "title": "Seleccionar archivo de imagen",
@@ -323,6 +343,7 @@
     "bridgeUnverifiedDesc": "{{action}} se envió, pero el mod no pudo confirmar que surtiera efecto.",
     "bridgeOldBridgeDesc": "{{action}} puede haber funcionado, pero esta versión del mod PanelBridge no informa si fue así. Actualiza el mod para confirmar los resultados.",
     "appliedNotSavedTitle": "Aplicado, pero no guardado",
+    "worldSaveFailedDesc": "{{option}} se aplicó, pero el guardado del mundo del servidor falló ({{reason}}), así que podría no sobrevivir al próximo reinicio.",
     "notPersistedDesc": "{{option}} no está en SandboxVars.lua, así que se restablecerá cuando el servidor se reinicie.",
     "willResetFallback": "{{option}} se restablecerá cuando el servidor se reinicie.",
     "failedToUpdateTitle": "Error al actualizar",
@@ -330,18 +351,20 @@
     "setOptionFailed": "No se pudo establecer la opción",
     "browseFilesFailed": "No se pudieron explorar los archivos",
     "navigateFailed": "No se pudo navegar",
-    "templateNameRequired": "El nombre de la plantilla es obligatorio",
+    "templateNameRequired": "El nombre es obligatorio",
     "loadBackupsFailed": "No se pudieron cargar las copias de seguridad.",
     "restoredTitle": "Restaurado",
     "restoredDesc": "Restaurado desde {{filename}}",
     "restoreBackupFailed": "No se pudo restaurar la copia de seguridad.",
-    "loadTemplatesFailed": "No se pudieron cargar las plantillas.",
+    "loadTemplatesFailed": "No se pudieron cargar las configs guardadas.",
     "appliedTitle": "Aplicado",
-    "applyTemplateFailed": "No se pudo aplicar la plantilla.",
-    "saveTemplateFailed": "No se pudo guardar la plantilla.",
+    "applyTemplateFailed": "No se pudo aplicar la config guardada.",
+    "applyTemplatePartialTitle": "Aplicado parcialmente",
+    "applyTemplatePartialDesc": "Los ajustes de {{applied}} se escribieron en disco antes de este error: {{error}} El resto de la config guardada no se aplicó.",
+    "saveTemplateFailed": "No se pudo guardar la configuración.",
     "deletedTitle": "Eliminado",
-    "templateDeletedDesc": "Plantilla «{{name}}» eliminada",
-    "deleteTemplateFailed": "No se pudo eliminar la plantilla."
+    "templateDeletedDesc": "Config guardada «{{name}}» eliminada",
+    "deleteTemplateFailed": "No se pudo eliminar la config guardada."
   },
   "restoreBackupConfirm": {
     "title": "¿Restaurar esta copia de seguridad?",

@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { useToast } from '@/components/ui/use-toast'
 import { templatesApi } from '@/lib/api'
+import { getUserErrorMessage } from '@/lib/errorMessage'
 
 interface ImportTemplateDialogProps {
   open: boolean
@@ -48,7 +49,7 @@ export function ImportTemplateDialog({ open, onClose, onImported }: ImportTempla
       setText('')
       onImported()
     } catch (err) {
-      setError(err instanceof SyntaxError ? t('notValidJson') : err instanceof Error ? err.message : t('failedToImport'))
+      setError(err instanceof SyntaxError ? t('notValidJson') : getUserErrorMessage(err, t('failedToImport')))
     } finally {
       setImporting(false)
     }

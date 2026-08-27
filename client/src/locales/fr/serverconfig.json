@@ -1,4 +1,13 @@
 {
+  "noAccess": {
+    "title": "Vous n'avez pas accès à la configuration du serveur",
+    "description": "Cette page nécessite la permission « Gérer les fichiers du serveur ». Demandez à un administrateur de l'accorder à votre rôle si vous devez modifier la configuration du serveur ici."
+  },
+  "duplicateKeysWarning": {
+    "title_one": "« {{keys}} » apparaît plus d'une fois dans ce fichier de configuration",
+    "title_other": "{{count}} paramètres apparaissent plus d'une fois dans ce fichier de configuration : {{keys}}",
+    "desc": "Cet éditeur lit la dernière copie et la page Mods lit la première — les deux peuvent donc afficher des valeurs différentes pour le même paramètre."
+  },
   "loading": "chargement de la configuration…",
   "loadErrorTitle": "Les données de configuration n'ont pas pu être entièrement chargées",
   "retry": "Réessayer",
@@ -7,7 +16,7 @@
     "description": "Modifiez les paramètres INI, sandbox, spawn et mods en direct pour ce serveur.",
     "eyebrow": "config",
     "unsavedChanges": "Modifications non enregistrées",
-    "templates": "Modèles",
+    "templates": "Configs enregistrées",
     "backups": "Sauvegardes",
     "refresh": "Actualiser"
   },
@@ -33,7 +42,9 @@
   },
   "stopServerAlert": {
     "title": "Le serveur est en cours d'exécution",
-    "description": "Vous pouvez enregistrer vos modifications maintenant. Selon ce que vous modifiez, un redémarrage du serveur peut être nécessaire pour qu'elles prennent effet — la confirmation après l'enregistrement vous le précisera."
+    "description": "Vous pouvez enregistrer vos modifications maintenant. Selon ce que vous modifiez, un redémarrage du serveur peut être nécessaire pour qu'elles prennent effet — la confirmation après l'enregistrement vous le précisera.",
+    "unknownTitle": "Impossible de confirmer que le serveur est arrêté",
+    "unknownDescription": "Nous n'avons pas pu déterminer si le serveur est actuellement en cours d'exécution. Si c'est le cas, un redémarrage du serveur peut être nécessaire pour que les modifications prennent effet — la confirmation après l'enregistrement vous le précisera."
   },
   "invalidValuesAlert": {
     "title": "Corrigez les valeurs invalides avant d'enregistrer",
@@ -167,7 +178,10 @@
     "collapseAll": "Tout réduire",
     "expandAll": "tout développer",
     "notLoadedTitle": "Paramètres des mods non chargés",
-    "notLoadedDesc": "Cliquez sur charger pour récupérer les options sandbox de tous les mods installés via PanelBridge. Le serveur PZ doit être en cours d'exécution avec PanelBridge actif.",
+    "notLoadedDescPrefix": "Cliquez sur charger pour récupérer les options sandbox de tous les mods installés via PanelBridge",
+    "notLoadedDescSuffix": ". Le serveur PZ doit être en cours d'exécution avec PanelBridge actif.",
+    "panelBridgeLabel": "PanelBridge",
+    "panelBridgeTip": "PanelBridge est le mod Lua qui s'exécute sur le serveur de jeu et donne à ce panneau un accès en direct aux options sandbox, à la météo, à la téléportation et au contrôle des objets. Les paramètres des mods ne se chargent que lorsqu'il est installé sur le serveur et que celui-ci est en cours d'exécution.",
     "refreshFailedTitle": "Échec de l'actualisation — affichage des données précédentes",
     "loadFailedTitle": "Échec du chargement des paramètres des mods",
     "loadFailedNotConnected": "Échec du chargement des paramètres des mods. PanelBridge est-il connecté ?",
@@ -226,45 +240,51 @@
     "sizeKb": "{{size}} Ko"
   },
   "templatesDialog": {
-    "title": "Modèles de configuration",
-    "applyTip": "L'application d'un modèle remplace TOUS vos paramètres actuels — elle ne les fusionne pas avec ceux déjà en place. Le panneau sauvegarde ce qui est actif avant l'application, donc Restaurer peut l'annuler, mais le serveur doit d'abord être arrêté.",
-    "description": "Enregistrez votre configuration actuelle comme modèle ou chargez un modèle enregistré.",
-    "savedCount_one": "{{count}} modèle enregistré",
-    "savedCount_other": "{{count}} modèles enregistrés",
-    "saveCurrentAsTemplate": "Enregistrer l'actuelle comme modèle",
-    "emptyTitle": "Aucun modèle enregistré pour l'instant",
-    "emptyDesc": "Cliquez sur « Enregistrer l'actuelle comme modèle » pour créer votre premier modèle",
+    "title": "Configs enregistrées",
+    "applyTip": "Appliquer une config enregistrée remplace TOUS vos paramètres actuels — elle ne les fusionne pas avec ceux déjà en place. Le panneau sauvegarde ce qui est actif avant l'application, donc Restaurer peut l'annuler, mais le serveur doit d'abord être arrêté.",
+    "description": "Enregistrez votre configuration actuelle, ou chargez-en une enregistrée plus tôt.",
+    "savedCount_one": "{{count}} config enregistrée",
+    "savedCount_other": "{{count}} configs enregistrées",
+    "saveCurrentAsTemplate": "Enregistrer la configuration actuelle",
+    "emptyTitle": "Aucune config enregistrée pour l'instant",
+    "emptyDesc": "Cliquez sur « Enregistrer la configuration actuelle » pour créer la première",
     "typeBoth": "INI + Sandbox",
     "createdLabel": "Créé le : {{date}}",
     "apply": "Appliquer",
-    "applyTooltip": "Charger ce modèle (crée d'abord une sauvegarde)",
-    "deleteAria": "Supprimer le modèle {{name}}",
-    "deleteTooltip": "Supprimer ce modèle",
+    "applyTooltip": "Charger cette config (crée d'abord une sauvegarde)",
+    "deleteAria": "Supprimer la config enregistrée {{name}}",
+    "deleteTooltip": "Supprimer cette config enregistrée",
     "close": "Fermer"
   },
   "saveTemplateDialog": {
-    "title": "Enregistrer comme modèle",
-    "description": "Enregistrez vos paramètres INI et/ou Sandbox actuels comme modèle réutilisable.",
-    "nameLabel": "Nom du modèle *",
+    "title": "Enregistrer la configuration actuelle",
+    "description": "Enregistrez vos paramètres INI et/ou Sandbox actuels pour pouvoir les recharger plus tard.",
+    "nameLabel": "Nom *",
     "namePlaceholder": "ex. PvE Casual, Survie Hardcore...",
     "nameCharCount": "{{count}}/60 caractères",
     "descLabel": "Description (optionnelle)",
-    "descPlaceholder": "Décrivez à quoi sert ce modèle...",
+    "descPlaceholder": "Décrivez à quoi sert ceci...",
     "descCharCount": "{{count}}/240 caractères",
-    "includeLabel": "Inclure dans le modèle",
+    "includeLabel": "Inclure",
     "includeIniTitle": "Paramètres serveur (INI)",
     "includeIniDesc": "Réseau, joueurs, RCON, comportement du serveur",
-    "includeIniAria": "Inclure les paramètres serveur dans le modèle",
+    "includeIniAria": "Inclure les paramètres serveur",
     "includeSandboxTitle": "Paramètres Sandbox",
     "includeSandboxDesc": "Monde, zombies, butin, paramètres de survie",
-    "includeSandboxAria": "Inclure les paramètres sandbox dans le modèle",
+    "includeSandboxAria": "Inclure les paramètres sandbox",
     "cancel": "Annuler",
-    "save": "Enregistrer le modèle"
+    "save": "Enregistrer la config"
   },
   "deleteTemplateConfirm": {
-    "title": "Supprimer le modèle ?",
-    "description": "Supprimer le modèle « {{name}} » ? Cette action est irréversible.",
+    "title": "Supprimer la config enregistrée ?",
+    "description": "Supprimer la config enregistrée « {{name}} » ? Cette action est irréversible.",
     "confirmLabel": "Supprimer"
+  },
+  "applyTemplateConfirm": {
+    "title": "Appliquer la config enregistrée « {{name}} » ?",
+    "description": "Remplacer les paramètres actuels du serveur par cette config enregistrée ? Le panneau sauvegarde d'abord la configuration active, vous pourrez donc annuler avec Restaurer si besoin.",
+    "rconWarning": "Le mot de passe RCON n'est pas enregistré dans les configs enregistrées : appliquer celle-ci supprimera le mot de passe RCON de votre serveur, il faudra le ressaisir ensuite.",
+    "confirmLabel": "Appliquer"
   },
   "fileBrowserDialog": {
     "title": "Sélectionner un fichier image",
@@ -323,6 +343,7 @@
     "bridgeUnverifiedDesc": "{{action}} a été envoyé, mais le mod n'a pas pu confirmer que cela a fonctionné.",
     "bridgeOldBridgeDesc": "{{action}} a peut-être fonctionné, mais cette version du mod PanelBridge ne signale pas si c'est le cas. Mettez à jour le mod pour confirmer les résultats.",
     "appliedNotSavedTitle": "Appliqué, mais non enregistré",
+    "worldSaveFailedDesc": "{{option}} a été appliqué, mais la sauvegarde du monde du serveur a échoué ({{reason}}), elle pourrait donc ne pas survivre au prochain redémarrage.",
     "notPersistedDesc": "{{option}} n'est pas dans SandboxVars.lua, il sera donc réinitialisé au redémarrage du serveur.",
     "willResetFallback": "{{option}} sera réinitialisé au redémarrage du serveur.",
     "failedToUpdateTitle": "Échec de la mise à jour",
@@ -330,18 +351,20 @@
     "setOptionFailed": "Échec de la définition de l'option",
     "browseFilesFailed": "Échec de la navigation dans les fichiers",
     "navigateFailed": "Échec de la navigation",
-    "templateNameRequired": "Le nom du modèle est requis",
+    "templateNameRequired": "Le nom est requis",
     "loadBackupsFailed": "Échec du chargement des sauvegardes.",
     "restoredTitle": "Restauré",
     "restoredDesc": "Restauré depuis {{filename}}",
     "restoreBackupFailed": "Échec de la restauration de la sauvegarde.",
-    "loadTemplatesFailed": "Échec du chargement des modèles.",
+    "loadTemplatesFailed": "Échec du chargement des configs enregistrées.",
     "appliedTitle": "Appliqué",
-    "applyTemplateFailed": "Échec de l'application du modèle.",
-    "saveTemplateFailed": "Échec de l'enregistrement du modèle.",
+    "applyTemplateFailed": "Échec de l'application de la config enregistrée.",
+    "applyTemplatePartialTitle": "Partiellement appliqué",
+    "applyTemplatePartialDesc": "Les paramètres {{applied}} ont été écrits sur le disque avant cet échec : {{error}} Le reste de la config enregistrée n'a pas été appliqué.",
+    "saveTemplateFailed": "Échec de l'enregistrement de la configuration.",
     "deletedTitle": "Supprimé",
-    "templateDeletedDesc": "Modèle « {{name}} » supprimé",
-    "deleteTemplateFailed": "Échec de la suppression du modèle."
+    "templateDeletedDesc": "Config enregistrée « {{name}} » supprimée",
+    "deleteTemplateFailed": "Échec de la suppression de la config enregistrée."
   },
   "restoreBackupConfirm": {
     "title": "Restaurer cette sauvegarde ?",

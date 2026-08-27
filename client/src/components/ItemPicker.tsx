@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { panelBridgeApi } from '@/lib/api'
+import { getUserErrorMessage } from '@/lib/errorMessage'
 import { useToast } from '@/components/ui/use-toast'
 
 export interface CatalogItem {
@@ -88,7 +89,7 @@ export const GROUP_META: Record<string, { order: number; icon: typeof Sword }> =
 const MAX_VISIBLE = 150
 
 export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPickerProps) {
-  const { t } = useTranslation('itemPicker')
+  const { t, i18n } = useTranslation('itemPicker')
   const resolvedPlaceholder = placeholder ?? t('searchItemsPlaceholder')
   const [items, setItems] = useState<CatalogItem[]>([])
   const [initialLoad, setInitialLoad] = useState(true)
@@ -100,6 +101,9 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
   const [highlightIndex, setHighlightIndex] = useState(-1)
   const [scannedAt, setScannedAt] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  // Not a Radix primitive, so closing the dropdown doesn't automatically
+  // restore focus to the trigger the way a Radix Popover/Select would.
+  const triggerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const [dropUp, setDropUp] = useState(false)
@@ -151,7 +155,7 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
       setScannedAt(data.scannedAt)
       toast({ title: t('toastCatalogUpdatedTitle'), description: t('toastCatalogUpdatedDesc', { count: data.count || 0 }) })
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : t('scanFailed')
+      const msg = getUserErrorMessage(err, t('scanFailed'))
       setScanError(msg)
       toast({
         title: t('toastScanFailedTitle'),
@@ -222,6 +226,7 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
     setSearch('')
     setActiveCategory(null)
     setHighlightIndex(-1)
+    triggerRef.current?.focus()
   }
 
   const handleClear = () => {
@@ -258,6 +263,7 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
         e.preventDefault()
         setOpen(false)
         setHighlightIndex(-1)
+        triggerRef.current?.focus()
         break
       case 'Home':
         e.preventDefault()
@@ -302,6 +308,7 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
             size="sm"
             onClick={handleScan}
             disabled={scanning || disabled}
+            // eslint-disable-next-line local/no-dead-disabled-title -- pure hint describing what Scan needs to succeed, unconditional regardless of disabled state; `disabled` here is a generic pass-through prop no current caller sets, and `scanning` is a self-evident transient busy state (the spinner). Not a disabled-reason. Triaged 2026-08-27.
             title={t('scanTitle')}
             className="shrink-0"
           >
@@ -330,6 +337,7 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
     <div ref={containerRef} className="relative" onKeyDown={handleKeyDown}>
       {/* Trigger */}
       <div
+        ref={triggerRef}
         role="combobox"
         aria-expanded={open}
         aria-haspopup="listbox"
@@ -394,7 +402,7 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
               ref={inputRef}
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder={t('searchNItemsPlaceholder', { count: nonVehicleItems.length.toLocaleString() })}
+              placeholder={t('searchNItemsPlaceholder', { count: nonVehicleItems.length.toLocaleString(i18n.language) })}
               className="flex-1 min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
               aria-label={t('filterItemsAria')}
               autoFocus
@@ -403,6 +411,7 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
               <button
                 type="button"
                 onClick={() => setSearch('')}
+                aria-label={t('clearSearchAria')}
                 className="flex items-center justify-center w-6 h-6 rounded text-muted-foreground hover:text-foreground shrink-0 motion-safe:transition-colors"
               >
                 <X className="w-3.5 h-3.5" />
@@ -414,7 +423,9 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
               onClick={e => { e.stopPropagation(); handleScan() }}
               disabled={scanning}
               className="h-8 w-8 p-0 shrink-0"
+              // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, same text as the aria-label; disables only while a scan is already in flight (the spinner is the self-evident why). Triaged 2026-08-27.
               title={t('rescanTitle')}
+              aria-label={t('rescanTitle')}
             >
               {scanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
             </Button>
@@ -437,7 +448,7 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
               >
                 <LayoutGrid className="w-4 h-4 shrink-0" />
                 <span className="flex-1 min-w-0 font-medium">{t('allItems')}</span>
-                <span className="text-[11px] tabular-nums opacity-60">{nonVehicleItems.length.toLocaleString()}</span>
+                <span className="text-[11px] tabular-nums opacity-60">{nonVehicleItems.length.toLocaleString(i18n.language)}</span>
               </button>
 
               <div className="h-px bg-border/30 mx-3 my-1.5" />
@@ -459,7 +470,7 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
                   >
                     <CatIcon className="w-4 h-4 shrink-0 opacity-70" />
                     <span className="flex-1 min-w-0">{cat.label}</span>
-                    <span className="text-[11px] tabular-nums opacity-50">{cat.count.toLocaleString()}</span>
+                    <span className="text-[11px] tabular-nums opacity-50">{cat.count.toLocaleString(i18n.language)}</span>
                   </button>
                 )
               })}
@@ -471,7 +482,7 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
               <div className="sticky top-0 z-10 flex items-center gap-2.5 px-4 py-2 bg-muted/80 backdrop-blur-sm border-b border-border/30">
                 <ActiveIcon className="w-3.5 h-3.5 text-muted-foreground/70" />
                 <span className="text-xs font-semibold text-muted-foreground tracking-wide uppercase">{activeCategoryLabel}</span>
-                <span className="text-xs text-muted-foreground/40 tabular-nums ml-auto">{totalFiltered.toLocaleString()} items</span>
+                <span className="text-xs text-muted-foreground/40 tabular-nums ml-auto">{totalFiltered.toLocaleString(i18n.language)} items</span>
               </div>
 
               {totalFiltered === 0 ? (
@@ -545,7 +556,7 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
                   <Trans
                     i18nKey="cappedFooter"
                     t={t}
-                    values={{ max: MAX_VISIBLE, total: totalFiltered.toLocaleString() }}
+                    values={{ max: MAX_VISIBLE, total: totalFiltered.toLocaleString(i18n.language) }}
                     components={{ 1: <span className="text-warning font-medium" /> }}
                   />
                 )
@@ -561,7 +572,7 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
             </div>
             {scannedAt && (
               <span className="text-right opacity-40 tabular-nums">
-                {new Date(scannedAt).toLocaleDateString()}
+                {new Date(scannedAt).toLocaleDateString(i18n.language)}
               </span>
             )}
           </div>

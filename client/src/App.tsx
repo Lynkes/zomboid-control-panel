@@ -17,6 +17,7 @@ import { useToast } from './components/ui/use-toast'
 import { PageSkeleton } from './components/PageSkeleton'
 import { ScrollToTop } from './components/ScrollToTop'
 import { isDemoMode } from './lib/demo'
+import { getUserErrorMessage } from './lib/errorMessage'
 
 type RouteLoaderMeta = {
   title: string
@@ -473,7 +474,7 @@ function AppContent() {
             ...prev,
             connected: false,
             reconnecting: true,
-            error: err.message,
+            error: getUserErrorMessage(err, 'Connection error'),
           }))
         } else {
           // Connection denied by server - needs manual reconnect
@@ -481,7 +482,7 @@ function AppContent() {
             connected: false,
             reconnecting: false,
             reconnectAttempt: 0,
-            error: err.message,
+            error: getUserErrorMessage(err, 'Connection error'),
           })
         }
       })

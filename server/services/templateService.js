@@ -7,6 +7,8 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { fileURLToPath } from "url";
 import { createLogger } from "../utils/logger.js";
+import { ErrorCode } from "../utils/errorCodes.js";
+import { sanitizeErrorParams } from "../utils/sanitize.js";
 import { getServer, getSetting, setSetting } from "../database/init.js";
 import {
   getUserTemplates,
@@ -92,12 +94,24 @@ export async function getTemplate(id) {
 export async function saveTemplate(input) {
   const hasId = typeof input?.meta?.id === "string" && input.meta.id;
   if (hasId && loadBuiltinTemplates().some((t) => t.meta.id === input.meta.id)) {
-    return { success: false, error: "Cannot overwrite a built-in template" };
+    return {
+      success: false,
+      error: "Cannot overwrite a built-in template",
+      code: ErrorCode.SIM_TEMPLATE_BUILTIN_READONLY,
+    };
   }
 
   const template = hasId && input.schemaVersion ? input : createTemplate(input || {});
   const { valid, errors } = validateTemplate(template);
-  if (!valid) return { success: false, error: errors.join("; ") };
+  if (!valid) {
+    const joined = errors.join("; ");
+    return {
+      success: false,
+      error: joined,
+      code: ErrorCode.SIM_TEMPLATE_VALIDATION_FAILED,
+      params: sanitizeErrorParams({ errors: joined }),
+    };
+  }
 
   const saved = await saveUserTemplate(template);
   return { success: true, template: saved };
@@ -111,19 +125,31 @@ export async function deleteTemplate(id) {
     return { success: true, hiddenBuiltin: true };
   }
   const deleted = await deleteUserTemplate(id);
-  return deleted ? { success: true } : { success: false, error: "Template not found" };
+  return deleted
+    ? { success: true }
+    : { success: false, error: "Template not found", code: ErrorCode.SIM_TEMPLATE_NOT_FOUND };
 }
 
 export async function exportTemplate(id) {
   const template = await getTemplate(id);
-  if (!template) return { success: false, error: "Template not found" };
+  if (!template) {
+    return { success: false, error: "Template not found", code: ErrorCode.SIM_TEMPLATE_NOT_FOUND };
+  }
   const { isBuiltin: _isBuiltin, ...exportable } = template;
   return { success: true, template: exportable };
 }
 
 export async function importTemplate(json) {
   const { valid, errors } = validateTemplate(json);
-  if (!valid) return { success: false, error: errors.join("; ") };
+  if (!valid) {
+    const joined = errors.join("; ");
+    return {
+      success: false,
+      error: joined,
+      code: ErrorCode.SIM_TEMPLATE_VALIDATION_FAILED,
+      params: sanitizeErrorParams({ errors: joined }),
+    };
+  }
 
   // Always mint a fresh id so an imported file can never silently collide
   // with (or overwrite) an existing built-in or user template.
@@ -176,13 +202,23 @@ async function readCurrentConfig(template, paths) {
 
 export async function previewTemplate(templateId, serverId) {
   const template = await getTemplate(templateId);
-  if (!template) return { success: false, error: "Template not found" };
+  if (!template) {
+    return { success: false, error: "Template not found", code: ErrorCode.SIM_TEMPLATE_NOT_FOUND };
+  }
 
   const server = await getServer(serverId);
-  if (!server) return { success: false, error: "Server not found" };
+  if (!server) {
+    return { success: false, error: "Server not found", code: ErrorCode.SIM_TEMPLATE_SERVER_NOT_FOUND };
+  }
 
   const paths = resolveServerPaths(server);
-  if (!paths) return { success: false, error: "Server has no configured config path" };
+  if (!paths) {
+    return {
+      success: false,
+      error: "Server has no configured config path",
+      code: ErrorCode.SIM_TEMPLATE_SERVER_NO_CONFIG_PATH,
+    };
+  }
 
   const currentConfig = await readCurrentConfig(template, paths);
   return { success: true, diff: computeDiff(template, currentConfig) };
@@ -265,27 +301,55 @@ function applyTemplateLocked(template, paths, backup, options) {
 
 export async function applyTemplate(templateId, serverId, options = {}) {
   const template = await getTemplate(templateId);
-  if (!template) return { success: false, error: "Template not found" };
+  if (!template) {
+    return { success: false, error: "Template not found", code: ErrorCode.SIM_TEMPLATE_NOT_FOUND };
+  }
 
   const server = await getServer(serverId);
-  if (!server) return { success: false, error: "Server not found" };
+  if (!server) {
+    return { success: false, error: "Server not found", code: ErrorCode.SIM_TEMPLATE_SERVER_NOT_FOUND };
+  }
   if (server.isRemote) {
     return {
       success: false,
       error: "Applying templates to remote servers is not supported yet.",
+      code: ErrorCode.SIM_TEMPLATE_APPLY_REMOTE_UNSUPPORTED,
     };
   }
 
   const paths = resolveServerPaths(server);
-  if (!paths) return { success: false, error: "Server has no configured config path" };
+  if (!paths) {
+    return {
+      success: false,
+      error: "Server has no configured config path",
+      code: ErrorCode.SIM_TEMPLATE_SERVER_NO_CONFIG_PATH,
+    };
+  }
 
   const backup = options.backup !== false;
   const lockPaths = [paths.iniPath, paths.sandboxPath].sort();
-  const result = await withFileLock(lockPaths[0], () =>
-    withFileLock(lockPaths[1], () =>
-      applyTemplateLocked(template, paths, backup, options),
-    ),
-  );
+  let result;
+  try {
+    result = await withFileLock(lockPaths[0], () =>
+      withFileLock(lockPaths[1], () =>
+        applyTemplateLocked(template, paths, backup, options),
+      ),
+    );
+  } catch (error) {
+    // prepareIniChange() throws this specific message when the template has
+    // ini keys to write but the server's .ini doesn't exist yet -- was an
+    // uncaught throw that fell into templates.js's generic 500 catch.
+    // Anything else re-throws: this is a targeted catch for one known
+    // condition, not a blanket "apply never fails visibly" swallow.
+    if (error instanceof Error && error.message === "Server INI file not found") {
+      return {
+        success: false,
+        error: error.message,
+        code: ErrorCode.SIM_TEMPLATE_APPLY_INI_MISSING,
+      };
+    }
+    throw error;
+  }
 
   log.info(`Applied template "${template.meta.name}" to server ${server.id}`);
   return result;

@@ -2,5 +2,7 @@
   "title": "Something went wrong",
   "description": "An unexpected error occurred. Please try refreshing the page.",
   "refreshPage": "Refresh Page",
-  "tryAgain": "Try Again"
+  "tryAgain": "Try Again",
+  "showDetails": "Show technical details",
+  "openRecoveryPage": "Open the page that can fix this"
 }

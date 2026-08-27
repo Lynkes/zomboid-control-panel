@@ -50,12 +50,44 @@ describe("buildHostSignal", () => {
     expect(signal.label).toBe("Host");
   });
 
-  it("reports Docker container state directly", () => {
-    expect(buildHostSignal("docker-local", true)).toEqual({
-      status: "running",
-      label: "Container",
-      detail: null,
+  // GH#114: the host signal for a docker provider must come from the
+  // managed-container lookup, never from the local process scan -- PZ runs
+  // as PID 1 of a *different* container there, so a local scan can never
+  // see it and would always, confidently, wrongly say stopped. isRunning
+  // here is deliberately true and ignored, to prove the docker branch does
+  // not read it.
+  it("reports Docker container state from the managed-container lookup, ignoring the local scan", () => {
+    expect(
+      buildHostSignal("docker-local", true, false, { handled: true, running: true }),
+    ).toEqual({ status: "running", label: "Container", detail: null });
+
+    expect(
+      buildHostSignal("docker-local", true, false, { handled: true, running: false }),
+    ).toEqual({ status: "stopped", label: "Container", detail: null });
+  });
+
+  it("reports docker host state as unknown when Docker control is disabled/unavailable, not stopped", () => {
+    // {handled: false} is resolveManagedContainer()'s shape for "Docker
+    // control is disabled, the socket is unreachable, or the server has no
+    // container mapped" -- must never silently fall back to the local scan,
+    // which is the bug again with extra steps.
+    const signal = buildHostSignal("docker-local", false, false, { handled: false });
+    expect(signal.status).toBe("unknown");
+    expect(signal.label).toBe("Container");
+  });
+
+  it("reports docker host state as unknown when no managed-container lookup was supplied at all", () => {
+    expect(buildHostSignal("docker-local", true).status).toBe("unknown");
+  });
+
+  it("reports docker host state as unknown when the mapped container can't be resolved", () => {
+    const signal = buildHostSignal("docker-local", false, false, {
+      handled: true,
+      container: null,
+      error: 'Container "pz" is mapped to this server but the panel cannot manage it.',
     });
+    expect(signal.status).toBe("unknown");
+    expect(signal.detail).toMatch(/cannot manage it/);
   });
 
   it("falls back to not-applicable for an unrecognised provider", () => {
@@ -81,13 +113,7 @@ describe("buildHostSignal", () => {
     expect(signal.detail).toBeTruthy();
   });
 
-  it("reports docker host state as unknown when detection itself failed", () => {
-    const signal = buildHostSignal("docker-local", false, true);
-    expect(signal.status).toBe("unknown");
-    expect(signal.label).toBe("Container");
-  });
-
-  it("does not report unknown for native/docker when the scan succeeded and simply found nothing", () => {
+  it("does not report unknown for native when the scan succeeded and simply found nothing", () => {
     expect(buildHostSignal("native", false, false).status).toBe("stopped");
     expect(buildHostSignal("native", false).status).toBe("stopped");
   });
@@ -211,5 +237,36 @@ describe("composeServerStatus", () => {
     expect(result.provider).toBe("remote-sftp");
     expect(result.host.status).toBe("unknown");
     expect(result.server.status).toBe("connected");
+  });
+
+  // GH#114: PZ in its own container, panel in another. The local process
+  // scan correctly finds nothing (isRunning: false) because it can never see
+  // a process outside its own container -- that must not become a confident
+  // "stopped" now that the managed container itself reports Running: true.
+  it("reports a mapped container as running from the Docker lookup, even though the local process scan found nothing", () => {
+    const result = composeServerStatus({
+      server: { dockerContainerName: "pz-server" },
+      isRunning: false,
+      scanFailed: false,
+      dockerContainer: { handled: true, ref: "pz-server", running: true },
+      rcon: { connected: true, host: "pz-server", port: 27015 },
+      bridge: { configured: true, running: true, modConnected: true },
+    });
+
+    expect(result.provider).toBe("docker-local");
+    expect(result.host).toEqual({ status: "running", label: "Container", detail: null });
+  });
+
+  it("reports a mapped container as unknown, not stopped, when Docker control is disabled", () => {
+    const result = composeServerStatus({
+      server: { dockerContainerName: "pz-server" },
+      isRunning: false,
+      dockerContainer: { handled: false },
+      rcon: { connected: false },
+      bridge: { configured: false },
+    });
+
+    expect(result.provider).toBe("docker-local");
+    expect(result.host.status).toBe("unknown");
   });
 });

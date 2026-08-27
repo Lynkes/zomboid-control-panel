@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ErrorCode } from "../utils/errorCodes.js";
 
 // hunt-code-patterns (conv-hunt-resume): isCronTooFrequent()'s "Security:
 // Reject tasks that run more frequently than every 5 minutes to prevent
@@ -21,8 +22,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // hardening (every-minute, range-step, comma-separated, hour-pinned burst)
 // regressed.
 
+// Every test body below uses command: "restart" -- incidental to what's
+// actually under test here (cron-expression validation), so the role just
+// needs whatever capability "restart" requires (server.control, see
+// requiredCapabilityForScheduledCommand in services/scheduler.js) to clear
+// the permission check cleanly and reach the cron logic these tests exist
+// to exercise.
 const ROLES = {
-  automation_only: { name: "automation_only", capabilities: ["automation.manage"] },
+  automation_only: {
+    name: "automation_only",
+    capabilities: ["automation.manage", "server.control"],
+  },
 };
 
 vi.mock("../database/init.js", () => ({
@@ -121,6 +131,26 @@ describe("POST /api/scheduler/tasks -- seconds-precision cron rejection", () => 
     expect(createScheduledTask).not.toHaveBeenCalled();
   });
 
+  it.each(["1-4 * * * *", "1-4,30 * * * *"])(
+    "refuses minute ranges with sub-five-minute gaps (%s)",
+    async (cronExpression) => {
+      const response = createResponse();
+      await getHandler("/tasks", "post")(
+        baseReq({
+          body: { name: "x", cronExpression, command: "restart" },
+        }),
+        response,
+      );
+      expect(response.status).toHaveBeenCalledWith(400);
+      expect(response.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          error: "Tasks cannot run more frequently than every 5 minutes",
+        }),
+      );
+      expect(createScheduledTask).not.toHaveBeenCalled();
+    },
+  );
+
   it("does not regress: a valid 5-field, not-too-frequent expression still creates the task", async () => {
     createScheduledTask.mockResolvedValue({ id: 99 });
     const response = createResponse();
@@ -179,7 +209,11 @@ describe("POST /api/scheduler/validate-cron -- preview stays consistent with wha
       response,
     );
     expect(response.json).toHaveBeenCalledWith(
-      expect.objectContaining({ valid: false, error: expect.stringMatching(/seconds-precision/i) }),
+      expect.objectContaining({
+        valid: false,
+        error: expect.stringMatching(/seconds-precision/i),
+        code: ErrorCode.SCHEDULER_CRON_SECONDS_UNSUPPORTED,
+      }),
     );
   });
 
@@ -190,5 +224,47 @@ describe("POST /api/scheduler/validate-cron -- preview stays consistent with wha
       response,
     );
     expect(response.json).toHaveBeenCalledWith({ valid: true });
+  });
+
+  it("previews an every-minute expression as invalid, matching create/update", async () => {
+    const response = createResponse();
+
+    await getHandler("/validate-cron", "post")(
+      baseReq({ body: { cronExpression: "* * * * *" } }),
+      response,
+    );
+
+    expect(response.json).toHaveBeenCalledWith({
+      valid: false,
+      error: "Tasks cannot run more frequently than every 5 minutes",
+      code: ErrorCode.SCHEDULER_CRON_TOO_FREQUENT,
+    });
+  });
+
+  // bug-hunt-2026-08-26: this endpoint was shipped-but-unreachable dead code
+  // until tonight, so a raw-server-English bug in these branches was invisible
+  // -- nothing called it to notice. Wiring it up (Dwight, 1b05771) is what
+  // made the missing codes on these three branches a live, user-visible bug.
+  // Every branch below now carries the same code POST/PUT /tasks would use
+  // for the matching failure, so the client can translate it instead of
+  // rendering this raw English string.
+  it("previews a malformed expression as invalid with the same code POST/PUT /tasks would use", async () => {
+    const response = createResponse();
+    await getHandler("/validate-cron", "post")(
+      baseReq({ body: { cronExpression: "not a cron" } }),
+      response,
+    );
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({ valid: false, code: ErrorCode.SCHEDULER_INVALID_CRON_EXPRESSION }),
+    );
+  });
+
+  it("rejects a missing cronExpression with a stable code, not just raw text", async () => {
+    const response = createResponse();
+    await getHandler("/validate-cron", "post")(baseReq({ body: {} }), response);
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({ valid: false, code: ErrorCode.SCHEDULER_CRON_EXPRESSION_REQUIRED }),
+    );
   });
 });

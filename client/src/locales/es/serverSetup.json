@@ -26,6 +26,12 @@
       "description": "Si nunca has configurado un servidor de Project Zomboid, elige <1>Instalación nueva</1>: descargará todo lo necesario automáticamente."
     }
   },
+  "resumeBanner": {
+    "title": "Puede que una instalación siga en curso",
+    "description": "Una sesión anterior empezó a instalar en {{installPath}} (hace {{elapsed}}) y la página se cerró o recargó antes de terminar. Puede que siga descargándose en segundo plano.",
+    "continueButton": "Continuar configuración",
+    "dismissButton": "Descartar"
+  },
   "stepIndicator": {
     "quick": {
       "location": "Ubicación",
@@ -61,6 +67,8 @@
     "regeneratePasswordAria": "Generar contraseña nueva",
     "regeneratePasswordTooltip": "Generar contraseña nueva",
     "rconPortLabel": "Puerto de RCON",
+    "rconPortHelp": "El puerto que el panel usa para enviar comandos RCON (iniciar, detener, guardar, expulsar, chat) al servidor en ejecución, distinto del puerto al que se conectan los jugadores. Ejemplo: 27015 (el predeterminado). Debe estar libre en esta máquina; si otro programa ya lo está usando, el servidor puede no iniciarse, o el panel puede no poder conectarse para controlarlo.",
+    "rconPortDefaultHint": "Puerto predeterminado: 27015",
     "memoryTitle": "Asignación de memoria",
     "detectingRam": "Detectando RAM…",
     "minRamLabel": "RAM mínima",
@@ -71,10 +79,11 @@
     "maxRamAria": "RAM máxima en GB",
     "maxRamSliderAria": "RAM máxima: {{value}} GB",
     "gamePortLabel": "Puerto del juego",
+    "gamePortHelp": "El puerto al que se conectan los clientes del juego Project Zomboid cuando los jugadores se unen. Ejemplo: 16261 (el predeterminado). Si lo cambias, los jugadores deberán añadir el nuevo número después de la dirección de tu servidor para conectarse (por ejemplo, tu-ip:16262), y tu router o firewall deberá redirigir ese mismo puerto.",
     "gamePortDefaultHint": "Puerto predeterminado: 16261",
     "adminPasswordLabel": "Contraseña de administrador",
     "adminPasswordPlaceholder": "Obligatoria antes del primer inicio del servidor",
-    "adminPasswordHelp": "Obligatoria antes del primer inicio del servidor.",
+    "adminPasswordHelp": "Establece la contraseña de la cuenta de administrador integrada de Project Zomboid. Una vez que el servidor esté en marcha, úsala dentro del juego con el comando de chat /login admin, seguido de esta contraseña, para obtener permisos de administrador. Obligatoria antes del primer inicio del servidor: puede instalarse sin ella, pero no se iniciará hasta que se establezca una.",
     "hideAdminPassword": "Ocultar contraseña de administrador",
     "showAdminPassword": "Mostrar contraseña de administrador",
     "upnpLabel": "UPnP",
@@ -87,7 +96,8 @@
     "debugDesc": "Activa registros detallados de inicio y ejecución",
     "debugAria": "Activar modo de depuración",
     "customConfigLocation": "Ubicación de configuración personalizada",
-    "customConfigLocationHelp": "Ruta personalizada de la carpeta de datos",
+    "customConfigLocationHelp": "Project Zomboid normalmente guarda las partidas, la configuración del servidor y los registros junto a la carpeta de instalación. Configura esto solo si esos datos están realmente en otro lugar, por ejemplo en una unidad distinta o en una carpeta montada (bind mount) en Docker. Si apuntas a la carpeta equivocada, el panel no encontrará tus partidas, ajustes ni copias de seguridad existentes.",
+    "customDataPathPlaceholder": "p. ej. C:\\Users\\tunombre\\Zomboid o /home/tunombre/Zomboid",
     "useCustomLocation": "Usar ubicación personalizada",
     "serverNameLabel": "Nombre del servidor",
     "serverNamePlaceholder": "miservidor",
@@ -105,7 +115,10 @@
     "progressDownloading": "Descargando…",
     "progressValidating": "Validando archivos…",
     "progressVerifying": "Verificando instalación…",
-    "progressComplete": "¡Completado!"
+    "progressComplete": "¡Completado!",
+    "noPermissionInstall": "Instalar un servidor requiere el permiso server.install, del cual este rol no dispone.",
+    "noPermissionSettings": "Guardar este ajuste requiere el permiso panel.settings, del cual este rol no dispone.",
+    "noPermissionControl": "Iniciar el servidor requiere el permiso server.control, del cual este rol no dispone."
   },
   "full": {
     "pageTitle": "Instalación nueva",
@@ -134,13 +147,13 @@
       "description": "Elige dónde se instalan los archivos y define la identidad del servidor.",
       "installFolderLabel": "Carpeta de instalación",
       "useLinuxPath": "Usar ruta del servicio de Linux",
-      "installFolderPlaceholder": "Carpeta donde se instalarán los archivos del servidor",
-      "installFolderHelp": "SteamCMD descarga aproximadamente 3 GB aquí. El servicio del panel debe tener permiso de escritura en esta carpeta.",
+      "installFolderPlaceholder": "p. ej. C:\\PZServer o /home/steamuser/pzserver",
+      "installFolderHelp": "SteamCMD descarga aquí unos 3 GB de archivos del servidor y crea la carpeta automáticamente si no existe; el panel solo necesita permiso de escritura. Esto es independiente de dónde se guardan las partidas y los ajustes; consulta «Ubicación de configuración personalizada» más abajo.",
       "linuxNoteTitle": "Instalaciones del servicio en Linux",
       "linuxNoteBody1": "Si el panel se ejecuta mediante el servicio systemd incluido, usa <1>{{path}}</1>. Otras carpetas requieren un cambio de permisos en systemd.",
       "linuxNoteBody2": "La carpeta de datos del servidor se crea junto a la carpeta de instalación: <1>{{path}}</1>. Ambas carpetas deben tener permiso de escritura.",
       "dataFolderPlaceholder": "carpeta-de-instalación_Data",
-      "serverNameHelp": "Solo caracteres alfanuméricos y guion bajo. Se usa para los archivos de configuración.",
+      "serverNameHelp": "Solo caracteres alfanuméricos y guion bajo, por ejemplo miservidor. Se convierte en el nombre del archivo de configuración (miservidor.ini): defínelo antes de instalar. Cambiarlo después crea una configuración nueva y vacía en lugar de renombrar la existente.",
       "gameVersionLabel": "Versión del juego",
       "gameVersionHelp": "La mayoría querrá Estable: es la versión predeterminada actual. Las demás ramas que ofrece Steam son versiones más antiguas o experimentales, mantenidas por compatibilidad con mods o partidas guardadas que aún no se han actualizado. No hay garantía de que las partidas guardadas y los mods funcionen entre versiones distintas, así que cambia solo si realmente lo necesitas.",
       "loadingVersions": "Cargando versiones disponibles…",
@@ -191,7 +204,7 @@
     "step2": {
       "title": "Configurar servidor",
       "description": "Define el nombre del servidor, el acceso RCON y los límites de memoria.",
-      "serverNameHelp": "Cada servidor necesita un nombre único. Se crean archivos de configuración independientes.",
+      "serverNameHelp": "Solo caracteres alfanuméricos y guion bajo, por ejemplo miservidor. Se convierte en el nombre del archivo de configuración (miservidor.ini) para los archivos de servidor existentes que seleccionaste en el paso anterior.",
       "rconTitle": "Control remoto (RCON)",
       "rconPortDefaultHint": "Puerto predeterminado: 27015",
       "ramDetectedBadge": "{{total}} GB detectados"
@@ -243,7 +256,7 @@
     "adminPasswordRequiredInstallDesc": "Indica una contraseña de administrador antes de iniciar la instalación.",
     "adminPasswordRequiredCreateDesc": "Indica una contraseña de administrador antes de crear este servidor.",
     "invalidPortTitle": "Puerto no válido",
-    "invalidPortDesc": "El puerto del juego y el puerto de RCON deben ser números enteros entre 1024 y 65535.",
+    "invalidPortDesc": "El puerto del juego debe ser un número entero entre 1024 y 65534; el puerto RCON debe estar entre 1024 y 65535.",
     "startingInstallLog": "Iniciando instalación…",
     "creatingConfigLog": "Creando configuración del servidor…",
     "configCreatedLog": "¡Configuración del servidor creada correctamente!",
@@ -259,6 +272,9 @@
     "serverStartingDesc": "Redirigiendo al tablero…",
     "startFailedTitle": "Error al iniciar",
     "registerFailedTitle": "Archivos del servidor instalados, pero falló el registro",
-    "registerFailedDesc": "Los archivos del juego están en el disco, pero el panel no pudo añadir este servidor a su base de datos, así que aún no aparecerá en Mis servidores. Revisa el registro de arriba y vuelve a ejecutar la instalación: repetirla es seguro."
+    "registerFailedDesc": "Los archivos del juego están en el disco, pero el panel no pudo añadir este servidor a su base de datos, así que aún no aparecerá en Mis servidores. Revisa el registro de arriba y vuelve a ejecutar la instalación: repetirla es seguro.",
+    "activateFailedLog": "Advertencia: El servidor se registró, pero no se pudo establecer como servidor activo.",
+    "activateFailedTitle": "Servidor registrado, pero no activado",
+    "activateFailedDesc": "El servidor se añadió a Mis servidores, pero el panel no pudo cambiar a él automáticamente. Ve a Mis servidores y selecciónalo manualmente antes de iniciarlo."
   }
 }

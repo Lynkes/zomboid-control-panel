@@ -95,11 +95,11 @@ export const reducer = (state: State, action: Action): State => {
 
       if (toastId) {
         const t = state.toasts.find((t) => t.id === toastId)
-        const delay = t?.duration ?? (t?.variant === 'destructive' ? TOAST_DESTRUCTIVE_DELAY : undefined)
+        const delay = t?.duration ?? (t?.variant === 'destructive' || t?.variant === 'warning' ? TOAST_DESTRUCTIVE_DELAY : undefined)
         addToRemoveQueue(toastId, delay)
       } else {
         state.toasts.forEach((toast) => {
-          const delay = toast.duration ?? (toast.variant === 'destructive' ? TOAST_DESTRUCTIVE_DELAY : undefined)
+          const delay = toast.duration ?? (toast.variant === 'destructive' || toast.variant === 'warning' ? TOAST_DESTRUCTIVE_DELAY : undefined)
           addToRemoveQueue(toast.id, delay)
         })
       }

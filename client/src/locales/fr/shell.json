@@ -39,7 +39,12 @@
     },
     "notAvailableRemote": "Non disponible pour les serveurs distants (RCON uniquement)",
     "localBadge": "Local",
-    "requiresServer": "Ajoutez d’abord un serveur — cette page en a besoin pour fonctionner"
+    "requiresServer": "Ajoutez d’abord un serveur — cette page en a besoin pour fonctionner",
+    "noServerBanner": {
+      "title": "Pas encore de serveur",
+      "description": "La majeure partie du panneau se débloque dès que vous en ajoutez un.",
+      "cta": "Configurer un serveur"
+    }
   },
   "mobileMenu": {
     "open": "Ouvrir le menu",

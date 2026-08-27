@@ -5,6 +5,11 @@
     "updated": "已更新 {{time}}",
     "refresh": "刷新"
   },
+  "permissions": {
+    "noModerate": "此操作需要 players.moderate 权限，而该角色没有此权限。",
+    "noGmTools": "此操作需要 players.gm_tools 权限，而该角色没有此权限。",
+    "noBridgeCommand": "此操作需要 bridge.command 权限，而该角色没有此权限。"
+  },
   "errorBanner": {
     "title": "玩家页面部分不可用",
     "retry": "重试"
@@ -262,7 +267,8 @@
     "on": "开",
     "off": "关",
     "enable": "启用",
-    "disable": "禁用"
+    "disable": "禁用",
+    "bridgeRequiredTooltip": "需要先连接 PanelBridge"
   },
   "notes": {
     "selectPlayerEmpty": "选择一名玩家以查看或添加备注",
@@ -284,6 +290,7 @@
     "deleteButton": "删除",
     "saveButton": "保存备注",
     "activityLogTitle": "活动日志",
+    "activityLogTruncatedHint": "正在显示最近 {{count}} 条记录——更早的活动可能未显示。",
     "logsErrorTitle": "活动日志不可用",
     "filterPlaceholder": "按玩家名称筛选…",
     "filterAria": "按玩家名称筛选活动日志",
@@ -292,7 +299,7 @@
     "tableAction": "操作",
     "tableDetails": "详情",
     "loadingRow": "加载中…",
-    "noLogsRow": "暂无活动日志",
+    "noLogsRow": "暂无活动日志——对该玩家执行的管理操作（封禁、踢出、白名单变更）将显示在此处。",
     "detailsFallback": "-",
     "deleteConfirmTitle": "删除这条备注？",
     "deleteConfirmDesc": "为 {{player}} 保存的管理员备注和标签将被永久删除。此操作无法撤销。",
@@ -309,6 +316,8 @@
     "exportButton": "导出 {{player}}",
     "exportButtonFallback": "玩家",
     "characterDataLabel": "角色数据",
+    "copyCharacterDataAria": "复制角色数据",
+    "copiedAria": "已复制",
     "downloadFileButton": "下载文件",
     "importTitle": "导入角色",
     "importDesc": "恢复经验值、技能特长、技能与已导出的背包",
@@ -321,7 +330,15 @@
     "savedExportsTitle": "已保存的导出（{{count}}）",
     "sizeKb": "（{{size}} KB）",
     "downloadTitle": "下载",
-    "deleteTitle": "删除"
+    "deleteTitle": "删除",
+    "downloadExportAria": "下载 {{username}} 的已保存导出",
+    "deleteExportAria": "删除 {{username}} 的已保存导出"
+  },
+  "importConfirm": {
+    "title": "要覆盖 {{player}} 的角色吗？",
+    "description": "这会用粘贴的数据替换 {{player}} 的经验值、天赋、技能、特质、物品栏和已穿戴物品。{{player}} 的当前状态会先保存到已保存的导出中，如果这是错误的玩家或错误的文件，你可以从那里恢复。",
+    "cancel": "取消",
+    "confirm": "是，覆盖角色"
   },
   "actions": {
     "kickPlayer": "踢出玩家",
@@ -380,6 +397,8 @@
     "invalidJsonDesc": "角色数据不是有效的 JSON 格式",
     "characterImportedTitle": "角色已导入",
     "characterImportedDesc": "已为 {{player}} 应用 {{perks}} 项技能与 {{items}} 件物品",
+    "characterImportedTitleNoneApplied": "导入未应用任何内容",
+    "characterImportedDescNoneApplied": "提交的技能或物品均未应用到 {{player}}。数据可能与此服务器的模组或物品定义不匹配。",
     "importFailedTitle": "导入失败",
     "importFailedFallback": "导入角色失败",
     "fileTooLargeTitle": "文件过大",

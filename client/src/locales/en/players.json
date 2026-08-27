@@ -5,6 +5,11 @@
     "updated": "Updated {{time}}",
     "refresh": "Refresh"
   },
+  "permissions": {
+    "noModerate": "This action requires the players.moderate permission, which this role doesn't have.",
+    "noGmTools": "This action requires the players.gm_tools permission, which this role doesn't have.",
+    "noBridgeCommand": "This action requires the bridge.command permission, which this role doesn't have."
+  },
   "errorBanner": {
     "title": "Players page is partially unavailable",
     "retry": "Retry"
@@ -262,7 +267,8 @@
     "on": "ON",
     "off": "OFF",
     "enable": "Enable",
-    "disable": "Disable"
+    "disable": "Disable",
+    "bridgeRequiredTooltip": "Requires PanelBridge to be connected"
   },
   "notes": {
     "selectPlayerEmpty": "Select a player to view or add notes",
@@ -288,6 +294,7 @@
     "deleteConfirmConfirm": "Delete note",
     "saveButton": "Save Note",
     "activityLogTitle": "Activity Log",
+    "activityLogTruncatedHint": "Showing the most recent {{count}} entries -- older activity may not be shown.",
     "logsErrorTitle": "Activity log unavailable",
     "filterPlaceholder": "Filter by player name...",
     "filterAria": "Filter activity logs by player name",
@@ -296,7 +303,7 @@
     "tableAction": "Action",
     "tableDetails": "Details",
     "loadingRow": "Loading...",
-    "noLogsRow": "No activity logs",
+    "noLogsRow": "No activity logs yet — moderation actions taken on this player (bans, kicks, whitelist changes) will appear here.",
     "detailsFallback": "-"
   },
   "importExport": {
@@ -309,6 +316,8 @@
     "exportButton": "Export {{player}}",
     "exportButtonFallback": "Player",
     "characterDataLabel": "Character Data",
+    "copyCharacterDataAria": "Copy character data",
+    "copiedAria": "Copied",
     "downloadFileButton": "Download File",
     "importTitle": "Import Character",
     "importDesc": "Restore XP, perks, skills, and exported inventory",
@@ -321,7 +330,15 @@
     "savedExportsTitle": "Saved Exports ({{count}})",
     "sizeKb": "({{size}} KB)",
     "downloadTitle": "Download",
-    "deleteTitle": "Delete"
+    "deleteTitle": "Delete",
+    "downloadExportAria": "Download {{username}}'s saved export",
+    "deleteExportAria": "Delete {{username}}'s saved export"
+  },
+  "importConfirm": {
+    "title": "Overwrite {{player}}'s character?",
+    "description": "This replaces {{player}}'s XP, perks, skills, traits, inventory, and worn items with the pasted data. {{player}}'s current state is saved to Saved Exports first, so you can restore it from there if this is the wrong player or the wrong file.",
+    "cancel": "Cancel",
+    "confirm": "Yes, Overwrite Character"
   },
   "actions": {
     "kickPlayer": "Kick player",
@@ -380,6 +397,8 @@
     "invalidJsonDesc": "The character data is not valid JSON format",
     "characterImportedTitle": "Character Imported",
     "characterImportedDesc": "Applied {{perks}} skills and {{items}} items to {{player}}",
+    "characterImportedTitleNoneApplied": "Import Applied Nothing",
+    "characterImportedDescNoneApplied": "None of the submitted skills or items were applied to {{player}}. The data may not match this server's mods or item definitions.",
     "importFailedTitle": "Import Failed",
     "importFailedFallback": "Failed to import character",
     "fileTooLargeTitle": "File Too Large",

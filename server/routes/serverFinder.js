@@ -46,6 +46,17 @@ function validateQueryIp(ip) {
   return true;
 }
 
+export function parseQueryPort(value) {
+  if (typeof value === "number") {
+    return Number.isInteger(value) && value >= 1 && value <= 65535
+      ? value
+      : null;
+  }
+  if (typeof value !== "string" || !/^\d+$/.test(value.trim())) return null;
+  const port = Number(value.trim());
+  return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : null;
+}
+
 // Project Zomboid App ID on Steam
 const PZ_APP_ID = 108600;
 
@@ -61,22 +72,65 @@ const SERVER_QUERY_TIMEOUT = 3000;
 /**
  * Query a single game server for detailed info using A2S_INFO protocol
  */
-async function queryServerInfo(ip, port) {
+export function buildA2SInfoQuery(challenge = null) {
+  const base = Buffer.from([
+    0xFF, 0xFF, 0xFF, 0xFF, 0x54,
+    ...Buffer.from("Source Engine Query\0"),
+  ]);
+  return challenge ? Buffer.concat([base, challenge]) : base;
+}
+
+// Shared between GET /query and GET /ping so both name the same cause the
+// same way. Kept as its own map rather than inlined in either route so a
+// third caller of queryServerInfo's reason gets the same wording for free.
+export const QUERY_FAILURE_MESSAGES = {
+  timeout: 'Server did not respond (timed out)',
+  'socket-error': 'Could not reach the server (network error)',
+  'unparseable-response': 'Server responded with data the panel could not parse',
+};
+
+// onFailureReason, if given, is invoked with 'timeout' | 'socket-error' |
+// 'unparseable-response' right before a null resolve -- optional and
+// side-channel so the resolved value's contract (info object or null) is
+// completely unchanged for the batch caller in GET / and the existing
+// challenge-handling test, both of which only care about truthy-or-null.
+// GET /query and GET /ping pass it to turn one generic "didn't respond"
+// outcome back into the three genuinely different causes it collapsed.
+export async function queryServerInfo(ip, port, onFailureReason) {
   return new Promise((resolve) => {
     const socket = dgram.createSocket('udp4');
-    const timeout = setTimeout(() => {
+    let timeout = setTimeout(() => {
       socket.close();
+      onFailureReason?.('timeout');
       resolve(null);
     }, SERVER_QUERY_TIMEOUT);
+    let challengeRetried = false;
 
     socket.on('error', () => {
       clearTimeout(timeout);
       socket.close();
+      onFailureReason?.('socket-error');
       resolve(null);
     });
 
     socket.on('message', (msg) => {
       clearTimeout(timeout);
+      timeout = null;
+      if (
+        msg.length >= 9 &&
+        msg.readUInt8(4) === 0x41 &&
+        !challengeRetried
+      ) {
+        challengeRetried = true;
+        const challenge = msg.subarray(5, 9);
+        timeout = setTimeout(() => {
+          socket.close();
+          onFailureReason?.('timeout');
+          resolve(null);
+        }, SERVER_QUERY_TIMEOUT);
+        socket.send(buildA2SInfoQuery(challenge), port, ip);
+        return;
+      }
       try {
         const info = parseA2SInfoResponse(msg);
         info.ip = ip;
@@ -86,18 +140,15 @@ async function queryServerInfo(ip, port) {
         resolve(info);
       } catch (e) {
         socket.close();
+        onFailureReason?.('unparseable-response');
         resolve(null);
       }
     });
 
-    // A2S_INFO query packet
-    // Header: 0xFFFFFFFF + 'T' (0x54) + "Source Engine Query\0"
-    const query = Buffer.from([
-      0xFF, 0xFF, 0xFF, 0xFF, 0x54,
-      ...Buffer.from('Source Engine Query\0'),
-    ]);
-
-    socket.send(query, port, ip);
+    // A2S_INFO query packet. A server may answer with a challenge; the
+    // message handler retries once with the challenge appended as required by
+    // the protocol.
+    socket.send(buildA2SInfoQuery(), port, ip);
   });
 }
 
@@ -358,6 +409,60 @@ async function getServersFromSteamAPI(apiKey, useCache = true) {
   return serverArray;
 }
 
+export function mapSteamServer(server) {
+  const gametype = server.gametype || "";
+  const tags = gametype
+    .split(";")
+    .filter((tag) => tag && !tag.startsWith("VERSION:"));
+  const versionMatch = gametype.match(/VERSION:([0-9.]+)/);
+  const gameVersion = versionMatch ? versionMatch[1] : "";
+
+  // port is derived (addr first, then the raw gameport field as a
+  // fallback) rather than read directly, so an unparseable value must stay
+  // null rather than default to a guessed port (16261 is PZ's default, but
+  // guessing it here would be indistinguishable downstream from a port
+  // that was actually read -- a fabricated plausible value is worse than a
+  // null, since null is at least detectable). Matches this file's own
+  // `ping: null` convention for "we don't have this value" elsewhere.
+  const addrParts = server.addr?.split(":") || [];
+  const portFromAddr = parseQueryPort(addrParts[1]);
+  const port =
+    portFromAddr !== null ? portFromAddr : parseQueryPort(server.gameport);
+
+  return {
+    name: server.name || "Unknown",
+    ip: addrParts[0] || "",
+    port,
+    gamePort: server.gameport,
+    players: server.players || 0,
+    maxPlayers: server.max_players || 0,
+    map: server.map || "Muldraugh, KY",
+    version: gameVersion,
+    vac: server.secure || false,
+    isPrivate: server.password || false,
+    os: server.os === "l" ? "Linux" : server.os === "w" ? "Windows" : "Unknown",
+    dedicated: server.dedicated ?? true,
+    bots: server.bots || 0,
+    steamId: server.steamid,
+    gamedir: server.gamedir,
+    keywords: gametype,
+    tags,
+    ping: null,
+  };
+}
+
+// The master-server fallback path used to report an identical
+// `servers: []` for three genuinely different outcomes: the master
+// genuinely listed zero PZ servers, the master listed servers but none of
+// them answered the follow-up A2S query, or the master itself could never
+// be reached. Only meaningful for the master_server path with zero results
+// -- undefined otherwise, dropped from the JSON response by JSON.stringify.
+export function deriveEmptyReason({ source, serversFound, mastersReachable, mastersListedCount }) {
+  if (source !== 'master_server' || serversFound > 0) return undefined;
+  if (!mastersReachable) return 'master-unreachable';
+  return mastersListedCount > 0 ? 'no-servers-responded' : 'no-servers-listed';
+}
+
 /**
  * Get server list - tries Steam API first, falls back to master server query
  */
@@ -379,41 +484,7 @@ router.get('/', async (req, res) => {
           cached = true;
         }
         const apiServers = await getServersFromSteamAPI(steamApiKey, !forceRefresh);
-        servers = apiServers.map(s => {
-          // Parse gametype for version and tags
-          // Format: "hidden;hosted;vanilla;pvp;VERSION:42.13"
-          const gametype = s.gametype || '';
-          const tags = gametype.split(';').filter(t => t && !t.startsWith('VERSION:'));
-          const versionMatch = gametype.match(/VERSION:([0-9.]+)/);
-          const gameVersion = versionMatch ? versionMatch[1] : '';
-
-          // Safely parse IP and port from addr (format: "ip:port")
-          const addrParts = s.addr?.split(':') || [];
-          const ip = addrParts[0] || '';
-          const portFromAddr = addrParts[1] ? parseInt(addrParts[1], 10) : NaN;
-          const port = !isNaN(portFromAddr) ? portFromAddr : (s.gameport || 16261);
-
-          return {
-            name: s.name || 'Unknown',
-            ip,
-            port,
-            gamePort: s.gameport,
-            players: s.players || 0,
-            maxPlayers: s.max_players || 0,
-            map: s.map || 'Muldraugh, KY',
-            version: gameVersion, // Actual game version from gametype
-            vac: s.secure || false,
-            isPrivate: s.password || false,
-            os: s.os === 'l' ? 'Linux' : s.os === 'w' ? 'Windows' : 'Unknown',
-            dedicated: s.dedicated || true,
-            bots: s.bots || 0,
-            steamId: s.steamid,
-            gamedir: s.gamedir,
-            keywords: gametype, // Full gametype string
-            tags: tags, // Parsed tags array (hidden, hosted, vanilla, pvp, etc.)
-            ping: null, // Not available from API
-          };
-        });
+        servers = apiServers.map(mapSteamServer);
 
         log.info(`Found ${servers.length} PZ servers via Steam API`);
       } catch (apiError) {
@@ -423,6 +494,14 @@ router.get('/', async (req, res) => {
     }
 
     // Fallback to master server query (less reliable but works without API key)
+    // emptyReason distinguishes three causes that used to collapse into the
+    // same "servers: []": the master genuinely listed nothing, the master
+    // listed servers but none of them answered the follow-up A2S query, or
+    // the master itself could never be reached. Only computed (and only
+    // included in the response) when this fallback path actually ran and
+    // came up empty -- the common non-empty case is untouched.
+    let mastersReachable = false;
+    let mastersListedCount = 0;
     if (servers.length === 0) {
       source = 'master_server';
       try {
@@ -432,6 +511,8 @@ router.get('/', async (req, res) => {
         for (const master of MASTER_SERVERS) {
           try {
             const masterServers = await queryMasterServer(master.host, master.port, 0xFF, filter);
+            mastersReachable = true;
+            mastersListedCount += masterServers.length;
 
             // Query each server for details (limit concurrent queries)
             const batchSize = 50;
@@ -455,6 +536,12 @@ router.get('/', async (req, res) => {
         log.error('Master server query failed:', masterError.message);
       }
     }
+    const emptyReason = deriveEmptyReason({
+      source,
+      serversFound: servers.length,
+      mastersReachable,
+      mastersListedCount,
+    });
 
     // Sort by player count (descending)
     servers.sort((a, b) => (b.players || 0) - (a.players || 0));
@@ -474,6 +561,7 @@ router.get('/', async (req, res) => {
       totalCapacity,
       servers, // Return ALL servers, frontend handles pagination
       apiKeyConfigured,
+      emptyReason, // undefined (dropped by JSON.stringify) outside the empty master_server case
     });
   } catch (error) {
     log.error('Failed to get server list:', error);
@@ -507,8 +595,8 @@ router.get('/query', async (req, res) => {
   }
 
   // Validate port is a valid number
-  const portNum = parseInt(port, 10);
-  if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+  const portNum = parseQueryPort(port);
+  if (portNum === null) {
     return res.status(400).json({
       success: false,
       error: 'Invalid port number',
@@ -516,12 +604,14 @@ router.get('/query', async (req, res) => {
   }
 
   try {
-    const info = await queryServerInfo(ip, portNum);
+    let reason = 'timeout';
+    const info = await queryServerInfo(ip, portNum, (r) => { reason = r; });
 
     if (!info) {
       return res.status(504).json({
         success: false,
-        error: 'Server did not respond',
+        error: QUERY_FAILURE_MESSAGES[reason],
+        reason,
       });
     }
 
@@ -560,8 +650,8 @@ router.get('/ping', async (req, res) => {
   }
 
   // Validate port is a valid number
-  const portNum = parseInt(port, 10);
-  if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+  const portNum = parseQueryPort(port);
+  if (portNum === null) {
     return res.status(400).json({
       success: false,
       error: 'Invalid port number',
@@ -571,7 +661,8 @@ router.get('/ping', async (req, res) => {
   const startTime = Date.now();
 
   try {
-    const info = await queryServerInfo(ip, portNum);
+    let reason = 'timeout';
+    const info = await queryServerInfo(ip, portNum, (r) => { reason = r; });
     const ping = Date.now() - startTime;
 
     if (!info) {
@@ -579,6 +670,7 @@ router.get('/ping', async (req, res) => {
         success: true,
         ping: null,
         online: false,
+        reason,
       });
     }
 

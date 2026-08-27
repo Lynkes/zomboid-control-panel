@@ -14,12 +14,14 @@ import path from "path";
 // deleting the wrong thing.
 const getActiveServer = vi.fn();
 const getSetting = vi.fn();
+const getServers = vi.fn();
 
 vi.mock("../database/init.js", () => ({
   getSetting,
   setSetting: vi.fn(),
   getActiveServer,
   updateServer: vi.fn(),
+  getServers,
 }));
 
 const { default: router } = await import("../routes/chunks.js");
@@ -170,6 +172,11 @@ describe("map/ scan caching: TTL backstop + explicit invalidation on delete", ()
     getSetting.mockReset();
     dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "chunks-scan-ttl-FakeZomboidData-"));
     buildFixture(dataRoot, saveName);
+    // bug-hunt-2026-08-27: delete-chunks now requires a customPath to
+    // match a configured server's zomboidDataPath -- register dataRoot as
+    // one so this describe block's own delete-chunks call (line ~204
+    // below) keeps exercising cache invalidation, not this unrelated gate.
+    getServers.mockReset().mockResolvedValue([{ id: "s1", zomboidDataPath: dataRoot }]);
     vi.useFakeTimers();
     vi.setSystemTime(0);
   });

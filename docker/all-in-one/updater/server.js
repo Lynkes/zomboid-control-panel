@@ -3,6 +3,7 @@ const fs = require("fs/promises");
 const http = require("http");
 const path = require("path");
 const { spawn } = require("child_process");
+const { recreatePanelContainer } = require("./containerLifecycle.cjs");
 
 const PORT = Number(process.env.PORT || 3100);
 const UPDATE_TOKEN = process.env.UPDATE_TOKEN || "";
@@ -112,7 +113,7 @@ async function update(version) {
 
     updateState.message = "Building and recreating panel container";
     await run("docker", ["tag", PANEL_IMAGE, rollbackImage]);
-    await run("docker", ["compose", "--env-file", path.join(BUILD_ROOT, "ctx", ".env"), "-f", COMPOSE_FILE, "up", "-d", "--build", "--no-deps", PANEL_SERVICE]);
+    await recreatePanelContainer(PANEL_CONTAINER, ["--env-file", path.join(BUILD_ROOT, "ctx", ".env"), "-f", COMPOSE_FILE, "up", "-d", "--build", "--no-deps", PANEL_SERVICE], run);
     updateState.message = "Waiting for panel health check";
     await waitForHealthy();
 
@@ -124,7 +125,7 @@ async function update(version) {
         await fs.rm(SOURCE_DIR, { recursive: true, force: true });
         await fs.rename(backupSource, SOURCE_DIR);
         await run("docker", ["tag", rollbackImage, PANEL_IMAGE]);
-        await run("docker", ["compose", "--env-file", path.join(BUILD_ROOT, "ctx", ".env"), "-f", COMPOSE_FILE, "up", "-d", "--no-build", "--no-deps", "--force-recreate", PANEL_SERVICE]);
+        await recreatePanelContainer(PANEL_CONTAINER, ["--env-file", path.join(BUILD_ROOT, "ctx", ".env"), "-f", COMPOSE_FILE, "up", "-d", "--no-build", "--no-deps", "--force-recreate", PANEL_SERVICE], run);
       } catch (rollbackError) {
         error.message = `${error.message}; rollback failed: ${rollbackError.message}`;
       }

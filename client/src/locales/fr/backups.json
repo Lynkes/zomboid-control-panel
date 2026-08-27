@@ -1,4 +1,9 @@
 {
+  "permissions": {
+    "noManage": "La gestion des sauvegardes nécessite la permission backups.manage, que ce rôle ne possède pas.",
+    "noRestore": "La restauration d'une sauvegarde nécessite la permission backups.restore, que ce rôle ne possède pas.",
+    "noDownload": "Le téléchargement d'une sauvegarde nécessite la permission backups.download, que ce rôle ne possède pas."
+  },
   "pageHeader": {
     "title": "Sauvegardes du monde",
     "description": "Créez, restaurez et gérez les sauvegardes du monde de votre serveur",
@@ -106,7 +111,7 @@
     "description": "Restaurer <1>{{name}}</1>. Cela va <2>remplacer</2> les données actuelles du monde.",
     "bulletStopServer": "Arrêtez d'abord le serveur.",
     "bulletSafetyBackup": "Le panneau créera une sauvegarde de sécurité avant de restaurer.",
-    "bulletCannotUndo": "Cette action est irréversible.",
+    "bulletUndoRequiresRestore": "Pour annuler cela plus tard, il faudra restaurer cette sauvegarde de sécurité vous-même — cela ne se fait pas automatiquement.",
     "cancel": "Annuler",
     "confirm": "Restaurer cette sauvegarde"
   },

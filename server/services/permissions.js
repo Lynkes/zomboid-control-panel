@@ -51,7 +51,7 @@ export const CAPABILITIES = [
     group: "Users & Roles",
     label: "Manage user accounts",
     description:
-      "Create accounts, list them, and change which role each one holds.",
+      "Create accounts, list them, change which role each one holds, and permanently delete an account.",
   },
   {
     key: "roles.manage",
@@ -89,7 +89,8 @@ export const CAPABILITIES = [
     key: "server.control",
     group: "Server Lifecycle",
     label: "Start, stop, restart & save the server",
-    description: "Start, stop, force-stop, restart or save the running server.",
+    description:
+      "Start, stop, force-stop, restart or save the running server -- however it is deployed, including a Docker-managed one. Docker container status, stats and direct container actions are a separate capability (docker.manage).",
   },
   {
     key: "server.install",
@@ -103,20 +104,21 @@ export const CAPABILITIES = [
     group: "Server Lifecycle",
     label: "Edit server configuration",
     description:
-      "Edit the server's .ini settings, RCON connection details, and network/path configuration.",
+      "Edit the server's .ini settings, RCON connection details, and network/path configuration, and reload the server's Lua scripts on a live server.",
   },
   {
     key: "server.wipe",
     group: "Server Lifecycle",
     label: "Wipe the world",
-    description: "Irreversibly delete map, player or world save data.",
+    description:
+      "Irreversibly delete map, player or world save data -- and, via the 'clear install folder' action, any directory elsewhere on the host that merely passes a PZ-install marker-file check, not only the configured server's own folder.",
   },
   {
     key: "server.world_events",
     group: "Server Lifecycle",
     label: "Run world events",
     description:
-      "Weather, climate, time of day, ambient sound, zombie hordes, utilities, visual settings and broadcast messages -- world-wide effects, not aimed at a specific player.",
+      "Weather, climate, time of day, ambient sound, zombie hordes (clearing them, not spawning them at anyone), utilities, visual settings and server-attributed broadcast messages -- world-wide effects, not aimed at a specific player. Spawning zombies or sound effects at a named player, targeted lightning/thunder, and impersonating a player in chat are a separate capability, players.endanger_or_impersonate.",
   },
 
   // --- RCON ---
@@ -124,7 +126,8 @@ export const CAPABILITIES = [
     key: "rcon.execute",
     group: "RCON",
     label: "Run RCON commands",
-    description: "Connect to RCON and execute arbitrary console commands.",
+    description:
+      "Connect to RCON and execute arbitrary console commands, including ones that can stop the server. Also grants read access to the full RCON command history -- including real player passwords typed into whitelist commands like adduser.",
   },
 
   // --- Server Setup & Fleet ---
@@ -138,7 +141,8 @@ export const CAPABILITIES = [
     key: "servers.discover",
     group: "Server Setup & Fleet",
     label: "Auto-discover servers on this machine",
-    description: "Scan the host filesystem for existing PZ server installs.",
+    description:
+      "Scan any path on the host filesystem you specify for PZ server installs, including reading and parsing the contents of the .ini config files it finds there.",
   },
   {
     key: "templates.manage",
@@ -153,14 +157,14 @@ export const CAPABILITIES = [
     group: "PanelBridge Integration",
     label: "Connect & configure PanelBridge",
     description:
-      "Connect or reconfigure the in-game mod bridge, its SFTP transport, and install the mod.",
+      "Connect or reconfigure the in-game mod bridge -- including entering and storing the SFTP login password used to reach a remote server, browsing arbitrary paths on that server over SFTP, and pointing the local bridge at any absolute host path outside a small blocked-directory list. Also installs the mod.",
   },
   {
     key: "bridge.diagnostics",
     group: "PanelBridge Integration",
     label: "PanelBridge diagnostics",
     description:
-      "View the mod's debug log and stats, and run item/vehicle catalog scans.",
+      "View the mod's debug log and stats, introspect its API, available handlers and item scripts, run item and vehicle catalog scans, toggle its debug mode, and clear its error log.",
   },
   {
     key: "bridge.command",
@@ -175,7 +179,8 @@ export const CAPABILITIES = [
     key: "players.moderate",
     group: "Player Authority",
     label: "Discipline players",
-    description: "Ban, unban, kick or whitelist a player.",
+    description:
+      "Ban, unban, kick or whitelist a player, and change a player's in-game access level -- including granting or revoking admin.",
   },
   {
     key: "players.gm_tools",
@@ -190,13 +195,21 @@ export const CAPABILITIES = [
     label: "View player info",
     description: "Read player details, status and history.",
   },
+  {
+    key: "players.endanger_or_impersonate",
+    group: "Player Authority",
+    label: "Endanger or impersonate a player",
+    description:
+      "Spawn up to 500 zombies directly at a named player's location or right behind them, or trigger a horde aimed at them; aim a gunshot or an attraction sound at their position; strike them with targeted lightning or thunder. Separately, and a different kind of harm: send a general-chat message under any custom author name, including another player's -- making it read as if that player said it themselves.",
+  },
 
   // --- Mods ---
   {
     key: "mods.manage",
     group: "Mods",
     label: "Manage mods",
-    description: "Track, install and configure Workshop mods.",
+    description:
+      "Track, install, configure and permanently delete Workshop mods from disk -- including extracting or overwriting the Steam login session used for Workshop uploads, up to pulling it directly from an installed browser's cookie store on this machine.",
   },
 
   // --- Automation ---
@@ -220,13 +233,15 @@ export const CAPABILITIES = [
     key: "docker.manage",
     group: "Infrastructure",
     label: "Manage the Docker container",
-    description: "View status/stats and start, stop or restart the game server's container.",
+    description:
+      "View Docker container status and stats, and run direct container actions from the Docker screen. Starting, stopping and restarting the server itself -- Docker-managed or not -- is governed by server.control, not this capability.",
   },
   {
     key: "chunks.manage",
     group: "Infrastructure",
     label: "Manage map chunks",
-    description: "Clean up or delete map chunk regions, and configure the chunk save path.",
+    description:
+      "Clean up or delete map chunk regions, including from an arbitrary host directory you specify -- not limited to this server's own configured save location -- and configure the chunk save path.",
   },
   {
     key: "serverfiles.manage",
@@ -241,13 +256,14 @@ export const CAPABILITIES = [
     group: "Panel Diagnostics & Settings",
     label: "View panel diagnostics",
     description:
-      "View logs, performance history, database maintenance tools and CORS diagnostics.",
+      "View logs, performance history, CORS diagnostics and database statistics, back up the database, compact it -- which permanently trims old records -- and clear stale lock files. Also relocates the panel's data and log directories to any writable path on the host (blocked only from OS system directories and a configured server's own folders), and can move everything already there in the process -- including the JWT signing secret, every server's stored RCON password, and the main database.",
   },
   {
     key: "panel.settings",
     group: "Panel Diagnostics & Settings",
     label: "Manage panel-wide settings",
-    description: "Change CORS policy, mod-check interval and other app-level settings.",
+    description:
+      "Change CORS policy, mod-check interval and other app-level settings -- including pointing the panel's HTTPS listener at any certificate/key file on the host -- and configure SSO/OIDC login (client secret included).",
   },
 ];
 

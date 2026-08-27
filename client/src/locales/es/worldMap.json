@@ -1,4 +1,10 @@
 {
+  "permissions": {
+    "noBridgeCommand": "Esta acción en el juego requiere el permiso bridge.command, del cual este rol no dispone.",
+    "noWorldEvents": "Activar eventos del mundo requiere el permiso server.world_events, del cual este rol no dispone.",
+    "noGmTools": "Generar un vehículo requiere el permiso players.gm_tools, del cual este rol no dispone.",
+    "noGmToolsBridgeAction": "Esta acción requiere el permiso players.gm_tools, del cual este rol no dispone."
+  },
   "pageHeader": {
     "title": "Mapa del mundo",
     "description": "Posiciones en vivo de los jugadores en el mapa del condado de Knox. Clic derecho para acciones."
@@ -38,7 +44,24 @@
     "coverageTitle": "No hay teselas de mapa en este nivel de zoom",
     "coverageDesc": "<1>tiles.pzmap.org</1> es accesible pero no ha renderizado esta área a este nivel de detalle. Alejar el zoom, o probar Actualizar más tarde.",
     "networkTitle": "Las teselas del mapa no cargan",
-    "networkDesc": "El panel no puede conectar con <1>tiles.pzmap.org</1>. Comprobar el acceso HTTPS saliente y probar Actualizar."
+    "networkDesc": "No se pudo cargar esta tesela desde el panel. Comprueba la propia conexión de red del panel y prueba <1>Actualizar</1>.",
+    "diagnostic": "Diagnóstico: {{detail}}",
+    "gzipTitle": "El tile del mapa llegó aún comprimido",
+    "gzipDesc": "Los datos de este tile llegaron al navegador todavía comprimidos con gzip en lugar de descomprimirse automáticamente. Esto suele significar que un proxy inverso delante del panel (nginx, Apache, Caddy, etc.) está eliminando o gestionando mal el encabezado Content-Encoding. Si eso coincide con su configuración, pida a quien administre el proxy que revise ese ajuste.",
+    "htmlTitle": "Llegó una página HTML en lugar de un tile del mapa",
+    "htmlDesc": "Algo delante del panel devolvió una página HTML en lugar de la imagen del tile -- a menudo una página de error del proxy, una página de inicio de sesión, o un portal de acceso a la red interceptando la solicitud. Compruebe qué hay delante del panel (un proxy inverso, VPN o red con portal cautivo) que esté interceptando esta solicitud.",
+    "jsonTitle": "El panel devolvió un error en lugar de un tile del mapa",
+    "jsonDesc": "La respuesta fue un mensaje de error JSON en lugar de datos de imagen. Esto apunta a un problema en el propio panel, no en la red intermedia.",
+    "pngTitle": "Llegó una imagen PNG donde se esperaba un JPEG",
+    "pngDesc": "Los datos de este tile son una imagen real, solo que no en el formato que esperaba el panel. Esto apunta a una discrepancia en el propio panel, no en la red intermedia.",
+    "emptyTitle": "El tile del mapa llegó vacío",
+    "emptyDesc": "No llegaron datos en absoluto para este tile. Esto suele apuntar a un problema de red o de proxy, no a un problema con el mapa en sí.",
+    "truncatedTitle": "El tile del mapa se cortó en tránsito",
+    "truncatedDesc": "Los datos de imagen de este tile son genuinos, pero solo llegaron {{received}} de {{expected}} bytes. La conexión se cortó en tránsito, lo que suele apuntar a un problema de proxy o de red, no a un problema con el mapa.",
+    "corruptTitle": "Los datos del tile del mapa están corruptos",
+    "corruptDesc": "Los datos de este tile son datos de imagen genuinos que llegaron completos pero no se pudieron decodificar. Podría ser un fallo puntual -- pruebe a Actualizar.",
+    "unrecognizedTitle": "El tile del mapa llegó como datos no reconocidos",
+    "unrecognizedDesc": "Los datos de este tile no coinciden con ningún formato que el panel reconozca. Bytes en bruto: {{hex}}"
   },
   "roster": {
     "label": "lista",

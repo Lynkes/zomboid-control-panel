@@ -15,6 +15,10 @@ import { sanitizeError } from "../utils/sanitize.js";
 import { captureBackupSnapshot } from "../utils/backupSnapshot.js";
 import { addBackupRecord, removeBackupRecord } from "./backupRecords.js";
 import { invalidateMapFolderScan } from "../routes/chunks.js";
+import {
+  isCronTooFrequent,
+  isSupportedFiveFieldCron,
+} from "../utils/cronValidation.js";
 
 // Dynamic import for unzipper (CommonJS module)
 let unzipper;
@@ -46,6 +50,11 @@ async function* walkDirectory(rootDir) {
           : entry.name;
         const fullPath = path.join(current.dirPath, entry.name);
 
+        if (entry.isSymbolicLink()) {
+          log.warn(`Skipping symbolic link during backup: ${fullPath}`);
+          continue;
+        }
+
         if (entry.isDirectory()) {
           pending.push({
             dirPath: fullPath,
@@ -70,7 +79,18 @@ async function countFiles(rootDir) {
   return count;
 }
 
-function waitForArchiveEntry(archive, append) {
+// 2026-08-26 bug hunt: used to resolve with nothing (undefined) on BOTH a
+// genuine "entry" success and an ENOENT warning (a file that vanished
+// between the initial scan and archiving -- a real race on a live PZ
+// directory, since the game process rotates/deletes temp files, logs and
+// lock files while a backup can be mid-scan). That made the two outcomes
+// indistinguishable to every caller, so a silently-dropped file left zero
+// trace anywhere -- createBackup resolved success:true regardless of how
+// many files were actually skipped. Now resolves { skipped: boolean } so
+// callers can track precisely which archive entries made it in and which
+// didn't, entry by entry, with no separate bookkeeping needed: every path
+// that adds anything to the archive already goes through this function.
+export function waitForArchiveEntry(archive, append) {
   return new Promise((resolve, reject) => {
     let settled = false;
 
@@ -87,11 +107,11 @@ function waitForArchiveEntry(archive, append) {
       handler(value);
     };
 
-    const onEntry = () => settle(resolve);
+    const onEntry = () => settle(resolve, { skipped: false });
     const onError = (error) => settle(reject, error);
     const onWarning = (error) => {
       if (error.code === "ENOENT") {
-        settle(resolve);
+        settle(resolve, { skipped: true });
       } else {
         settle(reject, error);
       }
@@ -109,13 +129,19 @@ function waitForArchiveEntry(archive, append) {
   });
 }
 
-async function appendDirectoryToArchive(archive, sourceRoot, destinationRoot) {
+// Returns the archive-relative paths of any entries that were skipped
+// (vanished between the scan and the archive pass) rather than swallowing
+// that information the way the caller used to have no way to find out.
+export async function appendDirectoryToArchive(archive, sourceRoot, destinationRoot) {
+  const skipped = [];
   for await (const { entry, fullPath, archivePath } of walkDirectory(sourceRoot)) {
     const entryName = `${destinationRoot}/${archivePath}${entry.isDirectory() ? "/" : ""}`;
-    await waitForArchiveEntry(archive, () =>
+    const result = await waitForArchiveEntry(archive, () =>
       archive.file(fullPath, { name: entryName }),
     );
+    if (result.skipped) skipped.push(entryName);
   }
+  return skipped;
 }
 
 export class BackupService {
@@ -259,6 +285,35 @@ export class BackupService {
    * Update backup settings
    */
   async updateSettings(settings) {
+    if (
+      settings.enabled !== undefined &&
+      typeof settings.enabled !== "boolean"
+    ) {
+      throw new Error("enabled must be a boolean");
+    }
+    if (
+      settings.maxBackups !== undefined &&
+      (!Number.isInteger(settings.maxBackups) ||
+        settings.maxBackups < 1 ||
+        settings.maxBackups > 100)
+    ) {
+      throw new Error("maxBackups must be an integer between 1 and 100");
+    }
+    if (
+      settings.includeDb !== undefined &&
+      typeof settings.includeDb !== "boolean"
+    ) {
+      throw new Error("includeDb must be a boolean");
+    }
+    if (
+      settings.schedule !== undefined &&
+      (!isSupportedFiveFieldCron(settings.schedule) ||
+        isCronTooFrequent(settings.schedule))
+    ) {
+      throw new Error(
+        "Invalid backup schedule. Use exactly 5 cron fields and no more than one run every 5 minutes.",
+      );
+    }
     if (settings.enabled !== undefined) {
       await setSetting("backupEnabled", settings.enabled);
     }
@@ -337,11 +392,18 @@ export class BackupService {
     const timestamp = new Date()
       .toISOString()
       .replace(/[:.]/g, "-")
-      .slice(0, 19);
+      .slice(0, 23);
     const activeServer = await getActiveServer();
     const serverName = activeServer?.serverName || "server";
-    const backupName = `${serverName}_${timestamp}.zip`;
-    const backupPath = path.join(backupsPath, backupName);
+    const baseBackupName = `${serverName}_${timestamp}`;
+    let backupName = `${baseBackupName}.zip`;
+    let backupPath = path.join(backupsPath, backupName);
+    let collision = 1;
+    while (fs.existsSync(backupPath)) {
+      backupName = `${baseBackupName}-${collision}.zip`;
+      backupPath = path.join(backupsPath, backupName);
+      collision++;
+    }
     // Write under a name listBackups() won't match (it only lists *.zip), and
     // rename into place only after the archive closes successfully -- writing
     // straight to backupPath meant a process kill mid-archive left a
@@ -388,6 +450,10 @@ export class BackupService {
     });
 
     let filesProcessed = 0;
+    // Every archive addition (saves-folder walk, the snapshot, db.json) goes
+    // through waitForArchiveEntry, so this collects every skip precisely --
+    // not a sampled backstop, the complete account.
+    const skippedFiles = [];
 
     return new Promise((resolve, reject) => {
       // Track progress during archiving
@@ -433,9 +499,15 @@ export class BackupService {
         const sizeBytes = archive.pointer();
         const sizeMB = (sizeBytes / (1024 * 1024)).toFixed(2);
 
-        log.info(
-          `Backup completed: ${backupName} (${sizeMB} MB) in ${duration}s`,
-        );
+        if (skippedFiles.length > 0) {
+          log.warn(
+            `Backup ${backupName} completed but skipped ${skippedFiles.length} file(s) that vanished during archiving: ${skippedFiles.join(", ")}`,
+          );
+        } else {
+          log.info(
+            `Backup completed: ${backupName} (${sizeMB} MB) in ${duration}s`,
+          );
+        }
 
         this.lastBackup = {
           name: backupName,
@@ -454,10 +526,30 @@ export class BackupService {
           log.warn(`Backup record could not be saved for ${backupName}: ${error.message}`);
         }
 
-        await logServerEvent("backup_created", `${backupName} (${sizeMB} MB)`);
+        try {
+          await logServerEvent("backup_created", `${backupName} (${sizeMB} MB)`);
+        } catch (error) {
+          log.warn(
+            `Backup event could not be logged for ${backupName}: ${error.message}`,
+          );
+        }
 
-        // Clean up old backups
-        await this.cleanupOldBackups();
+        // Clean up old backups. cleanupOldBackups() already has its own
+        // full internal try/catch and cannot reject today -- but this
+        // caller must not depend on that staying true forever: this runs
+        // at the end of EVERY successful backup, including the mandatory
+        // pre-wipe and pre-restore ones, so an unguarded reject here would
+        // be an unhandledRejection -> fatalExit() panel kill sitting
+        // directly downstream of every destructive operation in the app
+        // (2026-08-26, same class as the install setSetting crash).
+        // Retention housekeeping failing does NOT mean the backup failed
+        // -- log and continue, never flip the backup result or abort
+        // whatever destructive step is waiting on it.
+        try {
+          await this.cleanupOldBackups();
+        } catch (cleanupError) {
+          log.warn(`Backup retention cleanup failed for ${backupName}: ${cleanupError.message}`);
+        }
 
         emitProgress(
           "complete",
@@ -476,10 +568,19 @@ export class BackupService {
             );
         }
 
+        // Surfaced, not decided here: the transition (write + rename) really
+        // did succeed, so success stays true -- but WHETHER a skip is
+        // acceptable depends on why this backup was taken, which only the
+        // caller knows. A routine/scheduled backup tolerates skips and
+        // reports them; a backup taken immediately before a destructive
+        // operation (restoreBackup's pre-restore backup, /wipe's pre-wipe
+        // backup) is about to become the only copy and must treat any skip
+        // as a failure. That policy lives at those call sites, not here.
         resolve({
           success: true,
           backup: this.lastBackup,
           duration: parseFloat(duration),
+          skippedFiles,
         });
       });
 
@@ -522,21 +623,25 @@ export class BackupService {
 
       const appendBackupContents = async () => {
         try {
-          await appendDirectoryToArchive(
+          const skippedSaves = await appendDirectoryToArchive(
             archive,
             savesPath,
             path.basename(savesPath),
           );
-          await waitForArchiveEntry(archive, () =>
+          skippedFiles.push(...skippedSaves);
+
+          const snapshotResult = await waitForArchiveEntry(archive, () =>
             archive.append(JSON.stringify(serverSnapshot, null, 2), {
               name: "panel-server-snapshot.json",
             }),
           );
+          if (snapshotResult.skipped) skippedFiles.push("panel-server-snapshot.json");
 
           if (dbPathToInclude) {
-            await waitForArchiveEntry(archive, () =>
+            const dbResult = await waitForArchiveEntry(archive, () =>
               archive.file(dbPathToInclude, { name: "db.json" }),
             );
+            if (dbResult.skipped) skippedFiles.push("db.json");
           }
 
           await archive.finalize();
@@ -712,6 +817,12 @@ export class BackupService {
    * remove other backups by exact name instead of by age.
    */
   async deleteBackupsOlderThan(days) {
+    // Mirrors routes/backup.js's own guard -- see its comment for why
+    // Number.isInteger matters here specifically (setDate() below silently
+    // reinterprets a fractional value instead of using it as typed).
+    if (typeof days !== "number" || !Number.isInteger(days) || days < 1) {
+      return { success: false, message: "Invalid days parameter. Must be a whole number >= 1" };
+    }
     try {
       const backups = await this.listBackups();
       const cutoffDate = new Date();
@@ -815,28 +926,19 @@ export class BackupService {
       return { success: false, message: "Backup in progress, please wait" };
     }
 
-    // Restoring under a live server destroys the save: the running process
-    // holds the map files open, and writes its in-memory world back over
-    // whatever we extract.
-    if (this.serverManager && options.force !== true) {
-      try {
-        const running = await this.serverManager.checkServerRunning();
-        if (running) {
-          return {
-            success: false,
-            message:
-              "Server is still running. Stop the server before restoring a backup, otherwise the running world will overwrite the restored save.",
-          };
-        }
-      } catch (error) {
-        log.warn(`Could not confirm server is stopped: ${error.message}`);
-        return {
-          success: false,
-          message: `Could not confirm the server is stopped (${error.message}). Stop the server and try again.`,
-        };
-      }
-    }
-
+    // Claim the lock BEFORE any await, not after. This used to be set only
+    // once the async server-running check below had already resolved,
+    // which left a real window: two near-simultaneous restoreBackup() calls
+    // both read restoreInProgress as false (neither had reached the
+    // assignment yet), both proceeded past every guard, and both extracted
+    // + swapped the save directory concurrently -- the second rename to
+    // finish silently wins over the first, with BOTH callers reported
+    // success:true and no error anywhere. Confirmed empirically (two
+    // concurrent calls, force !== true, an artificial delay inside
+    // getServerProcessDetails to widen the window), not just reasoned
+    // about -- bug-hunt-2026-08-27, backup-restore hunt. Every early return
+    // below now happens inside the try/finally so the flag is still always
+    // released, same as the pre-restore-backup-failure path already was.
     this.restoreInProgress = true;
     const startTime = Date.now();
     let stagingPath = null;
@@ -852,9 +954,75 @@ export class BackupService {
       }
     };
 
-    emitProgress("preparing", 5, "Preparing restore...");
-
     try {
+      // Restoring under a live server destroys the save: the running process
+      // holds the map files open, and writes its in-memory world back over
+      // whatever we extract. Prefer the richer process-state API because the
+      // boolean helper collapses a failed scan into a confirmed stop.
+      if (options.force !== true) {
+        if (!this.serverManager) {
+          // Same defect shape as the getServerProcessDetails-missing branch
+          // below, one level up: "the check isn't wired" must refuse, not
+          // silently skip straight to restore. Currently unreachable in
+          // production -- server/index.js calls setServerManager() at boot,
+          // before the only caller (routes/backup.js) is reachable, and that
+          // route also runs its own independent getServerProcessDetails check
+          // before ever calling here -- but both of those are call-graph
+          // coincidences, not guarantees this method can rely on by itself.
+          log.warn("Could not confirm server is stopped: no server manager wired");
+          return {
+            success: false,
+            message:
+              "Could not confirm the server is stopped because no server manager is available. Stop the server and try again.",
+          };
+        }
+        try {
+          let running;
+          if (typeof this.serverManager.getServerProcessDetails === "function") {
+            const processDetails =
+              await this.serverManager.getServerProcessDetails();
+            if (!processDetails || processDetails.scanFailed) {
+              log.warn("Could not confirm server is stopped: process scan failed");
+              return {
+                success: false,
+                message:
+                  "Could not confirm the server is stopped because process detection failed. Stop the server and try again.",
+              };
+            }
+            running = processDetails.running;
+          } else {
+            // No fallback to checkServerRunning() here even for an older
+            // injected manager that only implements it -- that call collapses
+            // a failed scan into a plain `false`, indistinguishable from a
+            // confirmed-stopped server, which is exactly the bug this whole
+            // guard exists to avoid. Treat "the richer check isn't available"
+            // as equivalent to a failed scan and refuse, same shape as
+            // server/index.js's Docker-update gate (handlePanelUpdateDownload).
+            return {
+              success: false,
+              message:
+                "Could not confirm the server is stopped because process detection is unavailable. Stop the server and try again.",
+            };
+          }
+
+          if (running) {
+            return {
+              success: false,
+              message:
+                "Server is still running. Stop the server before restoring a backup, otherwise the running world will overwrite the restored save.",
+            };
+          }
+        } catch (error) {
+          log.warn(`Could not confirm server is stopped: ${error.message}`);
+          return {
+            success: false,
+            message: `Could not confirm the server is stopped (${error.message}). Stop the server and try again.`,
+          };
+        }
+      }
+
+      emitProgress("preparing", 5, "Preparing restore...");
+
       const backupsPath = await this.getBackupsPath();
       const savesPath = await this.getSavesPath();
 
@@ -892,16 +1060,31 @@ export class BackupService {
         // running silently -- restore no longer looks stalled during what can
         // be the longest part of the whole operation.
         const preBackupResult = await this.createBackup({ isPreRestore: true, io });
-        if (!preBackupResult.success) {
-          log.error(`Pre-restore backup failed: ${preBackupResult.message}`);
+        // 2026-08-26 bug hunt: createBackup can return success:true while
+        // having silently skipped files that vanished mid-archive (a real
+        // race on a live PZ directory) -- it surfaces that via
+        // skippedFiles rather than deciding policy itself, because the same
+        // skip means different things depending on why the backup exists.
+        // THIS backup is about to become the world's only copy while
+        // restore overwrites the live save -- "mostly complete" is not a
+        // safety net here, so any skip is treated exactly like an outright
+        // backup failure, the same fail-closed posture already applied to
+        // an unconfirmed server-stopped state above.
+        const preBackupIncomplete =
+          preBackupResult.success && (preBackupResult.skippedFiles?.length ?? 0) > 0;
+        if (!preBackupResult.success || preBackupIncomplete) {
+          const reason = preBackupIncomplete
+            ? `it skipped ${preBackupResult.skippedFiles.length} file(s) that vanished during archiving (${preBackupResult.skippedFiles.join(", ")}) -- an incomplete pre-restore backup is not a safety net`
+            : preBackupResult.message;
+          log.error(`Pre-restore backup failed: ${reason}`);
           emitProgress(
             "error",
             0,
-            `Cannot restore: pre-restore backup failed (${preBackupResult.message}). Aborting to protect save data.`,
+            `Cannot restore: pre-restore backup failed (${reason}). Aborting to protect save data.`,
           );
           return {
             success: false,
-            message: `Cannot restore: pre-restore backup failed (${preBackupResult.message}). Aborting to protect save data.`,
+            message: `Cannot restore: pre-restore backup failed (${reason}). Aborting to protect save data.`,
           };
         }
       }
@@ -1089,7 +1272,13 @@ export class BackupService {
       const duration = ((Date.now() - startTime) / 1000).toFixed(1);
       log.info(`Restore completed in ${duration}s`);
 
-      await logServerEvent("backup_restored", `Restored from ${safeName}`);
+      try {
+        await logServerEvent("backup_restored", `Restored from ${safeName}`);
+      } catch (eventError) {
+        log.warn(
+          `Restore event could not be logged for ${safeName}: ${eventError.message}`,
+        );
+      }
       emitProgress("complete", 100, `Restored from ${safeName}`);
 
       return {
@@ -1100,7 +1289,13 @@ export class BackupService {
     } catch (error) {
       log.error(`Restore failed: ${error.message}`);
       emitProgress("error", 0, `Restore failed: ${sanitizeError(error.message)}`);
-      await logServerEvent("restore_failed", error.message);
+      try {
+        await logServerEvent("restore_failed", error.message);
+      } catch (eventError) {
+        log.warn(
+          `Restore failure event could not be logged: ${eventError.message}`,
+        );
+      }
       return { success: false, message: error.message };
     } finally {
       // try/finally (not manual resets at each return) so this always runs,

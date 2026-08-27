@@ -57,7 +57,8 @@
     "linesHidden_one": "{{count}} Zeile durch Filter ausgeblendet · ",
     "linesHidden_other": "{{count}} Zeilen durch Filter ausgeblendet · ",
     "showAll": "alle anzeigen",
-    "noStreamOutput": "keine Stream-Ausgabe",
+    "noStreamOutput": "Noch keine Protokollausgabe — der Server hat seit dem Öffnen dieser Ansicht nichts geschrieben.",
+    "noOutputStreamDown": "Protokollausgabe unbekannt — der Stream ist ausgefallen, siehe Fehler oben.",
     "shown": "angezeigt",
     "hidden": "ausgeblendet",
     "loaded": "geladen",
@@ -76,6 +77,8 @@
     "notConfiguredDesc": "Lege Host, Port und Passwort in Meine Server fest, bevor du Live-Befehle verwendest.",
     "hostUnreachableTitle": "Host nicht erreichbar",
     "hostUnreachableDesc": "Starte den Server und überprüfe anschließend RCON-Host, -Port und -Passwort in den Panel-Einstellungen.",
+    "authFailedTitle": "Authentifizierung fehlgeschlagen",
+    "authFailedDesc": "Der Host ist erreichbar – überprüfe das RCON-Passwort unter Meine Server.",
     "outputLabel": "RCON-Ausgabe",
     "entries_one": "{{count}} Eintrag",
     "entries_other": "{{count}} Einträge",
@@ -91,7 +94,8 @@
     "executeAria": "Befehl ausführen",
     "run": "ausführen",
     "keyboardHint": "// Enter · ausführen · ↑↓ Verlauf",
-    "noResponseFallback": "Keine Antwort"
+    "noResponseFallback": "Keine Antwort",
+    "noPermission": "Ihre Rolle hat keine Berechtigung, RCON-Befehle auszuführen."
   },
   "quickCommands": {
     "players": "Spieler",
@@ -164,6 +168,7 @@
     "toggleLabel": "Verlauf",
     "entries_one": "{{count}} Eintrag",
     "entries_other": "{{count}} Einträge",
+    "truncatedHint": "(neueste -- ältere Befehle werden möglicherweise nicht angezeigt)",
     "searchPlaceholder": "Befehlsverlauf durchsuchen…",
     "searchAria": "Befehlsverlauf durchsuchen",
     "emptyTitle": "Kein Befehlsverlauf",

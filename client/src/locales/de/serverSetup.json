@@ -26,6 +26,12 @@
       "description": "Wenn du noch nie einen Project Zomboid-Server eingerichtet hast, wähle <1>Neuinstallation</1>. Alles Nötige wird dabei automatisch heruntergeladen."
     }
   },
+  "resumeBanner": {
+    "title": "Eine Installation läuft möglicherweise noch",
+    "description": "Eine frühere Sitzung hat mit der Installation nach {{installPath}} begonnen (vor {{elapsed}}), und die Seite wurde geschlossen oder neu geladen, bevor sie abgeschlossen war. Sie läuft möglicherweise noch im Hintergrund.",
+    "continueButton": "Einrichtung fortsetzen",
+    "dismissButton": "Verwerfen"
+  },
   "stepIndicator": {
     "quick": {
       "location": "Pfad",
@@ -61,6 +67,8 @@
     "regeneratePasswordAria": "Neues Passwort generieren",
     "regeneratePasswordTooltip": "Neues Passwort generieren",
     "rconPortLabel": "RCON-Port",
+    "rconPortHelp": "Der Port, über den das Panel RCON-Befehle (Starten, Stoppen, Speichern, Kicken, Chat) an den laufenden Server sendet — getrennt vom Port, über den sich Spieler verbinden. Beispiel: 27015 (Standard). Er muss auf diesem Rechner frei sein; wird er bereits von einem anderen Programm verwendet, startet der Server möglicherweise nicht, oder das Panel kann sich nicht verbinden und den Server nicht steuern.",
+    "rconPortDefaultHint": "Standardport: 27015",
     "memoryTitle": "Arbeitsspeicherzuweisung",
     "detectingRam": "RAM wird ermittelt…",
     "minRamLabel": "Minimaler RAM",
@@ -71,10 +79,11 @@
     "maxRamAria": "Maximaler RAM in GB",
     "maxRamSliderAria": "Maximaler RAM: {{value}}GB",
     "gamePortLabel": "Spielport",
+    "gamePortHelp": "Der Port, über den sich Project Zomboid-Spielclients verbinden, wenn Spieler beitreten. Beispiel: 16261 (Standard). Änderst du ihn, müssen Spieler die neue Nummer hinter deiner Serveradresse angeben, um sich zu verbinden (z. B. deine-ip:16262), und dein Router bzw. deine Firewall muss stattdessen genau diesen Port weiterleiten.",
     "gamePortDefaultHint": "Standardport: 16261",
     "adminPasswordLabel": "Admin-Passwort",
     "adminPasswordPlaceholder": "Erforderlich vor dem ersten Serverstart",
-    "adminPasswordHelp": "Erforderlich vor dem ersten Serverstart.",
+    "adminPasswordHelp": "Legt das Passwort für das eingebaute Admin-Konto von Project Zomboid fest. Sobald der Server läuft, kannst du dich damit im Spiel per Chatbefehl /login admin, gefolgt von diesem Passwort, Adminrechte verschaffen. Erforderlich vor dem ersten Serverstart — der Server lässt sich zwar ohne installieren, startet aber erst, wenn eines gesetzt ist.",
     "hideAdminPassword": "Admin-Passwort verbergen",
     "showAdminPassword": "Admin-Passwort anzeigen",
     "upnpLabel": "UPnP",
@@ -87,7 +96,8 @@
     "debugDesc": "Aktiviert ausführliche Start- und Laufzeitprotokolle",
     "debugAria": "Debug-Modus aktivieren",
     "customConfigLocation": "Eigener Konfigurationspfad",
-    "customConfigLocationHelp": "Eigener Pfad für den Datenordner",
+    "customConfigLocationHelp": "Project Zomboid speichert Spielstände, Serverkonfiguration und Protokolle normalerweise neben dem Installationsordner. Setze dies nur, wenn diese Daten tatsächlich woanders liegen — zum Beispiel auf einem separaten Laufwerk oder in einem bind-gemounteten Ordner unter Docker. Zeigt dies auf den falschen Ordner, findet das Panel deine vorhandenen Spielstände, Einstellungen oder Backups nicht.",
+    "customDataPathPlaceholder": "z. B. C:\\Users\\DeinName\\Zomboid oder /home/deinname/Zomboid",
     "useCustomLocation": "Eigenen Pfad verwenden",
     "serverNameLabel": "Servername",
     "serverNamePlaceholder": "myserver",
@@ -105,7 +115,10 @@
     "progressDownloading": "Wird heruntergeladen…",
     "progressValidating": "Dateien werden validiert…",
     "progressVerifying": "Installation wird überprüft…",
-    "progressComplete": "Abgeschlossen!"
+    "progressComplete": "Abgeschlossen!",
+    "noPermissionInstall": "Die Installation eines Servers erfordert die Berechtigung server.install, über die diese Rolle nicht verfügt.",
+    "noPermissionSettings": "Das Speichern dieser Einstellung erfordert die Berechtigung panel.settings, über die diese Rolle nicht verfügt.",
+    "noPermissionControl": "Das Starten des Servers erfordert die Berechtigung server.control, über die diese Rolle nicht verfügt."
   },
   "full": {
     "pageTitle": "Neuinstallation",
@@ -134,13 +147,13 @@
       "description": "Wähle, wo die Dateien installiert werden, und lege die Serveridentität fest.",
       "installFolderLabel": "Installationsordner",
       "useLinuxPath": "Linux-Dienstpfad verwenden",
-      "installFolderPlaceholder": "Ordner, in dem die Serverdateien installiert werden",
-      "installFolderHelp": "SteamCMD lädt hier etwa 3 GB herunter. Der Panel-Dienst muss Schreibzugriff auf diesen Ordner haben.",
+      "installFolderPlaceholder": "z. B. C:\\PZServer oder /home/steamuser/pzserver",
+      "installFolderHelp": "SteamCMD lädt hier etwa 3 GB Serverdateien herunter und legt den Ordner automatisch an, falls er noch nicht existiert — das Panel braucht dafür nur Schreibrechte. Das ist getrennt davon, wo Spielstände und Einstellungen gespeichert werden; siehe „Eigener Konfigurationspfad” weiter unten.",
       "linuxNoteTitle": "Linux-Dienstinstallation",
       "linuxNoteBody1": "Wenn das Panel über den mitgelieferten systemd-Dienst läuft, verwende <1>{{path}}</1>. Andere Ordner erfordern eine Änderung der systemd-Berechtigungen.",
       "linuxNoteBody2": "Der Datenordner des Servers wird neben dem Installationsordner angelegt: <1>{{path}}</1>. Beide Ordner müssen beschreibbar sein.",
       "dataFolderPlaceholder": "your-install-folder_Data",
-      "serverNameHelp": "Nur alphanumerische Zeichen und Unterstriche. Wird für Konfigurationsdateien verwendet.",
+      "serverNameHelp": "Nur alphanumerische Zeichen und Unterstriche, z. B. myserver. Das wird der Name der Konfigurationsdatei (myserver.ini) — leg ihn vor der Installation fest. Änderst du ihn danach, entsteht eine neue, leere Konfiguration statt die vorhandene umzubenennen.",
       "gameVersionLabel": "Spielversion",
       "gameVersionHelp": "Die meisten wollen Stable — das ist der aktuelle Standard-Build. Die anderen von Steam angebotenen Branches sind ältere oder experimentelle Builds, die aus Kompatibilitätsgründen für Mods oder Spielstände bereitgehalten werden, die noch nicht aktualisiert wurden. Spielstände und Mods funktionieren nicht garantiert über verschiedene Builds hinweg — wechseln Sie also nur, wenn Sie es wirklich brauchen.",
       "loadingVersions": "Verfügbare Versionen werden geladen…",
@@ -191,7 +204,7 @@
     "step2": {
       "title": "Server konfigurieren",
       "description": "Lege Servername, RCON-Zugriff und Arbeitsspeichergrenzen fest.",
-      "serverNameHelp": "Jeder Server benötigt einen eindeutigen Namen. Erstellt separate Konfigurationsdateien.",
+      "serverNameHelp": "Nur alphanumerische Zeichen und Unterstriche, z. B. myserver. Wird zum Namen der Konfigurationsdatei (myserver.ini) für die vorhandenen Serverdateien, die du im vorigen Schritt ausgewählt hast.",
       "rconTitle": "Fernsteuerung (RCON)",
       "rconPortDefaultHint": "Standardport: 27015",
       "ramDetectedBadge": "{{total}} GB erkannt"
@@ -243,7 +256,7 @@
     "adminPasswordRequiredInstallDesc": "Gib vor Beginn der Installation ein Admin-Passwort ein.",
     "adminPasswordRequiredCreateDesc": "Gib vor dem Erstellen dieses Servers ein Admin-Passwort ein.",
     "invalidPortTitle": "Ungültiger Port",
-    "invalidPortDesc": "Spielport und RCON-Port müssen jeweils eine ganze Zahl zwischen 1024 und 65535 sein.",
+    "invalidPortDesc": "Der Spielport muss eine ganze Zahl zwischen 1024 und 65534 sein; der RCON-Port muss zwischen 1024 und 65535 liegen.",
     "startingInstallLog": "Installation wird gestartet…",
     "creatingConfigLog": "Serverkonfiguration wird erstellt…",
     "configCreatedLog": "Serverkonfiguration erfolgreich erstellt!",
@@ -259,6 +272,9 @@
     "serverStartingDesc": "Weiterleitung zum Dashboard…",
     "startFailedTitle": "Start fehlgeschlagen",
     "registerFailedTitle": "Serverdateien installiert, aber die Registrierung ist fehlgeschlagen",
-    "registerFailedDesc": "Die Spieldateien liegen auf der Festplatte, aber das Panel konnte diesen Server nicht in seine Datenbank eintragen, deshalb erscheint er noch nicht unter Meine Server. Sieh dir das Log oben an und starte die Servereinrichtung erneut — ein erneuter Durchlauf ist unbedenklich."
+    "registerFailedDesc": "Die Spieldateien liegen auf der Festplatte, aber das Panel konnte diesen Server nicht in seine Datenbank eintragen, deshalb erscheint er noch nicht unter Meine Server. Sieh dir das Log oben an und starte die Servereinrichtung erneut — ein erneuter Durchlauf ist unbedenklich.",
+    "activateFailedLog": "Warnung: Server wurde registriert, konnte aber nicht als aktiver Server festgelegt werden.",
+    "activateFailedTitle": "Server registriert, aber nicht aktiv gesetzt",
+    "activateFailedDesc": "Der Server wurde zu Meine Server hinzugefügt, aber das Panel konnte nicht automatisch zu ihm wechseln. Wähle ihn manuell unter Meine Server aus, bevor du ihn startest."
   }
 }

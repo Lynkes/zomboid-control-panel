@@ -1,4 +1,9 @@
 {
+  "permissions": {
+    "noManage": "Pou ou jere sovgad, ou bezwen pèmisyon backups.manage, e wòl sa a pa genyen li.",
+    "noRestore": "Pou ou restore yon sovgad, ou bezwen pèmisyon backups.restore, e wòl sa a pa genyen li.",
+    "noDownload": "Pou ou telechaje yon sovgad, ou bezwen pèmisyon backups.download, e wòl sa a pa genyen li."
+  },
   "pageHeader": {
     "title": "Kopi Sovgad Mond lan",
     "description": "Kreye, retabli, epi jere kopi sovgad mond sèvè ou a",
@@ -110,7 +115,7 @@
     "description": "Retabli <1>{{name}}</1>. Sa a ap <2>ranplase</2> done mond aktyèl yo.",
     "bulletStopServer": "Sispann sèvè a anvan.",
     "bulletSafetyBackup": "Panèl la ap kreye yon kopi sovgad sekirite anvan li retabli.",
-    "bulletCannotUndo": "Aksyon sa a pa ka anile.",
+    "bulletUndoRequiresRestore": "Pou anile sa a pita, w ap bezwen retabli kopi sovgad sekirite a ou menm — sa pa fèt otomatikman.",
     "cancel": "Anile",
     "confirm": "Retabli kopi sovgad sa a"
   },

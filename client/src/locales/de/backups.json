@@ -1,4 +1,9 @@
 {
+  "permissions": {
+    "noManage": "Die Verwaltung von Backups erfordert die Berechtigung backups.manage, über die diese Rolle nicht verfügt.",
+    "noRestore": "Das Wiederherstellen eines Backups erfordert die Berechtigung backups.restore, über die diese Rolle nicht verfügt.",
+    "noDownload": "Das Herunterladen eines Backups erfordert die Berechtigung backups.download, über die diese Rolle nicht verfügt."
+  },
   "pageHeader": {
     "title": "Welt-Backups",
     "description": "Erstelle, stelle wieder her und verwalte die Welt-Backups deines Servers",
@@ -106,7 +111,7 @@
     "description": "Stelle <1>{{name}}</1> wieder her. Dies <2>ersetzt</2> die aktuellen Weltdaten.",
     "bulletStopServer": "Stoppe zuerst den Server.",
     "bulletSafetyBackup": "Das Panel erstellt vor der Wiederherstellung ein Sicherheits-Backup.",
-    "bulletCannotUndo": "Diese Aktion kann nicht rückgängig gemacht werden.",
+    "bulletUndoRequiresRestore": "Um das rückgängig zu machen, musst du dieses Sicherheits-Backup später selbst wiederherstellen — das geschieht nicht automatisch.",
     "cancel": "Abbrechen",
     "confirm": "Dieses Backup wiederherstellen"
   },

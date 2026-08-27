@@ -111,7 +111,7 @@
     "users": {
       "manage": {
         "label": "Jere kont itilizatè",
-        "description": "Kreye kont, montre lis yo, epi chanje ki wòl chak genyen."
+        "description": "Kreye kont, montre lis yo, chanje ki wòl chak genyen, epi efase yon kont pou tout tan."
       }
     },
     "roles": {
@@ -137,7 +137,7 @@
     "server": {
       "control": {
         "label": "Demare, sispann, redemare & sove sèvè a",
-        "description": "Demare, sispann, fòse sispann, redemare oswa sove sèvè k ap fonksyone a."
+        "description": "Demare, sispann, fòse sispann, redemare oswa sove sèvè k ap fonksyone a — kèlkeswa fason li deplwaye, ki gen ladan yon sèvè ki jere ak Docker. Estati kontenè Docker la, estatistik li ak aksyon dirèk sou kontenè a se yon dwa apa (docker.manage)."
       },
       "install": {
         "label": "Enstale & mete ajou sèvè a",
@@ -145,21 +145,21 @@
       },
       "configure": {
         "label": "Modifye konfigirasyon sèvè a",
-        "description": "Modifye paramèt .ini sèvè a, detay koneksyon RCON, ak konfigirasyon rezo/chemen."
+        "description": "Modifye paramèt .ini sèvè a, detay koneksyon RCON, ak konfigirasyon rezo/chemen, epi rechaje script Lua sèvè a pandan li ap kouri."
       },
       "wipe": {
         "label": "Efase mond lan nèt",
-        "description": "Efase pou tout tan done kat, jwè oswa mond sovgad."
+        "description": "Efase pou tout tan done kat, jwè oswa mond sovgad — epi, atravè aksyon « vide dosye enstalasyon an », nenpòt lòt dosye sou lame a ki senpleman pase yon verifikasyon fichye make enstalasyon PZ, pa sèlman pwòp dosye sèvè konfigire a."
       },
       "world_events": {
         "label": "Lanse evènman mond",
-        "description": "Move tan, klima, lè nan jounen an, son anbyans, mas zonbi, itilite, paramèt vizyèl ak mesaj anons — efè sou tout mond lan, pa vize yon jwè spesifik."
+        "description": "Move tan, klima, lè nan jounen an, son anbyans, mas zonbi (retire yo sèlman, pa fè yo parèt sou yon moun), itilite, paramèt vizyèl ak mesaj anons ki soti nan sèvè a — efè sou tout mond lan, pa vize yon jwè spesifik. Fè zonbi oswa efè son parèt sou yon jwè ki gen non, loray/tonnè vize, ak fè tankou ou se yon lòt jwè nan chat se yon otorizasyon apa, players.endanger_or_impersonate."
       }
     },
     "rcon": {
       "execute": {
         "label": "Egzekite kòmand RCON",
-        "description": "Konekte ak RCON epi egzekite nenpòt kòmand konsòl."
+        "description": "Konekte ak RCON epi egzekite nenpòt kòmand konsòl, ki gen ladan sa ki ka sispann sèvè a. Sa bay tou aksè pou li tout istorik kòmand RCON — ki gen ladan vrè modpas jwè ki te tape nan kòmand lis blan tankou adduser."
       }
     },
     "servers": {
@@ -169,7 +169,7 @@
       },
       "discover": {
         "label": "Otomatikman dekouvri sèvè sou machin sa a",
-        "description": "Eskane sistèm fichye lame a pou jwenn enstalasyon sèvè PZ ki egziste deja."
+        "description": "Eskane nenpòt chemen nan sistèm fichye lame a ou presize pou jwenn enstalasyon sèvè PZ, ki gen ladan li ak analize kontni fichye konfigirasyon .ini li jwenn la."
       }
     },
     "templates": {
@@ -181,11 +181,11 @@
     "bridge": {
       "setup": {
         "label": "Konekte & konfigire PanelBridge",
-        "description": "Konekte oswa rekonfigire pon mod nan jwèt la, transpò SFTP li, epi enstale mod la."
+        "description": "Konekte oswa rekonfigire pon mod nan jwèt la — ki gen ladan antre epi konsève modpas koneksyon SFTP ki itilize pou rive sou yon sèvè aleka, eskane nenpòt chemen sou sèvè sa a atravè SFTP, epi voye pon lokal la sou nenpòt chemen absoli sou lame a ki pa nan yon ti lis dosye ki bloke. Li enstale mod la tou."
       },
       "diagnostics": {
         "label": "Dyagnostik PanelBridge",
-        "description": "Gade jounal debogaj mod la ak estatistik, epi lanse eskanaj katalòg atik/veyikil."
+        "description": "Gade jounal debogaj mod la ak estatistik li, egzamine API li, manyè disponib li yo ak script atik yo, lanse eskanaj katalòg atik ak veyikil, chanje mòd debogaj li, epi efase jounal erè li."
       },
       "command": {
         "label": "Egzekite nenpòt aksyon PanelBridge",
@@ -195,7 +195,7 @@
     "players": {
       "moderate": {
         "label": "Disipline jwè",
-        "description": "Bani, retire baniman, mete deyò oswa mete yon jwè sou lis blan."
+        "description": "Bani, retire baniman, mete deyò oswa mete yon jwè sou lis blan, epi chanje nivo aksè yon jwè nan jwèt la — ki gen ladan bay oswa retire dwa admin."
       },
       "gm_tools": {
         "label": "Zouti mèt-jwèt",
@@ -204,12 +204,16 @@
       "view": {
         "label": "Gade enfòmasyon jwè",
         "description": "Li detay, estati ak istorik jwè."
+      },
+      "endanger_or_impersonate": {
+        "label": "Mete yon jwè an danje oswa fè tankou ou se li",
+        "description": "Fè jiska 500 zonbi parèt dirèkteman kote yon jwè ki gen non ye, oswa dèyè li, oswa lanse yon mas zonbi vize sou li; dirije yon son kout zam oswa yon son atiran sou pozisyon li; frape li ak loray oswa tonnè vize. Apa, e se yon lòt kalite domaj: voye yon mesaj nan chat jeneral la anba nenpòt non otè ou chwazi, ki gen ladan non yon lòt jwè — sa fè l sanble se jwè sa a menm ki te ekri l."
       }
     },
     "mods": {
       "manage": {
         "label": "Jere mod",
-        "description": "Swiv, enstale epi konfigire mod Workshop."
+        "description": "Swiv, enstale, konfigire epi efase mod Workshop yo pou tout tan sou disk la — ki gen ladan pran oswa ekrase sesyon koneksyon Steam ki itilize pou anvoye bagay sou Workshop, jiskaske li pran l dirèkteman nan depo cookie yon navigatè ki enstale sou machin sa a."
       }
     },
     "automation": {
@@ -227,13 +231,13 @@
     "docker": {
       "manage": {
         "label": "Jere kontenè Docker la",
-        "description": "Gade estati/estatistik epi demare, sispann oswa redemare kontenè sèvè jwèt la."
+        "description": "Gade estati ak estatistik kontenè Docker la, epi fè aksyon dirèk sou kontenè a nan ekran Docker la. Demare, sispann ak redemare sèvè a li menm — kit li jere ak Docker kit li pa jere konsa — se server.control ki kontwole sa, se pa dwa sa a."
       }
     },
     "chunks": {
       "manage": {
         "label": "Jere chunk kat",
-        "description": "Netwaye oswa efase zòn chunk kat, epi konfigire chemen sovgad chunk la."
+        "description": "Netwaye oswa efase zòn chunk kat, ki gen ladan yon dosye abitrè sou lame a ou presize — pa sèlman kote sovgad konfigire pou sèvè sa a — epi konfigire chemen sovgad chunk la."
       }
     },
     "serverfiles": {
@@ -245,13 +249,13 @@
     "diagnostics": {
       "manage": {
         "label": "Gade dyagnostik panèl la",
-        "description": "Gade jounal, istorik pèfòmans, zouti antretyen baz done ak dyagnostik CORS."
+        "description": "Gade jounal, istorik pèfòmans, dyagnostik CORS ak estatistik baz done, fè sovgad baz done a, konpakte li — sa vle di retire ansyen anrejistreman pou tout tan — epi efase fichye vye lok. Li deplase tou dosye done ak jounal panèl la nan nenpòt chemen sou lame a ki ka ekri (bloke sèlman pou dosye sistèm OS ak pwòp dosye yon sèvè konfigire), epi li ka deplase tout sa ki deja la nan pwosesis la — ki gen ladan kle siyati JWT la, modpas RCON chak sèvè konsève, ak baz done prensipal la."
       }
     },
     "panel": {
       "settings": {
         "label": "Jere paramèt panèl la an antye",
-        "description": "Chanje politik CORS, entèval verifikasyon mod ak lòt paramèt nivo aplikasyon."
+        "description": "Chanje politik CORS, entèval verifikasyon mod ak lòt paramèt nivo aplikasyon — ki gen ladan mete koneksyon HTTPS panèl la sou nenpòt fichye sètifika/kle sou lame a — epi konfigire koneksyon SSO/OIDC (ki gen ladan sekrè kliyan an)."
       }
     }
   }

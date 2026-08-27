@@ -1,4 +1,12 @@
 {
+  "permissions": {
+    "noModsManage": "您的角色没有管理模组的权限。",
+    "noServersManage": "您的角色没有管理服务器的权限。"
+  },
+  "permissionDenied": {
+    "title": "无法查看模组",
+    "description": "当前账户的角色未包含「管理模组」权限。如需访问此页面，请联系管理员为该账户授予此权限。"
+  },
   "fetchError": {
     "title": "无法加载模组数据",
     "retry": "重试"
@@ -47,6 +55,11 @@
     "reported_other": "Steam 报告了 {{count}} 个模组更新——标记已不同步",
     "desc": "创意工坊文件夹中的文件比面板记录的更新。运行一次检查以更新各模组状态。",
     "checkNow": "立即检查"
+  },
+  "duplicateKeysWarning": {
+    "title_one": "此配置文件中「{{keys}}」出现了不止一次",
+    "title_other": "此配置文件中有 {{count}} 项设置出现了不止一次：{{keys}}",
+    "desc": "本页面读取的是第一份副本，而服务器配置编辑器读取的是最后一份，因此两者对同一设置显示的值可能不一致。"
   },
   "nav": {
     "aria": "模组管理分区",
@@ -457,12 +470,12 @@
     "reEnable": "重新启用",
     "reEnableCount": "重新启用（{{count}}）",
     "trackingCleanup": "跟踪清理",
-    "destructive": "破坏性操作",
+    "destructive": "仅配置，文件保留",
     "deleteHint": "删除仅会移除面板的跟踪记录。创意工坊文件仍保留在磁盘上，但之后需要手动重新添加该模组。",
-    "deleteSelectedConfirm_one": "从跟踪中删除 {{count}} 个已选的已停用模组？此操作无法撤销（如需要请手动重新添加）。",
-    "deleteSelectedConfirm_other": "从跟踪中删除 {{count}} 个已选的已停用模组？此操作无法撤销（如需要请手动重新添加）。",
-    "deleteAllConfirm_one": "从跟踪中删除全部 {{count}} 个已停用模组？此操作无法撤销（如需要请手动重新添加）。",
-    "deleteAllConfirm_other": "从跟踪中删除全部 {{count}} 个已停用模组？此操作无法撤销（如需要请手动重新添加）。",
+    "deleteSelectedConfirm_one": "从跟踪中移除 {{count}} 个已选的已停用模组？创意工坊文件仍保留在磁盘上——之后可以重新添加。",
+    "deleteSelectedConfirm_other": "从跟踪中移除 {{count}} 个已选的已停用模组？创意工坊文件仍保留在磁盘上——之后可以重新添加。",
+    "deleteAllConfirm_one": "从跟踪中移除全部 {{count}} 个已停用模组？创意工坊文件仍保留在磁盘上——之后可以重新添加。",
+    "deleteAllConfirm_other": "从跟踪中移除全部 {{count}} 个已停用模组？创意工坊文件仍保留在磁盘上——之后可以重新添加。",
     "deleteFromTrackingTitle": "从跟踪中删除？",
     "deleteConfirmButton": "删除",
     "deleteSelected": "删除已选（{{count}}）",
@@ -629,8 +642,10 @@
     "invalidFormatDesc": "请输入 Steam 创意工坊收藏集链接或数字收藏集 ID。",
     "noModsFoundInCollectionTitle": "未找到模组",
     "noModsFoundInCollectionDesc": "此收藏集似乎为空。请检查链接后重试。",
+    "collectionOnlySubCollectionsDesc": "此收藏集中的每一项本身都是子收藏集（{{count}} 个）——Steam 不允许将它们直接作为模组添加。请在 Steam 上打开该子收藏集并单独导入。",
     "modsFoundTitle": "找到 {{count}} 个模组",
     "modsFoundDesc": "选择要添加的模组，然后确认。",
+    "modsFoundDescWithSkipped": "选择要添加的模组，然后确认。有 {{count}} 项因为是子收藏集而非模组被跳过。",
     "collectionImportFailedTitle": "收藏集导入失败",
     "collectionImportFailedFallback": "无法从 Steam 获取收藏集。请检查链接后重试。",
     "noModsSelectedTitle": "未选择模组",

@@ -139,6 +139,22 @@ describe("players routes: persistent records only written on RCON success", () =
   });
 
   describe("POST /ban", () => {
+    it("rejects a string banIp flag instead of treating false as true", async () => {
+      const banPlayer = vi.fn();
+      const response = createResponse();
+
+      await getRouteHandler("post", "/ban")(
+        createRequest(
+          { username: "Bob", banIp: "false", reason: "griefing" },
+          { banPlayer },
+        ),
+        response,
+      );
+
+      expect(response.status).toHaveBeenCalledWith(400);
+      expect(banPlayer).not.toHaveBeenCalled();
+    });
+
     it("logs the action when RCON succeeds", async () => {
       const rconService = {
         banPlayer: vi.fn(async () => ({ success: true, response: "ok" })),

@@ -59,8 +59,10 @@ import { rconApi, serverApi, playersApi, panelBridgeApi } from '@/lib/api'
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
 import { Link } from 'react-router-dom'
 import { PageHeader } from '@/components/PageHeader'
+import { DisabledReason } from '@/components/DisabledReason'
 import { cn } from '@/lib/utils'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { useConfirm } from '@/contexts/ConfirmContext'
 
 interface Player {
   name: string
@@ -142,6 +144,17 @@ function SectionHeader({
       {action && <div className="flex items-center gap-1.5 shrink-0">{action}</div>}
     </div>
   )
+}
+
+// elecShutModifier/waterShutModifier are the day-thresholds the game's own
+// power formula (ISButtonPrompt.lua:421, replicated in PanelBridge.lua's
+// getUtilitiesStatus) compares worldAgeDays against to produce powerOn/
+// waterOn. 2147483647 is that Lua's own documented "never shuts off"
+// sentinel (see its restoreUtilities comment); shown as-is otherwise rather
+// than reinterpreted, so this never re-derives -- and risks disagreeing
+// with -- the verdict the Lua already computed.
+function formatShutoffModifier(modifier: number, t: TFunction) {
+  return modifier >= 2147483647 ? t('utilities.modifierNever') : String(modifier)
 }
 
 function getEventSuccessCopy(action: string, t: TFunction) {
@@ -520,14 +533,14 @@ export function getBridgeOperationGroups(t: TFunction) {
   ] as const
 }
 
-const formatPanelTimestamp = (date: Date): string => {
+const formatPanelTimestamp = (date: Date, locale?: string): string => {
   try {
-    return new Intl.DateTimeFormat(undefined, {
+    return new Intl.DateTimeFormat(locale, {
       dateStyle: 'medium',
       timeStyle: 'medium',
     }).format(date)
   } catch {
-    return date.toLocaleString()
+    return date.toLocaleString(locale)
   }
 }
 
@@ -846,6 +859,28 @@ interface EventSectionMeta {
 // Sections whose commands act on a chosen player rather than the whole world.
 const TARGETED_SECTIONS: EventSectionKey[] = ['quickSounds', 'targetedSounds', 'horde', 'teleport']
 
+// getClimateFloats() reports the real, server-authoritative min/max for each
+// ClimateFloat (PanelBridge.lua handlers.getClimateFloats -> cf:getMin()/cf:getMax()).
+// Binding the sliders to a hardcoded 0-100 (or -30..45 for temperature) instead of this
+// data lets an operator either request a value the game will never honour, or hides
+// legitimate values the real range allows. `scale` converts the raw float range into
+// the same units the slider/state already use (the five percent-style floats are
+// stored as value*100; temperature is stored unscaled).
+interface ClimateFloatRange {
+  min: number
+  max: number
+}
+
+function climateSliderBounds(
+  range: ClimateFloatRange | undefined,
+  fallbackMin: number,
+  fallbackMax: number,
+  scale: number,
+): { min: number; max: number } {
+  if (!range) return { min: fallbackMin, max: fallbackMax }
+  return { min: Math.round(range.min * scale), max: Math.round(range.max * scale) }
+}
+
 interface ActivityEntry {
   key: number
   label: string
@@ -854,7 +889,7 @@ interface ActivityEntry {
 }
 
 export default function Events() {
-  const { t } = useTranslation('events')
+  const { t, i18n } = useTranslation('events')
   const vehicles = useMemo(() => getVehiclePresets(t), [t])
   const bridgeOperationTemplates = useMemo(() => getBridgeOperationTemplates(t), [t])
   const bridgeOperationForms = useMemo(() => getBridgeOperationForms(t), [t])
@@ -941,6 +976,9 @@ export default function Events() {
   const [cloudIntensity, setCloudIntensity] = useState(0)
   const [humidity, setHumidity] = useState(50)
   const [precipitationIntensity, setPrecipitationIntensity] = useState(0)
+  // Real per-float min/max from getClimateFloats, keyed by ClimateFloat id. Populated
+  // once the bridge reports them; sliders fall back to the old hardcoded range until then.
+  const [climateRanges, setClimateRanges] = useState<Record<number, ClimateFloatRange>>({})
 
   // Game time controls
   const [gameHour, setGameHour] = useState(12)
@@ -982,9 +1020,14 @@ export default function Events() {
     waterOn: boolean
     elecShut: string
     waterShut: string
+    elecShutModifier: number
+    waterShutModifier: number
+    currentWorldDay: number
+    nightsSurvived: number
   } | null>(null)
 
   const { toast } = useToast()
+  const confirm = useConfirm()
 
   const [activeSection, setActiveSection] = useState<EventSectionKey>('rain')
   const [sectionQuery, setSectionQuery] = useState('')
@@ -1028,16 +1071,28 @@ export default function Events() {
         if (!mountedRef.current) return
 
         if (floatsRes.status === 'fulfilled' && floatsRes.value.success && floatsRes.value.data?.floats) {
+          const floats = floatsRes.value.data.floats
+          const findFloat = (id: number) => floats.find((f: { id: number; value: number; min: number; max: number }) => f.id === id)
+
+          // The server reports each ClimateFloat's real min/max alongside its value;
+          // capture it so the sliders below can bind to it instead of a hardcoded range.
+          setClimateRanges((prev) => {
+            const next = { ...prev }
+            for (const id of [3, 4, 5, 6, 8, 12]) {
+              const f = findFloat(id)
+              if (f) next[id] = { min: f.min, max: f.max }
+            }
+            return next
+          })
+
           // Don't clobber sliders the user is currently dragging.
           if (Date.now() >= climateDirtyUntilRef.current) {
-            const floats = floatsRes.value.data.floats
-            const findFloat = (id: number) => floats.find((f: { id: number; value: number }) => f.id === id)?.value
-            setFogIntensity(Math.round((findFloat(5) ?? 0) * 100))
-            setWindIntensity(Math.round((findFloat(6) ?? 0) * 100))
-            setTemperature(Math.round(findFloat(4) ?? 20))
-            setCloudIntensity(Math.round((findFloat(8) ?? 0) * 100))
-            setHumidity(Math.round((findFloat(12) ?? 0.5) * 100))
-            setPrecipitationIntensity(Math.round((findFloat(3) ?? 0) * 100))
+            setFogIntensity(Math.round((findFloat(5)?.value ?? 0) * 100))
+            setWindIntensity(Math.round((findFloat(6)?.value ?? 0) * 100))
+            setTemperature(Math.round(findFloat(4)?.value ?? 20))
+            setCloudIntensity(Math.round((findFloat(8)?.value ?? 0) * 100))
+            setHumidity(Math.round((findFloat(12)?.value ?? 0.5) * 100))
+            setPrecipitationIntensity(Math.round((findFloat(3)?.value ?? 0) * 100))
           }
         }
 
@@ -1181,7 +1236,7 @@ export default function Events() {
         }
 
         if (updatedAnySource) {
-          setBridgeOptionsLastUpdated(formatPanelTimestamp(new Date()))
+          setBridgeOptionsLastUpdated(formatPanelTimestamp(new Date(), i18n.language))
         }
       } catch {
         if (!active) return
@@ -1201,14 +1256,14 @@ export default function Events() {
       active = false
       clearInterval(interval)
     }
-  }, [bridgeConnected, bridgeOptionsRefreshTick])
+  }, [bridgeConnected, bridgeOptionsRefreshTick, i18n.language])
 
   const pushActivity = useCallback((label: string, ok: boolean) => {
     setActivity((prev) => [
-      { key: Date.now() + Math.random(), label, ok, at: formatPanelTimestamp(new Date()) },
+      { key: Date.now() + Math.random(), label, ok, at: formatPanelTimestamp(new Date(), i18n.language) },
       ...prev,
     ].slice(0, 6))
-  }, [])
+  }, [i18n.language])
 
   // Bridge weather commands
   const handleBridgeAction = useCallback(async (action: string, fn: () => Promise<unknown>) => {
@@ -1292,14 +1347,30 @@ export default function Events() {
       await checkBridgeStatus()
       const successCopy = getEventSuccessCopy(action, t)
       const notPersisted = result?.persisted === false
+      // restoreUtilities/shutOffUtilities already compute the REAL post-
+      // action power state via world:isHydroPowerOn() (a genuine read-back,
+      // not a hardcoded literal -- see panelBridgeUtilitiesHydroPowerOnReporting
+      // .test.js) and return it unconditionally alongside `success: true`.
+      // The Lua's own comments ("applySettings can re-roll the modifier" /
+      // "so it can't be overwritten") describe exactly the case where the
+      // write silently doesn't stick -- until now the client never looked
+      // at hydroPowerOn, so a silent no-op still read back as plain success.
+      // Water has no equivalent boolean read-back in this response (see
+      // PanelBridge.lua's "Water has no Java flag like isHydroPowerOn()"
+      // comment) -- only power's outcome can be verified this way.
+      const powerMismatch = power && typeof result?.hydroPowerOn === 'boolean' && result.hydroPowerOn !== on
       toast({
-        title: successCopy.title,
-        description: notPersisted
-          ? t('toasts.notPersistedDesc', { reason: result.persistReason || t('toasts.notPersistedUnknownReason') })
-          : successCopy.description,
-        variant: notPersisted ? 'default' : ('success' as const),
+        title: powerMismatch ? t('toasts.actionFailedTitle', { action }) : successCopy.title,
+        description: powerMismatch
+          ? t('toasts.powerDidNotTakeEffectDesc', {
+              state: result.hydroPowerOn ? t('utilities.statusOnline') : t('utilities.statusOffline'),
+            })
+          : notPersisted
+            ? t('toasts.notPersistedDesc', { reason: result.persistReason || t('toasts.notPersistedUnknownReason') })
+            : successCopy.description,
+        variant: powerMismatch ? 'destructive' : notPersisted ? 'default' : ('success' as const),
       })
-      pushActivity(successCopy.title, true)
+      pushActivity(powerMismatch ? t('toasts.actionFailedTitle', { action }) : successCopy.title, !powerMismatch)
     } catch (error) {
       const message = getUserErrorMessage(error, t('toasts.commandFailedFallback'))
       toast({
@@ -1577,7 +1648,7 @@ export default function Events() {
             operation: bridgeResultData.operation,
             success: true,
             data: payload,
-            timestamp: formatPanelTimestamp(new Date()),
+            timestamp: formatPanelTimestamp(new Date(), i18n.language),
           })
         } catch { /* ignore refresh failure */ }
       }
@@ -1620,6 +1691,28 @@ export default function Events() {
       return
     }
 
+    // Kick/ban ops are raw-argument bridge commands with no other gate --
+    // unlike every other kick/ban entry point in the app (Players.tsx), a
+    // mistyped username/IP/SteamID here fires straight at a real player with
+    // zero confirmation. Not styled destructive-red: these are reversible
+    // via an unban elsewhere, matching the same tier as Players.tsx's own
+    // kick/ban dialogs, just a last-look check before it goes out.
+    if (['moderationKickUser', 'moderationBanUser', 'moderationBanIP', 'moderationBanSteamID'].includes(bridgeOperation)) {
+      const target = String(parsedArgs.username ?? parsedArgs.ip ?? parsedArgs.steamId ?? '')
+      const reason = typeof parsedArgs.reason === 'string' ? parsedArgs.reason : ''
+      const operationLabel = bridgeOperationTemplates[bridgeOperation]?.label || bridgeOperation
+      const ok = await confirm({
+        title: t('bridgeOps.moderationConfirmTitle', { operation: operationLabel }),
+        description: t('bridgeOps.moderationConfirmDescription', {
+          target: target ? t('bridgeOps.moderationConfirmTarget', { target }) : '',
+          reason: reason ? t('bridgeOps.moderationConfirmReason', { reason }) : '',
+        }),
+        confirmLabel: t('bridgeOps.moderationConfirmButton'),
+        destructive: false,
+      })
+      if (!ok) return
+    }
+
     setBridgeLoading(bridgeOperation)
     setBridgeFormError(null)
     try {
@@ -1629,9 +1722,9 @@ export default function Events() {
         operation: bridgeOperation,
         success: true,
         data: payload,
-        timestamp: formatPanelTimestamp(new Date()),
+        timestamp: formatPanelTimestamp(new Date(), i18n.language),
       })
-      setBridgeLastRunAt(formatPanelTimestamp(new Date()))
+      setBridgeLastRunAt(formatPanelTimestamp(new Date(), i18n.language))
       // Refresh combo options for list operations
       if (['getSafehouses', 'getFactions', 'getVehiclesDetailed'].includes(bridgeOperation)) {
         setBridgeOptionsRefreshTick((prev) => prev + 1)
@@ -1664,9 +1757,9 @@ export default function Events() {
         success: false,
         data: null,
         error: message,
-        timestamp: formatPanelTimestamp(new Date()),
+        timestamp: formatPanelTimestamp(new Date(), i18n.language),
       })
-      setBridgeLastRunAt(formatPanelTimestamp(new Date()))
+      setBridgeLastRunAt(formatPanelTimestamp(new Date(), i18n.language))
       toast({
         title: t('toasts.bridgeOperationFailedTitle'),
         description: message,
@@ -1689,6 +1782,13 @@ export default function Events() {
     }))
     .filter((group) => group.items.length > 0)
   const activeMeta = EVENT_SECTION_INDEX[activeSection]
+
+  const fogBounds = climateSliderBounds(climateRanges[5], 0, 100, 100)
+  const windBounds = climateSliderBounds(climateRanges[6], 0, 100, 100)
+  const temperatureBounds = climateSliderBounds(climateRanges[4], -30, 45, 1)
+  const cloudBounds = climateSliderBounds(climateRanges[8], 0, 100, 100)
+  const humidityBounds = climateSliderBounds(climateRanges[12], 0, 100, 100)
+  const precipitationBounds = climateSliderBounds(climateRanges[3], 0, 100, 100)
 
   return (
     <div className="mx-auto max-w-[1180px] space-y-5 pb-8 page-transition">
@@ -1869,9 +1969,9 @@ export default function Events() {
             )}
           </nav>
 
-          {activity.length > 0 && (
-            <div className="rounded-md border border-border/60 bg-card">
-              <p className="border-b border-border/60 px-3 py-2 text-xs font-semibold text-foreground">{t('sidebar.recentActions')}</p>
+          <div className="rounded-md border border-border/60 bg-card">
+            <p className="border-b border-border/60 px-3 py-2 text-xs font-semibold text-foreground">{t('sidebar.recentActions')}</p>
+            {activity.length > 0 ? (
               <ul className="divide-y divide-border/40">
                 {activity.map((entry) => (
                   <li key={entry.key} className="flex items-start gap-2 px-3 py-2">
@@ -1883,8 +1983,10 @@ export default function Events() {
                   </li>
                 ))}
               </ul>
-            </div>
-          )}
+            ) : (
+              <p className="px-3 py-3 text-xs text-muted-foreground">{t('sidebar.noRecentActions')}</p>
+            )}
+          </div>
         </aside>
 
         <div className="space-y-4">
@@ -2047,7 +2149,7 @@ export default function Events() {
                     </Label>
                     <span className="font-mono text-[11px] tabular-nums text-primary">{fogIntensity}%</span>
                   </div>
-                  <Slider aria-label={t('climate.fogAria')} value={[fogIntensity]} onValueChange={([val]) => { markClimateDirty(); setFogIntensity(val) }} min={0} max={100} step={5} disabled={!bridgeConnected} />
+                  <Slider aria-label={t('climate.fogAria')} value={[fogIntensity]} onValueChange={([val]) => { markClimateDirty(); setFogIntensity(val) }} min={fogBounds.min} max={fogBounds.max} step={5} disabled={!bridgeConnected} />
                 </div>
 
                 <div className="space-y-2">
@@ -2058,7 +2160,7 @@ export default function Events() {
                     </Label>
                     <span className="font-mono text-[11px] tabular-nums text-primary">{windIntensity}%</span>
                   </div>
-                  <Slider aria-label={t('climate.windAria')} value={[windIntensity]} onValueChange={([val]) => { markClimateDirty(); setWindIntensity(val) }} min={0} max={100} step={5} disabled={!bridgeConnected} />
+                  <Slider aria-label={t('climate.windAria')} value={[windIntensity]} onValueChange={([val]) => { markClimateDirty(); setWindIntensity(val) }} min={windBounds.min} max={windBounds.max} step={5} disabled={!bridgeConnected} />
                 </div>
 
                 <div className="space-y-2">
@@ -2069,7 +2171,7 @@ export default function Events() {
                     </Label>
                     <span className="font-mono text-[11px] tabular-nums text-primary">{temperature}°C</span>
                   </div>
-                  <Slider aria-label={t('climate.temperatureAria')} value={[temperature]} onValueChange={([val]) => { markClimateDirty(); setTemperature(val) }} min={-30} max={45} step={1} disabled={!bridgeConnected} />
+                  <Slider aria-label={t('climate.temperatureAria')} value={[temperature]} onValueChange={([val]) => { markClimateDirty(); setTemperature(val) }} min={temperatureBounds.min} max={temperatureBounds.max} step={1} disabled={!bridgeConnected} />
                 </div>
 
                 <div className="space-y-2">
@@ -2080,7 +2182,7 @@ export default function Events() {
                     </Label>
                     <span className="font-mono text-[11px] tabular-nums text-primary">{cloudIntensity}%</span>
                   </div>
-                  <Slider aria-label={t('climate.cloudsAria')} value={[cloudIntensity]} onValueChange={([val]) => { markClimateDirty(); setCloudIntensity(val) }} min={0} max={100} step={5} disabled={!bridgeConnected} />
+                  <Slider aria-label={t('climate.cloudsAria')} value={[cloudIntensity]} onValueChange={([val]) => { markClimateDirty(); setCloudIntensity(val) }} min={cloudBounds.min} max={cloudBounds.max} step={5} disabled={!bridgeConnected} />
                 </div>
 
                 <div className="space-y-2">
@@ -2091,7 +2193,7 @@ export default function Events() {
                     </Label>
                     <span className="font-mono text-[11px] tabular-nums text-primary">{humidity}%</span>
                   </div>
-                  <Slider aria-label={t('climate.humidityAria')} value={[humidity]} onValueChange={([val]) => { markClimateDirty(); setHumidity(val) }} min={0} max={100} step={5} disabled={!bridgeConnected} />
+                  <Slider aria-label={t('climate.humidityAria')} value={[humidity]} onValueChange={([val]) => { markClimateDirty(); setHumidity(val) }} min={humidityBounds.min} max={humidityBounds.max} step={5} disabled={!bridgeConnected} />
                 </div>
 
                 <div className="space-y-2">
@@ -2102,7 +2204,7 @@ export default function Events() {
                     </Label>
                     <span className="font-mono text-[11px] tabular-nums text-primary">{precipitationIntensity}%</span>
                   </div>
-                  <Slider aria-label={t('climate.precipitationAria')} value={[precipitationIntensity]} onValueChange={([val]) => { markClimateDirty(); setPrecipitationIntensity(val) }} min={0} max={100} step={5} disabled={!bridgeConnected} />
+                  <Slider aria-label={t('climate.precipitationAria')} value={[precipitationIntensity]} onValueChange={([val]) => { markClimateDirty(); setPrecipitationIntensity(val) }} min={precipitationBounds.min} max={precipitationBounds.max} step={5} disabled={!bridgeConnected} />
                 </div>
               </div>
 
@@ -2130,6 +2232,7 @@ export default function Events() {
                   variant="outline"
                   onClick={() => handleBridgeAction('Start Rain', () => panelBridgeApi.startRain(Math.max(0.05, precipitationIntensity / 100)))}
                   disabled={bridgeLoading !== null || !bridgeConnected}
+                  // eslint-disable-next-line local/no-dead-disabled-title -- pure hint describing what the action does (precipitation-slider intensity), unrelated to why the button disables (bridge not connected / another action in flight). This is the rule's own canonical "Start Rain" shape-3 example. Triaged 2026-08-27.
                   title={t('climate.rainTooltip')}
                   className="h-9 gap-2 text-xs font-medium"
                 >
@@ -2271,6 +2374,15 @@ export default function Events() {
                       {utilitiesStatus === null ? t('utilities.statusPending') : utilitiesStatus.powerOn ? t('utilities.statusOnline') : t('utilities.statusOffline')}
                     </span>
                   </div>
+                  {utilitiesStatus !== null && (
+                    <p className="font-mono text-[10px] text-muted-foreground/60">
+                      {t('utilities.timingReasoning', {
+                        modifier: formatShutoffModifier(utilitiesStatus.elecShutModifier, t),
+                        day: Math.floor(utilitiesStatus.currentWorldDay),
+                        nights: utilitiesStatus.nightsSurvived,
+                      })}
+                    </p>
+                  )}
                   <div className="grid grid-cols-2 gap-1.5">
                     <Button variant="outline" size="sm" disabled={!bridgeConnected || loading !== null} onClick={() => handleUtilities('Restore Power', true, true, false)} className="h-8 text-xs font-medium text-emerald-400/90 hover:text-emerald-400 hover:border-emerald-400/40">
                       {t('utilities.restore')}
@@ -2298,6 +2410,15 @@ export default function Events() {
                       {utilitiesStatus === null ? t('utilities.statusPending') : utilitiesStatus.waterOn ? t('utilities.statusOnline') : t('utilities.statusOffline')}
                     </span>
                   </div>
+                  {utilitiesStatus !== null && (
+                    <p className="font-mono text-[10px] text-muted-foreground/60">
+                      {t('utilities.timingReasoning', {
+                        modifier: formatShutoffModifier(utilitiesStatus.waterShutModifier, t),
+                        day: Math.floor(utilitiesStatus.currentWorldDay),
+                        nights: utilitiesStatus.nightsSurvived,
+                      })}
+                    </p>
+                  )}
                   <div className="grid grid-cols-2 gap-1.5">
                     <Button variant="outline" size="sm" disabled={!bridgeConnected || loading !== null} onClick={() => handleUtilities('Restore Water', true, false, true)} className="h-8 text-xs font-medium text-emerald-400/90 hover:text-emerald-400 hover:border-emerald-400/40">
                       {t('utilities.restore')}
@@ -2320,23 +2441,52 @@ export default function Events() {
                   {t('quickSounds.hint')}
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" onClick={() => handleAction('Helicopter', triggerChopper)} disabled={loading !== null || players.length === 0} title={players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : undefined} className="h-9 gap-2 text-xs font-medium">
-                    {loading === 'Helicopter' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Crosshair className="w-3.5 h-3.5" />}
-                    {t('quickSounds.helicopter')}
-                  </Button>
-                  <Button variant="outline" onClick={() => handleAction('Gunshot', triggerGunshot)} disabled={loading !== null || players.length === 0} title={players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : undefined} className="h-9 gap-2 text-xs font-medium">
-                    {loading === 'Gunshot' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Volume2 className="w-3.5 h-3.5" />}
-                    {t('quickSounds.gunshot')}
-                  </Button>
-                  <Button variant="outline" onClick={() => handleAction('Lightning', () => triggerLightning(pickStrikeTarget()))} disabled={loading !== null || players.length === 0} title={players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : t('quickSounds.lightningTooltip')} className="h-9 gap-2 text-xs font-medium text-amber-400/90 hover:text-amber-400 hover:border-amber-400/40">
-                    {loading === 'Lightning' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
-                    {t('quickSounds.lightning')}
-                  </Button>
-                  <Button variant="outline" onClick={() => handleAction('Thunder', () => triggerThunder(pickStrikeTarget()))} disabled={loading !== null || players.length === 0} title={players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : t('quickSounds.thunderTooltip')} className="h-9 gap-2 text-xs font-medium">
-                    {loading === 'Thunder' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CloudLightning className="w-3.5 h-3.5" />}
-                    {t('quickSounds.thunder')}
-                  </Button>
-                  <Button variant="outline" onClick={() => handleAction('Alarm', triggerAlarm)} disabled={loading !== null} title={t('quickSounds.alarmTooltip')} className="h-9 gap-2 text-xs font-medium">
+                  <DisabledReason reason={players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : null}>
+                    <Button variant="outline" onClick={() => handleAction('Helicopter', triggerChopper)} disabled={loading !== null || players.length === 0} className="h-9 gap-2 text-xs font-medium">
+                      {loading === 'Helicopter' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Crosshair className="w-3.5 h-3.5" />}
+                      {t('quickSounds.helicopter')}
+                    </Button>
+                  </DisabledReason>
+                  <DisabledReason reason={players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : null}>
+                    <Button variant="outline" onClick={() => handleAction('Gunshot', triggerGunshot)} disabled={loading !== null || players.length === 0} className="h-9 gap-2 text-xs font-medium">
+                      {loading === 'Gunshot' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Volume2 className="w-3.5 h-3.5" />}
+                      {t('quickSounds.gunshot')}
+                    </Button>
+                  </DisabledReason>
+                  <DisabledReason reason={players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : null}>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleAction('Lightning', () => triggerLightning(pickStrikeTarget()))}
+                      disabled={loading !== null || players.length === 0}
+                      // eslint-disable-next-line local/no-dead-disabled-title -- already split (this file's own precedent, cited in the rule's docs): the disabled-reason (no players online) lives in the DisabledReason wrapper above; this title carries only the enabled-state hint. Marker added 2026-08-27.
+                      title={players.length === 0 ? undefined : t('quickSounds.lightningTooltip')}
+                      className="h-9 gap-2 text-xs font-medium text-amber-400/90 hover:text-amber-400 hover:border-amber-400/40"
+                    >
+                      {loading === 'Lightning' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                      {t('quickSounds.lightning')}
+                    </Button>
+                  </DisabledReason>
+                  <DisabledReason reason={players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : null}>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleAction('Thunder', () => triggerThunder(pickStrikeTarget()))}
+                      disabled={loading !== null || players.length === 0}
+                      // eslint-disable-next-line local/no-dead-disabled-title -- already split (this file's own precedent, cited in the rule's docs): the disabled-reason (no players online) lives in the DisabledReason wrapper above; this title carries only the enabled-state hint. Marker added 2026-08-27.
+                      title={players.length === 0 ? undefined : t('quickSounds.thunderTooltip')}
+                      className="h-9 gap-2 text-xs font-medium"
+                    >
+                      {loading === 'Thunder' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CloudLightning className="w-3.5 h-3.5" />}
+                      {t('quickSounds.thunder')}
+                    </Button>
+                  </DisabledReason>
+                  <Button
+                    variant="outline"
+                    onClick={() => handleAction('Alarm', triggerAlarm)}
+                    disabled={loading !== null}
+                    // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (this file's own precedent, cited in the rule's docs as "Alarm"); disables only while another quick-sound action is in flight, unrelated to what the title describes. Triaged 2026-08-27.
+                    title={t('quickSounds.alarmTooltip')}
+                    className="h-9 gap-2 text-xs font-medium"
+                  >
                     {loading === 'Alarm' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bell className="w-3.5 h-3.5" />}
                     {t('quickSounds.alarm')}
                   </Button>
@@ -2452,18 +2602,37 @@ export default function Events() {
                   </div>
                   <Slider aria-label={t('horde.sizeAria')} value={[hordeCount]} onValueChange={([val]) => setHordeCount(val)} min={10} max={500} step={10} />
                 </div>
-                <Button variant="outline" onClick={() => handleAction('Create horde', () => createHorde(hordeCount, pickStrikeTarget()))} disabled={loading !== null || !bridgeConnected || players.length === 0 || (!targetAll && !selectedPlayer)} title={players.length === 0 ? t('horde.noPlayersOnlineTitle') : !bridgeConnected ? t('horde.bridgeOfflineTitle') : undefined} className="h-9 gap-2 text-xs font-medium">
-                  {loading === 'Create horde' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Skull className="w-3.5 h-3.5" />}
-                  {t('horde.spawnNear', { target: targetAll ? t('horde.random') : selectedPlayer || t('horde.targetFallback') })}
-                </Button>
-                <Button variant="outline" onClick={() => handleAction('Create horde (behind)', () => createHorde2(hordeCount, pickStrikeTarget()))} disabled={loading !== null || !bridgeConnected || players.length === 0 || (!targetAll && !selectedPlayer)} title={players.length === 0 ? t('horde.noPlayersOnlineTitle') : !bridgeConnected ? t('horde.bridgeOfflineTitle') : undefined} className="h-9 gap-2 text-xs font-medium">
-                  {loading === 'Create horde (behind)' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Skull className="w-3.5 h-3.5" />}
-                  {t('horde.spawnBehind', { target: targetAll ? t('horde.random') : selectedPlayer || t('horde.targetFallback') })}
-                </Button>
-                <Button variant="outline" onClick={() => handleAction('Remove all zombies', removeZombies)} disabled={loading !== null || !bridgeConnected} title={!bridgeConnected ? t('horde.bridgeOfflineTitle') : undefined} className="h-9 gap-2 text-xs font-medium text-destructive/95 hover:text-destructive hover:border-destructive/50 hover:bg-destructive/10">
-                  {loading === 'Remove all zombies' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <AlertTriangle className="w-3.5 h-3.5" />}
-                  {t('horde.clearLoadedZombies')}
-                </Button>
+                <DisabledReason reason={players.length === 0 ? t('horde.noPlayersOnlineTitle') : !bridgeConnected ? t('horde.bridgeOfflineTitle') : null}>
+                  <Button variant="outline" onClick={() => handleAction('Create horde', () => createHorde(hordeCount, pickStrikeTarget()))} disabled={loading !== null || !bridgeConnected || players.length === 0 || (!targetAll && !selectedPlayer)} className="h-9 gap-2 text-xs font-medium">
+                    {loading === 'Create horde' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Skull className="w-3.5 h-3.5" />}
+                    {t('horde.spawnNear', { target: targetAll ? t('horde.random') : selectedPlayer || t('horde.targetFallback') })}
+                  </Button>
+                </DisabledReason>
+                <DisabledReason reason={players.length === 0 ? t('horde.noPlayersOnlineTitle') : !bridgeConnected ? t('horde.bridgeOfflineTitle') : null}>
+                  <Button variant="outline" onClick={() => handleAction('Create horde (behind)', () => createHorde2(hordeCount, pickStrikeTarget()))} disabled={loading !== null || !bridgeConnected || players.length === 0 || (!targetAll && !selectedPlayer)} className="h-9 gap-2 text-xs font-medium">
+                    {loading === 'Create horde (behind)' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Skull className="w-3.5 h-3.5" />}
+                    {t('horde.spawnBehind', { target: targetAll ? t('horde.random') : selectedPlayer || t('horde.targetFallback') })}
+                  </Button>
+                </DisabledReason>
+                <DisabledReason reason={!bridgeConnected ? t('horde.bridgeOfflineTitle') : null}>
+                  <Button variant="outline" onClick={async () => {
+                    // Instant, world-wide, and every player on the server feels
+                    // it -- reversible (zombies respawn) doesn't undo whatever
+                    // someone was mid-fight against. Affects-others-but-
+                    // reversible tier: warning, not destructive-red, not silent.
+                    const ok = await confirm({
+                      title: t('horde.removeAllConfirmTitle'),
+                      description: t('horde.removeAllConfirmDescription'),
+                      confirmLabel: t('horde.clearLoadedZombies'),
+                      variant: 'warning',
+                    })
+                    if (!ok) return
+                    handleAction('Remove all zombies', removeZombies)
+                  }} disabled={loading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium text-warning hover:text-warning hover:border-warning/50 hover:bg-warning/10">
+                    {loading === 'Remove all zombies' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+                    {t('horde.clearLoadedZombies')}
+                  </Button>
+                </DisabledReason>
               </div>
             </TacticalPanel>
         )}
@@ -2491,9 +2660,11 @@ export default function Events() {
                     {players.length === 0 ? (
                       <p className="font-mono text-[11px] text-muted-foreground/70 italic">{t('vehicles.noPlayersOnline')}</p>
                     ) : players.map((player) => (
-                      <Button key={player.name} variant="outline" size="sm" onClick={() => handleAction('Spawn vehicle', () => spawnVehicle(selectedVehicle, player.name))} disabled={loading !== null || !selectedVehicle} title={!selectedVehicle ? t('vehicles.selectVehicleFirstTitle') : undefined} className="h-8 gap-1.5 text-xs font-medium">
-                        <Car className="w-3 h-3" /> {player.name}
-                      </Button>
+                      <DisabledReason key={player.name} reason={!selectedVehicle ? t('vehicles.selectVehicleFirstTitle') : null}>
+                        <Button variant="outline" size="sm" onClick={() => handleAction('Spawn vehicle', () => spawnVehicle(selectedVehicle, player.name))} disabled={loading !== null || !selectedVehicle} className="h-8 gap-1.5 text-xs font-medium">
+                          <Car className="w-3 h-3" /> {player.name}
+                        </Button>
+                      </DisabledReason>
                     ))}
                   </div>
                 </div>
@@ -2558,11 +2729,25 @@ export default function Events() {
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" onClick={() => handleAction('Teleport self', () => teleportToCoords(teleportCoordX as number, teleportCoordY as number, teleportCoordZ as number))} disabled={loading !== null || !hasValidTeleportCoords} title={t('teleport.teleportSelfTitle')} className="h-9 gap-2 text-xs font-medium">
+                  <Button
+                    variant="outline"
+                    onClick={() => handleAction('Teleport self', () => teleportToCoords(teleportCoordX as number, teleportCoordY as number, teleportCoordZ as number))}
+                    disabled={loading !== null || !hasValidTeleportCoords}
+                    // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (this file's own precedent, cited in the rule's docs as "Teleport Player/Self"); the parenthetical is an always-relevant server-side note, not tied to the disabled condition (invalid coords / action in flight). Triaged 2026-08-27.
+                    title={t('teleport.teleportSelfTitle')}
+                    className="h-9 gap-2 text-xs font-medium"
+                  >
                     {loading === 'Teleport self' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MapPin className="w-3.5 h-3.5" />}
                     {t('teleport.teleportSelf')}
                   </Button>
-                  <Button variant="outline" onClick={() => handleAction('Teleport player', () => teleportToCoords(teleportCoordX as number, teleportCoordY as number, teleportCoordZ as number, getTargetPlayer()))} disabled={loading !== null || !hasValidTeleportCoords || targetAll || !selectedPlayer} title={t('teleport.teleportPlayerTitle')} className="h-9 gap-2 text-xs font-medium">
+                  <Button
+                    variant="outline"
+                    onClick={() => handleAction('Teleport player', () => teleportToCoords(teleportCoordX as number, teleportCoordY as number, teleportCoordZ as number, getTargetPlayer()))}
+                    disabled={loading !== null || !hasValidTeleportCoords || targetAll || !selectedPlayer}
+                    // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (this file's own precedent, cited in the rule's docs as "Teleport Player/Self"); an unconditional action description, no branch of it explains any of the four disable conditions. Triaged 2026-08-27.
+                    title={t('teleport.teleportPlayerTitle')}
+                    className="h-9 gap-2 text-xs font-medium"
+                  >
                     {loading === 'Teleport player' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Navigation className="w-3.5 h-3.5" />}
                     {t('teleport.teleportTarget', { target: selectedPlayer || t('teleport.targetFallback') })}
                   </Button>

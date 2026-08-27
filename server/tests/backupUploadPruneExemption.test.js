@@ -97,11 +97,15 @@ describe("backup pruning: uploaded archives are exempt from automatic prune, not
     writeBackup(backupsPath, "uploaded-important.zip");
     writeBackup(backupsPath, "world_backup_1.zip");
 
-    // days = -1 puts the cutoff a day in the FUTURE, so every file that
-    // exists right now counts as older than it -- a deterministic way to
-    // force "everything gets deleted" without depending on real file
-    // birthtimes, which Node can't rewrite portably.
-    const result = await service.deleteBackupsOlderThan(-1);
+    // listBackups() reads birthtime, which Node cannot rewrite portably on
+    // every supported filesystem. Supply old metadata while keeping the
+    // actual deleteBackup() path and files real.
+    const oldCreated = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+    service.listBackups = async () => [
+      { name: "uploaded-important.zip", created: oldCreated },
+      { name: "world_backup_1.zip", created: oldCreated },
+    ];
+    const result = await service.deleteBackupsOlderThan(1);
 
     expect(result.deleted).toBe(2);
     expect(names(backupsPath)).toHaveLength(0);

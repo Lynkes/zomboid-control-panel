@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import {
@@ -36,6 +36,8 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { reportClientError } from '@/lib/client-errors'
+import { getUserErrorMessage } from '@/lib/errorMessage'
+import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -58,7 +60,10 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { useToast } from '@/components/ui/use-toast'
 import { schedulerApi, rconApi, serverApi, serversApi, ScheduleHistoryEntry, ServerInstance } from '@/lib/api'
 import { EmptyState } from '@/components/EmptyState'
+import { NumberInput } from '@/components/NumberInput'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { DisabledReason } from '@/components/DisabledReason'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface ScheduledTask {
   id: number
@@ -109,8 +114,14 @@ function getCommonCommands(t: TFunction) {
   ]
 }
 
+// No pagination on this panel -- when a fetch returns exactly this many
+// rows, older executions may exist and be silently excluded (server
+// retains up to 500, see server/database/init.js). A hint, not a hard
+// truth: hitting the limit exactly by coincidence is possible too.
+const EXECUTION_HISTORY_FETCH_LIMIT = 50
+
 export default function Scheduler() {
-  const { t } = useTranslation('scheduler')
+  const { t, i18n } = useTranslation('scheduler')
   const weekDays = useMemo(() => getWeekDays(t), [t])
   const commonCommands = useMemo(() => getCommonCommands(t), [t])
   const [tasks, setTasks] = useState<ScheduledTask[]>([])
@@ -128,6 +139,15 @@ export default function Scheduler() {
   const [broadcastingKey, setBroadcastingKey] = useState<string | null>(null)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const { toast } = useToast()
+  const { can } = useAuth()
+  // POST /scheduler/restart-now is an immediate, direct restart -- it
+  // requires server.control on the server (server/routes/scheduler.js),
+  // the same capability POST /server/restart requires, not just
+  // automation.manage (which merely gates this whole page). can() fails
+  // OPEN when capabilities are unknown/null, same convention as every
+  // other capability check in the app -- this only ever disables the
+  // button when the answer is a confirmed no.
+  const canRestartNow = can('server.control')
 
   // New task form
   const [newTaskName, setNewTaskName] = useState('')
@@ -136,6 +156,13 @@ export default function Scheduler() {
   const [newTaskServerId, setNewTaskServerId] = useState<string>('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<ScheduledTask | null>(null)
+
+  // Advisory-only preview of the custom cron field via POST /validate-cron --
+  // never gates Save. The server re-validates independently and is the real
+  // source of truth, so a failed/slow preview call must never block or
+  // second-guess what create/update will actually decide.
+  const [cronValidation, setCronValidation] = useState<{ valid: boolean; error?: string; code?: string } | null>(null)
+  const cronValidationIdRef = useRef(0)
 
   // Simple Scheduler State
   const [scheduleMode, setScheduleMode] = useState<'simple' | 'advanced'>('simple')
@@ -162,7 +189,7 @@ export default function Scheduler() {
         schedulerApi.getTasks(),
         schedulerApi.getCronPresets().catch(() => ({ presets: [] as CronPreset[] })),
         schedulerApi.getStatus().catch(() => null),
-        schedulerApi.getHistory(50).catch(() => ({ history: [] as ScheduleHistoryEntry[] })),
+        schedulerApi.getHistory(EXECUTION_HISTORY_FETCH_LIMIT).catch(() => ({ history: [] as ScheduleHistoryEntry[] })),
         serversApi.getAll().catch(() => ({ servers: [] as ServerInstance[] })),
       ])
       setTasks(tasksData.tasks || [])
@@ -180,7 +207,7 @@ export default function Scheduler() {
       })
     } catch (error) {
       reportClientError('Failed to fetch scheduler data.', error)
-      setFetchError(error instanceof Error ? error.message : t('fetchError.fallback'))
+      setFetchError(getUserErrorMessage(error, t('fetchError.fallback')))
     } finally {
       setInitialLoading(false)
     }
@@ -189,6 +216,40 @@ export default function Scheduler() {
   useEffect(() => {
     fetchData()
   }, [fetchData])
+
+  // Preview the custom cron field as the operator types, so an invalid
+  // expression is caught here instead of only on Save. Advanced-only: the
+  // simple builder always produces a cron string it already knows is valid,
+  // so validating it too would just be an extra request for no signal.
+  // Debounced via the effect's own cleanup (a new keystroke cancels the
+  // still-pending timer before it fires) -- but that alone doesn't cover a
+  // slower-typed request resolving AFTER a faster-typed later one, so the
+  // generation counter below still gates every state update. Same
+  // shape as the fetch-race hunt's loadIdRef fixes tonight, applied to a
+  // debounce instead of a mount-triggered fetch.
+  useEffect(() => {
+    if (scheduleMode !== 'advanced' || !newTaskCron.trim()) {
+      setCronValidation(null)
+      return
+    }
+    const validationId = ++cronValidationIdRef.current
+    const timer = setTimeout(() => {
+      schedulerApi.validateCron(newTaskCron)
+        .then((result) => {
+          if (cronValidationIdRef.current !== validationId) return
+          setCronValidation(result)
+        })
+        // Advisory only -- a failed preview call says nothing about whether
+        // the expression is actually valid, so it clears any stale verdict
+        // rather than showing a wrong one. Save still works either way: the
+        // server validates independently at submit time.
+        .catch(() => {
+          if (cronValidationIdRef.current !== validationId) return
+          setCronValidation(null)
+        })
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [newTaskCron, scheduleMode])
 
   // Poll server status so Manual Restart / Quick Broadcasts stay accurate.
   // Skipped while the tab is hidden to avoid pointless work in background tabs.
@@ -216,14 +277,6 @@ export default function Scheduler() {
     if (!serverId) return null
     const match = servers.find((s) => String(s.id) === String(serverId))
     return match ? (match.name || match.serverName || `Server ${serverId}`) : t('scheduledTasks.unknownServer')
-  }
-
-  // Simple cron validation
-  const isValidCron = (cron: string): boolean => {
-    const parts = cron.trim().split(/\s+/)
-    if (parts.length !== 5) return false
-    // Each part should be a valid cron field (numbers, *, /, -, ,)
-    return parts.every(p => /^[\d*,\/-]+$/.test(p))
   }
 
   // Shared by the submit path and the preview so they cannot disagree.
@@ -260,14 +313,33 @@ export default function Scheduler() {
       return
     }
 
-    // Validate cron expression
-    if (!isValidCron(cronToUse)) {
-      toast({
-        title: t('toasts.invalidScheduleTitle'),
-        description: t('toasts.invalidCronDesc', { cron: cronToUse }),
-        variant: 'destructive',
-      })
-      return
+    // Validate the cron expression against the server's own validator
+    // (scheduler-cron-client-validator-weaker-than-server) -- a local regex
+    // here used to diverge from node-cron's real rules in both directions:
+    // it accepted out-of-range/too-frequent/impossible-date expressions the
+    // server rejects (a green tick that fails one round-trip later), and it
+    // rejected named months/weekdays and L/W/#-token expressions the server
+    // happily accepts (denying the operator a schedule they were entitled
+    // to). Delegating to the same /validate-cron endpoint the live preview
+    // above already calls gets exact parity by construction instead of
+    // hand-porting node-cron's bounds/name tables and keeping them in sync.
+    try {
+      const cronCheck = await schedulerApi.validateCron(cronToUse)
+      if (!cronCheck.valid) {
+        toast({
+          title: t('toasts.invalidScheduleTitle'),
+          description:
+            (cronCheck.code && resolveRegisteredTranslation('errors', cronCheck.code, undefined)) ||
+            cronCheck.error ||
+            t('toasts.invalidCronDesc', { cron: cronToUse }),
+          variant: 'destructive',
+        })
+        return
+      }
+    } catch {
+      // Pre-check unreachable (network/500) -- fall through and let
+      // create/update's own server-side validation be the final word,
+      // same advisory-only philosophy as the live preview above.
     }
 
     setLoading(true)
@@ -295,9 +367,7 @@ export default function Scheduler() {
     } catch (error) {
       toast({
         title: t('toasts.errorTitle'),
-        description: error instanceof Error
-          ? error.message
-          : editingTask ? t('toasts.taskUpdateFailedFallback') : t('toasts.taskCreateFailedFallback'),
+        description: getUserErrorMessage(error, editingTask ? t('toasts.taskUpdateFailedFallback') : t('toasts.taskCreateFailedFallback')),
         variant: 'destructive',
       })
     } finally {
@@ -391,7 +461,7 @@ export default function Scheduler() {
     } catch (error) {
       toast({
         title: t('toasts.errorTitle'),
-        description: error instanceof Error ? error.message : t('toasts.taskUpdateFailedFallback'),
+        description: getUserErrorMessage(error, t('toasts.taskUpdateFailedFallback')),
         variant: 'destructive',
       })
     } finally {
@@ -412,7 +482,7 @@ export default function Scheduler() {
     } catch (error) {
       toast({
         title: t('toasts.errorTitle'),
-        description: error instanceof Error ? error.message : t('toasts.taskDeleteFailedFallback'),
+        description: getUserErrorMessage(error, t('toasts.taskDeleteFailedFallback')),
         variant: 'destructive',
       })
     } finally {
@@ -436,7 +506,7 @@ export default function Scheduler() {
     } catch (error) {
       toast({
         title: t('toasts.errorTitle'),
-        description: error instanceof Error ? error.message : t('toasts.taskRunFailedFallback'),
+        description: getUserErrorMessage(error, t('toasts.taskRunFailedFallback')),
         variant: 'destructive',
       })
     } finally {
@@ -447,16 +517,37 @@ export default function Scheduler() {
   const handleRestartNow = async () => {
     setLoading(true)
     try {
-      await schedulerApi.restartNow(restartMinutes)
-      toast({
-        title: t('toasts.restartInitiatedTitle'),
-        description: t('toasts.restartInitiatedDesc', { minutes: restartMinutes }),
-        variant: 'success' as const,
-      })
+      const result = await schedulerApi.restartNow(restartMinutes)
+      const applied = result.warningMinutes
+      // The NumberInput's min/max are decorative (native <input> attrs
+      // only, no client-side clamp function passed) -- an operator can type
+      // past them, and the server silently caps at 60. Compare what was
+      // requested against what the server actually used instead of just
+      // echoing back the client's own state, which used to say e.g. "500
+      // minutes" when the real countdown was 60.
+      if (applied !== restartMinutes) {
+        toast({
+          title: t('toasts.restartInitiatedTitle'),
+          description: t('toasts.restartMinutesClampedDesc', { requested: restartMinutes, applied }),
+          variant: 'warning' as const,
+        })
+      } else {
+        toast({
+          title: t('toasts.restartInitiatedTitle'),
+          // Pre-existing bug, caught while touching this code (2026-08-27):
+          // restartInitiatedDesc/_WithWarningsDesc are pluralized keys
+          // (_one/_other), which i18next only resolves via a `count` param
+          // -- passing `minutes` alone silently returned the raw key
+          // string, invisible until something actually asserted on the
+          // rendered toast text.
+          description: t('toasts.restartInitiatedDesc', { count: applied, minutes: applied }),
+          variant: 'success' as const,
+        })
+      }
     } catch (error) {
       toast({
         title: t('toasts.errorTitle'),
-        description: error instanceof Error ? error.message : t('toasts.restartFailedFallback'),
+        description: getUserErrorMessage(error, t('toasts.restartFailedFallback')),
         variant: 'destructive',
       })
     } finally {
@@ -467,16 +558,16 @@ export default function Scheduler() {
   const handleRestartWithWarning = async (minutes: number) => {
     setLoading(true)
     try {
-      await schedulerApi.restartNow(minutes)
+      const result = await schedulerApi.restartNow(minutes)
       toast({
         title: t('toasts.restartInitiatedTitle'),
-        description: t('toasts.restartInitiatedWithWarningsDesc', { minutes }),
+        description: t('toasts.restartInitiatedWithWarningsDesc', { count: result.warningMinutes, minutes: result.warningMinutes }),
         variant: 'success' as const,
       })
     } catch (error) {
       toast({
         title: t('toasts.errorTitle'),
-        description: error instanceof Error ? error.message : t('toasts.restartFailedFallback'),
+        description: getUserErrorMessage(error, t('toasts.restartFailedFallback')),
         variant: 'destructive',
       })
     } finally {
@@ -496,7 +587,7 @@ export default function Scheduler() {
     } catch (error) {
       toast({
         title: t('toasts.errorTitle'),
-        description: error instanceof Error ? error.message : t('toasts.broadcastFailedFallback'),
+        description: getUserErrorMessage(error, t('toasts.broadcastFailedFallback')),
         variant: 'destructive',
       })
     } finally {
@@ -517,7 +608,7 @@ export default function Scheduler() {
     } catch (error) {
       toast({
         title: t('toasts.errorTitle'),
-        description: error instanceof Error ? error.message : t('toasts.historyClearFailedFallback'),
+        description: getUserErrorMessage(error, t('toasts.historyClearFailedFallback')),
         variant: 'destructive',
       })
     } finally {
@@ -718,6 +809,21 @@ export default function Scheduler() {
                     <p id="cron-format-hint" className="text-xs text-muted-foreground">
                       {t('dialog.cronFormatHint')}
                     </p>
+                    {cronValidation && (
+                      <p
+                        className={`flex items-center gap-1.5 text-xs ${cronValidation.valid ? 'text-primary' : 'text-destructive'}`}
+                        aria-live="polite"
+                      >
+                        {cronValidation.valid ? (
+                          <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        ) : (
+                          <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        )}
+                        {cronValidation.valid
+                          ? t('dialog.cronValidExpression')
+                          : (cronValidation.code && resolveRegisteredTranslation('errors', cronValidation.code, undefined)) || cronValidation.error}
+                      </p>
+                    )}
                   </TabsContent>
                 </Tabs>
               </div>
@@ -855,42 +961,53 @@ export default function Scheduler() {
         <CardContent className="space-y-4">
           {/* Quick Restart Buttons — each triggers an immediate restart with that warning length */}
           <div className="flex flex-wrap gap-2">
-            <Button
-              onClick={() => handleRestartWithWarning(15)}
-              disabled={loading || !serverRunning}
-              variant="outline"
-              size="sm"
-              title={t('manualRestart.restartIn15Title')}
-            >
-              <Clock className="w-4 h-4 mr-2" />
-              {t('manualRestart.restartIn15')}
-            </Button>
-            <Button
-              onClick={() => handleRestartWithWarning(10)}
-              disabled={loading || !serverRunning}
-              variant="outline"
-              size="sm"
-              title={t('manualRestart.restartIn10Title')}
-            >
-              <Clock className="w-4 h-4 mr-2" />
-              {t('manualRestart.restartIn10')}
-            </Button>
-            <Button
-              onClick={() => handleRestartWithWarning(5)}
-              disabled={loading || !serverRunning}
-              variant="outline"
-              size="sm"
-              title={t('manualRestart.restartIn5Title')}
-            >
-              <Clock className="w-4 h-4 mr-2" />
-              {t('manualRestart.restartIn5')}
-            </Button>
+            <DisabledReason reason={!canRestartNow ? t('manualRestart.noPermission') : null}>
+              <Button
+                onClick={() => handleRestartWithWarning(15)}
+                disabled={loading || !serverRunning || !canRestartNow}
+                variant="outline"
+                size="sm"
+                // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Restart in 15 minutes with countdown warnings"); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
+                title={t('manualRestart.restartIn15Title')}
+              >
+                <Clock className="w-4 h-4 mr-2" />
+                {t('manualRestart.restartIn15')}
+              </Button>
+            </DisabledReason>
+            <DisabledReason reason={!canRestartNow ? t('manualRestart.noPermission') : null}>
+              <Button
+                onClick={() => handleRestartWithWarning(10)}
+                disabled={loading || !serverRunning || !canRestartNow}
+                variant="outline"
+                size="sm"
+                // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Restart in 10 minutes with countdown warnings"); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
+                title={t('manualRestart.restartIn10Title')}
+              >
+                <Clock className="w-4 h-4 mr-2" />
+                {t('manualRestart.restartIn10')}
+              </Button>
+            </DisabledReason>
+            <DisabledReason reason={!canRestartNow ? t('manualRestart.noPermission') : null}>
+              <Button
+                onClick={() => handleRestartWithWarning(5)}
+                disabled={loading || !serverRunning || !canRestartNow}
+                variant="outline"
+                size="sm"
+                // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Restart in 5 minutes with countdown warnings"); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
+                title={t('manualRestart.restartIn5Title')}
+              >
+                <Clock className="w-4 h-4 mr-2" />
+                {t('manualRestart.restartIn5')}
+              </Button>
+            </DisabledReason>
+            <DisabledReason reason={!canRestartNow ? t('manualRestart.noPermission') : null}>
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button
-                  disabled={loading || !serverRunning}
+                  disabled={loading || !serverRunning || !canRestartNow}
                   variant="warning"
                   size="sm"
+                  // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Restart in 1 minute — short warning, requires confirmation", describing the action's own confirm-dialog behavior, not why it's disabled); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                   title={t('manualRestart.restartIn1Title')}
                 >
                   <Clock className="w-4 h-4 mr-2" />
@@ -915,24 +1032,25 @@ export default function Scheduler() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+            </DisabledReason>
           </div>
 
           {/* Custom Time */}
           <div className="flex items-end gap-4">
             <div className="flex-1 max-w-xs">
               <Label>{t('manualRestart.customCountdownLabel')}</Label>
-              <Input
-                type="number"
+              <NumberInput
                 value={restartMinutes}
-                onChange={(e) => setRestartMinutes(parseInt(e.target.value) || 5)}
+                onChange={setRestartMinutes}
                 min={1}
                 max={30}
               />
             </div>
             {restartMinutes < 5 ? (
+              <DisabledReason reason={!canRestartNow ? t('manualRestart.noPermission') : null}>
               <AlertDialog>
                 <AlertDialogTrigger asChild>
-                  <Button disabled={loading || !serverRunning} variant="warning">
+                  <Button disabled={loading || !serverRunning || !Number.isFinite(restartMinutes) || !canRestartNow} variant="warning">
                     <RotateCcw className="w-4 h-4 mr-2" />
                     {t('manualRestart.restartNow')}
                   </Button>
@@ -952,15 +1070,18 @@ export default function Scheduler() {
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
+              </DisabledReason>
             ) : (
-              <Button
-                onClick={handleRestartNow}
-                disabled={loading || !serverRunning}
-                variant="warning"
-              >
-                <RotateCcw className="w-4 h-4 mr-2" />
-                {t('manualRestart.restartNow')}
-              </Button>
+              <DisabledReason reason={!canRestartNow ? t('manualRestart.noPermission') : null}>
+                <Button
+                  onClick={handleRestartNow}
+                  disabled={loading || !serverRunning || !Number.isFinite(restartMinutes) || !canRestartNow}
+                  variant="warning"
+                >
+                  <RotateCcw className="w-4 h-4 mr-2" />
+                  {t('manualRestart.restartNow')}
+                </Button>
+              </DisabledReason>
             )}
           </div>
           <p className="text-sm text-muted-foreground">
@@ -1081,7 +1202,7 @@ export default function Scheduler() {
                         </p>
                         {task.last_run && (
                           <p className="text-[11px] text-muted-foreground/70 mt-1">
-                            {t('scheduledTasks.lastRun', { date: new Date(task.last_run).toLocaleString() })}
+                            {t('scheduledTasks.lastRun', { date: new Date(task.last_run).toLocaleString(i18n.language) })}
                           </p>
                         )}
                       </div>
@@ -1092,6 +1213,7 @@ export default function Scheduler() {
                         size="sm"
                         onClick={() => handleRunNow(task)}
                         disabled={loading || runningTaskId !== null}
+                        // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Run task now"); disables only on transient UI state (a page-wide loading flag, or another task already running), not a permission gate -- no DisabledReason-worthy reason to lose. Triaged 2026-08-27.
                         title={t('scheduledTasks.runNowTitle')}
                         aria-label={t('scheduledTasks.runNowAria', { name: task.name })}
                       >
@@ -1106,6 +1228,7 @@ export default function Scheduler() {
                         size="sm"
                         onClick={() => handleEditTask(task)}
                         disabled={loading}
+                        // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Edit task"); disables only on the page-wide loading flag, not a permission gate -- no DisabledReason-worthy reason to lose. Triaged 2026-08-27.
                         title={t('scheduledTasks.editTitle')}
                         aria-label={t('scheduledTasks.editAria', { name: task.name })}
                       >
@@ -1166,6 +1289,11 @@ export default function Scheduler() {
               </CardTitle>
               <CardDescription>
                 {t('executionHistory.description')}
+                {history.length >= EXECUTION_HISTORY_FETCH_LIMIT && (
+                  <span className="block text-xs text-muted-foreground/80">
+                    {t('executionHistory.truncatedHint', { count: history.length })}
+                  </span>
+                )}
               </CardDescription>
             </div>
             <div className="flex gap-2">
@@ -1239,7 +1367,7 @@ export default function Scheduler() {
                         </div>
                       </div>
                       <span className="text-xs text-muted-foreground whitespace-nowrap">
-                        {new Date(entry.executed_at).toLocaleString()}
+                        {new Date(entry.executed_at).toLocaleString(i18n.language)}
                       </span>
                     </div>
                     <div className="mt-1 ml-6 text-sm">

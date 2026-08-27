@@ -1,10 +1,18 @@
 ---@diagnostic disable: undefined-global, deprecated
 --[[
     PanelBridge - Server-side mod for Zomboid Control Panel
-    Version: 1.7.38
+    Version: 1.7.39
 
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
+
+                v1.7.39 Changes:
+                - getServerInfo now sends isAlive, isInfected and accessLevel
+                    per player. Previously absent from the wire entirely (not
+                    conditional) -- the panel rendered "alive, uninfected,
+                    non-admin" for every player regardless of actual state.
+                    Client gates these three fields on this bridge version so
+                    an older bridge is never misread as confidently-wrong data.
 
                 v1.7.38 Changes:
                 - Bundled with panel v1.1.54. No bridge protocol changes.
@@ -368,7 +376,7 @@
 local json
 
 local PanelBridge = {
-    VERSION = "1.7.38",
+    VERSION = "1.7.39",
     PROTOCOL_VERSION = "queue-v1",
     CHECK_INTERVAL = 250, -- milliseconds (fast command polling)
     lastCheck = 0,
@@ -1578,14 +1586,23 @@ local function tryResyncInboxCursor(nextSeq)
     return true
 end
 
+-- `scanned` bounds the loop below and counts every inbox file touched this
+-- tick, garbage included (empty / malformed / duplicate / expired) -- this
+-- is what keeps one tick's file I/O bounded no matter what's queued.
+-- `processed` counts only entries processSingleCommand actually attempted
+-- (its return true) and is what's returned, logged and reported -- reusing
+-- the loop bound for that purpose is what let 036a538 both undercount
+-- (double-counting garbage as processed) and, in fixing that, accidentally
+-- remove the ONLY bound on the loop (see panelBridgeQueueBudget.test.js).
 local function processQueuedCommands(budget)
     local processed = 0
-    if budget <= 0 then return processed end
+    local scanned = 0
+    if budget <= 0 then return processed, scanned end
 
     local nextSeq = (PanelBridge.queueState.lastCommandSeq or 0) + 1
     local advanced = false
 
-    while processed < budget do
+    while scanned < budget do
         local fileName = "inbox/cmd-" .. PanelBridge.formatSeq(nextSeq) .. ".json"
         local raw = PanelBridge.readFile(fileName)
 
@@ -1633,6 +1650,7 @@ local function processQueuedCommands(budget)
             end
 
             if shouldAdvance then
+                scanned = scanned + 1
                 PanelBridge.queueState.lastCommandSeq = nextSeq
                 PanelBridge.writeInboxCursor(nextSeq)
                 advanced = true
@@ -1645,7 +1663,7 @@ local function processQueuedCommands(budget)
         PanelBridge.writeQueueState()
     end
 
-    return processed
+    return processed, scanned
 end
 
 local function normalizeMessage(value, maxLen)
@@ -1818,16 +1836,21 @@ handlers.getServerInfo = function(args)
                 -- Wrap each player in pcall so one bad player doesn't break the whole list
                 local ok, playerData = pcall(function()
                     local health = 100
+                    local isInfected = false
                     local bodyDamage = player:getBodyDamage()
                     if bodyDamage then
                         health = bodyDamage:getOverallBodyHealth() or 100
+                        isInfected = bodyDamage:IsInfected() or false
                     end
                     return {
                         name = player:getUsername() or "Unknown",
                         x = math.floor(player:getX() or 0),
                         y = math.floor(player:getY() or 0),
                         z = math.floor(player:getZ() or 0),
-                        health = health
+                        health = health,
+                        isAlive = player:isAlive(),
+                        isInfected = isInfected,
+                        accessLevel = player:getAccessLevel() or ""
                     }
                 end)
                 if ok and playerData then
@@ -7453,7 +7476,16 @@ end
 
 function PanelBridge.processCommands()
     local processedCount = 0
-    processedCount = processedCount + processQueuedCommands(PanelBridge.MAX_COMMANDS_PER_TICK)
+    -- scannedCount is the shared per-tick I/O budget across BOTH intake
+    -- paths (numbered queue below, then legacy commands.json further down)
+    -- -- matches the combined bound this function has always enforced via
+    -- one counter; see processQueuedCommands' header comment for why that
+    -- counter had to split into scanned (bounds work) vs processed (honest
+    -- report) instead of continuing to serve both jobs.
+    local scannedCount = 0
+    local queueProcessed, queueScanned = processQueuedCommands(PanelBridge.MAX_COMMANDS_PER_TICK)
+    processedCount = processedCount + queueProcessed
+    scannedCount = scannedCount + queueScanned
 
     -- NOTE (audit L03): everything from here down is the LEGACY commands.json
     -- intake path — a fallback for a panel that hasn't negotiated
@@ -7488,13 +7520,14 @@ function PanelBridge.processCommands()
     PanelBridge.clearFile("commands.json")
 
     for idx, cmd in ipairs(commands.commands) do
-        if processedCount >= PanelBridge.MAX_COMMANDS_PER_TICK then
+        if scannedCount >= PanelBridge.MAX_COMMANDS_PER_TICK then
             deferredCommands = {}
             for j = idx, #commands.commands do
                 table.insert(deferredCommands, commands.commands[j])
             end
             PanelBridge.warn("Command batch limit reached; deferring remaining commands", {
                 processed = processedCount,
+                scanned = scannedCount,
                 maxPerTick = PanelBridge.MAX_COMMANDS_PER_TICK,
                 totalInFile = #commands.commands,
                 deferredCount = #deferredCommands
@@ -7502,6 +7535,7 @@ function PanelBridge.processCommands()
             break
         end
 
+        scannedCount = scannedCount + 1
         if processSingleCommand(cmd) then
             processedCount = processedCount + 1
         end

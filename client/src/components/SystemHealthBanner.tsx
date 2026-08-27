@@ -23,9 +23,9 @@ interface Banner {
 function deriveBanner(health: StorageHealth | null, t: (key: string, opts?: Record<string, unknown>) => string): Banner | null {
   if (!health) return null
   const { diskSpace, circuitBreaker } = health
-  const save = diskSpace.saveVolume
+  const save = diskSpace?.saveVolume
 
-  if (circuitBreaker.open) {
+  if (circuitBreaker?.open) {
     return {
       level: 'critical',
       title: t('writesBlockedTitle'),

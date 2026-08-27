@@ -59,6 +59,10 @@
     "cancel": "Anile"
   },
   "resetTokenCreated": "Jeton rekiperasyon kreye nan data/reset-token.txt. Kole li anba a pou kontinye.",
+  "repeatedFailureHint": {
+    "title": "Toujou pa fonksyone?",
+    "body": "Apre plizyè tantativ echwe, yon kont bloke otomatikman pou 15 minit kòm yon mezi sekirite -- ekran sa a p ap di sa. Yon kòd rekiperasyon ou te sove, oswa demare panèl la ak <code>--reset-password</code> nan tèminal sèvè a, ka reyinisyalize modpas la san w pa gen pou tann."
+  },
   "errors": {
     "loginFailed": "Koneksyon echwe",
     "resetTokenTooShort": "Jeton rekiperasyon an dwe gen omwen 8 karaktè",

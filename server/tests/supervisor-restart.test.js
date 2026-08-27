@@ -250,7 +250,7 @@ describe.skipIf(!!skipReason)(
     //     under-measured two scenarios by an order of magnitude -- caught
     //     only by also running (b), which is why both are recorded here
     //     rather than shipping off (a) alone:
-    //   clean-exit             180357ms (b)  refused-second-instance 11777ms (a)
+    //   clean-exit             180357ms (b)  refused-second-instance 45897ms (c)
     //   no-hardcoded-url        25181ms (a)  recover-after-crash    108766ms (b)
     //   real-backoff-wait       23688ms (a)  hits-cap                53900ms (a)
     //   update-loop             31135ms (a)  resets-after-stable-run 30628ms (a)
@@ -266,6 +266,27 @@ describe.skipIf(!!skipReason)(
     // ceiling could also fire, so a genuine hang always surfaces as the
     // internal watchdog's clear "killed after Nms" shape, never a same-tick
     // race with vitest's own timeout.
+    //
+    // (c) refused-second-instance re-measured 2026-08-27: its 11777ms figure
+    // was condition (a) only -- never run through (b) in the original pass,
+    // which is exactly why it flaked later (observed 42630ms/45897ms on this
+    // floor, past its old 40000ms watchdog). Re-measured the same way: 5
+    // unloaded full-235-file-suite runs (7000-18544ms) plus 1 run under the
+    // original (b) methodology, 12 busy-loop processes pegging all 16 cores
+    // AND the full suite (31688ms) -- then stopped there rather than
+    // completing 3 loaded runs like the original pass: this floor is live
+    // with other agents' real work, not the isolated conditions (a)/(b)
+    // presumably ran under, and that same load visibly stalled other
+    // commands on this machine for several minutes (even a second loaded run
+    // failed outright -- vitest's own worker pool couldn't start under the
+    // combined load, "Timeout waiting for worker to respond" across a dozen
+    // files -- discarded, not a real measurement, the harness itself broke).
+    // Used the two already-real, already-reported 42630ms/45897ms floor
+    // observations as the worst-observed instead of chasing a third
+    // synthetic-load sample: they are live data, not synthetic, and already
+    // higher than anything safely reproduced here. 45897ms is the worst
+    // across all of it -- 3x that, rounded up to the nearest 5000, is the
+    // 140000ms watchdog on this scenario now.
     //
     // clean-exit and recover-after-crash carry watchdogs in the minutes
     // (545000ms, 330000ms) because of the (b) outliers above -- both are
@@ -327,8 +348,15 @@ describe.skipIf(!!skipReason)(
         await writeStartBatInto(dir);
         setupStub(dir, [78], [0]);
 
-        // watchdog 40000 = 3x the 11777ms worst observed for this scenario.
-        const result = await runSupervisor(dir, {}, 40000);
+        // Re-measured 2026-08-27 (see beforeAll's own comment block): the
+        // original 11777ms was condition (a) only -- this file alone, never
+        // run through condition (b) (full 235-file suite, real cross-file
+        // contention) the way clean-exit and recover-after-crash already
+        // were. That gap is exactly why it was flaky: fresh worst observed
+        // is 45897ms, over 3x the old baseline. watchdog 140000 = 3x that,
+        // rounded up to the nearest 5000, same formula as every other
+        // scenario in this file.
+        const result = await runSupervisor(dir, {}, 140000);
 
         expect(countLaunches(result.stdout)).toBe(1);
         expect(result.status).toBe(78);
@@ -336,7 +364,7 @@ describe.skipIf(!!skipReason)(
         expect(log).not.toMatch(/relaunch attempt/i);
         expect(log).not.toMatch(/Gave up/i);
       },
-      55000,
+      155000,
     );
 
     it(

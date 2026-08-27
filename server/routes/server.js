@@ -5,6 +5,7 @@ import https from "https";
 import path from "path";
 import fs from "fs";
 import os from "os";
+import crypto from "crypto";
 import { createLogger } from "../utils/logger.js";
 const log = createLogger("API:Server");
 import {
@@ -12,8 +13,10 @@ import {
   setSetting,
   getSetting,
   getActiveServer,
+  getServers,
 } from "../database/init.js";
 import { sanitizeError, sanitizeIniValue } from "../utils/sanitize.js";
+import { resolveLaunchMode } from "../services/serverManager.js";
 import { normalizeMemoryGb } from "../utils/memory.js";
 import { withFileLock, writeFileAtomic } from "../utils/fileWriteQueue.js";
 import { requirePermission } from "../services/permissions.js";
@@ -21,11 +24,40 @@ import { runManagedLifecycle } from "../services/managedContainer.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { ProgressCode } from "../utils/progressCodes.js";
 import { invalidateMapFolderScan } from "./chunks.js";
+import { emitActionResult } from "./scheduler.js";
+import { parseBoundedInteger } from "../utils/queryNumbers.js";
+import { confineToRoots } from "../utils/browseRoots.js";
 
 const router = express.Router();
 
 const isWindows = process.platform === "win32";
 const execAsync = promisify(exec);
+
+export async function logServerEventBestEffort(...args) {
+  try {
+    await logServerEvent(...args);
+  } catch (error) {
+    log.warn(`Could not record server event: ${error.message}`);
+  }
+}
+
+// Files that only exist in a real PZ server install -- used both to guard
+// against deleting the wrong folder (DELETE /delete-files) and, since
+// 2026-08-26, to confirm SteamCMD's app_update actually produced a usable
+// install rather than just exiting 0 (POST /install). Shared so the two
+// checks can't drift apart into two different ideas of "this looks like a
+// PZ server."
+const PZ_INSTALL_MARKERS = [
+  "ProjectZomboid64.json",
+  "ProjectZomboid32.json",
+  "StartServer64.bat",
+  "StartServer32.bat",
+  "start-server.sh",
+];
+
+function hasPzInstallMarker(dirPath) {
+  return PZ_INSTALL_MARKERS.some((marker) => fs.existsSync(path.join(dirPath, marker)));
+}
 
 // Get the SteamCMD executable name for the current platform
 function getSteamCmdExe(steamcmdPath) {
@@ -48,6 +80,44 @@ function getSteamCmdExe(steamcmdPath) {
     }
   }
   return primary; // Return primary path even if not found — let caller handle the error
+}
+
+// The single point every spawn() of a SteamCMD-family executable in this
+// file goes through. CodeQL js/command-line-injection #10,11,12,13,297
+// (2026-08-27 triage, operator-ruled fix): every call site used to resolve
+// steamcmdExe from a per-request steamcmdPath/installPath value, checked
+// only for absoluteness and no traversal (isValidPath) -- the DIRECTORY a
+// binary got spawned from was fully caller-chosen within one request, with
+// no persistent record of intent. Operator's own reasoning for choosing
+// this over a stronger capability gate: "a gate on top of a per-request
+// executable path still leaves a per-request executable path -- it relies
+// on that gate being right forever."
+//
+// candidatePath, when the caller has one (the operator typed/browsed to it
+// in THIS request, already passed through isValidPath by the caller), gets
+// PERSISTED before this function ever reads the setting back -- so "saved"
+// and "used" can never observably diverge, even within the same request
+// that just picked the path. Browsing to preview a not-yet-installed path
+// still works exactly as before; the difference is that path is now saved
+// as a side effect of being previewed/used, not read back from the request
+// object a second time for the actual spawn. Omitting candidatePath is the
+// steady-state case: resolve whatever is already saved.
+async function saveAndResolveSteamCmdExe(candidatePath) {
+  if (candidatePath) {
+    const current = await getSetting("steamcmdPath");
+    if (current !== candidatePath) {
+      await setSetting("steamcmdPath", candidatePath);
+    }
+    // Resolve from candidatePath directly rather than reading the setting
+    // back a second time: setSetting() has already been awaited to
+    // completion above, so "saved" and "used" can't diverge within this
+    // request regardless of it. Re-reading would only add a redundant round
+    // trip with no extra safety -- it can't protect against a genuinely
+    // concurrent writer from a DIFFERENT request either.
+    return getSteamCmdExe(candidatePath);
+  }
+  const configuredPath = await getSetting("steamcmdPath");
+  return configuredPath ? getSteamCmdExe(configuredPath) : null;
 }
 
 // Emits one line of SteamCMD's OWN stdout/stderr, forwarded verbatim, with
@@ -75,8 +145,12 @@ function emitRawSteamCmdLine(io, event, type, text) {
 // Windows is intentionally out of scope here (existing callers already
 // keep their own hard-fail for isWindows before calling this).
 async function ensureSteamCmdLinux(installPath, io) {
-  const steamcmdExe = getSteamCmdExe(installPath);
-  if (fs.existsSync(steamcmdExe)) return steamcmdExe;
+  // Persist installPath as the configured steamcmdPath before resolving
+  // anything from it -- see saveAndResolveSteamCmdExe's header comment.
+  // Both real callers (POST /install, POST /steam-update) already validate
+  // installPath with isValidPath() before reaching here.
+  const steamcmdExe = await saveAndResolveSteamCmdExe(installPath);
+  if (steamcmdExe && fs.existsSync(steamcmdExe)) return steamcmdExe;
 
   const emit = (event, payload) => {
     try {
@@ -268,6 +342,33 @@ export function isSteamOperationIdle(operation, now = Date.now()) {
   );
 }
 
+// True only for the exact shape that crashes PZ on first boot: no admin
+// password configured AND this server has never actually started (its
+// world-save directory doesn't exist yet, so PZ has no admin account and
+// would fall back to an interactive stdin prompt the panel can't answer).
+// Deliberately narrower than "no admin password" alone -- an
+// already-booted server has an admin account regardless of what's
+// currently configured, and refusing to start THAT server over an empty
+// field would be a new, unrelated regression, not a fix.
+export function isFirstBootMissingAdminPassword(activeServer) {
+  if (
+    !activeServer ||
+    activeServer.isRemote ||
+    !activeServer.serverName ||
+    !activeServer.zomboidDataPath ||
+    activeServer.adminPassword
+  ) {
+    return false;
+  }
+  const saveDir = path.join(
+    activeServer.zomboidDataPath,
+    "Saves",
+    "Multiplayer",
+    activeServer.serverName,
+  );
+  return !fs.existsSync(saveDir);
+}
+
 function clearActiveSteamOperation(normalizedPath) {
   const operation = activeSteamOperations.get(normalizedPath);
   if (operation?.watchdog) clearInterval(operation.watchdog);
@@ -296,11 +397,37 @@ function hasActiveSteamOperation(normalizedPath) {
   return true;
 }
 
+// Every location serverManager.js's getServerConfig() will accept as "the"
+// INI for a server, in the same preference order, given a config directory
+// (the Server/ subdirectory a modern PZ install uses) and its parent data
+// directory (the legacy layout some installs still have the real file
+// under). ensureRconConfigured() below used to check ONLY the first of
+// these -- if a particular install's real, fully-configured INI happened to
+// live at one of the others, that ini "didn't exist" as far as this
+// function could tell, and it would pre-create a bare RCON-only stub AT THE
+// WRONG PATH with no backup, discarding every other setting the moment PZ
+// picked that file up (2026-08-27 user report: "ini and sandbox settings
+// reverted to default" after a restart). Mirrors getServerConfig()'s own
+// fallback chain exactly so both halves of the panel agree on where a
+// server's real INI is.
+export function candidateIniPaths(serverConfigPath, zomboidDataPath, serverName) {
+  const candidates = [];
+  if (serverConfigPath) {
+    candidates.push(path.join(serverConfigPath, `${serverName}.ini`));
+  }
+  if (zomboidDataPath) {
+    candidates.push(path.join(zomboidDataPath, `${serverName}.ini`));
+    candidates.push(path.join(zomboidDataPath, "servertest.ini"));
+    candidates.push(path.join(zomboidDataPath, "serveroptions.ini"));
+  }
+  return candidates;
+}
+
 // Helper to auto-configure RCON in the server's .ini file
 // Called BEFORE server starts to ensure PZ reads the correct RCON credentials on boot.
 // If the INI file doesn't exist yet (first run), creates the directory + a minimal INI
 // so PZ will merge its defaults with our RCON settings instead of generating a blank password.
-async function ensureRconConfigured() {
+export async function ensureRconConfigured() {
   try {
     const activeServer = await getActiveServer();
     if (!activeServer) {
@@ -327,7 +454,17 @@ async function ensureRconConfigured() {
       return false;
     }
 
-    const iniPath = path.join(serverConfigPath, `${serverName}.ini`);
+    // Prefer an INI that actually exists at any recognized location over
+    // the default Server/ path -- see candidateIniPaths()'s comment. Falls
+    // back to the default path (unchanged from before) only when none of
+    // the candidates exist, which is the genuine "first run" case.
+    const iniPath =
+      candidateIniPaths(
+        serverConfigPath,
+        activeServer.zomboidDataPath,
+        serverName,
+      ).find((candidate) => fs.existsSync(candidate)) ||
+      path.join(serverConfigPath, `${serverName}.ini`);
 
     // Locked per-path: two overlapping calls (e.g. a start request racing a
     // settings save) must not interleave their read-modify-write of the INI.
@@ -450,8 +587,9 @@ function isValidServerName(name) {
 }
 
 // Security: Validate path is safe (no traversal, absolute path)
-function isValidPath(inputPath) {
+export function isValidPath(inputPath) {
   if (!inputPath || typeof inputPath !== "string") return false;
+  if (inputPath.includes("..")) return false;
   const normalized = path.normalize(inputPath);
   // Check for path traversal attempts
   if (normalized.includes("..")) return false;
@@ -555,18 +693,54 @@ export function formatDirectoryReadError(
 
 // Shared range constants for the requireIntInRange call sites below AND in
 // config.js's PUT /app-settings (which imports these rather than retyping
-// the numbers) -- game port, RCON port and panel port all mean "a bindable
-// TCP port outside the well-known range," so they share one PORT_MIN/
-// PORT_MAX pair. Memory shares a floor (both fields refuse below 1 GB) but
-// have distinct ceilings. Exporting these is the actual fix for a claim
-// made in the 2026-08-23 validateInt-coerces audit that turned out false:
-// "no disagreement possible by construction" was said of two files with
-// sixteen hand-typed literal copies of these five numbers and no shared
-// constant anywhere -- true only of the FUNCTION (requireIntInRange itself,
+// the numbers). Exporting these was the actual fix for a claim made in the
+// 2026-08-23 validateInt-coerces audit that turned out false: "no
+// disagreement possible by construction" was said of two files with sixteen
+// hand-typed literal copies of these five numbers and no shared constant
+// anywhere -- true only of the FUNCTION (requireIntInRange itself,
 // imported), not the ranges. A future range change is one edit here instead
 // of a grep-and-hope across both files.
-export const PORT_MIN = 1024;
-export const PORT_MAX = 65535;
+//
+// THE PORT SPLIT, AND THE IRONY OF THIS COMMENT (GitHub #118): the fix above
+// then asserted its own false claim in the very next sentence -- the
+// original version of this comment said game port, RCON port and panel
+// port "all mean a bindable TCP port outside the well-known range," so they
+// shared one PORT_MIN/PORT_MAX pair. That is a claim about what BINDS a
+// socket, and RCON does not inherently belong in it: 1024 is a bind
+// constraint (opening a listening socket below it needs root on Linux), and
+// nothing here about "is this port bindable" follows from a field being
+// named rconPort or sftpPort. The real rule is bind vs. destination, not
+// field name:
+//   - BIND: a port this PANEL PROCESS itself opens and listens on -- the
+//     panel's own HTTP(S) port, or the game port when the panel writes it
+//     into the .ini file of a PZ server it is installing/launching on THIS
+//     machine. These need BIND_PORT_MIN (1024): who's listening is us.
+//   - DESTINATION: a port on someone ELSE's socket that the panel only
+//     connects OUT to. SFTP is always this -- its standard port, 22, is
+//     the exact value that broke here, because a destination port has no
+//     reason to respect a floor that exists only to keep unprivileged
+//     processes from binding low ports. DESTINATION_PORT_MIN (1) is correct
+//     for it.
+// RCON is conceptually a destination too (servers.js's per-server RCON
+// config already treats it that way, floor 1, for the multi-server/remote
+// case) -- but every RCON call site IN THIS FILE and in config.js's
+// app-settings route is specifically the single legacy/locally-managed
+// server's own RCON target, never a remote one: /configure-rcon below
+// hardcodes rconHost to 127.0.0.1 on every save, and rcon.js's loadConfig()
+// documents the global rconHost/rconPort settings this route shares as the
+// "legacy" fallback used only when no active multi-server row exists. That
+// target is always this machine, so these specific call sites correctly
+// stay on BIND_PORT_MIN -- not because "RCON is bindable" as a category
+// (it isn't, and servers.js's remote RCON proves it), but because this
+// file's RCON fields happen to always target something local. Decide by
+// what a field actually points at, not by what it's called -- that
+// shortcut is what let a wrong comment stand in as a decision for two
+// audits in a row.
+export const BIND_PORT_MIN = 1024;
+export const BIND_PORT_MAX = 65535;
+export const GAME_PORT_MAX = BIND_PORT_MAX - 1;
+export const DESTINATION_PORT_MIN = 1;
+export const DESTINATION_PORT_MAX = 65535;
 export const MEMORY_GB_MIN = 1;
 export const MIN_MEMORY_GB_MAX = 64;
 export const MAX_MEMORY_GB_MAX = 128;
@@ -594,8 +768,14 @@ function coerceIntInRange(value, min, max, defaultVal) {
 // motivating case: their firewall rule and port forward end up pointing at
 // a number nothing is listening on, with nothing telling them why).
 export function requireIntInRange(value, min, max, fieldLabel) {
-  const num = parseInt(value, 10);
-  if (isNaN(num) || num < min || num > max) {
+  const textValue = typeof value === "string" ? value.trim() : null;
+  const num =
+    typeof value === "number"
+      ? value
+      : textValue && /^[+-]?\d+$/.test(textValue)
+        ? Number(textValue)
+        : Number.NaN;
+  if (!Number.isInteger(num) || num < min || num > max) {
     return {
       ok: false,
       message: `${fieldLabel} must be a whole number between ${min} and ${max}.`,
@@ -638,7 +818,7 @@ function buildClasspathEntries(installPath) {
 
 // Generate a custom startup script with configured options
 // Returns { bat: string, sh: string } with both Windows and Linux scripts
-function generateStartupScripts(options) {
+export function generateStartupScripts(options) {
   const {
     installPath,
     serverName,
@@ -797,6 +977,118 @@ export LD_LIBRARY_PATH="\${INSTDIR}/natives/:\${INSTDIR}/natives/linux64/:\${INS
   return { bat: batchContent, sh: shellContent };
 }
 
+// Filename for the per-install sidecar that records the hash of the content
+// THIS PANEL last wrote to each startup script. Kept next to the scripts
+// rather than a new DB column -- no migration, and it travels naturally with
+// a moved/copied install directory the same way the scripts themselves do.
+const SCRIPT_FINGERPRINT_FILE = ".pz-panel-scripts.json";
+
+function hashScriptContent(content) {
+  return crypto.createHash("sha256").update(content, "utf8").digest("hex");
+}
+
+/**
+ * Regenerate the panel-managed startup script(s), but never let a
+ * regeneration silently discard content the panel didn't itself last write.
+ *
+ * `files` is `[{ path, content }, ...]`. For each: if a file already exists
+ * at that path AND its current on-disk hash doesn't match the fingerprint
+ * recorded the last time THIS function wrote it, the existing file is backed
+ * up (timestamped, alongside the original) before being overwritten. Config
+ * changes still always take effect -- every file is written through
+ * regardless -- only the decision to back up first depends on provenance.
+ *
+ * A MISSING fingerprint (no sidecar at all -- true for every install that
+ * predates this fix, i.e. the entire upgrade population) is deliberately
+ * treated the same as a mismatch, not as "assume unmodified": we cannot
+ * prove a pre-fingerprint file is still the panel's own untouched output, so
+ * the safe default is one harmless backup on the first post-upgrade start
+ * rather than risking a silent clobber of a real hand-edit. A backup nobody
+ * needed is a small, one-time cost; treating unknown provenance as safe is
+ * exactly the bug this exists to fix.
+ *
+ * Backups are never pruned -- an unbounded folder of .bak files is a smaller
+ * problem than data loss, and every install already has an operator who can
+ * clean them up manually. Deliberate choice, not an oversight.
+ *
+ * Returns an array of human-readable messages, one per file that was backed
+ * up (empty if none were). Never throws for a single file's backup/read
+ * failure -- that file's regeneration still proceeds and a warning is logged
+ * server-side, since "config changes take effect" must not depend on the
+ * backup step succeeding.
+ */
+export function regenerateStartupScriptsWithBackup(installPath, files) {
+  const fingerprintPath = path.join(installPath, SCRIPT_FINGERPRINT_FILE);
+  let fingerprints = {};
+  try {
+    fingerprints = JSON.parse(fs.readFileSync(fingerprintPath, "utf8"));
+  } catch {
+    fingerprints = {}; // missing/corrupt sidecar -- treated as "no known-good fingerprints" below
+  }
+
+  const backupMessages = [];
+  for (const { path: filePath, content } of files) {
+    const fileName = path.basename(filePath);
+    let existingContent = null;
+    try {
+      existingContent = fs.readFileSync(filePath, "utf8");
+    } catch {
+      existingContent = null; // no prior file -- first-ever generation, nothing to protect
+    }
+
+    if (existingContent !== null) {
+      const knownHash = fingerprints[fileName];
+      const currentHash = hashScriptContent(existingContent);
+      if (!knownHash || knownHash !== currentHash) {
+        // toISOString() is millisecond-resolution, and two regenerations detected close
+        // together (e.g. two hand-edits regenerated back to back in the same test, or two
+        // rapid Starts) can land in the same millisecond -- especially on a fast filesystem
+        // -- which would make the second backup silently overwrite the first. Disambiguate
+        // with a counter suffix so two backups from the same tick never collide.
+        let backupPath = `${filePath}.bak-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+        if (fs.existsSync(backupPath)) {
+          let suffix = 2;
+          while (fs.existsSync(`${backupPath}-${suffix}`)) suffix++;
+          backupPath = `${backupPath}-${suffix}`;
+        }
+        try {
+          fs.copyFileSync(filePath, backupPath);
+          backupMessages.push(
+            `${fileName} had content the panel didn't last write (a hand-edit, or an install from before this backup existed) -- your version was saved to ${path.basename(backupPath)} before regenerating.`,
+          );
+        } catch (backupErr) {
+          log.warn(
+            `Could not back up ${filePath} before regenerating: ${backupErr.message}`,
+          );
+        }
+      }
+    }
+
+    try {
+      writeFileAtomic(
+        filePath,
+        content,
+        filePath.endsWith(".sh") ? { encoding: "utf8", mode: 0o750 } : "utf8",
+      );
+      fingerprints[fileName] = hashScriptContent(content);
+    } catch (writeErr) {
+      log.warn(`Could not write ${filePath}: ${writeErr.message}`);
+    }
+  }
+
+  try {
+    writeFileAtomic(
+      fingerprintPath,
+      JSON.stringify(fingerprints, null, 2),
+      "utf8",
+    );
+  } catch (fpErr) {
+    log.warn(`Could not persist script fingerprint file: ${fpErr.message}`);
+  }
+
+  return backupMessages;
+}
+
 // Role sweep for this file: routes below are grouped into what's actually
 // operational duty (start/stop/restart/save the running process, install or
 // update the game, edit its .ini config, browse the filesystem to set that
@@ -848,6 +1140,113 @@ router.get("/network-interfaces", async (req, res) => {
   }
 });
 
+// Refresh everything PZ needs to launch correctly against this server's
+// CURRENT settings: RCON credentials in the ini, and the generated launch
+// script (which bakes -cachedir/-servername/memory/admin-password as
+// literal text at generation time -- see generateStartupScripts()). Shared
+// by the manual /start route below AND scheduler.js's performRestart(), so
+// a scheduled restart launches the server exactly the way a manual start
+// does instead of silently diverging on this. Before this existed, a
+// Settings-UI edit to zomboidDataPath/serverName updated the database
+// immediately but left the already-written launch script untouched until
+// the next MANUAL start regenerated it -- the next SCHEDULED restart in
+// between launched PZ against the OLD baked cachedir, PZ found no ini at
+// that (now-wrong) location, and generated itself a fresh default one
+// (2026-08-27, user-report-servertest-ini-and-sandbox-reverted-to-default-
+// after-restart, loonE/Discord -- root cause confirmed by Jim's
+// scheduledRestartStaleLaunchScript.test.js reproduction).
+//
+// `managedHandled` mirrors the /start route's own `managed.handled` check:
+// a container-managed server's image owns the launch command, so there is
+// no local script to regenerate.
+//
+// Operator ruling 2026-08-27 (custom-launcher-as-a-real-supported-mode-not-
+// an-accident): a stored serverPath/installPath ending in .bat/.sh/.exe is
+// CUSTOM LAUNCHER mode, not an error -- resolveLaunchMode() (serverManager.js)
+// is the one predicate both this function AND scheduler.js's performRestart()
+// (via this same function) ask, so the two agree on what "managed" means
+// without either growing its own notion of it.
+export async function refreshLaunchTargetBeforeStart(
+  activeServer,
+  { managedHandled = false } = {},
+) {
+  try {
+    const rconReady = await ensureRconConfigured();
+    if (rconReady) {
+      log.info("RCON pre-configured in INI before server start");
+    } else {
+      log.warn(
+        "Could not pre-configure RCON — will retry during startup polling",
+      );
+    }
+  } catch (rconErr) {
+    log.warn(`RCON pre-configuration failed: ${rconErr.message}`);
+  }
+
+  let scriptBackupWarnings = [];
+  const launchMode = resolveLaunchMode(activeServer);
+  if (
+    !managedHandled &&
+    activeServer &&
+    !activeServer.startCommand &&
+    activeServer.installPath &&
+    launchMode.mode === "custom"
+  ) {
+    // CUSTOM LAUNCHER mode (operator ruling 2026-08-27): the panel does not
+    // manage this script. Regenerating would join a filename onto the
+    // launcher PATH itself (installPath here is a file, not a directory)
+    // and either write into a broken nested path or silently do nothing --
+    // neither is "not regenerating," so this must not even attempt the
+    // write, unlike before this feature existed.
+    log.info(
+      `Custom launcher mode active (${launchMode.launcherPath}) — not regenerating; the panel does not manage this script.`,
+    );
+  } else if (
+    !managedHandled &&
+    activeServer &&
+    !activeServer.startCommand &&
+    activeServer.installPath
+  ) {
+    try {
+      const scripts = generateStartupScripts({
+        installPath: activeServer.installPath,
+        serverName: activeServer.serverName,
+        minMemory: activeServer.minMemory || 4,
+        maxMemory: activeServer.maxMemory || 8,
+        zomboidDataPath: activeServer.zomboidDataPath || "",
+        adminPassword: activeServer.adminPassword || "",
+        serverPort: activeServer.serverPort || 16261,
+        useNoSteam: activeServer.useNoSteam || false,
+        useDebug: activeServer.useDebug || false,
+      });
+      const batPath = path.join(
+        activeServer.installPath,
+        `StartServer_${activeServer.serverName}.bat`,
+      );
+      const shPath = path.join(
+        activeServer.installPath,
+        `start-server_${activeServer.serverName}.sh`,
+      );
+      scriptBackupWarnings = regenerateStartupScriptsWithBackup(
+        activeServer.installPath,
+        [
+          { path: batPath, content: scripts.bat },
+          { path: shPath, content: scripts.sh.replace(/\r\n/g, "\n") },
+        ],
+      );
+      if (scriptBackupWarnings.length > 0) {
+        log.warn(
+          `Startup script regeneration backed up existing content: ${scriptBackupWarnings.join(" ")}`,
+        );
+      }
+      log.info("Regenerated startup scripts with current server config");
+    } catch (scriptErr) {
+      log.warn(`Could not regenerate startup scripts: ${scriptErr.message}`);
+    }
+  }
+  return { scriptBackupWarnings };
+}
+
 // Start server
 router.post("/start", requirePermission("server.control"), async (req, res) => {
   try {
@@ -874,64 +1273,45 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
       return res.status(502).json({ error: sanitizeError(managed.error) });
     }
 
-    // Pre-configure RCON in the INI BEFORE starting the server process.
-    // PZ reads the INI at startup, so we must write the password first.
-    // On first run this also pre-creates the INI file with RCON settings.
-    try {
-      const rconReady = await ensureRconConfigured();
-      if (rconReady) {
-        log.info("RCON pre-configured in INI before server start");
-      } else {
-        log.warn(
-          "Could not pre-configure RCON — will retry during startup polling",
-        );
-      }
-    } catch (rconErr) {
-      log.warn(`RCON pre-configuration failed: ${rconErr.message}`);
+    // A server that has never booted has no world database and no admin
+    // account yet -- PZ creates the admin account interactively on exactly
+    // that first boot, prompting on stdin if -adminpassword isn't set. The
+    // panel spawns it with no interactive stdin, so it hangs on
+    // Scanner.nextLine() and dies with an unreadable
+    // java.util.NoSuchElementException, well after this response is long
+    // gone (2026-08-26, two independent real-user reports: a server created
+    // through the setup wizard could not start at all, because
+    // createServer() silently dropped adminPassword on create -- fixed
+    // separately in database/init.js -- and nothing here ever refused to
+    // launch a server it knew was about to hit this). Scoped to first boot
+    // specifically (world save directory absent), not every start with an
+    // empty admin password: an already-booted server already has an admin
+    // account and genuinely doesn't need this flag to start cleanly.
+    if (!managed.handled && isFirstBootMissingAdminPassword(activeServer)) {
+      return res.status(400).json({
+        error:
+          `${activeServer.name || activeServer.serverName} has never started before and has no admin password set. ` +
+          `Project Zomboid needs one to create the admin account on first boot, or the server process hangs waiting ` +
+          `for console input that will never come and crashes. Set an admin password for this server (My Servers → ` +
+          `${activeServer.name || activeServer.serverName} → Admin Password), then try starting again.`,
+      });
     }
 
-    // Regenerate startup scripts so any config changes (admin password, memory, etc.) take effect.
-    // Skipped for a managed container: its image owns the launch command.
-    if (
-      !managed.handled &&
-      activeServer &&
-      !activeServer.startCommand &&
-      activeServer.installPath
-    ) {
-      try {
-        const scripts = generateStartupScripts({
-          installPath: activeServer.installPath,
-          serverName: activeServer.serverName,
-          minMemory: activeServer.minMemory || 4,
-          maxMemory: activeServer.maxMemory || 8,
-          zomboidDataPath: activeServer.zomboidDataPath || "",
-          adminPassword: activeServer.adminPassword || "",
-          serverPort: activeServer.serverPort || 16261,
-          useNoSteam: activeServer.useNoSteam || false,
-          useDebug: activeServer.useDebug || false,
-        });
-        const batPath = path.join(
-          activeServer.installPath,
-          `StartServer_${activeServer.serverName}.bat`,
-        );
-        writeFileAtomic(batPath, scripts.bat, "utf8");
-        const shPath = path.join(
-          activeServer.installPath,
-          `start-server_${activeServer.serverName}.sh`,
-        );
-        writeFileAtomic(shPath, scripts.sh.replace(/\r\n/g, "\n"), {
-          encoding: "utf8",
-          mode: 0o750,
-        });
-        log.info("Regenerated startup scripts with current server config");
-      } catch (scriptErr) {
-        log.warn(`Could not regenerate startup scripts: ${scriptErr.message}`);
-      }
-    }
+    // Pre-configure RCON in the INI and regenerate the launch script against
+    // this server's CURRENT settings BEFORE starting the process -- see
+    // refreshLaunchTargetBeforeStart()'s own comment. Skipped for a managed
+    // container: its image owns the launch command.
+    const { scriptBackupWarnings } = await refreshLaunchTargetBeforeStart(
+      activeServer,
+      { managedHandled: managed.handled },
+    );
 
     const result = managed.handled
       ? { success: true, message: managed.message || "Container starting" }
       : await serverManager.startServer();
+    if (scriptBackupWarnings.length > 0) {
+      result.scriptWarnings = scriptBackupWarnings;
+    }
 
     // Emit status update via Socket.IO
     const io = req.app.get("io");
@@ -953,7 +1333,40 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
       if (pollCleared) return; // Safety check
       try {
         attempts++;
-        const isRunning = await serverManager.checkServerRunning();
+        // checkServerRunning() collapses a failed detection scan into a
+        // bare `false`, indistinguishable from "confirmed not yet running"
+        // -- hardcoding scanFailed: false here made that same mistake one
+        // layer up, by asserting a clean result the check never actually
+        // produced. getServerProcessDetails() is unconditionally present on
+        // the real ServerManager, so this branch is currently unreachable;
+        // treat "no richer check available" as its own scan failure so a
+        // lighter serverManager wired up later still keeps polling/times
+        // out with a warning instead of the poll declaring the server never
+        // came up while it may simply be unable to tell (2026-08-26 bug
+        // hunt finding 3 -- same class already fixed at lines 2901, 3516,
+        // 4608 in this file).
+        const processDetails =
+          typeof serverManager.getServerProcessDetails === "function"
+            ? await serverManager.getServerProcessDetails()
+            : { running: false, scanFailed: true };
+
+        if (!processDetails || processDetails.scanFailed) {
+          if (attempts >= maxAttempts) {
+            pollCleared = true;
+            clearInterval(pollInterval);
+            if (rconService.setServerStarting) {
+              rconService.setServerStarting(false);
+            } else {
+              rconService.serverStarting = false;
+            }
+            log.warn(
+              "Server start polling timed out without confirming process state",
+            );
+          }
+          return;
+        }
+
+        const isRunning = Boolean(processDetails.running);
 
         if (isRunning) {
           pollCleared = true;
@@ -1141,26 +1554,117 @@ router.post("/stop", requirePermission("server.control"), async (req, res) => {
       ? { success: true, message: managed.message || "Container stopping" }
       : await rconService.quit();
 
-    if (result?.success !== false) {
-      serverManager?.markServerStopped?.();
+    if (!result?.success || result.confirmed === false) {
+      return res.status(502).json({
+        ...result,
+        success: false,
+        error: result?.error || result?.message || "Server stop failed",
+      });
     }
 
-    const io = req.app.get("io");
-    if (io) io.emit("server:status", { running: false });
-
-    await logServerEvent("server_stop", "Server stopped via web UI");
-    req.app
-      .get("discordBot")
-      ?.sendEventNotification("serverStop", {})
-      .catch((err) =>
-        log.debug(`Discord serverStop notification failed: ${err.message}`),
+    if (managed.handled) {
+      // Docker's own stop API blocks until the container actually stops (or
+      // it force-kills after its timeout) before ever returning success --
+      // unlike RCON quit() below, "success" here already means confirmed,
+      // not just accepted, so this claim (including clearing serverManager's
+      // cached run state) is honest as-is.
+      serverManager?.markServerStopped?.();
+      const io = req.app.get("io");
+      if (io) io.emit("server:status", { running: false });
+      await logServerEventBestEffort("server_stop", "Server stopped via web UI");
+      req.app
+        .get("discordBot")
+        ?.sendEventNotification("serverStop", {})
+        .catch((err) =>
+          log.debug(`Discord serverStop notification failed: ${err.message}`),
+        );
+    } else {
+      // rconService.quit() only proves the RCON command was accepted -- a
+      // reset connection is the normal symptom of a real shutdown, but PZ's
+      // own save-and-exit can still be running for a while after (longer on
+      // a large world). Reporting this as a confirmed stop -- both over the
+      // socket and to Schedule/Discord -- is exactly the "confident label
+      // over a blind source" shape this floor has been hunting all night:
+      // an operator who reads "Stopped" and acts outside the panel (copies
+      // the save folder, edits an ini, pulls a Docker volume) may be acting
+      // against a process that is still writing.
+      //
+      // So: this only asserts the request was ACCEPTED. The real
+      // confirmation rides the status watchdog (server/index.js) once it
+      // genuinely observes the process gone -- nudged here for a faster
+      // signal than waiting out its 10s interval, but the interval is what
+      // actually guarantees this resolves even if the nudge is lost.
+      // checkServerStatusNow is the SOLE place that decides whether the
+      // observed state changed and emits server:status for it; calling it
+      // here instead of emitting our own claim is what keeps it from ever
+      // going stale the way it did before this fix (2026-08-26 bug hunt).
+      const checkServerStatusNow = req.app.get("checkServerStatusNow");
+      if (typeof checkServerStatusNow === "function") {
+        Promise.resolve(checkServerStatusNow()).catch((err) =>
+          log.debug(`Post-stop status re-check failed: ${err.message}`),
+        );
+      }
+      await logServerEventBestEffort(
+        "server_stop",
+        "Graceful shutdown requested via web UI",
       );
+      result.message =
+        result.message || result.response || "Shutdown requested";
+      result.confirmed = false;
+    }
+
     res.json(result);
   } catch (error) {
     log.error(`Failed to stop server: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
   }
 });
+
+// Force Stop is the escape hatch for when the normal Stop has already
+// failed or the server is wedged -- so unlike /stop, /restart and
+// docker.js's own action route (which all fail CLOSED: a failed save
+// blocks the stop entirely), a failed or slow save here must NEVER block
+// the stop, or this stops being an escape hatch and becomes a second way
+// to get stuck. But "must never block" doesn't mean "must never try": the
+// common case is RCON answers fine and the world gets saved anyway, and
+// skipping the attempt outright would throw that away for every operator,
+// not just the genuinely wedged one. Bounded to a few seconds -- shorter
+// than RconService's own 10s per-command timeout (this.commandTimeout in
+// rcon.js), because an operator reaching for Force Stop has already told
+// us something is wrong and a slow save is exactly the symptom, not
+// something worth waiting out to its normal limit.
+const FORCE_STOP_SAVE_TIMEOUT_MS = 3000;
+
+// Attempts a save before a force-stop, bounded and FAIL-OPEN: the caller
+// gets `saveOutcome` ("saved" | "failed" | "timedOut" | "skipped") but the
+// force-stop itself must proceed regardless of what this returns. Applies
+// identically on both the Docker-managed and native branches -- the RCON
+// save doesn't care how the process gets killed afterwards, and giving the
+// two branches different save behaviour would just be a smaller version of
+// the same "one button, two meanings depending on a deployment detail"
+// defect this whole fix exists to remove.
+async function attemptBoundedSaveBeforeForceStop(rconService) {
+  if (!rconService?.connected) return "skipped";
+  try {
+    const saveResult = await Promise.race([
+      rconService.save(),
+      new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error("Force-stop save timed out")),
+          FORCE_STOP_SAVE_TIMEOUT_MS,
+        ),
+      ),
+    ]);
+    return saveResult?.success ? "saved" : "failed";
+  } catch {
+    // Either our own timeout above fired, or -- belt and braces, not an
+    // expected path -- rconService.save() itself rejected (it shouldn't:
+    // execute()'s own try/catch never rethrows). Either way this is the
+    // "did not get a confirmed save in time" outcome, not a real failure
+    // reason to report separately.
+    return "timedOut";
+  }
+}
 
 // Force stop server
 router.post("/force-stop", requirePermission("server.control"), async (req, res) => {
@@ -1175,32 +1679,43 @@ router.post("/force-stop", requirePermission("server.control"), async (req, res)
       });
     }
 
+    const rconService = req.app.get("rconService");
+    const saveOutcome = await attemptBoundedSaveBeforeForceStop(rconService);
+    log.info(`POST /force-stop — pre-stop save attempt: ${saveOutcome}`);
+
     // Killing the PID of a containerized server just triggers its restart
     // policy. Docker's stop escalates SIGTERM to SIGKILL on its own and, unlike
     // a process kill, keeps the container down afterwards.
     const managed = await runManagedLifecycle("stop");
     if (managed.handled && !managed.success) {
-      return res.status(502).json({ error: sanitizeError(managed.error) });
+      return res
+        .status(502)
+        .json({ error: sanitizeError(managed.error), saveOutcome });
     }
 
     const serverManager = req.app.get("serverManager");
     const result = managed.handled
       ? {
           success: true,
-          message:
-            managed.message ||
-            "Container stopped. Docker ran the container's own shutdown handler before killing it.",
+          message: managed.message || "Container stopped.",
         }
       : await serverManager.stopServer(false);
 
-    if (result?.success !== false) {
-      serverManager?.markServerStopped?.();
+    if (!result?.success || result.confirmed === false) {
+      return res.status(502).json({
+        ...result,
+        success: false,
+        error: result?.error || result?.message || "Force stop failed",
+        saveOutcome,
+      });
     }
+
+    serverManager?.markServerStopped?.();
 
     const io = req.app.get("io");
     if (io) io.emit("server:status", { running: false });
 
-    res.json(result);
+    res.json({ ...result, saveOutcome });
   } catch (error) {
     log.error(`Failed to force stop server: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -1221,17 +1736,42 @@ router.post("/restart", requirePermission("server.control"), async (req, res) =>
 
     const scheduler = req.app.get("scheduler");
     // Parse and clamp warningMinutes to 0-60 (matches /api/scheduler/restart-now)
-    let warningMinutes = parseInt(req.body.warningMinutes, 10);
-    if (isNaN(warningMinutes) || warningMinutes < 0) {
-      warningMinutes = 5; // Default
-    } else if (warningMinutes > 60) {
+    let warningMinutes = parseBoundedInteger(
+      req.body?.warningMinutes,
+      5,
+      0,
+      Number.MAX_SAFE_INTEGER,
+    );
+    if (warningMinutes > 60) {
       warningMinutes = 60; // Cap at 60 minutes
     }
 
-    // Run restart in background with specified warning time
-    scheduler.performRestart(warningMinutes, { label: "Manual restart" }).catch((err) => {
-      log.error(`Restart failed: ${err.message}`);
-    });
+    // Run restart in background with specified warning time. The HTTP
+    // response below only confirms the restart was ACCEPTED -- the
+    // countdown + graceful shutdown can take minutes, and performRestart()
+    // already computes a real {success, message} on every path. This is a
+    // second, independent entry point to the exact same call as scheduler.js's
+    // POST /restart-now (Dashboard's Restart/Restart Now buttons hit this
+    // route; the Scheduler page's own restart control hits that one) --
+    // it had the identical blind-success shape that route used to have
+    // before the 2026-08-26 bug hunt fixed it there, just never fixed here.
+    const io = req.app.get("io");
+    scheduler.performRestart(warningMinutes, { label: "Manual restart" })
+      .then((result) => {
+        emitActionResult(io, {
+          kind: "restart",
+          success: !!result?.success,
+          message: result?.message || (result?.success ? "Restart completed" : "Restart failed"),
+        });
+      })
+      .catch((err) => {
+        log.error(`Restart failed: ${err.message}`);
+        emitActionResult(io, {
+          kind: "restart",
+          success: false,
+          message: err.message,
+        });
+      });
 
     res.json({
       success: true,
@@ -1258,16 +1798,23 @@ router.post("/save", requirePermission("server.control"), async (req, res) => {
   }
 });
 
-// Message/weather/events/alarm/removezombies/releasesafehouse below: open to
-// every role, deliberately -- these are in-game/GM authority (broadcast a
-// message, run a weather or zombie event, release an inactive player's
-// safehouse), the same territory as players.js, not server operation.
+// Message/weather/alarm/removezombies/releasesafehouse below: open to every
+// role, deliberately -- these are in-game/GM authority (broadcast a message,
+// run a weather or zombie event, release an inactive player's safehouse),
+// the same territory as players.js, not server operation.
+//
+// events/lightning, events/thunder and events/horde are the exception: they
+// take an optional username and can strike or spawn a horde AT a named
+// player, not just somewhere in the world, so as of 2026-08-27 (operator
+// ruling on ranked-bug #5) they are gated on players.endanger_or_impersonate
+// instead -- admin-only by default, not open to every role like their
+// untargeted siblings above and below.
 
 // Send server message
 router.post("/message", requirePermission("server.world_events"), async (req, res) => {
   try {
     const rconService = req.app.get("rconService");
-    const { message } = req.body;
+    const { message } = req.body || {};
 
     if (!message) {
       return res.status(400).json({ error: "Message is required", code: ErrorCode.SERVER_MESSAGE_REQUIRED });
@@ -1294,7 +1841,7 @@ router.post("/message", requirePermission("server.world_events"), async (req, re
 router.post("/weather/start-rain", requirePermission("server.world_events"), async (req, res) => {
   try {
     const rconService = req.app.get("rconService");
-    const { intensity } = req.body;
+    const { intensity } = req.body || {};
     const result = await rconService.startRain(intensity);
     res.json(result);
   } catch (error) {
@@ -1315,7 +1862,7 @@ router.post("/weather/stop-rain", requirePermission("server.world_events"), asyn
 router.post("/weather/start-storm", requirePermission("server.world_events"), async (req, res) => {
   try {
     const rconService = req.app.get("rconService");
-    const { duration } = req.body;
+    const { duration } = req.body || {};
     const result = await rconService.startStorm(duration);
     res.json(result);
   } catch (error) {
@@ -1354,10 +1901,10 @@ router.post("/events/gunshot", requirePermission("server.world_events"), async (
   }
 });
 
-router.post("/events/lightning", requirePermission("server.world_events"), async (req, res) => {
+router.post("/events/lightning", requirePermission("players.endanger_or_impersonate"), async (req, res) => {
   try {
     const rconService = req.app.get("rconService");
-    const { username } = req.body;
+    const { username } = req.body || {};
     if (username && (typeof username !== "string" || username.length > 64)) {
       return res.status(400).json({ error: "Invalid username", code: ErrorCode.EVENTS_INVALID_USERNAME });
     }
@@ -1368,10 +1915,10 @@ router.post("/events/lightning", requirePermission("server.world_events"), async
   }
 });
 
-router.post("/events/thunder", requirePermission("server.world_events"), async (req, res) => {
+router.post("/events/thunder", requirePermission("players.endanger_or_impersonate"), async (req, res) => {
   try {
     const rconService = req.app.get("rconService");
-    const { username } = req.body;
+    const { username } = req.body || {};
     if (username && (typeof username !== "string" || username.length > 64)) {
       return res.status(400).json({ error: "Invalid username", code: ErrorCode.EVENTS_INVALID_USERNAME });
     }
@@ -1382,10 +1929,10 @@ router.post("/events/thunder", requirePermission("server.world_events"), async (
   }
 });
 
-router.post("/events/horde", requirePermission("server.world_events"), async (req, res) => {
+router.post("/events/horde", requirePermission("players.endanger_or_impersonate"), async (req, res) => {
   try {
     const rconService = req.app.get("rconService");
-    const { count, username } = req.body;
+    const { count, username } = req.body || {};
     // Coerced, not refused: the UI's slider already clamps to [10, 500], so
     // an out-of-range value here only reaches this route via a direct API
     // call, and a smaller-than-asked horde is not a "your setting was
@@ -1462,8 +2009,14 @@ router.get("/branches", requirePermission("server.install"), async (req, res) =>
       return res.status(400).json({ error: "Invalid SteamCMD path", code: ErrorCode.STEAMCMD_PATH_INVALID });
     }
 
-    const steamcmdExe = getSteamCmdExe(steamcmdPath);
-    if (!fs.existsSync(steamcmdExe)) {
+    // Persist a query-string candidate before resolving it into something
+    // spawn() runs -- see saveAndResolveSteamCmdExe's header comment
+    // (CodeQL js/command-line-injection #11). Browsing/previewing a
+    // not-yet-saved path still works exactly as before; it's saved as a
+    // side effect of being previewed, rather than trusted straight off the
+    // query string for the spawn below.
+    const steamcmdExe = await saveAndResolveSteamCmdExe(steamcmdPath);
+    if (!steamcmdExe || !fs.existsSync(steamcmdExe)) {
       return res.json({
         branches: FALLBACK_BRANCHES,
         source: "fallback",
@@ -1765,11 +2318,11 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
     if (!maxMemoryCheck.ok) {
       return res.status(400).json({ error: maxMemoryCheck.message, code: ErrorCode.INVALID_MAX_MEMORY });
     }
-    const serverPortCheck = requireIntInRange(serverPort, PORT_MIN, PORT_MAX, "Game port");
+    const serverPortCheck = requireIntInRange(serverPort, BIND_PORT_MIN, GAME_PORT_MAX, "Game port");
     if (!serverPortCheck.ok) {
       return res.status(400).json({ error: serverPortCheck.message, code: ErrorCode.INVALID_SERVER_PORT });
     }
-    const rconPortCheck = requireIntInRange(rconPort, PORT_MIN, PORT_MAX, "RCON port");
+    const rconPortCheck = requireIntInRange(rconPort, BIND_PORT_MIN, BIND_PORT_MAX, "RCON port");
     if (!rconPortCheck.ok) {
       return res.status(400).json({ error: rconPortCheck.message, code: ErrorCode.INVALID_RCON_PORT });
     }
@@ -1785,8 +2338,11 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
     // hard-failing (see ensureSteamCmdLinux for why: fresh volumes, or a
     // previous install that never finished, shouldn't force a manual
     // re-run of the setup wizard).
-    let steamcmdExe = getSteamCmdExe(steamcmdPath);
-    if (!fs.existsSync(steamcmdExe)) {
+    // Persist steamcmdPath as the configured setting before resolving an
+    // executable from it -- see saveAndResolveSteamCmdExe's header comment
+    // (CodeQL js/command-line-injection #12).
+    let steamcmdExe = await saveAndResolveSteamCmdExe(steamcmdPath);
+    if (!steamcmdExe || !fs.existsSync(steamcmdExe)) {
       if (isWindows) {
         return res
           .status(400)
@@ -1862,6 +2418,11 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
     }
     const steamcmd = spawn(steamcmdExe, steamcmdArgs, spawnOpts);
     activeSteamOperations.get(normalizedPath).pid = steamcmd.pid;
+    // A signal-killed process reports code=null to the close handler below,
+    // not the exit code INSTALL_FAILED_EXIT_CODE's message names -- tracked
+    // so that branch can say "stalled and was stopped" instead of the
+    // literal word "null" (2026-08-26 install-failure hunt finding #1).
+    let killedByWatchdog = false;
     activeSteamOperations.get(normalizedPath).watchdog = setInterval(() => {
       const activeOperation = activeSteamOperations.get(normalizedPath);
       if (!activeOperation) return;
@@ -1870,6 +2431,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
       log.error(
         `SteamCMD ${activeOperation.type} produced no output for ${STEAM_OPERATION_IDLE_TIMEOUT_MS / 60000} minutes; terminating the stalled process`,
       );
+      killedByWatchdog = true;
       steamcmd.kill();
     }, 30_000);
     activeSteamOperations.get(normalizedPath).watchdog.unref?.();
@@ -1932,29 +2494,55 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
       if (code === 0) {
         log.info("PZ server installation completed successfully");
 
-        // Auto-update settings with new paths
-        await setSetting("serverPath", installPath);
-        await setSetting("serverName", serverName);
-        await setSetting("minMemory", minMemory);
-        await setSetting("maxMemory", maxMemory);
-        await setSetting("serverPort", serverPort);
-        await setSetting("useUpnp", useUpnp);
+        // The game files installed -- that part is done and expensive to
+        // redo, so success:false is never used for a failure past this
+        // point (2026-08-26 install-failure hunt finding #6). A step below
+        // that fails but self-heals on the next POST /server/start (the INI
+        // pre-create, the startup script) is instead collected here and
+        // sent as a `warnings` array alongside success:true, so the
+        // operator sees it without being told to reinstall over it.
+        const warnings = [];
 
-        if (zomboidDataPath) {
-          await setSetting("zomboidDataPath", zomboidDataPath);
-        } else {
-          await setSetting("zomboidDataPath", zomboidPath);
-          io.emit("install:log", {
-            type: "stdout",
-            text: `Using ${usesEnvironmentDataPath ? "configured" : "isolated"} data folder: ${zomboidPath}`,
-            progressCode: usesEnvironmentDataPath
-              ? ProgressCode.DATA_FOLDER_USING_CONFIGURED
-              : ProgressCode.DATA_FOLDER_USING_ISOLATED,
-            params: { path: zomboidPath },
+        // Auto-update settings with new paths. Wrapped: these were bare
+        // awaits with nothing catching a throw, and this app's
+        // unhandledRejection handler (server/index.js) kills the whole
+        // panel process on an uncaught rejection -- so a transient
+        // settings-write failure here used to take the panel down mid-
+        // install instead of just leaving a setting unsaved. The game
+        // files already installed successfully at this point, so this
+        // follows the same warnings-array convention as the other
+        // self-healing failures below rather than reporting success:false.
+        try {
+          await setSetting("serverPath", installPath);
+          await setSetting("serverName", serverName);
+          await setSetting("minMemory", minMemory);
+          await setSetting("maxMemory", maxMemory);
+          await setSetting("serverPort", serverPort);
+          await setSetting("useUpnp", useUpnp);
+
+          if (zomboidDataPath) {
+            await setSetting("zomboidDataPath", zomboidDataPath);
+          } else {
+            await setSetting("zomboidDataPath", zomboidPath);
+            io.emit("install:log", {
+              type: "stdout",
+              text: `Using ${usesEnvironmentDataPath ? "configured" : "isolated"} data folder: ${zomboidPath}`,
+              progressCode: usesEnvironmentDataPath
+                ? ProgressCode.DATA_FOLDER_USING_CONFIGURED
+                : ProgressCode.DATA_FOLDER_USING_ISOLATED,
+              params: { path: zomboidPath },
+            });
+          }
+
+          await setSetting("serverConfigPath", serverConfigPath);
+        } catch (settingsError) {
+          log.error(`Failed to save install settings: ${settingsError.message}`);
+          warnings.push({
+            progressCode: ProgressCode.INSTALL_SETTINGS_SAVE_FAILED,
+            message: `Server files installed, but some install settings could not be saved (${sanitizeError(settingsError.message)}). Re-check them under Settings once the panel is back up.`,
+            params: { fields: "serverPath, serverName, memory, port, UPnP, data paths", reason: sanitizeError(settingsError.message) },
           });
         }
-
-        await setSetting("serverConfigPath", serverConfigPath);
 
         // Re-check after the download in case a mounted path changed while
         // SteamCMD was running.
@@ -1983,42 +2571,83 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
           return;
         }
 
-        // Save RCON settings for later use
+        // Save RCON settings for later use. Same crash exposure and same
+        // fix as the settings block above -- a bare await here previously
+        // meant a failed RCON settings write could take the whole panel
+        // down instead of just leaving RCON unconfigured.
         if (rconPassword) {
-          await setSetting("rconPassword", rconPassword);
-          await setSetting("rconPort", rconPort);
-          await setSetting("rconHost", "127.0.0.1");
-          io.emit("install:log", {
-            type: "stdout",
-            text: `RCON settings saved (port: ${rconPort})`,
-            progressCode: ProgressCode.RCON_SETTINGS_SAVED,
-            params: { port: rconPort },
-          });
-
-          // Pre-create INI with RCON settings so PZ reads them on first boot
-          // (PZ reads the INI at startup - if we wait until after, the password won't take effect)
           try {
-            const iniPath = path.join(serverConfigPath, `${serverName}.ini`);
-            if (!fs.existsSync(iniPath)) {
-              if (!fs.existsSync(serverConfigPath)) {
-                fs.mkdirSync(serverConfigPath, { recursive: true });
-              }
-              const safeRconPw = sanitizeIniValue(rconPassword);
-              const minimalIni = `# Auto-generated by Zomboid Control Panel\n# PZ will add remaining default settings on first server start\nRCONPort=${safeRconPort}\nRCONPassword=${safeRconPw}\n`;
-              writeFileAtomic(iniPath, minimalIni, {
-                encoding: "utf-8",
-                mode: 0o600,
-              });
-              log.info(`Pre-created INI with RCON settings at ${iniPath}`);
-              io.emit("install:log", {
-                type: "stdout",
-                text: "Pre-created server INI with RCON credentials",
-                progressCode: ProgressCode.INI_PRECREATED_WITH_RCON,
-              });
-            }
-          } catch (iniError) {
-            log.warn(`Failed to pre-create INI: ${iniError.message}`);
+            await setSetting("rconPassword", rconPassword);
+            await setSetting("rconPort", rconPort);
+            await setSetting("rconHost", "127.0.0.1");
+            io.emit("install:log", {
+              type: "stdout",
+              text: `RCON settings saved (port: ${rconPort})`,
+              progressCode: ProgressCode.RCON_SETTINGS_SAVED,
+              params: { port: rconPort },
+            });
+          } catch (rconSettingsError) {
+            log.error(`Failed to save RCON settings: ${rconSettingsError.message}`);
+            warnings.push({
+              progressCode: ProgressCode.INSTALL_SETTINGS_SAVE_FAILED,
+              message: `Server files installed, but the RCON password/port could not be saved (${sanitizeError(rconSettingsError.message)}). Re-check them under Settings once the panel is back up.`,
+              params: { fields: "RCON password, port, host", reason: sanitizeError(rconSettingsError.message) },
+            });
           }
+        }
+
+        // Pre-create the INI with RCON + UPnP settings so PZ reads them on
+        // first boot (PZ reads the INI at startup -- if we wait until
+        // after, they won't take effect). Previously this whole block only
+        // ran `if (rconPassword)`, which meant a server installed without
+        // an RCON password never got its UPnP choice written either, even
+        // though the two have nothing to do with each other -- the
+        // wizard's UPnP checkbox saved a global legacy setting nothing
+        // ever read, and never touched this server's own .ini at all
+        // (2026-08-26, same-night audit alongside the adminPassword fix:
+        // "wire it, don't remove it"). Decoupled from rconPassword so a
+        // server's UPnP choice reaches its .ini regardless.
+        try {
+          const iniPath = path.join(serverConfigPath, `${serverName}.ini`);
+          if (!fs.existsSync(iniPath)) {
+            if (!fs.existsSync(serverConfigPath)) {
+              fs.mkdirSync(serverConfigPath, { recursive: true });
+            }
+            const lines = [
+              "# Auto-generated by Zomboid Control Panel",
+              "# PZ will add remaining default settings on first server start",
+              `UPnP=${useUpnp ? "true" : "false"}`,
+            ];
+            if (rconPassword) {
+              const safeRconPw = sanitizeIniValue(rconPassword);
+              lines.push(`RCONPort=${safeRconPort}`, `RCONPassword=${safeRconPw}`);
+            }
+            writeFileAtomic(iniPath, lines.join("\n") + "\n", {
+              encoding: "utf-8",
+              mode: 0o600,
+            });
+            log.info(
+              `Pre-created INI at ${iniPath} (UPnP=${useUpnp}${rconPassword ? ", RCON configured" : ""})`,
+            );
+            io.emit("install:log", rconPassword
+              ? {
+                  type: "stdout",
+                  text: "Pre-created server INI with RCON credentials",
+                  progressCode: ProgressCode.INI_PRECREATED_WITH_RCON,
+                }
+              : {
+                  type: "stdout",
+                  text: "Pre-created server INI with UPnP setting",
+                  progressCode: ProgressCode.INI_PRECREATED_WITH_UPNP,
+                });
+          }
+        } catch (iniError) {
+          log.warn(`Failed to pre-create INI: ${iniError.message}`);
+          warnings.push({
+            progressCode: ProgressCode.INSTALL_RCON_INI_PRECREATE_FAILED,
+            message: `Could not pre-write ${rconPassword ? "the RCON password" : "the UPnP setting"} into the server config (${sanitizeError(iniError.message)}). This is retried automatically the next time you start the server.`,
+            params: { reason: sanitizeError(iniError.message) },
+          });
         }
 
         // Generate custom startup scripts (both .bat and .sh)
@@ -2064,12 +2693,38 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
           });
         } catch (batchError) {
           log.warn(`Failed to create startup scripts: ${batchError.message}`);
+          warnings.push({
+            progressCode: ProgressCode.INSTALL_STARTUP_SCRIPT_FAILED,
+            message: `Could not generate this server's custom startup script (${sanitizeError(batchError.message)}). The server can still be started -- it will use the default script until this regenerates, which also happens automatically on the next start.`,
+            params: { reason: sanitizeError(batchError.message) },
+          });
         }
 
         logServerEvent(
           "server_install",
           `Installed PZ server to ${installPath} (${selectedBranch} branch)`,
         );
+
+        // 2026-08-26 bug hunt: exit code 0 was trusted as sufficient proof
+        // the game files were actually installed -- SteamCMD can exit 0
+        // after a rate-limited, interrupted, or otherwise incomplete
+        // download. The self-install-steamcmd-itself step above already
+        // does an existsSync check on its own output for exactly this
+        // reason; this carries that same habit to the install that
+        // actually matters. Same PZ_INSTALL_MARKERS list DELETE
+        // /delete-files uses to confirm a folder is a real PZ install --
+        // one marker present is enough to call this usable, not a deep
+        // validation.
+        if (!hasPzInstallMarker(installPath)) {
+          log.warn(
+            `SteamCMD exited 0 but no recognizable PZ server files were found at ${installPath}`,
+          );
+          warnings.push({
+            progressCode: ProgressCode.INSTALL_MISSING_GAME_FILES,
+            message:
+              "SteamCMD reported success, but no recognizable game files were found at the install path. Check the SteamCMD log above for a hidden error (a rate limit or an interrupted download can still exit 0), and verify the install path before starting this server.",
+          });
+        }
 
         // Auto-install PanelBridge mod to the server
         try {
@@ -2130,6 +2785,19 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
           minMemory: safeMinMemory,
           maxMemory: safeMaxMemory,
           progressCode: ProgressCode.INSTALL_COMPLETE_SUCCESS,
+          warnings,
+        });
+      } else if (killedByWatchdog) {
+        const idleMinutes = STEAM_OPERATION_IDLE_TIMEOUT_MS / 60000;
+        log.error(
+          `SteamCMD produced no output for ${idleMinutes} minutes and was stopped`,
+        );
+        io.emit("install:complete", {
+          success: false,
+          message: `Installation was stopped after ${idleMinutes} minutes with no output from SteamCMD -- it may have stalled or lost its connection. Try again.`,
+          output,
+          progressCode: ProgressCode.INSTALL_WATCHDOG_KILLED,
+          params: { minutes: idleMinutes },
         });
       } else {
         log.error(`SteamCMD exited with code ${code}`);
@@ -2268,11 +2936,11 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
     if (!maxMemoryCheck.ok) {
       return res.status(400).json({ error: maxMemoryCheck.message, code: ErrorCode.INVALID_MAX_MEMORY });
     }
-    const serverPortCheck = requireIntInRange(serverPort, PORT_MIN, PORT_MAX, "Game port");
+    const serverPortCheck = requireIntInRange(serverPort, BIND_PORT_MIN, GAME_PORT_MAX, "Game port");
     if (!serverPortCheck.ok) {
       return res.status(400).json({ error: serverPortCheck.message, code: ErrorCode.INVALID_SERVER_PORT });
     }
-    const rconPortCheck = requireIntInRange(rconPort, PORT_MIN, PORT_MAX, "RCON port");
+    const rconPortCheck = requireIntInRange(rconPort, BIND_PORT_MIN, BIND_PORT_MAX, "RCON port");
     if (!rconPortCheck.ok) {
       return res.status(400).json({ error: rconPortCheck.message, code: ErrorCode.INVALID_RCON_PORT });
     }
@@ -2285,6 +2953,14 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
     log.info(
       `Quick setup: Creating server config for ${serverName} using files from ${installPath}`,
     );
+
+    // Same reasoning as /install above (2026-08-26 install-failure hunt
+    // finding #6): the server files already exist (checked above), so a
+    // failure past this point that self-heals on the next POST
+    // /server/start (the INI pre-create) is reported as a warning, not a
+    // flat failure that would send the operator looking for a problem in
+    // files that are actually fine.
+    const warnings = [];
 
     // Update settings
     await setSetting("serverPath", installPath);
@@ -2343,6 +3019,11 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
         }
       } catch (iniError) {
         log.warn(`Failed to pre-create INI: ${iniError.message}`);
+        warnings.push({
+          progressCode: ProgressCode.INSTALL_RCON_INI_PRECREATE_FAILED,
+          message: `Could not pre-write the RCON password into the server config (${sanitizeError(iniError.message)}). This is retried automatically the next time you start the server.`,
+          params: { reason: sanitizeError(iniError.message) },
+        });
       }
     }
 
@@ -2415,7 +3096,7 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
       log.warn(`Failed to auto-install PanelBridge mod: ${modError.message}`);
     }
 
-    await logServerEvent(
+    await logServerEventBestEffort(
       "server_quick_setup",
       `Created server config for ${serverName} using existing files at ${installPath}`,
     );
@@ -2434,6 +3115,7 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
       minMemory: safeMinMemory,
       maxMemory: safeMaxMemory,
       panelBridgeInstalled,
+      warnings,
     });
   } catch (error) {
     log.error(`Quick setup error: ${error.message}`);
@@ -2444,9 +3126,9 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
 // Configure RCON in server's .ini file
 router.post("/configure-rcon", requirePermission("server.configure"), async (req, res) => {
   try {
-    const { rconPassword, rconPort: rawRconPort = 27015 } = req.body;
+    const { rconPassword, rconPort: rawRconPort = 27015 } = req.body || {};
     // Refused, not coerced: see 2026-08-23 validateInt-coerces audit.
-    const rconPortCheck = requireIntInRange(rawRconPort, PORT_MIN, PORT_MAX, "RCON port");
+    const rconPortCheck = requireIntInRange(rawRconPort, BIND_PORT_MIN, BIND_PORT_MAX, "RCON port");
     if (!rconPortCheck.ok) {
       return res.status(400).json({ error: rconPortCheck.message, code: ErrorCode.INVALID_RCON_PORT });
     }
@@ -2520,15 +3202,51 @@ router.post("/configure-rcon", requirePermission("server.configure"), async (req
 });
 
 // Configure server network settings (port, UPnP) in .ini file
+// Writes just the UPnP= line into an existing server .ini. Extracted from
+// /configure-network's own UPnP handling (below) so PUT /:id (server edit,
+// servers.js) can reuse it instead of duplicating the read/replace/write
+// logic -- deliberately narrow: does NOT touch DefaultPort/UDPPort, which
+// stay /configure-network's own concern, so calling this from a second
+// site never triggers a port change as a side effect. Returns
+// {applied:false, reason} rather than throwing when the ini doesn't exist
+// yet (a server that has never booted has no ini to edit) -- the caller
+// decides whether that's worth surfacing to the operator.
+export async function applyUpnpToIni(serverConfigPath, serverName, useUpnp) {
+  const iniPath = path.join(serverConfigPath, `${serverName}.ini`);
+  if (!fs.existsSync(iniPath)) {
+    return { applied: false, reason: `Server config not found at ${iniPath}` };
+  }
+  try {
+    await withFileLock(iniPath, async () => {
+      let content = fs.readFileSync(iniPath, "utf-8").replace(/\r\n/g, "\n");
+      const upnpValue = useUpnp ? "true" : "false";
+      if (content.includes("UPnP=")) {
+        content = content.replace(/UPnP=.*/g, `UPnP=${upnpValue}`);
+      } else {
+        content += `\nUPnP=${upnpValue}`;
+      }
+      writeFileAtomic(iniPath, content, { encoding: "utf-8", mode: 0o600 });
+    });
+    return { applied: true };
+  } catch (error) {
+    return { applied: false, reason: sanitizeError(error.message) };
+  }
+}
+
 router.post("/configure-network", requirePermission("server.configure"), async (req, res) => {
   try {
-    const { serverPort: rawServerPort = 16261, useUpnp = true } = req.body;
+    const { serverPort: rawServerPort = 16261, useUpnp = true } = req.body || {};
     // Refused, not coerced: see 2026-08-23 validateInt-coerces audit.
-    const serverPortCheck = requireIntInRange(rawServerPort, PORT_MIN, PORT_MAX, "Game port");
+    const serverPortCheck = requireIntInRange(rawServerPort, BIND_PORT_MIN, GAME_PORT_MAX, "Game port");
     if (!serverPortCheck.ok) {
       return res.status(400).json({ error: serverPortCheck.message, code: ErrorCode.INVALID_SERVER_PORT });
     }
     const serverPort = serverPortCheck.value;
+    if (typeof useUpnp !== "boolean") {
+      return res.status(400).json({
+        error: "useUpnp must be a boolean",
+      });
+    }
 
     // Get the server config path from active server or settings
     const serverConfigPath = await getServerConfigPath();
@@ -2572,16 +3290,16 @@ router.post("/configure-network", requirePermission("server.configure"), async (
         content += `\nUDPPort=${serverPort + 1}`;
       }
 
-      // Update UPnP
-      const upnpValue = useUpnp ? "true" : "false";
-      if (content.includes("UPnP=")) {
-        content = content.replace(/UPnP=.*/g, `UPnP=${upnpValue}`);
-      } else {
-        content += `\nUPnP=${upnpValue}`;
-      }
-
       writeFileAtomic(iniPath, content, { encoding: "utf-8", mode: 0o600 });
     });
+
+    // UPnP itself is applyUpnpToIni()'s own concern now -- shared with
+    // PUT /:id (servers.js) so a server's UPnP choice takes effect there
+    // too, not only when re-saved through this page. withFileLock's
+    // per-path promise queue (fileWriteQueue.js) serializes this against
+    // the port write above; both still land, just as two writes instead of
+    // one, and never interleaved.
+    await applyUpnpToIni(serverConfigPath, serverName, useUpnp);
 
     // Also save to app settings
     await setSetting("serverPort", serverPort);
@@ -2611,7 +3329,7 @@ router.post("/alarm", requirePermission("server.world_events"), async (req, res)
   try {
     const rconService = req.app.get("rconService");
     const result = await rconService.alarm();
-    await logServerEvent("alarm");
+    await logServerEventBestEffort("alarm");
     res.json(result);
   } catch (error) {
     log.error(`Failed to trigger alarm: ${error.message}`);
@@ -2624,7 +3342,7 @@ router.post("/removezombies", requirePermission("server.world_events"), async (r
   try {
     const rconService = req.app.get("rconService");
     const result = await rconService.removeZombies();
-    await logServerEvent("removezombies");
+    await logServerEventBestEffort("removezombies");
     res.json(result);
   } catch (error) {
     log.error(`Failed to remove zombies: ${error.message}`);
@@ -2636,7 +3354,7 @@ router.post("/removezombies", requirePermission("server.world_events"), async (r
 router.post("/reloadlua", requirePermission("server.configure"), async (req, res) => {
   try {
     const rconService = req.app.get("rconService");
-    const { filename } = req.body;
+    const { filename } = req.body || {};
 
     if (!filename) {
       return res.status(400).json({ error: "Filename is required", code: ErrorCode.RELOAD_LUA_FILENAME_REQUIRED });
@@ -2649,7 +3367,7 @@ router.post("/reloadlua", requirePermission("server.configure"), async (req, res
     }
 
     const result = await rconService.reloadLua(filename);
-    await logServerEvent("reloadlua", filename);
+    await logServerEventBestEffort("reloadlua", filename);
     res.json(result);
   } catch (error) {
     log.error(`Failed to reload Lua: ${error.message}`);
@@ -2661,7 +3379,7 @@ router.post("/reloadlua", requirePermission("server.configure"), async (req, res
 router.post("/log", requirePermission("server.configure"), async (req, res) => {
   try {
     const rconService = req.app.get("rconService");
-    const { type, level } = req.body;
+    const { type, level } = req.body || {};
 
     if (!type || !level) {
       return res.status(400).json({ error: "Type and level are required", code: ErrorCode.LOG_TYPE_LEVEL_REQUIRED });
@@ -2728,7 +3446,7 @@ router.post("/log", requirePermission("server.configure"), async (req, res) => {
 router.post("/stats", requirePermission("server.configure"), async (req, res) => {
   try {
     const rconService = req.app.get("rconService");
-    const { mode, period } = req.body;
+    const { mode, period } = req.body || {};
 
     if (!mode) {
       return res.status(400).json({ error: "Mode is required", code: ErrorCode.STATS_MODE_REQUIRED });
@@ -2845,8 +3563,11 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
 
     // Auto-download SteamCMD on Linux instead of hard-failing — see
     // ensureSteamCmdLinux.
-    let steamcmdExe = getSteamCmdExe(steamcmdPath);
-    if (!fs.existsSync(steamcmdExe)) {
+    // Persist steamcmdPath as the configured setting before resolving an
+    // executable from it -- see saveAndResolveSteamCmdExe's header comment
+    // (CodeQL js/command-line-injection #13).
+    let steamcmdExe = await saveAndResolveSteamCmdExe(steamcmdPath);
+    if (!steamcmdExe || !fs.existsSync(steamcmdExe)) {
       if (isWindows) {
         return res
           .status(400)
@@ -3106,10 +3827,22 @@ router.post("/steamcmd/download", requirePermission("server.install"), async (re
             fs.existsSync(path.join(p, "steamcmd.sh")) ||
             fs.existsSync(path.join(p, "steamcmd")),
         ) || path.join(os.homedir(), "steamcmd");
-    const { installPath = defaultPath } = req.body;
+    const { installPath = defaultPath } = req.body || {};
 
     if (!isValidPath(installPath)) {
       return res.status(400).json({ error: "Invalid installation path", code: ErrorCode.STEAMCMD_DOWNLOAD_INVALID_PATH });
+    }
+
+    // This route's whole job is provisioning SteamCMD at installPath --
+    // persist it as the configured steamcmdPath setting now, before
+    // runFirstTimeSetup()'s spawn() resolves an executable from it below
+    // (CodeQL js/command-line-injection #297; see
+    // saveAndResolveSteamCmdExe's header comment). Also makes /install and
+    // /steam-update find this location afterward without the operator
+    // re-typing it.
+    const configuredSteamcmdPath = await getSetting("steamcmdPath");
+    if (configuredSteamcmdPath !== installPath) {
+      await setSetting("steamcmdPath", installPath);
     }
 
     const io = req.app.get("io");
@@ -3160,7 +3893,26 @@ router.post("/steamcmd/download", requirePermission("server.install"), async (re
             }
             response.pipe(file);
             file.on("close", async () => {
-              await extractAndSetup(zipPath);
+              // extractAndSetup() already fully guards itself and reports
+              // its own failures via steamcmd:status -- this try/catch is
+              // the CALLER'S OWN backstop, not a duplicate of that. An
+              // EventEmitter listener whose returned promise nothing
+              // awaits or .catches is exactly the shape that turns a
+              // future change to extractAndSetup's internals into an
+              // unhandledRejection -> fatalExit() panel kill (2026-08-26,
+              // same class as the install setSetting crash). Latent, not
+              // live: extractAndSetup cannot reject today.
+              try {
+                await extractAndSetup(zipPath);
+              } catch (unexpectedError) {
+                log.error(`SteamCMD self-setup failed unexpectedly: ${unexpectedError.message}`);
+                io.emit("steamcmd:status", {
+                  status: "error",
+                  message: `SteamCMD setup failed unexpectedly: ${sanitizeError(unexpectedError.message)}`,
+                  progressCode: ProgressCode.STEAMCMD_SELF_SETUP_UNEXPECTED_ERROR,
+                  params: { reason: sanitizeError(unexpectedError.message) },
+                });
+              }
             });
           })
           .on("error", handleDownloadError);
@@ -3327,6 +4079,13 @@ router.post("/steamcmd/download", requirePermission("server.install"), async (re
       });
       log.info("Running SteamCMD first-time setup...");
 
+      // installPath was already persisted as the steamcmdPath setting
+      // earlier in this same request (before the download even started),
+      // so this closure's value is provably the saved one -- not converted
+      // to the async saveAndResolveSteamCmdExe() here because
+      // runFirstTimeSetup() is a synchronous, fire-and-forget inner
+      // function invoked from a spawn/stream callback, not awaited by
+      // either caller.
       const steamcmdExe = getSteamCmdExe(installPath);
       // On Linux, set LD_LIBRARY_PATH for SteamCMD's 32-bit libraries
       const firstRunOpts = { cwd: installPath };
@@ -3414,39 +4173,66 @@ router.get("/steamcmd/check", requirePermission("server.install"), async (req, r
   }
 });
 
+// Fail-closed "is the server confirmed stopped" check, shared by both call
+// sites in /delete-files below -- factored out instead of a second
+// copy-pasted copy of the same ~15-line getServerProcessDetails/scanFailed
+// block. Returns null when confirmed stopped and safe to proceed; otherwise
+// the {status, body} to send back verbatim. checkServerRunning() would
+// collapse a failed scan into a bare `false` (see d85fd42) and let a
+// destructive action proceed against a server we simply failed to see was
+// running -- getServerProcessDetails() exposes scanFailed so that case can
+// be refused instead.
+//
+// NOT wired into /wipe, which has its own identical inline copy: that route
+// is out of scope for this pass (2026-08-26 bug hunt round 2, Pam's
+// asset-destruction hunt finding 2 -- TOCTOU on /delete-files specifically).
+// A natural follow-up for whoever next touches /wipe.
+async function checkServerConfirmedStopped(serverManager, actionLabel) {
+  const processDetails = await serverManager.getServerProcessDetails();
+  if (processDetails.scanFailed) {
+    return {
+      status: 503,
+      body: {
+        error: "Can't verify whether the server is actually stopped — the process-detection scan itself failed, not the server. Check the panel's log for the error. If this keeps happening, something on this host (antivirus, a full disk, or a missing system tool) may be blocking detection.",
+        code: ErrorCode.SERVER_STATE_UNKNOWN,
+      },
+    };
+  }
+  if (processDetails.running) {
+    return {
+      status: 400,
+      body: {
+        error: `Server must be stopped before ${actionLabel}. Stop the server first.`,
+        // Shared with /wipe -- see errorCodes.js for why.
+        code: ErrorCode.WIPE_SERVER_RUNNING,
+      },
+    };
+  }
+  return null;
+}
+
 // Delete server files (used when removing a server from panel with file deletion)
 router.post("/delete-files", requirePermission("server.wipe"), async (req, res) => {
   try {
     // Same rails POST /wipe already has: refuse without confirm, refuse
     // while the server is running, and fail CLOSED (not open) when
-    // detection itself can't tell -- getServerProcessDetails() exposes that
-    // as scanFailed; checkServerRunning() would collapse it into a bare
-    // `false` (see d85fd42). Mirrors /wipe's exact order: state check, then
-    // confirm, then this route's own path/PZ-install validation below.
+    // detection itself can't tell. Mirrors /wipe's exact order: state check,
+    // then confirm, then this route's own path/PZ-install validation below.
     const serverManager = req.app.get("serverManager");
     await serverManager.loadConfig();
 
-    const processDetails = await serverManager.getServerProcessDetails();
-    if (processDetails.scanFailed) {
-      return res.status(503).json({
-        error: "Can't verify whether the server is actually stopped — the process-detection scan itself failed, not the server. Check the panel's log for the error. If this keeps happening, something on this host (antivirus, a full disk, or a missing system tool) may be blocking detection.",
-        code: ErrorCode.SERVER_STATE_UNKNOWN,
-      });
-    }
-    if (processDetails.running) {
-      return res.status(400).json({
-        error: "Server must be stopped before deleting its files. Stop the server first.",
-        // Shared with /wipe -- see errorCodes.js for why.
-        code: ErrorCode.WIPE_SERVER_RUNNING,
-      });
+    const notStoppedError = await checkServerConfirmedStopped(serverManager, "deleting its files");
+    if (notStoppedError) {
+      return res.status(notStoppedError.status).json(notStoppedError.body);
     }
 
-    const { path: deletePath, confirm } = req.body;
+    const { path: deletePath, confirm } = req.body || {};
     if (confirm !== true) {
       return res.status(400).json({
         error: "Deleting these files requires confirm: true",
-        // Shared with /wipe -- see errorCodes.js for why.
-        code: ErrorCode.WIPE_CONFIRM_REQUIRED,
+        // Own code, not /wipe's -- see errorCodes.js for why this was split
+        // from the shared WIPE_CONFIRM_REQUIRED (2026-08-26 bug hunt round 2).
+        code: ErrorCode.DELETE_FILES_CONFIRM_REQUIRED,
       });
     }
 
@@ -3461,16 +4247,7 @@ router.post("/delete-files", requirePermission("server.wipe"), async (req, res) 
 
     // Check for known PZ server markers to prevent accidental deletion of wrong folders
     // Require one of the PZ-specific files (not just generic dirs like 'java')
-    const pzSpecificMarkers = [
-      "ProjectZomboid64.json",
-      "ProjectZomboid32.json",
-      "StartServer64.bat",
-      "StartServer32.bat",
-      "start-server.sh",
-    ];
-    const hasPzFiles = pzSpecificMarkers.some((marker) =>
-      fs.existsSync(path.join(deletePath, marker)),
-    );
+    const hasPzFiles = hasPzInstallMarker(deletePath);
 
     // Also reject paths containing '..' after normalization
     const normalizedDelete = path.normalize(deletePath);
@@ -3484,6 +4261,74 @@ router.post("/delete-files", requirePermission("server.wipe"), async (req, res) 
           "This does not appear to be a Project Zomboid server installation. Refusing to delete for safety.",
         code: ErrorCode.DELETE_FILES_NOT_PZ_INSTALL,
       });
+    }
+
+    // hasPzInstallMarker() above only confirms a handful of marker
+    // FILENAMES exist -- trivially satisfied by creating an empty file
+    // with one of those names anywhere on the host, not an authorization
+    // check (bug-hunt-2026-08-27). The two real callers of this route
+    // (Servers.tsx's "Delete Everything" and "Clear Install Folder") only
+    // ever pass a path that's already a configured server's own
+    // installPath, so require an exact match against one -- turning
+    // "any directory with a spoofable marker file" into "must be a server
+    // the panel already has on record" (creating that record requires
+    // servers.manage, a capability distinct from server.wipe). This is a
+    // second, narrower layer on top of the marker check, not a
+    // replacement for it.
+    const resolvedDeletePath = path.resolve(deletePath);
+    const configuredServers = await getServers();
+    const matchesConfiguredServer = configuredServers.some(
+      (s) => s.installPath && path.resolve(s.installPath) === resolvedDeletePath,
+    );
+    if (!matchesConfiguredServer) {
+      return res.status(400).json({
+        error:
+          "This path doesn't match a server the panel has on record. Refusing to delete for safety.",
+        code: ErrorCode.DELETE_FILES_NOT_CONFIGURED_SERVER,
+      });
+    }
+
+    // A default install keeps the Zomboid data folder OUTSIDE installPath
+    // (resolveZomboidPaths defaults it to a sibling `<installPath>_Data`),
+    // so deleting the install folder alone leaves Saves/Multiplayer
+    // untouched -- annoying (reinstall via the Setup Wizard) but not a
+    // world-ending loss. Nothing stops an operator from pointing
+    // zomboidDataPath INSIDE the install folder instead, though, and
+    // nothing here ever checked for it. When that's the configuration,
+    // this delete also destroys the live world save -- a different
+    // severity than "reinstall the binaries," and the UI gives no
+    // indication either way. Refuse outright rather than trying to back
+    // the data up first: the backups folder itself lives at
+    // <zomboidDataPath>/backups, which would be inside the doomed tree
+    // too, so a same-tree backup would just get deleted right alongside
+    // everything else it was meant to protect.
+    const zomboidDataPath = serverManager.savePath;
+    if (zomboidDataPath) {
+      const resolvedDeletePath = path.resolve(deletePath);
+      if (confineToRoots(zomboidDataPath, [resolvedDeletePath])) {
+        return res.status(400).json({
+          error: `Refusing to delete: this server's Zomboid data folder (${zomboidDataPath}) is inside the folder you're about to delete, so this would also permanently destroy the world save. Move the data path outside the install folder in Settings, or back it up yourself first, before deleting.`,
+          code: ErrorCode.DELETE_FILES_DATA_PATH_NESTED,
+        });
+      }
+    }
+
+    // Re-check immediately before the irreversible delete (2026-08-26 bug
+    // hunt round 2, Pam's finding 2): the FIRST check above is stale by the
+    // time we get here -- getServerProcessDetails() takes real wall-clock
+    // time (OS process enumeration), and everything between that await
+    // resolving and this point is synchronous path/marker validation with
+    // no further awaits, so a second admin session, a scheduler task, or a
+    // supervisor auto-restart starting the server DURING that first scan
+    // would sail through undetected. This doesn't make the check-then-act
+    // atomic in a formal sense -- true atomicity would need the /start path
+    // to participate in a shared lock too, out of scope here -- but it
+    // narrows the exploitable window from "however long the first scan
+    // took" down to just this second scan's own duration, immediately
+    // before the act it guards, using the exact same fail-closed check.
+    const stillNotStoppedError = await checkServerConfirmedStopped(serverManager, "deleting its files");
+    if (stillNotStoppedError) {
+      return res.status(stillNotStoppedError.status).json(stillNotStoppedError.body);
     }
 
     log.warn(`Deleting server files at: ${deletePath}`);
@@ -3502,7 +4347,7 @@ router.post("/delete-files", requirePermission("server.wipe"), async (req, res) 
 // List directory contents for the in-app folder browser
 router.post("/list-directory", requirePermission("server.install"), async (req, res) => {
   try {
-    const { dirPath } = req.body;
+    const { dirPath } = req.body || {};
 
     // If no path provided, return available drives (Windows) or root (Linux)
     if (!dirPath) {
@@ -3622,7 +4467,7 @@ router.post("/list-directory", requirePermission("server.install"), async (req, 
 // Open folder browser dialog (uses PowerShell on Windows, zenity/kdialog on Linux)
 router.post("/browse-folder", requirePermission("server.install"), async (req, res) => {
   try {
-    const { initialPath, description = "Select a folder" } = req.body;
+    const { initialPath, description = "Select a folder" } = req.body || {};
 
     // Strict validation for description — alphanumeric, spaces, and basic punctuation only
     if (
@@ -3860,7 +4705,7 @@ router.get("/console-log", requirePermission("server.world_events"), async (req,
     const filterLevel = req.query.filter || "filtered";
 
     // Read last N lines (default 500, max 2000)
-    const maxLines = Math.min(parseInt(req.query.lines, 10) || 500, 2000);
+    const maxLines = parseBoundedInteger(req.query.lines, 500, 1, 2000);
 
     // Read only the tail of the file to prevent DoS with large log files
     const stats = fs.statSync(consoleLogPath);
@@ -4018,7 +4863,12 @@ router.get("/console-log/stream", requirePermission("server.world_events"), asyn
     const filterLevel = req.query.filter || "filtered";
 
     // Get the last known position from client
-    const lastSize = Math.max(0, parseInt(req.query.lastSize, 10) || 0);
+    const lastSize = parseBoundedInteger(
+      req.query.lastSize,
+      0,
+      0,
+      Number.MAX_SAFE_INTEGER,
+    );
     const stats = fs.statSync(consoleLogPath);
 
     // If file is smaller than last known size, it was likely rotated/cleared
@@ -4123,7 +4973,7 @@ router.get("/update-check", requirePermission("server.world_events"), async (req
       const result = await updateChecker.checkForUpdates(true);
       res.json(result || { error: "Could not check for updates", code: ErrorCode.UPDATE_CHECK_NO_RESULT });
     } else {
-      res.json(updateChecker.getStatus());
+      res.json(await updateChecker.getStatus());
     }
   } catch (error) {
     log.error(`Update check failed: ${error.message}`);
@@ -4139,7 +4989,25 @@ router.get("/update-check/status", requirePermission("server.world_events"), asy
       return res.status(503).json({ error: "Update checker not available", code: ErrorCode.UPDATE_CHECKER_NOT_AVAILABLE });
     }
 
-    res.json(updateChecker.getStatus());
+    res.json(await updateChecker.getStatus());
+  } catch (error) {
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Acknowledge the last automatic-update result so its banner stops showing.
+// Shared server-side state (not per-browser localStorage) deliberately: a
+// failure one admin dismisses must not vanish for another admin or another
+// device that never saw it.
+router.post("/update-check/auto-update-result/dismiss", requirePermission("server.world_events"), async (req, res) => {
+  try {
+    const updateChecker = req.app.get("updateChecker");
+    if (!updateChecker) {
+      return res.status(503).json({ error: "Update checker not available", code: ErrorCode.UPDATE_CHECKER_NOT_AVAILABLE });
+    }
+
+    await updateChecker.dismissAutoUpdateResult();
+    res.json(await updateChecker.getStatus());
   } catch (error) {
     res.status(500).json({ error: sanitizeError(error.message) });
   }
@@ -4153,7 +5021,7 @@ router.post("/update-check/interval", requirePermission("server.configure"), asy
       return res.status(503).json({ error: "Update checker not available", code: ErrorCode.UPDATE_CHECKER_NOT_AVAILABLE });
     }
 
-    const { minutes } = req.body;
+    const { minutes } = req.body || {};
     if (!minutes || typeof minutes !== "number") {
       return res.status(400).json({ error: "minutes must be a number", code: ErrorCode.UPDATE_CHECK_INTERVAL_INVALID });
     }
@@ -4260,7 +5128,7 @@ router.post("/wipe/preview", requirePermission("server.wipe"), async (req, res) 
     const serverManager = req.app.get("serverManager");
     await serverManager.loadConfig();
 
-    const { targets } = req.body; // e.g. ["map", "players", "world"]
+    const { targets } = req.body || {}; // e.g. ["map", "players", "world"]
     if (!Array.isArray(targets) || targets.length === 0) {
       return res.status(400).json({
         error:
@@ -4503,6 +5371,16 @@ router.post("/wipe", requirePermission("server.wipe"), async (req, res) => {
   }
   wipeInProgress = true;
 
+  // Declared here, not with `const`/`let` inside the try below, so the
+  // catch block can still see whatever these held at the moment of a
+  // mid-wipe throw -- a try-scoped `const results = {}` is invisible to
+  // its own catch in JS, which would have made the partial-failure report
+  // below throw a ReferenceError instead of ever reaching the client.
+  let serverName = null;
+  let backupResult = null;
+  let results = {};
+  let targets = null;
+
   try {
     const serverManager = req.app.get("serverManager");
     await serverManager.loadConfig();
@@ -4527,7 +5405,8 @@ router.post("/wipe", requirePermission("server.wipe"), async (req, res) => {
       });
     }
 
-    const { targets, confirm } = req.body;
+    let confirm, createBackup;
+    ({ targets, confirm, createBackup = true } = req.body || {});
     if (confirm !== true) {
       return res.status(400).json({ error: "Wipe requires confirm: true", code: ErrorCode.WIPE_CONFIRM_REQUIRED });
     }
@@ -4550,7 +5429,7 @@ router.post("/wipe", requirePermission("server.wipe"), async (req, res) => {
     }
 
     const savePath = serverManager.savePath;
-    const serverName = serverManager.serverName || "servertest";
+    serverName = serverManager.serverName || "servertest";
     if (!savePath) {
       return res.status(400).json({ error: "No zomboid data path configured", code: ErrorCode.WIPE_ZOMBOID_DATA_PATH_NOT_CONFIGURED });
     }
@@ -4571,7 +5450,84 @@ router.post("/wipe", requirePermission("server.wipe"), async (req, res) => {
       return res.status(400).json({ error: "Invalid path", code: ErrorCode.INVALID_PATH });
     }
 
-    const results = {};
+    // Back up before wiping, fail CLOSED if the backup itself fails -- a wipe
+    // that proceeds after a failed backup is strictly worse than no backup
+    // option at all, because the operator now believes an undo exists. This
+    // mirrors chunks.js's delete-chunks/delete-region convention (backup
+    // first, propagate failure, never reach the deletion code below) but
+    // uses backupService's streaming zip archiver rather than chunks.js's
+    // per-file copy loop: a full world save can be many GB, and copying it
+    // file-by-file the way chunks.js backs up a hand-picked chunk selection
+    // has no place to report progress and no bound on how long the request
+    // blocks. backupService.createBackup() already solves exactly this --
+    // it's the same mechanism restoreBackup() uses for its own mandatory
+    // pre-restore backup, streams to a .zip instead of materializing a
+    // second copy of the save tree, reports progress over `io` the same way,
+    // and is exempt from ad-hoc invention: it's the codebase's one existing
+    // answer to "back up the whole world safely."
+    if (createBackup) {
+      const backupService = req.app.get("backupService");
+      if (!backupService) {
+        return res.status(500).json({
+          error: "Backup service unavailable — refusing to wipe without a backup. Nothing was deleted.",
+          code: ErrorCode.WIPE_BACKUP_FAILED,
+        });
+      }
+      const io = req.app.get("io");
+      backupResult = await backupService.createBackup({ isPreWipe: true, io });
+      // 2026-08-26 bug hunt: createBackup can return success:true while
+      // having silently skipped files that vanished mid-archive -- it
+      // surfaces that via skippedFiles rather than deciding policy itself.
+      // This backup is about to become the ONLY copy of whatever wipe is
+      // about to delete -- "mostly complete" is not a safety net, so any
+      // skip is treated exactly like an outright backup failure, same as
+      // the existing backup-or-abort posture below.
+      const backupIncomplete =
+        backupResult.success && (backupResult.skippedFiles?.length ?? 0) > 0;
+      if (!backupResult.success || backupIncomplete) {
+        const reason = backupIncomplete
+          ? `it skipped ${backupResult.skippedFiles.length} file(s) that vanished during archiving (${backupResult.skippedFiles.join(", ")}) -- an incomplete pre-wipe backup is not a safety net`
+          : backupResult.message;
+        return res.status(500).json({
+          error: `Wipe aborted: could not create a backup first (${reason}). Nothing was deleted.`,
+          code: ErrorCode.WIPE_BACKUP_FAILED,
+        });
+      }
+
+      // The account/whitelist database lives at <zomboidDataPath>/db/, a
+      // sibling of Saves/Multiplayer -- outside the tree backupService just
+      // zipped. When "accounts" is one of the selected targets, the backup
+      // above does not actually cover what's about to be deleted unless we
+      // also copy it. These files are small (a sqlite whitelist db, not
+      // world data), so a direct copy -- the same shape chunks.js uses for
+      // its own per-file backups -- is the right tool here, unlike the
+      // world save above.
+      if (targets.includes("accounts")) {
+        try {
+          const accountsBackupDir = path.join(
+            await backupService.getBackupsPath(),
+            `${serverName}_accounts_${Date.now()}`,
+          );
+          await fs.promises.mkdir(accountsBackupDir, { recursive: true });
+          for (const suffix of ["", "-journal", "-wal", "-shm"]) {
+            const dbFile = path.join(savePath, "db", `${serverName}.db${suffix}`);
+            if (fs.existsSync(dbFile)) {
+              await fs.promises.copyFile(
+                dbFile,
+                path.join(accountsBackupDir, `${serverName}.db${suffix}`),
+              );
+            }
+          }
+        } catch (e) {
+          return res.status(500).json({
+            error: `Wipe aborted: could not back up the accounts database (${e.message}). Nothing was deleted.`,
+            code: ErrorCode.WIPE_BACKUP_FAILED,
+          });
+        }
+      }
+    }
+
+    results = {};
 
     // Same directory/file lists as preview
     const MAP_DIRS = [
@@ -4694,7 +5650,7 @@ router.post("/wipe", requirePermission("server.wipe"), async (req, res) => {
     log.warn(
       `WIPE COMPLETE: server=${serverName}, targets=${targets.join(",")}, results=${JSON.stringify(results)}`,
     );
-    await logServerEvent("wipe", `Server wiped: ${targets.join(", ")}`, {
+    await logServerEventBestEffort("wipe", `Server wiped: ${targets.join(", ")}`, {
       targets,
       results,
     });
@@ -4704,11 +5660,34 @@ router.post("/wipe", requirePermission("server.wipe"), async (req, res) => {
       serverName,
       targets,
       results,
+      backupCreated: !!backupResult?.success,
+      backupName: backupResult?.backup?.name || null,
       message: `Server "${serverName}" wiped: ${targets.join(", ")}`,
     });
   } catch (error) {
     log.error(`Wipe failed: ${error.message}`);
-    res.status(500).json({ error: sanitizeError(error.message) });
+    // 2026-08-26, partial-failure-state hunt: `results` may already hold
+    // completed targets from before this throw (map/leftovers/accounts
+    // deletion isn't individually try/caught the way players/world's
+    // root-file loops are) -- a bare {error} here told the operator
+    // neither what actually got deleted nor that a pre-wipe backup exists
+    // to fall back to. Both are already in scope from earlier in this
+    // handler; surfacing them costs nothing and answers the two questions
+    // that actually matter after a failed destructive operation.
+    log.warn(`WIPE PARTIAL: server=${serverName || "unknown"}, results=${JSON.stringify(results)}`);
+    await logServerEventBestEffort(
+      "wipe",
+      `Server wipe FAILED partway through: ${error.message}`,
+      { targets, results, error: error.message },
+    );
+    res.status(500).json({
+      error: `Wipe failed partway through (${sanitizeError(error.message)}). Some of the selected targets may be only partially deleted -- check the results for what completed before the failure.`,
+      code: ErrorCode.WIPE_PARTIAL_FAILURE,
+      params: { reason: sanitizeError(error.message) },
+      results,
+      backupCreated: !!backupResult?.success,
+      backupName: backupResult?.backup?.name || null,
+    });
   } finally {
     wipeInProgress = false;
   }

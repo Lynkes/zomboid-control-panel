@@ -1,4 +1,9 @@
 {
+  "permissions": {
+    "noManage": "Gestionar copias de seguridad requiere el permiso backups.manage, del cual este rol no dispone.",
+    "noRestore": "Restaurar una copia de seguridad requiere el permiso backups.restore, del cual este rol no dispone.",
+    "noDownload": "Descargar una copia de seguridad requiere el permiso backups.download, del cual este rol no dispone."
+  },
   "pageHeader": {
     "title": "Copias de seguridad del mundo",
     "description": "Crear, restaurar y administrar las copias de seguridad del mundo del servidor",
@@ -106,7 +111,7 @@
     "description": "Restaurar <1>{{name}}</1>. Esto <2>reemplazará</2> los datos actuales del mundo.",
     "bulletStopServer": "Detener el servidor primero.",
     "bulletSafetyBackup": "El panel creará una copia de seguridad de emergencia antes de restaurar.",
-    "bulletCannotUndo": "Esta acción no se puede deshacer.",
+    "bulletUndoRequiresRestore": "Para deshacer esto más tarde, tendrás que restaurar tú mismo esa copia de seguridad — no ocurre automáticamente.",
     "cancel": "Cancelar",
     "confirm": "Restaurar esta copia de seguridad"
   },

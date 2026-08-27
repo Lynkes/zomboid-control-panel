@@ -26,6 +26,12 @@
       "description": "Si vous n'avez jamais configuré de serveur Project Zomboid, choisissez <1>Nouvelle installation</1>. Tout le nécessaire sera téléchargé automatiquement."
     }
   },
+  "resumeBanner": {
+    "title": "Une installation est peut-être encore en cours",
+    "description": "Une session précédente a commencé à installer vers {{installPath}} (il y a {{elapsed}}), et la page a été fermée ou rechargée avant la fin. Elle est peut-être toujours en cours de téléchargement en arrière-plan.",
+    "continueButton": "Continuer la configuration",
+    "dismissButton": "Ignorer"
+  },
   "stepIndicator": {
     "quick": {
       "location": "Emplacement",
@@ -61,6 +67,8 @@
     "regeneratePasswordAria": "Générer un nouveau mot de passe",
     "regeneratePasswordTooltip": "Générer un nouveau mot de passe",
     "rconPortLabel": "Port RCON",
+    "rconPortHelp": "Le port que le panneau utilise pour envoyer des commandes RCON (démarrage, arrêt, sauvegarde, expulsion, chat) au serveur en cours d'exécution — distinct du port sur lequel les joueurs se connectent. Exemple : 27015 (par défaut). Il doit être libre sur cette machine ; si un autre programme l'utilise déjà, le serveur risque de ne pas démarrer, ou le panneau de ne pas pouvoir s'y connecter pour le contrôler.",
+    "rconPortDefaultHint": "Port par défaut : 27015",
     "memoryTitle": "Allocation de mémoire",
     "detectingRam": "Détection de la RAM...",
     "minRamLabel": "RAM minimale",
@@ -71,10 +79,11 @@
     "maxRamAria": "RAM maximale en Go",
     "maxRamSliderAria": "RAM maximale : {{value}} Go",
     "gamePortLabel": "Port du jeu",
+    "gamePortHelp": "Le port auquel se connectent les clients du jeu Project Zomboid lorsque des joueurs rejoignent la partie. Exemple : 16261 (par défaut). Si vous le modifiez, les joueurs devront ajouter le nouveau numéro après l'adresse de votre serveur pour se connecter (par ex. votre-ip:16262), et votre routeur ou pare-feu devra rediriger ce même port.",
     "gamePortDefaultHint": "Port par défaut : 16261",
     "adminPasswordLabel": "Mot de passe admin",
     "adminPasswordPlaceholder": "Requis avant le premier démarrage du serveur",
-    "adminPasswordHelp": "Requis avant le premier démarrage du serveur.",
+    "adminPasswordHelp": "Définit le mot de passe du compte admin intégré de Project Zomboid. Une fois le serveur lancé, utilisez-le en jeu avec la commande de chat /login admin, suivie de ce mot de passe, pour obtenir les pouvoirs d'administrateur. Requis avant le premier démarrage du serveur — celui-ci peut être installé sans, mais ne démarrera pas tant qu'aucun n'est défini.",
     "hideAdminPassword": "Masquer le mot de passe admin",
     "showAdminPassword": "Afficher le mot de passe admin",
     "upnpLabel": "UPnP",
@@ -87,7 +96,8 @@
     "debugDesc": "Active les journaux détaillés de démarrage et d'exécution",
     "debugAria": "Activer le mode débogage",
     "customConfigLocation": "Emplacement de configuration personnalisé",
-    "customConfigLocationHelp": "Chemin personnalisé du dossier de données",
+    "customConfigLocationHelp": "Project Zomboid stocke normalement les parties sauvegardées, la configuration du serveur et les journaux à côté du dossier d'installation. Ne définissez ceci que si ces données se trouvent réellement ailleurs — par exemple sur un disque séparé, ou dans un dossier monté en volume sous Docker. Pointer vers le mauvais dossier empêchera le panneau de retrouver vos parties, vos paramètres ou vos sauvegardes existants.",
+    "customDataPathPlaceholder": "ex. C:\\Users\\VotreNom\\Zomboid ou /home/votrenom/Zomboid",
     "useCustomLocation": "Utiliser un emplacement personnalisé",
     "serverNameLabel": "Nom du serveur",
     "serverNamePlaceholder": "monserveur",
@@ -105,7 +115,10 @@
     "progressDownloading": "Téléchargement...",
     "progressValidating": "Validation des fichiers...",
     "progressVerifying": "Vérification de l'installation...",
-    "progressComplete": "Terminé !"
+    "progressComplete": "Terminé !",
+    "noPermissionInstall": "Installer un serveur nécessite la permission server.install, que ce rôle ne possède pas.",
+    "noPermissionSettings": "Enregistrer ce paramètre nécessite la permission panel.settings, que ce rôle ne possède pas.",
+    "noPermissionControl": "Démarrer le serveur nécessite la permission server.control, que ce rôle ne possède pas."
   },
   "full": {
     "pageTitle": "Nouvelle installation",
@@ -134,13 +147,13 @@
       "description": "Choisissez où les fichiers sont installés et définissez l'identité du serveur.",
       "installFolderLabel": "Dossier d'installation",
       "useLinuxPath": "Utiliser le chemin du service Linux",
-      "installFolderPlaceholder": "Dossier où les fichiers du serveur seront installés",
-      "installFolderHelp": "SteamCMD y télécharge environ 3 Go. Le service du panneau doit avoir le droit d'écrire dans ce dossier.",
+      "installFolderPlaceholder": "ex. C:\\PZServer ou /home/steamuser/pzserver",
+      "installFolderHelp": "SteamCMD y télécharge environ 3 Go de fichiers serveur et crée le dossier automatiquement s'il n'existe pas encore — le panneau a seulement besoin d'un droit d'écriture ici. Ceci est distinct de l'endroit où sont stockés les sauvegardes et les paramètres ; voir « Emplacement de configuration personnalisé » ci-dessous.",
       "linuxNoteTitle": "Installations via le service Linux",
       "linuxNoteBody1": "Si le panneau fonctionne via le service systemd fourni, utilisez <1>{{path}}</1>. Les autres dossiers nécessitent une modification des permissions systemd.",
       "linuxNoteBody2": "Le dossier de données du serveur est créé à côté du dossier d'installation : <1>{{path}}</1>. Les deux dossiers doivent être accessibles en écriture.",
       "dataFolderPlaceholder": "votre-dossier-d-installation_Data",
-      "serverNameHelp": "Lettres, chiffres et underscores uniquement. Utilisé pour les fichiers de configuration.",
+      "serverNameHelp": "Lettres, chiffres et underscores uniquement, par ex. monserveur. Devient le nom du fichier de configuration (monserveur.ini) — définissez-le avant l'installation. Le modifier ensuite crée une configuration neuve et vide au lieu de renommer l'existante.",
       "gameVersionLabel": "Version du jeu",
       "gameVersionHelp": "La plupart des gens veulent Stable — c'est la version par défaut actuelle. Les autres branches proposées par Steam sont des versions plus anciennes ou expérimentales, conservées pour la compatibilité avec des mods ou des sauvegardes qui n'ont pas encore été mis à jour. Les sauvegardes et les mods ne sont pas garantis de fonctionner d'une version à l'autre, donc ne changez que si vous en avez vraiment besoin.",
       "loadingVersions": "Chargement des versions disponibles...",
@@ -191,7 +204,7 @@
     "step2": {
       "title": "Configurer le serveur",
       "description": "Définissez le nom du serveur, l'accès RCON et les limites de mémoire.",
-      "serverNameHelp": "Chaque serveur a besoin d'un nom unique. Crée des fichiers de configuration séparés.",
+      "serverNameHelp": "Lettres, chiffres et underscores uniquement, par ex. monserveur. Devient le nom du fichier de configuration (monserveur.ini) pour les fichiers de serveur existants sélectionnés à l'étape précédente.",
       "rconTitle": "Contrôle à distance (RCON)",
       "rconPortDefaultHint": "Port par défaut : 27015",
       "ramDetectedBadge": "{{total}} Go détectés"
@@ -243,7 +256,7 @@
     "adminPasswordRequiredInstallDesc": "Saisissez un mot de passe admin avant de démarrer l'installation.",
     "adminPasswordRequiredCreateDesc": "Saisissez un mot de passe admin avant de créer ce serveur.",
     "invalidPortTitle": "Port invalide",
-    "invalidPortDesc": "Le port du jeu et le port RCON doivent chacun être un nombre entier compris entre 1024 et 65535.",
+    "invalidPortDesc": "Le port du jeu doit être un nombre entier compris entre 1024 et 65534 ; le port RCON doit être compris entre 1024 et 65535.",
     "startingInstallLog": "Démarrage de l'installation...",
     "creatingConfigLog": "Création de la configuration du serveur...",
     "configCreatedLog": "Configuration du serveur créée avec succès !",
@@ -259,6 +272,9 @@
     "serverStartingDesc": "Redirection vers le tableau de bord...",
     "startFailedTitle": "Échec du démarrage",
     "registerFailedTitle": "Fichiers du serveur installés, mais l'enregistrement a échoué",
-    "registerFailedDesc": "Les fichiers du jeu sont sur le disque, mais le panneau n'a pas pu ajouter ce serveur à sa base de données : il n'apparaîtra donc pas encore dans Mes serveurs. Consultez le journal ci-dessus, puis relancez l'installation — la réexécution est sans risque."
+    "registerFailedDesc": "Les fichiers du jeu sont sur le disque, mais le panneau n'a pas pu ajouter ce serveur à sa base de données : il n'apparaîtra donc pas encore dans Mes serveurs. Consultez le journal ci-dessus, puis relancez l'installation — la réexécution est sans risque.",
+    "activateFailedLog": "Avertissement : le serveur a été enregistré, mais n'a pas pu être défini comme serveur actif.",
+    "activateFailedTitle": "Serveur enregistré, mais non activé",
+    "activateFailedDesc": "Le serveur a été ajouté à Mes serveurs, mais le panneau n'a pas pu basculer automatiquement vers lui. Allez dans Mes serveurs et sélectionnez-le manuellement avant de le démarrer."
   }
 }

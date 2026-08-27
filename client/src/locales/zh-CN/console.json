@@ -57,7 +57,8 @@
     "linesHidden_one": "已过滤隐藏 {{count}} 行 · ",
     "linesHidden_other": "已过滤隐藏 {{count}} 行 · ",
     "showAll": "显示全部",
-    "noStreamOutput": "无流输出",
+    "noStreamOutput": "暂无日志输出——自打开此视图以来服务器还没有写入任何内容。",
+    "noOutputStreamDown": "日志输出未知——流已中断，请查看上方的错误。",
     "shown": "已显示",
     "hidden": "已隐藏",
     "loaded": "已加载",
@@ -76,6 +77,8 @@
     "notConfiguredDesc": "使用实时命令前，先在「我的服务器」中设置主机、端口和密码。",
     "hostUnreachableTitle": "主机不可达",
     "hostUnreachableDesc": "启动服务器，然后在面板设置中确认 RCON 主机、端口和密码。",
+    "authFailedTitle": "身份验证失败",
+    "authFailedDesc": "主机可达——请在「我的服务器」中确认 RCON 密码。",
     "outputLabel": "RCON 输出",
     "entries_one": "{{count}} 条记录",
     "entries_other": "{{count}} 条记录",
@@ -91,7 +94,8 @@
     "executeAria": "执行命令",
     "run": "运行",
     "keyboardHint": "// enter · 运行 · ↑↓ 历史记录",
-    "noResponseFallback": "无响应"
+    "noResponseFallback": "无响应",
+    "noPermission": "您的角色没有执行 RCON 命令的权限。"
   },
   "quickCommands": {
     "players": "玩家",
@@ -164,6 +168,7 @@
     "toggleLabel": "历史记录",
     "entries_one": "{{count}} 条记录",
     "entries_other": "{{count}} 条记录",
+    "truncatedHint": "（最近的——更早的命令可能未显示）",
     "searchPlaceholder": "搜索命令历史…",
     "searchAria": "搜索命令历史",
     "emptyTitle": "无命令历史",

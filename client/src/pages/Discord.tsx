@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { HelpTip } from "@/components/HelpTip";
+import { DisabledReason } from "@/components/DisabledReason";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Switch } from "@/components/ui/switch";
@@ -25,7 +26,9 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { discordApi } from "@/lib/api";
+import { getUserErrorMessage } from "@/lib/errorMessage";
 import { useConfirm } from "@/contexts/ConfirmContext";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   MessageSquare,
   Bot,
@@ -56,6 +59,7 @@ import {
   Users,
   Lock,
   Trash2,
+  Info,
 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 
@@ -227,6 +231,15 @@ export default function Discord() {
   const eventLabels = useMemo(() => getEventLabels(t), [t]);
   const SETUP_STEPS = useMemo(() => getSetupSteps(t), [t]);
   const confirm = useConfirm();
+  // Every mutating route on this page sits behind one whole-file server
+  // gate -- router.use(requirePermission("integrations.manage")) in
+  // server/routes/discord.js:41, no per-route override anywhere -- so a
+  // single capability covers the entire page (verified against the live
+  // route list, bug-hunt-2026-08-27 Tier-3 sweep). Open/true when
+  // capabilities are unknown/null, same convention as every other
+  // capability check in the app.
+  const { can } = useAuth();
+  const canManageIntegrations = can("integrations.manage");
   const [status, setStatus] = useState<DiscordStatus | null>(null);
   const [config, setConfig] = useState<DiscordConfig | null>(null);
   const [loading, setLoading] = useState(true);
@@ -260,6 +273,9 @@ export default function Discord() {
   const [eventsMessage, setEventsMessage] = useState<FlashMessage | null>(null);
   const [permissionsMessage, setPermissionsMessage] =
     useState<FlashMessage | null>(null);
+  // True only while the most recent load's config fetch itself failed --
+  // distinct from "genuinely not configured yet". See showSetupWizard.
+  const [configLoadFailed, setConfigLoadFailed] = useState(false);
 
   const [setupStep, setSetupStep] = useState(0);
 
@@ -267,6 +283,8 @@ export default function Discord() {
     try {
       setLoading(true);
       let configFailed = false;
+      let eventsFailed = false;
+      let permsFailed = false;
       const [statusData, configData, eventsData, permsData] = await Promise.all(
         [
           discordApi
@@ -276,18 +294,39 @@ export default function Discord() {
             configFailed = true;
             return null;
           }),
-          discordApi.getWebhookEvents().catch(() => ({ events: {} })),
-          discordApi.getPermissions().catch(() => ({ permissions: {} })),
+          discordApi.getWebhookEvents().catch(() => {
+            eventsFailed = true;
+            return { events: {} };
+          }),
+          discordApi.getPermissions().catch(() => {
+            permsFailed = true;
+            return { permissions: {} };
+          }),
         ],
       );
 
       setStatus(statusData);
       setWebhookEvents(eventsData.events || {});
       setCommandPermissions(permsData.permissions || {});
+      if (eventsFailed) {
+        setEventsMessage({
+          type: "error",
+          text: t("toasts.eventsReadFailedInline"),
+        });
+      }
+      if (permsFailed) {
+        setPermissionsMessage({
+          type: "error",
+          text: t("toasts.permissionsReadFailedInline"),
+        });
+      }
 
       // Keep the last known config on a failed read. Clearing it made a fully
       // configured bot look like a first-time setup, inviting the user to
-      // retype everything.
+      // retype everything. configLoadFailed additionally blocks the
+      // wizard/dashboard decision below from trusting a config we couldn't
+      // actually read -- see showSetupWizard's own comment for why.
+      setConfigLoadFailed(configFailed);
       if (configFailed) {
         setConfigMessage({
           type: "error",
@@ -314,6 +353,7 @@ export default function Discord() {
         setAutoStart(configData.autoStart !== false);
       }
     } catch {
+      setConfigLoadFailed(true);
       setConfigMessage({
         type: "error",
         text: t("toasts.configLoadFailedInline"),
@@ -370,6 +410,10 @@ export default function Discord() {
   );
 
   const handleSaveConfig = async (andStart = false) => {
+    // The disabled attribute on the buttons below is only the affordance --
+    // this early return is the real gate, in case another path ever calls
+    // this handler directly (bug-hunt-2026-08-27 floor rule).
+    if (!canManageIntegrations) return;
     try {
       setSaving(true);
       setConfigMessage(null);
@@ -436,7 +480,7 @@ export default function Discord() {
         } catch (startError: unknown) {
           // The config did save — say so, rather than implying it was lost.
           const why =
-            startError instanceof Error ? startError.message : t("shared.unknownError");
+            getUserErrorMessage(startError, t("shared.unknownError"));
           setConfigMessage({
             type: "error",
             text: t("toasts.configSavedBotStartFailed", { reason: why }),
@@ -458,7 +502,7 @@ export default function Discord() {
       await loadData();
     } catch (error: unknown) {
       const msg =
-        error instanceof Error ? error.message : t("toasts.saveConfigFailedFallback");
+        getUserErrorMessage(error, t("toasts.saveConfigFailedFallback"));
       setConfigMessage({ type: "error", text: msg });
     } finally {
       setSaving(false);
@@ -466,6 +510,7 @@ export default function Discord() {
   };
 
   const handleTestToken = async () => {
+    if (!canManageIntegrations) return;
     try {
       setTesting(true);
       setConfigMessage(null);
@@ -485,7 +530,7 @@ export default function Discord() {
         text: t("toasts.tokenValidWithBot", { username: result.bot.username }),
       });
     } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : t("toasts.invalidTokenFallback");
+      const msg = getUserErrorMessage(error, t("toasts.invalidTokenFallback"));
       setConfigMessage({ type: "error", text: msg });
     } finally {
       setTesting(false);
@@ -498,7 +543,7 @@ export default function Discord() {
   const [resetting, setResetting] = useState(false);
 
   const handleStart = async () => {
-    if (starting) return;
+    if (starting || !canManageIntegrations) return;
     try {
       setStarting(true);
       setConfigMessage(null);
@@ -507,7 +552,7 @@ export default function Discord() {
       await loadData();
     } catch (error: unknown) {
       const msg =
-        error instanceof Error ? error.message : t("toasts.startBotFailedFallback");
+        getUserErrorMessage(error, t("toasts.startBotFailedFallback"));
       setConfigMessage({ type: "error", text: msg });
     } finally {
       setStarting(false);
@@ -515,7 +560,7 @@ export default function Discord() {
   };
 
   const handleStop = async () => {
-    if (stopping) return;
+    if (stopping || !canManageIntegrations) return;
     try {
       setStopping(true);
       setConfigMessage(null);
@@ -523,7 +568,7 @@ export default function Discord() {
       setConfigMessage({ type: "success", text: t("toasts.botStopped") });
       await loadData();
     } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : t("toasts.stopBotFailedFallback");
+      const msg = getUserErrorMessage(error, t("toasts.stopBotFailedFallback"));
       setConfigMessage({ type: "error", text: msg });
     } finally {
       setStopping(false);
@@ -531,7 +576,7 @@ export default function Discord() {
   };
 
   const handleSendTestMessage = async () => {
-    if (sendingTest) return;
+    if (sendingTest || !canManageIntegrations) return;
     try {
       setSendingTest(true);
       setConfigMessage(null);
@@ -542,7 +587,7 @@ export default function Discord() {
       });
     } catch (error: unknown) {
       const msg =
-        error instanceof Error ? error.message : t("toasts.testMessageFailedFallback");
+        getUserErrorMessage(error, t("toasts.testMessageFailedFallback"));
       setConfigMessage({ type: "error", text: msg });
     } finally {
       setSendingTest(false);
@@ -550,7 +595,7 @@ export default function Discord() {
   };
 
   const handleResetConfig = async () => {
-    if (resetting) return;
+    if (resetting || !canManageIntegrations) return;
 
     const confirmed = await confirm({
       title: t("toasts.wipeConfirmTitle"),
@@ -585,10 +630,7 @@ export default function Discord() {
       });
       await loadData();
     } catch (error: unknown) {
-      const msg =
-        error instanceof Error
-          ? error.message
-          : t("toasts.wipeFailedFallback");
+      const msg = getUserErrorMessage(error, t("toasts.wipeFailedFallback"));
       setConfigMessage({ type: "error", text: msg });
     } finally {
       setResetting(false);
@@ -614,16 +656,14 @@ export default function Discord() {
   };
 
   const handleSaveWebhookEvents = async () => {
+    if (!canManageIntegrations) return;
     try {
       setSavingEvents(true);
       await discordApi.updateWebhookEvents(webhookEvents);
       setEventsMessage({ type: "success", text: t("management.webhookEvents.savedMessage") });
       await loadData();
     } catch (error: unknown) {
-      const msg =
-        error instanceof Error
-          ? error.message
-          : t("management.webhookEvents.saveFailedFallback");
+      const msg = getUserErrorMessage(error, t("management.webhookEvents.saveFailedFallback"));
       setEventsMessage({ type: "error", text: msg });
     } finally {
       setSavingEvents(false);
@@ -640,7 +680,20 @@ export default function Discord() {
 
   // ─── Determine if we should show setup wizard ───
   const isConfigured = config?.hasToken && config?.guildId;
-  const showSetupWizard = !isConfigured && !status?.running;
+  // configLoadFailed means we don't actually know isConfigured -- config
+  // stayed null (or stale-but-unconfirmed) because the read itself failed,
+  // not because there's genuinely nothing saved. Without this guard, a
+  // FULLY CONFIGURED bot that is merely stopped (a normal, common state)
+  // would show the first-time setup wizard instead of the dashboard on any
+  // transient config-fetch hiccup at page load: isConfigured falls back to
+  // false, status.running is honestly false (the bot really is stopped),
+  // and the wizard condition below was satisfied by two unrelated reasons
+  // that happened to point the same way. Falling through to the dashboard
+  // when we can't verify config is the safer wrong guess -- the worst case
+  // is a brand-new, never-configured bot briefly shows the dashboard
+  // instead of the wizard until the next successful refresh, not an
+  // already-running production bot getting told to set up from scratch.
+  const showSetupWizard = !configLoadFailed && !isConfigured && !status?.running;
 
   // How far into the wizard the operator has actually unlocked, mirroring each
   // step's own "Next" gate. Without this, the stepper let you click straight to
@@ -676,28 +729,29 @@ export default function Discord() {
             const isLocked = i > maxReachableStep;
             return (
               <div key={i} className="flex items-center flex-1 last:flex-none">
-                <button
-                  onClick={() => !isLocked && setSetupStep(i)}
-                  disabled={isLocked}
-                  aria-disabled={isLocked}
-                  title={isLocked ? t("wizard.stepLocked") : undefined}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors text-sm font-medium shrink-0 ${
-                    isActive
-                      ? "bg-primary text-primary-foreground"
-                      : isDone
-                        ? "bg-primary/10 text-primary hover:bg-primary/15"
-                        : isLocked
-                          ? "bg-muted/50 text-muted-foreground/50 cursor-not-allowed"
-                          : "bg-muted text-muted-foreground hover:bg-muted/80"
-                  }`}
-                >
-                  {isDone ? (
-                    <Check className="w-4 h-4" />
-                  ) : (
-                    <Icon className="w-4 h-4" />
-                  )}
-                  <span className="hidden md:inline">{step.label}</span>
-                </button>
+                <DisabledReason reason={isLocked ? t("wizard.stepLocked") : null}>
+                  <button
+                    onClick={() => !isLocked && setSetupStep(i)}
+                    disabled={isLocked}
+                    aria-disabled={isLocked}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors text-sm font-medium shrink-0 ${
+                      isActive
+                        ? "bg-primary text-primary-foreground"
+                        : isDone
+                          ? "bg-primary/10 text-primary hover:bg-primary/15"
+                          : isLocked
+                            ? "bg-muted/50 text-muted-foreground/50 cursor-not-allowed"
+                            : "bg-muted text-muted-foreground hover:bg-muted/80"
+                    }`}
+                  >
+                    {isDone ? (
+                      <Check className="w-4 h-4" />
+                    ) : (
+                      <Icon className="w-4 h-4" />
+                    )}
+                    <span className="hidden md:inline">{step.label}</span>
+                  </button>
+                </DisabledReason>
                 {i < SETUP_STEPS.length - 1 && (
                   <div
                     className={`flex-1 h-px mx-2 ${isDone ? "bg-primary/30" : "bg-border"}`}
@@ -846,9 +900,10 @@ export default function Discord() {
                         )}
                       </Button>
                     </div>
+                    <DisabledReason reason={!canManageIntegrations ? t("shared.noPermission") : null}>
                     <Button
                       onClick={handleTestToken}
-                      disabled={testing || !token}
+                      disabled={testing || !token || !canManageIntegrations}
                       className="min-w-[100px]"
                     >
                       {testing ? (
@@ -859,6 +914,7 @@ export default function Discord() {
                         </>
                       )}
                     </Button>
+                    </DisabledReason>
                   </div>
                 </div>
 
@@ -1300,10 +1356,11 @@ export default function Discord() {
                     <ChevronLeft className="w-4 h-4 mr-1" /> {t("wizard.step5.back")}
                   </Button>
                   <div className="flex gap-2">
+                    <DisabledReason reason={!canManageIntegrations ? t("shared.noPermission") : null}>
                     <Button
                       variant="outline"
                       onClick={() => handleSaveConfig(false)}
-                      disabled={saving || !canSaveConfig}
+                      disabled={saving || !canSaveConfig || !canManageIntegrations}
                     >
                       {saving ? (
                         <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
@@ -1312,9 +1369,11 @@ export default function Discord() {
                       )}
                       {t("wizard.step5.saveDraft")}
                     </Button>
+                    </DisabledReason>
+                    <DisabledReason reason={!canManageIntegrations ? t("shared.noPermission") : null}>
                     <Button
                       onClick={() => handleSaveConfig(true)}
-                      disabled={saving || !canSaveConfig}
+                      disabled={saving || !canSaveConfig || !canManageIntegrations}
                     >
                       {saving ? (
                         <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
@@ -1323,6 +1382,7 @@ export default function Discord() {
                       )}
                       {t("wizard.step5.saveAndStart")}
                     </Button>
+                    </DisabledReason>
                   </div>
                 </div>
               </div>
@@ -1520,11 +1580,16 @@ export default function Discord() {
 
             <div className="flex gap-2">
               {status?.running ? (
+                <DisabledReason reason={!canManageIntegrations ? t("shared.noPermission") : null} className="flex-1">
                 <Button
-                  variant="destructive"
+                  // Reversible -- the bot restarts on demand, same as
+                  // Servers.tsx's own Stop button (variant="outline" there
+                  // too) -- red/destructive overstated this action's actual
+                  // severity, and it had zero confirmation either way.
+                  variant="outline"
                   onClick={handleStop}
                   className="flex-1"
-                  disabled={stopping}
+                  disabled={stopping || !canManageIntegrations}
                 >
                   {stopping ? (
                     <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
@@ -1533,11 +1598,13 @@ export default function Discord() {
                   )}
                   {stopping ? t("management.botStatus.stopping") : t("management.botStatus.stop")}
                 </Button>
+                </DisabledReason>
               ) : (
+                <DisabledReason reason={!canManageIntegrations ? t("shared.noPermission") : null} className="flex-1">
                 <Button
                   onClick={handleStart}
                   className="flex-1"
-                  disabled={starting}
+                  disabled={starting || !canManageIntegrations}
                 >
                   {starting ? (
                     <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
@@ -1546,13 +1613,15 @@ export default function Discord() {
                   )}
                   {starting ? t("management.botStatus.starting") : t("management.botStatus.start")}
                 </Button>
+                </DisabledReason>
               )}
 
               {status?.running && config?.channelId && (
+                <DisabledReason reason={!canManageIntegrations ? t("shared.noPermission") : null}>
                 <Button
                   variant="outline"
                   onClick={handleSendTestMessage}
-                  disabled={sendingTest}
+                  disabled={sendingTest || !canManageIntegrations}
                 >
                   {sendingTest ? (
                     <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
@@ -1561,6 +1630,7 @@ export default function Discord() {
                   )}
                   {sendingTest ? t("management.botStatus.sendingTest") : t("management.botStatus.sendTest")}
                 </Button>
+                </DisabledReason>
               )}
             </div>
           </CardContent>
@@ -1578,6 +1648,14 @@ export default function Discord() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <Alert className="border-border/60 bg-muted/40 text-sm">
+              <Info className="h-4 w-4 text-primary" />
+              <AlertTitle>{t("management.commandPermissions.independenceTitle")}</AlertTitle>
+              <AlertDescription>
+                {t("management.commandPermissions.independenceDesc")}
+              </AlertDescription>
+            </Alert>
+
             {/* Tier legend */}
             <div className="flex flex-wrap gap-3 text-sm mb-2">
               <div className="flex items-center gap-1.5">
@@ -1686,8 +1764,10 @@ export default function Discord() {
             </div>
 
             <div className="flex justify-end pt-2">
+              <DisabledReason reason={!canManageIntegrations ? t("shared.noPermission") : null}>
               <Button
                 onClick={async () => {
+                  if (!canManageIntegrations) return;
                   try {
                     setSavingPermissions(true);
                     await discordApi.updatePermissions(commandPermissions);
@@ -1696,16 +1776,13 @@ export default function Discord() {
                       text: t("management.commandPermissions.savedMessage"),
                     });
                   } catch (error: unknown) {
-                    const msg =
-                      error instanceof Error
-                        ? error.message
-                        : t("management.commandPermissions.saveFailedFallback");
+                    const msg = getUserErrorMessage(error, t("management.commandPermissions.saveFailedFallback"));
                     setPermissionsMessage({ type: "error", text: msg });
                   } finally {
                     setSavingPermissions(false);
                   }
                 }}
-                disabled={savingPermissions}
+                disabled={savingPermissions || !canManageIntegrations}
               >
                 {savingPermissions ? (
                   <>
@@ -1716,6 +1793,7 @@ export default function Discord() {
                   t("management.commandPermissions.save")
                 )}
               </Button>
+              </DisabledReason>
             </div>
             <InlineFeedback message={permissionsMessage} className="mt-3" />
           </CardContent>
@@ -1777,10 +1855,11 @@ export default function Discord() {
                   )}
                 </Button>
               </div>
+              <DisabledReason reason={!canManageIntegrations ? t("shared.noPermission") : null}>
               <Button
                 variant="outline"
                 onClick={handleTestToken}
-                disabled={testing || !token}
+                disabled={testing || !token || !canManageIntegrations}
               >
                 {testing ? (
                   <RefreshCw className="w-4 h-4 animate-spin" />
@@ -1790,6 +1869,7 @@ export default function Discord() {
                   </>
                 )}
               </Button>
+              </DisabledReason>
             </div>
             {botInfo && (
               <div className="flex items-center gap-2 text-sm text-primary">
@@ -1996,10 +2076,11 @@ export default function Discord() {
               {t("management.configuration.wipeNote")}
             </div>
             <div className="flex justify-end gap-2">
+              <DisabledReason reason={!canManageIntegrations ? t("shared.noPermission") : null}>
               <Button
                 variant="destructive"
                 onClick={handleResetConfig}
-                disabled={resetting}
+                disabled={resetting || !canManageIntegrations}
               >
                 {resetting ? (
                   <>
@@ -2012,12 +2093,14 @@ export default function Discord() {
                   </>
                 )}
               </Button>
+              </DisabledReason>
               <Button variant="outline" onClick={loadData}>
                 {t("management.configuration.cancel")}
               </Button>
+              <DisabledReason reason={!canManageIntegrations ? t("shared.noPermission") : null}>
               <Button
                 onClick={() => handleSaveConfig(false)}
-                disabled={saving || !canSaveConfig}
+                disabled={saving || !canSaveConfig || !canManageIntegrations}
               >
                 {saving ? (
                   <>
@@ -2028,6 +2111,7 @@ export default function Discord() {
                   t("management.configuration.saveChanges")
                 )}
               </Button>
+              </DisabledReason>
             </div>
           </div>
         </CardContent>
@@ -2094,7 +2178,8 @@ export default function Discord() {
             },
           )}
           <div className="flex justify-end">
-            <Button onClick={handleSaveWebhookEvents} disabled={savingEvents}>
+            <DisabledReason reason={!canManageIntegrations ? t("shared.noPermission") : null}>
+            <Button onClick={handleSaveWebhookEvents} disabled={savingEvents || !canManageIntegrations}>
               {savingEvents ? (
                 <>
                   <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> {t("management.webhookEvents.saving")}
@@ -2103,6 +2188,7 @@ export default function Discord() {
                 t("management.webhookEvents.save")
               )}
             </Button>
+            </DisabledReason>
           </div>
           <InlineFeedback message={eventsMessage} className="mt-3" />
         </CardContent>

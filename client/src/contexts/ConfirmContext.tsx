@@ -23,6 +23,12 @@ export interface ConfirmOptions {
   /** Renders the confirm button in the destructive (red) style. Defaults to true since this
    *  is primarily used to replace native confirm() calls guarding delete/destructive actions. */
   destructive?: boolean
+  /** Renders the confirm button in the warning (amber) style instead of destructive-red or
+   *  plain. For the "affects others but reversible" tier -- an action that's fully undoable
+   *  (a server restart, a shared setting re-added later) but can disrupt or reach someone
+   *  other than the admin clicking. Full red overstates it; no styling at all understates it.
+   *  Takes precedence over `destructive` when set. */
+  variant?: 'warning'
 }
 
 type ConfirmFn = (options: ConfirmOptions) => Promise<boolean>
@@ -82,7 +88,11 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => settle(true)}
-              className={cn(options?.destructive !== false && buttonVariants({ variant: 'destructive' }))}
+              className={cn(
+                options?.variant === 'warning'
+                  ? buttonVariants({ variant: 'warning' })
+                  : options?.destructive !== false && buttonVariants({ variant: 'destructive' }),
+              )}
             >
               {options?.confirmLabel ?? 'Confirm'}
             </AlertDialogAction>

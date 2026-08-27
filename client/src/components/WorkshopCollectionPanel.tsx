@@ -73,8 +73,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useToast } from '@/components/ui/use-toast'
+import { useConfirm } from '@/contexts/ConfirmContext'
+import { DisabledReason } from '@/components/DisabledReason'
 import { modsApi } from '@/lib/api'
-import { cn } from '@/lib/utils'
+import { getUserErrorMessage } from '@/lib/errorMessage'
+import { cn, copyText } from '@/lib/utils'
 
 type DiffResponse = Awaited<ReturnType<typeof modsApi.collectionDiff>>
 type DiffItem = DiffResponse['items'][number]
@@ -93,13 +96,13 @@ type RowAction = 'add' | 'remove' | 'track' | 'untrack' | 'add-server' | 'remove
 type TFn = (key: string, opts?: Record<string, unknown>) => string
 
 // Friendly relative-time string for the "last refreshed" badge.
-function formatAgo(date: Date | null, t: TFn): string {
+function formatAgo(date: Date | null, t: TFn, locale?: string): string {
   if (!date) return t('never')
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000)
   if (seconds < 5) return t('justNow')
   if (seconds < 60) return t('secondsAgo', { count: seconds })
   if (seconds < 3600) return t('minutesAgo', { count: Math.floor(seconds / 60) })
-  return date.toLocaleTimeString()
+  return date.toLocaleTimeString(locale)
 }
 
 function parseSteamCookieBlob(raw: string, t: TFn): { sessionid?: string; steamLoginSecure?: string; error?: string } {
@@ -120,8 +123,9 @@ function parseSteamCookieBlob(raw: string, t: TFn): { sessionid?: string; steamL
 }
 
 export function WorkshopCollectionPanel() {
-  const { t } = useTranslation('workshopCollectionPanel')
+  const { t, i18n } = useTranslation('workshopCollectionPanel')
   const { toast } = useToast()
+  const confirm = useConfirm()
   const [diff, setDiff] = useState<DiffResponse | null>(null)
   const [diffError, setDiffError] = useState<string | null>(null)
   const [diffLoading, setDiffLoading] = useState(false)
@@ -151,7 +155,7 @@ export function WorkshopCollectionPanel() {
       if (!r.ok && r.error) setDiffError(r.error)
     } catch (err: any) {
       if (seq !== refreshSeqRef.current) return
-      setDiffError(err?.message || t('failedToReadCollection'))
+      setDiffError(getUserErrorMessage(err, t('failedToReadCollection')))
     } finally {
       if (seq === refreshSeqRef.current) setDiffLoading(false)
     }
@@ -254,7 +258,7 @@ export function WorkshopCollectionPanel() {
       toast({ title: t('toastCookiesSaved') })
       await refresh()
     } catch (err: any) {
-      setCookieError(err?.message || t('couldNotSaveCookies'))
+      setCookieError(getUserErrorMessage(err, t('couldNotSaveCookies')))
     } finally {
       setCookieSaving(false)
     }
@@ -311,7 +315,7 @@ export function WorkshopCollectionPanel() {
       }
       await refresh()
     } catch (err: any) {
-      toast({ variant: 'destructive', title: t('toastActionFailedTitle'), description: err?.message || t('purgeSteamRejected') })
+      toast({ variant: 'destructive', title: t('toastActionFailedTitle'), description: getUserErrorMessage(err, t('purgeSteamRejected')) })
     } finally {
       setRowBusy((prev) => {
         const next = { ...prev }
@@ -348,7 +352,22 @@ export function WorkshopCollectionPanel() {
       toast({ variant: 'destructive', title: t('toastSessionExpiredTitle'), description: t('toastSessionExpiredDesc') })
       return
     }
+    if (action === 'untrack') {
+      const ok = await confirm({
+        title: t('untrackBulkConfirmTitle', { count: targets.length }),
+        description: t('untrackConfirmDescription'),
+        variant: 'warning',
+        confirmLabel: t('untrackAndUnsync'),
+      })
+      if (!ok) return
+    }
     if (action === 'remove-server') {
+      const ok = await confirm({
+        title: t('removeServerBulkConfirmTitle', { count: targets.length }),
+        description: t('removeServerConfirmDescription'),
+        confirmLabel: t('removeServerConfirmButton'),
+      })
+      if (!ok) return
       setBulkBusy(action)
       targets.forEach((item) => setRowBusy((prev) => ({ ...prev, [item.workshopId]: action })))
       try {
@@ -360,7 +379,7 @@ export function WorkshopCollectionPanel() {
             : t('removedServerBulkNoAutoSyncDesc', { count: targets.length }),
         })
       } catch (err: any) {
-        toast({ variant: 'destructive', title: t('toastServerRemovalFailedTitle'), description: err?.message || t('toastServerRemovalFailedDesc') })
+        toast({ variant: 'destructive', title: t('toastServerRemovalFailedTitle'), description: getUserErrorMessage(err, t('toastServerRemovalFailedDesc')) })
       } finally {
         setBulkBusy(null)
         setRowBusy({})
@@ -381,7 +400,7 @@ export function WorkshopCollectionPanel() {
         else if (action === 'untrack') await modsApi.collectionUntrack(it.workshopId)
         ok++
       } catch (err: any) {
-        errors.push({ id: it.workshopId, error: err?.message || 'failed' })
+        errors.push({ id: it.workshopId, error: getUserErrorMessage(err, t('genericItemActionFailed')) })
       } finally {
         setRowBusy((prev) => {
           const next = { ...prev }
@@ -396,10 +415,17 @@ export function WorkshopCollectionPanel() {
     if (errors.length === 0) {
       toast({ title: t('toastBulkCompleteTitle'), description: t('toastBulkCompleteDesc', { count: ok }) })
     } else {
+      // Don't silently drop errors 2..N behind "first error" -- if every
+      // failure is the same, say so explicitly; if they differ, say how
+      // many distinct causes there were so the user knows more than one
+      // thing needs attention instead of assuming a single fluke.
+      const uniqueErrors = [...new Set(errors.map((e) => e.error))]
       toast({
         variant: 'destructive',
         title: t('toastBulkFailureTitle', { count: errors.length }),
-        description: t('toastBulkFailureDesc', { ok, failed: errors.length, error: errors[0].error }),
+        description: uniqueErrors.length === 1
+          ? t('toastBulkFailureDescSame', { ok, failed: errors.length, error: uniqueErrors[0] })
+          : t('toastBulkFailureDescMixed', { ok, failed: errors.length, causes: uniqueErrors.length, error: uniqueErrors[0] }),
       })
     }
   }
@@ -476,7 +502,7 @@ export function WorkshopCollectionPanel() {
               <span className="text-muted-foreground/60">·</span>
               <span>{t('autoSyncLabel')} <strong className={autoSync ? 'text-success' : 'text-muted-foreground'}>{autoSync ? t('on') : t('off')}</strong></span>
               <span className="text-muted-foreground/60">·</span>
-              <span>{t('refreshedAgo', { ago: formatAgo(diffCheckedAt, t) })}</span>
+              <span>{t('refreshedAgo', { ago: formatAgo(diffCheckedAt, t, i18n.language) })}</span>
               {!credsConfigured && (
                 <>
                   <span className="text-muted-foreground/60">·</span>
@@ -518,6 +544,7 @@ export function WorkshopCollectionPanel() {
               onClick={refresh}
               disabled={diffLoading}
               className="h-8 px-2 text-xs"
+              // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, same text as the visible label; disables only transiently while re-reading is in flight (the spinning icon is the self-evident why). Triaged 2026-08-27.
               title={t('rereadTitle')}
             >
               <RefreshCw className={cn('w-3.5 h-3.5 mr-1.5', diffLoading && 'animate-spin')} />
@@ -711,6 +738,7 @@ export function WorkshopCollectionPanel() {
               className="h-7 px-2 text-[11px] text-destructive hover:text-destructive hover:bg-destructive/10"
               onClick={() => runBulk('remove-server')}
               disabled={!!bulkBusy || !canBulkRemoveServer}
+              // eslint-disable-next-line local/no-dead-disabled-title -- hint describing the button's purpose/use-case ("after they were removed from Steam"), not an instruction tied to canBulkRemoveServer or bulkBusy -- doesn't tell the user what to do to enable it. Read as pure hint, not a disabled-reason. Triaged 2026-08-27.
               title={t('removeServerBulkTitle')}
             >
               {bulkBusy === 'remove-server' ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Minus className="w-3 h-3 mr-1" />}
@@ -779,6 +807,37 @@ export function WorkshopCollectionPanel() {
                       onAction={(action) => {
                         if (action === 'purge') {
                           setPurgeTarget(it)
+                          return
+                        }
+                        if (action === 'untrack') {
+                          // Unlike Settings.tsx's plain untrack (local tracking
+                          // only), this one also writes an ignore-list entry AND
+                          // mirrors the removal into the user's real Steam
+                          // Workshop collection -- an effect outside the panel
+                          // entirely, on an account we do not own. Untiered in
+                          // Pam's 52-action destructive audit (only "Remove
+                          // everywhere" was), so it never got a confirm at all.
+                          confirm({
+                            title: t('untrackConfirmTitle'),
+                            description: t('untrackConfirmDescription'),
+                            variant: 'warning',
+                            confirmLabel: t('untrackAndUnsync'),
+                          }).then((ok) => {
+                            if (ok) runRowAction(it.workshopId, action)
+                          })
+                          return
+                        }
+                        if (action === 'remove-server') {
+                          // Mods.tsx confirms this exact operation (modsApi.batchRemove)
+                          // on both its row and bulk paths; this panel and Settings.tsx
+                          // reached the same server mutation with no confirm at all.
+                          confirm({
+                            title: t('removeServerConfirmTitle'),
+                            description: t('removeServerConfirmDescription'),
+                            confirmLabel: t('removeServerConfirmButton'),
+                          }).then((ok) => {
+                            if (ok) runRowAction(it.workshopId, action)
+                          })
                           return
                         }
                         runRowAction(it.workshopId, action)
@@ -912,6 +971,7 @@ function Row({
   onAction: (action: RowAction) => void
 }) {
   const { t } = useTranslation('workshopCollectionPanel')
+  const { toast } = useToast()
   const statusMeta =
     item.status === 'synced'
       ? { label: t('statusInSync'), cls: 'text-success border-success/40 bg-success/10', icon: <Check className="w-3 h-3" /> }
@@ -971,6 +1031,7 @@ function Row({
               className="h-7 px-2 text-[11px] text-destructive hover:text-destructive hover:bg-destructive/10"
               onClick={() => onAction('remove-server')}
               disabled={!!busy}
+              // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, disables only transiently while an action is in flight (the spinner is the self-evident why). Triaged 2026-08-27.
               title={t('removeFromServerTitle')}
             >
               {busy === 'remove-server' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Server className="w-3 h-3" />}
@@ -983,6 +1044,7 @@ function Row({
               className="h-7 px-2 text-[11px] text-success hover:text-success hover:bg-success/10"
               onClick={() => onAction('add-server')}
               disabled={!!busy}
+              // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, disables only transiently while an action is in flight (the spinner is the self-evident why). Triaged 2026-08-27.
               title={t('addToServerTitle')}
             >
               {busy === 'add-server' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Server className="w-3 h-3" />}
@@ -990,31 +1052,37 @@ function Row({
             </Button>
           )}
           {item.inCollection ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 px-2 text-[11px] text-destructive hover:text-destructive hover:bg-destructive/10"
-              onClick={() => onAction('remove')}
-              disabled={!!busy || !credsConfigured || tokenExpired}
-              title={tokenExpired ? t('sessionExpiredShort') : !credsConfigured ? t('needCookiesShort') : t('removeFromCollectionTitle')}
-              aria-label={tokenExpired ? t('sessionExpiredShort') : !credsConfigured ? t('needCookiesShort') : undefined}
-            >
-              {busy === 'remove' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Minus className="w-3 h-3" />}
-              <span className="ml-1 hidden sm:inline">{t('remove')}</span>
-            </Button>
+            <DisabledReason reason={tokenExpired ? t('sessionExpiredShort') : !credsConfigured ? t('needCookiesShort') : null}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-[11px] text-destructive hover:text-destructive hover:bg-destructive/10"
+                onClick={() => onAction('remove')}
+                disabled={!!busy || !credsConfigured || tokenExpired}
+                // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (REAL bug: title alone was never visible on a disabled native button -- Chromium shows no tooltip -- despite the ternary correctly selecting "Steam session expired"/"Need Steam cookies"; the aria-label carried the same text but that's an accessible-only channel, not a visual one). The disabled-reason now lives in the DisabledReason wrapper above; this title carries only the enabled-state action label.
+                title={tokenExpired || !credsConfigured ? undefined : t('removeFromCollectionTitle')}
+                aria-label={tokenExpired ? t('sessionExpiredShort') : !credsConfigured ? t('needCookiesShort') : undefined}
+              >
+                {busy === 'remove' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Minus className="w-3 h-3" />}
+                <span className="ml-1 hidden sm:inline">{t('remove')}</span>
+              </Button>
+            </DisabledReason>
           ) : (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 px-2 text-[11px] text-success hover:text-success hover:bg-success/10"
-              onClick={() => onAction('add')}
-              disabled={!!busy || !credsConfigured || tokenExpired}
-              title={tokenExpired ? t('sessionExpiredShort') : !credsConfigured ? t('needCookiesShort') : t('addToCollectionTitle')}
-              aria-label={tokenExpired ? t('sessionExpiredShort') : !credsConfigured ? t('needCookiesShort') : undefined}
-            >
-              {busy === 'add' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
-              <span className="ml-1 hidden sm:inline">{t('add')}</span>
-            </Button>
+            <DisabledReason reason={tokenExpired ? t('sessionExpiredShort') : !credsConfigured ? t('needCookiesShort') : null}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-[11px] text-success hover:text-success hover:bg-success/10"
+                onClick={() => onAction('add')}
+                disabled={!!busy || !credsConfigured || tokenExpired}
+                // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27, same real bug and fix as the remove-from-collection button above.
+                title={tokenExpired || !credsConfigured ? undefined : t('addToCollectionTitle')}
+                aria-label={tokenExpired ? t('sessionExpiredShort') : !credsConfigured ? t('needCookiesShort') : undefined}
+              >
+                {busy === 'add' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+                <span className="ml-1 hidden sm:inline">{t('add')}</span>
+              </Button>
+            </DisabledReason>
           )}
           {item.inTracked ? (
             <Button
@@ -1023,7 +1091,8 @@ function Row({
               className="h-7 px-2 text-[11px] text-muted-foreground hover:text-destructive hover:bg-destructive/10"
               onClick={() => onAction('untrack')}
               disabled={!!busy}
-              title={t('untrackLocallyTitle')}
+              // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, disables only transiently while an action is in flight (the spinner is the self-evident why). Triaged 2026-08-27.
+              title={t('untrackAndUnsyncTitle')}
             >
               {busy === 'untrack' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Bookmark className="w-3 h-3" />}
               <span className="ml-1 hidden sm:inline">{t('untrack')}</span>
@@ -1035,6 +1104,7 @@ function Row({
               className="h-7 px-2 text-[11px] text-muted-foreground hover:text-primary hover:bg-primary/10"
               onClick={() => onAction('track')}
               disabled={!!busy}
+              // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, disables only transiently while an action is in flight (the spinner is the self-evident why). Triaged 2026-08-27.
               title={t('trackLocallyTitle')}
             >
               {busy === 'track' ? <Loader2 className="w-3 h-3 animate-spin" /> : <BookmarkPlus className="w-3 h-3" />}
@@ -1043,7 +1113,14 @@ function Row({
           )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" disabled={!!busy} title={t('moreTitle')}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0"
+                disabled={!!busy}
+                // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("More"), disables only transiently while an action is in flight. Triaged 2026-08-27.
+                title={t('moreTitle')}
+              >
                 <span className="text-base leading-none">⋯</span>
               </Button>
             </DropdownMenuTrigger>
@@ -1062,7 +1139,17 @@ function Row({
                 </a>
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={() => { navigator.clipboard.writeText(item.workshopId).catch(() => {}) }}
+                onClick={() => {
+                  // copyText, not the raw clipboard API directly, so this
+                  // still works over a plain-HTTP LAN deployment --
+                  // navigator.clipboard requires a secure context and is
+                  // unavailable there; copyText falls back to execCommand.
+                  copyText(item.workshopId).then((ok) => {
+                    toast(ok
+                      ? { title: t('copiedTitle'), description: item.workshopId }
+                      : { title: t('copyFailedTitle'), variant: 'destructive' })
+                  })
+                }}
               >
                 <Library className="w-3.5 h-3.5 mr-2" />
                 {t('copyWorkshopId')}

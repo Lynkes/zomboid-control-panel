@@ -151,6 +151,15 @@ export const ErrorCode = Object.freeze({
   /** server/routes/serverFiles.js -- PUT /ini, `settings` carries a
    * __proto__/constructor/prototype key (prototype-pollution guard). */
   INI_SETTINGS_INVALID: "INI_SETTINGS_INVALID",
+  /** server/routes/serverFiles.js -- PUT /ini, the live file has a key
+   * duplicated across two config blocks (utils/iniDuplicateKeys.js). The
+   * structured save reconstructs the file from a flat settings object, so
+   * every key present gets ALL of its lines rewritten to one value --
+   * permanently discarding the other copy on every save, even one that
+   * never touched that key. Refused rather than allowed; the raw tab
+   * round-trips the file byte-for-byte and stays available to fix it.
+   * bug-hunt-2026-08-27, Angela's structured-save destructive-write trace. */
+  INI_DUPLICATE_KEY_BLOCKS_STRUCTURED_SAVE: "INI_DUPLICATE_KEY_BLOCKS_STRUCTURED_SAVE",
   /** server/routes/serverFiles.js (3 sites: GET /sandbox, GET
    * /sandbox/validate, POST /sandbox/repair) -- no <serverName>_SandboxVars.
    * lua at the resolved config path. Identical wording/meaning all three,
@@ -225,6 +234,18 @@ export const ErrorCode = Object.freeze({
   /** server/routes/serverFiles.js -- PUT /raw/:type, `content` exceeds
    * 512KB. */
   RAW_CONTENT_TOO_LARGE: "RAW_CONTENT_TOO_LARGE",
+  /** server/routes/serverFiles.js -- PUT /raw/ini, a secret-shaped line
+   * (e.g. RCONPassword) came back masked but reconcileMaskedIniLines()
+   * couldn't match it to exactly one live line to restore (key missing, or
+   * the key appears more than once in either the live file or the
+   * submission). Refused rather than guessed; nothing was written. */
+  RAW_INI_SECRET_UNRESOLVABLE: "RAW_INI_SECRET_UNRESOLVABLE",
+  /** server/routes/serverFiles.js -- PUT /raw/ini, a secret-shaped line that
+   * held a real value live was entirely removed from the submitted content
+   * (not just masked-and-unchanged). Refused rather than silently dropping
+   * or silently restoring a credential the operator may not have realized
+   * was real. */
+  RAW_INI_SECRET_LINE_REMOVED: "RAW_INI_SECRET_LINE_REMOVED",
   /** server/routes/serverFiles.js -- POST /restore/:filename, sanitized
    * filename doesn't end in .bak. */
   RESTORE_INVALID_EXTENSION: "RESTORE_INVALID_EXTENSION",
@@ -389,9 +410,25 @@ export const ErrorCode = Object.freeze({
   /** server/routes/rcon.js -- POST /api/rcon/connect, password isn't a
    * string or exceeds 256 characters. */
   RCON_INVALID_PASSWORD: "RCON_INVALID_PASSWORD",
-  /** server/routes/rcon.js -- POST /api/rcon/connect, rconService.connect()
-   * returned false (server not running or RCON not enabled there). */
+  /** No longer emitted by server/routes/rcon.js as of the 2026-08-26 /connect
+   * granularity fix -- a failed connect() is now always classified as one of
+   * the two codes below instead. Kept defined (not deleted) since it's a
+   * frozen wire value other integrations may still match on; see
+   * RCON_CONNECT_UNREACHABLE / RCON_CONNECT_AUTH_FAILED for the real codes. */
   RCON_CONNECT_FAILED: "RCON_CONNECT_FAILED",
+  /** server/routes/rcon.js -- POST /api/rcon/connect, rconService.connect()
+   * failed and a follow-up TCP probe confirms host:port is unreachable --
+   * same classification /api/rcon/test uses (RCON_UNREACHABLE_DETAIL in
+   * services/rcon.js). Also emitted by server/routes/config.js -- POST
+   * /api/config/test-rcon (added 2026-08-26), same probe and same detail
+   * string, reused rather than a third independently-drifting mapping. */
+  RCON_CONNECT_UNREACHABLE: "RCON_CONNECT_UNREACHABLE",
+  /** server/routes/rcon.js -- POST /api/rcon/connect, rconService.connect()
+   * failed but host:port IS reachable -- treated as a failed authentication,
+   * same classification /api/rcon/test uses (RCON_AUTH_FAILED_DETAIL in
+   * services/rcon.js). Also emitted by server/routes/config.js -- POST
+   * /api/config/test-rcon (added 2026-08-26), same reasoning. */
+  RCON_CONNECT_AUTH_FAILED: "RCON_CONNECT_AUTH_FAILED",
 
   /** server/routes/backup.js -- POST /api/backup/create, active server is
    * remote (SFTP-managed), so there's no local filesystem to back up. */
@@ -414,7 +451,7 @@ export const ErrorCode = Object.freeze({
    * server process is currently running. */
   BACKUP_RESTORE_SERVER_RUNNING: "BACKUP_RESTORE_SERVER_RUNNING",
   /** server/routes/backup.js -- POST /api/backup/delete-older-than, `days`
-   * isn't a number >= 1. */
+   * isn't a whole number >= 1. */
   BACKUP_INVALID_DAYS_PARAMETER: "BACKUP_INVALID_DAYS_PARAMETER",
   /** server/routes/backup.js -- POST /api/backup/upload, active server is
    * remote. Distinct from the create/restore remote-refusal codes above --
@@ -584,6 +621,47 @@ export const ErrorCode = Object.freeze({
    * but none of the known PZ server marker files are present -- refusing to
    * delete a folder that might not be a PZ install. */
   DELETE_FILES_NOT_PZ_INSTALL: "DELETE_FILES_NOT_PZ_INSTALL",
+  /** server/routes/server.js -- POST /api/server/delete-files, the active
+   * server's zomboidDataPath is inside (or equal to) the install folder
+   * being deleted -- deleting it would also destroy the world save, not
+   * just the reinstallable game binaries. Refused outright rather than
+   * backing the data up first: the backups folder lives inside the same
+   * doomed tree. */
+  DELETE_FILES_DATA_PATH_NESTED: "DELETE_FILES_DATA_PATH_NESTED",
+  /** server/routes/server.js -- POST /api/server/delete-files. The prior
+   * safety check here (hasPzInstallMarker) only confirmed a handful of
+   * marker FILENAMES exist in the target directory -- trivially satisfied
+   * by creating an empty file with one of those names anywhere on the host,
+   * not an authorization check (bug-hunt-2026-08-27, filed alongside the
+   * server.wipe capability-description undersell it made real). Both real
+   * callers (Servers.tsx's "Delete Everything" and "Clear Install Folder")
+   * only ever pass a path already sitting in a configured server record's
+   * own installPath -- so deletePath is now required to exactly match one,
+   * turning "any directory with a spoofable marker file" into "must be a
+   * server the panel already has on record" (which itself requires
+   * servers.manage to create, a capability distinct from server.wipe). The
+   * marker check stays as a second, narrower layer on top, not a
+   * replacement. */
+  DELETE_FILES_NOT_CONFIGURED_SERVER: "DELETE_FILES_NOT_CONFIGURED_SERVER",
+  /** server/routes/server.js -- POST /api/server/delete-files, caller didn't
+   * pass `confirm: true`. Split from WIPE_CONFIRM_REQUIRED below (2026-08-26
+   * bug hunt round 2, Angela's find) rather than continuing to share it: that
+   * code's own name and message ("Wipe requires confirm: true") are correct
+   * for /wipe, and /delete-files was the borrower, not a co-owner -- unlike
+   * WIPE_SERVER_RUNNING two entries below, which genuinely IS shared by
+   * design (see that entry's own comment for why the two cases differ). The
+   * risk with the shared version wasn't hypothetical: api.ts hardcodes
+   * confirm:true for both of today's callers so the branch can't fire from
+   * the UI right now, but that's a precondition of the CURRENT client, not a
+   * property of the code -- the first caller that doesn't hardcode it would
+   * get an error about wiping when they were deleting files, or the reverse.
+   * Same anti-pattern already fixed for WRITABLE_PATH_ERROR and
+   * RCON_CONNECT_FAILED (see KNOWN_INTENTIONALLY_UNREFERENCED in
+   * server/tests/errorCodeRegistry.test.js for that pattern's write-up) --
+   * unlike those two, WIPE_CONFIRM_REQUIRED is NOT retired here: it keeps
+   * being correctly emitted by /wipe, so it stays in active use rather than
+   * moving to that allowlist. */
+  DELETE_FILES_CONFIRM_REQUIRED: "DELETE_FILES_CONFIRM_REQUIRED",
   /** server/routes/server.js -- POST /api/server/list-directory, path exists
    * but isn't a directory. */
   PATH_NOT_A_DIRECTORY: "PATH_NOT_A_DIRECTORY",
@@ -651,16 +729,47 @@ export const ErrorCode = Object.freeze({
    * same code, even though delete-files writes its own delete-flavored
    * `error` text at the call site rather than reusing wipe's wording. */
   WIPE_SERVER_RUNNING: "WIPE_SERVER_RUNNING",
-  /** server/routes/server.js (2 sites: /wipe, /delete-files) -- caller
-   * didn't pass `confirm: true`. See WIPE_SERVER_RUNNING above for why this
-   * is shared rather than split per route. */
+  /** server/routes/server.js -- POST /api/server/wipe, caller didn't pass
+   * `confirm: true`. /delete-files used to share this code too (own English
+   * text, same code) -- split out as DELETE_FILES_CONFIRM_REQUIRED above
+   * (2026-08-26 bug hunt round 2): unlike WIPE_SERVER_RUNNING above, which
+   * really is one condition meaning the same thing at both call sites,
+   * "confirm required" here was never a shared concept, just a borrowed
+   * code -- this one stays exactly what its name always said, /wipe's own. */
   WIPE_CONFIRM_REQUIRED: "WIPE_CONFIRM_REQUIRED",
+  /** server/routes/server.js -- POST /api/server/wipe, `createBackup` was
+   * true (the default) but the pre-wipe backup itself failed (backup
+   * service unavailable, or backupService.createBackup()/the accounts-db
+   * copy rejected). The wipe is aborted before any deletion runs -- fail
+   * closed, same reasoning as restoreBackup()'s mandatory pre-restore
+   * backup: proceeding after a failed backup is worse than not offering
+   * one, since the operator now believes an undo exists. */
+  WIPE_BACKUP_FAILED: "WIPE_BACKUP_FAILED",
+  /** server/routes/server.js -- POST /wipe, the backup succeeded and
+   * deletion began, but one of the per-target delete steps (map dirs,
+   * leftovers-sweep, accounts db) threw partway through -- e.g. an EPERM
+   * on one file in a multi-directory delete. The players/world steps
+   * already catch their own errors and record "not found" instead of
+   * crashing; map/leftovers/accounts did not, so a mid-loop throw used to
+   * reach the outer catch and return a bare `{error}` with no indication
+   * of which targets partially completed or that a pre-wipe backup exists
+   * to recover from. 2026-08-26, partial-failure-state hunt. Carries the
+   * partial `results` object (same shape as a successful wipe's) plus
+   * `backupCreated`/`backupName` so the operator isn't left guessing
+   * whether an undo exists. Params: {reason}. */
+  WIPE_PARTIAL_FAILURE: "WIPE_PARTIAL_FAILURE",
 
   /** server/routes/chunks.js -- POST /save-path, no `path` string in the body. */
   CHUNKS_SAVE_PATH_MISSING: "CHUNKS_SAVE_PATH_MISSING",
   /** server/routes/chunks.js -- POST /save-path, the validated path resolved
    * to an empty string after normalization. */
   CHUNKS_SAVE_PATH_EMPTY: "CHUNKS_SAVE_PATH_EMPTY",
+  /** server/routes/chunks.js -- POST /save-path, the submitted path would
+   * actually CHANGE the active server's zomboidDataPath and the caller
+   * holds chunks.manage but not server.configure. Repointing a server's
+   * entire data path (RCON credentials and every server-scoped file
+   * included) is server.configure's territory, not just chunk cleanup. */
+  CHUNKS_SAVE_PATH_CAPABILITY_REQUIRED: "CHUNKS_SAVE_PATH_CAPABILITY_REQUIRED",
   /** server/routes/chunks.js (4 sites: GET /chunks/:saveName, POST
    * /delete-chunks, POST /delete-region, GET /stats/:saveName) -- :saveName
    * fails the path.basename() round-trip check. Identical wording/meaning
@@ -1121,6 +1230,12 @@ export const ErrorCode = Object.freeze({
   /** server/routes/panelBridge.js -- POST /command, `args` provided but
    * isn't a plain object. */
   PANELBRIDGE_ARGS_MUST_BE_OBJECT: "PANELBRIDGE_ARGS_MUST_BE_OBJECT",
+  /** server/routes/panelBridge.js -- POST /command, `action` is one of the
+   * four moderation actions (BRIDGE_ACTION_CAPABILITY) and the caller holds
+   * bridge.command but not the specific capability (players.moderate) that
+   * governs discipline actions everywhere else in the app.
+   * bug-hunt-2026-08-27: Pam's cross-route-family capability sweep. */
+  PANELBRIDGE_ACTION_CAPABILITY_REQUIRED: "PANELBRIDGE_ACTION_CAPABILITY_REQUIRED",
   /** server/routes/panelBridge.js -- POST /command action=spawnVehicleAt,
    * `vehicle`/`scriptName` fails VEHICLE_SCRIPT_REGEX. */
   PANELBRIDGE_INVALID_VEHICLE_SCRIPT_NAME: "PANELBRIDGE_INVALID_VEHICLE_SCRIPT_NAME",
@@ -1286,6 +1401,52 @@ export const ErrorCode = Object.freeze({
    * reasoning as PANELBRIDGE_SCAN_ITEMS_NOT_RUNNING above for vehicles. */
   PANELBRIDGE_SCAN_VEHICLES_NOT_RUNNING: "PANELBRIDGE_SCAN_VEHICLES_NOT_RUNNING",
 
+  /** server/services/panelBridgeSftp.js -- classifySftpErrorCode(), one of
+   * seven codes for the PanelBridge SFTP transport (POST /panel-bridge/
+   * sftp/test, /sftp/configure, and the transport.lastErrorCode field on GET
+   * /panel-bridge/status). Added 2026-08-26: formatSftpError()/
+   * getSftpErrorGuidance() already classified these failures correctly (a
+   * chrooted account vs. a bad password vs. a missing remote path vs. a
+   * network failure, ...) and appended a tailored English "Fix: ..."
+   * sentence, but that classifier was a parallel system that never fed into
+   * this registry -- every non-English user saw the raw English sentence
+   * regardless of locale. Each code's errors.json translation reproduces
+   * formatSftpError()'s exact "{{detail}} Fix: ..." shape via a {{detail}}
+   * param carrying the original error.message, so the dynamic specifics the
+   * English version carried (the literal path, the literal errno) survive
+   * translation instead of being replaced by a vaguer generic sentence --
+   * see resolveRegisteredTranslation's params-required-or-null design (used
+   * by RCON_CONNECT_AUTH_FAILED et al.) for why a missing `detail` param
+   * falls back to the raw message rather than ever rendering a broken
+   * "{{detail}}" literal. SFTP_UNKNOWN is the catch-all last entry in
+   * classifySftpError()'s ordered list -- always matches, never actually
+   * "unregistered". */
+  SFTP_CHROOTED_ACCOUNT: "SFTP_CHROOTED_ACCOUNT",
+  /** Same file, sibling of SFTP_CHROOTED_ACCOUNT above -- wrong username or
+   * password, or the account can't complete the SSH handshake at all. */
+  SFTP_AUTH_FAILED: "SFTP_AUTH_FAILED",
+  /** Same file -- reachable, authenticated, but the account lacks write
+   * access to the remote bridge folder or its parent. Distinct from the
+   * unrelated RBAC-level PERMISSION_DENIED above: that one means "this
+   * panel user can't call this API"; this one means "the remote SFTP
+   * account can't write this remote path" -- two unconnected concepts that
+   * happen to share the English phrase "permission denied". */
+  SFTP_PERMISSION_DENIED: "SFTP_PERMISSION_DENIED",
+  /** Same file -- the configured remote bridge path doesn't exist yet
+   * (first-time setup, or a typo). */
+  SFTP_REMOTE_PATH_MISSING: "SFTP_REMOTE_PATH_MISSING",
+  /** Same file -- something already occupies the exact path PanelBridge.lua
+   * needs to write to, and it isn't a regular file (e.g. a directory with
+   * that name). */
+  SFTP_PATH_OCCUPIED: "SFTP_PATH_OCCUPIED",
+  /** Same file -- connection-level failure (refused, timed out, DNS
+   * failure, host unreachable) reaching the SFTP host at all. */
+  SFTP_UNREACHABLE: "SFTP_UNREACHABLE",
+  /** Same file -- classifySftpError()'s catch-all: none of the six more
+   * specific patterns above matched. Always has a match (last entry's test
+   * is unconditional), so this is a real, reachable outcome, not dead code. */
+  SFTP_UNKNOWN: "SFTP_UNKNOWN",
+
   /** server/routes/server.js -- formatWritablePathError("install", ...),
    * /install and /quick-setup, installPath fails the post-checks writable
    * probe, not running in a container. Split from the single WRITABLE_PATH_
@@ -1340,6 +1501,454 @@ export const ErrorCode = Object.freeze({
    * false "connection successful". Carries `{{reason}}` (the underlying
    * OAuth error code or failure message, sanitizeError()'d). */
   OIDC_TEST_UNDETERMINED: "OIDC_TEST_UNDETERMINED",
+
+  // --- server/routes/players.js -- never adopted this registry at all
+  // until now (2026-08-26 bug hunt round 2, Angela's find): every
+  // validation branch in the GM-tools surface (add-item, add-xp,
+  // vehicle-spawn, moderation, notes, exports) was a bare error string
+  // with no code, so none of it could be translated, carry a fix-it
+  // destination, or be classified, in any of the six languages. Grouped
+  // identical wording across sites into one shared code, same convention
+  // AUTH_USERNAME_PASSWORD_REQUIRED etc. already established -- listed
+  // below by first call site, all sharing sites named in the comment. ---
+
+  /** server/routes/players.js (10 sites: /kick, /ban, /unban,
+   * /whitelist/add, /whitelist/remove, /godmode, /invisible, /noclip,
+   * /voiceban, /adduser) -- `username` missing from the body. Identical
+   * wording/meaning at every site, shared code. */
+  PLAYERS_USERNAME_REQUIRED: "PLAYERS_USERNAME_REQUIRED",
+  /** server/routes/players.js (14 sites: /kick, /ban, /unban,
+   * /access-level, /whitelist/add, /whitelist/remove, /add-item, /add-xp,
+   * /add-vehicle, /godmode, /invisible, /noclip, /voiceban, /adduser) --
+   * `username` fails isValidUsername() (control chars/quotes/backslash
+   * guard against RCON command injection). Identical wording/meaning at
+   * every site, shared code. Distinct from PLAYERS_TELEPORT_INVALID_
+   * PLAYER1/2 below, which name which specific field failed on /teleport
+   * rather than reusing this generic wording. */
+  PLAYERS_INVALID_USERNAME: "PLAYERS_INVALID_USERNAME",
+  /** server/routes/players.js (3 sites: /ban, /banid) -- optional `reason`
+   * fails isValidText(). Identical wording/meaning both routes, shared
+   * code. */
+  PLAYERS_INVALID_REASON: "PLAYERS_INVALID_REASON",
+  /** server/routes/players.js -- POST /api/players/ban, `banIp` present but
+   * not a boolean. */
+  PLAYERS_INVALID_BAN_IP: "PLAYERS_INVALID_BAN_IP",
+  /** server/routes/players.js -- POST /api/players/access-level, `username`
+   * and/or `level` missing. Own code from PLAYERS_USERNAME_REQUIRED above
+   * -- this route requires a second field in the same check, different
+   * wording. */
+  PLAYERS_ACCESS_LEVEL_FIELDS_REQUIRED: "PLAYERS_ACCESS_LEVEL_FIELDS_REQUIRED",
+  /** server/routes/players.js -- POST /api/players/access-level, `level`
+   * not one of ACCESS_LEVELS. Carries `{{validLevels}}` (ACCESS_LEVELS
+   * joined) as a param -- same shape as AUTH_INVALID_ROLE's `{{roles}}`
+   * above. */
+  PLAYERS_INVALID_ACCESS_LEVEL: "PLAYERS_INVALID_ACCESS_LEVEL",
+  /** server/routes/players.js (2 sites: /whitelist/add, /adduser) --
+   * optional `password` fails its alphanumeric-plus-symbols/length format
+   * check. Identical wording/meaning both sites, shared code. */
+  PLAYERS_INVALID_PASSWORD: "PLAYERS_INVALID_PASSWORD",
+  /** server/routes/players.js -- POST /api/players/teleport, x/y/z present
+   * but fail isValidNumber() range checks (0-24000 for x/y, 0-8 for z). */
+  PLAYERS_TELEPORT_INVALID_COORDINATES: "PLAYERS_TELEPORT_INVALID_COORDINATES",
+  /** server/routes/players.js (2 sites, both within POST
+   * /api/players/teleport) -- `player1` fails isValidUsername(), in either
+   * the coordinate-teleport branch or the player-to-player branch. Own
+   * wording ("player1", not the generic "username") from PLAYERS_INVALID_
+   * USERNAME above, so the response names which field. */
+  PLAYERS_TELEPORT_INVALID_PLAYER1: "PLAYERS_TELEPORT_INVALID_PLAYER1",
+  /** server/routes/players.js -- POST /api/players/teleport, coordinate
+   * branch: `player1` given but PanelBridge isn't running, and RCON's
+   * `teleportto` can't target another player. */
+  PLAYERS_TELEPORT_BRIDGE_OFFLINE: "PLAYERS_TELEPORT_BRIDGE_OFFLINE",
+  /** server/routes/players.js -- POST /api/players/teleport,
+   * player-to-player branch: optional `player2` fails isValidUsername().
+   * See PLAYERS_TELEPORT_INVALID_PLAYER1 above for why this names the
+   * field rather than reusing the generic username code. */
+  PLAYERS_TELEPORT_INVALID_PLAYER2: "PLAYERS_TELEPORT_INVALID_PLAYER2",
+  /** server/routes/players.js -- POST /api/players/teleport, neither
+   * coordinates nor a target player were given. */
+  PLAYERS_TELEPORT_TARGET_REQUIRED: "PLAYERS_TELEPORT_TARGET_REQUIRED",
+  /** server/routes/players.js -- POST /api/players/add-item, `item`
+   * missing. */
+  PLAYERS_ITEM_REQUIRED: "PLAYERS_ITEM_REQUIRED",
+  /** server/routes/players.js -- POST /api/players/add-item, `item` fails
+   * isValidItem() (must be "Module.ItemName" shape). */
+  PLAYERS_INVALID_ITEM: "PLAYERS_INVALID_ITEM",
+  /** server/routes/players.js -- POST /api/players/add-item, optional
+   * `count` fails isValidNumber(1, 100). */
+  PLAYERS_INVALID_ITEM_COUNT: "PLAYERS_INVALID_ITEM_COUNT",
+  /** server/routes/players.js -- POST /api/players/add-item, `item`/`count`
+   * valid but no `username` given -- unlike /add-vehicle, add-item has no
+   * self-target concept, so a player must be picked. */
+  PLAYERS_ADD_ITEM_TARGET_REQUIRED: "PLAYERS_ADD_ITEM_TARGET_REQUIRED",
+  /** server/routes/players.js -- POST /api/players/add-xp,
+   * `username`/`perk`/`amount` missing (checked together). */
+  PLAYERS_ADD_XP_FIELDS_REQUIRED: "PLAYERS_ADD_XP_FIELDS_REQUIRED",
+  /** server/routes/players.js -- POST /api/players/add-xp, `perk` not one
+   * of PERKS. Carries `{{validPerks}}` (PERKS joined) as a param, same
+   * shape as PLAYERS_INVALID_ACCESS_LEVEL above. */
+  PLAYERS_INVALID_PERK: "PLAYERS_INVALID_PERK",
+  /** server/routes/players.js -- POST /api/players/add-xp, `amount` fails
+   * isValidNumber(0, 100000). */
+  PLAYERS_INVALID_XP_AMOUNT: "PLAYERS_INVALID_XP_AMOUNT",
+  /** server/routes/players.js -- POST /api/players/add-vehicle, `vehicle`
+   * missing. */
+  PLAYERS_VEHICLE_REQUIRED: "PLAYERS_VEHICLE_REQUIRED",
+  /** server/routes/players.js (2 sites: /add-vehicle, /add-vehicle-at) --
+   * `vehicle` fails the "Module.VehicleName" format check. Identical
+   * wording/meaning both sites, shared code. */
+  PLAYERS_INVALID_VEHICLE_ID: "PLAYERS_INVALID_VEHICLE_ID",
+  /** server/routes/players.js -- POST /api/players/add-vehicle-at, x/y/z
+   * fail isValidNumber() range checks. Own wording ("map coordinates", no
+   * range spelled out) from PLAYERS_TELEPORT_INVALID_COORDINATES above --
+   * different route, different phrasing. */
+  PLAYERS_INVALID_MAP_COORDINATES: "PLAYERS_INVALID_MAP_COORDINATES",
+  /** server/routes/players.js (4 sites: /godmode, /invisible, /noclip,
+   * /voiceban) -- `enabled` present but not a boolean. Identical
+   * wording/meaning at every site, shared code. */
+  PLAYERS_INVALID_ENABLED_FLAG: "PLAYERS_INVALID_ENABLED_FLAG",
+  /** server/routes/players.js (2 sites: /banid, /unbanid) -- `steamId`
+   * missing. Identical wording/meaning both sites, shared code. */
+  PLAYERS_STEAMID_REQUIRED: "PLAYERS_STEAMID_REQUIRED",
+  /** server/routes/players.js (4 sites: /banid, /unbanid,
+   * /whitelist/steamid/add, /whitelist/steamid/remove) -- `steamId` fails
+   * the 17-digit format check. Identical wording/meaning at every site,
+   * shared code. */
+  PLAYERS_INVALID_STEAMID: "PLAYERS_INVALID_STEAMID",
+  /** server/routes/players.js -- GET /api/players/whitelist, no active
+   * server configured. */
+  PLAYERS_NO_ACTIVE_SERVER: "PLAYERS_NO_ACTIVE_SERVER",
+  /** server/routes/players.js -- POST /api/players/notes, `playerName`
+   * missing. */
+  PLAYERS_NOTE_PLAYER_NAME_REQUIRED: "PLAYERS_NOTE_PLAYER_NAME_REQUIRED",
+  /** server/routes/players.js -- POST /api/players/notes, `playerName`
+   * fails isValidUsername(). Own code from PLAYERS_INVALID_USERNAME above
+   * -- this route's own wording ("player name", not "username"). */
+  PLAYERS_INVALID_NOTE_PLAYER_NAME: "PLAYERS_INVALID_NOTE_PLAYER_NAME",
+  /** server/routes/players.js -- POST /api/players/notes, `note` present
+   * but not a string. */
+  PLAYERS_NOTE_MUST_BE_TEXT: "PLAYERS_NOTE_MUST_BE_TEXT",
+  /** server/routes/players.js -- POST /api/players/notes, `note` exceeds
+   * 10000 characters. */
+  PLAYERS_NOTE_TOO_LONG: "PLAYERS_NOTE_TOO_LONG",
+  /** server/routes/players.js -- POST /api/players/notes, `tags` present
+   * but not an array. */
+  PLAYERS_NOTE_TAGS_MUST_BE_ARRAY: "PLAYERS_NOTE_TAGS_MUST_BE_ARRAY",
+  /** server/routes/players.js -- POST /api/players/notes, a `tags` entry
+   * isn't a string or exceeds 50 characters. */
+  PLAYERS_NOTE_INVALID_TAGS: "PLAYERS_NOTE_INVALID_TAGS",
+  /** server/routes/players.js -- DELETE /api/players/notes/:playerName, no
+   * note existed for that player. */
+  PLAYERS_NOTE_NOT_FOUND: "PLAYERS_NOTE_NOT_FOUND",
+  /** server/routes/players.js (2 sites: GET /exports/:username/:filename,
+   * DELETE /exports/:username/:filename) -- `username`/`filename` fail
+   * their path-traversal-safe format checks. Identical wording/meaning
+   * both sites, shared code. */
+  PLAYERS_EXPORT_INVALID_PARAMETERS: "PLAYERS_EXPORT_INVALID_PARAMETERS",
+  /** server/routes/players.js (2 sites: GET /exports/:username/:filename,
+   * DELETE /exports/:username/:filename) -- resolved export file doesn't
+   * exist on disk. Identical wording/meaning both sites, shared code. */
+  PLAYERS_EXPORT_NOT_FOUND: "PLAYERS_EXPORT_NOT_FOUND",
+
+  /** server/routes/scheduler.js (2 sites: POST /tasks, PUT /tasks/:id) --
+   * request body missing/not an object/an array. Identical wording/meaning
+   * both sites, shared code. */
+  SCHEDULER_REQUEST_BODY_INVALID: "SCHEDULER_REQUEST_BODY_INVALID",
+  /** server/routes/scheduler.js -- POST /tasks, name/cronExpression/command
+   * missing. PUT /tasks/:id has no equivalent (all fields optional there,
+   * a partial update), so this is not shared. */
+  SCHEDULER_TASK_FIELDS_REQUIRED: "SCHEDULER_TASK_FIELDS_REQUIRED",
+  /** server/routes/scheduler.js -- POST /validate-cron, `cronExpression` is
+   * missing entirely. Deliberately its own code rather than reusing
+   * SCHEDULER_TASK_FIELDS_REQUIRED: that one's translated text names three
+   * required fields (name/cronExpression/command) for task creation, which
+   * would be misleading on this single-field preview endpoint. */
+  SCHEDULER_CRON_EXPRESSION_REQUIRED: "SCHEDULER_CRON_EXPRESSION_REQUIRED",
+  /** server/routes/scheduler.js (2 sites: POST /tasks, PUT /tasks/:id) --
+   * `name` present but not a string or exceeds 100 characters. Identical
+   * wording/meaning both sites, shared code. */
+  SCHEDULER_INVALID_TASK_NAME: "SCHEDULER_INVALID_TASK_NAME",
+  /** server/routes/scheduler.js (2 sites: POST /tasks, PUT /tasks/:id) --
+   * `command` present but not a string or exceeds 2000 characters.
+   * Identical wording/meaning both sites, shared code. */
+  SCHEDULER_INVALID_COMMAND: "SCHEDULER_INVALID_COMMAND",
+  /** server/routes/scheduler.js -- POST /tasks, `cronExpression` present
+   * but not a string or exceeds 100 characters (a type/length check, not
+   * node-cron's own validator -- see SCHEDULER_INVALID_CRON_EXPRESSION for
+   * that one). PUT /tasks/:id has no equivalent standalone check. */
+  SCHEDULER_INVALID_CRON_FORMAT: "SCHEDULER_INVALID_CRON_FORMAT",
+  /** server/routes/scheduler.js (3 sites: POST /tasks, PUT /tasks/:id,
+   * POST /validate-cron) -- node-cron's own cron.validate() rejects the
+   * expression. Identical meaning at all three sites; the raw English text
+   * differs at the validate-cron site (a shorter preview-only phrasing) but
+   * the client translates by this code, not the raw string, so that's fine. */
+  SCHEDULER_INVALID_CRON_EXPRESSION: "SCHEDULER_INVALID_CRON_EXPRESSION",
+  /** server/routes/scheduler.js (3 sites: POST /tasks, PUT /tasks/:id,
+   * POST /validate-cron) -- a 6-field (seconds-precision) cron expression;
+   * the panel only supports the standard 5-field form. Identical
+   * wording/meaning all three sites, shared code. */
+  SCHEDULER_CRON_SECONDS_UNSUPPORTED: "SCHEDULER_CRON_SECONDS_UNSUPPORTED",
+  /** server/routes/scheduler.js (3 sites: POST /tasks, PUT /tasks/:id,
+   * POST /validate-cron) -- isCronTooFrequent() rejects a schedule firing
+   * more than once every 5 minutes (DoS guard). Identical wording/meaning
+   * all three sites, shared code. */
+  SCHEDULER_CRON_TOO_FREQUENT: "SCHEDULER_CRON_TOO_FREQUENT",
+  /** server/routes/scheduler.js (2 sites: POST /tasks, PUT /tasks/:id) --
+   * an explicitly given `serverId` doesn't match any known server.
+   * Identical wording/meaning both sites, shared code. */
+  SCHEDULER_TARGET_SERVER_NOT_FOUND: "SCHEDULER_TARGET_SERVER_NOT_FOUND",
+  /** server/routes/scheduler.js -- POST /tasks, scheduler.scheduleTask()
+   * rejected the task after the DB row was already created (row is rolled
+   * back before this responds). Carries the underlying reason as the
+   * `reason` param -- the specific cause (e.g. a scheduler-internal
+   * rejection) is more useful here than a generic message, unlike the
+   * file's catch-all 500s. */
+  SCHEDULER_TASK_SCHEDULING_FAILED: "SCHEDULER_TASK_SCHEDULING_FAILED",
+  /** server/routes/scheduler.js (4 sites: PUT /tasks/:id, DELETE
+   * /tasks/:id, POST /tasks/:id/run, GET /history) -- the `:id`/`taskId`
+   * param fails parseTaskId()'s bounded-integer check. Identical
+   * wording/meaning at every site, shared code. */
+  SCHEDULER_INVALID_TASK_ID: "SCHEDULER_INVALID_TASK_ID",
+  /** server/routes/scheduler.js -- PUT /tasks/:id, `enabled` present but
+   * not one of true/false/0/1. */
+  SCHEDULER_INVALID_ENABLED_VALUE: "SCHEDULER_INVALID_ENABLED_VALUE",
+  /** server/routes/scheduler.js (3 sites: PUT /tasks/:id, DELETE
+   * /tasks/:id, POST /tasks/:id/run) -- no scheduled task exists for the
+   * given ID. Identical wording/meaning at every site, shared code. */
+  SCHEDULER_TASK_NOT_FOUND: "SCHEDULER_TASK_NOT_FOUND",
+  /** server/routes/scheduler.js -- PUT /tasks/:id, scheduler.scheduleTask()
+   * rejected the updated task; the previous DB record is restored before
+   * this responds. Carries the underlying reason as the `reason` param,
+   * same rationale as SCHEDULER_TASK_SCHEDULING_FAILED above. */
+  SCHEDULER_TASK_RESCHEDULE_FAILED: "SCHEDULER_TASK_RESCHEDULE_FAILED",
+  /** server/routes/scheduler.js -- POST /restart-now, the active server is
+   * remote (this panel doesn't manage its process). */
+  SCHEDULER_RESTART_REMOTE_NOT_SUPPORTED: "SCHEDULER_RESTART_REMOTE_NOT_SUPPORTED",
+
+  /** server/routes/config.js -- PUT /app-settings, `settings` missing or not
+   * an object. */
+  CONFIG_APP_SETTINGS_REQUIRED: "CONFIG_APP_SETTINGS_REQUIRED",
+  /** server/routes/config.js -- PUT /app-settings, caller tried to CHANGE a
+   * settings key (rconPassword, Steam credentials, PanelBridge SFTP,
+   * discordGuildId, Workshop session cookies, ...) without holding the
+   * capability that actually governs it -- panel.settings alone is not
+   * enough for these. See SETTINGS_KEY_CAPABILITY in that file. */
+  CONFIG_APP_SETTINGS_CAPABILITY_REQUIRED: "CONFIG_APP_SETTINGS_CAPABILITY_REQUIRED",
+  /** server/routes/config.js -- PUT /app-settings, corsAllowedOrigins fails
+   * validateCorsAllowedOrigins() (too long, too many origins, an origin too
+   * long, or an invalid URL/protocol). Carries that function's own specific
+   * message as the `reason` param rather than flattening five distinct
+   * failure shapes into one generic sentence. */
+  CONFIG_INVALID_CORS_ORIGINS: "CONFIG_INVALID_CORS_ORIGINS",
+  /** server/routes/config.js -- PUT /app-settings, `serverName` fails the
+   * filesystem-safe name regex (interpolated into `${serverName}.ini` and
+   * the launch script name downstream). */
+  CONFIG_INVALID_SERVER_NAME: "CONFIG_INVALID_SERVER_NAME",
+  /** server/routes/config.js -- PUT /app-settings, `modCheckInterval` fails
+   * minutesToCheckIntervalMs(). */
+  CONFIG_INVALID_MOD_CHECK_INTERVAL: "CONFIG_INVALID_MOD_CHECK_INTERVAL",
+  /** server/routes/config.js (12 sites: modRestartDelay,
+   * serverAutoUpdateWarningMinutes, httpsPort, panelPort, rconPort,
+   * serverPort, panelBridgeSftpPort, panelBridgeSftpPollIntervalSeconds,
+   * minMemory, maxMemory, autoExportMaxPerPlayer, reconnectInterval) -- a
+   * numeric app-setting fails its requireIntInRange()/parseBoundedInteger()
+   * range check. Every site already produces a fully-formed, field-specific
+   * message ("X must be a whole number between/from A and B") from those
+   * two shared helpers -- carried as the `message` param rather than
+   * inventing 12 near-duplicate codes/locale entries for the same shape. */
+  CONFIG_INVALID_NUMERIC_FIELD: "CONFIG_INVALID_NUMERIC_FIELD",
+  /** server/routes/config.js -- PUT /app-settings, `lanIpAddress` is
+   * non-empty and not a valid IPv4 address. */
+  CONFIG_INVALID_LAN_IP: "CONFIG_INVALID_LAN_IP",
+  /** server/routes/config.js -- PUT /app-settings (14 boolean-shaped keys,
+   * one shared check) -- a key that must be strictly true/false received a
+   * non-boolean value. Carries the offending key name as the `field` param. */
+  CONFIG_INVALID_BOOLEAN_FIELD: "CONFIG_INVALID_BOOLEAN_FIELD",
+  /** server/routes/config.js -- PUT /app-settings, httpsCertPath/
+   * httpsKeyPath given a non-string, non-empty value. Carries the field
+   * name as the `field` param. */
+  CONFIG_HTTPS_PATH_NOT_STRING: "CONFIG_HTTPS_PATH_NOT_STRING",
+  /** server/routes/config.js -- PUT /app-settings, httpsCertPath/
+   * httpsKeyPath points at a path that doesn't exist. Carries `field` and
+   * `value` params. */
+  CONFIG_HTTPS_PATH_NOT_FOUND: "CONFIG_HTTPS_PATH_NOT_FOUND",
+  /** server/routes/config.js -- PUT /app-settings, httpsCertPath/
+   * httpsKeyPath points at a directory, not a file. Carries `field` and
+   * `value` params. */
+  CONFIG_HTTPS_PATH_NOT_A_FILE: "CONFIG_HTTPS_PATH_NOT_A_FILE",
+  /** server/routes/config.js -- PUT /app-settings, httpsCertPath/
+   * httpsKeyPath exists but isn't readable by the panel process. Carries
+   * `field` and `value` params. */
+  CONFIG_HTTPS_PATH_NOT_READABLE: "CONFIG_HTTPS_PATH_NOT_READABLE",
+  /** server/routes/config.js -- PUT /app-settings, `httpsPort` would collide
+   * with the stored `panelPort`. Carries the conflicting port as the
+   * `panelPort` param. */
+  CONFIG_HTTPS_PORT_MATCHES_PANEL_PORT: "CONFIG_HTTPS_PORT_MATCHES_PANEL_PORT",
+  /** server/routes/config.js -- PUT /app-settings, `panelPort` would
+   * collide with the stored `httpsPort` -- the reverse direction of the
+   * check above, kept as its own code rather than shared: the two
+   * messages name different fields and read as different sentences, not
+   * one meaning at two sites. Carries the conflicting port as the
+   * `httpsPort` param. */
+  CONFIG_PANEL_PORT_MATCHES_HTTPS_PORT: "CONFIG_PANEL_PORT_MATCHES_HTTPS_PORT",
+  /** server/routes/config.js -- PUT /app-settings, `chatPresets` present
+   * but not an array. */
+  CONFIG_CHAT_PRESETS_NOT_ARRAY: "CONFIG_CHAT_PRESETS_NOT_ARRAY",
+  /** server/routes/config.js -- PUT /app-settings, `chatPresets` exceeds 50
+   * entries. */
+  CONFIG_CHAT_PRESETS_TOO_MANY: "CONFIG_CHAT_PRESETS_TOO_MANY",
+  /** server/routes/config.js -- PUT /app-settings, a `chatPresets` entry
+   * isn't a string or exceeds 500 characters. */
+  CONFIG_CHAT_PRESETS_INVALID_ENTRY: "CONFIG_CHAT_PRESETS_INVALID_ENTRY",
+  /** server/routes/config.js (2 sites: GET /cors-debug, DELETE
+   * /cors-debug/blocked) -- the CORS diagnostics hooks were never
+   * registered on the app (req.app.get returns a non-function). Identical
+   * wording/meaning both sites, shared code. */
+  CONFIG_CORS_DIAGNOSTICS_UNAVAILABLE: "CONFIG_CORS_DIAGNOSTICS_UNAVAILABLE",
+  /** server/routes/config.js -- POST /cors-debug/reload, the CORS config
+   * reload hook was never registered on the app. */
+  CONFIG_CORS_RELOAD_UNAVAILABLE: "CONFIG_CORS_RELOAD_UNAVAILABLE",
+
+  /** server/routes/discord.js -- GET /config, PUT /config, POST /start,
+   * POST /stop, POST /reset, POST /test-message, PUT /webhook-events, GET
+   * /permissions, PUT /permissions: req.app.get("discordBot") returned
+   * nothing, i.e. the bot was never constructed on this app instance.
+   * Identical meaning at every site (there is nothing to operate on), so
+   * one shared code despite differing HTTP status (most are 500, POST
+   * /test-message uses 400) -- the status varies, the meaning doesn't. */
+  DISCORD_BOT_NOT_INITIALIZED: "DISCORD_BOT_NOT_INITIALIZED",
+  /** server/routes/discord.js -- PUT /config, neither a token nor
+   * KEEP_EXISTING resolved to one, or guildId was missing. */
+  DISCORD_TOKEN_AND_GUILD_REQUIRED: "DISCORD_TOKEN_AND_GUILD_REQUIRED",
+  /** server/routes/discord.js -- PUT /config, `guildId` fails the Discord
+   * Snowflake format check. Kept distinct from the four sibling ID-format
+   * checks below despite an identical regex and message shape: each names
+   * a different field, so a reader learns something different from each
+   * one -- same lesson as config.js's two port-collision codes. */
+  DISCORD_INVALID_GUILD_ID: "DISCORD_INVALID_GUILD_ID",
+  /** server/routes/discord.js -- PUT /config, `adminRoleId` fails the
+   * Discord Snowflake format check. */
+  DISCORD_INVALID_ADMIN_ROLE_ID: "DISCORD_INVALID_ADMIN_ROLE_ID",
+  /** server/routes/discord.js -- PUT /config, `modRoleId` fails the
+   * Discord Snowflake format check. */
+  DISCORD_INVALID_MOD_ROLE_ID: "DISCORD_INVALID_MOD_ROLE_ID",
+  /** server/routes/discord.js -- PUT /config, `channelId` fails the
+   * Discord Snowflake format check. */
+  DISCORD_INVALID_CHANNEL_ID: "DISCORD_INVALID_CHANNEL_ID",
+  /** server/routes/discord.js -- PUT /config, `chatRelayChannelId` fails
+   * the Discord Snowflake format check. */
+  DISCORD_INVALID_CHAT_RELAY_CHANNEL_ID: "DISCORD_INVALID_CHAT_RELAY_CHANNEL_ID",
+  /** server/routes/discord.js -- PUT /config, `chatRelayScope` is present
+   * but not one of "public"/"no-yell"/"general". */
+  DISCORD_INVALID_CHAT_RELAY_SCOPE: "DISCORD_INVALID_CHAT_RELAY_SCOPE",
+  /** server/routes/discord.js -- POST /start, discordBot.start() returned
+   * false. Carries {{reason}} = describeStartFailure(discordBot.lastStartError). */
+  DISCORD_START_FAILED: "DISCORD_START_FAILED",
+  /** server/routes/discord.js -- POST /test, `token` missing, empty, or
+   * over 200 characters. */
+  DISCORD_TEST_TOKEN_INVALID_INPUT: "DISCORD_TEST_TOKEN_INVALID_INPUT",
+  /** server/routes/discord.js -- POST /test, `token` fails the
+   * URL-safe-base64-ish character check. */
+  DISCORD_TEST_TOKEN_INVALID_FORMAT: "DISCORD_TEST_TOKEN_INVALID_FORMAT",
+  /** server/routes/discord.js -- POST /test, Discord's API answered 429 to
+   * the validation request. */
+  DISCORD_TEST_RATE_LIMITED: "DISCORD_TEST_RATE_LIMITED",
+  /** server/routes/discord.js -- POST /test, Discord's API answered 5xx.
+   * Carries {{status}} = the real HTTP status Discord returned. */
+  DISCORD_TEST_API_UNAVAILABLE: "DISCORD_TEST_API_UNAVAILABLE",
+  /** server/routes/discord.js -- POST /test, Discord's API answered a
+   * non-401, non-429, non-5xx failure status. Carries {{status}}. */
+  DISCORD_TEST_REQUEST_REJECTED: "DISCORD_TEST_REQUEST_REJECTED",
+  /** server/routes/discord.js -- POST /test, Discord's API answered 401 --
+   * the token itself is wrong (not rate-limited, not down, not some other
+   * rejection). This is the one pre-existing site with test coverage
+   * (discordTestTokenErrors.test.js). */
+  DISCORD_TEST_TOKEN_INVALID: "DISCORD_TEST_TOKEN_INVALID",
+  /** server/routes/discord.js -- POST /test-message, discordBot exists but
+   * `isRunning` is false. */
+  DISCORD_BOT_NOT_RUNNING: "DISCORD_BOT_NOT_RUNNING",
+  /** server/routes/discord.js -- POST /test-message, sendNotification()
+   * returned false -- Discord accepted the request but didn't deliver
+   * (bad channel ID, bot lacks permission to post there). */
+  DISCORD_TEST_MESSAGE_REJECTED: "DISCORD_TEST_MESSAGE_REJECTED",
+  /** server/routes/discord.js -- PUT /webhook-events, `events` missing or
+   * not an object. */
+  DISCORD_EVENTS_CONFIG_REQUIRED: "DISCORD_EVENTS_CONFIG_REQUIRED",
+  /** server/routes/discord.js -- PUT /permissions, `permissions` missing
+   * or not an object. */
+  DISCORD_PERMISSIONS_OBJECT_REQUIRED: "DISCORD_PERMISSIONS_OBJECT_REQUIRED",
+  /** server/routes/discord.js -- PUT /permissions, caller tried to CHANGE
+   * a command's Discord authorization tier without holding the panel
+   * capability that command maps to (e.g. lowering /rcon's tier to
+   * "everyone" without holding rcon.execute). Setting a Discord tier is
+   * handing out an authority through a second, unaudited door; you cannot
+   * hand out one you do not hold yourself in the panel. */
+  DISCORD_PERMISSIONS_CAPABILITY_REQUIRED: "DISCORD_PERMISSIONS_CAPABILITY_REQUIRED",
+
+  // --- server/routes/templates.js + server/services/templateService.js:
+  // the "simulation template" system (server/data/templates/*.json, sparse
+  // SandboxVars/ini overrides). NOT the same feature as TEMPLATE_NOT_FOUND
+  // etc. above -- those belong to serverFiles.js's own separate, simpler
+  // embedded /templates routes (a different resource, different storage,
+  // different ID space). Same English wording in places ("Template not
+  // found") is coincidence, not shared meaning -- reusing the serverFiles.js
+  // code here would make one code mean two different missing resources. ---
+  /** server/services/templateService.js (5 sites, surfaced through
+   * server/routes/templates.js's GET /:id, GET /:id/export, POST
+   * /:id/preview, POST /:id/apply, DELETE /:id) -- the template id doesn't
+   * match a built-in or a stored user template. Identical meaning all five,
+   * shared code. */
+  SIM_TEMPLATE_NOT_FOUND: "SIM_TEMPLATE_NOT_FOUND",
+  /** server/services/templateService.js (2 sites: previewTemplate,
+   * applyTemplate) -- `serverId` doesn't match a configured server. */
+  SIM_TEMPLATE_SERVER_NOT_FOUND: "SIM_TEMPLATE_SERVER_NOT_FOUND",
+  /** server/services/templateService.js (2 sites: previewTemplate,
+   * applyTemplate) -- resolveServerPaths() couldn't derive an ini/SandboxVars
+   * path (no serverConfigPath/zomboidDataPath, or serverName fails the
+   * filename-safe charset check). */
+  SIM_TEMPLATE_SERVER_NO_CONFIG_PATH: "SIM_TEMPLATE_SERVER_NO_CONFIG_PATH",
+  /** server/services/templateService.js -- saveTemplate(), the submitted
+   * `meta.id` matches one of the built-in templates. */
+  SIM_TEMPLATE_BUILTIN_READONLY: "SIM_TEMPLATE_BUILTIN_READONLY",
+  /** server/services/templateService.js (2 sites: saveTemplate,
+   * importTemplate) -- validateTemplate() rejected the template. Carries
+   * {{errors}} = the joined validation error list; a static translation
+   * would discard the actual field-level detail. */
+  SIM_TEMPLATE_VALIDATION_FAILED: "SIM_TEMPLATE_VALIDATION_FAILED",
+  /** server/routes/templates.js (2 sites: POST /:id/preview, POST
+   * /:id/apply) -- `serverId` missing from the request body. */
+  SIM_TEMPLATE_SERVER_ID_REQUIRED: "SIM_TEMPLATE_SERVER_ID_REQUIRED",
+  /** server/routes/templates.js (3 sites, all POST /:id/apply targeting the
+   * currently active server) -- serverManager can't report process state
+   * (no getServerProcessDetails, a scan that completed with scanFailed, or
+   * the state check itself threw). Fails closed: "can't verify" is treated
+   * the same as "don't apply," not as "must be stopped." */
+  SIM_TEMPLATE_APPLY_STATE_UNKNOWN: "SIM_TEMPLATE_APPLY_STATE_UNKNOWN",
+  /** server/routes/templates.js -- POST /:id/apply, the target is the
+   * active server and it's confirmed running. */
+  SIM_TEMPLATE_APPLY_SERVER_RUNNING: "SIM_TEMPLATE_APPLY_SERVER_RUNNING",
+  /** server/routes/templates.js -- POST /:id/apply, the target is a
+   * configured-but-not-active server. serverManager only tracks the active
+   * server's process, so there's no way to check a different server's
+   * running state -- refused rather than assumed stopped. See 2026-08-24
+   * conv-template-privesc. */
+  SIM_TEMPLATE_APPLY_INACTIVE_SERVER_UNVERIFIABLE:
+    "SIM_TEMPLATE_APPLY_INACTIVE_SERVER_UNVERIFIABLE",
+  /** server/services/templateService.js -- applyTemplate(), the target
+   * server has `isRemote: true`. */
+  SIM_TEMPLATE_APPLY_REMOTE_UNSUPPORTED: "SIM_TEMPLATE_APPLY_REMOTE_UNSUPPORTED",
+  /** server/services/templateService.js -- applyTemplate(), the template
+   * has ini keys to write but the server's .ini file doesn't exist yet
+   * (server never started). Previously an uncaught throw from
+   * prepareIniChange() that fell into templates.js's generic 500 catch;
+   * now caught and returned as a normal {success:false} result like every
+   * other applyTemplate failure. Deliberately NOT matching
+   * prepareSandboxChange()'s sibling behavior (skip gracefully when
+   * SandboxVars.lua is missing) -- that's a real asymmetry worth a second
+   * look, but changing which files silently skip vs. hard-fail is a
+   * behavior change outside this registry pass's scope; flagged, not
+   * fixed, here. */
+  SIM_TEMPLATE_APPLY_INI_MISSING: "SIM_TEMPLATE_APPLY_INI_MISSING",
 });
 
 /**

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../database/init.js", () => ({
   getSetting: vi.fn(async (key) => {
@@ -18,6 +18,7 @@ vi.mock("../services/managedContainer.js", () => ({
 }));
 
 const { UpdateChecker } = await import("../services/updateChecker.js");
+const dbModule = await import("../database/init.js");
 
 // runAutoUpdate() used to call serverManager.checkServerRunning(), which
 // collapses a failed process-detection scan into `false` -- the same value
@@ -81,5 +82,177 @@ describe("UpdateChecker.runAutoUpdate fails closed when process detection can't 
       "server:autoUpdateComplete",
       expect.objectContaining({ success: false }),
     );
+  });
+});
+
+// 2026-08-26: a live socket event only reaches whoever happens to be
+// watching at the moment it fires -- exactly the operator this unattended
+// feature is for is guaranteed not to be. These pin the persisted
+// lastAutoUpdateResult (phase + a stable reason key, never a raw message)
+// that any page can read cold, long after the run finished.
+describe("UpdateChecker persists lastAutoUpdateResult so it survives past the live event", () => {
+  function buildChecker({ getServerProcessDetails, startServer, rconOverrides } = {}) {
+    const io = { emit: vi.fn() };
+    const rconService = {
+      connected: true,
+      save: vi.fn(async () => ({ success: true })),
+      quit: vi.fn(async () => ({ success: true })),
+      ...rconOverrides,
+    };
+    const serverManager = {
+      getServerProcessDetails,
+      startServer: startServer || vi.fn(async () => ({ success: true })),
+    };
+    const checker = new UpdateChecker(io, { rconService, serverManager });
+    return { checker, io, rconService, serverManager };
+  }
+
+  afterEach(() => {
+    vi.mocked(dbModule.setSetting).mockClear();
+  });
+
+  it("records phase 'not-started' and serverUp:null for a pre-flight failure (initial scan failed) -- nothing was ever touched", async () => {
+    const { checker } = buildChecker({
+      getServerProcessDetails: vi.fn(async () => ({ running: false, scanFailed: true })),
+    });
+
+    await expect(checker.runAutoUpdate({ installed: { branch: "stable" } })).rejects.toThrow();
+
+    const status = await checker.getStatus();
+    expect(status.lastAutoUpdateResult).toMatchObject({
+      status: "failed",
+      reason: "INITIAL_SCAN_FAILED",
+      phase: "not-started",
+      serverUp: null,
+      dismissed: false,
+    });
+  });
+
+  it("records phase 'before-stop' and serverUp:true for a failure before the server was ever stopped (RCON not connected)", async () => {
+    const { checker } = buildChecker({
+      getServerProcessDetails: vi.fn(async () => ({ running: true, scanFailed: false })),
+      rconOverrides: { connected: false },
+    });
+
+    await expect(checker.runAutoUpdate({ installed: { branch: "stable" } })).rejects.toThrow();
+
+    const status = await checker.getStatus();
+    expect(status.lastAutoUpdateResult).toMatchObject({
+      status: "failed",
+      reason: "RCON_NOT_CONNECTED",
+      phase: "before-stop",
+      serverUp: true,
+    });
+  });
+
+  it("does NOT attempt the finally-block restart for a before-stop failure -- the server was never actually stopped, so a restart is not just unneeded but guaranteed to throw", async () => {
+    const { checker, serverManager } = buildChecker({
+      getServerProcessDetails: vi.fn(async () => ({ running: true, scanFailed: false })),
+      rconOverrides: { connected: false },
+    });
+
+    await expect(checker.runAutoUpdate({ installed: { branch: "stable" } })).rejects.toThrow();
+
+    expect(serverManager.startServer).not.toHaveBeenCalled();
+  });
+
+  it("carries the world-save failure's own detail as a translatable param, not a raw message baked into `reason`", async () => {
+    const { checker } = buildChecker({
+      getServerProcessDetails: vi.fn(async () => ({ running: true, scanFailed: false })),
+      rconOverrides: { save: vi.fn(async () => ({ success: false, error: "disk full" })) },
+    });
+
+    await expect(checker.runAutoUpdate({ installed: { branch: "stable" } })).rejects.toThrow();
+
+    const status = await checker.getStatus();
+    expect(status.lastAutoUpdateResult.reason).toBe("SAVE_FAILED");
+    expect(status.lastAutoUpdateResult.params).toEqual({ reason: "disk full" });
+  });
+
+  it("records phase 'updating' and corrects serverUp to true once the finally-block restart succeeds (SteamCMD failed after a clean stop)", async () => {
+    let scanCall = 0;
+    const { checker } = buildChecker({
+      getServerProcessDetails: vi.fn(async () => {
+        scanCall += 1;
+        if (scanCall === 1) return { running: true, scanFailed: false }; // initial: running
+        return { running: false, scanFailed: false }; // stop-wait loop: confirmed stopped
+      }),
+      startServer: vi.fn(async () => ({ success: true })),
+    });
+    // steamcmdPath resolves to /opt/steamcmd, whose steamcmd.sh/steamcmd
+    // binaries won't exist in a test sandbox -- that's fine, it's still a
+    // failure reached AFTER the server was confirmed stopped, which is
+    // exactly the phase this test targets.
+
+    await expect(checker.runAutoUpdate({ installed: { branch: "stable" } })).rejects.toThrow(/steamcmd not found/i);
+
+    const status = await checker.getStatus();
+    expect(status.lastAutoUpdateResult).toMatchObject({
+      status: "failed",
+      reason: "STEAMCMD_NOT_FOUND",
+      phase: "updating",
+      serverUp: true, // corrected by the finally block's successful restart
+    });
+  });
+
+  it("corrects serverUp to false when the finally-block restart itself fails -- the server is actually down", async () => {
+    let scanCall = 0;
+    const { checker } = buildChecker({
+      getServerProcessDetails: vi.fn(async () => {
+        scanCall += 1;
+        if (scanCall === 1) return { running: true, scanFailed: false };
+        return { running: false, scanFailed: false };
+      }),
+      startServer: vi.fn(async () => ({ success: false, error: "port already in use" })),
+    });
+
+    await expect(checker.runAutoUpdate({ installed: { branch: "stable" } })).rejects.toThrow();
+
+    const status = await checker.getStatus();
+    expect(status.lastAutoUpdateResult.serverUp).toBe(false);
+  });
+
+  it("records a success result with the applied version, not just a bare success flag", async () => {
+    // A real success run needs an actual steamcmd binary on disk to spawn,
+    // which this unit test sandbox doesn't have -- exercises
+    // _recordAutoUpdateResult() directly instead, the exact call
+    // runAutoUpdate()'s own success branch makes.
+    const { checker } = buildChecker({
+      getServerProcessDetails: vi.fn(async () => ({ running: false, scanFailed: false })),
+    });
+    await checker._recordAutoUpdateResult({ status: "success", at: "2026-08-26T00:00:00.000Z", appliedVersion: "42.13.0" });
+
+    const status = await checker.getStatus();
+    expect(status.lastAutoUpdateResult).toMatchObject({
+      status: "success",
+      appliedVersion: "42.13.0",
+      dismissed: false,
+    });
+  });
+
+  it("a fresh run's result always re-arms dismissed:false, even if the previous one was dismissed", async () => {
+    const { checker } = buildChecker({
+      getServerProcessDetails: vi.fn(async () => ({ running: true, scanFailed: false })),
+      rconOverrides: { connected: false },
+    });
+
+    await expect(checker.runAutoUpdate({ installed: { branch: "stable" } })).rejects.toThrow();
+    await checker.dismissAutoUpdateResult();
+    expect((await checker.getStatus()).lastAutoUpdateResult.dismissed).toBe(true);
+
+    await expect(checker.runAutoUpdate({ installed: { branch: "stable" } })).rejects.toThrow();
+    expect((await checker.getStatus()).lastAutoUpdateResult.dismissed).toBe(false);
+  });
+
+  it("getStatus() falls back to the persisted setting on a cold instance that has not run an auto-update yet this process", async () => {
+    const persisted = { status: "failed", reason: "STOP_TIMEOUT", phase: "before-stop", serverUp: true, dismissed: false, at: "2026-08-26T00:00:00.000Z" };
+    vi.mocked(dbModule.getSetting).mockImplementationOnce(async (key) =>
+      key === "lastAutoUpdateResult" ? persisted : null,
+    );
+    const io = { emit: vi.fn() };
+    const checker = new UpdateChecker(io, { rconService: {}, serverManager: {} });
+
+    const status = await checker.getStatus();
+    expect(status.lastAutoUpdateResult).toEqual(persisted);
   });
 });

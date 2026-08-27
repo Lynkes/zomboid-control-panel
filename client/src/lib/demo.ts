@@ -382,7 +382,53 @@ function demoIniSettings(): Record<string, string> {
     RCONPassword: 'demo-password',
     Mods: 'DemoMod1;DemoMod2',
     WorkshopItems: '1234567890;0987654321',
-    LuaChecksum: 'false',
+    DoLuaChecksum: 'false',
+  }
+}
+
+function demoStorageHealth() {
+  return {
+    diskSpace: {
+      saveVolume: null,
+      panelData: {
+        path: null,
+        totalBytes: 0,
+        freeBytes: 0,
+        usedPercent: 0,
+        warning: false,
+        critical: false,
+      },
+    },
+    circuitBreaker: {
+      open: false,
+      lastError: null,
+      failCount: 0,
+      cooldownEndsAt: null,
+    },
+  }
+}
+
+function demoServerStatus() {
+  return {
+    running: false,
+    startTime: null,
+    uptime: 0,
+    serverPath: '/opt/pz',
+    configured: true,
+    localIp: '127.0.0.1',
+    port: 16261,
+    rcon: { host: '127.0.0.1', port: 27015, connected: false },
+  }
+}
+
+function demoComposedStatus() {
+  return {
+    provider: 'native',
+    selected: true,
+    host: { status: 'stopped', label: 'Stopped', detail: null },
+    server: { status: 'disconnected', label: 'Disconnected', detail: null },
+    bridge: { status: 'offline', label: 'Offline', detail: null },
+    summary: 'Demo server is offline',
   }
 }
 
@@ -404,6 +450,21 @@ export function installDemoFetchShim(): void {
     }
     if (path === '/api/health') {
       return jsonResponse({ version: `${(typeof __PANEL_VERSION__ !== 'undefined' ? __PANEL_VERSION__ : '0.0.0')}-demo` })
+    }
+    if (path === '/api/system/storage-health') {
+      return jsonResponse(demoStorageHealth())
+    }
+    if (path === '/api/server/status') {
+      return jsonResponse(demoServerStatus())
+    }
+    if (path === '/api/servers/active/status') {
+      return jsonResponse(demoComposedStatus())
+    }
+    if (path === '/api/players') {
+      return jsonResponse({ players: [] })
+    }
+    if (path === '/api/panel-bridge/status') {
+      return jsonResponse({ configured: true, isRunning: false, modConnected: false, modStatus: null })
     }
     if (path === '/api/panel-info') {
       return jsonResponse({ localIp: '127.0.0.1', port: 3001, url: 'http://demo.local:3001' })
@@ -646,11 +707,12 @@ export function installDemoFetchShim(): void {
       })
     }
     if (path === '/api/mods/collection/extract-cookies' && method === 'POST') {
+      // Matches the real route's response shape: the server saves the
+      // credentials itself and reports success, it never echoes them back.
       return jsonResponse({
         ok: true,
         browser: 'firefox',
-        sessionid: 'demo-session',
-        steamLoginSecure: 'demo-secure-cookie',
+        saved: true,
         notes: ['Demo mode does not read browser cookies.'],
       })
     }

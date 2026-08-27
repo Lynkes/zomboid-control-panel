@@ -15,6 +15,7 @@
   "clearSelectionAria": "Efase seleksyon",
   "searchNVehiclesPlaceholder": "Chèche {{count}} veyikil...",
   "filterVehiclesAria": "Filtre veyikil",
+  "clearSearchAria": "Efase rechèch",
   "rescanTitle": "Eskane veyikil sèvè a ankò",
   "vehicleListAria": "Lis veyikil",
   "noVehiclesMatch": "Pa gen veyikil ki koresponn ak “{{search}}”",

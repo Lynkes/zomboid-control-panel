@@ -27,7 +27,8 @@
     "placeholderAdmin": "admins uniquement — appuyez sur entrée pour envoyer…",
     "placeholderGeneral": "publié en tant qu'Admin — appuyez sur entrée pour envoyer…",
     "placeholderServer": "diffusé à tous les joueurs — appuyez sur entrée pour envoyer…",
-    "sendButton": "envoyer"
+    "sendButton": "envoyer",
+    "noPermission": "Vous n'avez pas la permission d'envoyer des messages de chat."
   },
   "footer": {
     "adminOnly": "admins uniquement — masqué pour les joueurs",
@@ -51,7 +52,11 @@
     "addAria": "Ajouter un message rapide",
     "saveAria": "Enregistrer",
     "cancelAria": "Annuler",
-    "deleteAria": "Supprimer le message rapide {{index}}"
+    "deleteAria": "Supprimer le message rapide {{index}}",
+    "deleteConfirmTitle": "Supprimer ce message rapide ?",
+    "deleteConfirmDescription": "\"{{preset}}\" est partagé -- tous les admins qui utilisent les messages rapides le perdront aussi. Vous pouvez toujours le rajouter.",
+    "deleteConfirmButton": "Supprimer le message rapide",
+    "noPermission": "Vous n'avez pas la permission de gérer les messages rapides."
   },
   "toasts": {
     "adminSentTitle": "Message admin envoyé",

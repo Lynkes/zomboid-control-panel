@@ -1,4 +1,12 @@
 {
+  "permissions": {
+    "noModsManage": "Ihre Rolle hat keine Berechtigung, Mods zu verwalten.",
+    "noServersManage": "Ihre Rolle hat keine Berechtigung, Server zu verwalten."
+  },
+  "permissionDenied": {
+    "title": "Du kannst keine Mods einsehen",
+    "description": "Die Rolle deines Kontos enthält nicht das Recht „Mods verwalten“. Bitte einen Administrator, es zu vergeben, wenn du Zugriff auf diese Seite brauchst."
+  },
   "fetchError": {
     "title": "Mod-Daten konnten nicht geladen werden",
     "retry": "Erneut versuchen"
@@ -47,6 +55,11 @@
     "reported_other": "{{count}} Mod-Aktualisierungen von Steam gemeldet — Markierungen nicht synchron",
     "desc": "Der Workshop-Ordner enthält neuere Dateien, als das Panel erfasst hat. Führe eine Prüfung aus, um den Status der einzelnen Mods zu aktualisieren.",
     "checkNow": "Jetzt prüfen"
+  },
+  "duplicateKeysWarning": {
+    "title_one": "\"{{keys}}\" kommt in dieser Konfigurationsdatei mehr als einmal vor",
+    "title_other": "{{count}} Einstellungen kommen in dieser Konfigurationsdatei mehr als einmal vor: {{keys}}",
+    "desc": "Diese Seite liest die erste Kopie, der Server-Konfigurationseditor liest die letzte — daher können beide unterschiedliche Werte für dieselbe Einstellung anzeigen."
   },
   "nav": {
     "aria": "Bereiche der Mod-Verwaltung",
@@ -348,12 +361,12 @@
     "reEnable": "Erneut aktivieren",
     "reEnableCount": "Erneut aktivieren ({{count}})",
     "trackingCleanup": "Erfassungsbereinigung",
-    "destructive": "destruktiv",
+    "destructive": "nur Konfiguration, Dateien bleiben erhalten",
     "deleteHint": "Löschen entfernt nur die Erfassung im Panel. Workshop-Dateien bleiben auf der Festplatte, du musst die Mod später aber manuell wieder hinzufügen.",
-    "deleteSelectedConfirm_one": "{{count}} ausgewählte deaktivierte Mod aus der Erfassung löschen? Dies kann nicht rückgängig gemacht werden (bei Bedarf manuell erneut hinzufügen).",
-    "deleteSelectedConfirm_other": "{{count}} ausgewählte deaktivierte Mods aus der Erfassung löschen? Dies kann nicht rückgängig gemacht werden (bei Bedarf manuell erneut hinzufügen).",
-    "deleteAllConfirm_one": "ALLE {{count}} deaktivierte Mod aus der Erfassung löschen? Dies kann nicht rückgängig gemacht werden (bei Bedarf manuell erneut hinzufügen).",
-    "deleteAllConfirm_other": "ALLE {{count}} deaktivierten Mods aus der Erfassung löschen? Dies kann nicht rückgängig gemacht werden (bei Bedarf manuell erneut hinzufügen).",
+    "deleteSelectedConfirm_one": "{{count}} ausgewählte deaktivierte Mod aus der Erfassung entfernen? Die Workshop-Dateien bleiben auf der Festplatte -- du kannst sie später wieder hinzufügen.",
+    "deleteSelectedConfirm_other": "{{count}} ausgewählte deaktivierte Mods aus der Erfassung entfernen? Die Workshop-Dateien bleiben auf der Festplatte -- du kannst sie später wieder hinzufügen.",
+    "deleteAllConfirm_one": "ALLE {{count}} deaktivierte Mod aus der Erfassung entfernen? Die Workshop-Dateien bleiben auf der Festplatte -- du kannst sie später wieder hinzufügen.",
+    "deleteAllConfirm_other": "ALLE {{count}} deaktivierten Mods aus der Erfassung entfernen? Die Workshop-Dateien bleiben auf der Festplatte -- du kannst sie später wieder hinzufügen.",
     "deleteFromTrackingTitle": "Aus der Erfassung löschen?",
     "deleteConfirmButton": "Löschen",
     "deleteSelected": "Ausgewählte löschen ({{count}})",
@@ -629,8 +642,10 @@
     "invalidFormatDesc": "Gib eine Steam-Workshop-Sammlungs-URL oder eine numerische Sammlungs-ID ein.",
     "noModsFoundInCollectionTitle": "Keine Mods gefunden",
     "noModsFoundInCollectionDesc": "Diese Sammlung scheint leer zu sein. Überprüfe die URL und versuche es erneut.",
+    "collectionOnlySubCollectionsDesc": "Jeder Eintrag in dieser Sammlung ist selbst eine Untersammlung ({{count}}) — Steam erlaubt es nicht, diese direkt als Mods hinzuzufügen. Öffne die Untersammlung auf Steam und importiere sie stattdessen.",
     "modsFoundTitle": "{{count}} Mods gefunden",
     "modsFoundDesc": "Wähle aus, welche Mods hinzugefügt werden sollen, und bestätige dann.",
+    "modsFoundDescWithSkipped": "Wähle aus, welche Mods hinzugefügt werden sollen, und bestätige dann. {{count}} Eintrag/Einträge wurden übersprungen, da es sich um Untersammlungen und nicht um Mods handelt.",
     "collectionImportFailedTitle": "Sammlungsimport fehlgeschlagen",
     "collectionImportFailedFallback": "Sammlung konnte nicht von Steam abgerufen werden. Überprüfe die URL und versuche es erneut.",
     "noModsSelectedTitle": "Keine Mods ausgewählt",

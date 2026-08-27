@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -19,7 +19,26 @@ import Settings from '../Settings'
 // exist, and each has its own defensive catch/fallback already covered by
 // the rest of the suite, so mocking all of it here would only test that
 // those fallbacks still work, not the capability gate.
-const can = vi.fn((capability: string) => capability !== 'users.manage' && capability !== 'roles.manage')
+//
+// bug-hunt-2026-08-26 (client-suite-flaky-one-in-six): the "shows both tabs"
+// test below mutates this SHARED, module-level mock with
+// can.mockImplementation(() => true) and nothing ever reset it back. Vitest
+// runs a file's tests in declaration order by default, so with this test
+// declared last it was invisible every normal run -- but `--sequence.shuffle`
+// reordered it before its siblings and reproduced a real failure twice in
+// three shuffled runs (two different sibling tests failed, matching whichever
+// one happened to run after the mutating one): the "hides the tabs" and
+// "does not render via ?tab=users" tests both wrongly saw every capability
+// granted. Reset in beforeEach so every test starts from the same baseline
+// regardless of execution order, instead of relying on declaration order to
+// protect it by accident.
+const denyUsersAndRolesCapability = (capability: string) =>
+  capability !== 'users.manage' && capability !== 'roles.manage'
+const can = vi.fn(denyUsersAndRolesCapability)
+
+beforeEach(() => {
+  can.mockImplementation(denyUsersAndRolesCapability)
+})
 
 // Only configApi.getAppSettings is mocked -- it's the one call that gates
 // Settings.tsx's top-level `loading` state (the tab list doesn't render

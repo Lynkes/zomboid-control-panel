@@ -27,4 +27,16 @@ describe('ServerConfig -- "server is running" banner copy', () => {
       /won.t reach the running game until the server restarts/i,
     )
   })
+
+  // bug-hunt-2026-08-26: the banner now also shows when the provider-aware
+  // lookup can't determine state (fail-closed -- see
+  // client/src/lib/serverStatus.ts's resolveServerRunning). It must not
+  // reuse the confirmed-running copy for that case, which flatly asserts
+  // "The server is running" when the truth is "we don't know."
+  it('has a distinct, honestly-hedged copy for the unknown-state case, not a reused confident claim', () => {
+    expect(enServerConfig.stopServerAlert.unknownTitle).toBeTruthy()
+    expect(enServerConfig.stopServerAlert.unknownDescription).toBeTruthy()
+    expect(enServerConfig.stopServerAlert.unknownTitle).not.toBe(enServerConfig.stopServerAlert.title)
+    expect(enServerConfig.stopServerAlert.unknownTitle.toLowerCase()).not.toMatch(/^the server is running/)
+  })
 })

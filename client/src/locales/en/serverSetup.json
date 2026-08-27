@@ -26,6 +26,12 @@
       "description": "If you've never set up a Project Zomboid server before, choose <1>Fresh Install</1>. It will download everything you need automatically."
     }
   },
+  "resumeBanner": {
+    "title": "An install may still be running",
+    "description": "A previous session started installing to {{installPath}} ({{elapsed}} ago) and the page was closed or reloaded before it finished. It may still be downloading in the background.",
+    "continueButton": "Continue setup",
+    "dismissButton": "Dismiss"
+  },
   "stepIndicator": {
     "quick": {
       "location": "Location",
@@ -61,6 +67,8 @@
     "regeneratePasswordAria": "Generate new password",
     "regeneratePasswordTooltip": "Generate new password",
     "rconPortLabel": "RCON Port",
+    "rconPortHelp": "The port the panel uses to send RCON commands (start, stop, save, kick, chat) to the running server — separate from the port players connect on. Example: 27015 (the default). It must be free on this machine; if another program is already using it, the server may fail to start, or the panel may not be able to connect and control it.",
+    "rconPortDefaultHint": "Default port: 27015",
     "memoryTitle": "Memory Allocation",
     "detectingRam": "Detecting RAM...",
     "minRamLabel": "Minimum RAM",
@@ -71,10 +79,11 @@
     "maxRamAria": "Maximum RAM in GB",
     "maxRamSliderAria": "Maximum RAM: {{value}}GB",
     "gamePortLabel": "Game Port",
+    "gamePortHelp": "The port Project Zomboid game clients connect to when players join. Example: 16261 (the default). If you change it, players must add the new number after your server address to connect (e.g. your-ip:16262), and your router or firewall must forward that same port instead.",
     "gamePortDefaultHint": "Default port: 16261",
     "adminPasswordLabel": "Admin Password",
     "adminPasswordPlaceholder": "Required before first server start",
-    "adminPasswordHelp": "Required before first server start.",
+    "adminPasswordHelp": "Sets the password for Project Zomboid's built-in admin account. Once the server is running, use it in-game with the chat command /login admin, followed by this password, to get admin powers. Required before the first server start — the server can be installed without it, but won't start until one is set.",
     "hideAdminPassword": "Hide admin password",
     "showAdminPassword": "Show admin password",
     "upnpLabel": "UPnP",
@@ -87,7 +96,8 @@
     "debugDesc": "Enable verbose startup and runtime logs",
     "debugAria": "Enable debug mode",
     "customConfigLocation": "Custom config location",
-    "customConfigLocationHelp": "Custom data folder path",
+    "customConfigLocationHelp": "Project Zomboid normally stores saves, server config, and logs beside the install folder. Only set this if that data actually lives somewhere else — for example a separate drive, or a bind-mounted folder in Docker. Point this at the wrong folder and the panel won't find your existing saves, settings, or backups.",
+    "customDataPathPlaceholder": "e.g. C:\\Users\\you\\Zomboid or /home/you/Zomboid",
     "useCustomLocation": "Use custom location",
     "serverNameLabel": "Server Name",
     "serverNamePlaceholder": "myserver",
@@ -105,7 +115,10 @@
     "progressDownloading": "Downloading...",
     "progressValidating": "Validating files...",
     "progressVerifying": "Verifying installation...",
-    "progressComplete": "Complete!"
+    "progressComplete": "Complete!",
+    "noPermissionInstall": "Installing a server requires the server.install permission, which this role doesn't have.",
+    "noPermissionSettings": "Saving this setting requires the panel.settings permission, which this role doesn't have.",
+    "noPermissionControl": "Starting the server requires the server.control permission, which this role doesn't have."
   },
   "full": {
     "pageTitle": "Fresh Install",
@@ -134,13 +147,13 @@
       "description": "Choose where files are installed and set the server identity.",
       "installFolderLabel": "Install Folder",
       "useLinuxPath": "Use Linux service path",
-      "installFolderPlaceholder": "Folder where server files will be installed",
-      "installFolderHelp": "SteamCMD downloads approximately 3 GB here. The panel service must be allowed to write to this folder.",
+      "installFolderPlaceholder": "e.g. C:\\PZServer or /home/steamuser/pzserver",
+      "installFolderHelp": "SteamCMD downloads about 3 GB of server files into this folder, creating it automatically if it doesn't exist yet — the panel just needs permission to write here. This is separate from where saves and settings are stored; see Custom config location below.",
       "linuxNoteTitle": "Linux service installs",
       "linuxNoteBody1": "If the panel runs through the bundled systemd service, use <1>{{path}}</1>. Other folders require a systemd permission change.",
       "linuxNoteBody2": "The server data folder is created beside the install folder: <1>{{path}}</1>. Both folders must be writable.",
       "dataFolderPlaceholder": "your-install-folder_Data",
-      "serverNameHelp": "Alphanumeric and underscores only. Used for config files.",
+      "serverNameHelp": "Alphanumeric characters and underscores only, e.g. myserver. This becomes the config file name (myserver.ini) — set it before installing. Changing it afterward creates a new, empty config instead of renaming the existing one.",
       "gameVersionLabel": "Game Version",
       "gameVersionHelp": "Most people want Stable — it's the current default build. The other branches Steam offers here are older or experimental builds, kept around for compatibility with mods or saves that haven't updated yet. Saves and mods aren't guaranteed to work across different builds, so only switch if you specifically need one.",
       "loadingVersions": "Loading available versions...",
@@ -191,7 +204,7 @@
     "step2": {
       "title": "Configure Server",
       "description": "Set server name, RCON access, and memory limits.",
-      "serverNameHelp": "Each server needs a unique name. Creates separate config files.",
+      "serverNameHelp": "Alphanumeric characters and underscores only, e.g. myserver. Becomes the config file name (myserver.ini) for the existing server files you selected in the previous step.",
       "rconTitle": "Remote Control (RCON)",
       "rconPortDefaultHint": "Default port: 27015",
       "ramDetectedBadge": "{{total}} GB detected"
@@ -231,6 +244,9 @@
     "registerFailedLog": "Warning: Failed to register server in panel.",
     "registerFailedTitle": "Server files installed, but registration failed",
     "registerFailedDesc": "The game files are on disk, but the panel couldn't add this server to its database, so it won't appear in My Servers yet. Check the log above, then try Server Setup again — it's safe to re-run.",
+    "activateFailedLog": "Warning: Server was registered, but couldn't be set as the active server.",
+    "activateFailedTitle": "Server registered, but not set active",
+    "activateFailedDesc": "The server was added to My Servers, but the panel couldn't switch to it automatically. Go to My Servers and select it manually before starting it.",
     "steamCmdReadyTitle": "SteamCMD Ready",
     "steamCmdReadyDesc": "SteamCMD is installed and ready to use.",
     "steamCmdFailedTitle": "SteamCMD Setup Failed",
@@ -245,7 +261,7 @@
     "adminPasswordRequiredInstallDesc": "Enter an admin password before starting installation.",
     "adminPasswordRequiredCreateDesc": "Enter an admin password before creating this server.",
     "invalidPortTitle": "Invalid Port",
-    "invalidPortDesc": "Game port and RCON port must each be a whole number between 1024 and 65535.",
+    "invalidPortDesc": "Game port must be a whole number between 1024 and 65534; RCON port must be between 1024 and 65535.",
     "startingInstallLog": "Starting installation...",
     "creatingConfigLog": "Creating server configuration...",
     "configCreatedLog": "Server configuration created successfully!",

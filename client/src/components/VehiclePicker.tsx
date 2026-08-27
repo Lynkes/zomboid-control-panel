@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { panelBridgeApi } from '@/lib/api'
+import { getUserErrorMessage } from '@/lib/errorMessage'
 import { useToast } from '@/components/ui/use-toast'
 
 export interface CatalogVehicle {
@@ -77,7 +78,7 @@ export const TYPE_ICON: Record<string, LucideIcon> = {
 const MAX_VISIBLE = 100
 
 export function VehiclePicker({ value, onChange, disabled, placeholder }: VehiclePickerProps) {
-  const { t } = useTranslation('vehiclePicker')
+  const { t, i18n } = useTranslation('vehiclePicker')
   const resolvedPlaceholder = placeholder ?? t('searchVehiclesPlaceholder')
   const [vehicles, setVehicles] = useState<CatalogVehicle[]>([])
   const [initialLoad, setInitialLoad] = useState(true)
@@ -88,6 +89,9 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
   const [highlightIndex, setHighlightIndex] = useState(-1)
   const [scannedAt, setScannedAt] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  // Not a Radix primitive, so closing the dropdown doesn't automatically
+  // restore focus to the trigger the way a Radix Popover/Select would.
+  const triggerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const [dropUp, setDropUp] = useState(false)
@@ -138,7 +142,7 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
       setScannedAt(data.scannedAt)
       toast({ title: t('toastCatalogUpdatedTitle'), description: t('toastCatalogUpdatedDesc', { count: data.count || 0 }) })
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : t('scanFailed')
+      const msg = getUserErrorMessage(err, t('scanFailed'))
       setScanError(msg)
       toast({
         title: t('toastScanFailedTitle'),
@@ -188,6 +192,7 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
     setOpen(false)
     setSearch('')
     setHighlightIndex(-1)
+    triggerRef.current?.focus()
   }
 
   const handleClear = () => {
@@ -224,6 +229,7 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
         e.preventDefault()
         setOpen(false)
         setHighlightIndex(-1)
+        triggerRef.current?.focus()
         break
     }
   }
@@ -259,6 +265,7 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
             size="sm"
             onClick={handleScan}
             disabled={scanning || disabled}
+            // eslint-disable-next-line local/no-dead-disabled-title -- pure hint describing what Scan needs to succeed, unconditional regardless of disabled state; `disabled` here is a generic pass-through prop no current caller sets, and `scanning` is a self-evident transient busy state (the spinner). Not a disabled-reason. Triaged 2026-08-27, same shape as ItemPicker.tsx.
             title={t('scanTitle')}
             className="shrink-0"
           >
@@ -284,6 +291,7 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
     <div ref={containerRef} className="relative" onKeyDown={handleKeyDown}>
       {/* Trigger */}
       <div
+        ref={triggerRef}
         role="combobox"
         aria-expanded={open}
         aria-haspopup="listbox"
@@ -359,6 +367,7 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
               <button
                 type="button"
                 onClick={() => setSearch('')}
+                aria-label={t('clearSearchAria')}
                 className="flex items-center justify-center w-5 h-5 rounded text-muted-foreground hover:text-foreground shrink-0"
               >
                 <X className="w-3 h-3" />
@@ -370,7 +379,9 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
               onClick={e => { e.stopPropagation(); handleScan() }}
               disabled={scanning}
               className="h-7 w-7 p-0 shrink-0"
+              // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, same text as the aria-label; disables only while a scan is already in flight (the spinner is the self-evident why). Triaged 2026-08-27.
               title={t('rescanTitle')}
+              aria-label={t('rescanTitle')}
             >
               {scanning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
             </Button>
@@ -461,7 +472,7 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
             </div>
             {scannedAt && (
               <span className="truncate text-right opacity-50">
-                {new Date(scannedAt).toLocaleDateString()}
+                {new Date(scannedAt).toLocaleDateString(i18n.language)}
               </span>
             )}
           </div>

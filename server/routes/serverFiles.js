@@ -4,10 +4,25 @@ import path from "path";
 import os from "os";
 import { createLogger } from "../utils/logger.js";
 const log = createLogger("API:Files");
-import { getActiveServer, getAllSettings } from "../database/init.js";
-import { sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
+import { getActiveServer, getAllSettings, getRoleByName } from "../database/init.js";
+import {
+  sanitizeError,
+  sanitizeErrorParams,
+  SENSITIVE_FIELD_RE,
+  omitSensitiveFields,
+  maskSensitiveObject,
+  isMaskedSecret,
+  maskSecretValue,
+} from "../utils/sanitize.js";
 import { withFileLock, writeFileAtomic } from "../utils/fileWriteQueue.js";
+import {
+  getBackupPath,
+  createBackup,
+  backupWarningFor,
+  writeIniWithBackup,
+} from "../utils/configBackup.js";
 import { escapeRegExp } from "../utils/regex.js";
+import { findDuplicateIniKeys } from "../utils/iniDuplicateKeys.js";
 import { confineToRoots } from "../utils/browseRoots.js";
 import {
   SFTP_CONFIG_PATH_KEY,
@@ -34,6 +49,23 @@ const router = express.Router();
 // logged-in role, including moderator, could edit sandbox vars or restore
 // a server file backup.
 router.use(requirePermission("serverfiles.manage"));
+
+// PUT /ini writes any key in the submitted settings object to the same
+// Server/<name>.ini file server.js's own /configure-rcon and
+// /configure-network routes edit under server.configure -- RCONPassword,
+// RCONPort, DefaultPort, UDPPort and UPnP. serverfiles.manage's description
+// ("Edit sandbox options, spawn points and other server config files") gives
+// no hint that holding it also lets a caller rewrite the RCON password or
+// the game's listen port through this generic editor, bypassing
+// server.configure's own dedicated gate on those exact fields. Found in the
+// 2026-08-26 capability-description sweep, finding 4.
+const INI_KEY_CAPABILITY = {
+  RCONPassword: "server.configure",
+  RCONPort: "server.configure",
+  DefaultPort: "server.configure",
+  UDPPort: "server.configure",
+  UPnP: "server.configure",
+};
 
 // Thrown by getServerConfigPath()/getServerName() when no server is
 // configured at all (no active server row, and no legacy settings fallback
@@ -364,101 +396,10 @@ export async function getServerName() {
   return safe;
 }
 
-// Backup directory
-async function getBackupPath() {
-  return path.join(await getServerConfigPath(), "backups");
-}
-
-// Create a backup of `filename` before an edit overwrites it.
-//
-// Returns one of three shapes, DELIBERATELY not collapsed into a single
-// null/truthy check: a caller that can't tell "nothing to back up" apart
-// from "the backup failed" ends up treating both the same way, which is
-// exactly how a response ended up asserting a backup existed when it
-// didn't (see docs/qa/kevin-route-hunt.md Finding 2). Same defect shape as
-// `if (!req.user) return next()` from earlier tonight -- one value quietly
-// carrying two meanings, one benign and one dangerous.
-//   { backedUp: true, name }               -- a real backup now exists on disk
-//   { backedUp: false, reason: "no-source" } -- benign: the file being edited
-//     doesn't exist yet (e.g. first-ever write), so there is nothing to
-//     protect. Not a failure.
-//   { backedUp: false, reason: "failed", error } -- dangerous: a backup was
-//     attempted (the source file exists) and did not happen -- disk full,
-//     backup dir unwritable, the copy itself failing. The safety net the
-//     caller may be about to rely on is NOT there.
-async function createBackup(filename) {
-  const configPath = await getServerConfigPath();
-  const backupDir = await getBackupPath();
-  const filePath = path.join(configPath, filename);
-
-  try {
-    await fs.promises.access(filePath);
-  } catch (e) {
-    log.debug(`Config backup source not found: ${filePath} — ${e.message}`);
-    return { backedUp: false, reason: "no-source" };
-  }
-
-  try {
-    // Ensure backup directory exists
-    await fs.promises.mkdir(backupDir, { recursive: true });
-
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const backupName = `${filename}.${timestamp}.bak`;
-    const backupPath = path.join(backupDir, backupName);
-
-    // Async copy — this is the actual safety net. Anything that throws
-    // past this point means the backup did not happen.
-    await fs.promises.copyFile(filePath, backupPath);
-    log.info(`Created backup: ${backupName}`);
-
-    // Cleanup old backups is best-effort housekeeping, not part of the
-    // safety net itself — the new backup above already exists on disk
-    // regardless of whether pruning old ones succeeds, so a cleanup
-    // failure must not flip this call's result to backedUp:false.
-    try {
-      const files = await fs.promises.readdir(backupDir);
-      const backups = files
-        .filter((f) => f.startsWith(filename + ".") && f.endsWith(".bak"))
-        .sort()
-        .reverse();
-
-      if (backups.length > 10) {
-        const filesToDelete = backups.slice(10);
-        await Promise.all(
-          filesToDelete.map((old) =>
-            fs.promises
-              .unlink(path.join(backupDir, old))
-              .catch((e) =>
-                log.warn(`Failed to delete old backup ${old}: ${e.message}`),
-              ),
-          ),
-        );
-      }
-    } catch (cleanupError) {
-      log.warn(
-        `Backup cleanup failed (new backup ${backupName} is still safe): ${cleanupError.message}`,
-      );
-    }
-
-    return { backedUp: true, name: backupName };
-  } catch (error) {
-    log.error(`Backup creation failed: ${error.message}`);
-    return { backedUp: false, reason: "failed", error: error.message };
-  }
-}
-
-// For an ordinary, intentional config edit (as opposed to /sandbox/repair's
-// heuristic rewrite of an already-corrupted file): a backup that failed
-// must never block the edit the operator asked for -- the file being
-// edited is valid and the change is deliberate, so losing the previous
-// version is an annoyance, not a disaster. But the response must say so
-// rather than silently degrading. Returns a user-facing warning string, or
-// null when there's nothing to warn about (backup succeeded, or there was
-// no prior file to back up in the first place).
-function backupWarningFor(backup) {
-  if (!backup || backup.backedUp || backup.reason === "no-source") return null;
-  return `Could not back up the previous version before saving: ${backup.error}. Your change was saved, but there is no safety copy of what was there before.`;
-}
+// getBackupPath/createBackup/backupWarningFor moved to
+// ../utils/configBackup.js (parameterized on configPath instead of calling
+// getServerConfigPath() internally) so server/routes/mods.js's ini-rewriting
+// routes can reuse the exact same backup logic. Imported below.
 
 // Parse INI file to object
 export function parseIni(content) {
@@ -480,6 +421,127 @@ export function parseIni(content) {
   }
 
   return result;
+}
+
+// Drop any `Key=Value` line whose key looks secret-like (SENSITIVE_FIELD_RE
+// -- same regex GET /app-settings already trusts, not a second hand-kept
+// list) from a raw .ini file's text, preserving every other line -- comments,
+// blank lines, formatting -- byte for byte. Used only when SAVING a template
+// snapshot (POST /templates): that snapshot's `iniRaw` is later written
+// VERBATIM into the live .ini on apply (writeFileAtomic(iniPath,
+// template.iniRaw), no merge), so a masked placeholder string here would
+// land in the live RCON/join password field on apply and break RCON --
+// omitting the line entirely just means the applied server has no RCON
+// password configured afterward (a normal, working, fixable state), not a
+// bogus one. Line-level rather than parse-then-reserialize: reusing
+// parseIni()/toIni() here would rewrite every OTHER line too, and toIni()'s
+// own merge semantics keep an omitted key's ORIGINAL line untouched --
+// exactly the opposite of what a strip needs.
+export function stripSensitiveIniLines(content) {
+  const lines = content.split(/\r?\n/);
+  const kept = lines.filter((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith(";")) {
+      return true;
+    }
+    const eqIndex = trimmed.indexOf("=");
+    if (eqIndex <= 0) return true;
+    const key = trimmed.substring(0, eqIndex).trim();
+    return !SENSITIVE_FIELD_RE.test(key);
+  });
+  return kept.join("\n");
+}
+
+// GET /raw/:type=ini's read-side counterpart to the structured /ini route's
+// maskSensitiveObject(): mask a secret-shaped `Key=Value` line's VALUE in
+// place, byte-for-byte otherwise (everything up to and including the `=`,
+// comments, blank lines, formatting). Unlike stripSensitiveIniLines() above,
+// this can't drop the line -- the raw editor's PUT round-trips this exact
+// text back, and reconcileMaskedIniLines() below needs the line to still be
+// there (by key) to know what it's reconciling against.
+export function maskSensitiveIniLines(content) {
+  const lines = content.split(/\r?\n/);
+  const masked = lines.map((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith(";")) {
+      return line;
+    }
+    const eqIndex = line.indexOf("=");
+    if (eqIndex <= 0) return line;
+    const key = line.substring(0, eqIndex).trim();
+    const value = line.substring(eqIndex + 1);
+    if (!SENSITIVE_FIELD_RE.test(key) || !value) return line;
+    return `${line.substring(0, eqIndex + 1)}${maskSecretValue(value)}`;
+  });
+  return masked.join("\n");
+}
+
+// PUT /raw/:type=ini's write-side counterpart. Unlike the structured /ini
+// route, the raw editor round-trips ONE FULL TEXT BLOB on every save with no
+// per-line diff against what the operator actually touched -- Save always
+// resubmits the whole thing, regardless of which line changed. So masking
+// the read alone would let ANY raw-mode save (editing an unrelated line)
+// silently overwrite a live secret with the "••••••••xxxx"
+// placeholder text the moment that key's line comes back unchanged.
+//
+// This reconciles by KEY, never by line position -- reordering lines or
+// inserting a new one above a secret must not misalign the match -- and it
+// REFUSES the entire save (returns ok:false, writes nothing) the instant a
+// masked value can't be resolved unambiguously, rather than guessing or
+// best-effort patching part of the file. A rejected save costs the operator
+// one retry; a half-reconciled write costs them their live server config,
+// which is a strictly worse failure than the secret leak this exists to
+// close. Three ways a masked line fails to resolve, all refused the same
+// way: the key doesn't exist in the live file any more; the key exists more
+// than once in either the live file or the incoming submission (which one
+// would even be "the" secret to restore?); or -- the case a naive line-diff
+// would miss entirely -- the key existed live with a real value but is
+// ABSENT from the incoming content altogether, meaning the operator deleted
+// a line that reads as bullets, quite possibly without realizing it was a
+// real credential. All four are treated as "can't safely tell what the
+// operator intended" rather than silently picking a side.
+export function reconcileMaskedIniLines(incomingContent, liveContent) {
+  const indexIniLines = (text) => {
+    const lines = text.split(/\r?\n/);
+    const byKey = new Map();
+    lines.forEach((line, index) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith(";")) return;
+      const eqIndex = trimmed.indexOf("=");
+      if (eqIndex <= 0) return;
+      const key = trimmed.substring(0, eqIndex).trim();
+      const value = trimmed.substring(eqIndex + 1);
+      if (!byKey.has(key)) byKey.set(key, []);
+      byKey.get(key).push({ index, line, value });
+    });
+    return byKey;
+  };
+
+  const incomingByKey = indexIniLines(incomingContent);
+  const liveByKey = indexIniLines(liveContent);
+  const outLines = incomingContent.split(/\r?\n/);
+
+  for (const [key, entries] of incomingByKey) {
+    if (!SENSITIVE_FIELD_RE.test(key)) continue;
+    const maskedEntries = entries.filter((e) => isMaskedSecret(e.value));
+    if (maskedEntries.length === 0) continue;
+
+    const liveEntries = liveByKey.get(key) || [];
+    if (maskedEntries.length > 1 || liveEntries.length !== 1) {
+      return { ok: false, reason: "unresolvable", key };
+    }
+    outLines[maskedEntries[0].index] = liveEntries[0].line;
+  }
+
+  for (const [key, liveEntries] of liveByKey) {
+    if (!SENSITIVE_FIELD_RE.test(key)) continue;
+    if (liveEntries.length !== 1 || !liveEntries[0].value) continue;
+    if (!incomingByKey.has(key)) {
+      return { ok: false, reason: "removed", key };
+    }
+  }
+
+  return { ok: true, content: outLines.join("\n") };
 }
 
 // Convert object back to INI format
@@ -1137,7 +1199,27 @@ router.get("/ini", async (req, res) => {
     const content = fs.readFileSync(filePath, "utf-8");
     const parsed = parseIni(content);
 
-    res.json({ settings: parsed, path: filePath, serverName });
+    // A key appearing more than once means `settings` below silently holds
+    // whichever occurrence parseIni()'s last-write-wins loop landed on --
+    // not necessarily the one the operator thinks they're editing, and not
+    // necessarily the one mods.js's own (first-occurrence) reads/writes
+    // agree with. Reported, not blocked: the file is still readable, and
+    // refusing to load it would lock the operator out of the only tool
+    // that could help them fix it. See utils/iniDuplicateKeys.js.
+    const duplicateKeys = findDuplicateIniKeys(content);
+
+    // This is the LIVE config, unlike a template snapshot -- mask rather
+    // than omit, since the structured editor's PUT /ini round-trips this
+    // same object back and toIni() only preserves a key's original line
+    // when the key is ABSENT from the submitted settings, not when it's
+    // present-but-blank. Omitting here would make every unrelated field
+    // edit look like "delete the RCON password" once it reached PUT.
+    res.json({
+      settings: maskSensitiveObject(parsed),
+      path: filePath,
+      serverName,
+      duplicateKeys,
+    });
   } catch (error) {
     log.error("Failed to read INI:", error);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -1149,11 +1231,14 @@ router.put("/ini", async (req, res) => {
   try {
     const configPath = await getServerConfigPath();
     const serverName = await getServerName();
+    const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
+      ? req.body
+      : {};
     log.info(
-      `PUT /ini: serverName=${serverName}, keys=${Object.keys(req.body.settings || {}).length}`,
+      `PUT /ini: serverName=${serverName}, keys=${Object.keys(body.settings || {}).length}`,
     );
     const filePath = path.join(configPath, `${serverName}.ini`);
-    const { settings } = req.body;
+    const { settings } = body;
 
     if (!settings || typeof settings !== "object") {
       return res.status(400).json({
@@ -1174,6 +1259,84 @@ router.put("/ini", async (req, res) => {
       });
     }
 
+    // A key duplicated across two config blocks makes the structured save
+    // silently destructive (see utils/iniDuplicateKeys.js's own header):
+    // toIni() below reconstructs the file from this flat settings object,
+    // rewriting EVERY line matching a submitted key to that key's one
+    // value -- and since every key is always present (the client resends
+    // the whole object on every save), that fires on EVERY save, even one
+    // that never touched this key, permanently discarding whichever copy
+    // parseIni()'s last-occurrence-wins didn't surface. Refuse outright
+    // rather than risk it; the raw tab is a genuine escape hatch for the
+    // exact same caller (same serverfiles.manage gate, no extra
+    // restriction, mirrored identically for a remote/SFTP server -- not in
+    // LOCAL_ONLY_PATHS) and round-trips the file byte-for-byte instead of
+    // reconstructing it, so it stays available to fix the duplicate first.
+    const currentIniContent = fs.existsSync(filePath)
+      ? fs.readFileSync(filePath, "utf-8")
+      : "";
+    const duplicateKeysOnDisk = findDuplicateIniKeys(currentIniContent);
+    if (duplicateKeysOnDisk.length > 0) {
+      return res.status(409).json({
+        error:
+          "This file has a key duplicated across two config blocks. Saving from the structured editor would permanently discard one copy's value. Use the raw editor tab to fix the duplicate first.",
+        duplicateKeys: duplicateKeysOnDisk,
+        code: ErrorCode.INI_DUPLICATE_KEY_BLOCKS_STRUCTURED_SAVE,
+      });
+    }
+
+    // GET /ini masks secret-shaped values, so an unmodified field echoes
+    // back here as the "••••••••1234" placeholder rather than the real
+    // password -- never let that placeholder overwrite the stored value.
+    // Same skip-write-if-masked-echoed-back guard as config.js/oidc.js/
+    // servers.js already use; dropping the key here (rather than passing
+    // it through) is what makes toIni() below preserve the live line
+    // unchanged, since toIni() only overwrites keys present in `settings`.
+    const submittedSettings = {};
+    for (const [key, value] of Object.entries(settings)) {
+      if (SENSITIVE_FIELD_RE.test(key) && isMaskedSecret(value)) {
+        log.info(`Preserving stored value for sensitive key "${key}" (masked input ignored)`);
+        continue;
+      }
+      submittedSettings[key] = value;
+    }
+
+    // Enforced on CHANGE, not presence: the structured editor round-trips
+    // GET /ini's whole settings object back on every save (same trap
+    // Angela hit in this same editor for the RCON-masking fix above), so
+    // gating on mere presence would refuse every non-admin save that
+    // touches this tab at all. Compared against the file's own CURRENT
+    // value, never GET's masked response.
+    const touchesGovernedIniKey = Object.keys(submittedSettings).some(
+      (key) => key in INI_KEY_CAPABILITY,
+    );
+    if (touchesGovernedIniKey) {
+      const currentIni = parseIni(currentIniContent);
+      const missingCapabilities = [];
+      let callerCapabilities = null;
+      for (const [key, value] of Object.entries(submittedSettings)) {
+        const requiredCapability = INI_KEY_CAPABILITY[key];
+        if (!requiredCapability) continue;
+        if (String(currentIni[key] ?? "") === String(value ?? "")) continue;
+        if (callerCapabilities === null) {
+          const role = req.user ? await getRoleByName(req.user.role) : null;
+          callerCapabilities = Array.isArray(role?.capabilities) ? role.capabilities : [];
+        }
+        if (!callerCapabilities.includes(requiredCapability)) {
+          missingCapabilities.push({ key, requiredCapability });
+        }
+      }
+      if (missingCapabilities.length > 0) {
+        const detail = missingCapabilities
+          .map((m) => `"${m.key}" needs ${m.requiredCapability}`)
+          .join(", ");
+        return res.status(403).json({
+          error: `Cannot change ${detail} without holding that capability yourself.`,
+          missing: missingCapabilities,
+        });
+      }
+    }
+
     // Read original to preserve comments/structure. Locked per-path so two
     // overlapping PUTs to the same INI can't interleave their read-modify-write.
     let backupWarning = null;
@@ -1181,14 +1344,14 @@ router.put("/ini", async (req, res) => {
       let originalContent = "";
       if (fs.existsSync(filePath)) {
         originalContent = fs.readFileSync(filePath, "utf-8");
-        backupWarning = backupWarningFor(await createBackup(`${serverName}.ini`));
+        backupWarning = backupWarningFor(await createBackup(configPath, `${serverName}.ini`));
       }
 
-      const content = toIni(settings, originalContent);
+      const content = toIni(submittedSettings, originalContent);
       writeFileAtomic(filePath, content, "utf-8");
       const persisted = parseIni(fs.readFileSync(filePath, "utf-8"));
       const original = parseIni(originalContent);
-      for (const [key, value] of Object.entries(settings)) {
+      for (const [key, value] of Object.entries(submittedSettings)) {
         const isExistingKey = Object.prototype.hasOwnProperty.call(original, key);
         const isNewNonEmptyKey = value !== "" && value !== null && value !== undefined;
         if ((isExistingKey || isNewNonEmptyKey) && persisted[key] !== String(value).replace(/[\r\n]/g, "")) {
@@ -1203,7 +1366,7 @@ router.put("/ini", async (req, res) => {
       success: true,
       message: "Settings saved",
       path: filePath,
-      settings: persistedSettings,
+      settings: maskSensitiveObject(persistedSettings),
       ...(backupWarning ? { backupWarning } : {}),
       ...(req.configEditRestartWarning ? { restartRequired: true } : {}),
     });
@@ -1244,7 +1407,7 @@ router.put("/sandbox", async (req, res) => {
     const configPath = await getServerConfigPath();
     const serverName = await getServerName();
     const filePath = path.join(configPath, `${serverName}_SandboxVars.lua`);
-    const { sandbox } = req.body;
+    const { sandbox } = req.body || {};
 
     if (!sandbox || typeof sandbox !== "object") {
       return res.status(400).json({
@@ -1302,7 +1465,7 @@ router.put("/sandbox", async (req, res) => {
         : createSandboxVars(sandbox);
       if (fileExists) {
         backupWarning = backupWarningFor(
-          await createBackup(`${serverName}_SandboxVars.lua`),
+          await createBackup(configPath, `${serverName}_SandboxVars.lua`),
         );
       }
       writeFileAtomic(filePath, newContent, "utf-8");
@@ -1374,7 +1537,7 @@ router.put("/sandbox-option", async (req, res) => {
       const newContent = modifySandboxValue(originalContent, key, value, block);
       if (newContent === originalContent) return;
       backupWarning = backupWarningFor(
-        await createBackup(`${serverName}_SandboxVars.lua`),
+        await createBackup(configPath, `${serverName}_SandboxVars.lua`),
       );
       writeFileAtomic(filePath, newContent, "utf-8");
       persisted = true;
@@ -1471,7 +1634,7 @@ async function writeSandboxValues(entries, configPath, serverName) {
       return;
     }
     const backupWarning = backupWarningFor(
-      await createBackup(`${serverName}_SandboxVars.lua`),
+      await createBackup(configPath, `${serverName}_SandboxVars.lua`),
     );
     writeFileAtomic(filePath, content, "utf-8");
     persisted = true;
@@ -1553,7 +1716,7 @@ router.post("/sandbox/repair", async (req, res) => {
         };
       }
 
-      const backup = await createBackup(`${serverName}_SandboxVars.lua`);
+      const backup = await createBackup(configPath, `${serverName}_SandboxVars.lua`);
       if (!backup.backedUp) {
         // reason === "no-source" can't happen here (existsSync already
         // confirmed the file above), so this is always the "failed" case.
@@ -1633,7 +1796,7 @@ router.put("/spawnpoints", async (req, res) => {
     const configPath = await getServerConfigPath();
     const serverName = await getServerName();
     const filePath = path.join(configPath, `${serverName}_spawnpoints.lua`);
-    const { spawnpoints } = req.body;
+    const { spawnpoints } = req.body || {};
 
     if (!spawnpoints || typeof spawnpoints !== "object") {
       return res.status(400).json({
@@ -1646,7 +1809,7 @@ router.put("/spawnpoints", async (req, res) => {
     await withFileLock(filePath, async () => {
       if (fs.existsSync(filePath)) {
         backupWarning = backupWarningFor(
-          await createBackup(`${serverName}_spawnpoints.lua`),
+          await createBackup(configPath, `${serverName}_spawnpoints.lua`),
         );
       }
 
@@ -1698,7 +1861,7 @@ router.put("/spawnregions", async (req, res) => {
     const configPath = await getServerConfigPath();
     const serverName = await getServerName();
     const filePath = path.join(configPath, `${serverName}_spawnregions.lua`);
-    const { spawnregions } = req.body;
+    const { spawnregions } = req.body || {};
 
     if (!Array.isArray(spawnregions)) {
       return res.status(400).json({
@@ -1711,7 +1874,7 @@ router.put("/spawnregions", async (req, res) => {
     await withFileLock(filePath, async () => {
       if (fs.existsSync(filePath)) {
         backupWarning = backupWarningFor(
-          await createBackup(`${serverName}_spawnregions.lua`),
+          await createBackup(configPath, `${serverName}_spawnregions.lua`),
         );
       }
 
@@ -1764,7 +1927,10 @@ router.get("/raw/:type", async (req, res) => {
     }
 
     const content = fs.readFileSync(filePath, "utf-8");
-    res.json({ content, filename: fileMap[type] });
+    res.json({
+      content: type === "ini" ? maskSensitiveIniLines(content) : content,
+      filename: fileMap[type],
+    });
   } catch (error) {
     log.error("Failed to read raw file:", error);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -1777,7 +1943,7 @@ router.put("/raw/:type", async (req, res) => {
     const configPath = await getServerConfigPath();
     const serverName = await getServerName();
     const type = req.params.type;
-    const { content } = req.body;
+    const { content } = req.body || {};
     log.info(`PUT /raw/${type}: contentLength=${content?.length || 0}`);
 
     const fileMap = {
@@ -1811,13 +1977,47 @@ router.put("/raw/:type", async (req, res) => {
     const filePath = path.join(configPath, fileMap[type]);
 
     let backupWarning = null;
+    let reconcileFailure = null;
     await withFileLock(filePath, async () => {
-      if (fs.existsSync(filePath)) {
-        backupWarning = backupWarningFor(await createBackup(fileMap[type]));
+      let contentToWrite = content;
+
+      // Only the ini type is Key=Value text that GET /raw ever masks --
+      // sandbox/spawnpoints/spawnregions are Lua table syntax, not INI
+      // lines, so running line-based reconciliation on them would at best
+      // no-op and at worst corrupt them. SandboxVars also has no RCON
+      // field to protect in the first place.
+      if (type === "ini" && fs.existsSync(filePath)) {
+        const liveContent = fs.readFileSync(filePath, "utf-8");
+        const reconciled = reconcileMaskedIniLines(content, liveContent);
+        if (!reconciled.ok) {
+          reconcileFailure = reconciled;
+          return;
+        }
+        contentToWrite = reconciled.content;
       }
 
-      writeFileAtomic(filePath, content, "utf-8");
+      if (type === "ini") {
+        backupWarning = backupWarningFor(await writeIniWithBackup(filePath, contentToWrite));
+      } else {
+        if (fs.existsSync(filePath)) {
+          backupWarning = backupWarningFor(await createBackup(configPath, fileMap[type]));
+        }
+        writeFileAtomic(filePath, contentToWrite, "utf-8");
+      }
     });
+
+    if (reconcileFailure) {
+      const isRemoved = reconcileFailure.reason === "removed";
+      return res.status(400).json({
+        error: isRemoved
+          ? `The "${reconcileFailure.key}" line was removed, but it holds a live secret that can't be silently dropped. To clear it, write "${reconcileFailure.key}=" explicitly instead of deleting the line, or use the structured editor.`
+          : `Could not safely save: the "${reconcileFailure.key}" line's masked value could not be matched back to exactly one live value. Nothing was written.`,
+        code: isRemoved
+          ? ErrorCode.RAW_INI_SECRET_LINE_REMOVED
+          : ErrorCode.RAW_INI_SECRET_UNRESOLVABLE,
+        params: sanitizeErrorParams({ key: reconcileFailure.key }),
+      });
+    }
 
     log.info(`Saved raw file: ${fileMap[type]}`);
     res.json({
@@ -1835,7 +2035,8 @@ router.put("/raw/:type", async (req, res) => {
 // List backups
 router.get("/backups", async (req, res) => {
   try {
-    const backupDir = await getBackupPath();
+    const configPath = await getServerConfigPath();
+    const backupDir = await getBackupPath(configPath);
 
     if (!fs.existsSync(backupDir)) {
       return res.json({ backups: [] });
@@ -1885,8 +2086,8 @@ router.get("/backups", async (req, res) => {
 // Restore from backup
 router.post("/restore/:filename", async (req, res) => {
   try {
-    const backupDir = await getBackupPath();
     const configPath = await getServerConfigPath();
+    const backupDir = await getBackupPath(configPath);
 
     // Sanitize filename to prevent path traversal
     const filename = path.basename(req.params.filename);
@@ -1931,7 +2132,7 @@ router.post("/restore/:filename", async (req, res) => {
     // of right before this restore is not recoverable through this panel.
     let preRestoreBackupWarning = null;
     if (fs.existsSync(targetPath)) {
-      const backup = await createBackup(originalName);
+      const backup = await createBackup(configPath, originalName);
       if (!backup.backedUp && backup.reason !== "no-source") {
         preRestoreBackupWarning = `Could not back up the current ${originalName} before restoring over it: ${backup.error}. The version that was in place before this restore is not recoverable through this panel.`;
       }
@@ -2099,6 +2300,7 @@ router.post("/templates", async (req, res) => {
       .substring(0, 50);
     let safeId = baseId;
     let counter = 1;
+    // codeql[js/path-injection] safeId/templateFile is derived from name via .toLowerCase().replace(/[^a-z0-9]/g, '_') a few lines above before being joined into a path here.
     while (fs.existsSync(path.join(templatesPath, `${safeId}.json`))) {
       safeId = `${baseId}_${counter++}`;
       if (counter > 100) {
@@ -2119,13 +2321,20 @@ router.post("/templates", async (req, res) => {
       serverName,
     };
 
-    // Read current INI settings
+    // Read current INI settings. A saved template is a persisted snapshot
+    // with no exclusion list and no expiry -- unlike a live GET, this copy
+    // outlives the credential it was taken from and survives a later
+    // password rotation, so secret-shaped keys (RCONPassword, the server
+    // join Password, ...) are stripped here rather than masked: see
+    // stripSensitiveIniLines()'s own comment for why omission, not a
+    // placeholder, is the safe choice given how POST /templates/:id/apply
+    // writes iniRaw back.
     if (includeIni) {
       const iniPath = path.join(configPath, `${serverName}.ini`);
       if (fs.existsSync(iniPath)) {
         const iniContent = fs.readFileSync(iniPath, "utf-8");
-        template.ini = parseIni(iniContent);
-        template.iniRaw = iniContent;
+        template.ini = omitSensitiveFields(parseIni(iniContent));
+        template.iniRaw = stripSensitiveIniLines(iniContent);
       }
     }
 
@@ -2140,6 +2349,7 @@ router.post("/templates", async (req, res) => {
       }
     }
 
+    // codeql[js/path-injection] safeId/templateFile is derived from name via .toLowerCase().replace(/[^a-z0-9]/g, '_') a few lines above before being joined into a path here.
     fs.writeFileSync(templateFile, JSON.stringify(template, null, 2));
     log.info(`Created template: ${name} (${safeId})`);
 
@@ -2173,7 +2383,7 @@ router.post("/templates/:id/apply", async (req, res) => {
       });
     }
 
-    const { applyIni = true, applySandbox = true } = req.body;
+    const { applyIni = true, applySandbox = true } = req.body || {};
 
     const templatesPath = await getTemplatesPath();
     const templateFile = path.join(templatesPath, `${safeId}.json`);
@@ -2198,7 +2408,7 @@ router.post("/templates/:id/apply", async (req, res) => {
       await withFileLock(iniPath, async () => {
         // Create backup first
         const iniBackupWarning = backupWarningFor(
-          await createBackup(`${serverName}.ini`),
+          await createBackup(configPath, `${serverName}.ini`),
         );
         if (iniBackupWarning) backupWarnings.push(iniBackupWarning);
 
@@ -2219,7 +2429,7 @@ router.post("/templates/:id/apply", async (req, res) => {
       await withFileLock(sandboxPath, async () => {
         // Create backup first
         const sandboxBackupWarning = backupWarningFor(
-          await createBackup(`${serverName}_SandboxVars.lua`),
+          await createBackup(configPath, `${serverName}_SandboxVars.lua`),
         );
         if (sandboxBackupWarning) backupWarnings.push(sandboxBackupWarning);
 
@@ -2269,7 +2479,7 @@ router.put("/templates/:id", async (req, res) => {
       });
     }
 
-    const { name, description } = req.body;
+    const { name, description } = req.body || {};
 
     const templatesPath = await getTemplatesPath();
     const templateFile = path.join(templatesPath, `${safeId}.json`);

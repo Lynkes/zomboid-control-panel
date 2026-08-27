@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../contexts/AuthContext'
+import { getUserErrorMessage } from '../lib/errorMessage'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
@@ -100,7 +101,7 @@ export default function Setup() {
       setError(
         message === 'SETUP_TOKEN_REQUIRED'
           ? t('errors.invalidSetupToken')
-          : message || t('errors.setupFailed'),
+          : getUserErrorMessage(err, t('errors.setupFailed')),
       )
     } finally {
       setLoading(false)

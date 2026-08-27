@@ -6,6 +6,8 @@ export function isServerObservedRunning({
   processRunning = false,
   rconConnected = false,
   bridgeConnected = false,
+  processScanFailed = false,
 } = {}) {
+  if (processScanFailed && !rconConnected && !bridgeConnected) return null;
   return Boolean(processRunning || rconConnected || bridgeConnected);
 }

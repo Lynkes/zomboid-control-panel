@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { Users as UsersIcon, UserPlus, ShieldAlert, Loader2, ArrowRight, Trash2 } from 'lucide-react'
@@ -87,6 +87,53 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
 
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set())
 
+  // Focus-restore-after-delete pattern (Pam found the shape; see the block
+  // comment above the effect below for the full writeup) -- REPLICATE THIS
+  // SHAPE, don't just copy these three lines, for every other useConfirm()
+  // delete site: refs to each row's own trigger, a "where should focus go
+  // next" ref set BEFORE the row is removed (its neighbors are only knowable
+  // from the list as it exists right now), and a stable fallback for when
+  // the list empties out.
+  const rowDeleteButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
+  const pendingFocusTargetRef = useRef<string | 'fallback' | null>(null)
+  const addUserButtonRef = useRef<HTMLButtonElement>(null)
+
+  // Radix's AlertDialog (useConfirm()) correctly restores focus to whatever
+  // triggered it when it closes -- the row's own delete button, which still
+  // exists at that instant. The bug isn't the restore; it's that THIS
+  // component then deletes the row a moment later (the API call + the
+  // setUsers() filter below), unmounting the very button focus was just
+  // returned to. React doesn't move focus when an element unmounts -- the
+  // browser just drops it to document.body, and a keyboard user is stranded
+  // with no visible indication of where they are on the page.
+  //
+  // Fix shape: handleDelete computes the right POST-removal focus target
+  // while the row (and its neighbors) still exist -- the next row if there
+  // is one, else the previous row, else the fallback -- and stores it here.
+  // This effect fires after `users` actually changes (i.e. after the row
+  // has unmounted and its neighbor, if any, has (re-)mounted with a stable
+  // ref), and moves focus there exactly once. Keyed on `users` rather than
+  // called synchronously in handleDelete because the DOM for the neighbor
+  // row isn't guaranteed to reflect the removal until after this render
+  // commits -- focusing too early would target a node that's about to move.
+  //
+  // Deliberately does nothing when pendingFocusTargetRef is null: a normal
+  // list refresh (fetchAll on mount, or any other users-state update) must
+  // never yank focus around -- only a delete that this component itself
+  // initiated sets the pending target, and it's cleared immediately after
+  // use (or on a failed delete, where the row survives and nothing should
+  // move at all -- see the catch branch in handleDelete).
+  useEffect(() => {
+    const target = pendingFocusTargetRef.current
+    if (target === null) return
+    pendingFocusTargetRef.current = null
+    if (target === 'fallback') {
+      addUserButtonRef.current?.focus()
+      return
+    }
+    rowDeleteButtonRefs.current.get(target)?.focus()
+  }, [users])
+
   const fetchAll = useCallback(async () => {
     setLoading(true)
     setPermissionDenied(false)
@@ -136,6 +183,15 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
     })
     if (!ok) return
 
+    // Compute the post-removal focus target NOW, from the list as it exists
+    // before this user is gone -- its neighbors are only knowable while it's
+    // still in `users`. See the focus-restore effect above for why this is
+    // a ref set here and consumed there, not just `.focus()`'d inline.
+    const currentList = users || []
+    const index = currentList.findIndex((u) => u.id === user.id)
+    const neighborId = currentList[index + 1]?.id ?? currentList[index - 1]?.id
+    pendingFocusTargetRef.current = neighborId ?? 'fallback'
+
     setDeletingIds((prev) => new Set(prev).add(user.id))
     try {
       await usersApi.remove(user.id)
@@ -146,6 +202,9 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
         variant: 'success',
       })
     } catch (error) {
+      // The row survived -- its own button is still there and still holds
+      // focus (or does once Radix's restore lands). Don't move it anywhere.
+      pendingFocusTargetRef.current = null
       if (error instanceof ApiError && error.code === 'ROLE_LOCKOUT_LAST_MANAGER') {
         const actionKey = recoveryActionKeyForRole(getRoleForUser(user))
         const action = actionKey ? t(actionKey) : ''
@@ -261,7 +320,7 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
       {embedded ? (
         !permissionDenied && (
           <div className="flex justify-end">
-            <Button onClick={openCreateDialog}>
+            <Button ref={addUserButtonRef} onClick={openCreateDialog}>
               <UserPlus className="h-4 w-4" />
               {t('toolbar.addUser')}
             </Button>
@@ -276,7 +335,7 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
           tone="config"
           actions={
             !permissionDenied ? (
-              <Button onClick={openCreateDialog}>
+              <Button ref={addUserButtonRef} onClick={openCreateDialog}>
                 <UserPlus className="h-4 w-4" />
                 {t('toolbar.addUser')}
               </Button>
@@ -336,10 +395,15 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
                               <Loader2 className="ml-auto h-4 w-4 animate-spin text-muted-foreground" />
                             ) : (
                               <Button
+                                ref={(el) => {
+                                  if (el) rowDeleteButtonRefs.current.set(user.id, el)
+                                  else rowDeleteButtonRefs.current.delete(user.id)
+                                }}
                                 variant="ghost"
                                 size="icon"
                                 className="h-8 w-8 text-destructive hover:text-destructive"
                                 title={t('table.removeTooltip', { username: user.username })}
+                                aria-label={t('table.removeTooltip', { username: user.username })}
                                 onClick={() => handleDelete(user)}
                               >
                                 <Trash2 className="h-4 w-4" />

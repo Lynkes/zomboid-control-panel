@@ -3,6 +3,10 @@
     "title": "Debug & Logs",
     "description": "Live diagnostics, recent history, and environment details for this panel"
   },
+  "permissionDenied": {
+    "title": "You can't view debug diagnostics",
+    "description": "Your account's role doesn't include \"View panel diagnostics\". Ask an administrator to grant it if you need access to this page."
+  },
   "headerActions": {
     "bundling": "Bundling…",
     "supportBundleZip": "Support Bundle (.zip)",
@@ -233,6 +237,7 @@
     "allChecksPassDesc": "Nothing to show with passing checks hidden. Uncheck 'Hide passing' to see the full report.",
     "manualFixTitle": "Manual fix recommended",
     "manualFixFallback": "Open the suggested page and apply the listed fix.",
+    "noPermissionFix": "Your role doesn't have permission to apply this fix.",
     "applyFixTitle": "Apply fix?",
     "applyFixFallback": "Apply {{label}}?",
     "applyButton": "Apply",
@@ -1310,6 +1315,7 @@
   },
   "crashesTab": {
     "crashLogsTitle": "Crash Logs",
+    "crashLogsCountTruncated": "{{shown}} of {{total}}",
     "crashLogsDesc": "Java crash dumps and error logs.",
     "refreshCrashLogsAria": "Refresh crash logs",
     "noCrashLogsTitle": "No crash logs found",
@@ -1399,6 +1405,8 @@
     "databaseLabel": "Database:",
     "logsFolderLabel": "Logs folder:",
     "copyPathTooltip": "Copy path",
+    "copyDbPathAria": "Copy database path",
+    "copyLogsPathAria": "Copy logs folder path",
     "pathsUpdatedTitle": "Paths Updated",
     "enterAtLeastOnePath": "Please enter at least one path",
     "updatePathsFailedFallback": "Failed to update paths"

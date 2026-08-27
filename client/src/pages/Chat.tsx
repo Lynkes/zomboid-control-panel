@@ -23,9 +23,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/components/ui/use-toast'
 import { panelBridgeApi, playersApi, configApi } from '@/lib/api'
 import { useSocket } from '@/contexts/SocketContext'
+import { useConfirm } from '@/contexts/ConfirmContext'
+import { useAuth } from '@/contexts/AuthContext'
+import { DisabledReason } from '@/components/DisabledReason'
 import { EmptyState } from '@/components/EmptyState'
 import { cn } from '@/lib/utils'
 import { reportClientError } from '@/lib/client-errors'
+import { getUserErrorMessage } from '@/lib/errorMessage'
 
 interface ChatMessage {
   id: string
@@ -42,7 +46,7 @@ interface Player {
 type ChatChannel = 'server' | 'admin' | 'general'
 
 export default function Chat() {
-  const { t } = useTranslation('chat')
+  const { t, i18n } = useTranslation('chat')
   const defaultPresets = t('presets.default', { returnObjects: true }) as string[]
   const [message, setMessage] = useState('')
   const [players, setPlayers] = useState<Player[]>([])
@@ -61,7 +65,31 @@ export default function Chat() {
   const stickToBottomRef = useRef(true)
   const sendingRef = useRef(false)
   const { toast } = useToast()
+  const confirm = useConfirm()
   const socket = useSocket()
+  // Three genuinely different capabilities on this one page. Sending on the
+  // 'server' channel (POST /panel-bridge/message, plain broadcast, no
+  // spoofable author) requires server.world_events, same as weather/zombie/
+  // climate tools. Sending on 'admin' or 'general' (POST /panel-bridge/
+  // chat/admin, chat/general) requires players.endanger_or_impersonate
+  // instead -- split out of server.world_events 2026-08-27 (operator ruling
+  // on ranked-bug #5) specifically because chat/general accepts an
+  // arbitrary custom author name, indistinguishable in the chat log from
+  // that player having said it themselves; chat/admin moved with it as the
+  // same kind of harm (server/routes/panelBridge.js:4024, 4083). Managing
+  // the quick-broadcast preset list (add/edit/delete, PUT /config/app-
+  // settings with chatPresets) requires panel.settings instead (server/
+  // routes/config.js:256; chatPresets is confirmed NOT in that route's
+  // per-key SETTINGS_KEY_CAPABILITY elevation map, so no secondary check
+  // applies). None of TECHNICIAN/MODERATOR hold players.endanger_or_impersonate
+  // or panel.settings by default (admin-only), so every non-admin stock
+  // role can broadcast on 'server' but not send as admin/general or save
+  // presets -- a live gap, not a hypothetical one.
+  const { can } = useAuth()
+  const canSendServerChat = can('server.world_events')
+  const canSendTargetedChat = can('players.endanger_or_impersonate')
+  const canSendChat = channel === 'server' ? canSendServerChat : canSendTargetedChat
+  const canManagePresets = can('panel.settings')
 
   // Track whether the user is parked at (or near) the bottom of the
   // scroll viewport. We only auto-scroll on new messages when they are,
@@ -154,7 +182,12 @@ export default function Chat() {
   }, [socket])
 
   const sendMessage = async () => {
-    if (!message.trim() || sendingRef.current) return
+    if (!message.trim() || sendingRef.current || !canSendChat) return
+    // This guard is the real gate -- it covers both the Send button's
+    // onClick and the Enter-keydown path in handleKeyDown below, since both
+    // call this same function. The disabled attribute on the Send button is
+    // only the affordance (bug-hunt-2026-08-27 floor rule, from Angela's
+    // Console.tsx Enter-key finding).
     sendingRef.current = true
     setSending(true)
     try {
@@ -208,7 +241,7 @@ export default function Chat() {
     } catch (error) {
       toast({
         title: t('toasts.errorTitle'),
-        description: error instanceof Error ? error.message : t('toasts.sendFailedFallback'),
+        description: getUserErrorMessage(error, t('toasts.sendFailedFallback')),
         variant: 'destructive',
       })
     } finally {
@@ -233,6 +266,11 @@ export default function Chat() {
   }, [defaultPresets])
 
   const persistPresets = useCallback(async (next: string[]) => {
+    // The real gate for all three mutating preset actions (add, save-edit,
+    // delete) -- each of handleAddPreset/handleSaveEdit/handleDeletePreset
+    // calls this one function, including their Enter-key paths, so guarding
+    // here covers every entry point rather than each caller individually.
+    if (!canManagePresets) return
     let previous: string[] = []
     setPresets(prev => {
       previous = prev
@@ -245,11 +283,11 @@ export default function Chat() {
       reportClientError('Failed to save chat presets.', error)
       toast({
         title: t('toasts.presetsSaveFailedTitle'),
-        description: error instanceof Error ? error.message : t('toasts.unknownError'),
+        description: getUserErrorMessage(error, t('toasts.unknownError')),
         variant: 'destructive',
       })
     }
-  }, [toast])
+  }, [toast, canManagePresets])
 
   const handleAddPreset = useCallback(() => {
     const trimmed = newPresetDraft.trim()
@@ -270,14 +308,26 @@ export default function Chat() {
     setEditingDraft('')
   }, [editingDraft, editingIdx, persistPresets, presets])
 
-  const handleDeletePreset = useCallback((idx: number) => {
+  const handleDeletePreset = useCallback(async (idx: number) => {
+    // Quick-broadcast presets are a shared, panel-wide setting (persisted
+    // via configApi.updateAppSettings), not per-admin -- deleting one here
+    // reaches every other admin who uses it, even though re-typing it back
+    // is trivial. The "affects others but reversible" tier: warning-amber,
+    // not destructive-red, not silent either.
+    const ok = await confirm({
+      title: t('quickBroadcasts.deleteConfirmTitle'),
+      description: t('quickBroadcasts.deleteConfirmDescription', { preset: presets[idx] }),
+      confirmLabel: t('quickBroadcasts.deleteConfirmButton'),
+      variant: 'warning',
+    })
+    if (!ok) return
     const next = presets.filter((_, i) => i !== idx)
     persistPresets(next)
     if (editingIdx === idx) {
       setEditingIdx(null)
       setEditingDraft('')
     }
-  }, [editingIdx, persistPresets, presets])
+  }, [confirm, editingIdx, persistPresets, presets, t])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -356,7 +406,7 @@ export default function Chat() {
                               </span>
                             </div>
                             <time dateTime={msg.timestamp.toISOString()} className="font-mono text-[10px] tabular-nums text-muted-foreground/60">
-                              {msg.timestamp.toLocaleTimeString()}
+                              {msg.timestamp.toLocaleTimeString(i18n.language)}
                             </time>
                           </div>
                           <p className="text-sm text-foreground/90 [overflow-wrap:anywhere]">{msg.message}</p>
@@ -413,13 +463,15 @@ export default function Chat() {
                     maxLength={500}
                     className="h-10 flex-1 bg-card/70 border-border/55 focus-visible:border-primary/60"
                   />
-                  <Button
-                    onClick={sendMessage}
-                    disabled={sending || !message.trim()}
-                    className="h-10 min-w-20 sm:min-w-24 gap-1.5 font-mono text-[11px] uppercase tracking-[0.18em]"
-                  >
-                    {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Send className="w-3.5 h-3.5" />{t('input.sendButton')}</>}
-                  </Button>
+                  <DisabledReason reason={!canSendChat ? t('input.noPermission') : null}>
+                    <Button
+                      onClick={sendMessage}
+                      disabled={sending || !message.trim() || !canSendChat}
+                      className="h-10 min-w-20 sm:min-w-24 gap-1.5 font-mono text-[11px] uppercase tracking-[0.18em]"
+                    >
+                      {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Send className="w-3.5 h-3.5" />{t('input.sendButton')}</>}
+                    </Button>
+                  </DisabledReason>
                 </div>
                 <div className="mt-1.5 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/65">
                   <span>
@@ -513,9 +565,11 @@ export default function Chat() {
                         autoFocus
                         className="h-9 flex-1 text-sm"
                       />
-                      <Button variant="ghost" size="icon" className="h-9 w-9" onClick={handleSaveEdit} aria-label={t('quickBroadcasts.saveAria')}>
-                        <Check className="w-4 h-4" />
-                      </Button>
+                      <DisabledReason reason={!canManagePresets ? t('quickBroadcasts.noPermission') : null}>
+                        <Button variant="ghost" size="icon" className="h-9 w-9" onClick={handleSaveEdit} disabled={!canManagePresets} aria-label={t('quickBroadcasts.saveAria')}>
+                          <Check className="w-4 h-4" />
+                        </Button>
+                      </DisabledReason>
                       <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => { setEditingIdx(null); setEditingDraft('') }} aria-label={t('quickBroadcasts.cancelAria')}>
                         <X className="w-4 h-4" />
                       </Button>
@@ -540,15 +594,18 @@ export default function Chat() {
                       {quickMsg}
                     </button>
                     {presetsEditing && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-9 w-9 text-destructive hover:text-destructive"
-                        onClick={() => handleDeletePreset(idx)}
-                        aria-label={t('quickBroadcasts.deleteAria', { index: idx + 1 })}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      <DisabledReason reason={!canManagePresets ? t('quickBroadcasts.noPermission') : null}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-9 w-9 text-destructive hover:text-destructive"
+                          onClick={() => handleDeletePreset(idx)}
+                          disabled={!canManagePresets}
+                          aria-label={t('quickBroadcasts.deleteAria', { index: idx + 1 })}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </DisabledReason>
                     )}
                   </div>
                 )
@@ -565,16 +622,18 @@ export default function Chat() {
                     maxLength={500}
                     className="h-9 flex-1 text-sm bg-card/70 border-border/55"
                   />
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-9 w-9"
-                    onClick={handleAddPreset}
-                    disabled={!newPresetDraft.trim()}
-                    aria-label={t('quickBroadcasts.addAria')}
-                  >
-                    <Plus className="w-4 h-4" />
-                  </Button>
+                  <DisabledReason reason={!canManagePresets ? t('quickBroadcasts.noPermission') : null}>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-9 w-9"
+                      onClick={handleAddPreset}
+                      disabled={!newPresetDraft.trim() || !canManagePresets}
+                      aria-label={t('quickBroadcasts.addAria')}
+                    >
+                      <Plus className="w-4 h-4" />
+                    </Button>
+                  </DisabledReason>
                 </div>
               )}
             </div>

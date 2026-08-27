@@ -8,8 +8,10 @@ import {
   Dialog, DialogContent, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { NumberInput } from '@/components/NumberInput'
 import { cn } from '@/lib/utils'
 import { panelBridgeApi } from '@/lib/api'
+import { getUserErrorMessage } from '@/lib/errorMessage'
 import { useToast } from '@/components/ui/use-toast'
 import {
   getItemGroup, GROUP_META, VEHICLE_CATEGORIES, fmtWeight,
@@ -69,7 +71,7 @@ function saveRecent(mode: SpawnMode, entries: RecentEntry[]) {
 
 export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: SpawnBrowserProps) {
   const isItems = mode === 'items'
-  const { t } = useTranslation(['spawnBrowser', 'itemPicker', 'vehiclePicker'])
+  const { t, i18n } = useTranslation(['spawnBrowser', 'itemPicker', 'vehiclePicker'])
   const { toast } = useToast()
 
   // Catalog state
@@ -164,7 +166,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
         toast({ title: t('toastCatalogUpdatedTitle', { ns: 'vehiclePicker' }), description: t('toastCatalogUpdatedDesc', { ns: 'vehiclePicker', count: data.count || 0 }) })
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : t('scanFailed', { ns: isItems ? 'itemPicker' : 'vehiclePicker' })
+      const msg = getUserErrorMessage(err, t('scanFailed', { ns: isItems ? 'itemPicker' : 'vehiclePicker' }))
       setScanError(msg)
       toast({
         title: t('toastScanFailedTitle', { ns: isItems ? 'itemPicker' : 'vehiclePicker' }),
@@ -392,7 +394,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
               </span>
               {scannedAt && (
                 <span className="ml-auto text-[11px] text-muted-foreground/50 tabular-nums shrink-0 hidden sm:inline">
-                  {t('scannedOn', { date: new Date(scannedAt).toLocaleDateString() })}
+                  {t('scannedOn', { date: new Date(scannedAt).toLocaleDateString(i18n.language) })}
                 </span>
               )}
             </DialogDescription>
@@ -411,8 +413,8 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
               catalogEmpty
                 ? (isItems ? t('loadToScanItems') : t('loadToScanVehicles'))
                 : (isItems
-                  ? t('searchNItems', { count: nonVehicleItems.length.toLocaleString() })
-                  : t('searchNVehicles', { count: vehicles.length.toLocaleString() }))
+                  ? t('searchNItems', { count: nonVehicleItems.length.toLocaleString(i18n.language) })
+                  : t('searchNVehicles', { count: vehicles.length.toLocaleString(i18n.language) }))
             }
             className="flex-1 min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
             aria-label={isItems ? t('searchItemsAria') : t('searchVehiclesAria')}
@@ -435,6 +437,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
             onClick={handleScan}
             disabled={scanning}
             className="h-8 px-2.5 text-xs"
+            // eslint-disable-next-line local/no-dead-disabled-title -- pure hint; disables only while a scan is already in flight (the spinner is the self-evident why). Triaged 2026-08-27.
             title={t('rescanTitle')}
           >
             {scanning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
@@ -466,7 +469,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
                 {isItems ? t('allItems') : t('allVehicles')}
               </span>
               <span className="text-[10px] tabular-nums opacity-60">
-                {(isItems ? nonVehicleItems.length : vehicles.length).toLocaleString()}
+                {(isItems ? nonVehicleItems.length : vehicles.length).toLocaleString(i18n.language)}
               </span>
             </button>
 
@@ -490,7 +493,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
                 >
                   <Icon className={cn('w-4 h-4 shrink-0', isActive ? 'opacity-100' : 'opacity-70')} />
                   <span className="flex-1 min-w-0 truncate">{cat.label}</span>
-                  <span className="text-[10px] tabular-nums opacity-50">{cat.count.toLocaleString()}</span>
+                  <span className="text-[10px] tabular-nums opacity-50">{cat.count.toLocaleString(i18n.language)}</span>
                 </button>
               )
             })}
@@ -602,6 +605,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
                       'motion-safe:transition-colors duration-100',
                       'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-background/40 disabled:hover:border-border/60 disabled:hover:text-foreground/90'
                     )}
+                    // eslint-disable-next-line local/no-dead-disabled-title -- pure hint naming the action ("Spawn X again"); when disabled for the isItems-without-a-player case, the actual reason is already surfaced visibly in this dialog's own hint row below (t('pickPlayerFirst')), so nothing is hidden. Triaged 2026-08-27.
                     title={isItems ? t('spawnAgainTitleWithQty', { name: r.name, qty: r.qty }) : t('spawnAgainTitle', { name: r.name })}
                   >
                     <RotateCw className="w-3 h-3 opacity-50 motion-safe:group-hover:opacity-100 motion-safe:transition-opacity" />
@@ -654,17 +658,16 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
                 >
                   <Minus className="w-3.5 h-3.5" />
                 </button>
-                <input
-                  type="number"
+                <NumberInput
                   value={qty}
-                  onChange={e => {
-                    const n = parseInt(e.target.value, 10)
-                    setQty(Number.isNaN(n) ? 1 : Math.max(1, Math.min(100, n)))
+                  onChange={n => {
+                    if (Number.isFinite(n)) setQty(n)
                   }}
+                  clamp={n => Math.max(1, Math.min(100, n))}
                   min={1}
                   max={100}
                   disabled={spawning}
-                  className="w-12 h-9 text-center text-sm tabular-nums bg-transparent outline-none border-x border-border/70 focus-visible:bg-accent/10 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  className="h-9 w-12 rounded-none border-x border-y-0 border-border/70 bg-transparent px-0 text-center text-sm shadow-none tabular-nums focus-visible:bg-accent/10 focus-visible:ring-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   aria-label={t('quantityAria')}
                 />
                 <button

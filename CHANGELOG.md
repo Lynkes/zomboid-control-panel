@@ -7,6 +7,377 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.8] - 2026-08-27
+
+Completes the configuration-loss fix that v1.2.7 only half-delivered. If you run scheduled
+restarts, this release matters more than v1.2.7 did.
+
+### Security
+
+- **Scanning for SteamCMD could run a program from a folder chosen in the same request.** When the
+  panel needed the SteamCMD executable, it accepted the folder to look in as part of whichever
+  request was being handled, and checked only that the path was absolute and contained no `..` -
+  not that it was the folder you had actually configured. An account able to reach those routes
+  could therefore point the panel at a directory of its choosing and have it run whatever
+  SteamCMD-named file was there. Exploiting it also required some separate way to place a file at
+  that location first, and every built-in role that can reach these routes already has equal or
+  greater power by ordinary means - but a custom role built around installing the server alone
+  would have gained more than its description implies. The executable is now always resolved from
+  your saved SteamCMD path: browsing to a new location still works, it simply has to be saved
+  before it is used.
+
+- **Testing an RCON connection let you reach any address, not just your server.** The "test
+  connection" action connects to whatever host and port it is given, and required only the
+  permission to run RCON commands - a permission whose description promises the ability to talk to
+  *your configured server*, not to open a connection to any address on your network. An account
+  with only that permission could use the panel to find out which internal hosts and ports accept
+  connections. Blocking local and private addresses was not an option, because same-machine and
+  split-host installations legitimately use exactly those. Testing a connection now also requires
+  permission to manage servers - if you can add a server, you can test one - and the target host
+  and port are recorded in the log.
+
+### Fixed
+
+- **A scheduled restart could replace your server's settings with defaults.** This is the other
+  half of the problem described in v1.2.7, and on its own it is the half that actually bites.
+  The panel writes a start script for your server with the save-data location and server name
+  written directly into it, and regenerates that script when you start the server from the panel.
+  A *scheduled* restart never regenerated it. So if you changed your data path or server name in
+  settings and then let a scheduled restart happen before ever starting the server manually, the
+  server was launched with the old location still baked into the script. Project Zomboid, finding
+  no configuration where it was told to look, created a fresh default one - which is why the
+  password stopped working, the mod list emptied, and every sandbox setting reverted. Scheduled
+  restarts now refresh the start script and RCON configuration exactly as a manual start does.
+
+- **Nothing automatic ever took a configuration backup.** Backups of your server configuration were
+  only ever made when a person edited and saved something, so no restart - scheduled or manual -
+  and no automated task ever produced one. The single event most likely to damage a configuration
+  unattended was the one event with no backup behind it, which is why the panel's own backup screen
+  had nothing to offer when this went wrong. Every restart now takes a configuration backup first.
+  A restart that changes nothing does not add a duplicate, so scheduled restarts cannot quietly
+  push your real backups out of the retention limit.
+
+- **Importing a Steam collection failed every time for any collection containing another
+  collection.** Steam collections can contain sub-collections, and the panel treated those exactly
+  like ordinary mods: listed as importable, tracked, written into the server configuration, and
+  finally sent back to Steam as items to add. Steam refuses to place a collection inside another
+  collection, for any account, regardless of how the browser session was set up - so the import
+  failed completely and reported an error that pointed at login credentials, sending at least one
+  person looking in the wrong place for days. Sub-collections are now recognised and skipped, with
+  a notice saying so, and the error message names the actual cause instead of showing a raw
+  protocol response.
+
+- **A failed bulk action showed only the first error.** Selecting many mods and acting on them
+  collected every failure correctly but displayed only one, so forty-seven different problems and
+  forty-seven copies of the same problem looked identical. The result now says whether the failures
+  shared one cause or how many distinct causes there were.
+
+- **The panel reported regenerating a start script it had not written.** When a server was
+  configured to use its own launcher file, the panel still attempted to rewrite the start script,
+  quietly discarded the resulting error, and logged that it had regenerated the script anyway.
+  Anyone investigating a configuration problem would have read that line as proof the script was
+  current.
+
+### Added
+
+- **Custom launcher support.** If you point the panel at your own `.bat`, `.sh` or `.exe` instead
+  of a server folder, that is now a supported mode rather than something that happened to work.
+  The panel launches your file and does not attempt to manage or regenerate it, and the Add and
+  Edit Server dialogs say so plainly - including the consequence, which is that memory, admin
+  password, data path and server name changes made in the panel will not reach the server unless
+  you put them in your script yourself. Existing setups already pointing at a launcher file keep
+  working exactly as before. Server paths are now also checked when saved: previously neither the
+  install path nor the server path was validated at all.
+
+## [1.2.7] - 2026-08-27
+
+### Security
+
+- **Live log, performance, and player-list streams over the socket connection were gated on being
+  logged in, not on permission.** The equivalent web requests already checked the specific
+  capability each of those needed - diagnostics access for logs and performance, player-list access
+  for players - but the socket subscriptions feeding the dashboard's live updates only checked that
+  a session existed. A moderator account, which never holds diagnostics access under the default
+  roles, could still subscribe to the same live diagnostics stream an administrator sees. All three
+  subscriptions now check the same capability their web equivalents require.
+
+- **A password typed into an RCON command reached the logs, the command history, and a live
+  broadcast to every connected dashboard, in plain text.** Typing `adduser` to whitelist a player -
+  or anything else typed directly into the RCON console - is the one command that carries a real
+  password, and six separate places wrote it out unredacted: the saved command history, a
+  debug-level log line, two warning-level log lines shown when the server rejects a command, the
+  log line written for every command run through the console, and the live broadcast that pushes
+  each command and its response to every dashboard subscribed to the log stream. Two of the six
+  fire at the default log level, so no special configuration was needed to leak. All six now redact
+  the password before it leaves the function that would have written or sent it.
+
+- **The server's RCON and join passwords were readable in plain text in more places than the
+  console.** Scanning for existing servers copied a discovered server's real RCON password into the
+  browser and back on every scan. The raw and structured configuration-file editors returned the
+  live password in the response and displayed it in a visible field. Saving a configuration template
+  kept a permanent, plain-text copy of whichever password was set at the time, with no way for a
+  later password change to ever reach it. All four now mask or omit the password at the point it
+  would have left the server, and saving a masked field back no longer overwrites the real password
+  with the placeholder.
+
+- **A role granted a broad automation capability could reach specific, more sensitive actions it was
+  never meant to.** Kicking, banning, or banning by IP or Steam ID; god mode, invisibility, noclip,
+  and healing any player; and scheduling a server restart, save, or broadcast message each has its
+  own capability when reached directly - but all of them could also be reached through the generic
+  PanelBridge command relay or the task scheduler using only the broader capability those systems
+  require, bypassing the narrower one entirely. Not reachable through any built-in role, which
+  already holds both capabilities involved, but a custom role built around automation or
+  world-event permissions could gain moderation or GM-tool power as an unintended side effect. All
+  of the affected actions now also check the same specific capability their direct route requires.
+
+- **Sending a message as the server, or endangering a specific player, required only the same
+  permission as changing the weather.** Eleven actions that can put words in the server's mouth or
+  put a named player in danger without their consent - admin and general chat broadcasts, spawning
+  zombies near or behind a player, triggering a horde, and playing a gunshot, alarm, or other sound
+  at a player's location - shared a capability with genuinely world-wide, non-impersonating effects.
+  They now have their own capability, admin-only by default for both moderators and technicians,
+  including when scheduled rather than triggered directly.
+
+- **Eight of the permissions an administrator can grant undersold what they actually allowed.**
+  Diagnostics access can copy the entire data directory - including every server's RCON password and
+  the panel's own signing secret - to any path outside a short system-directory blocklist. RCON
+  access grants read access to the full, unredacted command history. Mod management can extract the
+  operator's live Steam session from their browser and overwrite the panel's stored Steam
+  credentials. Five more descriptions had similar gaps. All eight now name what they actually grant,
+  in every language the panel supports.
+
+- **Deleting a server's install folder or map data checked that the target folder looked right, not
+  that it was the right folder.** Deleting an install folder only required a marker file with a
+  recognizable name to exist somewhere in the target directory - trivial to create anywhere on the
+  host - and the map-chunk deletion tools accepted a custom path validated mostly by matching pieces
+  of its name against expected words. Both now require the path to genuinely belong to a server or
+  save location the panel already knows about, not just look like one.
+
+- **The panel handed out a live Steam login token over its own API.** Extracting Steam credentials
+  from a browser profile returned the session cookie and login token in the response body, so an
+  account with mod-management permission - which includes the technician role, below administrator -
+  could ask one endpoint for the panel host's live Steam session. The extraction now saves the
+  credentials on the server and returns only whether it worked; the token never crosses the wire.
+
+- **A server name could be made to point somewhere it should not.** The panel validates server
+  names carefully everywhere it manages several servers, but one older settings screen accepted the
+  name without checking it, and that value was used to build a file path. A name containing path
+  navigation could therefore read or overwrite files outside the folder it was meant to stay in,
+  including the name of the startup script the panel runs. Setting it required an account with
+  permission to change panel settings, and the affected code path only runs on installations still
+  using the original single-server settings rather than a server profile - but neither is a reason
+  to leave it. The name is now checked when it is saved *and* again every time it is read, so an
+  unsafe value already stored on an existing installation stops working too, without any migration
+  step. It is ignored rather than used, and the panel behaves as though no name were set.
+
+### Fixed
+
+- **A server's saved settings could be replaced with a blank configuration when it started.**
+  Before starting a server, the panel checks whether that server already has a configuration file,
+  so that it can add the remote-console settings it needs on a genuinely new one. That check looked
+  in only one of the four locations the rest of the panel recognises - different Project Zomboid
+  installations and versions keep the file in different places, and the panel has always accepted
+  all four everywhere else. On an installation whose real configuration lives in one of the other
+  three, the check could not see it, concluded the server had never been set up, and wrote a fresh,
+  almost-empty configuration in its place. Project Zomboid then supplied its own built-in defaults
+  for everything that file did not mention - the server password, the mod list and every sandbox
+  setting - which from the outside looks exactly like the server reverting to default. This was also
+  the one configuration write that did not take a backup first, so the panel's own backup screen
+  could not undo it. The check now looks in every location the panel recognises, and only treats a
+  server as new when no configuration exists in any of them. Reported by a user whose settings and
+  mod list reverted after a restart; this closes a demonstrated gap in the panel's own handling of
+  those locations, and whether it was the exact cause of that report is still being confirmed.
+
+- **Two backups taken within the same millisecond silently destroyed one of them.** Startup-script
+  backups and configuration-file backups were both named from a timestamp precise to the
+  millisecond, so two taken close together - an edit saved twice quickly, several servers backed up
+  in the same pass - produced the same filename, and the second silently overwrote the first with no
+  warning. Both now add a counter to the name the moment a collision would occur, so every backup
+  taken is kept.
+
+- **Fixing the collision above broke which backup got deleted first.** The counter added to a
+  colliding backup's filename sorts before the plain name it disambiguates from as plain text, so
+  the configuration-backup pruner - which compared filenames as text rather than the time the file
+  was actually created - could rank the newest backup in a colliding pair as older than it really
+  was, and delete it first while keeping the truly older one. This is very likely the cause of a
+  report received today that backups looked inconsistent, with the most recent one over a week old.
+  The pruner now sorts by the backup file's real creation time.
+
+- **Two restore requests arriving close together could both run at once.** The panel refuses to
+  start a second backup restore while one is already in progress, but the flag that blocks it was
+  only set after an earlier check finished, leaving a window where two requests - a double-click
+  before the button disabled, two admin sessions, a retried request - could both pass the check and
+  restore concurrently, silently mixing or losing data. The flag is now set before that check begins.
+
+- **Docker panel updates no longer stop after building with a duplicate container-name error.**
+  The updater now gracefully replaces an existing manually created panel container before Compose
+  recreates it, and uses the same safe replacement path during rollback.
+- **A server created by the setup wizard could not start at all.** The admin password you typed was
+  never saved with the server, so the panel launched Project Zomboid without it - and on a brand new
+  server, where the game has to create the admin account, it stopped and asked for the password on a
+  console that was not there, then exited. The logs showed only a Java error. Reported by two people
+  on Discord, whose workaround - setting the password again on the server's own screen - was itself
+  the clue: that was the only path that ever saved it. The wizard now saves it, and if a first start
+  would fail for this reason the panel refuses and tells you where to set it instead of launching a
+  server it knows will die. Three other settings were being dropped the same way, including the
+  Docker container name, and a test now fails the moment a fourth one is.
+
+- **Starting a stopped server quietly overwrote your startup script.** Every start rewrote
+  `StartServer.bat` and its Linux twin with the panel's own generated version, so any Java or JVM
+  flags you had added by hand disappeared with no warning - and the only nearby explanation said the
+  panel would "detect" the file, which is the opposite of what it did. The panel now notices when the
+  file is not the one it last wrote, keeps a timestamped copy beside it, and tells you where that
+  copy is. Your configuration changes still take effect every time.
+
+- **The UPnP tick box did nothing.** It was saved in two places and read in none; the setting that
+  actually matters lives in the server's own configuration file, which only one screen ever wrote.
+  Setting it in the wizard, or later on the server's own page, now reaches that file - and the panel
+  says plainly that the change applies the next time the server starts, because that is when the game
+  reads it.
+
+- **"Restart initiated" was all you ever got.** Starting a restart or running a scheduled task by
+  hand reported success immediately - meaning the request was accepted, not that it worked - and a
+  genuine failure was written only to a log file you would never see. The real outcome now reaches
+  you when it happens, wherever you are in the panel.
+
+- **A badge could say three mods needed updating long after they were updated.** The count was only
+  ever sent when it went up, never when it went down, so it could be wrong in one direction for the
+  rest of the session. And the OIDC "Discovery succeeded" panel stayed on screen after you edited the
+  client secret, implying credentials had been verified when they had not - so a broken login could
+  be saved with a green tick in front of it.
+
+- **Wiping a server destroyed the whole world with no way back.** Deleting the map, players or
+  accounts had no backup step at all, while the equivalent chunk-deletion tools have offered one
+  for a long time - and the confirmation only reassured you that your settings were safe, never
+  saying the world itself was gone for good. A wipe now takes a backup first, on by default, and
+  stops without deleting anything if that backup fails. The dialog says plainly what is about to be
+  lost, and shows the backup's progress so a large world does not look like a freeze.
+
+- **Closing the tab during an install lost the outcome entirely.** The wizard reported progress to
+  the page and nowhere else, so a refresh, a stray click, or simply waiting elsewhere during a
+  multi-gigabyte download meant the result - success *or* failure - arrived to nobody. The wizard
+  now remembers an install was started and offers to pick it up where you left off.
+
+- **"Failed to create server entry", on a server that was created.** Registering the new server and
+  switching to it shared one error path, so a problem with the second step reported the first step
+  as broken. The two now report separately.
+
+- **The panel told you, in every language, to set an .ini key Project Zomboid does not recognise.**
+  It said `LuaChecksum=false`; the real key is `DoLuaChecksum`. Anyone who followed the instructions
+  exactly left the setting at its default and PanelBridge silently never worked. Corrected in 26
+  places across all six languages, including the demo data, which was reading the wrong key for real.
+
+- **The panel sent you to a button that had been renamed.** "Test SFTP" became "Verify and prepare
+  SFTP", but the setup walkthrough and an SFTP error message still used the old name in all six
+  languages. The last one lived in the message shown when the failure is unrecognised - exactly when
+  you are already stuck.
+
+- **Saving any setting failed when SFTP was switched off** (#118). The panel shipped `22` as the
+  default SFTP port and then refused it, because one port rule was shared between ports the panel
+  opens itself and ports it connects to elsewhere. Those are now separate rules, and the fields of any
+  switched-off feature - SFTP, HTTPS, mod auto-restart, update warnings, auto-export and
+  auto-reconnect - no longer block unrelated saves. Turning a feature on and configuring it in the
+  same save still validates, because the check reads the settings you are submitting rather than the
+  ones already stored.
+
+- **The dashboard said "Container down" while the Docker panel showed it running** (#114). The status
+  badge was reading a local process scan that cannot see inside another container. It now reads the
+  container itself, and says "unknown" rather than "down" when it genuinely cannot tell. The badge
+  turned out to be one of four places that made the same mistake: the dashboard headline (which also
+  decided whether Start and Stop were available), the server cards, and the sidebar status dot -
+  which had no such check at all, so it was wrong on every page for Docker and remote servers
+  alike.
+
+- **Number fields snapped back to a default the moment you cleared them.** Clearing a port to retype
+  it silently restored `27015` or `16261` under your fingers. Fields across the setup wizards, server
+  settings, players, scheduler, mod options, the item spawner and the map tools now keep what you
+  typed and refuse on save instead. Memory sliders and summary screens no longer render `NaN` while
+  a field is mid-edit.
+
+- **Advice you could see but not act on.** The PanelBridge status badge told you where to go and was
+  not clickable; empty screens could not offer a destination at all. Both now work. RCON
+  authentication failures and permission-denied errors also point at the place that fixes them, and
+  the login screen explains why local account recovery is unavailable instead of staying silent.
+
+### Added
+
+- **Swap is now shown alongside memory on the dashboard.** Host memory sitting at 95% is either
+  perfectly normal or nearly fatal, and the panel had no way to tell you which. The telemetry card
+  now reports host swap on Windows, Linux and macOS. A machine with no swap configured is shown as
+  exactly that - a real answer, not an alarm - and if the figure genuinely cannot be read, it says
+  so rather than reporting zero.
+
+### Changed
+
+- **Error messages now speak your language, and say what to do about it.** The panel already
+  translated most of its failures, and then showed you the raw English one anyway, because the screen
+  read the wrong half of the reply - so a French user saw an English sentence that had been sitting
+  translated in the same file all along. Roughly a hundred and thirty places across every page now
+  use the translated message, and point at the screen that fixes the problem where one exists. SFTP
+  and player-moderation failures gained proper translated messages of their own, keeping the specific
+  detail - the path, the error code - rather than replacing it with something vaguer.
+
+- **Warnings now match what is actually at stake.** Stopping a server looked as alarming as deleting
+  one, on one page but not another; kicking or banning a player from the moderation tools happened on
+  a single click with no confirmation at all, while the same action elsewhere asked first. Fifty-two
+  confirmation and warning styles were reviewed against a single rule - how recoverable is it, and
+  does it affect anyone but you - so that the serious ones stand out instead of blending into the
+  routine ones.
+
+- **Buttons for actions your role could not perform were often still clickable.** The server was
+  already the real authority - every one of these routes was already gated there - but roughly a
+  dozen pages let you click through to a request the server would then refuse, sometimes only after
+  a confirmation dialog and a wait. Servers, Mods, Players, Discord, the RCON console, Scheduler,
+  Chat, the Dashboard, server setup, Backups, ChunkCleaner, WorldMap, Templates, and server
+  configuration now disable or hide those controls up front, and a new lint rule stops a future page
+  from shipping the same gap.
+
+- **Installation guides for every setup**, in `docs/install/`: Windows, Linux, Docker and Unraid,
+  rented/managed servers, and a symptom-first troubleshooting guide. They ship inside the release
+  archive, so they work with no internet. The README is now a one-read chooser rather than five
+  platforms interleaved.
+
+## [1.2.6] - 2026-08-25
+
+### Fixed
+
+- **New Docker installs no longer start an unreachable Project Zomboid server.** The primary
+  Docker setup now uses a one-command all-in-one installer when the panel owns PZ. It validates
+  Docker, generates secrets and LAN access settings, pulls exact release images with a local-build
+  fallback, installs PZ, and publishes both required UDP ports automatically. The panel-only setup
+  remains available for existing servers.
+- **Conflict scans with heavily overlapping mod files no longer exhaust the panel's Node.js heap.**
+  The grouped pair output now has its own global budget, preventing a bounded file index from
+  expanding into millions of duplicate pair-file rows while building the response.
+- **Lifecycle operations now fail closed when process state is unknown.** Server start/restart,
+  backup restore, Docker panel updates, status reporting, and the Windows force-stop path no
+  longer treat a failed process scan or unconfirmed kill as a clean stop.
+- **Backup and scheduler settings reject malformed values instead of silently coercing them.**
+  Six-field cron schedules, invalid booleans/counts, malformed numeric query limits, and invalid
+  discovered ports are now refused or safely bounded.
+- **Scheduled-task mutations roll back completely when rescheduling fails, and deleting a missing
+  task no longer reports success.**
+- **Standalone and discovery metadata now stays truthful.** Linux launchers no longer promise a
+  fixed port, Steam Finder preserves false dedicated flags, and malformed discovery settings are
+  reported instead of replaced with defaults.
+- **Backup archives are safer and more reliable.** Same-millisecond filename collisions are
+  avoided, symbolic links are not followed outside the save directory, and audit-log failures no
+  longer turn completed backup/restore operations into hangs or false failures.
+- **Player toggles and RCON ports now require correctly typed input, and diagnostics preserve an
+  unknown server state instead of displaying a false stopped state.**
+- **Server Finder now handles A2S challenge responses, and PanelBridge enforces its command budget
+  for rejected or duplicate queue entries as well as successful commands.**
+- **Multi-server profiles reject malformed bodies, ports, flags, and empty updates; startup will
+  not auto-launch a duplicate server while process detection is unavailable.**
+- **Active-server RCON changes now report reconnect failures instead of silently claiming a refresh.**
+  Malformed persisted RCON ports fail closed, and per-server status keeps healthy profiles visible
+  when another profile contains invalid data.
+- **Scheduler, configuration, player, and PanelBridge endpoints now fail cleanly on malformed bodies
+  and boolean values.** Cron previews and unattended jobs share the same five-minute guard, including
+  bare minute ranges, and malformed task/profile IDs cannot be truncated into another record.
+- **Game-port guidance now matches the derived UDP-port limit.** The valid maximum is 65534, while
+  RCON retains the full 1-65535 range.
+
 ## [1.2.5] - 2026-08-25
 
 ### Fixed

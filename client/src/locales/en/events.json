@@ -25,7 +25,8 @@
     "noMatches": "No control matches that search.",
     "bridgeBadge": "bridge",
     "bridgeBadgeTitle": "Needs PanelBridge",
-    "recentActions": "Recent actions"
+    "recentActions": "Recent actions",
+    "noRecentActions": "No recent actions — actions triggered from this page will be logged here."
   },
   "bridgeOfflineAlert": {
     "title": "PanelBridge is offline",
@@ -196,7 +197,9 @@
     "statusOffline": "offline",
     "statusPending": "…",
     "restore": "restore",
-    "shutOff": "shut off"
+    "shutOff": "shut off",
+    "timingReasoning": "modifier {{modifier}} · world day {{day}} · {{nights}} nights survived",
+    "modifierNever": "never"
   },
   "quickSounds": {
     "sublabel": "RCON · attracts zombies",
@@ -239,6 +242,8 @@
     "random": "random",
     "targetFallback": "target",
     "clearLoadedZombies": "clear loaded zombies",
+    "removeAllConfirmTitle": "Clear all loaded zombies?",
+    "removeAllConfirmDescription": "This instantly removes every zombie in loaded cells, server-wide -- including any a player is currently fighting. Zombies respawn over time, but this ends that encounter right now for whoever was in it.",
     "noPlayersOnlineTitle": "No players online",
     "bridgeOfflineTitle": "Bridge offline",
     "sizeAria": "Horde size"
@@ -342,6 +347,11 @@
     "bridgeFileLink": "Bridge file link: {{summary}}",
     "bridgeConnectionRequiredTitle": "Bridge connection required",
     "bridgeConnectionRequiredDesc": "These operations require a live PanelBridge connection. Configure it in Settings first.",
+    "moderationConfirmTitle": "Run {{operation}}?",
+    "moderationConfirmDescription": "This sends a real moderation command through the live bridge{{target}}{{reason}}. Double-check the values above before continuing.",
+    "moderationConfirmTarget": " targeting {{target}}",
+    "moderationConfirmReason": " (reason: {{reason}})",
+    "moderationConfirmButton": "Run Operation",
     "runOperation": "Run Operation",
     "resetFields": "Reset Fields",
     "clearResults": "Clear Results",
@@ -373,7 +383,7 @@
     "runEventSequence": { "label": "Run Event Sequence", "description": "Run chained chat/weather/swarm/utilities/noise sequence." },
     "getInfrastructureSnapshot": { "label": "Infrastructure Snapshot", "description": "Read hydro/weather state and optional sample point." },
     "moderationKickUser": { "label": "Kick User", "description": "Kick player via BanSystem." },
-    "moderationBanUser": { "label": "Ban User", "description": "Ban or unban player." },
+    "moderationBanUser": { "label": "Ban User", "description": "Ban or unban by username only -- this does not ban their IP address. Use the Players page for a combined username+IP ban." },
     "moderationBanIP": { "label": "Ban IP", "description": "Ban or unban IP address." },
     "moderationBanSteamID": { "label": "Ban SteamID", "description": "Ban or unban SteamID." }
   },
@@ -513,6 +523,7 @@
     "bridgeCommandFailedFallback": "Bridge command failed.",
     "notPersistedDesc": "Applied to the running world only — SandboxVars.lua was not updated ({{reason}}), so a server restart will undo this.",
     "notPersistedUnknownReason": "unknown reason",
+    "powerDidNotTakeEffectDesc": "The server reports power is still {{state}} — the change didn't take effect.",
     "noPlayersOnlineError": "No players online",
     "targetPlayerRequiredHorde": "Target player required for horde spawn",
     "operationCompletedDesc": "Operation completed successfully.",

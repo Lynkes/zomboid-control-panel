@@ -7,6 +7,7 @@ import { permissionsPolicy } from "./middleware/permissionsPolicy.js";
 import { logSetupTokenIfNeeded } from "./utils/setupToken.js";
 import { computeInlineScriptCspHash } from "./utils/cspScriptHash.js";
 import { parseTrustProxySetting } from "./utils/trustProxy.js";
+import { isUncompressedBinaryProxyPath } from "./utils/compressionFilter.js";
 import { createServer } from "http";
 import { createServer as createHttpsServer } from "https";
 import { Server } from "socket.io";
@@ -52,6 +53,7 @@ import { PanelUpdateChecker } from "./services/panelUpdateChecker.js";
 import { LogTailer } from "./services/logTailer.js";
 import { DiskMonitor } from "./services/diskMonitor.js";
 import authService from "./services/auth.js";
+import { getRoleByName } from "./services/permissions.js";
 import { requireRole } from "./services/auth.js";
 import authRoutes from "./routes/auth.js";
 import oidcRoutes from "./routes/oidc.js";
@@ -239,6 +241,7 @@ import chunksRoutes from "./routes/chunks.js";
 import discordRoutes from "./routes/discord.js";
 import debugRoutes, { addLogToBuffer } from "./routes/debug.js";
 import { getDiskFree } from "./utils/diskSpace.js";
+import { getSwapInfo } from "./utils/swapInfo.js";
 import serverFinderRoutes from "./routes/serverFinder.js";
 import panelBridgeRoutes from "./routes/panelBridge.js";
 import backupRoutes from "./routes/backup.js";
@@ -731,8 +734,17 @@ app.use("/api/debug/client-errors", express.json({ limit: "16kb" }));
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 
-// Compress all HTTP responses (gzip/deflate)
-app.use(compression({ threshold: 1024 }));
+// Compress all HTTP responses (gzip/deflate) EXCEPT the <img>-tag-loaded
+// binary proxy routes -- see compressionFilter.js for why.
+app.use(
+  compression({
+    threshold: 1024,
+    filter: (req, res) => {
+      if (isUncompressedBinaryProxyPath(req)) return false;
+      return compression.filter(req, res);
+    },
+  }),
+);
 
 // Rate limiting — applied before auth to protect against unauthenticated floods
 const apiLimiter = rateLimit({
@@ -1151,14 +1163,11 @@ rconService.on("disconnected", async () => {
   // This gives faster detection than the 10s watchdog interval
   setTimeout(async () => {
     try {
-      const activeServer = await getActiveServer();
-      const processRunning = activeServer?.isRemote
-        ? false
-        : await serverManager.checkServerRunning();
-      const running = isServerObservedRunning({
-        processRunning,
-        bridgeConnected: panelBridge.isModConnected(),
-      });
+      const running = await getObservedServerRunning();
+      if (running === null) {
+        log.debug("RCON disconnect status check could not determine process state");
+        return;
+      }
       if (!running && lastKnownRunning !== false) {
         lastKnownRunning = false;
         log.info(
@@ -1247,6 +1256,11 @@ app.set("io", io);
 app.set("refreshCorsConfig", refreshCorsConfig);
 app.set("getCorsDebugSnapshot", getCorsDebugSnapshot);
 app.set("clearCorsBlockedOrigins", clearCorsBlockedOrigins);
+// A route that just made an unconfirmed claim (e.g. a graceful stop request
+// accepted, not yet confirmed) can call this to ask for a prompt re-check
+// instead of emitting its own server:status claim -- see checkServerStatusNow's
+// own comment below for why that second option is the bug this exists to fix.
+app.set("checkServerStatusNow", checkServerStatusNow);
 
 // Initialize update checker (needs io for socket events)
 const updateChecker = new UpdateChecker(io, { rconService, serverManager });
@@ -1660,7 +1674,19 @@ export async function handlePanelUpdateDownload(req, res) {
           });
         }
 
-        const isRunning = await serverManager.checkServerRunning();
+        const processDetails =
+          typeof serverManager.getServerProcessDetails === "function"
+            ? await serverManager.getServerProcessDetails()
+            : null;
+        if (!processDetails || processDetails.scanFailed) {
+          return res.status(503).json({
+            success: false,
+            error:
+              "Can't verify whether the server is stopped because process detection failed. The Docker update was not started.",
+            code: ErrorCode.SERVER_STATE_UNKNOWN,
+          });
+        }
+        const isRunning = Boolean(processDetails.running);
         if (isRunning) {
           const rconService = req.app.get("rconService");
           if (!rconService?.connected) {
@@ -1708,6 +1734,20 @@ export async function handlePanelUpdateDownload(req, res) {
       log.error(`Panel update download failed: ${error.message}`);
       res.status(500).json({ error: sanitizeError(error.message) });
     }
+}
+
+export function classifyStartupProcessState(processState, isRemote = false) {
+  if (isRemote) {
+    return { running: Boolean(processState?.running), unknown: false };
+  }
+  if (
+    !processState ||
+    processState.scanFailed ||
+    typeof processState.running !== "boolean"
+  ) {
+    return { running: false, unknown: true };
+  }
+  return { running: processState.running, unknown: false };
 }
 
 app.post(
@@ -1807,7 +1847,22 @@ io.use(async (socket, next) => {
     if (needsSetup) return next();
 
     const authEnabled = await authService.isAuthEnabled();
-    if (!authEnabled) return next();
+    if (!authEnabled) {
+      // Auth explicitly disabled: grant full access, but EXPLICITLY -- set a
+      // real socket.user rather than leaving it unset, same fix and same
+      // reasoning as authService.middleware()'s req.user (services/auth.js):
+      // "no socket.user" must mean only one thing (not authenticated,
+      // refuse) everywhere downstream, including the subscribe:* capability
+      // checks below.
+      socket.user = {
+        userId: null,
+        username: null,
+        role: "admin",
+        tokenGen: null,
+        authDisabled: true,
+      };
+      return next();
+    }
 
     // Check for token in handshake auth or query params
     const token = socket.handshake.auth?.token || socket.handshake.query?.token;
@@ -1827,6 +1882,24 @@ io.use(async (socket, next) => {
   }
 });
 
+// A room join has no HTTP-style response to refuse with, so the "no
+// capability" outcome is simply not joining the room -- the client asked
+// for a stream it can't have and silently gets none of it, same effective
+// result as requirePermission()'s 403 without inventing a socket-only error
+// shape. Mirrors requirePermission()'s own role -> capabilities lookup
+// (services/permissions.js) rather than a second, divergent one; fails
+// closed on any missing/unresolvable role, same as that function.
+export async function socketHasCapability(socket, capability) {
+  if (!socket.user) return false;
+  try {
+    const role = await getRoleByName(socket.user.role);
+    return Array.isArray(role?.capabilities) && role.capabilities.includes(capability);
+  } catch (error) {
+    log.warn(`Could not resolve socket capability "${capability}": ${error.message}`);
+    return false;
+  }
+}
+
 // Socket.IO connection handling
 io.on("connection", (socket) => {
   log.debug(
@@ -1837,23 +1910,36 @@ io.on("connection", (socket) => {
     log.debug(`Client disconnected: ${socket.id}`);
   });
 
-  // Subscribe to server status updates
+  // Subscribe to server status updates. GET /api/server/status has no
+  // permission gate at all (deliberate -- every logged-in role, and the
+  // dashboard itself, needs it), so this room is intentionally open too.
   socket.on("subscribe:status", () => {
     socket.join("server-status");
   });
 
-  // Subscribe to player updates
-  socket.on("subscribe:players", () => {
+  // Subscribe to player updates. Mirrors GET /api/players/ (players.js),
+  // which requires players.view -- this room carries the same data and
+  // must not be reachable by a role that route refuses.
+  socket.on("subscribe:players", async () => {
+    if (!(await socketHasCapability(socket, "players.view"))) return;
     socket.join("players");
   });
 
-  // Subscribe to logs
-  socket.on("subscribe:logs", () => {
+  // Subscribe to logs. Mirrors GET /api/debug/logs (debug.js), which
+  // requires diagnostics.manage -- every route in that file is admin-only
+  // by design. Without this check, moderator (which does not hold
+  // diagnostics.manage) could get the identical live log stream, including
+  // RCON command text, just by connecting a socket instead of calling the
+  // HTTP route.
+  socket.on("subscribe:logs", async () => {
+    if (!(await socketHasCapability(socket, "diagnostics.manage"))) return;
     socket.join("logs");
   });
 
-  // Subscribe to performance snapshots
-  socket.on("subscribe:perf", () => {
+  // Subscribe to performance snapshots. Mirrors POST
+  // /api/debug/performance-snapshot (debug.js), also diagnostics.manage.
+  socket.on("subscribe:perf", async () => {
+    if (!(await socketHasCapability(socket, "diagnostics.manage"))) return;
     socket.join("perf");
   });
   socket.on("unsubscribe:perf", () => {
@@ -2106,6 +2192,27 @@ async function getDiskSnapshot() {
   return lastDiskSample.value;
 }
 
+// Swap headroom, same reasoning as disk above: Linux is a cheap /proc/meminfo
+// read, but macOS and Windows shell out (sysctl / a PowerShell CIM query),
+// which can be slow or hang on a stuck box -- sampled on its own schedule so
+// a slow swap read can't drag down the memory/CPU numbers in the same tick.
+let lastSwapSample = { at: 0, value: null };
+const SWAP_SAMPLE_INTERVAL_MS = 60000;
+
+async function getSwapSnapshot() {
+  const now = Date.now();
+  if (now - lastSwapSample.at < SWAP_SAMPLE_INTERVAL_MS) {
+    return lastSwapSample.value;
+  }
+  lastSwapSample.at = now;
+  try {
+    lastSwapSample.value = await getSwapInfo();
+  } catch {
+    lastSwapSample.value = null;
+  }
+  return lastSwapSample.value;
+}
+
 async function getPzProcessMemory() {
   // Get PZ server Java process memory from OS
   return new Promise((resolve) => {
@@ -2180,6 +2287,7 @@ async function startPerfPolling() {
 
       const pzMemBytes = await getPzProcessMemory();
       const disk = await getDiskSnapshot();
+      const swap = await getSwapSnapshot();
 
       const snapshot = {
         // Host machine
@@ -2189,6 +2297,11 @@ async function startPerfPolling() {
         // Storage on the drive holding the world saves (null if unreadable)
         hostDiskTotal: disk?.total ?? null,
         hostDiskUsed: disk?.used ?? null,
+        // Swap/pagefile headroom (null if could not be determined -- NOT
+        // the same as 0, which means swap is genuinely not configured; see
+        // utils/swapInfo.js for why that distinction is the whole point)
+        hostSwapTotal: swap?.total ?? null,
+        hostSwapUsed: swap?.used ?? null,
         // Panel process
         panelMemHeap: panelMem.heapUsed,
         panelMemRss: panelMem.rss,
@@ -2231,60 +2344,97 @@ function stopPerfPolling() {
 let statusWatchdogInterval = null;
 let lastKnownRunning = null;
 
-async function getObservedServerRunning() {
+export async function getObservedServerRunning() {
   const activeServer = await getActiveServer();
-  const processRunning = activeServer?.isRemote
-    ? false
-    : await serverManager.checkServerRunning();
+  if (activeServer?.isRemote) {
+    return isServerObservedRunning({
+      processRunning: false,
+      rconConnected: rconService.connected,
+      bridgeConnected: panelBridge.isModConnected(),
+    });
+  }
+
+  const processDetails =
+    typeof serverManager.getServerProcessDetails === "function"
+      ? await serverManager.getServerProcessDetails()
+      : null;
 
   // A systemd-launched local server can evade strict per-server ownership
   // attribution. RCON and the bridge remain direct evidence that it is alive.
   return isServerObservedRunning({
-    processRunning,
+    processRunning: processDetails?.running,
     rconConnected: rconService.connected,
     bridgeConnected: panelBridge.isModConnected(),
+    processScanFailed: !processDetails || processDetails.scanFailed,
   });
+}
+
+// One watchdog cycle: observe ground truth, and if it differs from what we
+// last actually told clients, broadcast the correction. Runs on the 10s
+// interval below AND is exported/registered on `app` (see app.set below) so
+// a route that just made an unconfirmed claim -- "shutdown requested",
+// not yet "shutdown confirmed" -- can ask for a prompt re-check instead of
+// emitting its own competing server:status claim.
+//
+// 2026-08-26 bug hunt: that second option is what /stop used to do, and it
+// created exactly the desync this function exists to prevent. A route-level
+// io.emit("server:status", {running:false}) told every client the server
+// was down the instant rconService.quit() returned -- which only proves the
+// RCON command was accepted, not that PZ's save-and-exit has finished --
+// but never touched `lastKnownRunning` below, because it lived in a
+// different file and had no reason to know this variable existed. So the
+// NEXT tick here observed the process still genuinely running (correct),
+// compared it to `lastKnownRunning` which was ALSO still "true" (also
+// correct, from this function's own point of view), saw no change, and
+// said nothing -- it did not fail to notice, it correctly noticed nothing
+// had changed, while a different module had already told every client
+// something false. Routing every "did the running state actually change"
+// decision through this ONE function, and having every caller ask it to
+// re-check rather than assert its own answer, means there is no second copy
+// of `lastKnownRunning` anywhere left to drift out of sync with this one.
+export async function checkServerStatusNow() {
+  try {
+    const running = await getObservedServerRunning();
+    if (running === null) {
+      log.debug("Status watchdog: server state is unknown; skipping transition");
+      return;
+    }
+    if (lastKnownRunning !== null && running !== lastKnownRunning) {
+      log.info(
+        `Status watchdog: server state changed → ${running ? "running" : "stopped"}`,
+      );
+      io.emit("server:status", { running });
+      if (!running) {
+        logServerEvent(
+          "server_stop",
+          "Server process exited (detected by watchdog)",
+        );
+        discordBot
+          .sendEventNotification("serverStop", {})
+          .catch((err) =>
+            log.debug(
+              `Discord serverStop notification failed: ${err.message}`,
+            ),
+          );
+      } else {
+        discordBot
+          .sendEventNotification("serverStart", {})
+          .catch((err) =>
+            log.debug(
+              `Discord serverStart notification failed: ${err.message}`,
+            ),
+          );
+      }
+    }
+    lastKnownRunning = running;
+  } catch (err) {
+    log.debug(`Status watchdog error: ${err.message}`);
+  }
 }
 
 function startStatusWatchdog() {
   if (statusWatchdogInterval) clearInterval(statusWatchdogInterval);
-
-  statusWatchdogInterval = setInterval(async () => {
-    try {
-      const running = await getObservedServerRunning();
-      if (lastKnownRunning !== null && running !== lastKnownRunning) {
-        log.info(
-          `Status watchdog: server state changed → ${running ? "running" : "stopped"}`,
-        );
-        io.emit("server:status", { running });
-        if (!running) {
-          logServerEvent(
-            "server_stop",
-            "Server process exited (detected by watchdog)",
-          );
-          discordBot
-            .sendEventNotification("serverStop", {})
-            .catch((err) =>
-              log.debug(
-                `Discord serverStop notification failed: ${err.message}`,
-              ),
-            );
-        } else {
-          discordBot
-            .sendEventNotification("serverStart", {})
-            .catch((err) =>
-              log.debug(
-                `Discord serverStart notification failed: ${err.message}`,
-              ),
-            );
-        }
-      }
-      lastKnownRunning = running;
-    } catch (err) {
-      log.debug(`Status watchdog error: ${err.message}`);
-    }
-  }, 10000); // check every 10 seconds
-
+  statusWatchdogInterval = setInterval(checkServerStatusNow, 10000); // check every 10 seconds
   if (statusWatchdogInterval.unref) statusWatchdogInterval.unref();
   log.info("Server status watchdog started (10s interval)");
 }
@@ -2617,10 +2767,13 @@ async function start() {
         // STEP 2: Check if PZ server is running and connect RCON
         const timeoutMs = 15000;
         const activeServer = await getActiveServer();
-        const isRunning = await Promise.race([
+        const processState = await Promise.race([
           activeServer?.isRemote
-            ? Promise.resolve(rconService.connected || panelBridge.isModConnected())
-            : serverManager.checkServerRunning(),
+            ? Promise.resolve({
+                running: rconService.connected || panelBridge.isModConnected(),
+                scanFailed: false,
+              })
+            : serverManager.getServerProcessDetails(),
           new Promise((_, reject) =>
             setTimeout(
               () => reject(new Error("Server check timeout")),
@@ -2628,9 +2781,19 @@ async function start() {
             ),
           ),
         ]);
+        const startupState = classifyStartupProcessState(
+          processState,
+          Boolean(activeServer?.isRemote),
+        );
+        const processStateUnknown = startupState.unknown;
+        const isRunning = startupState.running;
 
-        if (isRunning) {
-          log.info("PZ server detected running - connecting RCON...");
+        if (isRunning || processStateUnknown) {
+          log.info(
+            processStateUnknown
+              ? "PZ server process state is unknown - trying RCON but will not auto-start"
+              : "PZ server detected running - connecting RCON...",
+          );
 
           // Try to connect RCON with retries
           let connected = false;

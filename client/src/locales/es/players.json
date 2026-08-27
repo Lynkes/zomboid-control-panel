@@ -5,6 +5,11 @@
     "updated": "Actualizado {{time}}",
     "refresh": "Actualizar"
   },
+  "permissions": {
+    "noModerate": "Esta acción requiere el permiso players.moderate, del cual este rol no dispone.",
+    "noGmTools": "Esta acción requiere el permiso players.gm_tools, del cual este rol no dispone.",
+    "noBridgeCommand": "Esta acción requiere el permiso bridge.command, del cual este rol no dispone."
+  },
   "errorBanner": {
     "title": "La página de jugadores solo está disponible parcialmente",
     "retry": "Reintentar"
@@ -262,7 +267,8 @@
     "on": "ACTIVADO",
     "off": "DESACTIVADO",
     "enable": "Activar",
-    "disable": "Desactivar"
+    "disable": "Desactivar",
+    "bridgeRequiredTooltip": "Requiere que PanelBridge esté conectado"
   },
   "notes": {
     "selectPlayerEmpty": "Seleccionar un jugador para ver o añadir notas",
@@ -284,6 +290,7 @@
     "deleteButton": "Eliminar",
     "saveButton": "Guardar nota",
     "activityLogTitle": "Registro de actividad",
+    "activityLogTruncatedHint": "Mostrando las {{count}} entradas más recientes -- es posible que no se muestre actividad más antigua.",
     "logsErrorTitle": "Registro de actividad no disponible",
     "filterPlaceholder": "Filtrar por nombre de jugador...",
     "filterAria": "Filtrar el registro de actividad por nombre de jugador",
@@ -292,7 +299,7 @@
     "tableAction": "Acción",
     "tableDetails": "Detalles",
     "loadingRow": "Cargando...",
-    "noLogsRow": "Sin registros de actividad",
+    "noLogsRow": "Aún no hay registros de actividad — las acciones de moderación sobre este jugador (baneos, expulsiones, cambios en la whitelist) aparecerán aquí.",
     "detailsFallback": "-",
     "deleteConfirmTitle": "¿Eliminar esta nota?",
     "deleteConfirmDesc": "La nota de administrador y las etiquetas guardadas para {{player}} se eliminarán de forma permanente. Esta acción no se puede deshacer.",
@@ -309,6 +316,8 @@
     "exportButton": "Exportar {{player}}",
     "exportButtonFallback": "Jugador",
     "characterDataLabel": "Datos del personaje",
+    "copyCharacterDataAria": "Copiar datos del personaje",
+    "copiedAria": "Copiado",
     "downloadFileButton": "Descargar archivo",
     "importTitle": "Importar personaje",
     "importDesc": "Restaurar XP, perks, habilidades e inventario exportado",
@@ -321,7 +330,15 @@
     "savedExportsTitle": "Exportaciones guardadas ({{count}})",
     "sizeKb": "({{size}} KB)",
     "downloadTitle": "Descargar",
-    "deleteTitle": "Eliminar"
+    "deleteTitle": "Eliminar",
+    "downloadExportAria": "Descargar la exportación guardada de {{username}}",
+    "deleteExportAria": "Eliminar la exportación guardada de {{username}}"
+  },
+  "importConfirm": {
+    "title": "¿Sobrescribir el personaje de {{player}}?",
+    "description": "Esto reemplaza la XP, perks, habilidades, rasgos, inventario y objetos equipados de {{player}} con los datos pegados. El estado actual de {{player}} se guarda primero en Exportaciones guardadas, para que puedas restaurarlo desde ahí si este era el jugador equivocado o el archivo equivocado.",
+    "cancel": "Cancelar",
+    "confirm": "Sí, sobrescribir personaje"
   },
   "actions": {
     "kickPlayer": "Expulsar jugador",
@@ -380,6 +397,8 @@
     "invalidJsonDesc": "Los datos del personaje no tienen un formato JSON válido",
     "characterImportedTitle": "Personaje importado",
     "characterImportedDesc": "Se aplicaron {{perks}} habilidades y {{items}} objetos a {{player}}",
+    "characterImportedTitleNoneApplied": "La importación no aplicó nada",
+    "characterImportedDescNoneApplied": "No se aplicó ninguna de las habilidades u objetos enviados a {{player}}. Es posible que los datos no coincidan con los mods o las definiciones de objetos de este servidor.",
     "importFailedTitle": "Error de importación",
     "importFailedFallback": "No se pudo importar el personaje",
     "fileTooLargeTitle": "Archivo demasiado grande",

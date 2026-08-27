@@ -16,6 +16,7 @@ import {
 import { withFileLock, writeFileAtomic } from "../utils/fileWriteQueue.js";
 import { escapeRegExp } from "../utils/regex.js";
 import { getDataPaths } from "../utils/paths.js";
+import { parseBoundedInteger } from "../utils/queryNumbers.js";
 
 const isWindows = process.platform === "win32";
 // How long a live-looked-up public IP is trusted before re-checking.
@@ -32,9 +33,38 @@ const PUBLIC_IP_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 // stopServer()'s handling of the { timedOut } result below.
 const KILL_EXEC_TIMEOUT_MS = 8000;
 
+export function resolveConfiguredRconPort(value, fallback = 27015) {
+  if (
+    value === undefined ||
+    value === null ||
+    (typeof value === "string" && value.trim() === "")
+  ) {
+    return fallback;
+  }
+  return parseBoundedInteger(value, null, 1, 65535);
+}
+
 function getConfiguredIpv4Address(variableName) {
   const address = process.env[variableName]?.trim();
   return address && net.isIP(address) === 4 ? address : null;
+}
+
+export function classifyProcessKillError(error) {
+  if (!error) return "success";
+  if (error?.killed) return "timedOut";
+
+  const message = `${error?.message || ""} ${error?.stderr || ""}`.toLowerCase();
+  if (
+    error?.code === "ESRCH" ||
+    /no such process|not found|no matching process|no instances|not running/.test(
+      message,
+    ) ||
+    (error?.code === 1 && !String(error?.stderr || "").trim())
+  ) {
+    return "alreadyGone";
+  }
+
+  return "failed";
 }
 
 // Build LD_LIBRARY_PATH from server directory, filtering to only existing paths
@@ -79,11 +109,18 @@ function validateStartCommand(cmd) {
     return { valid: false, reason: "Command exceeds 1024 characters" };
   // Block obvious shell metacharacters that enable chaining/injection
   // Allow quotes, spaces, hyphens, equals, slashes, dots, colons (drive letters)
-  if (/[&|;<>`${}()!\[\]\n\r]/.test(cmd)) {
+  // `$` (POSIX variable expansion) was already blocked here; `%` is its
+  // cmd.exe equivalent and was missing -- on the one spawn target this
+  // guard actually protects (Windows .bat/.cmd via cmd.exe /c), an
+  // unblocked `%VAR%` still expands into the resolved command line, which
+  // is then visible in a process listing. Not chaining on its own (that
+  // still needs & | ; or a newline, all blocked below), but the same
+  // author-intent that blocked `$` clearly meant to block this too.
+  if (/[&|;<>`${}()!%\[\]\n\r]/.test(cmd)) {
     return {
       valid: false,
       reason:
-        "Command contains disallowed shell characters: & | ; < > ` $ { } ( ) ! [ ]",
+        "Command contains disallowed shell characters: & | ; < > ` $ { } ( ) ! % [ ]",
     };
   }
   return { valid: true };
@@ -182,6 +219,32 @@ function normalizePathForCompare(value) {
   return isWindows ? normalized.toLowerCase() : normalized;
 }
 
+// Two supported ways to point the panel at a server -- an operator ruling,
+// not an accident (2026-08-27, user-report-servertest-ini-and-sandbox-
+// reverted-to-default-after-restart): MANAGED (a directory -- the panel
+// generates, owns, and regenerates StartServer_<name>.bat/.sh, baking
+// -cachedir/-servername into it) or CUSTOM LAUNCHER (a path ending in
+// .bat/.sh/.exe -- the operator's own script; the panel launches it as-is
+// and never regenerates or manages it). ONE predicate, asked by every
+// caller that needs to know which: loadConfig() below (to resolve
+// serverBat), server.js's refreshLaunchTargetBeforeStart() (to decide
+// whether to regenerate the launch script before a start/restart), and
+// servers.js's PUT/POST validation (to decide which shape rule a saved
+// installPath/serverPath must satisfy). An existing file-shaped value must
+// keep resolving as CUSTOM LAUNCHER -- this codifies behavior loadConfig()
+// already had, it does not change it.
+export function resolveLaunchMode(server) {
+  const raw = server?.serverPath || server?.installPath;
+  if (!raw || typeof raw !== "string") {
+    return { mode: "managed", launcherPath: null };
+  }
+  const lower = raw.toLowerCase();
+  if (lower.endsWith(".bat") || lower.endsWith(".sh") || lower.endsWith(".exe")) {
+    return { mode: "custom", launcherPath: raw };
+  }
+  return { mode: "managed", launcherPath: null };
+}
+
 /**
  * How strongly a running process looks like it belongs to a given server.
  * Returns -1 when a launch argument proves it belongs to a DIFFERENT server,
@@ -238,6 +301,9 @@ export class ServerManager {
     this.isRunning = false;
     this.startTime = null;
     this.configLoaded = false;
+    // "managed" (the panel owns and regenerates the launch script) or
+    // "custom" (the operator's own .bat/.sh/.exe -- see resolveLaunchMode()).
+    this.launchMode = "managed";
     // Which server this instance's currently-loaded config belongs to (null
     // = "the active server", the shared-singleton default). Recorded so
     // internal reload points (e.g. startServer()'s "settings may have
@@ -263,6 +329,7 @@ export class ServerManager {
     this.startCommand = "";
     this.rconHost = null;
     this.rconPort = null;
+    this.launchMode = "managed";
     this.configLoaded = false;
     await this.loadConfig(serverId);
   }
@@ -286,21 +353,16 @@ export class ServerManager {
         // Use serverPath if available, otherwise extract from installPath
         let serverDir = activeServer.serverPath || activeServer.installPath;
 
-        // If path points to a file (e.g., .bat), extract the directory
-        if (serverDir) {
-          const serverDirLower = serverDir.toLowerCase();
-          if (
-            serverDirLower.endsWith(".bat") ||
-            serverDirLower.endsWith(".sh") ||
-            serverDirLower.endsWith(".exe")
-          ) {
-            // Extract the batch file name before getting directory
-            const batchFileName = path.basename(serverDir);
-            serverDir = path.dirname(serverDir);
-            // Use the specified batch file
-            this.serverBat = batchFileName;
-            log.debug(`Using batch file from installPath: ${batchFileName}`);
-          }
+        // CUSTOM LAUNCHER mode: the stored path points at the operator's own
+        // .bat/.sh/.exe, not a directory the panel manages. Extract the
+        // directory to run in and the launcher file to run.
+        const launchMode = resolveLaunchMode(activeServer);
+        this.launchMode = launchMode.mode;
+        if (launchMode.mode === "custom") {
+          const batchFileName = path.basename(launchMode.launcherPath);
+          serverDir = path.dirname(launchMode.launcherPath);
+          this.serverBat = batchFileName;
+          log.debug(`Using custom launcher: ${batchFileName}`);
         }
 
         if (serverDir) {
@@ -364,13 +426,34 @@ export class ServerManager {
           this.serverPath = dbServerPath;
           log.debug(`Loaded serverPath from database: ${dbServerPath}`);
         }
+        // Defense in depth: config.js's PUT /app-settings now rejects an
+        // unsafe serverName before it can be stored (the real fix), but an
+        // install that already has one saved from before that validation
+        // existed would otherwise carry it straight into this.serverName /
+        // this.serverBat, which getServerConfig()/saveServerConfig() below
+        // and the .bat/.sh launch path both interpolate into a filesystem
+        // path unguarded. path.basename() unchanged is the same "safe or
+        // reject" test serverFiles.js's getServerName() uses -- here a
+        // reject just means "treat as if no legacy name were configured"
+        // (this.serverName/this.serverBat stay at their prior/default
+        // values, exactly like the `if (dbServerName)` false case already
+        // did) rather than throwing, since this is a broad state-loading
+        // method with many non-request callers, not a single-purpose
+        // accessor a route handler can turn straight into a 400.
         if (dbServerName) {
-          this.serverName = dbServerName;
-          // Use custom startup script if server was set up through the app
-          if (isWindows) {
-            this.serverBat = `StartServer_${dbServerName}.bat`;
+          const safeServerName = path.basename(dbServerName);
+          if (safeServerName === dbServerName && safeServerName) {
+            this.serverName = dbServerName;
+            // Use custom startup script if server was set up through the app
+            if (isWindows) {
+              this.serverBat = `StartServer_${dbServerName}.bat`;
+            } else {
+              this.serverBat = `start-server_${dbServerName}.sh`;
+            }
           } else {
-            this.serverBat = `start-server_${dbServerName}.sh`;
+            log.warn(
+              `Ignoring legacy settings.serverName "${dbServerName}" -- contains path-unsafe characters. Re-save the server name in Settings to clear this.`,
+            );
           }
         }
         if (dbZomboidPath) {
@@ -834,8 +917,13 @@ export class ServerManager {
       }
 
       if (!skipRunningCheck) {
-        const isRunning = await this.checkServerRunning();
-        if (isRunning) {
+        const processDetails = await this.getServerProcessDetails();
+        if (!processDetails || processDetails.scanFailed) {
+          throw new Error(
+            "Could not confirm the server is stopped because process detection failed",
+          );
+        }
+        if (processDetails.running) {
           throw new Error("Server is already running");
         }
 
@@ -845,10 +933,12 @@ export class ServerManager {
         // would crash on port conflict (RakNet Code 5).
         // Uses THIS server's RCON port — checking the global default would
         // abort a second server's start just because the first one is up.
-        const rconPort =
-          parseInt(this.rconPort, 10) ||
-          parseInt(await getSetting("rconPort"), 10) ||
-          27015;
+        const configuredRconPort =
+          this.rconPort ?? (await getSetting("rconPort"));
+        const rconPort = resolveConfiguredRconPort(configuredRconPort);
+        if (rconPort === null) {
+          throw new Error("Invalid RCON port configuration");
+        }
         const rconHost =
           this.rconHost || (await getSetting("rconHost")) || "127.0.0.1";
         const portInUse = await new Promise((resolve) => {
@@ -1171,8 +1261,8 @@ export class ServerManager {
         log.info(
           `stopServer: force killing PID(s) for "${this.serverName}": ${pids.join(", ")}`,
         );
-        const { timedOut } = await this._killPids(pids);
-        this._clearRunState();
+        const killResult = await this._killPids(pids);
+        const { timedOut, failed, errors = [] } = killResult;
         if (timedOut) {
           log.warn(
             `stopServer: kill command for "${this.serverName}" (PIDs: ${pids.join(", ")}) did not finish within ${this._killTimeoutMs}ms — could not confirm the process actually exited`,
@@ -1183,10 +1273,25 @@ export class ServerManager {
           ).catch((e) => log.warn(`Failed to log event: ${e.message}`));
           return {
             success: true,
+            confirmed: false,
+            timedOut: true,
             message:
               "Stop signal sent, but confirmation timed out — check whether the server actually exited before starting it again",
           };
         }
+        if (failed) {
+          const errorMessage = errors.join("; ") || "kill command failed";
+          log.error(
+            `stopServer: could not stop "${this.serverName}": ${errorMessage}`,
+          );
+          return {
+            success: false,
+            confirmed: false,
+            error: errorMessage,
+            message: "The server could not be stopped.",
+          };
+        }
+        this._clearRunState();
         await logServerEvent(
           "server_stop",
           `Server force stopped (killed PIDs: ${pids.join(", ")})`,
@@ -1215,7 +1320,8 @@ export class ServerManager {
         "stopServer: process detection failed. Falling back to generic force stop.",
       );
       this._clearRunState();
-      const { timedOut } = await this._genericForceStop();
+      const forceResult = await this._genericForceStop();
+      const { timedOut, failed, errors = [] } = forceResult;
       if (timedOut) {
         log.warn(
           `stopServer: generic force stop did not finish within ${this._killTimeoutMs}ms — could not confirm the process actually exited`,
@@ -1226,10 +1332,23 @@ export class ServerManager {
         ).catch((e) => log.warn(`Failed to log event: ${e.message}`));
         return {
           success: true,
+          confirmed: false,
+          timedOut: true,
           message:
             "Stop signal sent, but confirmation timed out — check whether the server actually exited before starting it again",
         };
       }
+      if (failed) {
+        const errorMessage = errors.join("; ") || "force-stop command failed";
+        log.error(`stopServer: generic force stop failed: ${errorMessage}`);
+        return {
+          success: false,
+          confirmed: false,
+          error: errorMessage,
+          message: "The server could not be force-stopped.",
+        };
+      }
+      this._clearRunState();
       await logServerEvent("server_stop", "Server force stopped").catch((e) =>
         log.warn(`Failed to log event: ${e.message}`),
       );
@@ -1275,6 +1394,7 @@ export class ServerManager {
       if (isWindows) {
         let remaining = pids.length;
         let timedOut = false;
+        const errors = [];
         for (const pid of pids) {
           execFile(
             "taskkill",
@@ -1282,10 +1402,14 @@ export class ServerManager {
             { timeout: this._killTimeoutMs },
             (killErr) => {
               if (killErr) {
-                if (killErr.killed) timedOut = true;
+                const outcome = classifyProcessKillError(killErr);
+                if (outcome === "timedOut") timedOut = true;
+                if (outcome === "failed") errors.push(`PID ${pid}: ${killErr.message}`);
                 log.debug(`taskkill ${pid}: ${killErr.message}`);
               }
-              if (--remaining === 0) resolve({ timedOut });
+                if (--remaining === 0) {
+                  resolve({ timedOut, failed: errors.length > 0, errors });
+                }
             },
           );
         }
@@ -1297,14 +1421,17 @@ export class ServerManager {
         ["-9", ...pids],
         { timeout: this._killTimeoutMs },
         (killErr) => {
-          let timedOut = false;
-          if (killErr) {
-            timedOut = Boolean(killErr.killed);
+          const outcome = classifyProcessKillError(killErr);
+          if (killErr && outcome !== "alreadyGone") {
             log.warn(
               `Kill returned error (may be normal if process already exited): ${killErr.message}`,
             );
           }
-          resolve({ timedOut });
+          resolve({
+            timedOut: outcome === "timedOut",
+            failed: outcome === "failed",
+            errors: outcome === "failed" ? [killErr.message] : [],
+          });
         },
       );
     });
@@ -1315,17 +1442,22 @@ export class ServerManager {
     return new Promise((resolve) => {
       if (isWindows) {
         let timedOut = false;
+        const errors = [];
         exec(
           "taskkill /IM ProjectZomboid64.exe /F",
           { timeout: this._killTimeoutMs },
           (err1) => {
-            if (err1?.killed) timedOut = true;
+            const outcome1 = classifyProcessKillError(err1);
+            if (outcome1 === "timedOut") timedOut = true;
+            if (outcome1 === "failed") errors.push(`ProjectZomboid64.exe: ${err1.message}`);
             exec(
               "powershell -Command \"Get-CimInstance Win32_Process -Filter \\\"Name='java.exe'\\\" | Where-Object { $_.CommandLine -like '*zombie.network.gameserver*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }\"",
               { timeout: this._killTimeoutMs },
               (err2) => {
-                if (err2?.killed) timedOut = true;
-                resolve({ timedOut });
+                const outcome2 = classifyProcessKillError(err2);
+                if (outcome2 === "timedOut") timedOut = true;
+                if (outcome2 === "failed") errors.push(`java.exe: ${err2.message}`);
+                resolve({ timedOut, failed: errors.length > 0, errors });
               },
             );
           },
@@ -1337,7 +1469,12 @@ export class ServerManager {
         "pkill -9 -f 'zombie.network.[Gg]ame[Ss]erver|[Pp]roject[Zz]omboid64|[Pp]roject[Zz]omboid32'",
         { timeout: this._killTimeoutMs },
         (err) => {
-          resolve({ timedOut: Boolean(err?.killed) });
+          const outcome = classifyProcessKillError(err);
+          resolve({
+            timedOut: outcome === "timedOut",
+            failed: outcome === "failed",
+            errors: outcome === "failed" ? [err.message] : [],
+          });
         },
       );
     });
@@ -1384,10 +1521,15 @@ export class ServerManager {
             10000,
           );
         });
-        await Promise.race([rconService.save(), saveTimeout]);
+        const saveResult = await Promise.race([rconService.save(), saveTimeout]);
         clearTimeout(saveTimeoutId);
+        if (!saveResult?.success) {
+          throw new Error(
+            `Save before restart failed: ${saveResult?.error || "unknown error"}`,
+          );
+        }
       } catch (e) {
-        log.warn(`Save before restart failed: ${e.message}`);
+        throw new Error(`Save before restart failed: ${e.message}`);
       }
       await this.sleep(3000);
 
@@ -1408,16 +1550,28 @@ export class ServerManager {
       await this.sleep(10000);
 
       // Wait for server to fully stop
+      let processDetails = await this.getServerProcessDetails();
+      if (!processDetails || processDetails.scanFailed) {
+        throw new Error(
+          "Could not confirm the old server stopped because process detection failed",
+        );
+      }
       let attempts = 0;
-      while ((await this.checkServerRunning()) && attempts < 30) {
+      while (processDetails.running && attempts < 30) {
         await this.sleep(1000);
         attempts++;
+        processDetails = await this.getServerProcessDetails();
+        if (!processDetails || processDetails.scanFailed) {
+          throw new Error(
+            "Could not confirm the old server stopped because process detection failed",
+          );
+        }
       }
 
       // Force stop if still running
-      if (await this.checkServerRunning()) {
+      if (processDetails.running) {
         const forced = await this.stopServer(false);
-        if (!forced?.success) {
+        if (!forced?.success || forced.confirmed === false) {
           throw new Error(
             `The old server process could not be stopped (${forced?.error || "unknown error"}), so it was not restarted`,
           );

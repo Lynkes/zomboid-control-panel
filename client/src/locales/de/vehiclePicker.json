@@ -15,6 +15,7 @@
   "clearSelectionAria": "Auswahl aufheben",
   "searchNVehiclesPlaceholder": "{{count}} Fahrzeuge durchsuchen...",
   "filterVehiclesAria": "Fahrzeuge filtern",
+  "clearSearchAria": "Suche löschen",
   "rescanTitle": "Serverfahrzeuge erneut scannen",
   "vehicleListAria": "Fahrzeugliste",
   "noVehiclesMatch": "Keine Fahrzeuge entsprechen „{{search}}“",

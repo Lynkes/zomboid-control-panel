@@ -9,7 +9,7 @@
 [![Discord](https://img.shields.io/badge/discord-join-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/jHsWJDNmSg)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge)](LICENSE)
 
-Manage your Project Zomboid dedicated server from one place: server controls, RCON, a live world map, Workshop mods, scheduled restarts, backups, and Discord integration.
+Project Zomboid is a zombie survival game; playing it with friends means running a **dedicated server** somewhere. Zomboid Control Panel is the web app that sets up and manages that server for you — no command line required — with a live world map, Workshop mod management, scheduled restarts, backups, and Discord integration built in.
 
 [**🚀 Download**](https://github.com/fpsacha/zomboid-control-panel/releases/latest) ·
 [**👁️ Live demo**](https://fpsacha.github.io/zomboid-control-panel/) ·
@@ -180,10 +180,15 @@ Visual map selector for reclaiming disk space from an aging save. Delete individ
 
 ## Requirements
 
-- **Project Zomboid dedicated server** — Build 41 or Build 42.
-- **RCON enabled** in your server `.ini` (`RCONPort=27015` and `RCONPassword=...`).
-- **Network access** between the panel and the PZ server (same machine, same LAN, or reachable IP).
-- For PanelBridge features: `DoLuaChecksum=false` in the server `.ini`.
+**Don't have a Project Zomboid server yet?** You don't need one before you start — the Setup Wizard in Quick Start below installs a fresh Build 41 or Build 42 server for you, RCON included. The rest of this section applies either way; if you're pointing the panel at a server you already run, confirm these in its `.ini` first:
+
+- **RCON enabled**, and **network access** between the panel and the PZ server (same machine, same LAN, or a reachable IP):
+  ```ini
+  RCONPort=27015
+  RCONPassword=choose-a-strong-password
+  DoLuaChecksum=false
+  ```
+  Use the actual RCON port and password configured for your server. `DoLuaChecksum=false` is needed only for PanelBridge features.
 - **`curl`** for World Map build detection (Docker, Windows, and macOS already have it; a bare-metal Linux tarball install might not). Without it, the map still works — it just falls back to a fixed build and stops tracking new Project Zomboid map releases, which Debug > World Map will flag.
 
 The packaged binary includes its own runtime — no Node.js, Python, or Java install needed on the panel host.
@@ -198,201 +203,50 @@ PanelBridge features additionally need its server files or SFTP access.
 
 | Your setup | Use this guide |
 | --- | --- |
-| Windows PC or Windows server | [Windows](#windows) |
-| Linux PC, VPS, or home server | [Linux](#linux) |
-| macOS | [macOS](#macos) |
-| Docker or Unraid | [Docker and Unraid](#docker-and-unraid) |
-| Indifferent Broccoli hosted server | [Indifferent Broccoli](#indifferent-broccoli) |
+| Windows PC or Windows server | [docs/install/windows.md](docs/install/windows.md) |
+| Linux PC, VPS, or home server | [docs/install/linux.md](docs/install/linux.md) |
+| macOS | [macOS](#macos) below |
+| Docker or Unraid | [docs/install/docker.md](docs/install/docker.md) |
+| Renting from a host (Indifferent Broccoli, etc.) | [docs/install/hosted.md](docs/install/hosted.md) |
 
-Download the current package from [Releases](https://github.com/fpsacha/zomboid-control-panel/releases/latest). The Windows and Linux packages include the panel runtime: no Node.js, Python, or Java installation is needed on the panel host.
+**Not sure which?** If you already rent a Project Zomboid server from a host, pick Hosted — you're not installing anything server-side. Otherwise pick the row that matches the computer the *panel* will run on; Docker needs the fewest manual steps if that machine has it.
 
-### Windows
-1. Download and extract `ZomboidControlPanel-windows.zip`.
-2. Double-click `Start.bat`.
-3. Open `http://localhost:3001`.
-4. Create the admin account, then open **Servers** and add your PZ server.
-
-### Linux
-```bash
-mkdir zomboid-panel && cd zomboid-panel
-tar xzf ZomboidControlPanel-linux.tar.gz
-chmod +x start.sh
-./start.sh
-```
-Open `http://localhost:3001`, create the admin account, then add the PZ server in **Servers**. Works on Ubuntu 20.04+, Debian 10+, CentOS Stream 8+, Rocky 8+, or anything with glibc 2.28+.
+Every path above ends the same way: a browser tab open to the panel's setup screen, where you create your admin account. Download the current package from [Releases](https://github.com/fpsacha/zomboid-control-panel/releases/latest). Something not working? [docs/install/troubleshooting.md](docs/install/troubleshooting.md) is organized by what's actually on your screen, not by which guide you followed.
 
 ### macOS
 
-The packaged panel binary supports Windows and Linux. On macOS, run the panel with Docker Desktop or OrbStack:
-
-```bash
-curl -O https://raw.githubusercontent.com/fpsacha/zomboid-control-panel/main/docker-compose.install.yml
-docker compose -f docker-compose.install.yml up -d
-```
-
-Open `http://localhost:3001`. Add a local or remote PZ server through **Servers**. Project Zomboid server hosting itself needs Linux or a hosting provider; the panel can still run on your Mac.
+There's no native macOS binary. Run the panel with Docker Desktop or OrbStack — see the macOS row in [docs/install/docker.md](docs/install/docker.md)'s own chooser table, which points you at the fastest of its four Docker paths. Project Zomboid server hosting itself needs Linux or a hosting provider; the panel can still run on your Mac.
 
 ### Docker and Unraid
 
-For a normal Docker host:
+The fastest path to a fully working setup — panel **and** a new Project
+Zomboid server — is the all-in-one installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/fpsacha/zomboid-control-panel/main/docker/all-in-one/bootstrap.sh | sh
+```
+
+It checks Docker, generates the secret and persistent configuration, pulls the
+prebuilt release images, installs PZ, detects the LAN address, and publishes
+the required UDP ports `16261` and `16262`, and prints the panel URL near the end
+once the health check passes.
+
+If PZ already runs on the host, in another container, or on another machine,
+use the panel-only image instead:
 
 ```bash
 curl -O https://raw.githubusercontent.com/fpsacha/zomboid-control-panel/main/docker-compose.install.yml
 docker compose -f docker-compose.install.yml up -d
 ```
 
-Open `http://localhost:3001`. This starts the panel with persistent named volumes.
+The panel-only image deliberately does not publish PZ game ports; those belong
+to the existing game-server host or container.
 
-For **Unraid**, import [`docker/unraid/zomboid-panel.xml`](docker/unraid/zomboid-panel.xml), then set the PZ install and config/save host paths to match your existing PZ container. The panel's own paths must stay `/app/data` and `/app/logs`; see [Unraid and Indifferent Broccoli](#unraid-and-indifferent-broccoli) for the four required mappings.
-
-### Indifferent Broccoli
-
-Indifferent Broccoli runs the **game server**. Run this panel on your Windows PC, Linux host, macOS Docker setup, or Unraid box using one of the guides above.
-
-1. In the Indifferent Broccoli panel, enable or note the server's RCON host, port, and password.
-2. In Zomboid Control Panel, open **Servers** and add it as a **remote server** using those RCON details.
-3. Install `PanelBridge.lua` through the provider's file manager, then set `DoLuaChecksum=false` in the server `.ini` and restart the game server.
-4. In **Settings > PanelBridge > Remote connection**, enter the SFTP **host**, **port**, **username**, and **password** supplied by Indifferent Broccoli. Plain FTP will not work.
-5. Set **Remote bridge folder** to the remote folder that contains PanelBridge's `status.json`, `inbox`, and `outbox` files. Click **Test SFTP**, then **Start SFTP bridge**.
-6. Optional, but recommended for browser-based configuration editing: set **Remote Server folder** to the absolute folder containing the server's `.ini` and `_SandboxVars.lua` files, then click **Check folder**.
-7. Keep start, stop, restart, and game updates in Indifferent Broccoli's own dashboard. The panel can administer the game through RCON and PanelBridge, but it does not take ownership of a hosted provider's container.
-
-Indifferent Broccoli advertises full file access, mod support, and its own server control panel. Their current Project Zomboid guide is available at [Indifferent Broccoli](https://indifferentbroccoli.com/project-zomboid-server-hosting).
-
-### Before You Continue
-
-For every platform, confirm these in the PZ server `.ini` before adding it to the panel:
-
-```ini
-RCONPort=27015
-RCONPassword=choose-a-strong-password
-DoLuaChecksum=false
-```
-
-Use the actual RCON port and password configured for your server. `DoLuaChecksum=false` is needed only for PanelBridge features.
-
-### Docker: shared PZ folders and permissions
-
-The panel-only Docker setup above does not automatically grant access to the PZ install or saves. For config editing, local backups, and PanelBridge file access, use the fully documented [docker-compose.yml](docker-compose.yml) and configure its bind mounts. The Compose files use named volumes for panel state, so do not replace them with host `./panel-data` or `./data` mounts unless those directories are owned by UID/GID `1000:1000`.
-
-#### Shared PZ folders: Docker permissions
-
-When the panel bind-mounts Project Zomboid folders, set `PUID` and `PGID` in
-`.env` to the numeric Linux user and group that own those folders:
-
-```env
-PUID=1000
-PGID=1000
-```
-
-Find the values with `id -u` and `id -g`, then restart the panel:
-
-```bash
-docker compose up -d
-```
-
-`PUID` and `PGID` apply when the container starts as root, which is the default
-for Docker and Docker Compose. If the runtime already pins a non-root user — for
-example a Kubernetes pod with `runAsUser`, `runAsGroup`, and `runAsNonRoot: true`
-— the entrypoint skips the ownership fix and the privilege drop and runs the
-panel as the given user. In that case `PUID` and `PGID` are ignored, and the
-`/app/data` and `/app/logs` volumes must already be writable by that UID/GID.
-
-This works with the published image; rebuilding is not required. The panel
-changes ownership only of its own `/app/data` and `/app/logs` directories,
-never of PZ game or save mounts.
-
-#### Separate PZ and panel containers
-
-The panel can manage a PZ server in another container. Put both containers on
-the same Docker network and set `RCON_HOST` to the PZ service name, not
-`127.0.0.1`. For PanelBridge features, choose one of these file-access methods:
-
-- Bind-mount the same PZ save directory into the panel and give both containers
-  compatible numeric UID/GID access.
-- In **Settings → PanelBridge**, enable **Remote server via SFTP**, enter the
-  PZ host credentials and the absolute bridge folder, for example
-  `/home/pz/Zomboid/Lua/panelbridge/MyServer`, then select **Test SFTP** and
-  **Start SFTP bridge**.
-
-Shared folders and SFTP enable configuration edits and PanelBridge actions.
-They do not let the panel start or stop a separate Docker container. Keep PZ
-lifecycle management in your container manager, unless you deliberately grant
-the panel Docker socket access.
-
-#### Unraid and Indifferent Broccoli
-
-Use the panel-only image alongside an existing Indifferent Broccoli Project
-Zomboid container. The two applications have separate persistent state: the
-panel's own database and logs are **not** Project Zomboid's data or logs.
-
-| Unraid host path | Panel container path | Purpose |
-| --- | --- | --- |
-| `/mnt/user/appdata/zomboid-panel/data` | `/app/data` | Panel database, sessions, and backups |
-| `/mnt/user/appdata/zomboid-panel/logs` | `/app/logs` | Panel logs |
-| `/mnt/cache/appdata/projectzomboid/data` | `/pz-server` | PZ install; use the actual path from the PZ container's template |
-| `/mnt/user/appdata/projectzomboid/config` | `/zomboid` | PZ server config, saves, logs, and PanelBridge files |
-
-Do **not** use `/panel-data` or `/panel-logs`: the image never reads those
-paths. The panel paths are exactly `/app/data` and `/app/logs`.
-
-In Unraid's Docker page, add the four mappings above, set `PUID=99` and
-`PGID=100` (or the owner shown by the PZ container), and use bridge networking.
-Set `RCON_HOST` to the PZ container's name only when both containers share a
-user-defined Docker network. Otherwise use the PZ container's fixed LAN IP or
-host address and its exposed RCON port. Do not use `127.0.0.1`: inside the
-panel it means the panel container itself.
-
-After starting the panel, configure the container paths in the wizard or
-Settings as `/pz-server` and `/zomboid`, never the `/mnt/...` host paths. For
-PanelBridge, the shared `/zomboid` mount is enough. If your PZ container does
-not expose that directory to the panel, use **Settings → PanelBridge → Remote
-server via SFTP** instead.
-
-The panel can monitor and administer the game through RCON, but it cannot
-start, stop, or automatically update an independently managed Broccoli
-container. Leave lifecycle and game updates with Unraid/Indifferent Broccoli;
-the automatic server-update setting is for a PZ process managed by the panel.
-
-A ready-to-import Unraid template is available at
-[`docker/unraid/zomboid-panel.xml`](docker/unraid/zomboid-panel.xml). Edit the
-two PZ host paths and RCON values before importing it.
-
-### Linux: installing a new PZ server through the panel
-
-If you installed the panel as the bundled `zomboid-panel.service`, use this install folder in the setup wizard:
-
-```text
-/opt/zomboid-panel/data/pzserver
-```
-
-Create it once before opening the wizard:
-
-```bash
-sudo -u pzuser mkdir -p /opt/zomboid-panel/data/pzserver
-```
-
-The panel also creates `/opt/zomboid-panel/data/pzserver_Data` for server settings and save data. Leave **Custom config location** blank unless you have a specific reason to store it elsewhere.
-
-Do not use `/opt/pzserver` with the bundled service unless you add both `/opt/pzserver` and `/opt/pzserver_Data` to `ReadWritePaths` in `zomboid-panel.service`, then run `sudo systemctl daemon-reload` and `sudo systemctl restart zomboid-panel`.
-
-### Docker
-
-The image runs **the panel only** — Project Zomboid itself still has to run somewhere (on the host, in another container, or on a separate machine). The panel reaches it via RCON and via shared filesystem (for PanelBridge).
-
-Pull the prebuilt image:
-```bash
-mkdir -p ~/zomboid-panel && cd ~/zomboid-panel
-curl -O https://raw.githubusercontent.com/fpsacha/zomboid-control-panel/main/docker-compose.yml
-curl -O https://raw.githubusercontent.com/fpsacha/zomboid-control-panel/main/.env.example
-mv .env.example .env
-docker compose up -d
-```
-Then open `http://localhost:3001`.
-
-Before bringing it up for real, edit [`docker-compose.yml`](docker-compose.yml) and uncomment the volume mounts that point at your PZ install and `~/Zomboid` folder — the file has two annotated topology examples (PZ on the host vs. PZ on a remote machine). All env vars are documented in [`.env.example`](.env.example).
-
-Prebuilt images are published to GHCR: `ghcr.io/fpsacha/zomboid-panel:latest` and `:vX.Y.Z`. Prefer to build from source? Comment out `image:` in the compose file and uncomment the `build:` block.
+See [docs/install/docker.md](docs/install/docker.md) for the full walkthrough
+of these and the other two configurations (bind-mounting an existing PZ
+install, and Unraid specifically) — including running PZ in a separate
+container from the panel, and choosing between the published image and
+building from source.
 
 ---
 
@@ -402,6 +256,8 @@ Prebuilt images are published to GHCR: `ghcr.io/fpsacha/zomboid-panel:latest` an
 2. In **Settings**, set your server install path and Zomboid data path.
 3. Configure RCON (host, port `27015`, password from your server `.ini`).
 4. Optionally install PanelBridge for advanced features.
+
+If you installed a brand-new server with the Setup Wizard, steps 2 and 3 are already done — the wizard fills them in as part of installing.
 
 ### PanelBridge (Optional)
 
@@ -429,6 +285,48 @@ CORS_ORIGINS=http://YOUR-IP:3001 ./start.sh
 After login, save it permanently in **Settings → Remote Access** so the env var isn't required next time.
 
 For VPS or public-internet deployment, put the panel behind a reverse proxy (nginx or Caddy) with HTTPS, and set `HTTPS=true` so the panel emits HSTS headers. Don't expose port 3001 directly to the internet.
+
+### nginx reverse proxy
+
+The panel uses a live socket.io connection for status updates, chat, and the world map's activity overlay — nginx does not forward WebSocket upgrade requests by default, so without the `Upgrade`/`Connection` headers below the panel will load but the connection indicator will show disconnected and any live-updating panel (world map included) will silently stop working, while everything else keeps working normally. This is the single most common reverse-proxy misconfiguration reported against the panel.
+
+Recommended pattern: terminate TLS at nginx, run the panel itself over plain HTTP behind it (no need to also configure certificates inside the panel).
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name your-domain.example.com;
+
+    ssl_certificate     /path/to/fullchain.pem;
+    ssl_certificate_key /path/to/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+
+        # Required for socket.io — without these two lines the panel's
+        # live connection never establishes, but every plain HTTP(S)
+        # request still works, which is why this is easy to miss.
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Then set these before first launch (see [linux.md Phase 9](docs/install/linux.md) for the systemd equivalent):
+
+```bash
+TRUST_PROXY=1 HTTPS=true ./start.sh
+```
+
+`TRUST_PROXY=1` tells the panel to trust the `X-Forwarded-*` headers above for one proxy hop (IP-based rate limiting and login all key off this) — only set it if the panel is genuinely reachable exclusively through your proxy, never if port 3001 is also exposed directly. `HTTPS=true` makes the panel emit HSTS and treat the connection as secure for cookies even though it's speaking plain HTTP to nginx.
+
+If you instead terminate TLS at nginx *and* run the panel's own HTTPS listener behind it (double TLS termination — only needed if something else on the same host also talks to the panel directly over HTTPS), point `proxy_pass` at `https://127.0.0.1:<your HTTPS port>` instead and add `proxy_ssl_verify off;` if you're using the panel's self-signed certificate. The `Upgrade`/`Connection` headers above are still required either way — they're about forwarding the client's upgrade request, not about which protocol nginx uses to reach the panel.
 
 ---
 

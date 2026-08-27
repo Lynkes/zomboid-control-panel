@@ -31,4 +31,5 @@
   <Config Name="RCON host" Target="RCON_HOST" Default="CHANGE_ME" Mode="" Description="PZ container name on a shared custom Docker network, or its fixed host/LAN address. Never use 127.0.0.1." Type="Variable" Display="always" Required="true" Mask="false"/>
   <Config Name="RCON port" Target="RCON_PORT" Default="27015" Mode="" Description="Exposed RCON port from the Project Zomboid server." Type="Variable" Display="always" Required="true" Mask="false"/>
   <Config Name="RCON password" Target="RCON_PASSWORD" Default="" Mode="" Description="Project Zomboid RCON password. Prefer RCON_PASSWORD_FILE for a Docker secret when available." Type="Variable" Display="always" Required="false" Mask="true"/>
+  <Config Name="CORS origins" Target="CORS_ORIGINS" Default="" Mode="" Description="Only needed if you reach the panel through a reverse proxy or public hostname instead of the LAN. Set to the exact browser origin, e.g. https://panel.example.com. Leave blank for LAN-only access." Type="Variable" Display="advanced" Required="false" Mask="false"/>
 </Container>

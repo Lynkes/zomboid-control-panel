@@ -3,8 +3,11 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import {
-  PORT_MIN,
-  PORT_MAX,
+  BIND_PORT_MIN,
+  BIND_PORT_MAX,
+  DESTINATION_PORT_MIN,
+  DESTINATION_PORT_MAX,
+  GAME_PORT_MAX,
   MEMORY_GB_MIN,
   MIN_MEMORY_GB_MAX,
   MAX_MEMORY_GB_MAX,
@@ -24,18 +27,37 @@ import {
 // existing behavioural test (serverNumericFieldValidation.test.js,
 // appSettingsHttpsValidation.test.js) was written against.
 // See 2026-08-23 validateInt-coerces / config.js numeric-field audit.
+//
+// GitHub #118 (2026-08-26): the single PORT_MIN/PORT_MAX pair this
+// described was itself the bug -- it applied a bind-socket floor (1024) to
+// SFTP, a destination-only field whose standard port (22) is below it, so
+// the panel rejected its own shipped default out of the box. The pair
+// split into BIND_PORT_MIN/MAX (this panel process binds it: its own port,
+// the game port when it launches PZ locally, and this file's/config.js's
+// legacy single-server RCON target) and DESTINATION_PORT_MIN/MAX (a port on
+// someone else's socket the panel only connects out to: SFTP, always).
+// Asserting both pairs here, deliberately, rather than loosening this test
+// to fit whatever server.js currently does -- a test that can't fail no
+// matter what the range becomes isn't coverage.
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_JS = path.join(__dirname, "..", "routes", "server.js");
 const CONFIG_JS = path.join(__dirname, "..", "routes", "config.js");
 
-describe("PORT_MIN/PORT_MAX/MEMORY_GB_MIN/MIN_MEMORY_GB_MAX/MAX_MEMORY_GB_MAX", () => {
+describe("BIND_PORT_MIN/MAX, DESTINATION_PORT_MIN/MAX, GAME_PORT_MAX, MEMORY_GB_MIN/MIN_MEMORY_GB_MAX/MAX_MEMORY_GB_MAX", () => {
   it("match the ranges every existing behavioural test was written against", () => {
-    expect(PORT_MIN).toBe(1024);
-    expect(PORT_MAX).toBe(65535);
+    expect(BIND_PORT_MIN).toBe(1024);
+    expect(BIND_PORT_MAX).toBe(65535);
+    expect(GAME_PORT_MAX).toBe(65534);
     expect(MEMORY_GB_MIN).toBe(1);
     expect(MIN_MEMORY_GB_MAX).toBe(64);
     expect(MAX_MEMORY_GB_MAX).toBe(128);
+  });
+
+  it("destination ports keep the bind ceiling but drop the bind floor -- a destination is never restricted to unprivileged ports, because this panel never binds it", () => {
+    expect(DESTINATION_PORT_MIN).toBe(1);
+    expect(DESTINATION_PORT_MAX).toBe(65535);
+    expect(DESTINATION_PORT_MIN).toBeLessThan(BIND_PORT_MIN);
   });
 });
 

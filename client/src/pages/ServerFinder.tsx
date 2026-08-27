@@ -46,13 +46,18 @@ import {
 } from '@/components/ui/tooltip'
 import { Link } from 'react-router-dom'
 import { useToast } from '@/components/ui/use-toast'
-import { apiFetch } from '@/lib/api'
+import { apiFetch, ApiError } from '@/lib/api'
+import { getUserErrorMessage } from '@/lib/errorMessage'
+import { copyText } from '@/lib/utils'
 
 interface GameServer {
   name: string
   ip: string
-  port: number
-  gamePort?: number
+  // Can be null: the server derives this from the Steam listing's addr
+  // field, falling back to gameport, and stays honestly unknown (never a
+  // guessed default) when neither is parseable.
+  port: number | null
+  gamePort?: number | null
   players: number
   maxPlayers: number
   map: string
@@ -70,8 +75,54 @@ interface GameServer {
 type SortField = 'name' | 'players' | 'maxPlayers' | 'ping'
 type SortDirection = 'asc' | 'desc'
 
+// The query port (used for A2S ping/connect diagnostics) is honestly null
+// when the panel couldn't parse one -- never a guessed default. Ping keys
+// off this directly and stay disabled when it's absent, so a fabricated
+// port never gets pinged and no cache entry is ever written under a
+// "port unknown" key (which would otherwise let two portless servers on
+// the same IP collide into one ping result).
+export function pingKey(server: Pick<GameServer, 'ip' | 'port'>): string | null {
+  return server.port === null || server.port === undefined ? null : `${server.ip}:${server.port}`
+}
+
+// The human-facing address prefers the raw Steam-reported game port over
+// the derived query port, falling back to the query port only if the game
+// port is missing. Null when neither is known -- the caller must render an
+// IP with no port rather than print the literal string "null".
+export function displayPort(server: Pick<GameServer, 'port' | 'gamePort'>): number | null {
+  return server.gamePort || server.port || null
+}
+
+export function displayAddress(server: Pick<GameServer, 'ip' | 'port' | 'gamePort'>): string {
+  const port = displayPort(server)
+  return port === null ? server.ip : `${server.ip}:${port}`
+}
+
+// Which locale key explains an empty server list, from GET /'s emptyReason
+// (see deriveEmptyReason in serverFinder.js) plus the pre-existing
+// apiKeyConfigured flag. 'master-unreachable' / 'no-servers-listed' /
+// 'no-servers-responded' used to all render as the same generic "no
+// servers found" -- three genuinely different next steps for the operator
+// collapsed into one unhelpful message.
+export function emptyServersDescKey(apiKeyConfigured: boolean, emptyReason?: string): string {
+  if (!apiKeyConfigured) return 'emptyState.noApiKeyDesc'
+  if (emptyReason === 'master-unreachable') return 'emptyState.noServersDescUnreachable'
+  if (emptyReason === 'no-servers-responded') return 'emptyState.noServersDescNoneResponded'
+  if (emptyReason === 'no-servers-listed') return 'emptyState.noServersDescGenuinelyEmpty'
+  return 'emptyState.noServersDesc'
+}
+
+// Which locale key explains a null ping, from GET /ping's reason field (or
+// 'request-failed' for a client-side fetch failure that never reached the
+// server). 'unparseable-response' means the server IS running and
+// reachable, just answered in a form the panel couldn't read -- a
+// completely different next step from "never answered at all".
+export function pingFailDescKey(reason?: string): string {
+  return reason === 'unparseable-response' ? 'serverItem.pingFailUnparseable' : 'serverItem.pingFailUnreachable'
+}
+
 export default function ServerFinder() {
-  const { t } = useTranslation('serverFinder')
+  const { t, i18n } = useTranslation('serverFinder')
   const [servers, setServers] = useState<GameServer[]>([])
   const [filteredServers, setFilteredServers] = useState<GameServer[]>([])
   const [loading, setLoading] = useState(false)
@@ -79,6 +130,12 @@ export default function ServerFinder() {
   const [source, setSource] = useState<string>('')
   const [cached, setCached] = useState(false)
   const [apiKeyConfigured, setApiKeyConfigured] = useState<boolean>(true)
+  // 'master-unreachable' | 'no-servers-listed' | 'no-servers-responded' from
+  // GET /'s emptyReason -- undefined outside the empty master_server case.
+  // Distinguishes "we couldn't even ask" from "we asked and it's genuinely
+  // empty" from "we got a list but nothing on it replied", which used to
+  // all render as the same generic "no servers found".
+  const [emptyReason, setEmptyReason] = useState<string | undefined>(undefined)
   const [stats, setStats] = useState({ totalPlayers: 0, activeServers: 0, totalCapacity: 0 })
   const [currentPage, setCurrentPage] = useState(1)
   const { toast } = useToast()
@@ -100,6 +157,13 @@ export default function ServerFinder() {
   // Pinging
   const [pingingServers, setPingingServers] = useState<Set<string>>(new Set())
   const [serverPings, setServerPings] = useState<Record<string, number | null>>({})
+  // Why a null ping happened -- 'timeout' | 'socket-error' | 'unparseable-response'
+  // from GET /ping's reason field, or 'request-failed' for a client-side
+  // fetch failure that never reached the server at all. Server-computed and
+  // previously discarded entirely; a null ping used to render identically
+  // whether the server never answered or answered in a form the panel
+  // couldn't read -- two completely different next steps for the operator.
+  const [pingFailReasons, setPingFailReasons] = useState<Record<string, string>>({})
   
   // Pagination (client-side)
   const ITEMS_PER_PAGE = 50
@@ -112,16 +176,30 @@ export default function ServerFinder() {
     try {
       const url = forceRefresh ? '/api/server-finder?refresh=true' : '/api/server-finder'
       const response = await apiFetch(url.replace('/api', ''))
-      const data = await response.json()
+      const data = await response.json().catch(() => null)
 
-      if (!data.success) {
-        throw new Error(data.error || t('toasts.fetchFailedFallback'))
+      // apiFetch() is the raw, unwrapped primitive (unlike xApi.method()
+      // calls elsewhere, which go through lib/api's handleResponse()) --
+      // callers are responsible for their own status/code handling.
+      // GET /server-finder's only failure mode is an uncoded 500 with
+      // success:false (server/routes/serverFinder.js), so a plain
+      // `throw new Error(data.error)` here discarded response.status
+      // before getUserErrorMessage() below could ever translate it via
+      // the generic-500 wrapper -- same shape as the raw-fetch sites
+      // fixed earlier tonight (AuthContext.tsx, FileDiffViewer.tsx,
+      // Debug.tsx, Login.tsx).
+      if (!response.ok || !data || data.success === false) {
+        throw new ApiError(data?.error || `HTTP ${response.status}`, {
+          status: response.status,
+          code: data?.code,
+        })
       }
 
       setServers(data.servers || [])
       setSource(data.source || 'unknown')
       setCached(data.cached || false)
       setApiKeyConfigured(data.apiKeyConfigured !== false)
+      setEmptyReason(data.emptyReason)
       setStats({
         totalPlayers: data.totalPlayers || 0,
         activeServers: data.activeServers || 0,
@@ -139,8 +217,7 @@ export default function ServerFinder() {
         })
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('toasts.unknownError')
-      setError(message)
+      setError(getUserErrorMessage(err, t('toasts.fetchFailedFallback')))
     } finally {
       setLoading(false)
     }
@@ -203,10 +280,13 @@ export default function ServerFinder() {
           aVal = a.maxPlayers
           bVal = b.maxPlayers
           break
-        case 'ping':
-          aVal = serverPings[`${a.ip}:${a.port}`] ?? 9999
-          bVal = serverPings[`${b.ip}:${b.port}`] ?? 9999
+        case 'ping': {
+          const aKey = pingKey(a)
+          const bKey = pingKey(b)
+          aVal = (aKey ? serverPings[aKey] : undefined) ?? 9999
+          bVal = (bKey ? serverPings[bKey] : undefined) ?? 9999
           break
+        }
         default:
           return 0
       }
@@ -234,8 +314,10 @@ export default function ServerFinder() {
     setFilteredServers(prev => {
       const sorted = [...prev]
       sorted.sort((a, b) => {
-        const aVal = serverPings[`${a.ip}:${a.port}`] ?? 9999
-        const bVal = serverPings[`${b.ip}:${b.port}`] ?? 9999
+        const aKey = pingKey(a)
+        const bKey = pingKey(b)
+        const aVal = (aKey ? serverPings[aKey] : undefined) ?? 9999
+        const bVal = (bKey ? serverPings[bKey] : undefined) ?? 9999
         return sortDirection === 'asc' ? aVal - bVal : bVal - aVal
       })
       return sorted
@@ -278,11 +360,15 @@ export default function ServerFinder() {
     setCurrentPage(validPage)
   }
 
+  // Goes through copyText (not the raw clipboard API directly) so this
+  // still works over a plain-HTTP LAN deployment -- navigator.clipboard
+  // requires a secure context and is unavailable there; copyText falls
+  // back to execCommand.
   const copyAddress = async (address: string) => {
-    try {
-      await navigator.clipboard.writeText(address)
+    const ok = await copyText(address)
+    if (ok) {
       toast({ title: t('serverItem.addressCopiedTitle'), description: address })
-    } catch {
+    } else {
       toast({
         title: t('serverItem.addressCopyFailedTitle'),
         variant: 'destructive',
@@ -290,7 +376,8 @@ export default function ServerFinder() {
     }
   }
 
-  const pingServer = async (ip: string, port: number) => {
+  const pingServer = async (ip: string, port: number | null) => {
+    if (port === null) return // no known query port -- nothing to ping
     const key = `${ip}:${port}`
     if (pingingServers.has(key)) return
 
@@ -308,11 +395,14 @@ export default function ServerFinder() {
 
       if (data.success && data.ping !== null) {
         setServerPings(prev => ({ ...prev, [key]: data.ping }))
+        setPingFailReasons(prev => { const { [key]: _drop, ...rest } = prev; return rest })
       } else {
         setServerPings(prev => ({ ...prev, [key]: null }))
+        setPingFailReasons(prev => ({ ...prev, [key]: data.reason || 'timeout' }))
       }
     } catch {
       setServerPings(prev => ({ ...prev, [key]: null }))
+      setPingFailReasons(prev => ({ ...prev, [key]: 'request-failed' }))
     } finally {
       setPingingServers(prev => {
         const next = new Set(prev)
@@ -429,29 +519,29 @@ export default function ServerFinder() {
           {
             icon: Server,
             label: t('stats.totalServers'),
-            value: servers.length.toLocaleString(),
+            value: servers.length.toLocaleString(i18n.language),
             sub: `${source === 'steam_api' ? t('stats.viaSteamApi') : t('stats.viaMasterServer')}${cached ? t('stats.cachedSuffix') : ''}`,
             tone: 'muted' as const,
           },
           {
             icon: Globe,
             label: t('stats.activeServers'),
-            value: stats.activeServers.toLocaleString(),
+            value: stats.activeServers.toLocaleString(i18n.language),
             sub: t('stats.withPlayersOnline'),
             tone: 'primary' as const,
           },
           {
             icon: Users,
             label: t('stats.totalPlayers'),
-            value: stats.totalPlayers.toLocaleString(),
+            value: stats.totalPlayers.toLocaleString(i18n.language),
             sub: t('stats.playingNow'),
             tone: 'primary' as const,
           },
           {
             icon: Filter,
             label: t('stats.showing'),
-            value: filteredServers.length.toLocaleString(),
-            sub: isFiltered ? t('stats.filteredOf', { count: servers.length.toLocaleString() }) : t('stats.matchingFilters'),
+            value: filteredServers.length.toLocaleString(i18n.language),
+            sub: isFiltered ? t('stats.filteredOf', { count: servers.length.toLocaleString(i18n.language) }) : t('stats.matchingFilters'),
             tone: isFiltered ? ('warning' as const) : ('muted' as const),
           },
         ]
@@ -642,7 +732,7 @@ export default function ServerFinder() {
                 <EmptyState
                   type="noResults"
                   title={apiKeyConfigured ? t('emptyState.noServersTitle') : t('emptyState.noApiKeyTitle')}
-                  description={apiKeyConfigured ? t('emptyState.noServersDesc') : t('emptyState.noApiKeyDesc')}
+                  description={t(emptyServersDescKey(apiKeyConfigured, emptyReason))}
                 />
               ) : (
                 <EmptyState
@@ -667,8 +757,10 @@ export default function ServerFinder() {
               <div className="space-y-2">
                 {paginatedServers.map((server, index) => {
                   const serverKey = `${server.ip}:${server.port}`
-                  const ping = serverPings[serverKey]
-                  const isPinging = pingingServers.has(serverKey)
+                  const pKey = pingKey(server)
+                  const ping = pKey ? serverPings[pKey] : undefined
+                  const isPinging = pKey ? pingingServers.has(pKey) : false
+                  const address = displayAddress(server)
                   const isFull = server.players >= server.maxPlayers && server.maxPlayers > 0
                   const hasPlayers = server.players > 0 && !isFull
                   const statusTone = isFull
@@ -715,13 +807,13 @@ export default function ServerFinder() {
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation()
-                                  copyAddress(`${server.ip}:${server.gamePort || server.port}`)
+                                  copyAddress(address)
                                 }}
                                 className="flex items-center gap-1 rounded hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-                                aria-label={t('serverItem.copyAddressAria', { address: `${server.ip}:${server.gamePort || server.port}` })}
+                                aria-label={t('serverItem.copyAddressAria', { address })}
                               >
                                 <Globe className="h-3 w-3" />
-                                {server.ip}:{server.gamePort || server.port}
+                                {address}
                                 <Copy className="h-3 w-3 opacity-50" />
                               </button>
                             </TooltipTrigger>
@@ -776,9 +868,29 @@ export default function ServerFinder() {
                         {isPinging ? (
                           <Loader2 className="h-4 w-4 animate-spin mx-auto text-muted-foreground" />
                         ) : ping !== undefined ? (
-                          <span className={`text-sm font-medium ${getPingColor(ping)}`}>
-                            {ping !== null ? t('serverItem.pingMs', { ping }) : t('serverItem.pingNa')}
-                          </span>
+                          ping !== null ? (
+                            <span className={`text-sm font-medium ${getPingColor(ping)}`}>
+                              {t('serverItem.pingMs', { ping })}
+                            </span>
+                          ) : (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="text-sm font-medium text-muted-foreground cursor-help">
+                                  {t('serverItem.pingNa')}
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-56 text-left">
+                                {t(pingFailDescKey(pKey ? pingFailReasons[pKey] : undefined))}
+                              </TooltipContent>
+                            </Tooltip>
+                          )
+                        ) : pKey === null ? (
+                          // No known query port -- pinging would either send
+                          // a request the server rejects or, worse, silently
+                          // share a cache entry with another portless server
+                          // on the same IP. Reuses the existing "N/A" copy
+                          // rather than a new label.
+                          <span className="text-sm text-muted-foreground">{t('serverItem.pingNa')}</span>
                         ) : (
                           <Button
                             variant="ghost"
@@ -802,9 +914,9 @@ export default function ServerFinder() {
                               variant="default"
                               size="sm"
                               className="h-7 px-2"
+                              disabled={displayPort(server) === null}
                               onClick={() => {
-                                const addr = `${server.ip}:${server.gamePort || server.port}`
-                                window.open(`steam://connect/${addr}`, '_self')
+                                window.open(`steam://connect/${address}`, '_self')
                               }}
                             >
                               {t('serverItem.connect')}
@@ -828,7 +940,7 @@ export default function ServerFinder() {
               {t('pagination.showing', {
                 from: ((currentPage - 1) * ITEMS_PER_PAGE) + 1,
                 to: Math.min(currentPage * ITEMS_PER_PAGE, filteredServers.length),
-                total: filteredServers.length.toLocaleString(),
+                total: filteredServers.length.toLocaleString(i18n.language),
               })}
             </div>
             <nav aria-label={t('pagination.nav')} className="flex items-center gap-2">

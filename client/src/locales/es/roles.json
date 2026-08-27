@@ -111,7 +111,7 @@
     "users": {
       "manage": {
         "label": "Administrar cuentas de usuario",
-        "description": "Crear cuentas, listarlas y cambiar qué rol tiene cada una."
+        "description": "Crear cuentas, listarlas, cambiar qué rol tiene cada una, y eliminar una cuenta de forma permanente."
       }
     },
     "roles": {
@@ -137,7 +137,7 @@
     "server": {
       "control": {
         "label": "Iniciar, detener, reiniciar y guardar el servidor",
-        "description": "Iniciar, detener, forzar la detención, reiniciar o guardar el servidor en ejecución."
+        "description": "Iniciar, detener, forzar la detención, reiniciar o guardar el servidor en ejecución, sin importar cómo esté desplegado, incluido uno gestionado con Docker. El estado, las estadísticas y las acciones directas del contenedor de Docker son una capacidad aparte (docker.manage)."
       },
       "install": {
         "label": "Instalar y actualizar el servidor",
@@ -145,21 +145,21 @@
       },
       "configure": {
         "label": "Editar la configuración del servidor",
-        "description": "Editar los ajustes .ini del servidor, los datos de conexión RCON y la configuración de red y rutas."
+        "description": "Editar los ajustes .ini del servidor, los datos de conexión RCON y la configuración de red y rutas, y recargar los scripts Lua del servidor con el servidor en ejecución."
       },
       "wipe": {
         "label": "Borrar por completo el mundo",
-        "description": "Eliminar de forma irreversible datos del mapa, de jugadores o de la partida guardada del mundo."
+        "description": "Eliminar de forma irreversible datos del mapa, de jugadores o de la partida guardada del mundo — y, mediante la acción «vaciar carpeta de instalación», cualquier otro directorio del host que simplemente supere una comprobación de archivo marcador de instalación de PZ, no solo la carpeta propia del servidor configurado."
       },
       "world_events": {
         "label": "Ejecutar eventos del mundo",
-        "description": "Tiempo atmosférico, clima, hora del día, sonido ambiental, hordas de zombis, servicios públicos, ajustes visuales y mensajes de difusión — efectos a escala del mundo, no dirigidos a un jugador concreto."
+        "description": "Tiempo atmosférico, clima, hora del día, sonido ambiental, hordas de zombis (solo eliminarlas, no invocarlas sobre alguien), servicios públicos, ajustes visuales y mensajes de difusión emitidos por el servidor — efectos a escala del mundo, no dirigidos a un jugador concreto. Invocar zombis o efectos de sonido sobre un jugador concreto, los rayos/truenos dirigidos y hacerse pasar por un jugador en el chat son un permiso aparte, players.endanger_or_impersonate."
       }
     },
     "rcon": {
       "execute": {
         "label": "Ejecutar comandos RCON",
-        "description": "Conectar a RCON y ejecutar comandos de consola arbitrarios."
+        "description": "Conectar a RCON y ejecutar comandos de consola arbitrarios, incluidos los que pueden detener el servidor. También otorga acceso de lectura al historial completo de comandos RCON — incluidas las contraseñas reales de jugadores escritas en comandos de lista blanca como adduser."
       }
     },
     "servers": {
@@ -169,7 +169,7 @@
       },
       "discover": {
         "label": "Detectar automáticamente servidores en esta máquina",
-        "description": "Explorar el sistema de archivos del host en busca de instalaciones existentes de servidores de Project Zomboid."
+        "description": "Explorar cualquier ruta del sistema de archivos del host que usted indique en busca de instalaciones de servidores de Project Zomboid, incluyendo leer y analizar el contenido de los archivos .ini de configuración que encuentre allí."
       }
     },
     "templates": {
@@ -181,11 +181,11 @@
     "bridge": {
       "setup": {
         "label": "Conectar y configurar PanelBridge",
-        "description": "Conectar o reconfigurar el puente del mod dentro del juego, su transporte SFTP, e instalar el mod."
+        "description": "Conectar o reconfigurar el puente del mod dentro del juego — incluyendo introducir y almacenar la contraseña de inicio de sesión SFTP usada para acceder a un servidor remoto, explorar rutas arbitrarias en ese servidor por SFTP, y apuntar el puente local a cualquier ruta absoluta del host fuera de una pequeña lista de directorios bloqueados. También instala el mod."
       },
       "diagnostics": {
         "label": "Diagnóstico de PanelBridge",
-        "description": "Ver el registro de depuración y las estadísticas del mod, y ejecutar análisis del catálogo de objetos y vehículos."
+        "description": "Ver el registro de depuración y las estadísticas del mod, inspeccionar su API, sus manejadores disponibles y los scripts de objetos, ejecutar análisis del catálogo de objetos y vehículos, alternar su modo de depuración, y borrar su registro de errores."
       },
       "command": {
         "label": "Ejecutar cualquier acción de PanelBridge",
@@ -195,7 +195,7 @@
     "players": {
       "moderate": {
         "label": "Sancionar a los jugadores",
-        "description": "Banear, desbanear, expulsar o poner en lista blanca a un jugador."
+        "description": "Banear, desbanear, expulsar o poner en lista blanca a un jugador, y cambiar el nivel de acceso dentro del juego de un jugador — incluyendo otorgar o revocar privilegios de administrador."
       },
       "gm_tools": {
         "label": "Herramientas de Game Master",
@@ -204,12 +204,16 @@
       "view": {
         "label": "Ver información de jugadores",
         "description": "Consultar los datos, el estado y el historial de los jugadores."
+      },
+      "endanger_or_impersonate": {
+        "label": "Poner en peligro o suplantar a un jugador",
+        "description": "Invocar hasta 500 zombis directamente en la ubicación de un jugador concreto o justo detrás de él, o desencadenar una horda dirigida a él; apuntar un disparo o un sonido de atracción a su posición; alcanzarlo con rayos o truenos dirigidos. Por separado, y un tipo de daño distinto: enviar un mensaje en el chat general con cualquier nombre de autor personalizado, incluido el de otro jugador, haciendo que parezca que ese jugador lo escribió él mismo."
       }
     },
     "mods": {
       "manage": {
         "label": "Administrar mods",
-        "description": "Seguir, instalar y configurar mods de Workshop."
+        "description": "Seguir, instalar, configurar y eliminar mods de Workshop de forma permanente del disco — incluyendo extraer o sobrescribir la sesión de inicio de sesión de Steam usada para las subidas a Workshop, hasta el punto de extraerla directamente del almacén de cookies de un navegador instalado en esta máquina."
       }
     },
     "automation": {
@@ -227,13 +231,13 @@
     "docker": {
       "manage": {
         "label": "Administrar el contenedor de Docker",
-        "description": "Ver el estado y las estadísticas, e iniciar, detener o reiniciar el contenedor del servidor de juego."
+        "description": "Ver el estado y las estadísticas del contenedor de Docker, y ejecutar acciones directas sobre el contenedor desde la pantalla de Docker. Iniciar, detener y reiniciar el propio servidor — esté gestionado con Docker o no — lo controla server.control, no esta capacidad."
       }
     },
     "chunks": {
       "manage": {
         "label": "Administrar chunks del mapa",
-        "description": "Limpiar o eliminar regiones de chunks del mapa, y configurar la ruta de guardado de chunks."
+        "description": "Limpiar o eliminar regiones de chunks del mapa, incluso desde un directorio arbitrario del host que usted indique — sin limitarse a la ubicación de guardado configurada de este servidor — y configurar la ruta de guardado de chunks."
       }
     },
     "serverfiles": {
@@ -245,13 +249,13 @@
     "diagnostics": {
       "manage": {
         "label": "Ver diagnóstico del panel",
-        "description": "Ver registros, historial de rendimiento, herramientas de mantenimiento de la base de datos y diagnóstico de CORS."
+        "description": "Ver registros, historial de rendimiento, diagnóstico de CORS y estadísticas de la base de datos, respaldar la base de datos, compactarla — lo cual elimina permanentemente registros antiguos — y eliminar archivos de bloqueo obsoletos. También reubica los directorios de datos y registros del panel a cualquier ruta del host con permiso de escritura (bloqueado solo en directorios del sistema operativo y en las carpetas propias de un servidor configurado), y puede mover en el proceso todo lo que ya haya allí — incluyendo la clave de firma JWT, la contraseña RCON almacenada de cada servidor y la base de datos principal."
       }
     },
     "panel": {
       "settings": {
         "label": "Administrar ajustes de todo el panel",
-        "description": "Cambiar la política de CORS, el intervalo de comprobación de mods y otros ajustes a nivel de aplicación."
+        "description": "Cambiar la política de CORS, el intervalo de comprobación de mods y otros ajustes a nivel de aplicación — incluyendo apuntar el servidor HTTPS del panel a cualquier archivo de certificado/clave del host — y configurar el inicio de sesión SSO/OIDC (incluido el secreto de cliente)."
       }
     }
   }

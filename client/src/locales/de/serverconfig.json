@@ -1,4 +1,13 @@
 {
+  "noAccess": {
+    "title": "Du hast keinen Zugriff auf die Serverkonfiguration",
+    "description": "Diese Seite erfordert die Berechtigung „Serverdateien verwalten“. Bitte einen Administrator, sie deiner Rolle zuzuweisen, wenn du hier Servereinstellungen bearbeiten musst."
+  },
+  "duplicateKeysWarning": {
+    "title_one": "\"{{keys}}\" kommt in dieser Konfigurationsdatei mehr als einmal vor",
+    "title_other": "{{count}} Einstellungen kommen in dieser Konfigurationsdatei mehr als einmal vor: {{keys}}",
+    "desc": "Dieser Editor liest die letzte Kopie, die Mods-Seite liest die erste — daher können beide unterschiedliche Werte für dieselbe Einstellung anzeigen."
+  },
   "loading": "Konfiguration wird geladen…",
   "loadErrorTitle": "Konfigurationsdaten konnten nicht vollständig geladen werden",
   "retry": "Erneut versuchen",
@@ -7,7 +16,7 @@
     "description": "Bearbeite die aktuellen INI-, Sandbox-, Spawn- und Mod-Einstellungen für diesen Server.",
     "eyebrow": "Konfiguration",
     "unsavedChanges": "Nicht gespeicherte Änderungen",
-    "templates": "Vorlagen",
+    "templates": "Gespeicherte Konfigurationen",
     "backups": "Backups",
     "refresh": "Aktualisieren"
   },
@@ -33,7 +42,9 @@
   },
   "stopServerAlert": {
     "title": "Der Server läuft",
-    "description": "Du kannst deine Änderungen jetzt speichern. Je nachdem, was du bearbeitest, ist eventuell ein Serverneustart nötig, damit sie wirksam werden — die Bestätigung nach dem Speichern sagt dir, ob das der Fall ist."
+    "description": "Du kannst deine Änderungen jetzt speichern. Je nachdem, was du bearbeitest, ist eventuell ein Serverneustart nötig, damit sie wirksam werden — die Bestätigung nach dem Speichern sagt dir, ob das der Fall ist.",
+    "unknownTitle": "Kann nicht bestätigen, dass der Server gestoppt ist",
+    "unknownDescription": "Wir konnten nicht feststellen, ob der Server derzeit läuft. Falls doch, ist eventuell ein Serverneustart nötig, damit Änderungen wirksam werden — die Bestätigung nach dem Speichern sagt dir, ob das der Fall ist."
   },
   "invalidValuesAlert": {
     "title": "Behebe ungültige Werte vor dem Speichern",
@@ -167,7 +178,10 @@
     "collapseAll": "Alle einklappen",
     "expandAll": "Alle ausklappen",
     "notLoadedTitle": "Mod-Einstellungen nicht geladen",
-    "notLoadedDesc": "Klicke auf Laden, um Sandbox-Optionen von allen installierten Mods über PanelBridge abzurufen. Der PZ-Server muss laufen und PanelBridge muss aktiv sein.",
+    "notLoadedDescPrefix": "Klicke auf Laden, um Sandbox-Optionen von allen installierten Mods über PanelBridge",
+    "notLoadedDescSuffix": " abzurufen. Der PZ-Server muss laufen und PanelBridge muss aktiv sein.",
+    "panelBridgeLabel": "PanelBridge",
+    "panelBridgeTip": "PanelBridge ist das Lua-Mod, das auf dem Spielserver läuft und diesem Panel Live-Zugriff auf Sandbox-Optionen, Wetter, Teleport und Gegenstandskontrolle gibt. Mod-Einstellungen werden erst geladen, wenn es auf dem Server installiert ist und der Server läuft.",
     "refreshFailedTitle": "Aktualisierung fehlgeschlagen — vorherige Daten werden angezeigt",
     "loadFailedTitle": "Laden der Mod-Einstellungen fehlgeschlagen",
     "loadFailedNotConnected": "Laden der Mod-Einstellungen fehlgeschlagen. Ist PanelBridge verbunden?",
@@ -226,45 +240,51 @@
     "sizeKb": "{{size}} KB"
   },
   "templatesDialog": {
-    "title": "Konfigurationsvorlagen",
-    "applyTip": "Das Anwenden einer Vorlage ersetzt ALLE Ihre aktuellen Einstellungen — sie wird nicht mit den vorhandenen zusammengeführt. Das Panel sichert den aktuellen Stand vor dem Anwenden, sodass Sie es über Wiederherstellen rückgängig machen können, aber der Server muss vorher gestoppt sein.",
-    "description": "Speichere deine aktuelle Konfiguration als Vorlage oder lade eine gespeicherte Vorlage.",
-    "savedCount_one": "{{count}} Vorlage gespeichert",
-    "savedCount_other": "{{count}} Vorlagen gespeichert",
-    "saveCurrentAsTemplate": "Aktuelles als Vorlage speichern",
-    "emptyTitle": "Noch keine Vorlagen gespeichert",
-    "emptyDesc": "Klicke auf „Aktuelles als Vorlage speichern“, um deine erste Vorlage zu erstellen",
+    "title": "Gespeicherte Konfigurationen",
+    "applyTip": "Das Anwenden einer gespeicherten Konfiguration ersetzt ALLE Ihre aktuellen Einstellungen — sie wird nicht mit den vorhandenen zusammengeführt. Das Panel sichert den aktuellen Stand vor dem Anwenden, sodass Sie es über Wiederherstellen rückgängig machen können, aber der Server muss vorher gestoppt sein.",
+    "description": "Speichere deine aktuelle Konfiguration, oder lade eine, die du zuvor gespeichert hast.",
+    "savedCount_one": "{{count}} Konfiguration gespeichert",
+    "savedCount_other": "{{count}} Konfigurationen gespeichert",
+    "saveCurrentAsTemplate": "Aktuelle Konfiguration speichern",
+    "emptyTitle": "Noch keine Konfigurationen gespeichert",
+    "emptyDesc": "Klicke auf „Aktuelle Konfiguration speichern“, um deine erste zu erstellen",
     "typeBoth": "INI + Sandbox",
     "createdLabel": "Erstellt: {{date}}",
     "apply": "Anwenden",
-    "applyTooltip": "Diese Vorlage laden (erstellt zuerst ein Backup)",
-    "deleteAria": "Vorlage {{name}} löschen",
-    "deleteTooltip": "Diese Vorlage löschen",
+    "applyTooltip": "Diese Konfiguration laden (erstellt zuerst ein Backup)",
+    "deleteAria": "Gespeicherte Konfiguration {{name}} löschen",
+    "deleteTooltip": "Diese gespeicherte Konfiguration löschen",
     "close": "Schließen"
   },
   "saveTemplateDialog": {
-    "title": "Als Vorlage speichern",
-    "description": "Speichere deine aktuellen INI- und/oder Sandbox-Einstellungen als wiederverwendbare Vorlage.",
-    "nameLabel": "Vorlagenname *",
+    "title": "Aktuelle Konfiguration speichern",
+    "description": "Speichere deine aktuellen INI- und/oder Sandbox-Einstellungen, um sie später wieder zu laden.",
+    "nameLabel": "Name *",
     "namePlaceholder": "z. B. PvE Casual, Hardcore Survival…",
     "nameCharCount": "{{count}}/60 Zeichen",
     "descLabel": "Beschreibung (optional)",
-    "descPlaceholder": "Beschreibe, wofür diese Vorlage gedacht ist…",
+    "descPlaceholder": "Beschreibe, wofür das gedacht ist…",
     "descCharCount": "{{count}}/240 Zeichen",
-    "includeLabel": "In der Vorlage enthalten",
+    "includeLabel": "Enthalten",
     "includeIniTitle": "Servereinstellungen (INI)",
     "includeIniDesc": "Netzwerk, Spieler, RCON, Serververhalten",
-    "includeIniAria": "Servereinstellungen in Vorlage einschließen",
+    "includeIniAria": "Servereinstellungen einschließen",
     "includeSandboxTitle": "Sandbox-Einstellungen",
     "includeSandboxDesc": "Welt, Zombies, Loot, Überlebenseinstellungen",
-    "includeSandboxAria": "Sandbox-Einstellungen in Vorlage einschließen",
+    "includeSandboxAria": "Sandbox-Einstellungen einschließen",
     "cancel": "Abbrechen",
-    "save": "Vorlage speichern"
+    "save": "Konfiguration speichern"
   },
   "deleteTemplateConfirm": {
-    "title": "Vorlage löschen?",
-    "description": "Vorlage „{{name}}“ löschen? Dies kann nicht rückgängig gemacht werden.",
+    "title": "Gespeicherte Konfiguration löschen?",
+    "description": "Gespeicherte Konfiguration „{{name}}“ löschen? Dies kann nicht rückgängig gemacht werden.",
     "confirmLabel": "Löschen"
+  },
+  "applyTemplateConfirm": {
+    "title": "Gespeicherte Konfiguration „{{name}}“ anwenden?",
+    "description": "Die aktuellen Servereinstellungen durch diese gespeicherte Konfiguration ersetzen? Das Panel sichert zuerst die aktive Konfiguration, sodass du dies bei Bedarf über „Wiederherstellen“ rückgängig machen kannst.",
+    "rconWarning": "Das RCON-Passwort wird nicht in gespeicherten Konfigurationen gespeichert. Beim Anwenden wird das RCON-Passwort deines Servers entfernt — du musst es danach erneut eingeben.",
+    "confirmLabel": "Anwenden"
   },
   "fileBrowserDialog": {
     "title": "Bilddatei auswählen",
@@ -323,6 +343,7 @@
     "bridgeUnverifiedDesc": "{{action}} wurde gesendet, aber das Mod konnte nicht bestätigen, dass es wirksam wurde.",
     "bridgeOldBridgeDesc": "{{action}} hat möglicherweise funktioniert, aber diese Version des PanelBridge-Mods meldet nicht zurück, ob es so war. Aktualisiere das Mod, um Ergebnisse zu bestätigen.",
     "appliedNotSavedTitle": "Angewendet, aber nicht gespeichert",
+    "worldSaveFailedDesc": "{{option}} wurde angewendet, aber das Speichern der Spielwelt ist fehlgeschlagen ({{reason}}) -- die Änderung übersteht daher möglicherweise den nächsten Neustart nicht.",
     "notPersistedDesc": "{{option}} ist nicht in SandboxVars.lua enthalten und wird daher beim Neustart des Servers zurückgesetzt.",
     "willResetFallback": "{{option}} wird beim Neustart des Servers zurückgesetzt.",
     "failedToUpdateTitle": "Aktualisierung fehlgeschlagen",
@@ -330,18 +351,20 @@
     "setOptionFailed": "Setzen der Option fehlgeschlagen",
     "browseFilesFailed": "Durchsuchen der Dateien fehlgeschlagen",
     "navigateFailed": "Navigation fehlgeschlagen",
-    "templateNameRequired": "Vorlagenname ist erforderlich",
+    "templateNameRequired": "Name ist erforderlich",
     "loadBackupsFailed": "Laden der Backups fehlgeschlagen.",
     "restoredTitle": "Wiederhergestellt",
     "restoredDesc": "Wiederhergestellt von {{filename}}",
     "restoreBackupFailed": "Wiederherstellen des Backups fehlgeschlagen.",
-    "loadTemplatesFailed": "Laden der Vorlagen fehlgeschlagen.",
+    "loadTemplatesFailed": "Laden der gespeicherten Konfigurationen fehlgeschlagen.",
     "appliedTitle": "Angewendet",
-    "applyTemplateFailed": "Anwenden der Vorlage fehlgeschlagen.",
-    "saveTemplateFailed": "Speichern der Vorlage fehlgeschlagen.",
+    "applyTemplateFailed": "Anwenden der gespeicherten Konfiguration fehlgeschlagen.",
+    "applyTemplatePartialTitle": "Teilweise angewendet",
+    "applyTemplatePartialDesc": "{{applied}}-Einstellungen wurden vor diesem Fehler auf die Festplatte geschrieben: {{error}} Der Rest der gespeicherten Konfiguration wurde nicht angewendet.",
+    "saveTemplateFailed": "Speichern der Konfiguration fehlgeschlagen.",
     "deletedTitle": "Gelöscht",
-    "templateDeletedDesc": "Vorlage „{{name}}“ gelöscht",
-    "deleteTemplateFailed": "Löschen der Vorlage fehlgeschlagen."
+    "templateDeletedDesc": "Gespeicherte Konfiguration „{{name}}“ gelöscht",
+    "deleteTemplateFailed": "Löschen der gespeicherten Konfiguration fehlgeschlagen."
   },
   "restoreBackupConfirm": {
     "title": "Dieses Backup wiederherstellen?",

@@ -112,3 +112,59 @@ describe("backup.js POST /restore/:name: an undetermined server state must refus
     expect(restoreBackup).toHaveBeenCalledWith("good.zip", expect.anything());
   });
 });
+
+// 2026-08-26 partial-failure-state hunt: this route used to pass
+// restoreBackup()'s failure `result` straight through unsanitized, unlike
+// every other error site in the codebase (including the generic catch 3
+// lines below it in this same route). The fix is deliberately NOT a
+// blanket sanitizeError(): the rollback-failure message is the one
+// exception that MUST keep its path visible -- it names exactly where the
+// preserved original save is sitting, the operator's only way to find
+// their data back if an already-bad restore fails to roll back cleanly.
+// Pinning both directions so a future edit can't silently regress either
+// one: an unexpected raw fs-style message gets redacted, the deliberate
+// recovery message does not.
+const STOPPED_SERVER_MANAGER = {
+  checkServerRunning: async () => false,
+  getServerProcessDetails: async () => ({ running: false, scanFailed: false }),
+};
+
+describe("backup.js POST /restore/:name: failure messages are sanitized surgically, not with a blanket redact", () => {
+  it("redacts a filesystem path out of an ordinary/unexpected failure message", async () => {
+    restoreBackup.mockResolvedValueOnce({
+      success: false,
+      message: "ENOENT: no such file or directory, rename 'C:\\Users\\Sacha\\AppData\\Local\\ZomboidPanel\\Saves' -> 'C:\\Users\\Sacha\\AppData\\Local\\ZomboidPanel\\Saves.replaced-123'",
+    });
+
+    const res = await postRestore(STOPPED_SERVER_MANAGER);
+
+    expect(res.getStatusCode()).toBe(400);
+    expect(res.getBody().message).not.toContain("C:\\Users\\Sacha");
+    expect(res.getBody().message).toContain("[path]");
+  });
+
+  it("does NOT redact the rollback-failure message -- the recovery path must survive intact", async () => {
+    const recoveryPath = "C:\\Users\\Sacha\\AppData\\Local\\ZomboidPanel\\Saves.replaced-1735500000000";
+    restoreBackup.mockResolvedValueOnce({
+      success: false,
+      message: `Restore failed and the previous save could not be put back automatically. It is preserved at ${recoveryPath}.`,
+    });
+
+    const res = await postRestore(STOPPED_SERVER_MANAGER);
+
+    expect(res.getStatusCode()).toBe(400);
+    expect(res.getBody().message).toContain(recoveryPath);
+  });
+
+  it("leaves an ordinary short, pathless failure message unchanged", async () => {
+    restoreBackup.mockResolvedValueOnce({
+      success: false,
+      message: "Invalid backup file",
+    });
+
+    const res = await postRestore(STOPPED_SERVER_MANAGER);
+
+    expect(res.getStatusCode()).toBe(400);
+    expect(res.getBody().message).toBe("Invalid backup file");
+  });
+});

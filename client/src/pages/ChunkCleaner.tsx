@@ -62,8 +62,11 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { chunksApi, serversApi, panelBridgeApi, ApiError } from "@/lib/api";
+import { getUserErrorMessage } from "@/lib/errorMessage";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useSocket } from "@/contexts/SocketContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { DisabledReason } from "@/components/DisabledReason";
 
 interface SaveInfo {
   name: string;
@@ -220,9 +223,15 @@ function findLastRenderableChunkIndex(
 }
 
 export default function ChunkCleaner() {
-  const { t } = useTranslation("chunkCleaner");
+  const { t, i18n } = useTranslation("chunkCleaner");
   const { theme } = useTheme();
   const socket = useSocket();
+  const { can } = useAuth();
+  // Bound to routes/chunks.js's requirePermission("chunks.manage") on both
+  // /chunks/save-path and /chunks/delete-chunks -- the same capability for
+  // both, unlike WorldMap's mixed bridge.command/players.gm_tools/
+  // server.world_events split (2026-08-27 bug-hunt capability trace).
+  const canManageChunks = can("chunks.manage");
   const [saves, setSaves] = useState<SaveInfo[]>([]);
   const [selectedSave, setSelectedSave] = useState<string>("");
   const [chunks, setChunks] = useState<ChunkInfo[]>([]);
@@ -545,6 +554,10 @@ export default function ChunkCleaner() {
   const persistCurrentPath = useCallback(
     async (pathToSave: string) => {
       if (!pathToSave) return;
+      // Function-level guard, not just the button's disabled state --
+      // 2026-08-27 bug-hunt floor rule (Angela's Console.tsx Enter-key
+      // bypass finding): assert the action is unreachable.
+      if (!canManageChunks) return;
       setSavingPath(true);
       try {
         const result = await chunksApi.savePath(pathToSave);
@@ -572,7 +585,7 @@ export default function ChunkCleaner() {
         setSavingPath(false);
       }
     },
-    [fetchSaves, toast, t],
+    [fetchSaves, toast, t, canManageChunks],
   );
 
   const loadChunks = useCallback(async () => {
@@ -638,10 +651,7 @@ export default function ChunkCleaner() {
       if (thisLoadId !== loadIdRef.current) return;
       toast({
         title: t("toasts.errorTitle"),
-        description:
-          error instanceof Error
-            ? error.message
-            : t("toasts.loadChunksFailedFallback"),
+        description: getUserErrorMessage(error, t("toasts.loadChunksFailedFallback")),
         variant: "destructive",
       });
     } finally {
@@ -655,11 +665,17 @@ export default function ChunkCleaner() {
 
   // Fetch vehicles + safehouses from PanelBridge, convert to chunk coords
   const fetchOverlayData = useCallback(async () => {
+    // Reuses loadChunks' own generation counter -- overlay data is only
+    // meaningful paired with a matching, still-current chunk load, and
+    // every caller of fetchOverlayData (the selectedSave effect below,
+    // and the post-delete refresh) always runs loadChunks first/around it.
+    const thisLoadId = loadIdRef.current;
     try {
       const [vRes, sRes] = await Promise.allSettled([
         panelBridgeApi.sendCommand("getVehiclesDetailed"),
         panelBridgeApi.sendCommand("getSafehouses"),
       ]);
+      if (thisLoadId !== loadIdRef.current) return;
       if (
         vRes.status === "fulfilled" &&
         vRes.value.success &&
@@ -1596,7 +1612,7 @@ export default function ChunkCleaner() {
           setSelectedChunks(new Set());
           break;
         case "Delete":
-          if (selectedChunks.size > 0) {
+          if (selectedChunks.size > 0 && canManageChunks) {
             setDeleteVehicles(true);
             setDeleteDialogOpen(true);
           }
@@ -1612,7 +1628,7 @@ export default function ChunkCleaner() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedChunks.size, deleteDialogOpen, selectedSave]);
+  }, [selectedChunks.size, deleteDialogOpen, selectedSave, canManageChunks]);
 
   // ─── Mouse handlers ───
   const handleMouseDown = useCallback(
@@ -1889,6 +1905,11 @@ export default function ChunkCleaner() {
   // ─── Delete handlers ───
   const handleDelete = async () => {
     if (selectedChunks.size === 0) return;
+    // Function-level guard, not just the trigger button/keyboard-shortcut
+    // disabled state -- 2026-08-27 bug-hunt floor rule (Angela's
+    // Console.tsx Enter-key bypass finding): assert the action is
+    // unreachable, don't just make the control look disabled.
+    if (!canManageChunks) return;
 
     setDeleting(true);
     try {
@@ -1927,8 +1948,24 @@ export default function ChunkCleaner() {
             maxX: maxGX,
             maxY: maxGY,
           });
-        } catch {
-          /* server stopped — fine, DB cleanup will handle it */
+        } catch (err) {
+          // Bridge unreachable (server stopped, bridge not running) is
+          // benign here — the authoritative vehicles.db cleanup above
+          // already ran server-side, so live removal was only ever a
+          // cosmetic "no ghost car for a second" nicety. A 403 is a
+          // DIFFERENT failure the operator can act on: it means this
+          // role has chunks.manage (or it couldn't have reached this far)
+          // but not bridge.command, so live removal will silently skip
+          // on every future deletion too until an admin grants it or
+          // adds it to the role. Previously both cases hit the same bare
+          // catch and looked identical — 2026-08-27 bug-hunt silent-
+          // swallow-class fix.
+          if (err instanceof ApiError && err.status === 403) {
+            toast({
+              title: t("toasts.liveVehicleCleanupNoPermissionTitle"),
+              description: t("toasts.liveVehicleCleanupNoPermissionDesc"),
+            });
+          }
         }
       }
 
@@ -1962,7 +1999,7 @@ export default function ChunkCleaner() {
             // User cancelled — surface the original message and bail out.
             toast({
               title: t("toasts.serverRunningTitle"),
-              description: err.message,
+              description: getUserErrorMessage(err, t("toasts.deleteChunksFailedFallback")),
               variant: "destructive",
             });
             return;
@@ -2009,10 +2046,7 @@ export default function ChunkCleaner() {
     } catch (error) {
       toast({
         title: t("toasts.errorTitle"),
-        description:
-          error instanceof Error
-            ? error.message
-            : t("toasts.deleteChunksFailedFallback"),
+        description: getUserErrorMessage(error, t("toasts.deleteChunksFailedFallback")),
         variant: "destructive",
       });
     } finally {
@@ -2087,7 +2121,7 @@ export default function ChunkCleaner() {
                             modifiedLabel = t("save.modifiedDaysAgo", {
                               count: Math.floor(ageDays),
                             });
-                          else modifiedLabel = d.toLocaleDateString();
+                          else modifiedLabel = d.toLocaleDateString(i18n.language);
                         } catch {
                           /* leave empty */
                         }
@@ -2182,17 +2216,20 @@ export default function ChunkCleaner() {
                     </p>
                     {customPath && (
                       <div className="flex gap-1.5">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="flex-1 h-6 text-[10px]"
-                          onClick={() => void persistCurrentPath(customPath)}
-                          disabled={savingPath || loadingSaves}
-                          title={t("save.saveAsDefaultTitle")}
-                        >
-                          <Save className="w-3 h-3 mr-1" />
-                          {savingPath ? t("save.saving") : t("save.saveAsDefault")}
-                        </Button>
+                        <DisabledReason reason={!canManageChunks ? t("permissions.noManage") : null}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1 h-6 text-[10px]"
+                            onClick={() => void persistCurrentPath(customPath)}
+                            disabled={savingPath || loadingSaves || !canManageChunks}
+                            // eslint-disable-next-line local/no-dead-disabled-title -- pure hint describing what the button does; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
+                            title={t("save.saveAsDefaultTitle")}
+                          >
+                            <Save className="w-3 h-3 mr-1" />
+                            {savingPath ? t("save.saving") : t("save.saveAsDefault")}
+                          </Button>
+                        </DisabledReason>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -2213,18 +2250,20 @@ export default function ChunkCleaner() {
                           <CheckCircle2 className="w-3 h-3 text-primary shrink-0 mt-0.5" />
                           <span>{t("save.autoDetected")}</span>
                         </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="w-full h-6 text-[10px]"
-                          onClick={() =>
-                            void persistCurrentPath(debugInfo.autoPicked!)
-                          }
-                          disabled={savingPath}
-                        >
-                          <Save className="w-3 h-3 mr-1" />
-                          {savingPath ? t("save.saving") : t("save.saveAsDefault")}
-                        </Button>
+                        <DisabledReason reason={!canManageChunks ? t("permissions.noManage") : null}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full h-6 text-[10px]"
+                            onClick={() =>
+                              void persistCurrentPath(debugInfo.autoPicked!)
+                            }
+                            disabled={savingPath || !canManageChunks}
+                          >
+                            <Save className="w-3 h-3 mr-1" />
+                            {savingPath ? t("save.saving") : t("save.saveAsDefault")}
+                          </Button>
+                        </DisabledReason>
                       </div>
                     )}
                   </CollapsibleContent>
@@ -2518,17 +2557,20 @@ export default function ChunkCleaner() {
 
             {/* Delete Button */}
             {selectedChunks.size > 0 && (
-              <Button
-                variant="destructive"
-                className="w-full h-9 text-sm"
-                onClick={() => {
-                  setDeleteVehicles(true);
-                  setDeleteDialogOpen(true);
-                }}
-              >
-                <Trash2 className="w-4 h-4 mr-2" />
-                {t("deleteButton", { count: selectedChunks.size })}
-              </Button>
+              <DisabledReason reason={!canManageChunks ? t("permissions.noManage") : null} className="w-full">
+                <Button
+                  variant="destructive"
+                  className="w-full h-9 text-sm"
+                  disabled={!canManageChunks}
+                  onClick={() => {
+                    setDeleteVehicles(true);
+                    setDeleteDialogOpen(true);
+                  }}
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  {t("deleteButton", { count: selectedChunks.size })}
+                </Button>
+              </DisabledReason>
             )}
           </div>
 
@@ -2689,23 +2731,29 @@ export default function ChunkCleaner() {
                                     key={s.path}
                                     className="flex items-center gap-2"
                                   >
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        void applySuggestedPath(s.path)
-                                      }
-                                      disabled={!s.exists || loadingSaves}
-                                      className="flex-1 text-left text-[11px] font-mono px-2 py-1 rounded border border-border/40 bg-background hover:bg-accent/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors break-all"
-                                      title={
-                                        s.exists
-                                          ? s.hasSaves
-                                            ? t("canvas.titleHasSaves")
-                                            : t("canvas.titleFolderExists")
-                                          : t("canvas.titleFolderMissing")
-                                      }
+                                    <DisabledReason
+                                      reason={!s.exists ? t("canvas.titleFolderMissing") : null}
+                                      className="flex-1"
                                     >
-                                      {s.path}
-                                    </button>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          void applySuggestedPath(s.path)
+                                        }
+                                        disabled={!s.exists || loadingSaves}
+                                        className="flex-1 text-left text-[11px] font-mono px-2 py-1 rounded border border-border/40 bg-background hover:bg-accent/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors break-all"
+                                        // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (folder missing) now lives in the DisabledReason wrapper above; this title carries only the enabled-state status hint and is correctly absent, not dead, when the wrapper's reason covers the disable.
+                                        title={
+                                          s.exists
+                                            ? s.hasSaves
+                                              ? t("canvas.titleHasSaves")
+                                              : t("canvas.titleFolderExists")
+                                            : undefined
+                                        }
+                                      >
+                                        {s.path}
+                                      </button>
+                                    </DisabledReason>
                                     {s.hasSaves ? (
                                       <Badge
                                         variant="secondary"
@@ -2822,9 +2870,9 @@ export default function ChunkCleaner() {
                           </div>
                           <p className="mt-1.5 text-[11px] opacity-70 tabular-nums">
                             {t("canvas.scanProgressDetail", {
-                              chunks: scanProgress.chunks.toLocaleString(),
-                              scanned: scanProgress.scanned.toLocaleString(),
-                              total: scanProgress.total.toLocaleString(),
+                              chunks: scanProgress.chunks.toLocaleString(i18n.language),
+                              scanned: scanProgress.scanned.toLocaleString(i18n.language),
+                              total: scanProgress.total.toLocaleString(i18n.language),
                             })}
                           </p>
                         </>
@@ -2832,7 +2880,7 @@ export default function ChunkCleaner() {
                         <p className="mt-2 text-xs">
                           {scanProgress
                             ? t("canvas.scanningChunks", {
-                                count: scanProgress.chunks.toLocaleString(),
+                                count: scanProgress.chunks.toLocaleString(i18n.language),
                               })
                             : t("canvas.loadingChunks")}
                         </p>
@@ -2860,7 +2908,6 @@ export default function ChunkCleaner() {
                         height={canvasSize.height}
                         role="img"
                         aria-label={t("canvas.ariaLabel")}
-                        tabIndex={0}
                         style={{
                           width: canvasSize.width,
                           height: canvasSize.height,

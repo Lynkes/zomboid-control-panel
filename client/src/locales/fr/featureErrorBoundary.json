@@ -5,5 +5,7 @@
   "description": "Une erreur est survenue lors du chargement de cette section",
   "tryAgain": "Réessayer",
   "dashboard": "Tableau de bord",
-  "defaultFeatureName": "Cette fonctionnalité"
+  "defaultFeatureName": "Cette fonctionnalité",
+  "showDetails": "Afficher les détails techniques",
+  "openRecoveryPage": "Ouvrir la page qui peut résoudre ce problème"
 }

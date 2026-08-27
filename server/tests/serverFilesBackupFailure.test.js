@@ -101,6 +101,15 @@ describe("createBackup() itself: distinguishes no-source from a real failure", (
     expect(payload.backupWarning).toBeUndefined();
   });
 
+  it("returns 400 for a missing INI-save body", async () => {
+    const res = await runHandler("/ini", "put", { body: null });
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "INI_SETTINGS_REQUIRED" }),
+    );
+  });
+
   it("a real backup failure on an existing file produces backedUp:false, reason:failed with the actual error", async () => {
     const iniPath = path.join(tmpDir, "TestServer.ini");
     fs.writeFileSync(iniPath, "PublicName=Old\n");

@@ -63,18 +63,22 @@ export function compareModVersions(a, b) {
  */
 export function writeLuaAtomic(destPath, content) {
   const dir = path.dirname(destPath);
+  // codeql[js/path-injection] destPath here traces back to only one currently-flagged caller, panelBridge.js's POST /install-mod, where targetPath is required absolute, realpath'd, and required to end in /media/lua/server(/) before writeLuaAtomic() is ever called.
   fs.mkdirSync(dir, { recursive: true });
   const tmpPath = path.join(dir, `.PanelBridge.lua.tmp.${process.pid}`);
   let fd;
   try {
+    // codeql[js/path-injection] destPath here traces back to only one currently-flagged caller, panelBridge.js's POST /install-mod, where targetPath is required absolute, realpath'd, and required to end in /media/lua/server(/) before writeLuaAtomic() is ever called.
     fd = fs.openSync(tmpPath, 'w');
     fs.writeSync(fd, content, 0, 'utf8');
     try { fs.fsyncSync(fd); } catch { /* best-effort; some FS/OSes reject */ }
     fs.closeSync(fd);
     fd = null;
+    // codeql[js/path-injection] destPath here traces back to only one currently-flagged caller, panelBridge.js's POST /install-mod, where targetPath is required absolute, realpath'd, and required to end in /media/lua/server(/) before writeLuaAtomic() is ever called.
     fs.renameSync(tmpPath, destPath);
   } catch (err) {
     try { if (fd != null) fs.closeSync(fd); } catch { /* ignore */ }
+    // codeql[js/path-injection] destPath here traces back to only one currently-flagged caller, panelBridge.js's POST /install-mod, where targetPath is required absolute, realpath'd, and required to end in /media/lua/server(/) before writeLuaAtomic() is ever called.
     try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch { /* ignore */ }
     throw err;
   }

@@ -70,6 +70,9 @@
   "emptyState": {
     "noServersTitle": "Aucun serveur public trouvé",
     "noServersDesc": "Essayez d'actualiser la liste dans un instant.",
+    "noServersDescUnreachable": "Le panneau n'a pas pu du tout accéder à la liste des serveurs. Vérifiez la propre connexion réseau du panneau, puis réessayez d'actualiser.",
+    "noServersDescNoneResponded": "Une liste de serveurs a été reçue, mais aucun de ces serveurs n'a répondu à temps. C'est normal lors d'un scan chargé — réessayez d'actualiser.",
+    "noServersDescGenuinelyEmpty": "La liste des serveurs a répondu et elle est actuellement vraiment vide. Réessayez d'actualiser dans un instant.",
     "noApiKeyTitle": "Clé API Steam manquante",
     "noApiKeyDesc": "Ajoutez votre clé API Steam dans Paramètres pour charger la liste publique des serveurs Project Zomboid.",
     "noMatchTitle": "Aucun serveur ne correspond à vos filtres",
@@ -80,6 +83,8 @@
     "passwordProtected": "Protégé par mot de passe",
     "vacSecured": "Sécurisé VAC",
     "pingNa": "N/A",
+    "pingFailUnparseable": "Le serveur a répondu, mais dans un format que le panneau n'a pas pu lire — probablement une incompatibilité de version ou de protocole. Il est en cours d'exécution et joignable.",
+    "pingFailUnreachable": "Le serveur n'a jamais répondu. Vérifiez qu'il est en cours d'exécution, que le port est correct et que rien (pare-feu, déconnexion) ne bloque la connexion.",
     "pingMs": "{{ping}} ms",
     "pingButton": "Ping",
     "connect": "Rejoindre",

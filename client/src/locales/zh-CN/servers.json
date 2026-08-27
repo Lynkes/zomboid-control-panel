@@ -5,6 +5,7 @@
     "eyebrow": "集群",
     "scanAria": "扫描服务器",
     "scanTitle": "扫描服务器",
+    "scanNoPermission": "扫描绑定挂载安装需要 servers.discover 权限，而该角色没有此权限。",
     "addRemote": "添加远程服务器",
     "addExisting": "添加现有服务器",
     "installNew": "安装新服务器"
@@ -40,6 +41,8 @@
     "dataPath": "数据路径",
     "startContainer": "启动容器",
     "stopContainer": "停止容器",
+    "stopContainerConfirmTitle": "停止此容器？",
+    "stopContainerConfirmDescription": "{{name}} 会先通过 RCON 保存，但容器本身是由 Docker 停止的——如果未能及时退出，Docker 会强制终止它。与常规的停止按钮不同，这可能会以非正常终止结束。",
     "restartContainer": "重启容器",
     "startContainerAria": "启动 {{name}}",
     "stopContainerAria": "停止 {{name}}",
@@ -54,12 +57,15 @@
     "memory": "内存",
     "statusHost": "主机",
     "statusProcess": "进程",
+    "statusContainer": "容器",
     "statusNotConfigured": "未配置",
     "statusAuthFailed": "身份验证失败",
     "statusUnavailable": "不可用",
     "buildLabel": "构建版本：",
     "branchLabel": "分支：",
     "stopThisServer": "停止此服务器",
+    "stopConfirmTitle": "停止服务器？",
+    "stopConfirmDescription": "这将断开所有已连接玩家的连接。您可以随时重新启动它。",
     "stopping": "正在停止…",
     "stop": "停止",
     "startThisServer": "启动此服务器",
@@ -72,6 +78,9 @@
     "activating": "正在激活…",
     "switchToThisServer": "切换到此服务器",
     "added": "添加于 {{date}}",
+    "noPermissionDocker": "管理此容器需要 docker.manage 权限，而该角色没有此权限。",
+    "noPermissionManage": "此操作需要 servers.manage 权限，而该角色没有此权限。",
+    "noPermissionStartStop": "需要同时拥有 servers.manage 和 server.control 权限——只拥有其中一个会导致服务器被激活但无法启动/停止。",
     "restartContainerAria": "重启 {{name}}"
   },
   "tandem": {
@@ -113,7 +122,8 @@
     "rconOnlyDesc": "配置编辑、模组管理、备份、服务器启动/停止以及文件操作等功能将不可用。你仍可使用控制台、管理玩家、发送聊天消息、控制天气与事件，以及运行计划任务命令。",
     "cancel": "取消",
     "adding": "正在添加…",
-    "addServer": "添加服务器"
+    "addServer": "添加服务器",
+    "noPermission": "添加服务器需要 servers.manage 权限，而该角色没有此权限。"
   },
   "remoteForm": {
     "displayNameLabel": "服务器显示名称 *",
@@ -150,6 +160,8 @@
     "dataPathHint": "包含 Server/、Saves/、Logs/ 子文件夹的目录",
     "installPathLabel": "服务器安装路径（可选）",
     "installPathPlaceholder": "PZ 服务器文件夹路径（包含 StartServer64.bat 或 start-server.sh）",
+    "customLauncherNoticeTitle": "自定义启动器模式",
+    "customLauncherNoticeBody": "此路径指向一个脚本，而不是文件夹——面板将按原样启动它，绝不会重新生成或编辑它。通常会自动写入启动脚本的设置（内存、管理员密码、数据路径、服务器名称）将不会应用到服务器，除非您自己将它们写入此脚本。",
     "noConfigsFoundTitle": "未找到服务器配置",
     "noConfigsFoundDesc": "运行一次服务器以生成 INI 文件。",
     "selectConfigLabel": "选择服务器配置",
@@ -161,12 +173,15 @@
     "rconPortLabel": "RCON 端口：",
     "rconPasswordLabel": "RCON 密码 *",
     "rconPasswordPlaceholder": "输入 RCON 密码",
+    "rconPasswordImportPlaceholder": "留空以自动导入",
     "rconPasswordAria": "RCON 密码",
     "rconPasswordRequired": "服务器控制功能需要此密码。你也可以在 {{iniName}}.ini 文件中设置 <1>RCONPassword=yourpassword</1>。",
     "passwordSet": "密码已设置",
+    "passwordWillImport": "将自动从 {{iniName}}.ini 导入——留空以使用该密码，或输入新密码以覆盖。",
     "minMemoryLabel": "最小内存（GB）",
     "maxMemoryLabel": "最大内存（GB）",
-    "selectScannedConfigAria": "使用已检测到的服务器 {{name}}"
+    "selectScannedConfigAria": "使用已检测到的服务器 {{name}}",
+    "discoverNoPermission": "检测或扫描服务器需要 servers.discover 权限，而该角色没有此权限。"
   },
   "editDialog": {
     "title": "编辑服务器",
@@ -179,10 +194,12 @@
     "dockerContainerPlaceholder": "可选，指定容器名称",
     "dockerContainerHint": "需要启用 PANEL_DOCKER_CONTROL_ENABLED，并为容器设置标签 zomboid-panel.managed=true。",
     "installPathLabel": "安装路径",
+    "customLauncherNoticeTitle": "自定义启动器模式",
+    "customLauncherNoticeBody": "此路径指向一个脚本，而不是文件夹——面板将按原样启动它，绝不会重新生成或编辑它。通常会自动写入启动脚本的设置（内存、管理员密码、数据路径、服务器名称）将不会应用到服务器，除非您自己将它们写入此脚本。",
     "dataPathLabel": "Zomboid 数据路径",
     "dataPathPlaceholder": "留空则使用默认值",
     "customStartCommandLabel": "自定义启动命令",
-    "customStartCommandTooltip": "使用自定义命令覆盖默认启动脚本，支持参数。留空则使用默认的 bat/sh 文件检测。",
+    "customStartCommandTooltip": "使用自定义命令覆盖默认启动脚本，支持参数。留空的话，面板会在每次启动服务器时根据这些设置重新生成默认的 bat/sh 启动脚本——这会覆盖该文件，包括任何手动修改，不过修改过的文件会先被备份。",
     "customStartCommandPlaceholder": "例如：./start-server.sh -servername MyServer",
     "customStartCommandDisallowed": "命令中包含不允许的 shell 字符",
     "noSteamLabel": "不通过 Steam 启动",
@@ -206,20 +223,25 @@
     "maxMemoryLabel": "最大内存（GB）",
     "cancel": "取消",
     "saving": "正在保存…",
-    "saveChanges": "保存更改"
+    "saveChanges": "保存更改",
+    "noPermission": "保存服务器设置需要 servers.manage 权限，而该角色没有此权限。"
   },
   "deleteDialog": {
     "title": "从面板中移除服务器？",
     "description": "这将把「{{name}}」从面板管理中移除。",
     "alsoDeleteFilesLabel": "同时删除服务器文件",
     "alsoDeleteFilesDesc": "这将永久删除以下位置的所有文件：",
+    "dataPathNestedWarningTitle": "这也会删除世界存档",
+    "dataPathNestedWarningDesc": "此服务器的 Zomboid 数据文件夹位于上方安装文件夹内部，因此没有单独的副本——删除它也会毁掉世界存档。除非你在设置中将数据路径移出，或自行备份该文件夹，否则面板会拒绝执行此操作：",
     "filesNotDeleted": "服务器文件将不会被删除——你可以稍后重新添加此服务器。",
     "deletingFiles": "正在删除服务器文件…",
     "removingServer": "正在移除服务器…",
     "cancel": "取消",
     "removing": "正在移除…",
     "deleteEverything": "全部删除",
-    "removeFromPanel": "从面板中移除"
+    "removeFromPanel": "从面板中移除",
+    "noPermission": "移除服务器需要 servers.manage 权限，而该角色没有此权限。",
+    "deleteFilesNoPermission": "删除服务器文件需要 server.wipe 权限，而该角色没有此权限。仍然可以仅从面板中移除该记录。"
   },
   "steamDialog": {
     "verifyTitle": "校验游戏文件",
@@ -247,7 +269,8 @@
     "startVerify": "开始校验",
     "startUpdate": "开始更新",
     "done": "完成",
-    "retry": "重试"
+    "retry": "重试",
+    "noPermission": "更新或校验服务器文件需要 server.install 权限，而该角色没有此权限。"
   },
   "clearInstallDialog": {
     "title": "清除安装文件夹？",
@@ -255,7 +278,8 @@
     "descriptionAfter": "——包括游戏文件、SteamCMD 的下载状态，以及安装在此处的所有模组。当 SteamCMD 更新持续失败（安装损坏或卡住）时，可用此方式恢复。之后你需要再次点击「开始更新」以从头重新安装。这不会影响你的存档数据。",
     "cancel": "取消",
     "clearing": "正在清除…",
-    "clearFolder": "清除文件夹"
+    "clearFolder": "清除文件夹",
+    "noPermission": "清空安装文件夹需要 server.wipe 权限，而该角色没有此权限。"
   },
   "branches": {
     "public": "公共版（稳定）",
@@ -314,7 +338,8 @@
     "deletedFromPanel": "服务器「{{name}}」已从面板中移除",
     "deleteServerFailed": "删除服务器失败",
     "rconPortRangeError": "RCON 端口必须介于 1 到 65535 之间",
-    "gamePortRangeError": "游戏端口必须介于 1 到 65535 之间",
+    "gamePortRangeError": "游戏端口必须介于 1 到 65534 之间",
+    "memoryRequiredError": "请输入最小和最大内存值",
     "savedTitle": "已保存",
     "savedDesc": "服务器设置已更新",
     "updateServerFailed": "更新服务器失败",

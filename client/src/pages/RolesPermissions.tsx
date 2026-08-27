@@ -107,6 +107,31 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
   // has A in it, and if it resolves after request 1, A comes back).
   const pendingCapabilitiesRef = useRef<Map<string, string[]>>(new Map())
 
+  // Focus-restore-after-delete pattern -- see Users.tsx's handleDelete /
+  // effect (same fix, first written up there) for the full reasoning:
+  // Radix restores focus correctly to the button that opened the delete
+  // dialog, and this component then deletes the very column that button
+  // lived in, stranding focus at document.body. Adapted here for a MATRIX,
+  // not a row list -- each role is a <th> COLUMN, not a <tr>, so the
+  // "neighbor" is the next/previous role column, and the target is each
+  // role's RENAME button specifically (not delete) because a seeded role's
+  // delete button is `disabled` -- an unfocusable target -- while rename
+  // is always enabled regardless of seeded status.
+  const roleHeaderButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
+  const pendingFocusTargetRef = useRef<string | 'fallback' | null>(null)
+  const addRoleButtonRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    const target = pendingFocusTargetRef.current
+    if (target === null) return
+    pendingFocusTargetRef.current = null
+    if (target === 'fallback') {
+      addRoleButtonRef.current?.focus()
+      return
+    }
+    roleHeaderButtonRefs.current.get(target)?.focus()
+  }, [roles])
+
   const [createOpen, setCreateOpen] = useState(false)
   const [renameTarget, setRenameTarget] = useState<RoleInfo | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<RoleInfo | null>(null)
@@ -352,6 +377,14 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
       setDeleteError(t('errors:ROLE_HAS_MEMBERS', { count: deleteTarget.memberCount }))
       return
     }
+    // Computed here, not earlier -- the two guard clauses above can return
+    // without deleting anything (dialog stays open, waiting on a
+    // reassignment choice), and only an attempt that's actually about to
+    // remove the column should claim a focus target.
+    const index = roles.findIndex((r) => r.id === deleteTarget.id)
+    const neighborId = roles[index + 1]?.id ?? roles[index - 1]?.id
+    pendingFocusTargetRef.current = neighborId ?? 'fallback'
+
     setDeleteBusy(true)
     setDeleteError(null)
     try {
@@ -372,6 +405,9 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
       setDeleteTarget(null)
       if (result.reassigned > 0) fetchUsers()
     } catch (error) {
+      // The column survived and the dialog stays open -- nothing to
+      // restore focus to yet.
+      pendingFocusTargetRef.current = null
       if (error instanceof ApiError && error.code === 'ROLE_LOCKOUT_LAST_MANAGER') {
         const nextCapabilities = reassignTo ? roles.find((r) => r.id === reassignTo)?.capabilities || [] : []
         const actionKey = recoveryActionKey(deleteTarget.capabilities, nextCapabilities)
@@ -451,7 +487,7 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
       {embedded ? (
         !permissionDenied && (
           <div className="flex justify-end">
-            <Button onClick={openCreateDialog}>
+            <Button ref={addRoleButtonRef} onClick={openCreateDialog}>
               <Plus className="h-4 w-4" />
               {t('toolbar.newRole')}
             </Button>
@@ -466,7 +502,7 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
           tone="config"
           actions={
             !permissionDenied ? (
-              <Button onClick={openCreateDialog}>
+              <Button ref={addRoleButtonRef} onClick={openCreateDialog}>
                 <Plus className="h-4 w-4" />
                 {t('toolbar.newRole')}
               </Button>
@@ -515,10 +551,15 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
                             </span>
                             <div className="flex items-center gap-1">
                               <Button
+                                ref={(el) => {
+                                  if (el) roleHeaderButtonRefs.current.set(role.id, el)
+                                  else roleHeaderButtonRefs.current.delete(role.id)
+                                }}
                                 variant="ghost"
                                 size="icon"
                                 className="h-6 w-6"
                                 title={t('matrix.renameTooltip')}
+                                aria-label={t('matrix.renameTooltip')}
                                 onClick={() => openRenameDialog(role)}
                               >
                                 <Pencil className="h-3.5 w-3.5" />
@@ -540,6 +581,7 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
                                   size="icon"
                                   className="h-6 w-6 text-destructive hover:text-destructive"
                                   title={t('matrix.deleteTooltip')}
+                                  aria-label={t('matrix.deleteTooltip')}
                                   onClick={() => openDeleteDialog(role)}
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />

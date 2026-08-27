@@ -5,5 +5,7 @@
   "description": "Yon erè rive pandan seksyon sa a t ap chaje",
   "tryAgain": "Eseye ankò",
   "dashboard": "Tablo",
-  "defaultFeatureName": "Fonksyon sa a"
+  "defaultFeatureName": "Fonksyon sa a",
+  "showDetails": "Montre detay teknik yo",
+  "openRecoveryPage": "Ouvri paj ki ka rezoud sa a"
 }

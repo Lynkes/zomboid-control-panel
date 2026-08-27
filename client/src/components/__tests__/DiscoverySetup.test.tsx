@@ -1,7 +1,17 @@
+import type { ComponentProps } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { DiscoverySetup } from '../DiscoverySetup'
 import { serversApi, type DiscoveredMount } from '@/lib/api'
+
+function renderDiscoverySetup(props: ComponentProps<typeof DiscoverySetup>) {
+  return render(
+    <TooltipProvider>
+      <DiscoverySetup {...props} />
+    </TooltipProvider>,
+  )
+}
 
 vi.mock('@/lib/api', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api')
@@ -30,12 +40,12 @@ beforeEach(() => {
 
 describe('DiscoverySetup', () => {
   it('renders nothing when there is no mount', () => {
-    const { container } = render(<DiscoverySetup open onOpenChange={vi.fn()} mount={null} />)
+    const { container } = renderDiscoverySetup({ open: true, onOpenChange: vi.fn(), mount: null })
     expect(container).toBeEmptyDOMElement()
   })
 
   it('pre-fills the display name from the discovered server name', () => {
-    render(<DiscoverySetup open onOpenChange={vi.fn()} mount={mount} />)
+    renderDiscoverySetup({ open: true, onOpenChange: vi.fn(), mount })
     expect(screen.getByDisplayValue('servertest')).toBeInTheDocument()
   })
 
@@ -43,7 +53,7 @@ describe('DiscoverySetup', () => {
     createFromDiscovery.mockResolvedValue({ server: { id: 7 } as any, message: 'ok' })
     activate.mockResolvedValue({ server: { id: 7 } as any, message: 'ok' })
     const onCreated = vi.fn()
-    render(<DiscoverySetup open onOpenChange={vi.fn()} mount={mount} onCreated={onCreated} />)
+    renderDiscoverySetup({ open: true, onOpenChange: vi.fn(), mount, onCreated })
 
     const input = screen.getByDisplayValue('servertest')
     fireEvent.change(input, { target: { value: 'Serveur de Aurélie 日本語' } })
@@ -63,7 +73,7 @@ describe('DiscoverySetup', () => {
     activate.mockResolvedValue({ server: { id: 7, name: 'x' } as any, message: 'ok' })
     const onCreated = vi.fn()
     const onOpenChange = vi.fn()
-    render(<DiscoverySetup open onOpenChange={onOpenChange} mount={mount} onCreated={onCreated} />)
+    renderDiscoverySetup({ open: true, onOpenChange, mount, onCreated })
 
     fireEvent.click(screen.getByRole('button', { name: 'Add server' }))
 
@@ -76,7 +86,7 @@ describe('DiscoverySetup', () => {
     createFromDiscovery.mockRejectedValue(new Error('install path is not readable'))
     const onCreated = vi.fn()
     const onOpenChange = vi.fn()
-    render(<DiscoverySetup open onOpenChange={onOpenChange} mount={mount} onCreated={onCreated} />)
+    renderDiscoverySetup({ open: true, onOpenChange, mount, onCreated })
 
     fireEvent.click(screen.getByRole('button', { name: 'Add server' }))
 
@@ -88,7 +98,7 @@ describe('DiscoverySetup', () => {
 
   it('Cancel closes without creating anything', () => {
     const onOpenChange = vi.fn()
-    render(<DiscoverySetup open onOpenChange={onOpenChange} mount={mount} />)
+    renderDiscoverySetup({ open: true, onOpenChange, mount })
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(onOpenChange).toHaveBeenCalledWith(false)
     expect(createFromDiscovery).not.toHaveBeenCalled()

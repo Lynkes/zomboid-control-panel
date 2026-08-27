@@ -1,5 +1,5 @@
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
-import { useEffect, useState, useContext } from 'react'
+import { useCallback, useEffect, useRef, useState, useContext } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import {
   LayoutDashboard,
@@ -37,6 +37,7 @@ import { cn } from '@/lib/utils'
 import { ConnectionStatus } from './ConnectionStatus'
 import { SystemHealthBanner } from './SystemHealthBanner'
 import { serversApi, ServerInstance, updateApi, UpdateStatus, serverApi, modsApi, panelUpdateApi } from '@/lib/api'
+import { resolveClientProvider } from '@/lib/serverStatus'
 import { SocketContext } from '@/contexts/SocketContext'
 
 import { useAuth } from '@/contexts/AuthContext'
@@ -304,16 +305,22 @@ interface LayoutProps {
 
 export default function Layout({ children }: LayoutProps) {
   const { t } = useTranslation('shell')
+  const { t: tScheduler } = useTranslation('scheduler')
   const [activeServer, setActiveServer] = useState<ServerInstance | null>(null)
 
   const isBlockedByRemote = (item: NavItem) =>
     !!item.requiresLocal &&
     !!activeServer?.isRemote &&
     !(item.allowRemoteConfigMirror && activeServer.remoteConfigConfigured)
+  const provider = resolveClientProvider(activeServer)
   const [servers, setServers] = useState<ServerInstance[]>([])
   const hasServer = servers.length > 0
   const isBlockedByNoServer = (section: NavSection) => !!section.requiresServer && !hasServer
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  // Not a Radix primitive, so it gets none of Radix's automatic focus
+  // trap/restore -- handled manually below.
+  const mobileMenuButtonRef = useRef<HTMLButtonElement>(null)
+  const mobileMenuAsideRef = useRef<HTMLElement>(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === 'true')
   const [updateInfo, setUpdateInfo] = useState<UpdateStatus | null>(null)
   // Persist dismissal across reloads, but key it by build IDs so a NEW update
@@ -351,6 +358,37 @@ export default function Layout({ children }: LayoutProps) {
       socket.off('players:update', handlePlayersUpdate)
     }
   }, [socket])
+
+  // Surface the REAL outcome of a manual restart or "Run now" task, from
+  // wherever the user happens to be -- not just on the Scheduler page.
+  // POST /restart-now and /tasks/:id/run only ever confirmed the action was
+  // ACCEPTED (both run in the background and used to report success:true
+  // unconditionally); this is the one place the actual result reaches the
+  // client at all instead of only being discoverable by someone who thinks
+  // to go check Schedule History (2026-08-26 bug hunt, scheduler
+  // blind-success family). Global, not page-scoped, because a restart's
+  // countdown + graceful shutdown can run long enough that the user has
+  // already navigated elsewhere by the time it resolves.
+  useEffect(() => {
+    if (!socket) return
+    const onActionResult = (data?: { kind?: 'restart' | 'task'; taskName?: string; success?: boolean; message?: string }) => {
+      if (!data) return
+      const isRestart = data.kind === 'restart'
+      const title = data.success
+        ? (isRestart ? tScheduler('toasts.restartSucceededTitle') : tScheduler('toasts.taskSucceededTitle', { name: data.taskName }))
+        : (isRestart ? tScheduler('toasts.restartResultFailedTitle') : tScheduler('toasts.taskResultFailedTitle', { name: data.taskName }))
+      toast({
+        title,
+        description: data.message,
+        variant: data.success ? ('success' as const) : 'destructive',
+      })
+    }
+    socket.on('scheduler:action_result', onActionResult)
+    return () => {
+      socket.off('scheduler:action_result', onActionResult)
+    }
+  }, [socket, tScheduler, toast])
+
   const navigate = useNavigate()
   const location = useLocation()
   const playerCountLabel = playerCount > 99 ? '99+' : String(playerCount)
@@ -364,34 +402,71 @@ export default function Layout({ children }: LayoutProps) {
     })
   }
 
-  // Track server run state for status dot on Active Server card
-  useEffect(() => {
-    let cancelled = false
-    const apply = (data: { running?: boolean; isRunning?: boolean; isStarting?: boolean; isStopping?: boolean } | null) => {
-      if (cancelled || !data) return
-      if (data.isStarting || data.isStopping) setServerRunState('transitioning')
-      else {
-        const running = typeof data.running === 'boolean' ? data.running : data.isRunning
-        if (typeof running === 'boolean') setServerRunState(running ? 'running' : 'stopped')
-      }
+  // Track server run state for the status dot on the Active Server card.
+  //
+  // GH#114: status.running (from serverApi.getStatus(), and the raw payload
+  // pushed on the 'server:status' socket event) is a LOCAL process scan --
+  // it can only ever see a process on/in this host/container. That's a
+  // trustworthy, freshest signal for a native server, but a docker-managed
+  // server's PZ process runs in a *different* container the scan can't see
+  // at all, and a remote-sftp server isn't on this host to begin with. This
+  // dot used to trust the raw scan unconditionally for every provider (not
+  // even gated on isRemote, unlike the Dashboard's equivalent bug) -- a
+  // Docker container correctly shown running by the Docker panel could
+  // still read "stopped" here, in the sidebar, on every single page.
+  // Non-native providers now read the provider-aware composed status
+  // instead (server/utils/serverStatusModel.js's 3-signal model), the same
+  // source Dashboard.tsx and Servers.tsx's active-server card already use.
+  const refreshServerRunState = useCallback(async () => {
+    if (provider === 'native') {
+      try {
+        const data = await serverApi.getStatus()
+        if (typeof data?.running === 'boolean') setServerRunState(data.running ? 'running' : 'stopped')
+      } catch { /* transient fetch failure -- keep the last known state */ }
+      return
     }
-    serverApi.getStatus().then(apply).catch(() => { /* ignore — keep 'unknown' */ })
-    return () => { cancelled = true }
-  }, [activeServer?.id])
+    if (provider == null) { setServerRunState('unknown'); return }
+    try {
+      const composed = await serversApi.getComposedStatus()
+      const hostRunning = composed.host.status === 'running'
+      const rconConnected = composed.server.status === 'connected'
+      const bridgeActive = composed.bridge.status === 'active'
+      const hostUnknown = ['unknown', 'not-applicable'].includes(composed.host.status)
+      setServerRunState(
+        hostRunning || rconConnected || bridgeActive ? 'running' : hostUnknown ? 'unknown' : 'stopped',
+      )
+    } catch {
+      setServerRunState('unknown')
+    }
+  }, [provider])
+
+  useEffect(() => {
+    // Depends on activeServer?.id (not just refreshServerRunState) so
+    // switching between two servers with the SAME provider -- native to
+    // native, say -- still refetches; provider alone wouldn't change in
+    // that case. No stale-response guard: a slower in-flight request
+    // landing after a newer one could briefly overwrite it with an older
+    // value, the same tolerance the previous version of this effect had.
+    // Acceptable for a sidebar dot that self-corrects on the next
+    // poll/socket event.
+    void refreshServerRunState()
+  }, [activeServer?.id, refreshServerRunState])
 
   useEffect(() => {
     if (!socket) return
-    const onStatus = (data: { running?: boolean; isRunning?: boolean; isStarting?: boolean; isStopping?: boolean } | undefined) => {
-      if (!data) return
-      if (data.isStarting || data.isStopping) setServerRunState('transitioning')
-      else {
-        const running = typeof data.running === 'boolean' ? data.running : data.isRunning
-        if (typeof running === 'boolean') setServerRunState(running ? 'running' : 'stopped')
+    const onStatus = (data?: { running?: boolean; isRunning?: boolean }) => {
+      // Fast path: for a native server, a pushed boolean is as trustworthy
+      // as a fresh fetch and avoids a round trip. Everything else needs the
+      // composed status to know what the push actually means.
+      if (provider === 'native') {
+        const running = typeof data?.running === 'boolean' ? data.running : data?.isRunning
+        if (typeof running === 'boolean') { setServerRunState(running ? 'running' : 'stopped'); return }
       }
+      void refreshServerRunState()
     }
     socket.on('server:status', onStatus)
     return () => { socket.off('server:status', onStatus) }
-  }, [socket])
+  }, [socket, provider, refreshServerRunState])
 
   // Track mod updates available count for Mod Manager nav badge
   useEffect(() => {
@@ -435,18 +510,34 @@ export default function Layout({ children }: LayoutProps) {
     setMobileMenuOpen(false)
   }, [location.pathname])
 
-  // Close mobile menu with Escape for keyboard users
+  // Close mobile menu with Escape for keyboard users, restoring focus to
+  // the trigger button -- an explicit dismissal, unlike the route-change
+  // effect above (there, focus should follow the navigation, not jump
+  // backwards to a button on the page the user just left).
   useEffect(() => {
     if (!mobileMenuOpen) return
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setMobileMenuOpen(false)
+        mobileMenuButtonRef.current?.focus()
       }
     }
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
+  }, [mobileMenuOpen])
+
+  // Move focus into the drawer when it opens -- this is a hand-rolled
+  // overlay (not a Radix Dialog), so it gets none of Radix's automatic
+  // focus trap. Without this, opening the menu leaves keyboard focus on
+  // the trigger button, behind the now-open drawer.
+  useEffect(() => {
+    if (!mobileMenuOpen) return
+    const firstFocusable = mobileMenuAsideRef.current?.querySelector<HTMLElement>(
+      'a[href], button:not([disabled])'
+    )
+    firstFocusable?.focus()
   }, [mobileMenuOpen])
 
   // Prevent background scroll while mobile menu is open
@@ -565,6 +656,7 @@ export default function Layout({ children }: LayoutProps) {
         <div className="flex items-center justify-between p-3">
           <PanelBrand compact />
           <Button
+            ref={mobileMenuButtonRef}
             variant="ghost"
             size="icon"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -580,13 +672,14 @@ export default function Layout({ children }: LayoutProps) {
       {mobileMenuOpen && (
         <div
           className="fixed inset-0 z-40 bg-background/50 backdrop-blur-[1px] lg:hidden"
-          onClick={() => setMobileMenuOpen(false)}
+          onClick={() => { setMobileMenuOpen(false); mobileMenuButtonRef.current?.focus() }}
           aria-hidden="true"
         />
       )}
 
       {/* Sidebar - Desktop always visible, Mobile as slide-out */}
       <aside
+        ref={mobileMenuAsideRef}
         aria-label={t('nav.sidebarAriaLabel')}
         className={cn(
         "fixed inset-y-0 left-0 z-40 flex flex-col border-r bg-card transform transition-all duration-300 ease-out will-change-[width,transform] motion-reduce:transition-none lg:relative",
@@ -634,6 +727,36 @@ export default function Layout({ children }: LayoutProps) {
             )}
           </div>
         </div>
+
+        {/* No-server notice — the active-server strip below only renders once
+            a server exists, so without this a brand-new install shows nothing
+            between the header and a sidebar full of inert-looking nav items.
+            Visible without hovering, unlike the per-item tooltip/aria-label
+            (which stay in place for screen readers — this is additive, not a
+            replacement). Reuses SystemHealthBanner's warning-strip language
+            (border-warning/35, AlertCircle) rather than a new color. */}
+        {servers.length === 0 && !sidebarCollapsed && (
+          <div className="border-b border-border/40 bg-warning/[0.04] px-3 py-2.5 shadow-[inset_2px_0_0_hsl(var(--warning))]">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0 text-warning mt-0.5" aria-hidden />
+              <div className="min-w-0">
+                <p className="text-[12.5px] font-semibold leading-tight text-foreground">
+                  {t('nav.noServerBanner.title')}
+                </p>
+                <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+                  {t('nav.noServerBanner.description')}
+                </p>
+                <NavLink
+                  to="/server-setup"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="mt-1.5 inline-flex items-center text-[11px] font-medium text-primary hover:underline"
+                >
+                  {t('nav.noServerBanner.cta')}
+                </NavLink>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Active server strip — tactical status bar */}
         {servers.length > 0 && !sidebarCollapsed && (

@@ -75,8 +75,15 @@ export async function getCollectionContents(collectionId) {
     if (Number(detail.result) !== 1) {
       return { ok: false, items: [], error: `Steam result code ${detail.result}` };
     }
+    // Exclude sub-collection children (filetype 2, Steam's own enum for
+    // k_EWorkshopFileTypeCollection) -- see the matching comment in
+    // routes/mods.js's /import-collection. A sub-collection id can never
+    // be legally added as a child of another collection via addchild, so
+    // it must never be surfaced as a syncable item here either.
     const items = Array.isArray(detail.children)
-      ? detail.children.map((c) => String(c.publishedfileid))
+      ? detail.children
+          .filter((c) => Number(c.filetype) !== 2)
+          .map((c) => String(c.publishedfileid))
       : [];
     return { ok: true, items, title: detail.title || null };
   } catch (err) {
@@ -189,6 +196,39 @@ async function buildAuthCookies() {
   };
 }
 
+// Steam's own EResult enum (partial) -- only the codes this endpoint has
+// been observed to return for addchild/removechild.
+const STEAM_ERESULT_NAMES = {
+  2: 'generic failure',
+  8: 'invalid parameter',
+  11: 'invalid state',
+  15: 'access denied',
+  16: 'timed out',
+  42: 'not found',
+};
+const WORKSHOP_FILE_TYPE_COLLECTION = 2;
+
+/**
+ * Turn Steam's raw sharedfiles/<action> failure body into something a
+ * human can act on. The raw body used to be dumped verbatim into the
+ * user-facing error ("Steam returned non-success (success=8, body=...)"),
+ * which reads as protocol noise and sent a real user chasing his session
+ * cookies for days when the actual, nameable problem was that the id he
+ * was adding was itself a Workshop collection (Steam echoes that back as
+ * `fileType: 2` on the childId, its own enum value for a collection).
+ */
+function describeSharedfilesFailure(action, json) {
+  const verb = action === 'addchild' ? 'add' : 'remove';
+  if (Number(json?.fileType) === WORKSHOP_FILE_TYPE_COLLECTION) {
+    return `Steam rejected this: that Workshop item is itself a collection, not a mod. A collection can't be nested inside another collection this way.`;
+  }
+  const name = STEAM_ERESULT_NAMES[Number(json?.success)];
+  if (name) {
+    return `Steam rejected the ${verb} (${name}) — the item may not exist, may have been removed by its author, or you may not have permission to edit this collection.`;
+  }
+  return `Steam rejected the ${verb} (unrecognized response).`;
+}
+
 /**
  * POST to a /sharedfiles/<action> endpoint. Steam returns either JSON
  * `{ success: 1 }` or HTML — both are handled.
@@ -235,9 +275,13 @@ async function postSharedfilesAction(action, collectionId, childId) {
       if (json && (json.success === 1 || json.success === true)) {
         return { ok: true };
       }
-      const detail = `Steam returned non-success (success=${json?.success}, body=${text.slice(0, 200)})`;
-      log.warn(`[WorkshopCollectionSync] ${action} ${childId} → ${collectionId}: ${detail}`);
-      return { ok: false, error: detail };
+      // Keep the raw protocol body in the log for us; give the caller a
+      // message they can actually act on (see describeSharedfilesFailure).
+      log.warn(
+        `[WorkshopCollectionSync] ${action} ${childId} → ${collectionId}: ` +
+          `Steam returned non-success (success=${json?.success}, body=${text.slice(0, 200)})`,
+      );
+      return { ok: false, error: describeSharedfilesFailure(action, json) };
     } catch {
       // Sometimes it returns HTML (full page) on success too. If we see the
       // child id reflected back, treat as success; otherwise fail loudly.

@@ -61,10 +61,12 @@ import Users from "@/pages/Users";
 import RolesPermissions from "@/pages/RolesPermissions";
 import OidcSettings from "@/pages/OidcSettings";
 import { PasswordInput } from "@/components/PasswordInput";
+import { NumberInput } from "@/components/NumberInput";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { HelpTip } from "@/components/HelpTip";
+import { AutoUpdateResultBanner } from "@/components/AutoUpdateResultBanner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -83,6 +85,7 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { EmptyState } from "@/components/EmptyState";
+import { DisabledReason } from "@/components/DisabledReason";
 import {
   configApi,
   panelBridgeApi,
@@ -94,11 +97,13 @@ import {
   modsApi,
   ApiError,
   BackupStatus,
-  BackupFile,
+  ServerBackupArchive,
   PanelUpdateStatus,
   PanelUpdatePreflight,
   ServerInstance,
 } from "@/lib/api";
+import { getUserErrorMessage } from "@/lib/errorMessage";
+import { resolveRegisteredTranslation } from "@/lib/paramTranslation";
 import { useSocket } from "@/contexts/SocketContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme, type ThemeName } from "@/contexts/ThemeContext";
@@ -238,6 +243,28 @@ function formatBridgeAge(seconds: number): string {
   return `${d}d`;
 }
 
+// The SFTP transport's ongoing status (not a caught request failure, so
+// getUserErrorMessage's ApiError-shaped input doesn't fit) carries its own
+// lastErrorCode alongside the pre-existing English lastError/
+// lastErrorGuidance pair -- look up the translated "{{detail}} Fix: ..."
+// sentence directly when a code is present, matching the exact classification
+// server/services/panelBridgeSftp.js's formatSftpError() already computed for
+// the English fallback so the two never disagree about what went wrong. A
+// server that hasn't restarted with the 2026-08-26 SFTP error-code work yet
+// (lastErrorCode absent from an old cached status) falls back to the
+// original two-piece English rendering.
+function getSftpStatusMessage(transport: {
+  lastError?: string | null;
+  lastErrorGuidance?: string | null;
+  lastErrorCode?: string | null;
+}): string {
+  const detail = transport.lastError || "";
+  const translated = transport.lastErrorCode
+    ? resolveRegisteredTranslation("errors", transport.lastErrorCode, { detail })
+    : null;
+  return translated ?? `${detail} Fix: ${transport.lastErrorGuidance || ""}`.trim();
+}
+
 function ThemeSelect() {
   const { theme, setTheme } = useTheme();
   const { t } = useTranslation("settings");
@@ -375,6 +402,7 @@ export default function Settings() {
       lastLatencyMs?: number | null;
       lastError?: string | null;
       lastErrorGuidance?: string | null;
+      lastErrorCode?: string | null;
     };
     config?: {
       statusStaleMs: number;
@@ -447,7 +475,7 @@ export default function Settings() {
 
   // Backup state
   const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null);
-  const [backups, setBackups] = useState<BackupFile[]>([]);
+  const [backups, setBackups] = useState<ServerBackupArchive[]>([]);
   const [backupsLoadError, setBackupsLoadError] = useState(false);
   const [backupStatusLoadError, setBackupStatusLoadError] = useState(false);
   const [backupLoading, setBackupLoading] = useState(false);
@@ -679,7 +707,7 @@ export default function Settings() {
     } catch (error) {
       reportClientError("Failed to fetch settings.", error);
       const message =
-        error instanceof Error ? error.message : t("pageHeader.loadFailedFallback");
+        getUserErrorMessage(error, t("pageHeader.loadFailedFallback"));
       setSettingsLoadError(message);
     } finally {
       setLoading(false);
@@ -763,9 +791,7 @@ export default function Settings() {
       }
     } catch (error) {
       const message =
-        error instanceof Error
-          ? error.message
-          : t("updates.couldNotLoadUpdaterStatus");
+        getUserErrorMessage(error, t("updates.couldNotLoadUpdaterStatus"));
       setPanelUpdateStatusError(message);
       reportClientError("Failed to fetch panel update status.", error);
     }
@@ -876,7 +902,7 @@ export default function Settings() {
       toast({
         title: t("toasts.recoveryCodesFailed.title"),
         description:
-          error instanceof Error ? error.message : t("toasts.recoveryCodesFailed.fallback"),
+          getUserErrorMessage(error, t("toasts.recoveryCodesFailed.fallback")),
         variant: "destructive",
       });
     } finally {
@@ -935,9 +961,7 @@ export default function Settings() {
       toast({
         title: t("toasts.settingsSaveFailed.title"),
         description:
-          error instanceof Error
-            ? error.message
-            : t("toasts.settingsSaveFailed.fallback"),
+          getUserErrorMessage(error, t("toasts.settingsSaveFailed.fallback")),
         variant: "destructive",
       });
     } finally {
@@ -968,9 +992,7 @@ export default function Settings() {
       toast({
         title: t("toasts.corsReloadFailed.title"),
         description:
-          error instanceof Error
-            ? error.message
-            : t("toasts.corsReloadFailed.fallback"),
+          getUserErrorMessage(error, t("toasts.corsReloadFailed.fallback")),
         variant: "destructive",
       });
     } finally {
@@ -992,9 +1014,7 @@ export default function Settings() {
       toast({
         title: t("toasts.corsLogClearFailed.title"),
         description:
-          error instanceof Error
-            ? error.message
-            : t("toasts.corsLogClearFailed.fallback"),
+          getUserErrorMessage(error, t("toasts.corsLogClearFailed.fallback")),
         variant: "destructive",
       });
     } finally {
@@ -1026,8 +1046,7 @@ export default function Settings() {
         if (apiErr?.code === "apply_in_progress") {
           toast({
             title: t("toasts.updateInProgress.title"),
-            description:
-              apiErr.message || t("toasts.updateInProgress.fallback"),
+            description: getUserErrorMessage(err, t("toasts.updateInProgress.fallback")),
           });
           return;
         }
@@ -1065,9 +1084,7 @@ export default function Settings() {
       toast({
         title: t("toasts.updateCheckFailed.title"),
         description:
-          error instanceof Error
-            ? error.message
-            : t("toasts.updateCheckFailed.fallback"),
+          getUserErrorMessage(error, t("toasts.updateCheckFailed.fallback")),
         variant: "destructive",
       });
     } finally {
@@ -1107,9 +1124,9 @@ export default function Settings() {
         title: isDockerPanelUpdate ? t("toasts.dockerUpdateStarted.title") : t("toasts.updateDownloaded.title"),
         description:
           result.message ||
-          isDockerPanelUpdate
+          (isDockerPanelUpdate
             ? t("toasts.updateDownloadedDescDocker")
-            : t("toasts.updateDownloadedDescBinary"),
+            : t("toasts.updateDownloadedDescBinary")),
         variant: "success" as const,
       });
       await fetchPanelUpdateStatus();
@@ -1123,9 +1140,7 @@ export default function Settings() {
       toast({
         title: t("toasts.downloadFailed.title"),
         description:
-          error instanceof Error
-            ? error.message
-            : t("toasts.downloadFailed.fallback"),
+          getUserErrorMessage(error, t("toasts.downloadFailed.fallback")),
         variant: "destructive",
       });
     } finally {
@@ -1282,9 +1297,7 @@ export default function Settings() {
       toast({
         title: t("toasts.rconFailed.title"),
         description:
-          error instanceof Error
-            ? error.message
-            : t("toasts.rconFailed.fallback"),
+          getUserErrorMessage(error, t("toasts.rconFailed.fallback")),
         variant: "destructive",
       });
     } finally {
@@ -1301,7 +1314,7 @@ export default function Settings() {
     } catch (error) {
       reportClientError("Failed to fetch bridge status.", error);
       setBridgeError(
-        error instanceof Error ? error.message : t("bridge.statusFetchFailedFallback"),
+        getUserErrorMessage(error, t("bridge.statusFetchFailedFallback")),
       );
     }
   }, [t]);
@@ -1357,9 +1370,7 @@ export default function Settings() {
       toast({
         title: t("toasts.installFailed.title"),
         description:
-          error instanceof Error
-            ? error.message
-            : t("toasts.installFailed.fallback"),
+          getUserErrorMessage(error, t("toasts.installFailed.fallback")),
         variant: "destructive",
       });
     } finally {
@@ -1460,7 +1471,7 @@ export default function Settings() {
       toast({
         title: t("toasts.backupFailed.title"),
         description:
-          error instanceof Error ? error.message : t("toasts.backupFailed.fallback"),
+          getUserErrorMessage(error, t("toasts.backupFailed.fallback")),
         variant: "destructive",
       });
     } finally {
@@ -1484,7 +1495,7 @@ export default function Settings() {
       toast({
         title: t("toasts.deleteFailed.title"),
         description:
-          error instanceof Error ? error.message : t("toasts.deleteFailed.fallback"),
+          getUserErrorMessage(error, t("toasts.deleteFailed.fallback")),
         variant: "destructive",
       });
     }
@@ -1509,7 +1520,7 @@ export default function Settings() {
       toast({
         title: t("toasts.restoreFailed.title"),
         description:
-          error instanceof Error ? error.message : t("toasts.restoreFailed.fallback"),
+          getUserErrorMessage(error, t("toasts.restoreFailed.fallback")),
         variant: "destructive",
       });
     } finally {
@@ -1562,9 +1573,7 @@ export default function Settings() {
       toast({
         title: t("toasts.backupSettingsSaveFailed.title"),
         description:
-          error instanceof Error
-            ? error.message
-            : t("toasts.backupSettingsSaveFailed.fallback"),
+          getUserErrorMessage(error, t("toasts.backupSettingsSaveFailed.fallback")),
         variant: "destructive",
       });
     } finally {
@@ -1590,9 +1599,7 @@ export default function Settings() {
       toast({
         title: t("toasts.backupsUpdateFailed.title"),
         description:
-          error instanceof Error
-            ? error.message
-            : t("toasts.backupsUpdateFailed.fallback"),
+          getUserErrorMessage(error, t("toasts.backupsUpdateFailed.fallback")),
         variant: "destructive",
       });
     } finally {
@@ -1702,7 +1709,7 @@ export default function Settings() {
       await fetchBridgeStatus();
     } catch (error) {
       setBridgeError(
-        error instanceof Error ? error.message : t("errors.couldNotAutoConfigure"),
+        getUserErrorMessage(error, t("errors.couldNotAutoConfigure")),
       );
     } finally {
       setBridgeLoading(false);
@@ -1723,9 +1730,7 @@ export default function Settings() {
       toast({
         title: t("toasts.bridgeStopFailed.title"),
         description:
-          error instanceof Error
-            ? error.message
-            : t("toasts.bridgeStopFailed.fallback"),
+          getUserErrorMessage(error, t("toasts.bridgeStopFailed.fallback")),
         variant: "destructive",
       });
     } finally {
@@ -1752,9 +1757,7 @@ export default function Settings() {
       await fetchBridgeStatus();
     } catch (error) {
       setBridgeError(
-        error instanceof Error
-          ? error.message
-          : t("errors.couldNotConfigureBridge"),
+        getUserErrorMessage(error, t("errors.couldNotConfigureBridge")),
       );
     } finally {
       setBridgeLoading(false);
@@ -1785,7 +1788,7 @@ export default function Settings() {
     } catch (error) {
       setRemoteLogs([]);
       setRemoteLogError(
-        error instanceof Error ? error.message : t("errors.couldNotListRemoteLogs"),
+        getUserErrorMessage(error, t("errors.couldNotListRemoteLogs")),
       );
     } finally {
       setLoadingRemoteLogs(false);
@@ -1807,9 +1810,7 @@ export default function Settings() {
     } catch (error) {
       setRemoteConfigFiles([]);
       setRemoteConfigError(
-        error instanceof Error
-          ? error.message
-          : t("errors.couldNotReadRemoteConfig"),
+        getUserErrorMessage(error, t("errors.couldNotReadRemoteConfig")),
       );
     } finally {
       setLoadingRemoteConfig(false);
@@ -1834,7 +1835,7 @@ export default function Settings() {
     } catch (error) {
       setRemoteLogContent(null);
       setRemoteLogError(
-        error instanceof Error ? error.message : t("errors.couldNotReadLogFile"),
+        getUserErrorMessage(error, t("errors.couldNotReadLogFile")),
       );
     } finally {
       setLoadingRemoteLogs(false);
@@ -1851,7 +1852,7 @@ export default function Settings() {
         variant: "success" as const,
       });
     } catch (error) {
-      toast({ title: t("toasts.sftpTestFailed.title"), description: error instanceof Error ? error.message : t("toasts.sftpTestFailed.fallback"), variant: "destructive" });
+      toast({ title: t("toasts.sftpTestFailed.title"), description: getUserErrorMessage(error, t("toasts.sftpTestFailed.fallback")), variant: "destructive" });
     } finally {
       setTestingSftp(false);
     }
@@ -1888,7 +1889,7 @@ export default function Settings() {
           panelBridgeSftpPollIntervalSeconds: originalSettings.panelBridgeSftpPollIntervalSeconds,
         }));
       }
-      setBridgeError(error instanceof Error ? error.message : t("errors.couldNotStartSftpBridge"));
+      setBridgeError(getUserErrorMessage(error, t("errors.couldNotStartSftpBridge")));
     } finally {
       setBridgeLoading(false);
     }
@@ -1914,9 +1915,7 @@ export default function Settings() {
       toast({
         title: t("toasts.modNoResponse.title"),
         description:
-          error instanceof Error
-            ? error.message
-            : t("toasts.modNoResponse.fallback"),
+          getUserErrorMessage(error, t("toasts.modNoResponse.fallback")),
         variant: "destructive",
         action: (
           <ToastAction altText={t("toasts.modNoResponse.openBridgeAlt")} onClick={() => handleTabChange("bridge")}>
@@ -1942,6 +1941,8 @@ export default function Settings() {
         "reconnectInterval",
         "panelPort",
         "httpsPort",
+        "panelBridgeSftpPort",
+        "panelBridgeSftpPollIntervalSeconds",
       ].includes(key)
     ) {
       // Allow empty string but reject non-numeric values
@@ -2052,9 +2053,7 @@ export default function Settings() {
       toast({
         title: t("toasts.passwordChangeFailed.title"),
         description:
-          error instanceof Error
-            ? error.message
-            : t("toasts.passwordChangeFailed.fallback"),
+          getUserErrorMessage(error, t("toasts.passwordChangeFailed.fallback")),
         variant: "destructive",
       });
     } finally {
@@ -2076,9 +2075,7 @@ export default function Settings() {
       toast({
         title: t("security.regenerateJwt.failedTitle"),
         description:
-          error instanceof Error
-            ? error.message
-            : t("security.regenerateJwt.failedFallback"),
+          getUserErrorMessage(error, t("security.regenerateJwt.failedFallback")),
         variant: "destructive",
       });
     } finally {
@@ -2113,9 +2110,7 @@ export default function Settings() {
       toast({
         title: t("toasts.recoveryUnavailable.title"),
         description:
-          error instanceof Error
-            ? error.message
-            : t("toasts.recoveryUnavailable.fallback"),
+          getUserErrorMessage(error, t("toasts.recoveryUnavailable.fallback")),
         variant: "destructive",
       });
     } finally {
@@ -2174,9 +2169,7 @@ export default function Settings() {
       toast({
         title: t("toasts.passwordResetFailed.title"),
         description:
-          error instanceof Error
-            ? error.message
-            : t("toasts.passwordResetFailed.fallback"),
+          getUserErrorMessage(error, t("toasts.passwordResetFailed.fallback")),
         variant: "destructive",
       });
     } finally {
@@ -2237,6 +2230,7 @@ export default function Settings() {
 
   return (
     <div className="page-transition">
+      <AutoUpdateResultBanner />
       {/* Unsaved Changes Warning */}
       {isDirty && (
         <div
@@ -3002,9 +2996,7 @@ export default function Settings() {
                                   toast({
                                     title: t("updates.couldNotReadLog.title"),
                                     description:
-                                      error instanceof Error
-                                        ? error.message
-                                        : t("updates.couldNotReadLog.fallback"),
+                                      getUserErrorMessage(error, t("updates.couldNotReadLog.fallback")),
                                     variant: "destructive",
                                   });
                                 }
@@ -3693,6 +3685,7 @@ export default function Settings() {
                       loading={bridgeLoading}
                       bridgePath={bridgeStatus.bridgePath}
                       summary={bridgeStatus.connection?.summary}
+                      interactive={false}
                     />
                   )}
                 </div>
@@ -4099,7 +4092,7 @@ export default function Settings() {
                         <Button type="button" variant="outline" onClick={handleTestSftp} disabled={testingSftp || bridgeLoading}>{testingSftp ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link className="mr-2 h-4 w-4" />}{t("bridge.verifyAndPrepare")}</Button>
                         <Button type="button" onClick={handleConfigureSftp} disabled={bridgeLoading}>{bridgeLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Cloud className="mr-2 h-4 w-4" />}{t("bridge.startSftpBridge")}</Button>
                       </div>
-                      {bridgeStatus?.transport?.type === "sftp" && <div className="space-y-1 text-xs text-muted-foreground"><p>SFTP {bridgeStatus.transport.running ? t("bridge.sftpRunning") : t("bridge.sftpStopped")}{bridgeStatus.transport.lastLatencyMs != null ? t("bridge.lastSyncSuffix", { ms: bridgeStatus.transport.lastLatencyMs }) : ""}{bridgeStatus.transport.lastError ? t("bridge.lastErrorSuffix", { error: bridgeStatus.transport.lastError }) : ""}</p>{bridgeStatus.transport.lastErrorGuidance && <p className="text-warning">{t("bridge.fixLabel", { guidance: bridgeStatus.transport.lastErrorGuidance })}</p>}</div>}
+                      {bridgeStatus?.transport?.type === "sftp" && <div className="space-y-1 text-xs text-muted-foreground"><p>SFTP {bridgeStatus.transport.running ? t("bridge.sftpRunning") : t("bridge.sftpStopped")}{bridgeStatus.transport.lastLatencyMs != null ? t("bridge.lastSyncSuffix", { ms: bridgeStatus.transport.lastLatencyMs }) : ""}</p>{bridgeStatus.transport.lastError && <p className="text-warning">{getSftpStatusMessage(bridgeStatus.transport)}</p>}</div>}
                     </div>
                   </div>
 
@@ -4663,24 +4656,14 @@ export default function Settings() {
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="backup-max">{t("backups.maxBackupsLabel")}</Label>
-                        <Input
+                        <NumberInput
                           id="backup-max"
-                          type="number"
                           min={1}
                           max={100}
                           value={backupMaxCount}
-                          onChange={(e) =>
-                            setBackupMaxCount(parseInt(e.target.value) || 10)
-                          }
-                          onBlur={(e) => {
-                            const v = parseInt(e.target.value);
-                            if (!Number.isFinite(v) || v < 1)
-                              setBackupMaxCount(1);
-                            else if (v > 100) setBackupMaxCount(100);
-                          }}
+                          onChange={setBackupMaxCount}
                           onWheel={(e) => e.currentTarget.blur()}
                           className="max-w-24"
-                          inputMode="numeric"
                         />
                         <p className="text-xs text-muted-foreground">
                           {t("backups.maxBackupsHelp")}
@@ -4749,6 +4732,7 @@ export default function Settings() {
                                     }
                                     disabled={restoringBackup !== null}
                                     className="text-warning hover:text-warning hover:bg-warning/10"
+                                    // eslint-disable-next-line local/no-dead-disabled-title -- pure hint; the "(server must be stopped)" parenthetical is a general precondition note, not tied to the actual disable condition (another restore already in progress, self-evident via the spinner). Triaged 2026-08-27.
                                     title={t("backups.restoreTitle")}
                                   >
                                     {restoringBackup === backup.name ? (
@@ -5755,6 +5739,12 @@ function WorkshopCollectionSyncCard({
     workshopId: string;
     name: string | null;
   } | null>(null);
+  // Mods.tsx confirms this exact modsApi.batchRemove operation on both its
+  // row and bulk paths; this row here reached the same server mutation with
+  // no confirm at all.
+  const [removeServerTarget, setRemoveServerTarget] = useState<{
+    workshopId: string;
+  } | null>(null);
 
   // Trust the server's credential check over a brittle bullet-prefix sniff:
   // the diff endpoint reports `hasCredentials` based on the actual stored
@@ -5770,6 +5760,11 @@ function WorkshopCollectionSyncCard({
       (b.startsWith("•") || b.length >= 16)
     );
   })();
+  // diff already carries this -- WorkshopCollectionPanel.tsx (the other,
+  // independent implementation of these same row actions) reads it to
+  // refuse add/remove early with a clear reason; this page fetches the
+  // identical collectionDiff() response but never read the field.
+  const tokenExpired = !!diff?.tokenExpired;
 
   const collectionId = (settings.workshopCollectionId || "").trim();
   const collectionIdValid = /^\d{1,15}$/.test(collectionId);
@@ -5850,9 +5845,7 @@ function WorkshopCollectionSyncCard({
       return true;
     } catch (error) {
       setPasteError(
-        error instanceof Error
-          ? error.message
-          : t("workshopSync.toasts.couldNotSaveCookies"),
+        getUserErrorMessage(error, t("workshopSync.toasts.couldNotSaveCookies")),
       );
       return false;
     } finally {
@@ -5925,7 +5918,7 @@ function WorkshopCollectionSyncCard({
     } catch (err: any) {
       setPasteOpen(true);
       setPasteError(
-        err?.message || t("workshopSync.toasts.clipboardReadFailed"),
+        getUserErrorMessage(err, t("workshopSync.toasts.clipboardReadFailed")),
       );
     }
   };
@@ -5945,7 +5938,7 @@ function WorkshopCollectionSyncCard({
       if (!r.ok && r.error) setDiffError(r.error);
     } catch (err: any) {
       if (seq !== refreshDiffSeqRef.current) return;
-      setDiffError(err?.message || t("workshopSync.toasts.failedToReadCollection"));
+      setDiffError(getUserErrorMessage(err, t("workshopSync.toasts.failedToReadCollection")));
     } finally {
       if (seq === refreshDiffSeqRef.current) setDiffLoading(false);
     }
@@ -5982,11 +5975,20 @@ function WorkshopCollectionSyncCard({
     setExtractingFrom(browserId);
     try {
       const r = await modsApi.collectionExtractCookies(browserId);
-      if (r.ok && r.sessionid && r.steamLoginSecure) {
-        const saved = await saveExtractedCookies(r.sessionid, r.steamLoginSecure);
-        if (saved && r.notes && r.notes.length > 0) {
+      if (r.ok && r.saved) {
+        // The server already saved these -- it never sends the raw values
+        // back (2026-08-26 bug hunt). Refresh the same way every other
+        // credential-changing action on this card does, rather than
+        // reconstructing a local mask we don't have the real value for.
+        toast({
+          title: t("workshopSync.toasts.cookiesSaved.title"),
+          description: t("workshopSync.toasts.cookiesSaved.description"),
+          variant: "success" as const,
+        });
+        if (r.notes && r.notes.length > 0) {
           toast({ title: t("workshopSync.toasts.extractedFrom.title", { browser: label }), description: r.notes[0] });
         }
+        await refreshDiff();
       } else {
         toast({
           variant: "destructive",
@@ -5998,7 +6000,7 @@ function WorkshopCollectionSyncCard({
       toast({
         variant: "destructive",
         title: t("workshopSync.toasts.extractFailed.title", { browser: label }),
-        description: err?.message || t("workshopSync.toasts.extractFailed.requestFailed"),
+        description: getUserErrorMessage(err, t("workshopSync.toasts.extractFailed.requestFailed")),
       });
     } finally {
       setExtractingFrom(null);
@@ -6016,7 +6018,7 @@ function WorkshopCollectionSyncCard({
       toast({
         variant: "destructive",
         title: t("workshopSync.toasts.testFailed.title"),
-        description: err?.message || t("workshopSync.toasts.testFailed.fallback"),
+        description: getUserErrorMessage(err, t("workshopSync.toasts.testFailed.fallback")),
       });
     } finally {
       setTesting(false);
@@ -6077,12 +6079,16 @@ function WorkshopCollectionSyncCard({
           throw new Error(
             t("workshopSync.toasts.cookiesFirstError"),
           );
+        if (tokenExpired)
+          throw new Error(t("workshopSync.toasts.sessionExpiredError"));
         await modsApi.collectionAddItem(workshopId);
       } else if (action === "remove") {
         if (!credsConfigured)
           throw new Error(
             t("workshopSync.toasts.cookiesFirstError"),
           );
+        if (tokenExpired)
+          throw new Error(t("workshopSync.toasts.sessionExpiredError"));
         await modsApi.collectionRemoveItem(workshopId);
       } else if (action === "track") {
         await modsApi.trackMod(workshopId);
@@ -6129,7 +6135,7 @@ function WorkshopCollectionSyncCard({
       toast({
         variant: "destructive",
         title: t("workshopSync.toasts.actionFailed.title"),
-        description: err?.message || t("workshopSync.toasts.actionFailed.fallback"),
+        description: getUserErrorMessage(err, t("workshopSync.toasts.actionFailed.fallback")),
       });
     } finally {
       setRowBusy((prev) => {
@@ -6473,24 +6479,23 @@ function WorkshopCollectionSyncCard({
         {/* Status / actions */}
         <div className="space-y-2 pt-2 border-t border-border/40">
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleTest}
-              disabled={!collectionIdValid || !credsConfigured || testing}
-              title={
-                !credsConfigured
-                  ? t("workshopSync.testConnectionTitleNeedsCookies")
-                  : t("workshopSync.testConnectionTitleReady")
-              }
-            >
-              {testing ? (
-                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-              ) : (
-                <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
-              )}
-              {t("workshopSync.testConnection")}
-            </Button>
+            <DisabledReason reason={!credsConfigured ? t("workshopSync.testConnectionTitleNeedsCookies") : null}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleTest}
+                disabled={!collectionIdValid || !credsConfigured || testing}
+                // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27: the disabled-reason branch (needs cookies) now lives in the DisabledReason wrapper above; this title carries only the enabled-state hint.
+                title={!credsConfigured ? undefined : t("workshopSync.testConnectionTitleReady")}
+              >
+                {testing ? (
+                  <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                )}
+                {t("workshopSync.testConnection")}
+              </Button>
+            </DisabledReason>
             <Button
               variant="outline"
               size="sm"
@@ -6721,12 +6726,12 @@ function WorkshopCollectionSyncCard({
                                     variant="ghost"
                                     className="h-7 px-2 text-[11px] text-destructive hover:text-destructive hover:bg-destructive/10"
                                     onClick={() =>
-                                      runRowAction(
-                                        it.workshopId,
-                                        "remove-server",
-                                      )
+                                      setRemoveServerTarget({
+                                        workshopId: it.workshopId,
+                                      })
                                     }
                                     disabled={!!busy}
+                                    // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, disables only transiently while an action is in flight (the spinner is the self-evident why). Triaged 2026-08-27.
                                     title={t("workshopSync.removeFromServerTitle")}
                                   >
                                     {busy === "remove-server" ? (
@@ -6745,6 +6750,7 @@ function WorkshopCollectionSyncCard({
                                       runRowAction(it.workshopId, "add-server")
                                     }
                                     disabled={!!busy}
+                                    // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, disables only transiently while an action is in flight (the spinner is the self-evident why). Triaged 2026-08-27.
                                     title={t("workshopSync.addToServerTitle")}
                                   >
                                     {busy === "add-server" ? (
@@ -6757,51 +6763,49 @@ function WorkshopCollectionSyncCard({
                                 )}
                                 {/* Collection side */}
                                 {it.inCollection ? (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-7 px-2 text-[11px] text-destructive hover:text-destructive hover:bg-destructive/10"
-                                    onClick={() =>
-                                      runRowAction(it.workshopId, "remove")
-                                    }
-                                    disabled={!!busy || !credsConfigured}
-                                    title={
-                                      !credsConfigured
-                                        ? t("workshopSync.removeFromCollectionNeedsCookies")
-                                        : t("workshopSync.removeFromCollectionTitle")
-                                    }
-                                  >
-                                    {busy === "remove" ? (
-                                      <Loader2 className="w-3 h-3 animate-spin" />
-                                    ) : (
-                                      <Minus className="w-3 h-3" />
-                                    )}
-                                    <span className="ml-1">
-                                      {t("workshopSync.fromCollection")}
-                                    </span>
-                                  </Button>
+                                  <DisabledReason reason={tokenExpired ? t("workshopSync.sessionExpiredShort") : !credsConfigured ? t("workshopSync.removeFromCollectionNeedsCookies") : null}>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 px-2 text-[11px] text-destructive hover:text-destructive hover:bg-destructive/10"
+                                      onClick={() =>
+                                        runRowAction(it.workshopId, "remove")
+                                      }
+                                      disabled={!!busy || !credsConfigured || tokenExpired}
+                                      // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (real bug: this ternary correctly selected "Steam session expired"/"Need Steam cookies" but a native title is never shown on a disabled element -- Chromium confirmed empirically). The disabled-reason now lives in the DisabledReason wrapper above; this title carries only the enabled-state hint.
+                                      title={tokenExpired || !credsConfigured ? undefined : t("workshopSync.removeFromCollectionTitle")}
+                                    >
+                                      {busy === "remove" ? (
+                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                      ) : (
+                                        <Minus className="w-3 h-3" />
+                                      )}
+                                      <span className="ml-1">
+                                        {t("workshopSync.fromCollection")}
+                                      </span>
+                                    </Button>
+                                  </DisabledReason>
                                 ) : (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-7 px-2 text-[11px] text-success hover:text-success hover:bg-success/10"
-                                    onClick={() =>
-                                      runRowAction(it.workshopId, "add")
-                                    }
-                                    disabled={!!busy || !credsConfigured}
-                                    title={
-                                      !credsConfigured
-                                        ? t("workshopSync.removeFromCollectionNeedsCookies")
-                                        : t("workshopSync.addToCollectionTitle")
-                                    }
-                                  >
-                                    {busy === "add" ? (
-                                      <Loader2 className="w-3 h-3 animate-spin" />
-                                    ) : (
-                                      <Plus className="w-3 h-3" />
-                                    )}
-                                    <span className="ml-1">{t("workshopSync.toCollection")}</span>
-                                  </Button>
+                                  <DisabledReason reason={tokenExpired ? t("workshopSync.sessionExpiredShort") : !credsConfigured ? t("workshopSync.removeFromCollectionNeedsCookies") : null}>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 px-2 text-[11px] text-success hover:text-success hover:bg-success/10"
+                                      onClick={() =>
+                                        runRowAction(it.workshopId, "add")
+                                      }
+                                      disabled={!!busy || !credsConfigured || tokenExpired}
+                                      // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27, same real bug and fix as the remove-from-collection button above.
+                                      title={tokenExpired || !credsConfigured ? undefined : t("workshopSync.addToCollectionTitle")}
+                                    >
+                                      {busy === "add" ? (
+                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                      ) : (
+                                        <Plus className="w-3 h-3" />
+                                      )}
+                                      <span className="ml-1">{t("workshopSync.toCollection")}</span>
+                                    </Button>
+                                  </DisabledReason>
                                 )}
                                 {/* Tracked side */}
                                 {it.inTracked ? (
@@ -6813,6 +6817,7 @@ function WorkshopCollectionSyncCard({
                                       runRowAction(it.workshopId, "untrack")
                                     }
                                     disabled={!!busy}
+                                    // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, disables only transiently while an action is in flight (the spinner is the self-evident why). Triaged 2026-08-27.
                                     title={t("workshopSync.untrackTitle")}
                                   >
                                     {busy === "untrack" ? (
@@ -6831,6 +6836,7 @@ function WorkshopCollectionSyncCard({
                                       runRowAction(it.workshopId, "track")
                                     }
                                     disabled={!!busy}
+                                    // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, disables only transiently while an action is in flight (the spinner is the self-evident why). Triaged 2026-08-27.
                                     title={t("workshopSync.trackTitle")}
                                   >
                                     {busy === "track" ? (
@@ -6856,6 +6862,7 @@ function WorkshopCollectionSyncCard({
                                     })
                                   }
                                   disabled={!!busy}
+                                  // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, disables only transiently while an action is in flight (the spinner is the self-evident why). Triaged 2026-08-27.
                                   title={t("workshopSync.purgeTitle")}
                                 >
                                   {busy === "purge" ? (
@@ -6922,6 +6929,34 @@ function WorkshopCollectionSyncCard({
                 }}
               >
                 {t("workshopSync.removeEverywhereButton")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        <AlertDialog
+          open={!!removeServerTarget}
+          onOpenChange={(open) => !open && setRemoveServerTarget(null)}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {t("workshopSync.removeServerDialogTitle")}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {t("workshopSync.removeServerDialogDesc")}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t("workshopSync.cancelButton")}</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => {
+                  const target = removeServerTarget;
+                  setRemoveServerTarget(null);
+                  if (target) runRowAction(target.workshopId, "remove-server");
+                }}
+              >
+                {t("workshopSync.fromServer")}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

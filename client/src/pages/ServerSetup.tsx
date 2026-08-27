@@ -25,10 +25,14 @@ import {
   Check,
   Info,
   ArrowRight,
+  AlertTriangle,
 } from "lucide-react";
 import { configApi, serverApi, serversApi, debugApi, apiFetch } from "@/lib/api";
 import { HelpTip } from "@/components/HelpTip";
+import { NumberInput } from "@/components/NumberInput";
+import { DisabledReason } from "@/components/DisabledReason";
 import { getInstallProgressMessage } from "@/lib/installProgressMessage";
+import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import {
   Card,
@@ -47,8 +51,10 @@ import { SocketContext } from "@/contexts/SocketContext";
 import { Slider } from "@/components/ui/slider";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { reportClientError } from "@/lib/client-errors";
-import { cn, copyText } from "@/lib/utils";
+import { getUserErrorMessage, rawErrorMessageIntentional } from "@/lib/errorMessage";
+import { cn, copyText, formatUptime } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -71,7 +77,7 @@ import {
 import { FolderBrowser } from "@/components/FolderBrowser";
 
 interface InstallLog {
-  type: "info" | "success" | "error" | "command" | "stdout" | "stderr";
+  type: "info" | "success" | "error" | "warning" | "command" | "stdout" | "stderr";
   message: string;
   timestamp: Date;
 }
@@ -89,13 +95,84 @@ function handleCardKeyDown(
 }
 
 // Generate a random password
-// Mirrors server/routes/server.js's requireIntInRange(value, 1024, 65535, ...)
-// used by /install, /quick-setup, /configure-rcon and /configure-network for
-// rconPort/serverPort -- those now refuse an out-of-range port with a named
-// 400 instead of silently substituting a default, so the client can reject
-// it before the round trip too.
+// Game port 65535 is excluded because configure-network derives UDPPort as
+// gamePort + 1; RCON ports may still use the full 1024-65535 range.
 export function isValidInstallPort(port: number): boolean {
   return Number.isInteger(port) && port >= 1024 && port <= 65535;
+}
+
+export function isValidGamePort(port: number): boolean {
+  return Number.isInteger(port) && port >= 1024 && port <= 65534;
+}
+
+// A port field can now genuinely be NaN mid-edit (see NumberInput) -- a
+// summary/review screen must never render the literal text "NaN"; show the
+// same "—" placeholder this app already uses elsewhere for an unset value.
+function formatPort(port: number): string {
+  return Number.isFinite(port) ? String(port) : "—";
+}
+
+// Same rationale as formatPort -- minMemory/maxMemory can now genuinely be
+// NaN mid-edit too (NumberInput), and the summary screen must never render it.
+function formatMemory(gb: number): string {
+  return Number.isFinite(gb) ? String(gb) : "—";
+}
+
+// POST /install returns as soon as SteamCMD is *launched*, then the real
+// outcome (success or failure) arrives minutes later over install:log /
+// install:complete -- and this component is the ONLY listener for either
+// event anywhere in the client (2026-08-26 install-failure hunt, finding
+// #7). If the tab is closed or the page reloads before that arrives, the
+// wizard forgets an install was ever attempted while SteamCMD keeps running
+// server-side regardless. This marker is the client's only memory of that:
+// written right after a real install request is accepted, cleared the
+// instant a real outcome (either one) is heard.
+export const INSTALL_INFLIGHT_KEY = "zcp-install-inflight";
+// A real SteamCMD download finishes in minutes to a couple of hours even on
+// a slow link; past this the marker is almost certainly stale (a crashed
+// panel, an abandoned attempt) rather than something still genuinely running.
+const INSTALL_INFLIGHT_STALE_MS = 6 * 60 * 60 * 1000;
+
+export interface InstallInFlightMarker {
+  installPath: string;
+  serverName: string;
+  startedAt: number;
+}
+
+export function readInstallInFlightMarker(): InstallInFlightMarker | null {
+  try {
+    const raw = localStorage.getItem(INSTALL_INFLIGHT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed.installPath === "string" &&
+      typeof parsed.serverName === "string" &&
+      typeof parsed.startedAt === "number"
+    ) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeInstallInFlightMarker(marker: InstallInFlightMarker): void {
+  try {
+    localStorage.setItem(INSTALL_INFLIGHT_KEY, JSON.stringify(marker));
+  } catch {
+    // Best-effort (private browsing / storage quota) -- the wizard still
+    // works, it just can't warn about this specific install after a reload.
+  }
+}
+
+export function clearInstallInFlightMarker(): void {
+  try {
+    localStorage.removeItem(INSTALL_INFLIGHT_KEY);
+  } catch {
+    // ignore
+  }
 }
 
 function generatePassword(length = 12): string {
@@ -119,13 +196,26 @@ function formatBytes(bytes: number): string {
 
 const LINUX_SERVICE_INSTALL_PATH = "/opt/zomboid-panel/data/pzserver";
 
-function installationErrorGuidance(
-  message: string,
+// rawMessage is used ONLY to pattern-match the server's literal English
+// string and, when matched, to embed the exact unwritable path back into the
+// guidance text -- the same "raw text for internal logic, not display"
+// legitimate use errorMessage.ts's own getRecoveryUrl() has (see
+// eslint-rules/no-raw-error-message.js). displayMessage is what actually
+// reaches the user everywhere else: previously this function returned
+// rawMessage unchanged for every installation error OTHER than the
+// not-writable one, showing fully raw/untranslated text and discarding any
+// registered error code's translation (2026-08-27 lint-rule blind-spot
+// sweep finding -- the raw ternary that used to compute rawMessage was
+// invisible to no-raw-error-message.js because it fed this function, not a
+// toast()/set*() call, directly).
+export function installationErrorGuidance(
+  rawMessage: string,
+  displayMessage: string,
   t: (key: string, opts?: Record<string, unknown>) => string,
   platform: string | null,
 ) {
-  if (!message.startsWith("Installation path is not writable:")) {
-    return message;
+  if (!rawMessage.startsWith("Installation path is not writable:")) {
+    return displayMessage;
   }
   // The suffix tells the user to edit zomboid-panel.service and restart it
   // via systemd -- meaningless (and unfollowable) advice on Windows/macOS,
@@ -136,11 +226,11 @@ function installationErrorGuidance(
   // loading, or the fetch failed) falls back to the plain message rather
   // than guessing.
   if (platform !== "linux") {
-    return message;
+    return displayMessage;
   }
 
   return t("toasts.installationErrorGuidance", {
-    message,
+    message: rawMessage,
     path: LINUX_SERVICE_INSTALL_PATH,
   });
 }
@@ -197,6 +287,9 @@ export default function ServerSetup() {
   const [installing, setInstalling] = useState(false);
   const [logs, setLogs] = useState<InstallLog[]>([]);
   const [installComplete, setInstallComplete] = useState(false);
+  // A leftover marker from a PREVIOUS page load (see readInstallInFlightMarker
+  // above) -- not this session's own install, which uses `installing` above.
+  const [resumeMarker, setResumeMarker] = useState<InstallInFlightMarker | null>(null);
   const [installProgress, setInstallProgress] = useState<{
     percent: number;
     downloaded: string;
@@ -209,9 +302,23 @@ export default function ServerSetup() {
   const [steamCmdStatus, setSteamCmdStatus] = useState<string>("");
 
   const { toast } = useToast();
+  const { can } = useAuth();
   const socket = useContext(SocketContext);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+
+  // POST /server/steamcmd/download, /server/install, /server/quick-setup all
+  // require server.install (server.js:3643/2062/2679); PUT /config/app-settings
+  // requires panel.settings at the route (config.js:256) -- a DIFFERENT
+  // capability from its server.install-gated neighbors, which is exactly why
+  // TECHNICIAN (holds server.install/server.control/servers.manage but not
+  // panel.settings, server/services/permissions.js:299-320) hits a silent
+  // 403 saving the SteamCMD path manually today; POST /server/start requires
+  // server.control (server.js:1045). Open/true when capabilities are
+  // unknown/null, same convention as every other capability check in the app.
+  const canInstall = can("server.install");
+  const canSaveSteamCmdPath = can("panel.settings");
+  const canControlServer = can("server.control");
   const navigateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [startingServer, setStartingServer] = useState(false);
 
@@ -229,6 +336,7 @@ export default function ServerSetup() {
     maxMemory,
     useNoSteam,
     useDebug,
+    useUpnp,
   });
   useEffect(() => {
     formStateRef.current = {
@@ -244,6 +352,7 @@ export default function ServerSetup() {
       maxMemory,
       useNoSteam,
       useDebug,
+      useUpnp,
     };
   }, [
     serverName,
@@ -258,6 +367,7 @@ export default function ServerSetup() {
     maxMemory,
     useNoSteam,
     useDebug,
+    useUpnp,
   ]);
 
   // Clean up navigate timer on unmount
@@ -308,6 +418,19 @@ export default function ServerSetup() {
   // Auto-detect RAM on mount
   useEffect(() => {
     handleAutoDetectRam();
+  }, []);
+
+  // Was an install left running by a PREVIOUS page load? (closed tab,
+  // refresh, crash -- see readInstallInFlightMarker above.) Surfaced as a
+  // banner on the mode-select screen rather than silently discarded.
+  useEffect(() => {
+    const marker = readInstallInFlightMarker();
+    if (!marker) return;
+    if (Date.now() - marker.startedAt > INSTALL_INFLIGHT_STALE_MS) {
+      clearInstallInFlightMarker();
+      return;
+    }
+    setResumeMarker(marker);
   }, []);
 
   // Learn the panel host's actual OS on mount, so a Windows/macOS
@@ -467,6 +590,7 @@ export default function ServerSetup() {
       serverName?: string;
       zomboidDataPath?: string;
       serverConfigPath?: string;
+      branch?: string;
       rconPort?: number;
       rconPassword?: string;
       serverPort?: number;
@@ -474,24 +598,44 @@ export default function ServerSetup() {
       maxMemory?: number;
       progressCode?: string;
       params?: Record<string, string | number>;
+      warnings?: Array<{ progressCode?: string; message: string; params?: Record<string, string | number> }>;
     }) => {
       setInstalling(false);
+      // The socket connection (and this handler) is the ONLY place that ever
+      // learns the true outcome -- clear the in-flight marker on both success
+      // and failure, not just success, so a reload after this point has
+      // nothing stale left to warn about.
+      clearInstallInFlightMarker();
       const displayMessage = getInstallProgressMessage(data, data.message);
       if (data.success) {
         setLogs((prev) => [
           ...prev,
           { type: "success", message: displayMessage, timestamp: new Date() },
+          // The game files installed -- that's success:true and stays true --
+          // but a self-healing step (RCON .ini pre-create, startup script)
+          // may still have failed underneath it (#6, 2026-08-26 install-
+          // failure hunt). Surfaced here rather than silently dropped: the
+          // operator sees exactly what didn't get written and that it's
+          // retried automatically, instead of either a false "everything is
+          // ready" or a false "the install failed".
+          ...(data.warnings ?? []).map((w) => ({
+            type: 'warning' as const,
+            message: getInstallProgressMessage({ progressCode: w.progressCode, params: w.params }, w.message),
+            timestamp: new Date(),
+          })),
         ]);
 
+        const s = formStateRef.current;
+        let createResult: Awaited<ReturnType<typeof serversApi.create>>;
         try {
-          const s = formStateRef.current;
           // Use data from server response which has computed paths
-          const createResult = await serversApi.create({
+          createResult = await serversApi.create({
             name: data.serverName || s.serverName,
             serverName: data.serverName || s.serverName,
             installPath: data.installPath || s.installPath,
             zomboidDataPath: data.zomboidDataPath || null,
             serverConfigPath: data.serverConfigPath || null,
+            branch: data.branch,
             rconHost: "127.0.0.1",
             rconPort: data.rconPort || s.rconPort,
             rconPassword: data.rconPassword || s.rconPassword,
@@ -501,6 +645,7 @@ export default function ServerSetup() {
             maxMemory: (data.maxMemory || s.maxMemory) * 1024,
             useNoSteam: s.useNoSteam,
             useDebug: s.useDebug,
+            useUpnp: s.useUpnp,
           });
           setLogs((prev) => [
             ...prev,
@@ -510,24 +655,6 @@ export default function ServerSetup() {
               timestamp: new Date(),
             },
           ]);
-
-          // Activate the newly created server so "Start Server Now" starts this one
-          if (createResult.server?.id) {
-            await serversApi.activate(createResult.server.id);
-            setLogs((prev) => [
-              ...prev,
-              {
-                type: "success",
-                message: t("toasts.activeServerSwitchedLog"),
-                timestamp: new Date(),
-              },
-            ]);
-          }
-          setInstallComplete(true);
-          toast({
-            title: t("toasts.serverInstalledTitle"),
-            description: t("toasts.serverInstalledDesc"),
-          });
         } catch (error) {
           reportClientError("Failed to create server entry.", error);
           setLogs((prev) => [
@@ -543,7 +670,54 @@ export default function ServerSetup() {
             description: t("toasts.registerFailedDesc"),
             variant: "destructive",
           });
+          return;
         }
+
+        // Activate the newly created server so "Start Server Now" starts this
+        // one. This is a SEPARATE try/catch from the create() above: the
+        // server entry above already exists at this point, so a failure here
+        // must never be reported as "failed to create server entry" (#2 in
+        // the 2026-08-26 install-failure hunt) -- that told a user the whole
+        // registration failed when only the auto-activate step had. Also
+        // deliberately skip setInstallComplete(true)/the success toast on
+        // this path: "Start Server Now" below assumes the server it just
+        // installed is the active one, and offering that shortcut here would
+        // aim it at whatever was active before (or nothing).
+        if (createResult.server?.id) {
+          try {
+            await serversApi.activate(createResult.server.id);
+            setLogs((prev) => [
+              ...prev,
+              {
+                type: "success",
+                message: t("toasts.activeServerSwitchedLog"),
+                timestamp: new Date(),
+              },
+            ]);
+          } catch (error) {
+            reportClientError("Failed to activate newly created server.", error);
+            setLogs((prev) => [
+              ...prev,
+              {
+                type: "error",
+                message: t("toasts.activateFailedLog"),
+                timestamp: new Date(),
+              },
+            ]);
+            toast({
+              title: t("toasts.activateFailedTitle"),
+              description: t("toasts.activateFailedDesc"),
+              variant: "destructive",
+            });
+            return;
+          }
+        }
+
+        setInstallComplete(true);
+        toast({
+          title: t("toasts.serverInstalledTitle"),
+          description: t("toasts.serverInstalledDesc"),
+        });
       } else {
         setInstallComplete(false);
         setLogs((prev) => [
@@ -613,6 +787,7 @@ export default function ServerSetup() {
   };
 
   const handleAutoDownloadSteamCmd = async () => {
+    if (!canInstall) return;
     setDownloadingSteamCmd(true);
     setSteamCmdStatus(t("toasts.startingDownloadLog"));
     try {
@@ -694,6 +869,7 @@ export default function ServerSetup() {
   };
 
   const handleInstall = async () => {
+    if (!canInstall) return;
     if (!adminPassword) {
       toast({
         title: t("toasts.adminPasswordRequiredTitle"),
@@ -702,7 +878,7 @@ export default function ServerSetup() {
       });
       return;
     }
-    if (!isValidInstallPort(serverPort) || !isValidInstallPort(rconPort)) {
+    if (!isValidGamePort(serverPort) || !isValidInstallPort(rconPort)) {
       toast({
         title: t("toasts.invalidPortTitle"),
         description: t("toasts.invalidPortDesc"),
@@ -732,9 +908,15 @@ export default function ServerSetup() {
         rconPassword,
         rconPort,
       });
+      // The request above only confirms SteamCMD was launched -- the real
+      // outcome arrives later over the socket (see handleInstallComplete).
+      // Remember that an install is in flight so a reload before then can
+      // still tell the user something was attempted, instead of forgetting.
+      writeInstallInFlightMarker({ installPath, serverName, startedAt: Date.now() });
     } catch (error) {
-      const rawMessage = error instanceof Error ? error.message : t("common.unknownError");
-      const msg = installationErrorGuidance(rawMessage, t, serverPlatform);
+      const rawMessage = rawErrorMessageIntentional(error, t("common.unknownError"));
+      const displayMessage = getUserErrorMessage(error, t("common.unknownError"));
+      const msg = installationErrorGuidance(rawMessage, displayMessage, t, serverPlatform);
       addLog("error", msg);
       setInstalling(false);
       toast({
@@ -746,6 +928,7 @@ export default function ServerSetup() {
   };
 
   const handleQuickSetup = async () => {
+    if (!canInstall) return;
     if (!adminPassword) {
       toast({
         title: t("toasts.adminPasswordRequiredTitle"),
@@ -754,7 +937,7 @@ export default function ServerSetup() {
       });
       return;
     }
-    if (!isValidInstallPort(serverPort) || !isValidInstallPort(rconPort)) {
+    if (!isValidGamePort(serverPort) || !isValidInstallPort(rconPort)) {
       toast({
         title: t("toasts.invalidPortTitle"),
         description: t("toasts.invalidPortDesc"),
@@ -785,10 +968,18 @@ export default function ServerSetup() {
 
       if (data) {
         addLog("success", t("toasts.configCreatedLog"));
+        // Same shape as #6 in handleInstallComplete above: the server files
+        // already existed (Quick Setup only registers a config for files
+        // that are verified present) and stay fine even if a self-healing
+        // step underneath failed -- surfaced, not silently dropped.
+        for (const w of (data.warnings ?? []) as Array<{ progressCode?: string; message: string; params?: Record<string, string | number> }>) {
+          addLog("warning", getInstallProgressMessage({ progressCode: w.progressCode, params: w.params }, w.message));
+        }
 
+        let createResult: Awaited<ReturnType<typeof serversApi.create>>;
         try {
           // Use data from server response which has computed paths
-          const createResult = await serversApi.create({
+          createResult = await serversApi.create({
             name: data.serverName || serverName,
             serverName: data.serverName || serverName,
             installPath: data.installPath || installPath,
@@ -803,20 +994,9 @@ export default function ServerSetup() {
             maxMemory: (data.maxMemory || maxMemory) * 1024,
             useNoSteam: useNoSteam,
             useDebug: useDebug,
+            useUpnp: useUpnp,
           });
           addLog("success", t("toasts.serverRegisteredLog"));
-
-          // Activate the newly created server so "Start Server Now" starts this one
-          if (createResult.server?.id) {
-            await serversApi.activate(createResult.server.id);
-            addLog("success", t("toasts.activeServerSwitchedLog"));
-          }
-
-          setInstallComplete(true);
-          toast({
-            title: t("toasts.serverAddedTitle"),
-            description: t("toasts.serverAddedDesc"),
-          });
         } catch (error) {
           reportClientError("Failed to create server entry.", error);
           addLog("error", t("toasts.registerFailedLog"));
@@ -825,7 +1005,36 @@ export default function ServerSetup() {
             description: t("toasts.registerFailedDesc"),
             variant: "destructive",
           });
+          return;
         }
+
+        // Separate try/catch from create() above -- same reasoning as #2 in
+        // handleInstallComplete: the server entry already exists at this
+        // point, so an activate() failure must never be reported as
+        // "failed to create server entry". "Start Server Now" is only
+        // offered once activation genuinely succeeds, since it assumes the
+        // just-configured server is the active one.
+        if (createResult.server?.id) {
+          try {
+            await serversApi.activate(createResult.server.id);
+            addLog("success", t("toasts.activeServerSwitchedLog"));
+          } catch (error) {
+            reportClientError("Failed to activate newly created server.", error);
+            addLog("error", t("toasts.activateFailedLog"));
+            toast({
+              title: t("toasts.activateFailedTitle"),
+              description: t("toasts.activateFailedDesc"),
+              variant: "destructive",
+            });
+            return;
+          }
+        }
+
+        setInstallComplete(true);
+        toast({
+          title: t("toasts.serverAddedTitle"),
+          description: t("toasts.serverAddedDesc"),
+        });
       } else {
         addLog("error", data.error);
         toast({
@@ -851,6 +1060,7 @@ export default function ServerSetup() {
   };
 
   const handleSaveSteamCmdPath = async () => {
+    if (!canSaveSteamCmdPath) return;
     try {
       await configApi.updateAppSettings({ steamcmdPath: steamCmdPath });
       setHasSteamCmd(true);
@@ -865,6 +1075,47 @@ export default function ServerSetup() {
         variant: "destructive",
       });
     }
+  };
+
+  // Shared by both post-install "Start Server Now" buttons (full-wizard and
+  // quick-setup completion screens) -- was duplicated inline at each render
+  // site before this gate; extracted so the server.control guard lives in
+  // one place instead of needing to be copied into two identical blocks.
+  const handleStartServerNow = async () => {
+    if (!canControlServer) return;
+    setStartingServer(true);
+    try {
+      await serverApi.start();
+      toast({
+        title: t("toasts.serverStartingTitle"),
+        description: t("toasts.serverStartingDesc"),
+      });
+      navigateTimerRef.current = setTimeout(() => navigate("/"), 2000);
+    } catch (error) {
+      toast({
+        title: t("toasts.startFailedTitle"),
+        description:
+          error instanceof Error ? error.message : t("common.unknownError"),
+        variant: "destructive",
+      });
+    } finally {
+      setStartingServer(false);
+    }
+  };
+
+  // Resume-banner actions -- see resumeMarker/readInstallInFlightMarker above.
+  const handleResumeContinue = () => {
+    if (!resumeMarker) return;
+    setInstallPath(resumeMarker.installPath);
+    setServerName(resumeMarker.serverName);
+    setSetupMode("full");
+    setCurrentStep(2); // Server Config -- where installPath/serverName live
+    setResumeMarker(null);
+  };
+
+  const handleResumeDismiss = () => {
+    clearInstallInFlightMarker();
+    setResumeMarker(null);
   };
 
   // Mode selection screen
@@ -884,6 +1135,31 @@ export default function ServerSetup() {
             {t("modeSelect.description")}
           </p>
         </div>
+
+        {resumeMarker && (
+          <Alert variant="warning" className="text-left">
+            <AlertTriangle className="w-4 h-4" />
+            <AlertTitle>{t("resumeBanner.title")}</AlertTitle>
+            <AlertDescription className="space-y-3">
+              <p>
+                {t("resumeBanner.description", {
+                  installPath: resumeMarker.installPath,
+                  elapsed: formatUptime(
+                    Math.max(0, Math.floor((Date.now() - resumeMarker.startedAt) / 1000)),
+                  ),
+                })}
+              </p>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={handleResumeContinue}>
+                  {t("resumeBanner.continueButton")}
+                </Button>
+                <Button size="sm" variant="outline" onClick={handleResumeDismiss}>
+                  {t("resumeBanner.dismissButton")}
+                </Button>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
 
         <div className="grid gap-6 md:grid-cols-2">
           {/* Full Install Card */}
@@ -1162,24 +1438,26 @@ export default function ServerSetup() {
                     </TooltipProvider>
                   </div>
 
-                  <Button
-                    onClick={handleAutoDownloadSteamCmd}
-                    disabled={downloadingSteamCmd}
-                    className="w-full"
-                    size="lg"
-                  >
-                    {downloadingSteamCmd ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        {steamCmdStatus || t("full.step1.installingButton")}
-                      </>
-                    ) : (
-                      <>
-                        <Download className="w-4 h-4 mr-2" />
-                        {t("full.step1.installButton")}
-                      </>
-                    )}
-                  </Button>
+                  <DisabledReason reason={!canInstall ? t("common.noPermissionInstall") : null}>
+                    <Button
+                      onClick={handleAutoDownloadSteamCmd}
+                      disabled={downloadingSteamCmd || !canInstall}
+                      className="w-full"
+                      size="lg"
+                    >
+                      {downloadingSteamCmd ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          {steamCmdStatus || t("full.step1.installingButton")}
+                        </>
+                      ) : (
+                        <>
+                          <Download className="w-4 h-4 mr-2" />
+                          {t("full.step1.installButton")}
+                        </>
+                      )}
+                    </Button>
+                  </DisabledReason>
                 </div>
               </div>
             </CardContent>
@@ -1246,7 +1524,11 @@ export default function ServerSetup() {
                     >
                       <FolderOpen className="w-4 h-4" />
                     </Button>
-                    <Button onClick={handleSaveSteamCmdPath}>{t("full.step1.savePathButton")}</Button>
+                    <DisabledReason reason={!canSaveSteamCmdPath ? t("common.noPermissionSettings") : null}>
+                      <Button onClick={handleSaveSteamCmdPath} disabled={!canSaveSteamCmdPath}>
+                        {t("full.step1.savePathButton")}
+                      </Button>
+                    </DisabledReason>
                   </div>
                 </div>
               </AccordionContent>
@@ -1448,29 +1730,34 @@ export default function ServerSetup() {
                   <Label>{t("common.useCustomLocation")}</Label>
                 </div>
                 {useCustomDataPath && (
-                  <div className="flex gap-2">
-                    <Input
-                      value={zomboidDataPath}
-                      onChange={(e) => setZomboidDataPath(e.target.value)}
-                      placeholder={t("common.customConfigLocationHelp")}
-                      className="font-mono flex-1"
-                      maxLength={260}
-                    />
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() =>
-                        handleBrowseFolder(
-                          setZomboidDataPath,
-                          t("common.selectConfigFolderTitle"),
-                          zomboidDataPath,
-                        )
-                      }
-                      aria-label={t("common.browseFolderAriaConfig")}
-                    >
-                      <FolderOpen className="w-4 h-4" />
-                    </Button>
-                  </div>
+                  <>
+                    <div className="flex gap-2">
+                      <Input
+                        value={zomboidDataPath}
+                        onChange={(e) => setZomboidDataPath(e.target.value)}
+                        placeholder={t("common.customDataPathPlaceholder")}
+                        className="font-mono flex-1"
+                        maxLength={260}
+                      />
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() =>
+                          handleBrowseFolder(
+                            setZomboidDataPath,
+                            t("common.selectConfigFolderTitle"),
+                            zomboidDataPath,
+                          )
+                        }
+                        aria-label={t("common.browseFolderAriaConfig")}
+                      >
+                        <FolderOpen className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {t("common.customConfigLocationHelp")}
+                    </p>
+                  </>
                 )}
               </div>
             </AccordionContent>
@@ -1577,13 +1864,20 @@ export default function ServerSetup() {
             </div>
 
             <div className="space-y-2">
-              <Label>{t("common.rconPortLabel")}</Label>
-              <Input
-                type="number"
+              <div className="flex items-center gap-1.5">
+                <Label>{t("common.rconPortLabel")}</Label>
+                <HelpTip label={t("common.rconPortLabel")}>{t("common.rconPortHelp")}</HelpTip>
+              </div>
+              <NumberInput
+                min={1024}
+                max={65535}
                 value={rconPort}
-                onChange={(e) => setRconPort(parseInt(e.target.value) || 27015)}
+                onChange={setRconPort}
                 className="font-mono"
               />
+              <p className="text-xs text-muted-foreground">
+                {t("common.rconPortDefaultHint")}
+              </p>
             </div>
           </div>
         </CardContent>
@@ -1660,14 +1954,13 @@ export default function ServerSetup() {
                   <Label>{t("common.minRamLabel")}</Label>
                   <HelpTip label={t("common.minRamLabel")}>{t("common.ramHelp")}</HelpTip>
                 </div>
-                <Input
-                  type="number"
+                <NumberInput
                   min={1}
                   max={64}
                   value={minMemory}
                   className="h-8 w-20 bg-background text-right font-mono"
-                  onChange={e => {
-                    const value = Math.min(64, Math.max(1, parseInt(e.target.value, 10) || 1))
+                  clamp={n => Math.min(64, Math.max(1, n))}
+                  onChange={value => {
                     setMinMemory(value)
                     if (value > maxMemory) setMaxMemory(value)
                   }}
@@ -1675,7 +1968,7 @@ export default function ServerSetup() {
                 />
               </div>
               <Slider
-                value={[Math.min(minMemory, 64)]}
+                value={[Math.min(Number.isFinite(minMemory) ? minMemory : 1, 64)]}
                 onValueChange={([val]) => {
                   setMinMemory(val);
                   if (val > maxMemory) setMaxMemory(val);
@@ -1690,14 +1983,13 @@ export default function ServerSetup() {
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <Label>{t("common.maxRamLabel")}</Label>
-                <Input
-                  type="number"
+                <NumberInput
                   min={1}
                   max={128}
                   value={maxMemory}
                   className="h-8 w-20 bg-background text-right font-mono"
-                  onChange={e => {
-                    const value = Math.min(128, Math.max(1, parseInt(e.target.value, 10) || 1))
+                  clamp={n => Math.min(128, Math.max(1, n))}
+                  onChange={value => {
                     setMaxMemory(value)
                     if (value < minMemory) setMinMemory(value)
                   }}
@@ -1705,7 +1997,7 @@ export default function ServerSetup() {
                 />
               </div>
               <Slider
-                value={[Math.min(maxMemory, 64)]}
+                value={[Math.min(Number.isFinite(maxMemory) ? maxMemory : 1, 64)]}
                 onValueChange={([val]) => {
                   setMaxMemory(val);
                   if (val < minMemory) setMinMemory(val);
@@ -1732,13 +2024,15 @@ export default function ServerSetup() {
           <AccordionContent className="px-4 pb-4 space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>{t("common.gamePortLabel")}</Label>
-                <Input
-                  type="number"
+                <div className="flex items-center gap-1.5">
+                  <Label>{t("common.gamePortLabel")}</Label>
+                  <HelpTip label={t("common.gamePortLabel")}>{t("common.gamePortHelp")}</HelpTip>
+                </div>
+                <NumberInput
+                  min={1024}
+                  max={65534}
                   value={serverPort}
-                  onChange={(e) =>
-                    setServerPort(parseInt(e.target.value) || 16261)
-                  }
+                  onChange={setServerPort}
                   className="font-mono"
                 />
                 <p className="text-xs text-muted-foreground">
@@ -1827,16 +2121,16 @@ export default function ServerSetup() {
             <div className="flex justify-between py-2 border-b">
               <span className="text-muted-foreground">{t("common.summaryMemory")}</span>
               <span className="font-mono">
-                {minMemory}GB - {maxMemory}GB
+                {formatMemory(minMemory)}GB - {formatMemory(maxMemory)}GB
               </span>
             </div>
             <div className="flex justify-between py-2 border-b">
               <span className="text-muted-foreground">{t("common.summaryGamePort")}</span>
-              <span className="font-mono">{serverPort}</span>
+              <span className="font-mono">{formatPort(serverPort)}</span>
             </div>
             <div className="flex justify-between py-2">
               <span className="text-muted-foreground">{t("common.summaryRconPort")}</span>
-              <span className="font-mono">{rconPort}</span>
+              <span className="font-mono">{formatPort(rconPort)}</span>
             </div>
           </div>
         </CardContent>
@@ -1853,34 +2147,36 @@ export default function ServerSetup() {
         </p>
         <ul className="mt-2 space-y-1 text-muted-foreground">
           <li>
-            • <code className="bg-muted px-1 rounded">{serverPort}</code> {t("full.step4.portInfoGame")}
+            • <code className="bg-muted px-1 rounded">{formatPort(serverPort)}</code> {t("full.step4.portInfoGame")}
           </li>
           <li>
-            • <code className="bg-muted px-1 rounded">{serverPort + 1}</code>{" "}
+            • <code className="bg-muted px-1 rounded">{formatPort(serverPort + 1)}</code>{" "}
             {t("full.step4.portInfoDirect")}
           </li>
         </ul>
       </div>
 
       {/* Install Button */}
-      <Button
-        onClick={handleInstall}
-        disabled={installing || missingAdminPassword}
-        className="w-full"
-        size="lg"
-      >
-        {installing ? (
-          <>
-            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            {t("full.step4.installingButton")}
-          </>
-        ) : (
-          <>
-            <Download className="w-4 h-4 mr-2" />
-            {t("full.step4.installButton")}
-          </>
-        )}
-      </Button>
+      <DisabledReason reason={!canInstall ? t("common.noPermissionInstall") : null}>
+        <Button
+          onClick={handleInstall}
+          disabled={installing || missingAdminPassword || !canInstall}
+          className="w-full"
+          size="lg"
+        >
+          {installing ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              {t("full.step4.installingButton")}
+            </>
+          ) : (
+            <>
+              <Download className="w-4 h-4 mr-2" />
+              {t("full.step4.installButton")}
+            </>
+          )}
+        </Button>
+      </DisabledReason>
 
       {missingAdminPassword && (
         <p className="text-sm text-warning">
@@ -1923,11 +2219,13 @@ export default function ServerSetup() {
                   className={cn(
                     log.type === "error" || log.type === "stderr"
                       ? "text-destructive"
-                      : log.type === "success"
-                        ? "text-success"
-                        : log.type === "command"
-                          ? "text-primary"
-                          : "text-foreground/80",
+                      : log.type === "warning"
+                        ? "text-warning"
+                        : log.type === "success"
+                          ? "text-success"
+                          : log.type === "command"
+                            ? "text-primary"
+                            : "text-foreground/80",
                   )}
                 >
                   {log.message}
@@ -1963,46 +2261,24 @@ export default function ServerSetup() {
             </div>
 
             <div className="flex gap-3">
-              <Button
-                onClick={async () => {
-                  setStartingServer(true);
-                  try {
-                    await serverApi.start();
-                    toast({
-                      title: t("toasts.serverStartingTitle"),
-                      description: t("toasts.serverStartingDesc"),
-                    });
-                    navigateTimerRef.current = setTimeout(
-                      () => navigate("/"),
-                      2000,
-                    );
-                  } catch (error) {
-                    toast({
-                      title: t("toasts.startFailedTitle"),
-                      description:
-                        error instanceof Error
-                          ? error.message
-                          : t("common.unknownError"),
-                      variant: "destructive",
-                    });
-                  } finally {
-                    setStartingServer(false);
-                  }
-                }}
-                disabled={startingServer}
-                className="flex-1"
-              >
-                {startingServer ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />{" "}
-                    {t("common.startingButton")}
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-4 h-4 mr-2" /> {t("common.startServerButton")}
-                  </>
-                )}
-              </Button>
+              <DisabledReason reason={!canControlServer ? t("common.noPermissionControl") : null}>
+                <Button
+                  onClick={handleStartServerNow}
+                  disabled={startingServer || !canControlServer}
+                  className="flex-1"
+                >
+                  {startingServer ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />{" "}
+                      {t("common.startingButton")}
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-4 h-4 mr-2" /> {t("common.startServerButton")}
+                    </>
+                  )}
+                </Button>
+              </DisabledReason>
               <Button variant="outline" onClick={() => navigate("/")}>
                 {t("common.openDashboardButton")}
               </Button>
@@ -2201,13 +2477,15 @@ export default function ServerSetup() {
               </div>
 
               <div className="space-y-2">
-                <Label>{t("common.rconPortLabel")}</Label>
-                <Input
-                  type="number"
+                <div className="flex items-center gap-1.5">
+                  <Label>{t("common.rconPortLabel")}</Label>
+                  <HelpTip label={t("common.rconPortLabel")}>{t("common.rconPortHelp")}</HelpTip>
+                </div>
+                <NumberInput
+                  min={1024}
+                  max={65535}
                   value={rconPort}
-                  onChange={(e) =>
-                    setRconPort(parseInt(e.target.value) || 27015)
-                  }
+                  onChange={setRconPort}
                   className="font-mono"
                 />
                 <p className="text-xs text-muted-foreground">
@@ -2289,14 +2567,13 @@ export default function ServerSetup() {
                     <Label>{t("common.minRamLabel")}</Label>
                     <HelpTip label={t("common.minRamLabel")}>{t("common.ramHelp")}</HelpTip>
                   </div>
-                  <Input
-                    type="number"
+                  <NumberInput
                     min={1}
                     max={64}
                     value={minMemory}
                     className="h-8 w-20 bg-background text-right font-mono"
-                    onChange={e => {
-                      const value = Math.min(64, Math.max(1, parseInt(e.target.value, 10) || 1))
+                    clamp={n => Math.min(64, Math.max(1, n))}
+                    onChange={value => {
                       setMinMemory(value)
                       if (value > maxMemory) setMaxMemory(value)
                     }}
@@ -2304,7 +2581,7 @@ export default function ServerSetup() {
                   />
                 </div>
                 <Slider
-                  value={[Math.min(minMemory, 64)]}
+                  value={[Math.min(Number.isFinite(minMemory) ? minMemory : 1, 64)]}
                   onValueChange={([val]) => {
                     setMinMemory(val);
                     if (val > maxMemory) setMaxMemory(val);
@@ -2319,14 +2596,13 @@ export default function ServerSetup() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-3">
                   <Label>{t("common.maxRamLabel")}</Label>
-                  <Input
-                    type="number"
+                  <NumberInput
                     min={1}
                     max={128}
                     value={maxMemory}
                     className="h-8 w-20 bg-background text-right font-mono"
-                    onChange={e => {
-                      const value = Math.min(128, Math.max(1, parseInt(e.target.value, 10) || 1))
+                    clamp={n => Math.min(128, Math.max(1, n))}
+                    onChange={value => {
                       setMaxMemory(value)
                       if (value < minMemory) setMinMemory(value)
                     }}
@@ -2334,7 +2610,7 @@ export default function ServerSetup() {
                   />
                 </div>
                 <Slider
-                  value={[Math.min(maxMemory, 64)]}
+                  value={[Math.min(Number.isFinite(maxMemory) ? maxMemory : 1, 64)]}
                   onValueChange={([val]) => {
                     setMaxMemory(val);
                     if (val < minMemory) setMinMemory(val);
@@ -2366,41 +2642,51 @@ export default function ServerSetup() {
                 />
                 <Label>{t("common.customConfigLocation")}</Label>
               </div>
+              <p className="text-sm text-muted-foreground">
+                {t("full.step2.customDataHelp")}
+              </p>
               {useCustomDataPath && (
-                <div className="flex gap-2">
-                  <Input
-                    value={zomboidDataPath}
-                    onChange={(e) => setZomboidDataPath(e.target.value)}
-                    placeholder={t("common.customConfigLocationHelp")}
-                    className="font-mono flex-1"
-                    maxLength={260}
-                  />
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() =>
-                      handleBrowseFolder(
-                        setZomboidDataPath,
-                        t("common.selectConfigFolderTitle"),
-                        zomboidDataPath,
-                      )
-                    }
-                    aria-label={t("common.browseFolderAriaConfig")}
-                  >
-                    <FolderOpen className="w-4 h-4" />
-                  </Button>
-                </div>
+                <>
+                  <div className="flex gap-2">
+                    <Input
+                      value={zomboidDataPath}
+                      onChange={(e) => setZomboidDataPath(e.target.value)}
+                      placeholder={t("common.customDataPathPlaceholder")}
+                      className="font-mono flex-1"
+                      maxLength={260}
+                    />
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() =>
+                        handleBrowseFolder(
+                          setZomboidDataPath,
+                          t("common.selectConfigFolderTitle"),
+                          zomboidDataPath,
+                        )
+                      }
+                      aria-label={t("common.browseFolderAriaConfig")}
+                    >
+                      <FolderOpen className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {t("common.customConfigLocationHelp")}
+                  </p>
+                </>
               )}
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>{t("common.gamePortLabel")}</Label>
-                  <Input
-                    type="number"
+                  <div className="flex items-center gap-1.5">
+                    <Label>{t("common.gamePortLabel")}</Label>
+                    <HelpTip label={t("common.gamePortLabel")}>{t("common.gamePortHelp")}</HelpTip>
+                  </div>
+                  <NumberInput
+                    min={1024}
+                    max={65534}
                     value={serverPort}
-                    onChange={(e) =>
-                      setServerPort(parseInt(e.target.value) || 16261)
-                    }
+                    onChange={setServerPort}
                     className="font-mono"
                   />
                   <p className="text-xs text-muted-foreground">
@@ -2484,25 +2770,26 @@ export default function ServerSetup() {
             <div className="flex justify-between py-2 border-b">
               <span className="text-muted-foreground">{t("common.summaryMemory")}</span>
               <span className="font-mono">
-                {minMemory}GB - {maxMemory}GB
+                {formatMemory(minMemory)}GB - {formatMemory(maxMemory)}GB
               </span>
             </div>
             <div className="flex justify-between py-2 border-b">
               <span className="text-muted-foreground">{t("common.summaryGamePort")}</span>
-              <span className="font-mono">{serverPort}</span>
+              <span className="font-mono">{formatPort(serverPort)}</span>
             </div>
             <div className="flex justify-between py-2">
               <span className="text-muted-foreground">{t("common.summaryRconPort")}</span>
-              <span className="font-mono">{rconPort}</span>
+              <span className="font-mono">{formatPort(rconPort)}</span>
             </div>
           </div>
         </CardContent>
       </Card>
 
       {/* Create Button */}
+      <DisabledReason reason={!canInstall ? t("common.noPermissionInstall") : null}>
       <Button
         onClick={handleQuickSetup}
-        disabled={installing || missingAdminPassword}
+        disabled={installing || missingAdminPassword || !canInstall}
         className="w-full"
         size="lg"
       >
@@ -2518,6 +2805,7 @@ export default function ServerSetup() {
           </>
         )}
       </Button>
+      </DisabledReason>
 
       {missingAdminPassword && (
         <p className="text-sm text-warning">
@@ -2540,9 +2828,11 @@ export default function ServerSetup() {
                   className={cn(
                     log.type === "error"
                       ? "text-destructive"
-                      : log.type === "success"
-                        ? "text-success"
-                        : "text-foreground/80",
+                      : log.type === "warning"
+                        ? "text-warning"
+                        : log.type === "success"
+                          ? "text-success"
+                          : "text-foreground/80",
                   )}
                 >
                   {log.message}
@@ -2564,46 +2854,24 @@ export default function ServerSetup() {
             </div>
 
             <div className="flex gap-3">
-              <Button
-                onClick={async () => {
-                  setStartingServer(true);
-                  try {
-                    await serverApi.start();
-                    toast({
-                      title: t("toasts.serverStartingTitle"),
-                      description: t("toasts.serverStartingDesc"),
-                    });
-                    navigateTimerRef.current = setTimeout(
-                      () => navigate("/"),
-                      2000,
-                    );
-                  } catch (error) {
-                    toast({
-                      title: t("toasts.startFailedTitle"),
-                      description:
-                        error instanceof Error
-                          ? error.message
-                          : t("common.unknownError"),
-                      variant: "destructive",
-                    });
-                  } finally {
-                    setStartingServer(false);
-                  }
-                }}
-                disabled={startingServer}
-                className="flex-1"
-              >
-                {startingServer ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />{" "}
-                    {t("common.startingButton")}
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-4 h-4 mr-2" /> {t("common.startServerButton")}
-                  </>
-                )}
-              </Button>
+              <DisabledReason reason={!canControlServer ? t("common.noPermissionControl") : null}>
+                <Button
+                  onClick={handleStartServerNow}
+                  disabled={startingServer || !canControlServer}
+                  className="flex-1"
+                >
+                  {startingServer ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />{" "}
+                      {t("common.startingButton")}
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-4 h-4 mr-2" /> {t("common.startServerButton")}
+                    </>
+                  )}
+                </Button>
+              </DisabledReason>
               <Button variant="outline" onClick={() => navigate("/")}>
                 {t("common.openDashboardButton")}
               </Button>

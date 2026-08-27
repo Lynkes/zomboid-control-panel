@@ -322,3 +322,66 @@ describe("players routes: activity log only written on RCON/bridge success", () 
     });
   });
 });
+
+describe("players toggle routes: enabled must remain a boolean", () => {
+  it.each(["/godmode", "/invisible", "/noclip", "/voiceban"])(
+    "rejects a string false on %s instead of enabling the player mode",
+    async (routePath) => {
+      const methodByRoute = {
+        "/godmode": "setGodMode",
+        "/invisible": "setInvisible",
+        "/noclip": "setNoclip",
+        "/voiceban": "voiceBan",
+      };
+      const method = methodByRoute[routePath];
+      const rconService = { [method]: vi.fn(async () => ({ success: true })) };
+      const response = createResponse();
+
+      await getRouteHandler("post", routePath)(
+        createRequest({ username: "Bob", enabled: "false" }, rconService),
+        response,
+      );
+
+      expect(response.status).toHaveBeenCalledWith(400);
+      expect(response.json).toHaveBeenCalledWith({
+        error: "enabled must be a boolean",
+        // 2026-08-26 bug hunt round 2: players.js adopted the ErrorCode registry.
+        code: "PLAYERS_INVALID_ENABLED_FLAG",
+      });
+      expect(rconService[method]).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe("player notes: persisted values must keep their documented shape", () => {
+  it("rejects a non-text note instead of storing an object", async () => {
+    const response = createResponse();
+    const upsert = (await import("../database/init.js")).upsertPlayerNote;
+
+    await getRouteHandler("post", "/notes")(
+      createRequest({ playerName: "Bob", note: { malicious: true } }, {}),
+      response,
+    );
+
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(response.json).toHaveBeenCalledWith({
+      error: "Note must be text",
+      // 2026-08-26 bug hunt round 2: players.js adopted the ErrorCode registry.
+      code: "PLAYERS_NOTE_MUST_BE_TEXT",
+    });
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid player name before reaching persistence", async () => {
+    const response = createResponse();
+    const upsert = (await import("../database/init.js")).upsertPlayerNote;
+
+    await getRouteHandler("post", "/notes")(
+      createRequest({ playerName: "bad\\name", note: "note" }, {}),
+      response,
+    );
+
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(upsert).not.toHaveBeenCalled();
+  });
+});

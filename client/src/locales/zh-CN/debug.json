@@ -3,6 +3,10 @@
     "title": "调试与日志",
     "description": "本面板的实时诊断、近期历史记录及环境详情"
   },
+  "permissionDenied": {
+    "title": "无法查看面板诊断",
+    "description": "当前账户的角色未包含「查看面板诊断」权限。如需访问此页面，请联系管理员为该账户授予此权限。"
+  },
   "headerActions": {
     "bundling": "正在打包……",
     "supportBundleZip": "支持包（.zip）",
@@ -233,6 +237,7 @@
     "allChecksPassDesc": "隐藏通过项后没有可显示的内容。取消勾选「隐藏通过项」以查看完整报告。",
     "manualFixTitle": "建议手动修复",
     "manualFixFallback": "打开建议的页面并应用列出的修复方法。",
+    "noPermissionFix": "您的角色没有应用此修复的权限。",
     "applyFixTitle": "是否应用修复？",
     "applyFixFallback": "是否应用「{{label}}」？",
     "applyButton": "应用",
@@ -1310,6 +1315,7 @@
   },
   "crashesTab": {
     "crashLogsTitle": "崩溃日志",
+    "crashLogsCountTruncated": "{{shown}} / {{total}}",
     "crashLogsDesc": "Java 崩溃转储和错误日志。",
     "refreshCrashLogsAria": "刷新崩溃日志",
     "noCrashLogsTitle": "未找到崩溃日志",
@@ -1399,6 +1405,8 @@
     "databaseLabel": "数据库：",
     "logsFolderLabel": "日志文件夹：",
     "copyPathTooltip": "复制路径",
+    "copyDbPathAria": "复制数据库路径",
+    "copyLogsPathAria": "复制日志文件夹路径",
     "pathsUpdatedTitle": "路径已更新",
     "enterAtLeastOnePath": "请至少输入一个路径",
     "updatePathsFailedFallback": "更新路径失败"

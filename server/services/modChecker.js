@@ -1538,8 +1538,17 @@ export class ModChecker extends EventEmitter {
         // Set is empty — clear the dedupe key so the next non-empty set
         // re-fires the notification (e.g. user updated mods, then a new
         // update appears later).
-        if (this._lastReportedUpdateKey !== "")
+        if (this._lastReportedUpdateKey !== "") {
           this._lastReportedUpdateKey = "";
+          // A previously-nonzero count just dropped to zero. Nothing else
+          // tells subscribed clients this -- the nav badge only refetches
+          // on mods:updates_available/mods:update_detected, so without an
+          // explicit emit here it stays stuck at its last nonzero count
+          // for the rest of the session.
+          if (this.io) {
+            this.io.emit("mods:updates_available", { count: 0, mods: [] });
+          }
+        }
         log.debug("No mod updates available");
       }
 

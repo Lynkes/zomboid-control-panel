@@ -5,6 +5,7 @@
     "eyebrow": "Flotte",
     "scanAria": "Rechercher des serveurs",
     "scanTitle": "Rechercher des serveurs",
+    "scanNoPermission": "La recherche d'installations bind-mount nécessite la permission servers.discover, que ce rôle ne possède pas.",
     "addRemote": "Ajouter un serveur distant",
     "addExisting": "Ajouter un serveur existant",
     "installNew": "Installer un nouveau serveur"
@@ -40,6 +41,8 @@
     "dataPath": "Chemin des données",
     "startContainer": "Démarrer le conteneur",
     "stopContainer": "Arrêter le conteneur",
+    "stopContainerConfirmTitle": "Arrêter ce conteneur ?",
+    "stopContainerConfirmDescription": "{{name}} sauvegarde d'abord via RCON, mais le conteneur lui-même est arrêté par Docker -- s'il ne s'arrête pas à temps, Docker le force à s'arrêter. Cela peut se terminer par un arrêt brutal, contrairement au bouton Arrêter habituel.",
     "restartContainer": "Redémarrer le conteneur",
     "startContainerAria": "Démarrer {{name}}",
     "stopContainerAria": "Arrêter {{name}}",
@@ -54,12 +57,15 @@
     "memory": "Mémoire",
     "statusHost": "Hôte",
     "statusProcess": "Processus",
+    "statusContainer": "Conteneur",
     "statusNotConfigured": "Non configuré",
     "statusAuthFailed": "Échec de l'authentification",
     "statusUnavailable": "Indisponible",
     "buildLabel": "Build :",
     "branchLabel": "Branche :",
     "stopThisServer": "Arrêter ce serveur",
+    "stopConfirmTitle": "Arrêter le serveur ?",
+    "stopConfirmDescription": "Cela déconnectera tous les joueurs connectés. Vous pouvez le redémarrer à tout moment.",
     "stopping": "Arrêt...",
     "stop": "Arrêter",
     "startThisServer": "Démarrer ce serveur",
@@ -72,6 +78,9 @@
     "activating": "Activation...",
     "switchToThisServer": "Basculer sur ce serveur",
     "added": "Ajouté le {{date}}",
+    "noPermissionDocker": "La gestion de ce conteneur nécessite la permission docker.manage, que ce rôle ne possède pas.",
+    "noPermissionManage": "Cette action nécessite la permission servers.manage, que ce rôle ne possède pas.",
+    "noPermissionStartStop": "Nécessite à la fois servers.manage et server.control — un ensemble de permissions partiel laisserait le serveur activé mais non démarré/arrêté.",
     "restartContainerAria": "Redémarrer {{name}}"
   },
   "tandem": {
@@ -113,7 +122,8 @@
     "rconOnlyDesc": "Les fonctionnalités comme l'édition de configuration, la gestion des mods, les sauvegardes, le démarrage/arrêt du serveur et les opérations sur les fichiers ne seront pas disponibles. Vous pouvez tout de même utiliser la console, gérer les joueurs, envoyer des messages de chat, contrôler la météo et les événements, et exécuter des commandes planifiées.",
     "cancel": "Annuler",
     "adding": "Ajout...",
-    "addServer": "Ajouter le serveur"
+    "addServer": "Ajouter le serveur",
+    "noPermission": "Ajouter un serveur nécessite la permission servers.manage, que ce rôle ne possède pas."
   },
   "remoteForm": {
     "displayNameLabel": "Nom d'affichage du serveur *",
@@ -150,6 +160,8 @@
     "dataPathHint": "Le dossier contenant les sous-dossiers Server/, Saves/, Logs/",
     "installPathLabel": "Chemin d'installation du serveur (optionnel)",
     "installPathPlaceholder": "Chemin vers le dossier serveur PZ (contient StartServer64.bat ou start-server.sh)",
+    "customLauncherNoticeTitle": "Mode lanceur personnalisé",
+    "customLauncherNoticeBody": "Ce chemin pointe vers un script, pas un dossier — le panneau le lancera tel quel et ne le régénérera ni ne le modifiera jamais. Les réglages normalement écrits pour vous dans un script de démarrage (mémoire, mot de passe administrateur, chemin des données, nom du serveur) n'atteindront pas le serveur à moins que vous ne les inscriviez vous-même dans ce script.",
     "noConfigsFoundTitle": "Aucune configuration de serveur trouvée",
     "noConfigsFoundDesc": "Démarrez le serveur une fois pour créer le fichier INI.",
     "selectConfigLabel": "Sélectionner la configuration du serveur",
@@ -161,12 +173,15 @@
     "rconPortLabel": "Port RCON :",
     "rconPasswordLabel": "Mot de passe RCON *",
     "rconPasswordPlaceholder": "Entrez le mot de passe RCON",
+    "rconPasswordImportPlaceholder": "Laissez vide pour l'importer automatiquement",
     "rconPasswordAria": "Mot de passe RCON",
     "rconPasswordRequired": "Requis pour le contrôle du serveur. Vous pouvez aussi définir <1>RCONPassword=votremotdepasse</1> dans votre fichier {{iniName}}.ini.",
     "passwordSet": "Mot de passe défini",
+    "passwordWillImport": "Importé automatiquement depuis {{iniName}}.ini — laissez vide pour l'utiliser, ou saisissez-en un nouveau pour le remplacer.",
     "minMemoryLabel": "Mémoire min. (Go)",
     "maxMemoryLabel": "Mémoire max. (Go)",
-    "selectScannedConfigAria": "Utiliser le serveur détecté {{name}}"
+    "selectScannedConfigAria": "Utiliser le serveur détecté {{name}}",
+    "discoverNoPermission": "Détecter ou rechercher des serveurs nécessite la permission servers.discover, que ce rôle ne possède pas."
   },
   "editDialog": {
     "title": "Modifier le serveur",
@@ -179,10 +194,12 @@
     "dockerContainerPlaceholder": "Nom de conteneur explicite (optionnel)",
     "dockerContainerHint": "Nécessite PANEL_DOCKER_CONTROL_ENABLED et l'étiquette de conteneur zomboid-panel.managed=true.",
     "installPathLabel": "Chemin d'installation",
+    "customLauncherNoticeTitle": "Mode lanceur personnalisé",
+    "customLauncherNoticeBody": "Ce chemin pointe vers un script, pas un dossier — le panneau le lancera tel quel et ne le régénérera ni ne le modifiera jamais. Les réglages normalement écrits pour vous dans un script de démarrage (mémoire, mot de passe administrateur, chemin des données, nom du serveur) n'atteindront pas le serveur à moins que vous ne les inscriviez vous-même dans ce script.",
     "dataPathLabel": "Chemin des données Zomboid",
     "dataPathPlaceholder": "Laisser vide pour la valeur par défaut",
     "customStartCommandLabel": "Commande de démarrage personnalisée",
-    "customStartCommandTooltip": "Remplacer le script de démarrage par défaut par une commande personnalisée. Les arguments sont pris en charge. Laisser vide pour utiliser la détection par défaut du fichier bat/sh.",
+    "customStartCommandTooltip": "Remplacer le script de démarrage par défaut par une commande personnalisée. Les arguments sont pris en charge. Laisser vide et le panneau régénérera le script de démarrage bat/sh par défaut à partir de ces paramètres à chaque démarrage du serveur — cela ÉCRASE ce fichier, y compris toute modification manuelle, bien qu'un fichier modifié soit d'abord sauvegardé.",
     "customStartCommandPlaceholder": "ex. ./start-server.sh -servername MonServeur",
     "customStartCommandDisallowed": "La commande contient des caractères shell non autorisés",
     "noSteamLabel": "Lancer sans Steam",
@@ -206,20 +223,25 @@
     "maxMemoryLabel": "Mémoire max. (Go)",
     "cancel": "Annuler",
     "saving": "Enregistrement...",
-    "saveChanges": "Enregistrer les modifications"
+    "saveChanges": "Enregistrer les modifications",
+    "noPermission": "Enregistrer les paramètres du serveur nécessite la permission servers.manage, que ce rôle ne possède pas."
   },
   "deleteDialog": {
     "title": "Retirer le serveur du panneau ?",
     "description": "Ceci retirera « {{name}} » de la gestion du panneau.",
     "alsoDeleteFilesLabel": "Supprimer aussi les fichiers du serveur",
     "alsoDeleteFilesDesc": "Ceci supprimera définitivement tous les fichiers dans :",
+    "dataPathNestedWarningTitle": "Ceci supprimera aussi la sauvegarde du monde",
+    "dataPathNestedWarningDesc": "Le dossier de données Zomboid de ce serveur se trouve à l'intérieur du dossier d'installation ci-dessus, il n'y a donc pas de copie séparée — le supprimer détruit aussi la sauvegarde du monde. Le panneau refusera cette opération tant que vous n'aurez pas déplacé le chemin des données dans Paramètres ou fait vous-même une sauvegarde :",
     "filesNotDeleted": "Les fichiers du serveur ne seront PAS supprimés - vous pourrez ajouter ce serveur à nouveau plus tard.",
     "deletingFiles": "Suppression des fichiers du serveur...",
     "removingServer": "Retrait du serveur...",
     "cancel": "Annuler",
     "removing": "Retrait...",
     "deleteEverything": "Tout supprimer",
-    "removeFromPanel": "Retirer du panneau"
+    "removeFromPanel": "Retirer du panneau",
+    "noPermission": "Supprimer un serveur nécessite la permission servers.manage, que ce rôle ne possède pas.",
+    "deleteFilesNoPermission": "Supprimer les fichiers du serveur nécessite la permission server.wipe, que ce rôle ne possède pas. Le retrait de la seule fiche du panneau reste autorisé."
   },
   "steamDialog": {
     "verifyTitle": "Vérifier les fichiers du jeu",
@@ -247,7 +269,8 @@
     "startVerify": "Lancer la vérification",
     "startUpdate": "Lancer la mise à jour",
     "done": "Terminé",
-    "retry": "Réessayer"
+    "retry": "Réessayer",
+    "noPermission": "Mettre à jour ou vérifier les fichiers du serveur nécessite la permission server.install, que ce rôle ne possède pas."
   },
   "clearInstallDialog": {
     "title": "Vider le dossier d'installation ?",
@@ -255,7 +278,8 @@
     "descriptionAfter": "— y compris les fichiers du jeu, l'état de téléchargement de SteamCMD, et tous les mods qui y sont installés. Utilisez ceci pour récupérer d'une mise à jour SteamCMD qui échoue en boucle (installation corrompue ou bloquée). Vous devrez relancer la mise à jour ensuite pour réinstaller depuis zéro. Cela n'affecte pas vos données de sauvegarde.",
     "cancel": "Annuler",
     "clearing": "Suppression...",
-    "clearFolder": "Vider le dossier"
+    "clearFolder": "Vider le dossier",
+    "noPermission": "Vider le dossier d'installation nécessite la permission server.wipe, que ce rôle ne possède pas."
   },
   "branches": {
     "public": "Public (stable)",
@@ -314,7 +338,8 @@
     "deletedFromPanel": "Serveur « {{name}} » retiré du panneau",
     "deleteServerFailed": "Échec de la suppression du serveur",
     "rconPortRangeError": "Le port RCON doit être compris entre 1 et 65535",
-    "gamePortRangeError": "Le port du jeu doit être compris entre 1 et 65535",
+    "gamePortRangeError": "Le port du jeu doit être compris entre 1 et 65534",
+    "memoryRequiredError": "Indiquez une mémoire minimale et maximale",
     "savedTitle": "Enregistré",
     "savedDesc": "Paramètres du serveur mis à jour",
     "updateServerFailed": "Échec de la mise à jour du serveur",

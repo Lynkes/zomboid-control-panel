@@ -57,7 +57,8 @@
     "linesHidden_one": "{{count}} liy kache pa filtè a · ",
     "linesHidden_other": "{{count}} liy kache pa filtè a · ",
     "showAll": "montre tout",
-    "noStreamOutput": "pa gen rezilta flux",
+    "noStreamOutput": "Poko gen rezilta jounal — sèvè a poko ekri anyen depi vi sa a louvri.",
+    "noOutputStreamDown": "Rezilta jounal enkoni — flux la tonbe, gade erè anwo a.",
     "shown": "afiche",
     "hidden": "kache",
     "loaded": "chaje",
@@ -76,6 +77,8 @@
     "notConfiguredDesc": "Defini lame a, pò a, ak modpas la nan Sèvè m yo anvan w itilize kòmand an dirèk.",
     "hostUnreachableTitle": "lame pa reyachab",
     "hostUnreachableDesc": "Demare sèvè a, epi konfime lame, pò, ak modpas RCON nan Paramèt Panèl.",
+    "authFailedTitle": "otantifikasyon echwe",
+    "authFailedDesc": "Lame a reyachab — konfime modpas RCON nan Sèvè m yo.",
     "outputLabel": "rezilta rcon",
     "entries_one": "{{count}} antre",
     "entries_other": "{{count}} antre",
@@ -91,7 +94,8 @@
     "executeAria": "Egzekite kòmand",
     "run": "kouri",
     "keyboardHint": "// antre · kouri · ↑↓ istwa",
-    "noResponseFallback": "Pa gen repons"
+    "noResponseFallback": "Pa gen repons",
+    "noPermission": "Wòl ou pa gen pèmisyon pou egzekite kòmand RCON."
   },
   "quickCommands": {
     "players": "Jwè",
@@ -131,6 +135,7 @@
     "toggleLabel": "istwa",
     "entries_one": "{{count}} antre",
     "entries_other": "{{count}} antre",
+    "truncatedHint": "(pi resan yo -- kòmand ki pi ansyen ka pa parèt)",
     "searchPlaceholder": "Chèche istwa kòmand yo...",
     "searchAria": "Chèche istwa kòmand",
     "emptyTitle": "Pa gen istwa kòmand",

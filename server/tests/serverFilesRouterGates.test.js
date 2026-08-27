@@ -149,10 +149,18 @@ describe("serverFiles.js router.use layers beyond the requirePermission gate", (
         get: (key) => (key === "serverManager" ? { getServerProcessDetails: async () => details } : undefined),
       };
     }
+    // getServerProcessDetails(), not checkServerRunning() -- matching the
+    // 2026-08-26 fix to warnRunningForLocalConfigEdit itself (finding 2):
+    // that guard now only ever consults getServerProcessDetails(), so a
+    // stub exposing just checkServerRunning would (correctly, post-fix)
+    // always warn regardless of `running`, breaking the "passes through
+    // with no warning while stopped" case below for the wrong reason.
     function stubEditManager(running) {
       return {
         get: (key) =>
-          key === "serverManager" ? { checkServerRunning: async () => running } : undefined,
+          key === "serverManager"
+            ? { getServerProcessDetails: async () => ({ running, scanFailed: false }) }
+            : undefined,
       };
     }
 

@@ -1,5 +1,6 @@
 import { Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 
 type BridgeState = 'connected' | 'waiting' | 'offline' | 'loading'
@@ -11,9 +12,13 @@ interface BridgeStatusBadgeProps {
   bridgePath?: string | null
   summary?: string | null
   className?: string
+  // Set to false only where the badge already lives inside the Settings ->
+  // Bridge tab it would link to (a self-link there is dead weight, not a
+  // destination). Every other call site gets a real link for free.
+  interactive?: boolean
 }
 
-export function BridgeStatusBadge({ connected, running, loading, bridgePath, summary, className }: BridgeStatusBadgeProps) {
+export function BridgeStatusBadge({ connected, running, loading, bridgePath, summary, className, interactive = true }: BridgeStatusBadgeProps) {
   const { t } = useTranslation('bridgeStatusBadge')
   const state: BridgeState = loading ? 'loading' : connected ? 'connected' : running ? 'waiting' : 'offline'
 
@@ -55,20 +60,44 @@ export function BridgeStatusBadge({ connected, running, loading, bridgePath, sum
   // state word. Building the name explicitly covers every state the same way.
   const accessibleName = [c.label, tooltip].filter(Boolean).join('\n')
 
-  return (
-    <div
-      role="status"
-      aria-live="polite"
-      aria-label={accessibleName}
-      title={tooltip || undefined}
-      className={cn('flex items-center gap-2 rounded-lg border px-3 py-1.5 cursor-default', c.surface, className)}
-    >
+  const content = (
+    <>
       {state === 'loading' ? (
         <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
       ) : (
         <div className={cn('w-2 h-2 rounded-full shrink-0', c.dot)} aria-hidden="true" />
       )}
       <span className="text-sm font-medium text-foreground">{c.label}</span>
-    </div>
+    </>
+  )
+
+  if (!interactive) {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        aria-label={accessibleName}
+        title={tooltip || undefined}
+        className={cn('flex items-center gap-2 rounded-lg border px-3 py-1.5 cursor-default', c.surface, className)}
+      >
+        {content}
+      </div>
+    )
+  }
+
+  return (
+    <Link
+      to="/settings?tab=bridge"
+      aria-live="polite"
+      aria-label={accessibleName}
+      title={tooltip || undefined}
+      className={cn(
+        'flex items-center gap-2 rounded-lg border px-3 py-1.5 cursor-pointer transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+        c.surface,
+        className
+      )}
+    >
+      {content}
+    </Link>
   )
 }

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import { HelpTip } from '@/components/HelpTip'
 import { VerdictBand, WorkList, type Verdict, type WorkItem } from '../dashboard/DashboardVerdict'
 
 function renderBand(props: Partial<Parameters<typeof VerdictBand>[0]> = {}) {
@@ -13,7 +15,9 @@ function renderBand(props: Partial<Parameters<typeof VerdictBand>[0]> = {}) {
   }
   return render(
     <MemoryRouter>
-      <VerdictBand {...defaults} {...props} />
+      <TooltipProvider>
+        <VerdictBand {...defaults} {...props} />
+      </TooltipProvider>
     </MemoryRouter>
   )
 }
@@ -94,6 +98,25 @@ describe('VerdictBand', () => {
     expect(btn).toBeDisabled()
     fireEvent.click(btn)
     expect(onClick).not.toHaveBeenCalled()
+  })
+
+  it('renders a HelpTip passed as headlineHelp next to the headline -- the seam that lets an unexplained term in the status banner (e.g. "RCON disconnected") carry its own definition', async () => {
+    renderBand({
+      verdict: {
+        level: 'warning',
+        headline: 'RCON disconnected',
+        headlineHelp: <HelpTip label="RCON">Remote console used to send commands to the game.</HelpTip>,
+      },
+    })
+    expect(screen.getByText('RCON disconnected')).toBeInTheDocument()
+    const trigger = screen.getByRole('button', { name: 'Help: RCON' })
+    fireEvent.click(trigger)
+    await waitFor(() => expect(screen.getByText('Remote console used to send commands to the game.')).toBeInTheDocument())
+  })
+
+  it('omits headlineHelp cleanly when not provided -- the common case stays unchanged', () => {
+    renderBand({ verdict: { level: 'warning', headline: 'Disk getting full' } })
+    expect(screen.queryByRole('button', { name: /^Help:/ })).not.toBeInTheDocument()
   })
 
   it('a link-style action renders a real navigable link to the real destination', () => {

@@ -5,6 +5,7 @@
     "eyebrow": "Fleet",
     "scanAria": "Scan for servers",
     "scanTitle": "Scan for servers",
+    "scanNoPermission": "Scanning for bind-mount installs requires the servers.discover permission, which this role doesn't have.",
     "addRemote": "Add Remote Server",
     "addExisting": "Add Existing Server",
     "installNew": "Install New Server"
@@ -40,6 +41,8 @@
     "dataPath": "Data Path",
     "startContainer": "Start container",
     "stopContainer": "Stop container",
+    "stopContainerConfirmTitle": "Stop this container?",
+    "stopContainerConfirmDescription": "{{name}} saves through RCON first, but the container itself is stopped by Docker -- if it doesn't exit in time, Docker force-kills it. This can end in an ungraceful termination, unlike the regular Stop button.",
     "restartContainer": "Restart container",
     "startContainerAria": "Start {{name}}",
     "stopContainerAria": "Stop {{name}}",
@@ -55,12 +58,15 @@
     "memory": "Memory",
     "statusHost": "Host",
     "statusProcess": "Process",
+    "statusContainer": "Container",
     "statusNotConfigured": "Not configured",
     "statusAuthFailed": "Authentication failed",
     "statusUnavailable": "Unavailable",
     "buildLabel": "Build:",
     "branchLabel": "Branch:",
     "stopThisServer": "Stop this server",
+    "stopConfirmTitle": "Stop server?",
+    "stopConfirmDescription": "This will disconnect all connected players. You can start it again anytime.",
     "stopping": "Stopping...",
     "stop": "Stop",
     "startThisServer": "Start this server",
@@ -72,7 +78,10 @@
     "updateNow": "Update Now",
     "activating": "Activating...",
     "switchToThisServer": "Switch to This Server",
-    "added": "Added {{date}}"
+    "added": "Added {{date}}",
+    "noPermissionDocker": "Managing this container requires the docker.manage permission, which this role doesn't have.",
+    "noPermissionManage": "This action requires the servers.manage permission, which this role doesn't have.",
+    "noPermissionStartStop": "Requires both servers.manage and server.control — a partial permission set would leave the server activated but not started/stopped."
   },
   "tandem": {
     "sectionTitle": "Running a second server alongside the first",
@@ -113,7 +122,8 @@
     "rconOnlyDesc": "Features like config editing, mod management, backups, server start/stop, and file operations will be unavailable. You can still use the console, manage players, send chat messages, control weather and events, and run scheduled commands.",
     "cancel": "Cancel",
     "adding": "Adding...",
-    "addServer": "Add Server"
+    "addServer": "Add Server",
+    "noPermission": "Adding a server requires the servers.manage permission, which this role doesn't have."
   },
   "remoteForm": {
     "displayNameLabel": "Server Display Name *",
@@ -151,6 +161,8 @@
     "dataPathHint": "The folder containing Server/, Saves/, Logs/ subfolders",
     "installPathLabel": "Server Install Path (Optional)",
     "installPathPlaceholder": "Path to PZ server folder (contains StartServer64.bat or start-server.sh)",
+    "customLauncherNoticeTitle": "Custom launcher mode",
+    "customLauncherNoticeBody": "This path points at a script, not a folder — the panel will launch it as-is and will never regenerate or edit it. Settings that are normally written into a launch script for you (memory, admin password, the data path, the server name) will not reach the server unless you put them in this script yourself.",
     "noConfigsFoundTitle": "No server configs found",
     "noConfigsFoundDesc": "Run the server once to create the INI file.",
     "selectConfigLabel": "Select Server Configuration",
@@ -162,11 +174,14 @@
     "rconPortLabel": "RCON Port:",
     "rconPasswordLabel": "RCON Password *",
     "rconPasswordPlaceholder": "Enter RCON password",
+    "rconPasswordImportPlaceholder": "Leave blank to import automatically",
     "rconPasswordAria": "RCON password",
     "rconPasswordRequired": "Required for server control. You can also set <1>RCONPassword=yourpassword</1> in your {{iniName}}.ini file.",
     "passwordSet": "Password set",
+    "passwordWillImport": "Imported automatically from {{iniName}}.ini — leave blank to use it, or type a new one to override.",
     "minMemoryLabel": "Min Memory (GB)",
-    "maxMemoryLabel": "Max Memory (GB)"
+    "maxMemoryLabel": "Max Memory (GB)",
+    "discoverNoPermission": "Detecting or scanning for servers requires the servers.discover permission, which this role doesn't have."
   },
   "editDialog": {
     "title": "Edit Server",
@@ -179,10 +194,12 @@
     "dockerContainerPlaceholder": "Optional explicit container name",
     "dockerContainerHint": "Requires PANEL_DOCKER_CONTROL_ENABLED and the container label zomboid-panel.managed=true.",
     "installPathLabel": "Install Path",
+    "customLauncherNoticeTitle": "Custom launcher mode",
+    "customLauncherNoticeBody": "This path points at a script, not a folder — the panel will launch it as-is and will never regenerate or edit it. Settings that are normally written into a launch script for you (memory, admin password, the data path, the server name) will not reach the server unless you put them in this script yourself.",
     "dataPathLabel": "Zomboid Data Path",
     "dataPathPlaceholder": "Leave empty for default",
     "customStartCommandLabel": "Custom Start Command",
-    "customStartCommandTooltip": "Override the default startup script with a custom command. Supports arguments. Leave empty to use the default bat/sh file detection.",
+    "customStartCommandTooltip": "Override the default startup script with a custom command. Supports arguments. Leave empty and the panel will regenerate the default bat/sh startup script from these settings every time the server starts — this OVERWRITES that file, including any manual edits, though a changed file is backed up first.",
     "customStartCommandPlaceholder": "e.g. ./start-server.sh -servername MyServer",
     "customStartCommandDisallowed": "Command contains disallowed shell characters",
     "noSteamLabel": "Launch without Steam",
@@ -206,20 +223,25 @@
     "maxMemoryLabel": "Max Memory (GB)",
     "cancel": "Cancel",
     "saving": "Saving...",
-    "saveChanges": "Save Changes"
+    "saveChanges": "Save Changes",
+    "noPermission": "Saving server settings requires the servers.manage permission, which this role doesn't have."
   },
   "deleteDialog": {
     "title": "Remove Server from Panel?",
     "description": "This will remove \"{{name}}\" from the panel management.",
     "alsoDeleteFilesLabel": "Also delete server files",
     "alsoDeleteFilesDesc": "This will permanently delete all files in:",
+    "dataPathNestedWarningTitle": "This will also delete the world save",
+    "dataPathNestedWarningDesc": "This server's Zomboid data folder is inside the install folder above, so there's no separate copy — deleting it destroys the world save too. The panel refuses this until you move the data path in Settings or back it up yourself:",
     "filesNotDeleted": "Server files will NOT be deleted - you can add this server back later.",
     "deletingFiles": "Deleting server files...",
     "removingServer": "Removing server...",
     "cancel": "Cancel",
     "removing": "Removing...",
     "deleteEverything": "Delete Everything",
-    "removeFromPanel": "Remove from Panel"
+    "removeFromPanel": "Remove from Panel",
+    "noPermission": "Removing a server requires the servers.manage permission, which this role doesn't have.",
+    "deleteFilesNoPermission": "Deleting server files requires the server.wipe permission, which this role doesn't have. Removing the panel record alone is still allowed."
   },
   "steamDialog": {
     "verifyTitle": "Verify Game Files",
@@ -247,7 +269,8 @@
     "startVerify": "Start Verify",
     "startUpdate": "Start Update",
     "done": "Done",
-    "retry": "Retry"
+    "retry": "Retry",
+    "noPermission": "Updating or verifying server files requires the server.install permission, which this role doesn't have."
   },
   "clearInstallDialog": {
     "title": "Clear Installation Folder?",
@@ -255,7 +278,8 @@
     "descriptionAfter": "— including the game files, SteamCMD's download state, and any mods installed there. Use this to recover from a SteamCMD update that keeps failing (corrupted or stuck installation). You'll need to run Start Update again afterward to reinstall from scratch. This does not affect your save data.",
     "cancel": "Cancel",
     "clearing": "Clearing...",
-    "clearFolder": "Clear Folder"
+    "clearFolder": "Clear Folder",
+    "noPermission": "Clearing the installation folder requires the server.wipe permission, which this role doesn't have."
   },
   "branches": {
     "public": "Public (Stable)",
@@ -314,7 +338,8 @@
     "deletedFromPanel": "Server \"{{name}}\" removed from panel",
     "deleteServerFailed": "Failed to delete server",
     "rconPortRangeError": "RCON port must be between 1 and 65535",
-    "gamePortRangeError": "Game port must be between 1 and 65535",
+    "gamePortRangeError": "Game port must be between 1 and 65534",
+    "memoryRequiredError": "Enter a minimum and maximum memory value",
     "savedTitle": "Saved",
     "savedDesc": "Server settings updated",
     "updateServerFailed": "Failed to update server",

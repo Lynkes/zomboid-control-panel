@@ -59,6 +59,10 @@
     "cancel": "Cancelar"
   },
   "resetTokenCreated": "Token de recuperación creado en data/reset-token.txt. Pégalo abajo para continuar.",
+  "repeatedFailureHint": {
+    "title": "¿Sigue sin funcionar?",
+    "body": "Tras varios intentos fallidos, una cuenta se bloquea automáticamente durante 15 minutos como medida de seguridad -- esta pantalla no lo indicará. Un código de recuperación guardado, o iniciar el panel con <code>--reset-password</code> desde la terminal del servidor, puede restablecer la contraseña sin esperar."
+  },
   "errors": {
     "loginFailed": "Error al iniciar sesión",
     "resetTokenTooShort": "El token de recuperación debe tener al menos 8 caracteres",

@@ -57,7 +57,8 @@
     "linesHidden_one": "{{count}} ligne masquée par le filtre · ",
     "linesHidden_other": "{{count}} lignes masquées par le filtre · ",
     "showAll": "tout afficher",
-    "noStreamOutput": "aucune sortie de flux",
+    "noStreamOutput": "Aucune sortie de journal pour l'instant — le serveur n'a rien écrit depuis l'ouverture de cette vue.",
+    "noOutputStreamDown": "Sortie de journal inconnue — le flux est interrompu, voir l'erreur ci-dessus.",
     "shown": "affichées",
     "hidden": "masquées",
     "loaded": "chargées",
@@ -76,6 +77,8 @@
     "notConfiguredDesc": "Définissez l'hôte, le port et le mot de passe dans Mes serveurs avant d'utiliser les commandes en direct.",
     "hostUnreachableTitle": "hôte injoignable",
     "hostUnreachableDesc": "Démarrez le serveur, puis vérifiez l'hôte, le port et le mot de passe RCON dans Paramètres du panneau.",
+    "authFailedTitle": "échec de l'authentification",
+    "authFailedDesc": "L'hôte est joignable — vérifiez le mot de passe RCON dans Mes serveurs.",
     "outputLabel": "sortie rcon",
     "entries_one": "{{count}} entrée",
     "entries_other": "{{count}} entrées",
@@ -91,7 +94,8 @@
     "executeAria": "Exécuter la commande",
     "run": "exécuter",
     "keyboardHint": "// entrée · exécuter · ↑↓ historique",
-    "noResponseFallback": "Aucune réponse"
+    "noResponseFallback": "Aucune réponse",
+    "noPermission": "Votre rôle n'a pas la permission d'exécuter des commandes RCON."
   },
   "quickCommands": {
     "players": "Joueurs",
@@ -164,6 +168,7 @@
     "toggleLabel": "historique",
     "entries_one": "{{count}} entrée",
     "entries_other": "{{count}} entrées",
+    "truncatedHint": "(les plus récentes -- des commandes plus anciennes peuvent ne pas être affichées)",
     "searchPlaceholder": "Rechercher dans l'historique des commandes...",
     "searchAria": "Rechercher dans l'historique des commandes",
     "emptyTitle": "Aucun historique de commandes",

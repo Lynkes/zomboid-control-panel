@@ -31,14 +31,31 @@ import { mockGetRoleByName } from "./helpers/mockPermissionsDb.js";
 // which does real fs.mkdirSync + winston file transports at module load
 // time (see chunksDeletionLogic.test.js's header for the same note).
 
+// Custom role, on top of the shared admin/technician/moderator fixture --
+// holds chunks.manage and NOTHING else, the exact caller the 2026-08-27
+// server.configure gate exists to stop. mockGetRoleByName only knows the
+// three seeded roles, so this file wraps it rather than editing the shared
+// fixture.
+const getRoleByName = vi.fn(async (name) =>
+  name === "chunks_manage_only"
+    ? { capabilities: ["chunks.manage"] }
+    : mockGetRoleByName(name),
+);
+
 vi.mock("../database/init.js", () => ({
   getActiveServer: vi.fn(),
   updateServer: vi.fn(),
   setSetting: vi.fn(),
-  getRoleByName: mockGetRoleByName,
+  // Defaults to "no legacy zomboidDataPath stored" -- matches every
+  // existing test's getActiveServer fixture below, none of which sets a
+  // zomboidDataPath on the active-server row either, so currentPath
+  // resolves to null and every persisted-path test below is exercising a
+  // genuine CHANGE (validated !== null), same as it always implicitly was.
+  getSetting: vi.fn(async () => null),
+  getRoleByName,
 }));
 
-const { getActiveServer, updateServer, setSetting } = await import("../database/init.js");
+const { getActiveServer, updateServer, setSetting, getSetting } = await import("../database/init.js");
 const { default: router } = await import("../routes/chunks.js");
 
 function createResponse() {
@@ -79,8 +96,8 @@ async function runRoute(routePath, method, req) {
   return res;
 }
 
-function postSavePath(body) {
-  return runRoute("/save-path", "post", { user: { role: "technician" }, body });
+function postSavePath(body, role = "technician") {
+  return runRoute("/save-path", "post", { user: { role }, body });
 }
 
 describe("POST /save-path", () => {
@@ -90,6 +107,8 @@ describe("POST /save-path", () => {
     getActiveServer.mockReset();
     updateServer.mockReset().mockResolvedValue(undefined);
     setSetting.mockReset().mockResolvedValue(undefined);
+    getSetting.mockReset().mockResolvedValue(null);
+    getRoleByName.mockClear();
     // Named with "Zomboid" so inspectZomboidPath() accepts it purely on the
     // path-marker check -- same trick chunksScan.test.js's fixtures use --
     // without needing real save-artifact files for the "valid path" cases.
@@ -204,5 +223,71 @@ describe("POST /save-path", () => {
 
     expect(res.getStatusCode()).toBe(500);
     expect(res.getBody().error).toBeTruthy();
+  });
+
+  // 2026-08-27 capability-description sweep, finding 6: this route repoints
+  // the ACTIVE SERVER's entire zomboidDataPath -- the same field
+  // serverManager.js/mods.js/server.js resolve Server/<name>.ini (RCON
+  // password included) from -- behind a label promising chunk cleanup. A
+  // chunks.manage holder could point a live server at a different real
+  // Zomboid folder and have it silently pick up a different RCON password
+  // on next restart. server.configure is now required IN ADDITION, but only
+  // when the submitted path would actually CHANGE what's stored -- the
+  // seeded technician role holds both capabilities (confirmed by reading
+  // services/permissions.js's TECHNICIAN_CAPABILITIES directly, not
+  // remembered), so every test above continues to pass unchanged.
+  describe("server.configure required in addition to chunks.manage, enforced on CHANGE not presence", () => {
+    it("chunks.manage alone is refused when the path would actually change the active server's stored value", async () => {
+      getActiveServer.mockResolvedValue({ id: "srv-1", zomboidDataPath: "/old/path" });
+      const res = await postSavePath({ path: zomboidDir }, "chunks_manage_only");
+
+      expect(res.getStatusCode()).toBe(403);
+      expect(res.getBody()).toMatchObject({
+        code: "CHUNKS_SAVE_PATH_CAPABILITY_REQUIRED",
+      });
+      expect(updateServer).not.toHaveBeenCalled();
+      expect(setSetting).not.toHaveBeenCalled();
+    });
+
+    it("chunks.manage alone is refused when there is no active server and the legacy setting would change", async () => {
+      getActiveServer.mockResolvedValue(null);
+      getSetting.mockResolvedValue("/old/legacy/path");
+      const res = await postSavePath({ path: zomboidDir }, "chunks_manage_only");
+
+      expect(res.getStatusCode()).toBe(403);
+      expect(res.getBody()).toMatchObject({
+        code: "CHUNKS_SAVE_PATH_CAPABILITY_REQUIRED",
+      });
+      expect(setSetting).not.toHaveBeenCalled();
+    });
+
+    it("chunks.manage + server.configure succeeds at repointing the active server", async () => {
+      getActiveServer.mockResolvedValue({ id: "srv-1", zomboidDataPath: "/old/path" });
+      const res = await postSavePath({ path: zomboidDir }, "technician");
+
+      expect(res.getStatusCode()).toBe(200);
+      expect(updateServer).toHaveBeenCalledWith("srv-1", {
+        zomboidDataPath: path.resolve(zomboidDir),
+      });
+    });
+
+    it("re-submitting the path already in effect needs nothing beyond chunks.manage -- no false 403 on an unchanged save", async () => {
+      const resolved = path.resolve(zomboidDir);
+      getActiveServer.mockResolvedValue({ id: "srv-1", zomboidDataPath: resolved });
+      const res = await postSavePath({ path: zomboidDir }, "chunks_manage_only");
+
+      expect(res.getStatusCode()).toBe(200);
+      expect(updateServer).toHaveBeenCalledWith("srv-1", { zomboidDataPath: resolved });
+    });
+
+    it("re-submitting the current legacy-setting value (no active server) also needs nothing beyond chunks.manage", async () => {
+      const resolved = path.resolve(zomboidDir);
+      getActiveServer.mockResolvedValue(null);
+      getSetting.mockResolvedValue(resolved);
+      const res = await postSavePath({ path: zomboidDir }, "chunks_manage_only");
+
+      expect(res.getStatusCode()).toBe(200);
+      expect(setSetting).toHaveBeenCalledWith("zomboidDataPath", resolved);
+    });
   });
 });

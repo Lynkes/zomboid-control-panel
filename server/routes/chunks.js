@@ -8,9 +8,10 @@ import {
   setSetting,
   getActiveServer,
   updateServer,
+  getServers,
 } from "../database/init.js";
 import { sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
-import { requirePermission } from "../services/permissions.js";
+import { requirePermission, getRoleByName } from "../services/permissions.js";
 import { deleteVehiclesInBoxes } from "../utils/vehiclesDb.js";
 import { confineToRoots } from "../utils/browseRoots.js";
 import {
@@ -360,6 +361,93 @@ function resolveCustomOrDefaultDataPath(customPath) {
   throw error;
 }
 
+// inspectZomboidPath()'s acceptance criteria (hasSavesDir, hasMultiplayerDir,
+// isInsideSavesDir, hasZomboidMarker, hasSaveArtifacts -- any ONE is enough)
+// was designed to guide an operator's folder PICKER: "does this look like
+// the right kind of folder, or should we suggest the parent?" Two of those
+// five signals -- isInsideSavesDir and hasZomboidMarker -- are pure
+// substring matches against the PATH STRING ITSELF and require the caller
+// to control no filesystem state at all, just an absolute path whose text
+// happens to contain "saves" or "zomboid" somewhere. Used here to reject
+// the most obviously-bogus customPath values fast, with a clear message,
+// on the READ path (GET /chunks/:saveName) -- a wrong guess there just
+// shows an empty save list either way, this only makes the failure faster
+// and clearer. NOT the real gate for the destructive routes; see
+// assertKnownSaveRoot below for those.
+function assertRealSaveDataPath(zomboidDataPath) {
+  const verdict = inspectZomboidPath(zomboidDataPath);
+  const hasStructuralEvidence =
+    verdict.checks.hasSavesDir ||
+    verdict.checks.hasMultiplayerDir ||
+    verdict.checks.hasSaveArtifacts;
+  if (!hasStructuralEvidence) {
+    const error = new Error(
+      "This custom path doesn't contain an actual Saves/Multiplayer folder or " +
+        "recognizable save data -- refusing to delete from it for safety. " +
+        "Point at a real Zomboid data folder, not just a path with a suggestive name.",
+    );
+    error.statusCode = 400;
+    error.details = { reason: "no-structural-save-evidence", checks: verdict.checks };
+    throw error;
+  }
+}
+
+// The REAL gate for delete-chunks/delete-region (bug-hunt-2026-08-27, item
+// C). assertRealSaveDataPath above only asks "does this directory contain
+// SOMETHING that looks like save data" -- and by the time delete-chunks/
+// delete-region reach their own fs.existsSync(savePath) check, a matching
+// Saves/Multiplayer/<saveName> subtree already has to exist for the delete
+// to proceed at all, which independently forces hasSavesDir-shaped
+// structural evidence to be present regardless. So a "does this look like
+// real save content" check alone doesn't change what customPath values can
+// actually reach a delete -- verified empirically (see
+// chunksDeletionLogic.test.js): a fake directory with zero real structure
+// gets refused before this function is even reached (404 Save not found,
+// via the existsSync check), not bypassed. The genuine residual risk isn't
+// "the panel can be fooled into thinking a bogus folder is real" -- it's
+// "chunks.manage lets an operator direct the panel process to delete named
+// files at ANY host location the process can reach, as long as SOMETHING
+// matching a Saves/Multiplayer/<name> shape exists (or can be created)
+// there" -- a location the panel process may have broader filesystem
+// access to than the operator does through any other route. Closing that
+// means constraining WHICH locations a destructive action can target, not
+// making the "does it look right" heuristic stricter: customPath must
+// resolve to somewhere the panel already recognizes -- a configured
+// server's own zomboidDataPath (servers.manage-gated, so creating a new
+// one requires a capability chunks.manage doesn't include) or one of the
+// panel's own OS-standard auto-detected candidate locations
+// (getCandidateZomboidPaths() -- computed from platform conventions, not
+// request input). Deliberately NOT applied to the read routes (GET
+// /saves, /chunks/:saveName, /stats/:saveName) -- ChunkCleaner.tsx's
+// custom-path field is a real, intentional feature for BROWSING save data
+// outside the active server's own configured location, and constraining
+// reads the same way would remove that flexibility for no safety benefit
+// a read doesn't need.
+async function assertKnownSaveRoot(zomboidDataPath) {
+  const resolved = path.resolve(zomboidDataPath);
+  const configuredServers = await getServers();
+  const matchesConfiguredServer = configuredServers.some(
+    (s) => s.zomboidDataPath && path.resolve(s.zomboidDataPath) === resolved,
+  );
+  if (matchesConfiguredServer) return;
+
+  const candidates = getCandidateZomboidPaths();
+  const matchesCandidate = candidates.some((c) => path.resolve(c.path) === resolved);
+  if (matchesCandidate) return;
+
+  const legacyPath = await getSetting("zomboidDataPath");
+  if (legacyPath && path.resolve(normalizeUserPath(legacyPath)) === resolved) return;
+
+  const error = new Error(
+    "This custom path isn't a location the panel already recognizes -- not a configured " +
+      "server's data folder, and not one of the standard OS locations Zomboid saves usually " +
+      "live in. Refusing to delete from it for safety.",
+  );
+  error.statusCode = 400;
+  error.details = { reason: "not-a-known-save-root", tried: resolved };
+  throw error;
+}
+
 // Get list of available saves
 router.get("/saves", async (req, res) => {
   try {
@@ -688,6 +776,32 @@ router.post("/save-path", requirePermission("chunks.manage"), async (req, res) =
     }
 
     const activeServer = await getActiveServer();
+
+    // This route repoints the ACTIVE SERVER's entire zomboidDataPath -- the
+    // same field serverManager.js/mods.js/server.js resolve Server/<name>.ini
+    // (RCON password included) and every server-scoped file from, not a
+    // chunk-specific setting (chunks are just files under this path; there
+    // is no separate concept to write instead). chunks.manage alone used to
+    // reach it, meaning a chunks.manage holder could point a live server at
+    // a different real Zomboid folder and have it silently start reading a
+    // different RCON password/sandbox config on next restart --
+    // config-hijack via the chunk-cleanup screen. server.configure is
+    // required in addition, matching the capability that already governs
+    // "the server's ... network/path configuration" everywhere else.
+    // Enforced on CHANGE, not presence: re-submitting the path already in
+    // effect must not require anything beyond chunks.manage.
+    const currentPath = activeServer?.zomboidDataPath || (await getSetting("zomboidDataPath")) || null;
+    if (currentPath !== validated) {
+      const role = req.user ? await getRoleByName(req.user.role) : null;
+      const capabilities = Array.isArray(role?.capabilities) ? role.capabilities : [];
+      if (!capabilities.includes("server.configure")) {
+        return res.status(403).json({
+          error: "Repointing the server's data path also requires server.configure.",
+          code: ErrorCode.CHUNKS_SAVE_PATH_CAPABILITY_REQUIRED,
+        });
+      }
+    }
+
     if (activeServer?.id) {
       await updateServer(activeServer.id, { zomboidDataPath: validated });
       log.info(
@@ -747,6 +861,7 @@ router.get("/chunks/:saveName", async (req, res) => {
     let zomboidDataPath;
     if (customPath) {
       zomboidDataPath = resolveCustomOrDefaultDataPath(String(customPath));
+      assertRealSaveDataPath(zomboidDataPath);
     } else {
       zomboidDataPath = await getZomboidDataPath();
     }
@@ -1083,62 +1198,44 @@ router.post("/delete-chunks", requirePermission("chunks.manage"), async (req, re
     // confirming the server really is stopped.
     if (!force) {
       const serverManager = req.app.get("serverManager");
-      if (
-        serverManager &&
-        typeof serverManager.getServerProcessDetails === "function"
-      ) {
-        // Fail CLOSED, not open: a scan that couldn't determine the server's
-        // state (scanFailed) or that threw outright must refuse the same way
-        // a confirmed-running server does, not be read as "confirmed
-        // stopped". checkServerRunning()'s collapse of a failed scan into a
-        // plain `false` was the exact bug fixed elsewhere (/wipe,
-        // /delete-files) via this same scanFailed flag -- this guard used
-        // getServerProcessDetails() already but never actually consulted it,
-        // and its own catch swallowed a thrown check and proceeded anyway.
-        let details;
+      // Fail CLOSED, not open: a scan that couldn't determine the server's
+      // state (scanFailed), threw outright, or has no richer check to even
+      // run must refuse the same way a confirmed-running server does, never
+      // be read as "confirmed stopped". No fallback to checkServerRunning()
+      // -- that collapses a failed scan into a plain `false`, indistinguishable
+      // from a confirmed-stopped server, which is the exact bug fixed
+      // elsewhere (/wipe, /delete-files) via this same scanFailed flag; a
+      // fallback to it here would silently reopen it the moment a lighter
+      // serverManager without getServerProcessDetails is ever wired up.
+      // Same shape as index.js's Docker-update gate (handlePanelUpdateDownload):
+      // treat "the richer check isn't available" as equivalent to scanFailed.
+      let details = null;
+      if (serverManager) {
         try {
-          details = await serverManager.getServerProcessDetails();
+          details =
+            typeof serverManager.getServerProcessDetails === "function"
+              ? await serverManager.getServerProcessDetails()
+              : null;
         } catch (e) {
           log.warn(
             `Server-running check failed, refusing to proceed: ${e.message}`,
           );
-          return res.status(503).json({
-            error: "Can't verify whether the server is actually stopped — the process-detection scan itself failed, not the server. Check the panel's log for the error. If this keeps happening, something on this host (antivirus, a full disk, or a missing system tool) may be blocking detection.",
-            code: ErrorCode.SERVER_STATE_UNKNOWN,
-          });
+          details = null;
         }
-        if (details.scanFailed) {
-          return res.status(503).json({
-            error: "Can't verify whether the server is actually stopped — the process-detection scan itself failed, not the server. Check the panel's log for the error. If this keeps happening, something on this host (antivirus, a full disk, or a missing system tool) may be blocking detection.",
-            code: ErrorCode.SERVER_STATE_UNKNOWN,
-          });
-        }
-        if (details.running) {
-          return res.status(400).json({
-            error:
-              "Stop the server before deleting chunks. Running servers hold save files open and will overwrite your changes on shutdown.",
-            code: "server_running",
-            matched: details.matched,
-          });
-        }
-      } else if (
-        serverManager &&
-        typeof serverManager.checkServerRunning === "function"
-      ) {
-        try {
-          const isRunning = await serverManager.checkServerRunning();
-          if (isRunning) {
-            return res.status(400).json({
-              error:
-                "Stop the server before deleting chunks. Running servers hold save files open and will overwrite your changes on shutdown.",
-              code: "server_running",
-            });
-          }
-        } catch (e) {
-          log.warn(
-            `Server-running check failed (proceeding cautiously): ${e.message}`,
-          );
-        }
+      }
+      if (!details || details.scanFailed) {
+        return res.status(503).json({
+          error: "Can't verify whether the server is actually stopped — the process-detection scan itself failed, not the server. Check the panel's log for the error. If this keeps happening, something on this host (antivirus, a full disk, or a missing system tool) may be blocking detection.",
+          code: ErrorCode.SERVER_STATE_UNKNOWN,
+        });
+      }
+      if (details.running) {
+        return res.status(400).json({
+          error:
+            "Stop the server before deleting chunks. Running servers hold save files open and will overwrite your changes on shutdown.",
+          code: "server_running",
+          matched: details.matched,
+        });
       }
     } else {
       log.warn("delete-chunks: server-running check bypassed via force=true");
@@ -1217,6 +1314,7 @@ router.post("/delete-chunks", requirePermission("chunks.manage"), async (req, re
         code: ErrorCode.CHUNKS_DATA_PATH_NOT_SET,
       });
     }
+    if (customPath) await assertKnownSaveRoot(zomboidDataPath);
 
     const savesPath = resolveSavesPath(zomboidDataPath);
     const savePath = path.join(savesPath, sanitizedSaveName);
@@ -1514,56 +1612,36 @@ router.post("/delete-region", requirePermission("chunks.manage"), async (req, re
     // hatch (issue #5: detection can false-positive on custom launchers).
     if (!force) {
       const serverManager = req.app.get("serverManager");
-      if (
-        serverManager &&
-        typeof serverManager.getServerProcessDetails === "function"
-      ) {
-        // Fail CLOSED, not open -- see the matching comment in delete-chunks
-        // above for the full rationale (this guard is identical).
-        let details;
+      // Fail CLOSED, not open -- see the matching comment in delete-chunks
+      // above for the full rationale (this guard is identical, including
+      // the "no fallback to checkServerRunning()" reasoning).
+      let details = null;
+      if (serverManager) {
         try {
-          details = await serverManager.getServerProcessDetails();
+          details =
+            typeof serverManager.getServerProcessDetails === "function"
+              ? await serverManager.getServerProcessDetails()
+              : null;
         } catch (e) {
           log.warn(
             `Server-running check failed, refusing to proceed: ${e.message}`,
           );
-          return res.status(503).json({
-            error: "Can't verify whether the server is actually stopped — the process-detection scan itself failed, not the server. Check the panel's log for the error. If this keeps happening, something on this host (antivirus, a full disk, or a missing system tool) may be blocking detection.",
-            code: ErrorCode.SERVER_STATE_UNKNOWN,
-          });
+          details = null;
         }
-        if (details.scanFailed) {
-          return res.status(503).json({
-            error: "Can't verify whether the server is actually stopped — the process-detection scan itself failed, not the server. Check the panel's log for the error. If this keeps happening, something on this host (antivirus, a full disk, or a missing system tool) may be blocking detection.",
-            code: ErrorCode.SERVER_STATE_UNKNOWN,
-          });
-        }
-        if (details.running) {
-          return res.status(400).json({
-            error:
-              "Stop the server before deleting chunks. Running servers hold save files open and will overwrite your changes on shutdown.",
-            code: "server_running",
-            matched: details.matched,
-          });
-        }
-      } else if (
-        serverManager &&
-        typeof serverManager.checkServerRunning === "function"
-      ) {
-        try {
-          const isRunning = await serverManager.checkServerRunning();
-          if (isRunning) {
-            return res.status(400).json({
-              error:
-                "Stop the server before deleting chunks. Running servers hold save files open and will overwrite your changes on shutdown.",
-              code: "server_running",
-            });
-          }
-        } catch (e) {
-          log.warn(
-            `Server-running check failed (proceeding cautiously): ${e.message}`,
-          );
-        }
+      }
+      if (!details || details.scanFailed) {
+        return res.status(503).json({
+          error: "Can't verify whether the server is actually stopped — the process-detection scan itself failed, not the server. Check the panel's log for the error. If this keeps happening, something on this host (antivirus, a full disk, or a missing system tool) may be blocking detection.",
+          code: ErrorCode.SERVER_STATE_UNKNOWN,
+        });
+      }
+      if (details.running) {
+        return res.status(400).json({
+          error:
+            "Stop the server before deleting chunks. Running servers hold save files open and will overwrite your changes on shutdown.",
+          code: "server_running",
+          matched: details.matched,
+        });
       }
     } else {
       log.warn("delete-region: server-running check bypassed via force=true");
@@ -1625,6 +1703,7 @@ router.post("/delete-region", requirePermission("chunks.manage"), async (req, re
         code: ErrorCode.CHUNKS_DATA_PATH_NOT_SET,
       });
     }
+    if (customPath) await assertKnownSaveRoot(zomboidDataPath);
 
     const savesPath = resolveSavesPath(zomboidDataPath);
     const savePath = path.join(savesPath, sanitizedSaveName);
@@ -1638,6 +1717,17 @@ router.post("/delete-region", requirePermission("chunks.manage"), async (req, re
     }
 
     const mapExists = fs.existsSync(mapPath);
+
+    // B42 vs B41 detection — filesystem-based (see detectSaveIsB42Sync's
+    // comment above), not inferred from whether map/ currently has numeric
+    // subdirectories. A B42 save with a fresh or emptied-out map/ folder (no
+    // chunks generated yet, or a prior pass already deleted every chunk in
+    // it) has xDirs.length === 0 even though it's genuinely B42 -- reading
+    // that as B41 would silently pick the wrong cell divisor/tile size for
+    // the cell-aux cleanup and vehicle-bbox math below. Computed once, before
+    // the chunk scan, so the chunkdata scan below (display-coordinate
+    // conversion) and the deletion pass share one answer.
+    const regionIsB42 = detectSaveIsB42Sync(savePath);
 
     // Get all chunks - handle B42 directory structure, B41 flat files in map/, and B41 flat files in save root
     const chunksToDelete = [];
@@ -1739,6 +1829,51 @@ router.post("/delete-region", requirePermission("chunks.manage"), async (req, re
       }
     }
 
+    // Also check the chunkdata folder for additional chunk data in range.
+    // Mirrors GET /chunks/:saveName and /delete-chunks (see the comment on
+    // that scan): a chunkdata entry can be the ONLY record of a cell's state
+    // (no matching map/X/Y.bin), so a region delete that only walked map/
+    // would silently leave those cells' chunkdata behind while still
+    // reporting success -- the operator believes the region is clean and it
+    // partially is not. Coordinates are converted to display (chunk-scale)
+    // space the same way the GET scan does, so the same minX/maxX/minY/maxY
+    // (and invert) bounds check applies uniformly across all three sources.
+    {
+      const chunkDataPath = path.join(savePath, "chunkdata");
+      if (fs.existsSync(chunkDataPath)) {
+        const chunkDataFiles = await fs.promises.readdir(chunkDataPath);
+        const validFiles = chunkDataFiles.filter((f) => f.endsWith(".bin"));
+
+        for (const file of validFiles) {
+          const match = file.match(/^(\d+)_(\d+)(?:_\d+)?\.bin$/i);
+          if (!match) continue;
+
+          const rawX = parseInt(match[1], 10);
+          const rawY = parseInt(match[2], 10);
+          const displayX = regionIsB42 ? rawX * 32 : rawX * 30;
+          const displayY = regionIsB42 ? rawY * 32 : rawY * 30;
+
+          const inRegion =
+            displayX >= minX &&
+            displayX <= maxX &&
+            displayY >= minY &&
+            displayY <= maxY;
+          const shouldDelete = invert ? !inRegion : inRegion;
+
+          if (shouldDelete) {
+            chunksToDelete.push({
+              file,
+              x: displayX,
+              y: displayY,
+              source: "chunkdata",
+              cellX: rawX,
+              cellY: rawY,
+            });
+          }
+        }
+      }
+    }
+
     if (chunksToDelete.length === 0) {
       return res.json({
         success: true,
@@ -1766,15 +1901,25 @@ router.post("/delete-region", requirePermission("chunks.manage"), async (req, re
       );
       await fs.promises.mkdir(backupPath, { recursive: true });
 
-      // Parallel backup
+      // Parallel backup. Source-tagged filename prefix (matching
+      // /delete-chunks) so a B42 map chunk, a B41 save-root chunk, and a
+      // chunkdata entry can't collide into the same backup filename.
       await Promise.all(
         chunksToDelete.map(async (chunk) => {
+          const srcTag =
+            chunk.source === "saveroot"
+              ? "saveroot"
+              : chunk.source === "chunkdata"
+                ? "chunkdata"
+                : "map";
           const srcFile =
             chunk.source === "saveroot"
               ? path.join(savePath, chunk.file)
-              : path.join(mapPath, chunk.file);
+              : chunk.source === "chunkdata"
+                ? path.join(savePath, "chunkdata", chunk.file)
+                : path.join(mapPath, chunk.file);
           try {
-            const backupName = `map_${chunk.file.replace(/[/\\]/g, "_")}`;
+            const backupName = `${srcTag}_${chunk.file.replace(/[/\\]/g, "_")}`;
             await copyChunkBackup(
               srcFile,
               path.join(backupPath, backupName),
@@ -1809,7 +1954,6 @@ router.post("/delete-region", requirePermission("chunks.manage"), async (req, re
     let deleted = 0;
     const errors = [];
     const touchedCells = new Set();
-    const regionIsB42 = xDirs.length > 0;
     const regionCellDiv = cellDivisorFor(regionIsB42);
 
     await Promise.all(
@@ -1818,7 +1962,9 @@ router.post("/delete-region", requirePermission("chunks.manage"), async (req, re
           const chunkFile =
             chunk.source === "saveroot"
               ? path.join(savePath, chunk.file)
-              : path.join(mapPath, chunk.file);
+              : chunk.source === "chunkdata"
+                ? path.join(savePath, "chunkdata", chunk.file)
+                : path.join(mapPath, chunk.file);
           await fs.promises.unlink(chunkFile);
           deleted++;
           touchedCells.add(
@@ -1869,7 +2015,27 @@ router.post("/delete-region", requirePermission("chunks.manage"), async (req, re
         createBackup && typeof backupPath === "string"
           ? path.join(backupPath, "vehicles.db.bak")
           : null;
+      // chunkdata-source entries cover a whole cell (not just one chunk) —
+      // expand their box so a region delete doesn't miss vehicles in the
+      // other cellDivisor²-1 chunks of that cell. Matches /delete-chunks.
+      const cellTileSpan = regionCellDiv * tilesPerChunk;
       const boxes = chunksToDelete.map((c) => {
+        if (c.source === "chunkdata") {
+          const x0 = c.cellX * cellTileSpan;
+          const y0 = c.cellY * cellTileSpan;
+          const wx0 = c.cellX * regionCellDiv;
+          const wy0 = c.cellY * regionCellDiv;
+          return {
+            x0,
+            x1: x0 + cellTileSpan,
+            y0,
+            y1: y0 + cellTileSpan,
+            wx0,
+            wx1: wx0 + regionCellDiv,
+            wy0,
+            wy1: wy0 + regionCellDiv,
+          };
+        }
         const x0 = c.x * tilesPerChunk;
         const y0 = c.y * tilesPerChunk;
         return {

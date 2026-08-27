@@ -7,7 +7,8 @@ import { createLogger } from "../utils/logger.js";
 import { sanitizeError } from "../utils/sanitize.js";
 import { getActiveServer } from "../database/init.js";
 import panelBridge from "../services/panelBridge.js";
-import { composeServerStatus } from "../utils/serverStatusModel.js";
+import { composeServerStatus, resolveProvider } from "../utils/serverStatusModel.js";
+import { resolveManagedContainer } from "../services/managedContainer.js";
 
 const log = createLogger("API:ServerStatus");
 const router = express.Router();
@@ -38,10 +39,27 @@ router.get("/active/status", async (req, res) => {
       ? await serverManager.getServerProcessDetails()
       : { running: !!serverManager?.isRunning, scanFailed: false };
 
+    // GH#114: PZ in this provider runs as PID 1 of a *different* container,
+    // so the local process scan above can never see it -- it's asked for
+    // regardless (serverManager still needs it for native servers) but for
+    // docker-local/docker-managed the host signal must come from the
+    // managed container's own state instead, never the scan. See
+    // buildHostSignal in serverStatusModel.js for the fail-closed handling
+    // when Docker control is disabled/unavailable or the mapping is broken.
+    const provider = resolveProvider(server);
+    const dockerContainer =
+      provider === "docker-local" || provider === "docker-managed"
+        ? await resolveManagedContainer({
+            serverId: server.id,
+            dockerClient: req.app.get("dockerClient"),
+          })
+        : null;
+
     const status = composeServerStatus({
       server,
       isRunning: !!processDetails.running,
       scanFailed: !!processDetails.scanFailed,
+      dockerContainer,
       rcon: {
         ...rconConfig,
         connecting: !!(rconService?.connecting || rconService?.reconnecting),

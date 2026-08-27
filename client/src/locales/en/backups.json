@@ -1,4 +1,9 @@
 {
+  "permissions": {
+    "noManage": "Managing backups requires the backups.manage permission, which this role doesn't have.",
+    "noRestore": "Restoring a backup requires the backups.restore permission, which this role doesn't have.",
+    "noDownload": "Downloading a backup requires the backups.download permission, which this role doesn't have."
+  },
   "pageHeader": {
     "title": "World Backups",
     "description": "Create, restore, and manage your server world backups",
@@ -110,7 +115,7 @@
     "description": "Restore <1>{{name}}</1>. This will <2>replace</2> the current world data.",
     "bulletStopServer": "Stop the server first.",
     "bulletSafetyBackup": "The panel will create a safety backup before restoring.",
-    "bulletCannotUndo": "This action cannot be undone.",
+    "bulletUndoRequiresRestore": "Undoing this later means restoring that safety backup yourself — it won't happen automatically.",
     "cancel": "Cancel",
     "confirm": "Restore this backup"
   },

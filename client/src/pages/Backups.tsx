@@ -18,7 +18,7 @@ import {
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { NumberInput } from '@/components/NumberInput'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import {
@@ -43,9 +43,12 @@ import {
 } from '@/components/ui/alert-dialog'
 import { useToast } from '@/components/ui/use-toast'
 import { useSocket } from '@/contexts/SocketContext'
-import { backupApi, serversApi, BackupStatus, BackupFile, BackupHistoryRecord, BackupSnapshot } from '@/lib/api'
+import { backupApi, serversApi, BackupStatus, ServerBackupArchive, BackupHistoryRecord, BackupSnapshot } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { getUserErrorMessage } from '@/lib/errorMessage'
 import { PageHeader } from '@/components/PageHeader'
+import { DisabledReason } from '@/components/DisabledReason'
+import { useAuth } from '@/contexts/AuthContext'
 import { EmptyState } from '@/components/EmptyState'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 
@@ -59,16 +62,24 @@ interface BackupProgress {
 }
 
 export default function Backups() {
-  const { t } = useTranslation('backups')
+  const { t, i18n } = useTranslation('backups')
   const { toast } = useToast()
   const socket = useSocket()
+  const { can } = useAuth()
+  // Bound to routes/backup.js's own requirePermission() gates, not to what
+  // the button label implies -- restore/download are deliberately split
+  // out from backups.manage (see that route file's header comments: restore
+  // overwrites a live world, download exfiltrates a full copy).
+  const canManageBackups = can('backups.manage')
+  const canRestoreBackups = can('backups.restore')
+  const canDownloadBackups = can('backups.download')
 
   // Refs for cleanup
   const progressTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // State
   const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null)
-  const [backups, setBackups] = useState<BackupFile[]>([])
+  const [backups, setBackups] = useState<ServerBackupArchive[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [creatingBackup, setCreatingBackup] = useState(false)
@@ -119,7 +130,7 @@ export default function Backups() {
       setBackupMaxCount(status.maxBackups)
       setLoadError(null)
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : t('toasts.loadStatusFailed'))
+      setLoadError(getUserErrorMessage(error, t('toasts.loadStatusFailed')))
     }
   }, [t])
 
@@ -140,7 +151,7 @@ export default function Backups() {
         return newSelection
       })
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : t('toasts.loadBackupsFailed'))
+      setLoadError(getUserErrorMessage(error, t('toasts.loadBackupsFailed')))
     }
   }, [t])
 
@@ -215,6 +226,11 @@ export default function Backups() {
 
   // Actions
   const handleCreateBackup = async () => {
+    // Function-level guard, not just the button's `disabled` -- the button
+    // is an affordance, this is the gate. 2026-08-27 bug-hunt floor rule:
+    // assert the action is unreachable, don't just make the control look
+    // disabled (Angela's Console.tsx Enter-key bypass finding).
+    if (!canManageBackups) return
     setCreatingBackup(true)
     setBackupProgress({ phase: 'preparing', percent: 0, message: t('progress.startingFallback') })
     try {
@@ -233,7 +249,7 @@ export default function Backups() {
     } catch (error) {
       toast({
         title: t('toasts.backupFailedTitle'),
-        description: error instanceof Error ? error.message : t('toasts.createBackupFailedFallback'),
+        description: getUserErrorMessage(error, t('toasts.createBackupFailedFallback')),
         variant: 'destructive',
       })
       setBackupProgress({ phase: 'error', percent: 0, message: t('toasts.backupFailedMessage') })
@@ -255,6 +271,7 @@ export default function Backups() {
   // The file gets stored with an "uploaded-" prefix and shows up in the list
   // alongside scheduled backups; the user then clicks Restore to apply it.
   const handleUploadFile = async (file: File) => {
+    if (!canManageBackups) return
     if (!file) return
     if (activeServerRemote) {
       toast({ title: t('toasts.notAvailableRemoteTitle'), description: t('toasts.notAvailableRemoteDesc'), variant: 'destructive' })
@@ -289,7 +306,7 @@ export default function Backups() {
     } catch (error) {
       toast({
         title: t('toasts.uploadFailedTitle'),
-        description: error instanceof Error ? error.message : t('toasts.uploadFailedFallback'),
+        description: getUserErrorMessage(error, t('toasts.uploadFailedFallback')),
         variant: 'destructive',
       })
     } finally {
@@ -300,6 +317,7 @@ export default function Backups() {
   }
 
   const handleRestoreBackup = async (name: string) => {
+    if (!canRestoreBackups) return
     setRestoreDialog({ open: false, backupName: null })
     setRestoringBackup(name)
     try {
@@ -316,7 +334,7 @@ export default function Backups() {
     } catch (error) {
       toast({
         title: t('toasts.restoreFailedTitle'),
-        description: error instanceof Error ? error.message : t('toasts.restoreFailedFallback'),
+        description: getUserErrorMessage(error, t('toasts.restoreFailedFallback')),
         variant: 'destructive',
       })
     } finally {
@@ -325,6 +343,7 @@ export default function Backups() {
   }
 
   const handleViewSnapshot = async (name: string) => {
+    if (!canManageBackups) return
     try {
       const result = await backupApi.getSnapshot(name)
       if (!result.success || !result.snapshot) throw new Error(result.message || t('toasts.snapshotMissingFallback'))
@@ -332,13 +351,14 @@ export default function Backups() {
     } catch (error) {
       toast({
         title: t('toasts.snapshotUnavailableTitle'),
-        description: error instanceof Error ? error.message : t('toasts.snapshotUnavailableFallback'),
+        description: getUserErrorMessage(error, t('toasts.snapshotUnavailableFallback')),
         variant: 'destructive',
       })
     }
   }
 
   const handleDeleteBackups = async (names: string[]) => {
+    if (!canManageBackups) return
     setDeleteDialog({ open: false, names: [] })
     setDeletingBackups(true)
     try {
@@ -376,7 +396,7 @@ export default function Backups() {
     } catch (error) {
       toast({
         title: t('toasts.deleteFailedTitle'),
-        description: error instanceof Error ? error.message : t('toasts.deleteFailedFallback'),
+        description: getUserErrorMessage(error, t('toasts.deleteFailedFallback')),
         variant: 'destructive',
       })
     } finally {
@@ -385,6 +405,7 @@ export default function Backups() {
   }
 
   const handleDeleteOlderThan = async () => {
+    if (!canManageBackups) return
     setDeleteOlderDialog(false)
     setDeletingOlder(true)
     try {
@@ -405,7 +426,7 @@ export default function Backups() {
     } catch (error) {
       toast({
         title: t('toasts.deleteFailedTitle'),
-        description: error instanceof Error ? error.message : t('toasts.deleteOldFailedFallback'),
+        description: getUserErrorMessage(error, t('toasts.deleteOldFailedFallback')),
         variant: 'destructive',
       })
     } finally {
@@ -414,6 +435,7 @@ export default function Backups() {
   }
 
   const handleSaveSettings = async () => {
+    if (!canManageBackups) return
     setSavingSettings(true)
     try {
       await backupApi.updateSettings({
@@ -430,7 +452,7 @@ export default function Backups() {
     } catch (error) {
       toast({
         title: t('toasts.planUpdateFailedTitle'),
-        description: error instanceof Error ? error.message : t('toasts.planUpdateFailedFallback'),
+        description: getUserErrorMessage(error, t('toasts.planUpdateFailedFallback')),
         variant: 'destructive',
       })
     } finally {
@@ -439,6 +461,7 @@ export default function Backups() {
   }
 
   const toggleBackupEnabled = async (enabled: boolean) => {
+    if (!canManageBackups) return
     try {
       await backupApi.updateSettings({ enabled })
       await fetchBackupStatus()
@@ -450,7 +473,7 @@ export default function Backups() {
     } catch (error) {
       toast({
         title: t('toasts.autoUpdateFailedTitle'),
-        description: error instanceof Error ? error.message : t('toasts.autoUpdateFailedFallback'),
+        description: getUserErrorMessage(error, t('toasts.autoUpdateFailedFallback')),
         variant: 'destructive',
       })
     }
@@ -487,7 +510,7 @@ export default function Backups() {
 
   const formatDate = (dateStr: string): string => {
     const date = new Date(dateStr)
-    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    return date.toLocaleDateString(i18n.language) + ' ' + date.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })
   }
 
   // Translate the small set of cron presets we expose into a human label.
@@ -528,19 +551,20 @@ export default function Backups() {
         icon={<Archive className="w-5 h-5 text-primary" />}
         actions={
           <>
-            <Button
-              onClick={handleCreateBackup}
-              disabled={creatingBackup || restoringBackup !== null || !backupStatus?.savesExists || activeServerRemote}
-              className="gap-2"
-              title={activeServerRemote ? t('pageHeader.remoteDisabledTitle') : undefined}
-            >
-              {creatingBackup ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Archive className="w-4 h-4" />
-              )}
-              {creatingBackup ? t('pageHeader.creating') : t('pageHeader.createBackup')}
-            </Button>
+            <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : activeServerRemote ? t('pageHeader.remoteDisabledTitle') : null}>
+              <Button
+                onClick={handleCreateBackup}
+                disabled={creatingBackup || restoringBackup !== null || !backupStatus?.savesExists || activeServerRemote || !canManageBackups}
+                className="gap-2"
+              >
+                {creatingBackup ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Archive className="w-4 h-4" />
+                )}
+                {creatingBackup ? t('pageHeader.creating') : t('pageHeader.createBackup')}
+              </Button>
+            </DisabledReason>
             <input
               ref={fileInputRef}
               type="file"
@@ -551,20 +575,23 @@ export default function Backups() {
                 if (file) handleUploadFile(file)
               }}
             />
-            <Button
-              variant="outline"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploadingBackup || restoringBackup !== null || activeServerRemote}
-              className="gap-2"
-              title={activeServerRemote ? t('pageHeader.uploadTitleRemote') : t('pageHeader.uploadTitleLocal')}
-            >
-              {uploadingBackup ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Upload className="w-4 h-4" />
-              )}
-              {uploadingBackup ? t('pageHeader.uploading', { percent: uploadPercent }) : t('pageHeader.uploadZip')}
-            </Button>
+            <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : activeServerRemote ? t('pageHeader.uploadTitleRemote') : null}>
+              <Button
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingBackup || restoringBackup !== null || activeServerRemote || !canManageBackups}
+                className="gap-2"
+                // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Upload an existing world_backup_*.zip from another machine"); the actual disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
+                title={t('pageHeader.uploadTitleLocal')}
+              >
+                {uploadingBackup ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Upload className="w-4 h-4" />
+                )}
+                {uploadingBackup ? t('pageHeader.uploading', { percent: uploadPercent }) : t('pageHeader.uploadZip')}
+              </Button>
+            </DisabledReason>
             <Button
               variant="outline"
               onClick={() => setShowSettings(!showSettings)}
@@ -579,6 +606,7 @@ export default function Backups() {
               onClick={refreshAll}
               disabled={loading}
               aria-label={t('pageHeader.refreshAria')}
+              // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, same text as the aria-label; disables only transiently while a refresh is already in flight (the spinning icon is the self-evident "why"), not a permission gate needing DisabledReason. Triaged 2026-08-27.
               title={t('pageHeader.refreshTitle')}
             >
               <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
@@ -685,11 +713,14 @@ export default function Backups() {
                   : t('statusCards.noScheduled')}
               </p>
             </div>
-            <Switch
-              checked={backupStatus?.enabled || false}
-              onCheckedChange={toggleBackupEnabled}
-              aria-label={t('statusCards.toggleAria')}
-            />
+            <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : null}>
+              <Switch
+                checked={backupStatus?.enabled || false}
+                onCheckedChange={toggleBackupEnabled}
+                disabled={!canManageBackups}
+                aria-label={t('statusCards.toggleAria')}
+              />
+            </DisabledReason>
           </CardContent>
         </Card>
       </div>
@@ -734,21 +765,13 @@ export default function Backups() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="backup-max">{t('settingsPanel.maxBackupsLabel')}</Label>
-                <Input
+                <NumberInput
                   id="backup-max"
-                  type="number"
                   min={1}
                   max={100}
                   value={backupMaxCount}
-                  onChange={(e) => {
-                    const parsed = parseInt(e.target.value, 10)
-                    // Only update if valid number in range
-                    if (!isNaN(parsed) && parsed >= 1 && parsed <= 100) {
-                      setBackupMaxCount(parsed)
-                    } else if (e.target.value === '') {
-                      setBackupMaxCount(10) // Reset to default if cleared
-                    }
-                  }}
+                  onChange={setBackupMaxCount}
+                  onWheel={(e) => e.currentTarget.blur()}
                   className="max-w-24"
                 />
                 <p className="text-xs text-muted-foreground">
@@ -765,10 +788,12 @@ export default function Backups() {
                   </span>
                 )}
               </div>
-              <Button onClick={handleSaveSettings} disabled={savingSettings} size="sm" className="h-10 gap-2 self-start sm:self-auto">
-                {savingSettings && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                {t('settingsPanel.saveButton')}
-              </Button>
+              <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : null}>
+                <Button onClick={handleSaveSettings} disabled={savingSettings || !canManageBackups} size="sm" className="h-10 gap-2 self-start sm:self-auto">
+                  {savingSettings && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  {t('settingsPanel.saveButton')}
+                </Button>
+              </DisabledReason>
             </div>
           </CardContent>
         </Card>
@@ -839,31 +864,35 @@ export default function Backups() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {isAnySelected && (
+                <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : null}>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => setDeleteDialog({ open: true, names: Array.from(selectedBackups) })}
+                    disabled={deletingBackups || !canManageBackups}
+                    className="h-10 gap-2"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    {t('mainCard.deleteSelected', { count: selectedBackups.size })}
+                  </Button>
+                </DisabledReason>
+              )}
+              <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : null}>
                 <Button
                   variant="destructive"
                   size="sm"
-                  onClick={() => setDeleteDialog({ open: true, names: Array.from(selectedBackups) })}
-                  disabled={deletingBackups}
+                  onClick={() => setDeleteOlderDialog(true)}
+                  disabled={deletingOlder || backups.length === 0 || !canManageBackups}
                   className="h-10 gap-2"
                 >
-                  <Trash2 className="w-4 h-4" />
-                  {t('mainCard.deleteSelected', { count: selectedBackups.size })}
+                  {deletingOlder ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Clock className="w-4 h-4" />
+                  )}
+                  {t('mainCard.deleteOlder')}
                 </Button>
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setDeleteOlderDialog(true)}
-                disabled={deletingOlder || backups.length === 0}
-                className="h-10 gap-2"
-              >
-                {deletingOlder ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Clock className="w-4 h-4" />
-                )}
-                {t('mainCard.deleteOlder')}
-              </Button>
+              </DisabledReason>
             </div>
           </div>
         </CardHeader>
@@ -873,7 +902,7 @@ export default function Backups() {
               <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
             </div>
           ) : backups.length === 0 ? (
-            <EmptyState type="noData" title={t('mainCard.emptyTitle')} description={t('mainCard.emptyDesc')} action={{ label: t('mainCard.emptyAction'), onClick: handleCreateBackup, variant: 'default' }} />
+            <EmptyState type="noData" title={t('mainCard.emptyTitle')} description={t('mainCard.emptyDesc')} action={canManageBackups ? { label: t('mainCard.emptyAction'), onClick: handleCreateBackup, variant: 'default' } : undefined} />
           ) : (
             <div className="space-y-2">
               {/* Select All Header */}
@@ -959,52 +988,66 @@ export default function Backups() {
                         </div>
 
                         <div className="flex items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleViewSnapshot(backup.name)}
-                            className="h-9 w-9"
-                            aria-label={t('mainCard.viewSnapshotAria', { name: backup.name })}
-                            title={t('mainCard.viewSnapshotTitle')}
-                          >
-                            <FileText className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setRestoreDialog({ open: true, backupName: backup.name })}
-                            disabled={isRestoring || restoringBackup !== null || creatingBackup}
-                            className="h-9 w-9 text-warning hover:text-warning hover:bg-warning/10"
-                            aria-label={t('mainCard.restoreAria', { name: backup.name })}
-                            title={t('mainCard.restoreTitle')}
-                          >
-                            {isRestoring ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <RotateCcw className="w-4 h-4" />
-                            )}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => backupApi.downloadBackup(backup.name)}
-                            className="h-9 w-9"
-                            aria-label={t('mainCard.downloadAria', { name: backup.name })}
-                            title={t('mainCard.downloadTitle')}
-                          >
-                            <Download className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setDeleteDialog({ open: true, names: [backup.name] })}
-                            disabled={deletingBackups}
-                            className="h-9 w-9 text-destructive hover:text-destructive hover:bg-destructive/10"
-                            aria-label={t('mainCard.deleteAria', { name: backup.name })}
-                            title={t('mainCard.deleteTitle')}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                          <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : null}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleViewSnapshot(backup.name)}
+                              disabled={!canManageBackups}
+                              className="h-9 w-9"
+                              aria-label={t('mainCard.viewSnapshotAria', { name: backup.name })}
+                              // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, same text as the aria-label; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
+                              title={t('mainCard.viewSnapshotTitle')}
+                            >
+                              <FileText className="w-4 h-4" />
+                            </Button>
+                          </DisabledReason>
+                          <DisabledReason reason={!canRestoreBackups ? t('permissions.noRestore') : null}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setRestoreDialog({ open: true, backupName: backup.name })}
+                              disabled={isRestoring || restoringBackup !== null || creatingBackup || !canRestoreBackups}
+                              className="h-9 w-9 text-warning hover:text-warning hover:bg-warning/10"
+                              aria-label={t('mainCard.restoreAria', { name: backup.name })}
+                              // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, same text as the aria-label; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
+                              title={t('mainCard.restoreTitle')}
+                            >
+                              {isRestoring ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <RotateCcw className="w-4 h-4" />
+                              )}
+                            </Button>
+                          </DisabledReason>
+                          <DisabledReason reason={!canDownloadBackups ? t('permissions.noDownload') : null}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => { if (canDownloadBackups) backupApi.downloadBackup(backup.name) }}
+                              disabled={!canDownloadBackups}
+                              className="h-9 w-9"
+                              aria-label={t('mainCard.downloadAria', { name: backup.name })}
+                              // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, same text as the aria-label; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
+                              title={t('mainCard.downloadTitle')}
+                            >
+                              <Download className="w-4 h-4" />
+                            </Button>
+                          </DisabledReason>
+                          <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : null}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setDeleteDialog({ open: true, names: [backup.name] })}
+                              disabled={deletingBackups || !canManageBackups}
+                              className="h-9 w-9 text-destructive hover:text-destructive hover:bg-destructive/10"
+                              aria-label={t('mainCard.deleteAria', { name: backup.name })}
+                              // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, same text as the aria-label; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
+                              title={t('mainCard.deleteTitle')}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </DisabledReason>
                         </div>
                       </div>
                     )
@@ -1027,7 +1070,7 @@ export default function Backups() {
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-muted-foreground">
                 <span>{t('snapshotDialog.serverLabel')}</span><span className="text-foreground">{snapshotDialog.snapshot.server.name}</span>
                 <span>{t('snapshotDialog.providerLabel')}</span><span className="text-foreground">{snapshotDialog.snapshot.server.provider}</span>
-                <span>{t('snapshotDialog.capturedLabel')}</span><span className="text-foreground">{new Date(snapshotDialog.snapshot.createdAt).toLocaleString()}</span>
+                <span>{t('snapshotDialog.capturedLabel')}</span><span className="text-foreground">{new Date(snapshotDialog.snapshot.createdAt).toLocaleString(i18n.language)}</span>
               </div>
               <div>
                 <p className="mb-1 text-xs font-medium text-muted-foreground">{t('snapshotDialog.serverIniLabel')}</p>
@@ -1045,11 +1088,27 @@ export default function Backups() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Restore Confirmation Dialog */}
+      {/* Restore Confirmation Dialog. Michelle's UX audit (2026-08-26): this
+          used to be styled text-warning/bg-warning -- the same tier as
+          "delete a few old backup files" below -- despite replacing the
+          entire live world, arguably the highest-impact button in the app.
+          Bumped to text-destructive/bg-destructive to match this file's own
+          single-backup delete dialog and Dashboard's wipe confirm button,
+          both of which already use destructive for a smaller blast radius
+          than a full restore. Also fixed the bullet list's self-contradiction
+          flagged by the same audit: bulletSafetyBackup ("the panel will
+          create a safety backup") and the old bulletCannotUndo ("this action
+          cannot be undone") asserted opposite things. Verified against
+          backupService.js's restoreBackup() and this component's own
+          handleRestoreBackup call (passes createPreRestoreBackup: true) --
+          the safety-backup claim is true, so "cannot be undone" was the
+          false one: a restore CAN be undone, just not automatically.
+          Replaced with bulletUndoRequiresRestore, which keeps the real
+          warning (undoing isn't one click) without the false claim. */}
       <AlertDialog open={restoreDialog.open} onOpenChange={(open) => setRestoreDialog({ open, backupName: null })}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2 text-warning">
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangle className="w-5 h-5" />
               {t('restoreDialog.title')}
             </AlertDialogTitle>
@@ -1065,7 +1124,7 @@ export default function Backups() {
               <ul className="list-disc list-inside text-sm space-y-1 mt-2">
                 <li>{t('restoreDialog.bulletStopServer')}</li>
                 <li>{t('restoreDialog.bulletSafetyBackup')}</li>
-                <li>{t('restoreDialog.bulletCannotUndo')}</li>
+                <li>{t('restoreDialog.bulletUndoRequiresRestore')}</li>
               </ul>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -1073,7 +1132,7 @@ export default function Backups() {
             <AlertDialogCancel>{t('restoreDialog.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => restoreDialog.backupName && handleRestoreBackup(restoreDialog.backupName)}
-              className="bg-warning text-warning-foreground hover:bg-warning/90"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {t('restoreDialog.confirm')}
             </AlertDialogAction>
@@ -1123,11 +1182,15 @@ export default function Backups() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Delete Older Than Dialog */}
+      {/* Delete Older Than Dialog -- same permanent-data-loss severity as
+          the single/bulk delete dialog above (deleteDialog), just a
+          different entry point. Styled destructive-red to match rather
+          than the amber it had before, which understated a no-undo bulk
+          delete relative to its sibling action. */}
       <AlertDialog open={deleteOlderDialog} onOpenChange={setDeleteOlderDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2 text-warning">
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
               <Clock className="w-5 h-5" />
               {t('deleteOlderDialog.title')}
             </AlertDialogTitle>
@@ -1136,18 +1199,13 @@ export default function Backups() {
                 <p>{t('deleteOlderDialog.description')}</p>
                 <div className="flex items-center gap-3">
                   <Label htmlFor="delete-days" className="text-foreground whitespace-nowrap">{t('deleteOlderDialog.olderThanLabel')}</Label>
-                  <Input
+                  <NumberInput
                     id="delete-days"
-                    type="number"
                     min={1}
                     max={365}
                     value={deleteOlderDays}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value, 10)
-                      if (!isNaN(val) && val >= 1 && val <= 365) {
-                        setDeleteOlderDays(val)
-                      }
-                    }}
+                    onChange={setDeleteOlderDays}
+                    onWheel={(e) => e.currentTarget.blur()}
                     className="w-20"
                   />
                   <span className="text-foreground">{t('deleteOlderDialog.daysUnit')}</span>
@@ -1162,7 +1220,7 @@ export default function Backups() {
             <AlertDialogCancel>{t('deleteOlderDialog.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteOlderThan}
-              className="bg-warning text-warning-foreground hover:bg-warning/90"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {t('deleteOlderDialog.confirm')}
             </AlertDialogAction>

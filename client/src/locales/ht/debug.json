@@ -3,6 +3,10 @@
     "title": "Debogaj & Jounal",
     "description": "Dyagnostik an tan reyèl, istorik resan, ak detay anviwònman pou panèl sa a"
   },
+  "permissionDenied": {
+    "title": "Ou pa ka gade dyagnostik panèl la",
+    "description": "Wòl kont ou a pa gen \"Gade dyagnostik panèl la\". Mande yon administratè bay ou aksè sa a si ou bezwen l."
+  },
   "headerActions": {
     "bundling": "Ap gwoupe…",
     "supportBundleZip": "Pakè Sipò (.zip)",
@@ -233,6 +237,7 @@
     "allChecksPassDesc": "Anyen pou montre ak verifikasyon ki pase kache yo. Dekoche 'Kache sa ki pase' pou wè rapò konplè a.",
     "manualFixTitle": "Repara manyèl rekòmande",
     "manualFixFallback": "Louvri paj sijere a epi aplike repara ki nan lis la.",
+    "noPermissionFix": "Wòl ou pa gen pèmisyon pou aplike repara sa a.",
     "applyFixTitle": "Aplike repara?",
     "applyFixFallback": "Aplike {{label}}?",
     "applyButton": "Aplike",
@@ -1310,6 +1315,7 @@
   },
   "crashesTab": {
     "crashLogsTitle": "Jounal Kraze",
+    "crashLogsCountTruncated": "{{shown}} sou {{total}}",
     "crashLogsDesc": "Dump kraze Java ak jounal erè.",
     "refreshCrashLogsAria": "Aktyalize jounal kraze",
     "noCrashLogsTitle": "Pa gen jounal kraze jwenn",
@@ -1399,6 +1405,8 @@
     "databaseLabel": "Baz Done:",
     "logsFolderLabel": "Dosye jounal:",
     "copyPathTooltip": "Kopye chemen",
+    "copyDbPathAria": "Kopye chemen baz done",
+    "copyLogsPathAria": "Kopye chemen dosye jounal",
     "pathsUpdatedTitle": "Chemen Mete Ajou",
     "enterAtLeastOnePath": "Tanpri antre omwen yon chemen",
     "updatePathsFailedFallback": "Pa t kapab mete ajou chemen yo"

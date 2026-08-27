@@ -78,82 +78,84 @@ function resolveBuiltBinaryPath(target) {
   return candidates.find((candidate) => fs.existsSync(candidate)) || null;
 }
 
-function writeReleaseReadme() {
+export function writeReleaseReadme() {
   const readme = `# Zomboid Control Panel
 
-## Quick Start
+## First 10 Minutes
 
 ### Windows
-1. Extract ZomboidControlPanel-windows.zip
-2. Run Start.bat (or double-click ZomboidControlPanel.exe)
+1. Run Start.bat (double-click it — or double-click ZomboidControlPanel.exe directly).
+2. Open your browser to http://localhost:3001
+3. Create the admin account (first screen you'll see).
+4. Open Servers and add your PZ server. You'll need the RCON port and
+   password from the server's .ini (RCONPort=... / RCONPassword=...) and
+   its install folder path — the panel can't discover these on its own.
+
+### Linux (Ubuntu / Debian / CentOS Stream / Rocky)
+1. In a terminal, in this folder: chmod +x start.sh ZomboidControlPanel
+   (execute permissions usually survive tar xzf already — this is a safety net)
+2. Run: ./start.sh
 3. Open your browser to http://localhost:3001
-4. Configure your server paths in Settings
+4. Create the admin account.
+5. Open Servers and add your PZ server (same RCON port/password/install-path
+   info as the Windows step above).
 
-### Linux (Ubuntu / Debian)
-1. Extract: tar xzf ZomboidControlPanel-linux.tar.gz
-   (Execute permissions are preserved in the archive)
-2. Run: ./start.sh  (or ./ZomboidControlPanel directly)
-3. Open your browser to http://localhost:3001
-4. Configure your server paths in Settings
+That's it for a first run. Running this as a background service, behind a
+firewall, or as a dedicated non-root user is covered in the fuller guide
+named below — none of it is required just to see the panel working once.
 
-### Installing a new PZ server from the panel
-When using the included Linux systemd service, enter this exact folder in the
-setup wizard:
+## If It Doesn't Start
 
-  /opt/zomboid-panel/data/pzserver
+Three things stop most first launches:
 
-Create it once before using the wizard:
+- "Port 3001 is in use", or the panel silently starts on a different port —
+  something else on this machine already has 3001. Check the console/log
+  for which port it actually picked, or free up 3001 and restart.
+- Linux "Permission denied" — the execute bit didn't survive extraction.
+  Run: chmod +x ZomboidControlPanel start.sh
+- Linux: nothing happens, or a glibc error — this binary needs glibc 2.28+
+  (Ubuntu 20.04+, Debian 10+, CentOS Stream 8+, Rocky 8+). CentOS 7 (glibc
+  2.17) is not supported — use Docker instead.
 
-  sudo -u pzuser mkdir -p /opt/zomboid-panel/data/pzserver
+More symptoms and fixes, organized by what's actually on your screen: see
+docs/install/troubleshooting.md — it's in this same folder, no internet
+needed. (Path below.)
 
-The panel creates /opt/zomboid-panel/data/pzserver_Data for PZ settings and
-save data. Leave Custom config location blank unless you need another location.
-Do not use /opt/pzserver unless you also add it and /opt/pzserver_Data to
-ReadWritePaths in zomboid-panel.service, then restart the service.
+## Where To Go Next
 
-## Linux Troubleshooting
-- If you see "Permission denied": chmod +x ZomboidControlPanel start.sh
-- If launch fails with glibc errors: requires glibc 2.28+ (CentOS Stream 8+, Rocky 8+, Ubuntu 20.04+).
-  CentOS 7 is NOT supported (glibc 2.17 is too old). Use Docker instead.
-- The binary is self-contained — Node.js is NOT required.
+This file only covers the first ten minutes. The fuller guides are right
+here in this folder, so they work with no internet — and also live on
+GitHub if you'd rather read them there or check for updates to them:
 
-## CentOS / RHEL Notes
-- Open firewall: sudo firewall-cmd --permanent --add-port=3001/tcp && sudo firewall-cmd --reload
-- SELinux: If blocked, run: sudo semanage fcontext -a -t admin_home_t "/opt/zomboid-panel(/.*)?" && sudo restorecon -Rv /opt/zomboid-panel
-- SteamCMD requires 32-bit libs: sudo yum install glibc.i686 libstdc++.i686
-- Increase inotify limit: sudo sysctl -w fs.inotify.max_user_watches=524288
-  (make permanent: echo 'fs.inotify.max_user_watches=524288' | sudo tee -a /etc/sysctl.conf)
+  docs/install/                                    (this folder, offline)
+  https://github.com/fpsacha/zomboid-control-panel  (same guides, online)
 
-## Running as a Service (Linux)
-A systemd unit file is included:
-  sudo useradd -r -m -s /bin/false pzuser      # Create dedicated user (if needed)
-  sudo mkdir -p /opt/zomboid-panel
-  sudo cp -r ./* /opt/zomboid-panel/
-  sudo chown -R pzuser:pzuser /opt/zomboid-panel
-  sudo cp zomboid-panel.service /etc/systemd/system/
-  sudo systemctl daemon-reload
-  sudo systemctl enable --now zomboid-panel
-Edit the service file to match your install path and user.
-See the service file comments for SELinux and firewall setup.
+- docs/install/windows.md         Windows: running at startup / as a service, firewall.
+- docs/install/linux.md           Linux: the bundled systemd service, a non-root
+                                   user, SteamCMD's 32-bit library requirements,
+                                   firewall (ufw/firewalld), reverse proxies.
+- docs/install/docker.md          Docker and Unraid — three setups depending on
+                                   where Project Zomboid itself runs. Not needed
+                                   for this package; only relevant if you'd
+                                   rather switch to Docker instead.
+- docs/install/hosted.md          Renting a PZ server from a host (Indifferent
+                                   Broccoli and similar) instead of running it
+                                   yourself.
+- docs/install/troubleshooting.md Symptom-first fixes, organized by what's on
+                                   your screen, not by subsystem.
 
-## Docker
-The included docker-compose.install.yml starts the panel using the published
-Docker image and persistent Docker volumes:
-
-  docker compose -f docker-compose.install.yml up -d
-
-Open http://localhost:3001 after it starts. This installer is for remote PZ
-servers or panel-first setup. For a panel that manages a host PZ installation,
-download docker-compose.yml from the GitHub repository and configure its bind
-mounts before running Docker Compose.
+For everything else — PanelBridge, updates, remote access, the full feature
+list — see README.md in the GitHub repository (not shipped in this archive,
+needs internet).
 
 ## Folder Structure
 - ZomboidControlPanel.exe - Windows standalone binary
 - ZomboidControlPanel      - Linux standalone binary
 - Start.bat                - Windows launch script
 - start.sh                 - Linux launch script
-- zomboid-panel.service    - systemd unit file (Linux)
+- zomboid-panel.service    - systemd unit file (Linux) — see docs/install/linux.md, in this folder
 - docker-compose.install.yml - Docker Compose installer (published panel image)
+- docs/install/            - Install guides for every platform (see Where To Go Next, above)
 - client/dist/             - Web interface (required, must stay alongside binary)
 - data/db.json             - Configuration database (created on first run; NEVER overwrite when upgrading — see data/README.txt)
 - data/db.example.json     - Reference db structure (safe to delete)
@@ -163,6 +165,9 @@ mounts before running Docker Compose.
 - checksums.txt            - SHA256 hashes for release archives
 - release-manifest.json    - Build metadata for this package
 
+Keep every file in this same folder — the binary needs client/dist/ next to
+it, and won't start without it.
+
 ## Panel Bridge Setup (Optional)
 The PanelBridge Lua enables advanced features like weather control. It is a
 server-side drop-in, NOT a Workshop mod — there is no client component.
@@ -170,11 +175,6 @@ server-side drop-in, NOT a Workshop mod — there is no client component.
    dedicated server's install folder: Install/media/lua/server/PanelBridge.lua
 2. Restart your PZ server (no .ini changes needed; nothing loads on clients)
 3. Go to Settings in the panel and configure the Panel Bridge section
-
-## Notes
-- Keep all files in the same folder structure — the binary needs client/dist/.
-- The app runs on port 3001 by default.
-- First run: go to Settings to configure your PZ server path.
 
 ## Upgrading
 - The panel auto-update feature handles upgrades safely — prefer it.
@@ -265,8 +265,10 @@ echo.
   if exist "%MARKER%" call :apply_update
 
   rem === Pick the binary to launch. Newest of .exe / .exe.new / .exe.new2. ===
-  rem === First-install case: only .exe.new exists (from the release zip),  ===
-  rem === so this still picks it up on the very first run.                  ===
+  rem === A fresh install only ever has the plain .exe -- build.js copies   ===
+  rem === the packaged binary straight to ZomboidControlPanel.exe, and the  ===
+  rem === release zip is that folder as-is, so there is no .new on first    ===
+  rem === run. .new/.new2 only appear later, staged in place by an update.  ===
   set "TARGET="
   for /f "usebackq delims=" %%F in (\`powershell -NoProfile -Command "Get-ChildItem -LiteralPath '.' -File | Where-Object { $_.Name -match '^ZomboidControlPanel\\.exe(\\.new2?)?$' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty Name"\`) do set "TARGET=%%F"
 
@@ -428,6 +430,42 @@ goto :eof
 `.replace(/\r?\n/g, "\r\n");
 }
 
+export function generateStartSh() {
+  return `#!/bin/bash
+# Zomboid Control Panel — Linux launcher
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
+
+echo "Starting Zomboid Control Panel..."
+echo ""
+
+if [ ! -f "./ZomboidControlPanel" ]; then
+  echo "ERROR: ./ZomboidControlPanel was not found in this folder."
+  exit 1
+fi
+
+# Check glibc version (panel requires glibc 2.28+)
+if command -v ldd >/dev/null 2>&1; then
+  GLIBC_VER=$(ldd --version 2>&1 | head -1 | grep -oP '\\d+\\.\\d+$' || true)
+  if [ -n "$GLIBC_VER" ]; then
+    MAJOR=$(echo "$GLIBC_VER" | cut -d. -f1)
+    MINOR=$(echo "$GLIBC_VER" | cut -d. -f2)
+    if [ "$MAJOR" -lt 2 ] || { [ "$MAJOR" -eq 2 ] && [ "$MINOR" -lt 28 ]; }; then
+      echo "WARNING: glibc $GLIBC_VER detected. This binary requires glibc 2.28+."
+      echo "CentOS 7 (glibc 2.17) is not supported. Use CentOS Stream 8+, Rocky 8+, or Docker."
+    fi
+  fi
+fi
+
+# Warn if running as root
+if [ "$(id -u)" = "0" ]; then
+  echo "WARNING: Running as root is not recommended. Consider creating a dedicated user."
+fi
+
+./ZomboidControlPanel
+`;
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const targets = resolveTargets(args);
@@ -571,6 +609,31 @@ async function main() {
     process.exit(1);
   }
 
+  // Ship the install guides IN the archive, not just as GitHub pointers.
+  // README.txt's own "Where To Go Next" section names these paths -- on a
+  // LAN-only box with no outbound internet, a github.com link is dead
+  // weight, so the files themselves have to be sitting right here for that
+  // section to be true. release.ps1 zips release/* as-is, so anything
+  // copied into release/ ships automatically with no workflow change.
+  const installDocsSrc = "./docs/install";
+  const installDocsDest = "./release/docs/install";
+  if (fs.existsSync(installDocsSrc)) {
+    fs.mkdirSync(installDocsDest, { recursive: true });
+    const guideFiles = fs
+      .readdirSync(installDocsSrc)
+      .filter((file) => file.endsWith(".md"));
+    for (const file of guideFiles) {
+      fs.copyFileSync(
+        path.join(installDocsSrc, file),
+        path.join(installDocsDest, file),
+      );
+    }
+  } else {
+    console.warn(
+      "docs/install not found -- release will ship without install guides",
+    );
+  }
+
   // IMPORTANT: do NOT ship a real `data/db.json` in the release tarball.
   //
   // Users who extract a new release over an existing install (e.g. `tar xzf`
@@ -709,41 +772,7 @@ Recommended safe-upgrade commands:
   const startBat = generateStartBat();
   fs.writeFileSync("./release/Start.bat", startBat);
 
-  const startSh = `#!/bin/bash
-# Zomboid Control Panel — Linux launcher
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR"
-
-echo "Starting Zomboid Control Panel..."
-echo ""
-echo "Open your browser to: http://localhost:3001"
-echo ""
-
-if [ ! -f "./ZomboidControlPanel" ]; then
-  echo "ERROR: ./ZomboidControlPanel was not found in this folder."
-  exit 1
-fi
-
-# Check glibc version (panel requires glibc 2.28+)
-if command -v ldd >/dev/null 2>&1; then
-  GLIBC_VER=$(ldd --version 2>&1 | head -1 | grep -oP '\\d+\\.\\d+$' || true)
-  if [ -n "$GLIBC_VER" ]; then
-    MAJOR=$(echo "$GLIBC_VER" | cut -d. -f1)
-    MINOR=$(echo "$GLIBC_VER" | cut -d. -f2)
-    if [ "$MAJOR" -lt 2 ] || { [ "$MAJOR" -eq 2 ] && [ "$MINOR" -lt 28 ]; }; then
-      echo "WARNING: glibc $GLIBC_VER detected. This binary requires glibc 2.28+."
-      echo "CentOS 7 (glibc 2.17) is not supported. Use CentOS Stream 8+, Rocky 8+, or Docker."
-    fi
-  fi
-fi
-
-# Warn if running as root
-if [ "$(id -u)" = "0" ]; then
-  echo "WARNING: Running as root is not recommended. Consider creating a dedicated user."
-fi
-
-./ZomboidControlPanel
-`;
+  const startSh = generateStartSh();
   fs.writeFileSync("./release/start.sh", startSh.replace(/\r\n/g, "\n"), {
     mode: 0o755,
   });
@@ -792,6 +821,9 @@ fi
   console.log("  - data/");
   console.log("  - logs/");
   console.log("  - pz-mod/");
+  if (fs.existsSync("./release/docs/install")) {
+    console.log("  - docs/install/");
+  }
   if (fs.existsSync("./release/zomboid-panel.service")) {
     console.log("  - zomboid-panel.service");
   }

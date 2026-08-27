@@ -5,6 +5,7 @@ import { Button } from './ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card'
 import { Link } from 'react-router-dom'
 import { reportClientError } from '@/lib/client-errors'
+import { getRecoveryUrl, rawErrorMessageIntentional } from '@/lib/errorMessage'
 
 // ============================================================================
 // Base Error Boundary with customizable props
@@ -56,6 +57,10 @@ class FeatureErrorBoundaryBase extends React.Component<FeatureErrorBoundaryProps
 
       const { t } = this.props
       const { featureName = t('defaultFeatureName'), compact = false } = this.props
+      // See ErrorBoundary.tsx's identical comment -- usually null for a
+      // render-logic crash, worth attempting anyway for the occasional
+      // case caused by an already-failed request's error object.
+      const recoveryUrl = this.state.error ? getRecoveryUrl(this.state.error) : null
 
       if (compact) {
         return (
@@ -85,11 +90,19 @@ class FeatureErrorBoundaryBase extends React.Component<FeatureErrorBoundaryProps
           </CardHeader>
           <CardContent className="space-y-4">
             {this.state.error && (
-              <pre className="p-3 bg-muted rounded-lg text-sm overflow-auto max-h-24 text-muted-foreground">
-                {this.state.error.message}
-              </pre>
+              <details className="text-sm">
+                <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                  {t('showDetails')}
+                </summary>
+                {/* rawErrorMessageIntentional(), see ErrorBoundary.tsx's
+                    identical comment -- the named, deliberate escape hatch,
+                    not an oversight. */}
+                <pre className="mt-2 p-3 bg-muted rounded-lg overflow-auto max-h-24 text-muted-foreground">
+                  {rawErrorMessageIntentional(this.state.error, String(this.state.error))}
+                </pre>
+              </details>
             )}
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button variant="outline" onClick={this.handleReset}>
                 <RefreshCw className="w-4 h-4 mr-2" />
                 {t('tryAgain')}
@@ -100,6 +113,11 @@ class FeatureErrorBoundaryBase extends React.Component<FeatureErrorBoundaryProps
                   {t('dashboard')}
                 </Link>
               </Button>
+              {recoveryUrl && (
+                <Button variant="ghost" asChild>
+                  <Link to={recoveryUrl}>{t('openRecoveryPage')}</Link>
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>

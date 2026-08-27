@@ -9,6 +9,9 @@ vi.mock("../database/init.js", () => ({
 const fakeBridge = { bridgePath: null, isRunning: false, isModConnected: () => false };
 vi.mock("../services/panelBridge.js", () => ({ default: fakeBridge }));
 
+const resolveManagedContainer = vi.fn(async () => ({ handled: false }));
+vi.mock("../services/managedContainer.js", () => ({ resolveManagedContainer }));
+
 const { default: router } = await import("../routes/serverStatus.js");
 
 function createResponse() {
@@ -38,6 +41,8 @@ function fakeApp(overrides = {}) {
 describe("GET /api/servers/active/status", () => {
   beforeEach(() => {
     getActiveServer.mockReset();
+    resolveManagedContainer.mockReset();
+    resolveManagedContainer.mockResolvedValue({ handled: false });
     fakeBridge.bridgePath = null;
     fakeBridge.isRunning = false;
     fakeBridge.isModConnected = () => false;
@@ -127,6 +132,79 @@ describe("GET /api/servers/active/status", () => {
     expect(response.json).toHaveBeenCalledWith(
       expect.objectContaining({ bridge: expect.objectContaining({ status: "active" }) }),
     );
+  });
+
+  // GH#114: PZ in its own container, panel in another (docker.sock mounted,
+  // PANEL_DOCKER_CONTROL_ENABLED=true, dockerContainerName set). The local
+  // process scan can never see a process outside this container and
+  // correctly returns running: false -- the bug was reading that scan for
+  // the badge instead of the managed container's own state.
+  it("reports a mapped container as running from the Docker lookup, not the local process scan", async () => {
+    getActiveServer.mockResolvedValue({ id: 1, dockerContainerName: "pz-server" });
+    resolveManagedContainer.mockResolvedValue({
+      handled: true,
+      ref: "pz-server",
+      running: true,
+    });
+    const response = createResponse();
+
+    await getStatusHandler()(
+      {
+        app: fakeApp({
+          serverManager: {
+            getServerProcessDetails: async () => ({ running: false, scanFailed: false }),
+          },
+        }),
+      },
+      response,
+    );
+
+    expect(resolveManagedContainer).toHaveBeenCalledWith(
+      expect.objectContaining({ serverId: 1 }),
+    );
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "docker-local",
+        host: { status: "running", label: "Container", detail: null },
+      }),
+    );
+  });
+
+  // WATCH FOR in GH#114: a profile with dockerContainerName set on a host
+  // where Docker control is disabled or the socket is absent must degrade to
+  // unknown, not crash and not silently fall back to the local process scan
+  // (which would just reintroduce the same bug).
+  it("reports a mapped container as unknown, not stopped, when Docker control is disabled", async () => {
+    getActiveServer.mockResolvedValue({ id: 1, dockerContainerName: "pz-server" });
+    resolveManagedContainer.mockResolvedValue({ handled: false });
+    const response = createResponse();
+
+    await getStatusHandler()(
+      {
+        app: fakeApp({
+          serverManager: {
+            getServerProcessDetails: async () => ({ running: false, scanFailed: false }),
+          },
+        }),
+      },
+      response,
+    );
+
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "docker-local",
+        host: expect.objectContaining({ status: "unknown" }),
+      }),
+    );
+  });
+
+  it("does not attempt a Docker lookup for a native server", async () => {
+    getActiveServer.mockResolvedValue({ id: 1, isRemote: false });
+    const response = createResponse();
+
+    await getStatusHandler()({ app: fakeApp() }, response);
+
+    expect(resolveManagedContainer).not.toHaveBeenCalled();
   });
 
   it("returns 500 with a sanitized error when the database lookup throws", async () => {

@@ -16,6 +16,7 @@
   "clearSelectionAria": "Auswahl aufheben",
   "searchNItemsPlaceholder": "{{count}} Items durchsuchen…",
   "filterItemsAria": "Items filtern",
+  "clearSearchAria": "Suche löschen",
   "rescanTitle": "Server-Items erneut scannen",
   "allItems": "Alle Items",
   "itemListAria": "Item-Liste",

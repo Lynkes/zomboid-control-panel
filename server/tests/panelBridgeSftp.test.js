@@ -29,8 +29,9 @@ const mockDataPaths = vi.hoisted(() => {
 });
 vi.mock('../utils/paths.js', () => ({ getDataPaths: (...args) => mockDataPaths.current(...args) }));
 
-const { getSftpErrorGuidance, PanelBridgeSftpTransport, validateSftpBridgeConfig, getSftpCachePath } =
+const { getSftpErrorGuidance, classifySftpErrorCode, PanelBridgeSftpTransport, validateSftpBridgeConfig, getSftpCachePath } =
   await import('../services/panelBridgeSftp.js');
+const { ErrorCode } = await import('../utils/errorCodes.js');
 
 const valid = {
   host: 'pz.example.net',
@@ -62,6 +63,15 @@ describe('PanelBridge SFTP configuration', () => {
     expect(() => validateSftpBridgeConfig({ ...valid, pollIntervalSeconds })).toThrow('between 2 and 10 seconds');
   });
 
+  it('does not replace an explicit zero port or poll interval with defaults', () => {
+    expect(() => validateSftpBridgeConfig({ ...valid, port: 0 })).toThrow(
+      'between 1 and 65535',
+    );
+    expect(() => validateSftpBridgeConfig({ ...valid, pollIntervalSeconds: 0 })).toThrow(
+      'between 2 and 10 seconds',
+    );
+  });
+
   it('rejects remote path traversal', () => {
     expect(() => validateSftpBridgeConfig({ ...valid, bridgePath: '/home/pz/../etc' })).toThrow('without traversal');
   });
@@ -88,6 +98,72 @@ describe('PanelBridge SFTP configuration', () => {
 
   it('explains how to repair a non-regular bridge file path', () => {
     expect(getSftpErrorGuidance(new Error('Expected a regular file, but found a non-regular entry'))).toMatch(/remove or rename/i);
+  });
+});
+
+// 2026-08-26: formatSftpError()/getSftpErrorGuidance() classified these
+// failures correctly but only ever produced English text -- these codes are
+// what let a route response carry the SAME classification as a translatable
+// `code` + `params.detail`, per code registered+translated in errors.json
+// (all six locales). One test per branch, in the SAME order
+// classifySftpError()'s list checks them, so a reordering that changes which
+// pattern wins on an ambiguous message is caught here.
+describe('classifySftpErrorCode: mirrors getSftpErrorGuidance\'s classification as a stable code', () => {
+  it('SFTP_CHROOTED_ACCOUNT for a chrooted mkdir failure under /home', () => {
+    expect(classifySftpErrorCode(new Error('mkdir: _doMkdir: Permission denied /Home'))).toBe(
+      ErrorCode.SFTP_CHROOTED_ACCOUNT,
+    );
+  });
+
+  it('SFTP_AUTH_FAILED for a public-key authentication failure', () => {
+    expect(classifySftpErrorCode(new Error('Permission denied (publickey).'))).toBe(
+      ErrorCode.SFTP_AUTH_FAILED,
+    );
+  });
+
+  it('SFTP_PERMISSION_DENIED for a plain permission-denied write failure', () => {
+    expect(classifySftpErrorCode(new Error('Failure: mkdir /home/pz/bridge: Permission denied'))).toBe(
+      ErrorCode.SFTP_PERMISSION_DENIED,
+    );
+  });
+
+  it('SFTP_REMOTE_PATH_MISSING when the remote bridge folder does not exist', () => {
+    expect(classifySftpErrorCode(new Error('No such file'))).toBe(ErrorCode.SFTP_REMOTE_PATH_MISSING);
+  });
+
+  it('SFTP_PATH_OCCUPIED when a directory occupies the bridge file path', () => {
+    expect(classifySftpErrorCode(new Error('Expected a regular file, but found a non-regular entry'))).toBe(
+      ErrorCode.SFTP_PATH_OCCUPIED,
+    );
+  });
+
+  it('SFTP_UNREACHABLE for a connection-level failure', () => {
+    expect(classifySftpErrorCode(new Error('connect ECONNREFUSED 10.0.0.5:22'))).toBe(
+      ErrorCode.SFTP_UNREACHABLE,
+    );
+  });
+
+  it('SFTP_UNKNOWN as the catch-all for an unrecognized failure', () => {
+    expect(classifySftpErrorCode(new Error('something completely unexpected happened'))).toBe(
+      ErrorCode.SFTP_UNKNOWN,
+    );
+  });
+
+  it('every code classifySftpErrorCode can return is registered in errorCodes.js', () => {
+    const messages = [
+      'mkdir: _doMkdir: Permission denied /Home',
+      'Permission denied (publickey).',
+      'Failure: mkdir /home/pz/bridge: Permission denied',
+      'No such file',
+      'Expected a regular file, but found a non-regular entry',
+      'connect ECONNREFUSED 10.0.0.5:22',
+      'something completely unexpected happened',
+    ];
+    for (const message of messages) {
+      const code = classifySftpErrorCode(new Error(message));
+      expect(typeof code).toBe('string');
+      expect(Object.values(ErrorCode)).toContain(code);
+    }
   });
 });
 

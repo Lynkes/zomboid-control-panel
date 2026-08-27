@@ -1459,32 +1459,32 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     description: 'How long a day lasts.',
     type: 'select',
     options: [
-      { value: 1, label: '15 minutes' },
-      { value: 2, label: '30 minutes' },
-      { value: 3, label: '1 hour' },
-      { value: 4, label: '1 hour 30 minutes' },
-      { value: 5, label: '2 hours' },
-      { value: 6, label: '3 hours' },
-      { value: 7, label: '4 hours' },
-      { value: 8, label: '5 hours' },
-      { value: 9, label: '6 hours' },
-      { value: 10, label: '7 hours' },
-      { value: 11, label: '8 hours' },
-      { value: 12, label: '9 hours' },
-      { value: 13, label: '10 hours' },
-      { value: 14, label: '11 hours' },
-      { value: 15, label: '12 hours' },
-      { value: 16, label: '13 hours' },
-      { value: 17, label: '14 hours' },
-      { value: 18, label: '15 hours' },
-      { value: 19, label: '16 hours' },
-      { value: 20, label: '17 hours' },
-      { value: 21, label: '18 hours' },
-      { value: 22, label: '19 hours' },
-      { value: 23, label: '20 hours' },
-      { value: 24, label: '21 hours' },
-      { value: 25, label: '22 hours' },
-      { value: 26, label: '23 hours' },
+      { value: 1, label: '15 Minutes' },
+      { value: 2, label: '30 Minutes' },
+      { value: 3, label: '1 Hour' },
+      { value: 4, label: '1 Hour, 30 Minutes' },
+      { value: 5, label: '2 Hours' },
+      { value: 6, label: '3 Hours' },
+      { value: 7, label: '4 Hours' },
+      { value: 8, label: '5 Hours' },
+      { value: 9, label: '6 Hours' },
+      { value: 10, label: '7 Hours' },
+      { value: 11, label: '8 Hours' },
+      { value: 12, label: '9 Hours' },
+      { value: 13, label: '10 Hours' },
+      { value: 14, label: '11 Hours' },
+      { value: 15, label: '12 Hours' },
+      { value: 16, label: '13 Hours' },
+      { value: 17, label: '14 Hours' },
+      { value: 18, label: '15 Hours' },
+      { value: 19, label: '16 Hours' },
+      { value: 20, label: '17 Hours' },
+      { value: 21, label: '18 Hours' },
+      { value: 22, label: '19 Hours' },
+      { value: 23, label: '20 Hours' },
+      { value: 24, label: '21 Hours' },
+      { value: 25, label: '22 Hours' },
+      { value: 26, label: '23 Hours' },
       { value: 27, label: 'Real-time' }
     ],
     default: 4,
@@ -1544,11 +1544,11 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     options: [
       { value: 1, label: '7 AM' },
       { value: 2, label: '9 AM' },
-      { value: 3, label: '12 PM (Noon)' },
+      { value: 3, label: '12 PM' },
       { value: 4, label: '2 PM' },
       { value: 5, label: '5 PM' },
       { value: 6, label: '9 PM' },
-      { value: 7, label: '12 AM (Midnight)' },
+      { value: 7, label: '12 AM' },
       { value: 8, label: '2 AM' },
       { value: 9, label: '5 AM' }
     ],
@@ -2133,13 +2133,13 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     type: 'select',
     options: [
       { value: 1, label: 'Instant' },
-      { value: 2, label: '0-30 Days' },
-      { value: 3, label: '0-2 Months' },
-      { value: 4, label: '0-6 Months' },
-      { value: 5, label: '0-1 Year' },
-      { value: 6, label: '0-5 Years' },
-      { value: 7, label: '2-6 Months' },
-      { value: 8, label: '6-12 Months' },
+      { value: 2, label: '0 - 30 Days' },
+      { value: 3, label: '0 - 2 Months' },
+      { value: 4, label: '0 - 6 Months' },
+      { value: 5, label: '0 - 1 Year' },
+      { value: 6, label: '0 - 5 Years' },
+      { value: 7, label: '2 - 6 Months' },
+      { value: 8, label: '6 - 12 Months' },
       { value: 9, label: 'Disabled' }
     ],
     default: 2,
@@ -2153,13 +2153,13 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     type: 'select',
     options: [
       { value: 1, label: 'Instant' },
-      { value: 2, label: '14-30 Days' },
-      { value: 3, label: '14 Days-2 Months' },
-      { value: 4, label: '14 Days-6 Months' },
-      { value: 5, label: '14 Days-1 Year' },
-      { value: 6, label: '14 Days-5 Years' },
-      { value: 7, label: '2-6 Months' },
-      { value: 8, label: '6-12 Months' },
+      { value: 2, label: '14 - 30 Days' },
+      { value: 3, label: '14 Days - 2 Months' },
+      { value: 4, label: '14 Days - 6 Months' },
+      { value: 5, label: '14 Days - 1 Year' },
+      { value: 6, label: '14 Days - 5 Years' },
+      { value: 7, label: '2 - 6 Months' },
+      { value: 8, label: '6 - 12 Months' },
       { value: 9, label: 'Disabled' }
     ],
     default: 2,
@@ -2173,11 +2173,14 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     type: 'select',
     options: [
       { value: 1, label: 'Instant' },
-      { value: 2, label: '0-30 Days' },
-      { value: 3, label: '0-2 Months' },
-      { value: 4, label: '0-6 Months' },
-      { value: 5, label: '0-1 Year' },
-      { value: 6, label: '0-5 Years' }
+      { value: 2, label: '0 - 30 Days' },
+      { value: 3, label: '0 - 2 Months' },
+      { value: 4, label: '0 - 6 Months' },
+      { value: 5, label: '0 - 1 Year' },
+      { value: 6, label: '0 - 5 Years' },
+      { value: 7, label: '2 - 6 Months' },
+      { value: 8, label: '6 - 12 Months' },
+      { value: 9, label: 'Disabled' }
     ],
     default: 2,
     category: 'environment',
@@ -2423,7 +2426,7 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
       { value: 3, label: 'Normal' },
       { value: 4, label: 'High' },
       { value: 5, label: 'Very High' },
-      { value: 6, label: 'No Decay' }
+      { value: 6, label: 'No decay' }
     ],
     default: 3,
     category: 'survival',
@@ -2592,7 +2595,7 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     options: [
       { value: 1, label: 'True' },
       { value: 2, label: 'False' },
-      { value: 3, label: 'Only Bleach Disabled' }
+      { value: 3, label: 'Only bleach poisoning is disabled' }
     ],
     default: 1,
     category: 'survival',
@@ -2670,9 +2673,9 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     type: 'select',
     options: [
       { value: 1, label: 'None' },
-      { value: 2, label: '1 pt per 3 negative traits' },
-      { value: 3, label: '1 pt per 2 negative traits' },
-      { value: 4, label: '1 pt per negative trait after first' }
+      { value: 2, label: '1 point penalty for every 3 negative traits selected' },
+      { value: 3, label: '1 point penalty for every 2 negative traits selected' },
+      { value: 4, label: '1 point penalty for every negative trait selected after the first' }
     ],
     default: 1,
     category: 'survival',
@@ -2739,9 +2742,9 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     description: 'How unseen/unread media is displayed.',
     type: 'select',
     options: [
-      { value: 1, label: 'Fully Revealed' },
+      { value: 1, label: 'Fully revealed' },
       { value: 2, label: 'Shown as ???' },
-      { value: 3, label: 'Completely Hidden' }
+      { value: 3, label: 'Completely hidden' }
     ],
     default: 3,
     category: 'survival',
@@ -2822,7 +2825,8 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     options: [
       { value: 1, label: 'Never' },
       { value: 2, label: 'Once' },
-      { value: 3, label: 'Sometimes' }
+      { value: 3, label: 'Sometimes' },
+      { value: 4, label: 'Often' }
     ],
     default: 2,
     category: 'survival',
@@ -2835,7 +2839,8 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     type: 'select',
     options: [
       { value: 1, label: 'Never' },
-      { value: 2, label: 'Sometimes' }
+      { value: 2, label: 'Sometimes' },
+      { value: 3, label: 'Often' }
     ],
     default: 2,
     category: 'survival',
@@ -2848,7 +2853,8 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     type: 'select',
     options: [
       { value: 1, label: 'Never' },
-      { value: 2, label: 'Sometimes' }
+      { value: 2, label: 'Sometimes' },
+      { value: 3, label: 'Often' }
     ],
     default: 1,
     category: 'survival',
@@ -2920,11 +2926,13 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     description: 'How many generators spawn in the world.',
     type: 'select',
     options: [
-      { value: 1, label: 'Very Rare' },
-      { value: 2, label: 'Rare' },
-      { value: 3, label: 'Sometimes' },
-      { value: 4, label: 'Often' },
-      { value: 5, label: 'Very Often' }
+      { value: 1, label: 'None (not recommended)' },
+      { value: 2, label: 'Insanely Rare' },
+      { value: 3, label: 'Extremely Rare' },
+      { value: 4, label: 'Rare' },
+      { value: 5, label: 'Normal' },
+      { value: 6, label: 'Common' },
+      { value: 7, label: 'Abundant' }
     ],
     default: 4,
     category: 'survival',
@@ -3640,11 +3648,11 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     description: 'How tough crops are.',
     type: 'select',
     options: [
-      { value: 1, label: 'Very Low' },
-      { value: 2, label: 'Low' },
+      { value: 1, label: 'Very High' },
+      { value: 2, label: 'High' },
       { value: 3, label: 'Normal' },
-      { value: 4, label: 'High' },
-      { value: 5, label: 'Very High' }
+      { value: 4, label: 'Low' },
+      { value: 5, label: 'Very Low' }
     ],
     default: 3,
     category: 'animals',
@@ -3750,7 +3758,8 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
       { value: 3, label: 'Rare' },
       { value: 4, label: 'Sometimes' },
       { value: 5, label: 'Often' },
-      { value: 6, label: 'Very Often' }
+      { value: 6, label: 'Very Often' },
+      { value: 7, label: 'Always Tries' }
     ],
     default: 3,
     category: 'world',
@@ -3860,7 +3869,7 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     options: [
       { value: 1, label: 'Instant' },
       { value: 2, label: '0-30 Seconds' },
-      { value: 3, label: '0-1 Minute' },
+      { value: 3, label: '0-1 Minutes' },
       { value: 4, label: '0-12 Hours' },
       { value: 5, label: '2-3 Days' },
       { value: 6, label: '1-2 Weeks' },
@@ -3891,10 +3900,10 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     description: 'How long zombies remember where they last saw a target.',
     type: 'select',
     options: [
-      { value: 1, label: 'Long (2500)' },
-      { value: 2, label: 'Normal (750)' },
-      { value: 3, label: 'Short (500)' },
-      { value: 4, label: 'None (25)' },
+      { value: 1, label: 'Long' },
+      { value: 2, label: 'Normal' },
+      { value: 3, label: 'Short' },
+      { value: 4, label: 'None' },
       { value: 5, label: 'Random' },
       { value: 6, label: 'Random between Normal and None' }
     ],
@@ -4739,6 +4748,26 @@ function translatedOrFallback(key: string, fallback: string): string {
   return resolveRegisteredTranslation('serverconfig', key, undefined) ?? fallback
 }
 
+// Sandbox setting/option LABELS ONLY (never descriptions) additionally check
+// the sandboxPz namespace before falling back to the schema's own English
+// string. That namespace holds Project Zomboid's own official translations,
+// extracted verbatim from the game's Sandbox.json language files -- so an
+// operator setting "Meta Events" here sees the exact same word their game
+// client shows, rather than a differently-worded (even if accurate)
+// translation authored independently of PZ's own vocabulary. A hand-authored
+// override placed directly in serverconfig.json still wins if one is ever
+// added -- this only fills the gap when neither exists.
+// Descriptions are deliberately NOT wired to this: PZ's own tooltips were
+// written for its in-game options screen, ours were written for this panel,
+// and they are not automatically the same job.
+function translatedSandboxLabel(key: string, fallback: string): string {
+  return (
+    resolveRegisteredTranslation('serverconfig', `sandboxSettings.${key}`, undefined) ??
+    resolveRegisteredTranslation('sandboxPz', key, undefined) ??
+    fallback
+  )
+}
+
 export function getIniSettingLabel(setting: IniSetting): string {
   return translatedOrFallback(`iniSettings.${setting.category}.${setting.key}.label`, setting.label)
 }
@@ -4761,7 +4790,7 @@ export function getIniCategoryGroupLabel(group: { id: string; label: string }): 
 }
 
 export function getSandboxSettingLabel(setting: SandboxSetting): string {
-  return translatedOrFallback(`sandboxSettings.${setting.category}.${setting.key}.label`, setting.label)
+  return translatedSandboxLabel(`${setting.category}.${setting.key}.label`, setting.label)
 }
 
 export function getSandboxSettingDescription(setting: SandboxSetting): string {
@@ -4770,7 +4799,25 @@ export function getSandboxSettingDescription(setting: SandboxSetting): string {
 
 export function getSandboxSettingOptionLabel(setting: SandboxSetting, value: number): string {
   const fallback = setting.options?.find(o => o.value === value)?.label ?? String(value)
-  return translatedOrFallback(`sandboxSettings.${setting.category}.${setting.key}.options.${value}.label`, fallback)
+  return translatedSandboxLabel(`${setting.category}.${setting.key}.options.${value}.label`, fallback)
+}
+
+// Runtime belt-and-braces for the class of bug the enum audit found (a live
+// value with no matching option): even a fully-corrected, drift-gated
+// schema can go stale the moment PZ ships a new option before this panel
+// regenerates. The save path never coerces an unrecognized select value
+// (verified during the audit -- it survives untouched unless the operator
+// explicitly re-picks that field), so the value itself is safe; the only
+// thing missing was telling the human. Uses translatedOrFallback's own
+// pattern (no locale-file change required, translatable later exactly like
+// every other string in this file) rather than a bare useTranslation() key,
+// which would need a same-day addition to all six locale files to avoid the
+// gap this file's own translation machinery exists to prevent.
+export function getUnrecognizedSandboxOptionWarning(value: number | string): string {
+  return translatedOrFallback(
+    'unrecognizedSandboxOptionWarning',
+    `This server is currently set to ${value}, which this panel does not recognize. The value is preserved and will not be changed unless you pick a different option here.`,
+  )
 }
 
 export function getSandboxCategoryLabel(category: { id: string; label: string }): string {

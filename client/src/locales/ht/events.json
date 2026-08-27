@@ -25,7 +25,8 @@
     "noMatches": "Pa gen kontwòl ki koresponn ak rechèch sa a.",
     "bridgeBadge": "bridge",
     "bridgeBadgeTitle": "Bezwen PanelBridge",
-    "recentActions": "Aksyon resan"
+    "recentActions": "Aksyon resan",
+    "noRecentActions": "Pa gen aksyon resan — aksyon ki deklanche nan paj sa a ap anrejistre isit la."
   },
   "bridgeOfflineAlert": {
     "title": "PanelBridge òfliy",
@@ -196,7 +197,9 @@
     "statusOffline": "òfliy",
     "statusPending": "…",
     "restore": "retabli",
-    "shutOff": "koupe"
+    "shutOff": "koupe",
+    "timingReasoning": "modifikatè {{modifier}} · jou mond {{day}} · {{nights}} nwit siviv",
+    "modifierNever": "janm"
   },
   "quickSounds": {
     "sublabel": "RCON · atire zonbi",
@@ -239,6 +242,8 @@
     "random": "owaza",
     "targetFallback": "sib",
     "clearLoadedZombies": "efase zonbi chaje yo",
+    "removeAllConfirmTitle": "Efase tout zonbi chaje yo?",
+    "removeAllConfirmDescription": "Sa a retire imedyatman tout zonbi ki nan selil chaje yo, sou tout sèvè a -- ansanm ak sa yon jwè ap goumen ak li kounye a. Zonbi yo ap reparèt avèk tan, men sa fini konba a imedyatman pou moun ki te ladan l.",
     "noPlayersOnlineTitle": "Pa gen jwè anliy",
     "bridgeOfflineTitle": "Bridge òfliy",
     "sizeAria": "Gwosè mas zonbi a"
@@ -342,6 +347,11 @@
     "bridgeFileLink": "Lyen fichye bridge: {{summary}}",
     "bridgeConnectionRequiredTitle": "Koneksyon bridge obligatwa",
     "bridgeConnectionRequiredDesc": "Operasyon sa yo mande yon koneksyon PanelBridge k ap fonksyone. Konfigire li nan Paramèt anvan.",
+    "moderationConfirmTitle": "Egzekite {{operation}}?",
+    "moderationConfirmDescription": "Sa a voye yon vrè kòmand moderasyon atravè bridge k ap fonksyone a{{target}}{{reason}}. Tcheke valè ki anwo yo anvan ou kontinye.",
+    "moderationConfirmTarget": " sou {{target}}",
+    "moderationConfirmReason": " (rezon: {{reason}})",
+    "moderationConfirmButton": "Egzekite Operasyon",
     "runOperation": "Egzekite Operasyon",
     "resetFields": "Reyinisyalize Chan",
     "clearResults": "Efase Rezilta",
@@ -373,7 +383,7 @@
     "runEventSequence": { "label": "Egzekite Sekans Evènman", "description": "Egzekite yon sekans chat/move tan/eseinm/itilite/bri anchène." },
     "getInfrastructureSnapshot": { "label": "Enstantane Enfrastrikti", "description": "Li estati idwo/move tan ak yon pwen echantiyon si genyen." },
     "moderationKickUser": { "label": "Mete Itilizatè Deyò", "description": "Mete jwè deyò atravè BanSystem." },
-    "moderationBanUser": { "label": "Bani Itilizatè", "description": "Bani oswa retire baniman yon jwè." },
+    "moderationBanUser": { "label": "Bani Itilizatè", "description": "Bani oswa retire baniman sèlman selon non itilizatè a -- sa a pa bani adrès IP li. Sèvi ak paj Jwè yo pou yon bànisman non itilizatè + IP ansanm." },
     "moderationBanIP": { "label": "Bani IP", "description": "Bani oswa retire baniman yon adrès IP." },
     "moderationBanSteamID": { "label": "Bani SteamID", "description": "Bani oswa retire baniman yon SteamID." }
   },
@@ -513,6 +523,7 @@
     "bridgeCommandFailedFallback": "Kòmand bridge echwe.",
     "notPersistedDesc": "Aplike sèlman sou mond k ap fonksyone a — SandboxVars.lua pa mete ajou ({{reason}}), kidonk yon redemaraj sèvè ap anile sa a.",
     "notPersistedUnknownReason": "rezon enkoni",
+    "powerDidNotTakeEffectDesc": "Sèvè a rapòte kouran an toujou {{state}} — chanjman an pa t pran efè.",
     "noPlayersOnlineError": "Pa gen jwè anliy",
     "targetPlayerRequiredHorde": "Jwè sib obligatwa pou fè parèt mas zonbi",
     "operationCompletedDesc": "Operasyon konplete avèk siksè.",

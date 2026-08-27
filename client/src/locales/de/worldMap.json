@@ -1,4 +1,10 @@
 {
+  "permissions": {
+    "noBridgeCommand": "Diese Ingame-Aktion erfordert die Berechtigung bridge.command, über die diese Rolle nicht verfügt.",
+    "noWorldEvents": "Das Auslösen von Weltereignissen erfordert die Berechtigung server.world_events, über die diese Rolle nicht verfügt.",
+    "noGmTools": "Das Spawnen eines Fahrzeugs erfordert die Berechtigung players.gm_tools, über die diese Rolle nicht verfügt.",
+    "noGmToolsBridgeAction": "Diese Aktion erfordert die Berechtigung players.gm_tools, über die diese Rolle nicht verfügt."
+  },
   "pageHeader": {
     "title": "Weltkarte",
     "description": "Live-Positionen der Spieler auf der Karte von Knox County. Rechtsklick für Aktionen."
@@ -38,7 +44,24 @@
     "coverageTitle": "Keine Kartenkacheln bei dieser Zoomstufe",
     "coverageDesc": "<1>tiles.pzmap.org</1> ist erreichbar, hat diesen Bereich in dieser Detailstufe aber noch nicht gerendert. Zoome heraus oder versuche es später erneut mit Aktualisieren.",
     "networkTitle": "Kartenkacheln werden nicht geladen",
-    "networkDesc": "Panel kann <1>tiles.pzmap.org</1> nicht erreichen. Überprüfe den ausgehenden HTTPS-Zugriff und versuche es erneut mit Aktualisieren."
+    "networkDesc": "Diese Kachel konnte nicht vom Panel geladen werden. Überprüfe die eigene Netzwerkverbindung des Panels und versuche es erneut mit <1>Aktualisieren</1>.",
+    "diagnostic": "Diagnose: {{detail}}",
+    "gzipTitle": "Kartenkachel kam noch komprimiert an",
+    "gzipDesc": "Die Daten dieser Kachel erreichten den Browser noch gzip-komprimiert, statt automatisch entpackt zu werden. Das bedeutet meist, dass ein Reverse-Proxy vor dem Panel (nginx, Apache, Caddy usw.) den Content-Encoding-Header entfernt oder falsch behandelt. Falls das auf Ihre Einrichtung zutrifft, bitten Sie die zuständige Person, diese Einstellung zu prüfen.",
+    "htmlTitle": "Statt einer Kartenkachel kam eine HTML-Seite an",
+    "htmlDesc": "Etwas vor dem Panel hat eine HTML-Seite statt des Kachelbilds zurückgegeben -- oft eine Proxy-Fehlerseite, eine Login-Seite oder ein Netzwerk-Anmeldeportal, das die Anfrage abfängt. Prüfen Sie, was vor dem Panel liegt (ein Reverse-Proxy, VPN oder ein Netzwerk mit Anmeldeportal) auf etwas, das diese Anfrage abfängt.",
+    "jsonTitle": "Das Panel hat einen Fehler statt einer Kartenkachel zurückgegeben",
+    "jsonDesc": "Die Antwort war eine JSON-Fehlermeldung statt Bilddaten. Das deutet auf ein Problem auf der Seite des Panels selbst hin, nicht auf dem Netzwerk dazwischen.",
+    "pngTitle": "Ein PNG-Bild kam an, wo ein JPEG erwartet wurde",
+    "pngDesc": "Die Daten dieser Kachel sind ein echtes Bild, nur nicht im vom Panel erwarteten Format. Das deutet auf eine Unstimmigkeit auf der Seite des Panels selbst hin, nicht auf dem Netzwerk dazwischen.",
+    "emptyTitle": "Kartenkachel kam leer an",
+    "emptyDesc": "Für diese Kachel kamen überhaupt keine Daten zurück. Das deutet meist auf ein Netzwerk- oder Proxy-Problem hin, nicht auf ein Problem mit der Karte selbst.",
+    "truncatedTitle": "Kartenkachel wurde bei der Übertragung abgeschnitten",
+    "truncatedDesc": "Die Bilddaten dieser Kachel sind echt, aber es kamen nur {{received}} von {{expected}} Bytes an. Die Verbindung wurde bei der Übertragung abgeschnitten, was meist auf ein Proxy- oder Netzwerkproblem hinweist, nicht auf ein Problem mit der Karte.",
+    "corruptTitle": "Kartenkacheldaten sind beschädigt",
+    "corruptDesc": "Die Daten dieser Kachel sind echte Bilddaten, die vollständig ankamen, aber nicht dekodiert werden konnten. Das könnte ein einmaliger Fehler sein -- versuchen Sie es mit Aktualisieren.",
+    "unrecognizedTitle": "Kartenkachel kam als unbekannte Daten an",
+    "unrecognizedDesc": "Die Daten dieser Kachel entsprechen keinem vom Panel erkannten Format. Rohe Bytes: {{hex}}"
   },
   "roster": {
     "label": "Liste",

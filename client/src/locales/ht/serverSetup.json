@@ -26,6 +26,12 @@
       "description": "Si ou pa janm konfigire yon sèvè Project Zomboid anvan, chwazi <1>Nouvèl Enstalasyon</1>. Li ap telechaje tout sa ou bezwen otomatikman."
     }
   },
+  "resumeBanner": {
+    "title": "Yon enstalasyon ka toujou ap kouri",
+    "description": "Yon sesyon anvan te kòmanse enstale nan {{installPath}} ({{elapsed}} de sa) epi paj la te fèmen oswa rechaje anvan li te fini. Li ka toujou ap telechaje an background.",
+    "continueButton": "Kontinye konfigirasyon",
+    "dismissButton": "Ignore"
+  },
   "stepIndicator": {
     "quick": {
       "location": "Kote",
@@ -61,6 +67,8 @@
     "regeneratePasswordAria": "Jenere nouvo modpas",
     "regeneratePasswordTooltip": "Jenere nouvo modpas",
     "rconPortLabel": "Pò RCON",
+    "rconPortHelp": "Pò panèl la itilize pou voye kòmand RCON (demare, sispann, sove, mete deyò, chat) bay sèvè k ap fonksyone a — separe de pò jwè yo konekte sou li. Egzanp: 27015 (default la). Li dwe lib sou machin sa a; si yon lòt pwogram deja ap itilize l, sèvè a ka pa demare, oswa panèl la ka pa kapab konekte pou kontwole l.",
+    "rconPortDefaultHint": "Pò default: 27015",
     "memoryTitle": "Atribisyon Memwa",
     "detectingRam": "N ap detekte RAM...",
     "minRamLabel": "RAM Minimòm",
@@ -71,10 +79,11 @@
     "maxRamAria": "RAM Maksimòm an GB",
     "maxRamSliderAria": "RAM Maksimòm: {{value}}GB",
     "gamePortLabel": "Pò Jwèt",
+    "gamePortHelp": "Pò kliyan jwèt Project Zomboid yo konekte sou li lè jwè yo antre. Egzanp: 16261 (default la). Si w chanje l, jwè yo dwe ajoute nouvo nimewo a apre adrès sèvè ou a pou yo konekte (pa egzanp, ip-ou:16262), epi routè oswa paravan dife ou dwe transfè menm pò sa a olye lòt la.",
     "gamePortDefaultHint": "Pò default: 16261",
     "adminPasswordLabel": "Modpas Administratè",
     "adminPasswordPlaceholder": "Obligatwa anvan premye demaraj sèvè",
-    "adminPasswordHelp": "Obligatwa anvan premye demaraj sèvè.",
+    "adminPasswordHelp": "Mete modpas pou kont administratè entegre Project Zomboid la. Yon fwa sèvè a ap fonksyone, itilize l nan jwèt la ak kòmand chat /login admin, swiv pa modpas sa a, pou jwenn pouvwa administratè. Obligatwa anvan premye demaraj sèvè a — ou ka enstale sèvè a san li, men li p ap demare toutotan youn poko mete.",
     "hideAdminPassword": "Kache modpas administratè",
     "showAdminPassword": "Montre modpas administratè",
     "upnpLabel": "UPnP",
@@ -87,7 +96,8 @@
     "debugDesc": "Aktive jounal demaraj ak egzekisyon detaye",
     "debugAria": "Aktive mòd debogaj",
     "customConfigLocation": "Kote konfigirasyon pèsonalize",
-    "customConfigLocationHelp": "Chemen dosye done pèsonalize",
+    "customConfigLocationHelp": "Project Zomboid nòmalman kenbe sovgad, konfigirasyon sèvè, ak jounal akote dosye enstalasyon an. Mete sa sèlman si done sa yo vrèman yon lòt kote — pa egzanp yon lòt disk, oswa yon dosye bind-mounted nan Docker. Si w pwente sou move dosye a, panèl la p ap jwenn sovgad, paramèt, oswa kopi sovgad ou yo ki egziste deja.",
+    "customDataPathPlaceholder": "pa egzanp C:\\Users\\NonOu\\Zomboid oswa /home/nonou/Zomboid",
     "useCustomLocation": "Itilize kote pèsonalize",
     "serverNameLabel": "Non Sèvè",
     "serverNamePlaceholder": "myserver",
@@ -105,7 +115,10 @@
     "progressDownloading": "N ap telechaje...",
     "progressValidating": "N ap valide fichye...",
     "progressVerifying": "N ap verifye enstalasyon...",
-    "progressComplete": "Fini!"
+    "progressComplete": "Fini!",
+    "noPermissionInstall": "Pou ou enstale yon sèvè, ou bezwen pèmisyon server.install, e wòl sa a pa genyen li.",
+    "noPermissionSettings": "Pou ou sove paramèt sa a, ou bezwen pèmisyon panel.settings, e wòl sa a pa genyen li.",
+    "noPermissionControl": "Pou ou demare sèvè a, ou bezwen pèmisyon server.control, e wòl sa a pa genyen li."
   },
   "full": {
     "pageTitle": "Nouvèl Enstalasyon",
@@ -134,13 +147,13 @@
       "description": "Chwazi kote fichye yo enstale epi mete idantite sèvè a.",
       "installFolderLabel": "Dosye Enstalasyon",
       "useLinuxPath": "Itilize chemen sèvis Linux",
-      "installFolderPlaceholder": "Dosye kote fichye sèvè yo ap enstale",
-      "installFolderHelp": "SteamCMD telechaje anviwon 3 GB isit la. Sèvis panèl la dwe gen otorizasyon pou ekri nan dosye sa a.",
+      "installFolderPlaceholder": "pa egzanp C:\\PZServer oswa /home/steamuser/pzserver",
+      "installFolderHelp": "SteamCMD telechaje anviwon 3 GB fichye sèvè isit la, e li kreye dosye a otomatikman si li poko egziste — panèl la sèlman bezwen otorizasyon pou ekri isit la. Sa a separe de kote sovgad ak paramèt yo estoke; gade « Kote konfigirasyon pèsonalize » pi ba.",
       "linuxNoteTitle": "Enstalasyon sèvis Linux",
       "linuxNoteBody1": "Si panèl la fonksyone atravè sèvis systemd enkli a, itilize <1>{{path}}</1>. Lòt dosye mande yon chanjman otorizasyon systemd.",
       "linuxNoteBody2": "Dosye done sèvè a kreye akote dosye enstalasyon an: <1>{{path}}</1>. Tou de dosye yo dwe ka ekri sou yo.",
       "dataFolderPlaceholder": "your-install-folder_Data",
-      "serverNameHelp": "Lèt ak chif ak tirè anba sèlman. Itilize pou fichye konfigirasyon.",
+      "serverNameHelp": "Lèt ak chif ak tirè anba sèlman, pa egzanp myserver. Sa vin non fichye konfigirasyon an (myserver.ini) — mete l anvan w enstale. Chanje l apre a kreye yon konfigirasyon nouvo ki vid olye li chanje non ansyen an.",
       "gameVersionLabel": "Vèsyon Jwèt",
       "gameVersionHelp": "Pifò moun vle Stable — se vèsyon default aktyèl la. Lòt branch Steam ofri isit yo se vèsyon ki pi ansyen oswa eksperimantal, ki rete la pou konpatibilite ak mod oswa sovgad ki poko mete ajou. Sovgad ak mod pa garanti pou fonksyone atravè diferan vèsyon, kidonk chanje sèlman si w vrèman bezwen youn.",
       "loadingVersions": "N ap chaje vèsyon disponib...",
@@ -191,7 +204,7 @@
     "step2": {
       "title": "Konfigire Sèvè",
       "description": "Mete non sèvè, aksè RCON, ak limit memwa.",
-      "serverNameHelp": "Chak sèvè bezwen yon non inik. Kreye fichye konfigirasyon separe.",
+      "serverNameHelp": "Lèt ak chif ak tirè anba sèlman, pa egzanp myserver. Vin non fichye konfigirasyon an (myserver.ini) pou fichye sèvè ki egziste ou te chwazi nan etap anvan an.",
       "rconTitle": "Kontwòl Adistans (RCON)",
       "rconPortDefaultHint": "Pò default: 27015",
       "ramDetectedBadge": "{{total}} GB detekte"
@@ -231,6 +244,9 @@
     "registerFailedLog": "Avètisman: Echwe pou anrejistre sèvè nan panèl la.",
     "registerFailedTitle": "Fichye sèvè enstale, men anrejistreman echwe",
     "registerFailedDesc": "Fichye jwèt yo sou disk, men panèl la pa t kapab ajoute sèvè sa a nan baz done li, kidonk li p ap parèt nan Sèvè Mwen yo poko. Tcheke jounal anwo a, epi eseye Konfigirasyon Sèvè ankò — li san danje pou fè l ankò.",
+    "activateFailedLog": "Avètisman: Sèvè a te anrejistre, men li pa t kapab defini kòm sèvè aktif la.",
+    "activateFailedTitle": "Sèvè anrejistre, men li pa aktif",
+    "activateFailedDesc": "Sèvè a te ajoute nan Sèvè Mwen yo, men panèl la pa t kapab chanje pou li otomatikman. Ale nan Sèvè Mwen yo epi chwazi l manyèlman anvan ou demare l.",
     "steamCmdReadyTitle": "SteamCMD Pare",
     "steamCmdReadyDesc": "SteamCMD enstale epi pare pou itilize.",
     "steamCmdFailedTitle": "Konfigirasyon SteamCMD Echwe",
@@ -245,7 +261,7 @@
     "adminPasswordRequiredInstallDesc": "Antre yon modpas administratè anvan w kòmanse enstalasyon an.",
     "adminPasswordRequiredCreateDesc": "Antre yon modpas administratè anvan w kreye sèvè sa a.",
     "invalidPortTitle": "Pò Envalid",
-    "invalidPortDesc": "Pò Jwèt la ak Pò RCON dwe chak yon nonm antye ant 1024 ak 65535.",
+    "invalidPortDesc": "Pò Jwèt la dwe yon nonm antye ant 1024 ak 65534; Pò RCON dwe ant 1024 ak 65535.",
     "startingInstallLog": "N ap kòmanse enstalasyon...",
     "creatingConfigLog": "N ap kreye konfigirasyon sèvè...",
     "configCreatedLog": "Konfigirasyon sèvè kreye avèk siksè!",

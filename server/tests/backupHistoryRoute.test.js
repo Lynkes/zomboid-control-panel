@@ -25,3 +25,25 @@ it("filters backup history by server and bounds the requested limit", async () =
   expect(listBackupRecords).toHaveBeenCalledWith({ serverId: "server-1", limit: 500 });
   expect(response.json).toHaveBeenCalledWith({ records: [{ fileName: "DoomerZ.zip" }] });
 });
+
+it("returns 400 for a missing backup settings body", async () => {
+  const response = createResponse();
+  const layer = router.stack.find(
+    (entry) => entry.route?.path === "/settings" && entry.route.methods.post,
+  );
+  const handler = layer.route.stack.at(-1).handle;
+
+  await handler(
+    {
+      body: null,
+      app: { get: () => ({}) },
+    },
+    response,
+  );
+
+  expect(response.status).toHaveBeenCalledWith(400);
+  expect(response.json).toHaveBeenCalledWith({
+    success: false,
+    error: "Request body must be an object",
+  });
+});

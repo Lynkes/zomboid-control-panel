@@ -20,6 +20,15 @@ export function ConnectionStatus({ className, showLabel = false }: ConnectionSta
   // Only show when not connected — a permanently visible "Connected" badge is noise
   if (connected && !reconnecting) return null
 
+  // Reaching this component's render at all means the page itself loaded
+  // over HTTP successfully -- so a stuck reconnect or a terminal disconnect
+  // is never proof the panel/server is down, only that THIS live-update
+  // connection specifically can't establish. A generic wifi-off icon with
+  // no explanation reads as "the panel is broken" to a non-technical
+  // operator; naming the likely cause (most commonly a reverse proxy not
+  // forwarding WebSocket upgrades) turns this into something they can act
+  // on or hand to whoever runs their proxy, without asserting it as fact --
+  // plenty of other things can cause a socket to fail to connect.
   const getStatusInfo = () => {
     if (connected) {
       return {
@@ -37,6 +46,9 @@ export function ConnectionStatus({ className, showLabel = false }: ConnectionSta
         surface: 'border-warning/24 bg-warning/10',
         label: t('reconnecting.label'),
         description: t('reconnecting.description', { attempt: reconnectAttempt }),
+        // Only after a few attempts -- a single retry is normal network
+        // noise, not evidence of a proxy misconfiguration worth surfacing.
+        hint: reconnectAttempt >= 3 ? t('reconnecting.hint') : undefined,
         animate: true,
       }
     }
@@ -45,7 +57,9 @@ export function ConnectionStatus({ className, showLabel = false }: ConnectionSta
       color: 'text-destructive',
       surface: 'border-destructive/24 bg-destructive/10',
       label: t('disconnected.label'),
-      description: error || t('disconnected.description'),
+      description: t('disconnected.description'),
+      hint: t('disconnected.hint'),
+      technicalDetail: error ? t('disconnected.technicalDetail', { error }) : undefined,
     }
   }
 
@@ -80,9 +94,17 @@ export function ConnectionStatus({ className, showLabel = false }: ConnectionSta
         </div>
       </TooltipTrigger>
       <TooltipContent side="bottom">
-        <div className="text-sm">
+        <div className="text-sm max-w-xs">
           <p className="font-medium">{status.label}</p>
           <p className="text-muted-foreground">{status.description}</p>
+          {status.hint && (
+            <p className="text-muted-foreground mt-1.5">{status.hint}</p>
+          )}
+          {status.technicalDetail && (
+            <p className="text-muted-foreground/70 font-mono text-xs mt-1.5 break-all">
+              {status.technicalDetail}
+            </p>
+          )}
         </div>
       </TooltipContent>
     </Tooltip>

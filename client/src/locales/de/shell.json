@@ -39,7 +39,12 @@
     },
     "notAvailableRemote": "Nicht verfügbar für Remote-Server (nur RCON)",
     "localBadge": "Lokal",
-    "requiresServer": "Füge zuerst einen Server hinzu — diese Seite braucht einen, um zu funktionieren"
+    "requiresServer": "Füge zuerst einen Server hinzu — diese Seite braucht einen, um zu funktionieren",
+    "noServerBanner": {
+      "title": "Noch kein Server",
+      "description": "Die meisten Bereiche werden freigeschaltet, sobald du einen hinzufügst.",
+      "cta": "Server einrichten"
+    }
   },
   "mobileMenu": {
     "open": "Menü öffnen",

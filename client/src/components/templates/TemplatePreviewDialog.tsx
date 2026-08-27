@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2, AlertTriangle } from 'lucide-react'
 import {
@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dialog'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { useToast } from '@/components/ui/use-toast'
+import { useConfirm } from '@/contexts/ConfirmContext'
 import {
   templatesApi,
   serversApi,
@@ -19,6 +20,7 @@ import {
   SimTemplateApplyResult,
   ServerInstance,
 } from '@/lib/api'
+import { getUserErrorMessage } from '@/lib/errorMessage'
 import { TemplateDiffList } from './TemplateDiffList'
 import { TemplateApplyPanel } from './TemplateApplyPanel'
 
@@ -32,6 +34,7 @@ interface TemplatePreviewDialogProps {
 export function TemplatePreviewDialog({ template, canManage, onClose, onApplied }: TemplatePreviewDialogProps) {
   const { t } = useTranslation('templatePreviewDialog')
   const { toast } = useToast()
+  const confirm = useConfirm()
   const [server, setServer] = useState<ServerInstance | null>(null)
   const [serverLoading, setServerLoading] = useState(true)
   const [running, setRunning] = useState<boolean | null>(null)
@@ -43,7 +46,18 @@ export function TemplatePreviewDialog({ template, canManage, onClose, onApplied 
   const [applyError, setApplyError] = useState<string | null>(null)
   const [applyResult, setApplyResult] = useState<SimTemplateApplyResult | null>(null)
 
+  // Closing this dialog and reopening it for a different template does not
+  // unmount it (Templates.tsx just swaps the `template` prop via
+  // setPreviewTemplate), so a slow preview response for the PREVIOUS
+  // template can land after a newer load() has already started and
+  // overwrite this render with the wrong template's server/running/diff --
+  // same shape as the fetch-race hunt's ChunkCleaner.tsx loadIdRef
+  // precedent. Every setState below a real await is gated on this still
+  // being the most recent load() call.
+  const loadIdRef = useRef(0)
+
   const load = useCallback(async (tpl: SimTemplate) => {
+    const loadId = ++loadIdRef.current
     setServerLoading(true)
     setDiff(null)
     setDiffError(null)
@@ -54,23 +68,31 @@ export function TemplatePreviewDialog({ template, canManage, onClose, onApplied 
     setRunning(null)
 
     const { server: active } = await serversApi.getResolvedActive().catch(() => ({ server: null }))
+    if (loadIdRef.current !== loadId) return
     setServer(active)
     if (active && !active.isRemote) {
       serverApi.getStatus()
-        .then((status) => setRunning(!!(status as { running?: boolean })?.running))
-        .catch(() => setRunning(null))
+        .then((status) => {
+          if (loadIdRef.current !== loadId) return
+          setRunning(!!(status as { running?: boolean })?.running)
+        })
+        .catch(() => {
+          if (loadIdRef.current === loadId) setRunning(null)
+        })
     }
 
     if (active && !active.isRemote) {
       try {
         const result = await templatesApi.preview(tpl.meta.id, active.id)
+        if (loadIdRef.current !== loadId) return
         if (result.success && result.diff) setDiff(result.diff)
         else setDiffError(result.error || t('failedToPreview'))
       } catch (error) {
-        setDiffError(error instanceof Error ? error.message : t('failedToPreview'))
+        if (loadIdRef.current !== loadId) return
+        setDiffError(getUserErrorMessage(error, t('failedToPreview')))
       }
     }
-    setServerLoading(false)
+    if (loadIdRef.current === loadId) setServerLoading(false)
   }, [t])
 
   useEffect(() => {
@@ -79,6 +101,19 @@ export function TemplatePreviewDialog({ template, canManage, onClose, onApplied 
 
   const handleApply = async () => {
     if (!template || !server) return
+    // Overwrites the live server config with no undo -- but unlike a
+    // delete, it's fully reversible (apply a different template, or the
+    // same server config again) and only reaches players at the NEXT
+    // restart, not instantly. Affects-others-but-reversible tier:
+    // warning-amber, matching Mods.tsx's "Apply preset" confirm rather
+    // than either destructive-red or no confirmation at all.
+    const ok = await confirm({
+      title: t('applyConfirmTitle', { name: template.meta.name }),
+      description: t('applyConfirmDescription', { count: diff?.summary.totalChanges ?? 0 }),
+      confirmLabel: t('applyConfirmButton'),
+      variant: 'warning',
+    })
+    if (!ok) return
     setApplying(true)
     setApplyError(null)
     try {
@@ -91,7 +126,7 @@ export function TemplatePreviewDialog({ template, canManage, onClose, onApplied 
       toast({ title: t('toastAppliedTitle'), description: t('toastAppliedDesc', { name: template.meta.name }), variant: 'success' as const })
       onApplied()
     } catch (error) {
-      setApplyError(error instanceof Error ? error.message : t('failedToApply'))
+      setApplyError(getUserErrorMessage(error, t('failedToApply')))
     } finally {
       setApplying(false)
     }

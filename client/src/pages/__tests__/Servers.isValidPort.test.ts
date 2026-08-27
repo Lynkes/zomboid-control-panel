@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isValidPort } from '../Servers'
+import { isValidGamePort, isValidPort } from '../Servers'
 
 // conv-hunt-pages-2 lens 4, confirmed instance: the "Add Server" dialog's
 // RCON port and game port fields, and the "Edit Server" dialog's game port
@@ -26,5 +26,13 @@ describe('Servers -- isValidPort', () => {
     expect(isValidPort(1)).toBe(true)
     expect(isValidPort(27015)).toBe(true)
     expect(isValidPort(65535)).toBe(true)
+    expect(isValidPort(1.5)).toBe(false)
+  })
+})
+
+describe('Servers -- isValidGamePort', () => {
+  it('rejects 65535 because the derived UDP port would be invalid', () => {
+    expect(isValidGamePort(65535)).toBe(false)
+    expect(isValidGamePort(65534)).toBe(true)
   })
 })

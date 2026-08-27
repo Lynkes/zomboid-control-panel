@@ -3,6 +3,7 @@
   "players": "Spieler",
   "hostCpu": "Host-CPU",
   "hostMemory": "Host-Speicher",
+  "hostSwap": "Host-Swap",
   "disk": "Disk",
   "onlineUnit": "online",
   "normal": "normal"

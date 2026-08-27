@@ -1,5 +1,30 @@
 {
   "loading": "Connexion en cours…",
+  "autoUpdateResult": {
+    "successTitle": "Mise à jour automatique terminée",
+    "successDescription": "La mise à jour automatique du serveur s'est terminée avec succès.",
+    "successDescriptionVersioned": "La mise à jour automatique du serveur s'est terminée avec succès (version {{version}} en cours d'exécution).",
+    "failedTitle": "Échec de la mise à jour automatique",
+    "dismiss": "Ignorer",
+    "dismissAria": "Ignorer l'avis de mise à jour automatique",
+    "dismissFailedTitle": "Impossible d'ignorer l'avis",
+    "dismissFailedFallback": "L'avis n'a pas pu être ignoré. Réessayez.",
+    "serverUp": "Votre serveur est actuellement en cours d'exécution.",
+    "serverDown": "Votre serveur est actuellement arrêté.",
+    "serverUnaffected": "Rien n'a changé — l'état de votre serveur n'est pas affecté.",
+    "reasons": {
+      "MANAGED_CONTAINER": "Ce serveur s'exécute dans un conteneur Docker géré par le panneau. Mettez plutôt à jour l'image du conteneur — le panneau n'exécute pas SteamCMD sur un conteneur géré.",
+      "NOT_CONFIGURED": "Le chemin SteamCMD ou le chemin d'installation du serveur n'est pas configuré.",
+      "INITIAL_SCAN_FAILED": "Impossible de vérifier si le serveur était en cours d'exécution ; la mise à jour a donc été abandonnée par sécurité.",
+      "RCON_NOT_CONNECTED": "RCON n'était pas connecté, le serveur n'a donc pas pu être arrêté en toute sécurité.",
+      "SAVE_FAILED": "Le monde n'a pas pu être sauvegardé ({{reason}}), la mise à jour a donc été abandonnée pour éviter de perdre la progression.",
+      "STOP_SCAN_FAILED": "Impossible de continuer à vérifier que le serveur s'était arrêté ; la mise à jour a donc été abandonnée par sécurité.",
+      "STOP_TIMEOUT": "Le serveur ne s'est pas arrêté dans les 5 minutes.",
+      "STEAMCMD_NOT_FOUND": "SteamCMD est introuvable à {{path}}.",
+      "STEAMCMD_EXIT_CODE": "SteamCMD s'est terminé avec le code {{code}}.",
+      "UNKNOWN": "Une erreur inattendue s'est produite pendant la mise à jour automatique."
+    }
+  },
   "errors": {
     "failedToConnect": "Échec de la connexion au serveur.",
     "failedToLoad": "Échec du chargement de l'état du tableau de bord.",
@@ -48,7 +73,11 @@
     "autoStartDisabledDesc": "Le serveur ne démarrera pas automatiquement",
     "autoStartSaveFailed": "Échec de l'enregistrement du paramètre de démarrage automatique",
     "errorTitle": "Erreur",
-    "actionFailedFallback": "Échec de l'action. Veuillez réessayer."
+    "actionFailedFallback": "Échec de l'action. Veuillez réessayer.",
+    "rconAuthFailed": {
+      "openServers": "Ouvrir Serveurs",
+      "openServersAlt": "Ouvrir la page Serveurs pour mettre à jour le mot de passe RCON"
+    }
   },
   "actions": {
     "start": "Démarrer",
@@ -65,7 +94,11 @@
     "moreActionsAria": "Plus d'actions serveur",
     "addServerFirst": "Ajoutez ou sélectionnez d'abord un serveur",
     "notAvailableRemote": "Non disponible pour les serveurs distants (RCON uniquement)",
-    "forceStopTooltip": "Arrête immédiatement le jeu sans enregistrer"
+    "forceStopTooltip": "Tente une sauvegarde rapide, puis arrête immédiatement dans tous les cas",
+    "connectRconNeedsHostRunning": "Démarrez d'abord le serveur",
+    "noPermissionControl": "Votre rôle n'a pas la permission de contrôler le serveur.",
+    "noPermissionWipe": "Votre rôle n'a pas la permission d'effacer le monde.",
+    "wipeMustStopFirst": "Arrêtez le serveur avant d'effacer."
   },
   "confirm": {
     "cancel": "Annuler",
@@ -75,7 +108,7 @@
     },
     "forceStopServer": {
       "title": "Arrêt forcé du serveur",
-      "description": "Ceci arrêtera immédiatement le processus du jeu sans enregistrer.",
+      "description": "Ceci tente une sauvegarde rapide (jusqu'à 3 secondes), puis arrête le jeu immédiatement, que la sauvegarde réussisse ou non.",
       "descriptionPlayers": " {{count}} joueur(s) seront déconnectés !"
     },
     "restartServer": {
@@ -90,8 +123,13 @@
   },
   "successCopy": {
     "startServer": { "title": "Démarrage du serveur", "description": "Surveillez le tableau de bord pour l'état en direct." },
+    "startServerScriptBackup": { "title": "Démarrage du serveur — script de démarrage sauvegardé", "description": "Le panneau a détecté des modifications du script de démarrage et a sauvegardé votre version avant de le régénérer." },
     "stopServer": { "title": "Serveur arrêté", "description": "Session terminée proprement." },
-    "forceStopServer": { "title": "Arrêt forcé du serveur", "description": "Le processus du jeu a été arrêté sans RCON." },
+    "stopServerRequested": { "title": "Arrêt demandé", "description": "Le serveur sauvegarde et s'arrête proprement — cela peut prendre un moment sur un grand monde. Le badge de statut se mettra à jour une fois l'arrêt confirmé." },
+    "forceStopServer": { "title": "Arrêt forcé du serveur", "description": "Le monde a été sauvegardé, puis le processus du jeu a été arrêté." },
+    "forceStopSaveFailed": { "title": "Arrêt forcé du serveur — échec de la sauvegarde", "description": "La sauvegarde préalable à l'arrêt a été refusée. La progression récente pourrait être perdue." },
+    "forceStopSaveTimedOut": { "title": "Arrêt forcé du serveur — délai de sauvegarde dépassé", "description": "La sauvegarde préalable à l'arrêt n'a pas répondu en 3 secondes. La progression récente pourrait être perdue." },
+    "forceStopSaveSkipped": { "title": "Arrêt forcé du serveur — aucune sauvegarde tentée", "description": "RCON n'était pas connecté, donc aucune sauvegarde n'a été tentée avant l'arrêt. La progression récente pourrait être perdue." },
     "restartServer": { "title": "Redémarrage programmé", "description": "Le serveur redémarrera sous peu." },
     "restartServerNow": { "title": "Redémarrage déclenché", "description": "Commande de redémarrage forcé envoyée." },
     "saveWorld": { "title": "Monde enregistré", "description": "État actuel écrit sur le disque." },
@@ -108,6 +146,8 @@
     "serverStatusUnknown": "État du serveur inconnu",
     "serverStopped": "Serveur arrêté",
     "rconDisconnected": "RCON déconnecté",
+    "rconHelpLabel": "RCON",
+    "rconHelpTip": "RCON est le protocole de console à distance que ce panneau utilise pour envoyer des commandes au jeu en cours d'exécution — expulser des joueurs, sauvegarder le monde, diffuser des messages, et tout ce que fait le panneau. Tant qu'il est déconnecté, ces actions sont indisponibles jusqu'à la reconnexion.",
     "hostMemory": "Mémoire de l'hôte {{percent}} %",
     "diskAlmostFull": "Disque presque plein, {{gb}} Go restants",
     "diskPercent": "Disque {{percent}} %, {{gb}} Go restants",
@@ -265,7 +305,12 @@
       "world": { "label": "État du monde", "desc": "Dictionnaire du monde, métadonnées, érosion, états des objets du jeu, radio." },
       "accounts": { "label": "Comptes et bannissements", "desc": "Comptes utilisateurs, mots de passe, rôles, listes blanches et de bannissement. Tout le monde se réinscrit à la prochaine connexion." }
     },
-    "notice": "Sélectionner carte, joueurs et monde vide complètement le dossier de sauvegarde, y compris tout ce que les mods y ont laissé. Les paramètres .ini et sandbox du serveur sont stockés séparément et ne seront pas affectés.",
+    "notice": "Sélectionner carte, joueurs ou monde supprime définitivement ces données — impossible d'annuler, sauf si vous créez d'abord une sauvegarde ci-dessous. Sélectionner comptes supprime définitivement les listes blanches et de bannissement ; tout le monde devra se réinscrire à la prochaine connexion. Les paramètres .ini et sandbox du serveur sont stockés séparément et ne seront pas affectés.",
+    "backupLabel": "Sauvegarder avant d'effacer",
+    "backupDesc": "Crée une sauvegarde complète de la partie actuelle (et de la base de données des comptes, si sélectionnée) avant toute suppression. Restaurable depuis la page Sauvegardes.",
+    "noBackupTitle": "Aucune sauvegarde ne sera créée",
+    "noBackupDesc": "Ce que vous effacez disparaît définitivement, sans aucun moyen de l'annuler depuis le panneau.",
+    "backupStarting": "Démarrage de la sauvegarde…",
     "noFilesFound": "Aucun fichier trouvé pour les cibles sélectionnées.",
     "willDelete": "Ceci supprimera définitivement :",
     "categoryLabels": {
@@ -286,6 +331,7 @@
     "previewFailedFallback": "Impossible d'analyser le dossier de sauvegarde",
     "wipedTitle": "Serveur effacé",
     "wipedDesc": "Supprimé : {{targets}}",
+    "wipedDescWithBackup": "Supprimé : {{targets}}. Sauvegardé au préalable sous {{name}}.",
     "wipeFailedTitle": "Échec de l'effacement",
     "wipeFailedFallback": "Erreur inconnue"
   }

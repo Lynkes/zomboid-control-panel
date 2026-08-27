@@ -5,6 +5,7 @@
     "eyebrow": "Flota",
     "scanAria": "Buscar servidores",
     "scanTitle": "Buscar servidores",
+    "scanNoPermission": "Buscar instalaciones de bind-mount requiere el permiso servers.discover, del cual este rol no dispone.",
     "addRemote": "Añadir servidor remoto",
     "addExisting": "Añadir servidor existente",
     "installNew": "Instalar servidor nuevo"
@@ -40,6 +41,8 @@
     "dataPath": "Ruta de datos",
     "startContainer": "Iniciar contenedor",
     "stopContainer": "Detener contenedor",
+    "stopContainerConfirmTitle": "¿Detener este contenedor?",
+    "stopContainerConfirmDescription": "{{name}} primero guarda a través de RCON, pero el propio contenedor lo detiene Docker -- si no sale a tiempo, Docker lo fuerza a terminar. Esto puede acabar en una terminación no controlada, a diferencia del botón de detención normal.",
     "restartContainer": "Reiniciar contenedor",
     "startContainerAria": "Iniciar {{name}}",
     "stopContainerAria": "Detener {{name}}",
@@ -54,12 +57,15 @@
     "memory": "Memoria",
     "statusHost": "Host",
     "statusProcess": "Proceso",
+    "statusContainer": "Contenedor",
     "statusNotConfigured": "Sin configurar",
     "statusAuthFailed": "Error de autenticación",
     "statusUnavailable": "No disponible",
     "buildLabel": "Build:",
     "branchLabel": "Rama:",
     "stopThisServer": "Detener este servidor",
+    "stopConfirmTitle": "¿Detener el servidor?",
+    "stopConfirmDescription": "Esto desconectará a todos los jugadores conectados. Puedes volver a iniciarlo cuando quieras.",
     "stopping": "Deteniendo…",
     "stop": "Detener",
     "startThisServer": "Iniciar este servidor",
@@ -72,6 +78,9 @@
     "activating": "Activando…",
     "switchToThisServer": "Cambiar a este servidor",
     "added": "Añadido el {{date}}",
+    "noPermissionDocker": "Gestionar este contenedor requiere el permiso docker.manage, del cual este rol no dispone.",
+    "noPermissionManage": "Esta acción requiere el permiso servers.manage, del cual este rol no dispone.",
+    "noPermissionStartStop": "Requiere tanto servers.manage como server.control — un conjunto de permisos parcial dejaría el servidor activado pero no iniciado/detenido.",
     "restartContainerAria": "Reiniciar {{name}}"
   },
   "tandem": {
@@ -113,7 +122,8 @@
     "rconOnlyDesc": "Funciones como la edición de configuración, la gestión de mods, las copias de seguridad, iniciar/detener el servidor y las operaciones de archivos no estarán disponibles. Aun así, puedes usar la consola, gestionar jugadores, enviar mensajes de chat, controlar el clima y los eventos, y ejecutar comandos programados.",
     "cancel": "Cancelar",
     "adding": "Añadiendo…",
-    "addServer": "Añadir servidor"
+    "addServer": "Añadir servidor",
+    "noPermission": "Añadir un servidor requiere el permiso servers.manage, del cual este rol no dispone."
   },
   "remoteForm": {
     "displayNameLabel": "Nombre visible del servidor *",
@@ -150,6 +160,8 @@
     "dataPathHint": "La carpeta que contiene las subcarpetas Server/, Saves/, Logs/",
     "installPathLabel": "Ruta de instalación del servidor (opcional)",
     "installPathPlaceholder": "Ruta a la carpeta del servidor de PZ (contiene StartServer64.bat o start-server.sh)",
+    "customLauncherNoticeTitle": "Modo de lanzador personalizado",
+    "customLauncherNoticeBody": "Esta ruta apunta a un script, no a una carpeta — el panel lo ejecutará tal cual y nunca lo regenerará ni lo editará. Los ajustes que normalmente se escriben en un script de inicio por ti (memoria, contraseña de administrador, la ruta de datos, el nombre del servidor) no llegarán al servidor a menos que los pongas tú mismo en este script.",
     "noConfigsFoundTitle": "No se encontraron configuraciones de servidor",
     "noConfigsFoundDesc": "Ejecuta el servidor una vez para crear el archivo INI.",
     "selectConfigLabel": "Seleccionar configuración del servidor",
@@ -161,12 +173,15 @@
     "rconPortLabel": "Puerto de RCON:",
     "rconPasswordLabel": "Contraseña de RCON *",
     "rconPasswordPlaceholder": "Introduce la contraseña de RCON",
+    "rconPasswordImportPlaceholder": "Deja en blanco para importarla automáticamente",
     "rconPasswordAria": "Contraseña de RCON",
     "rconPasswordRequired": "Obligatoria para controlar el servidor. También puedes definir <1>RCONPassword=tucontraseña</1> en tu archivo {{iniName}}.ini.",
     "passwordSet": "Contraseña establecida",
+    "passwordWillImport": "Se importará automáticamente desde {{iniName}}.ini — déjala en blanco para usarla, o escribe una nueva para sobrescribirla.",
     "minMemoryLabel": "Memoria mín. (GB)",
     "maxMemoryLabel": "Memoria máx. (GB)",
-    "selectScannedConfigAria": "Usar el servidor detectado {{name}}"
+    "selectScannedConfigAria": "Usar el servidor detectado {{name}}",
+    "discoverNoPermission": "Detectar o buscar servidores requiere el permiso servers.discover, del cual este rol no dispone."
   },
   "editDialog": {
     "title": "Editar servidor",
@@ -179,10 +194,12 @@
     "dockerContainerPlaceholder": "Nombre de contenedor explícito (opcional)",
     "dockerContainerHint": "Requiere PANEL_DOCKER_CONTROL_ENABLED y la etiqueta de contenedor zomboid-panel.managed=true.",
     "installPathLabel": "Ruta de instalación",
+    "customLauncherNoticeTitle": "Modo de lanzador personalizado",
+    "customLauncherNoticeBody": "Esta ruta apunta a un script, no a una carpeta — el panel lo ejecutará tal cual y nunca lo regenerará ni lo editará. Los ajustes que normalmente se escriben en un script de inicio por ti (memoria, contraseña de administrador, la ruta de datos, el nombre del servidor) no llegarán al servidor a menos que los pongas tú mismo en este script.",
     "dataPathLabel": "Ruta de datos de Zomboid",
     "dataPathPlaceholder": "Dejar vacío para usar el valor predeterminado",
     "customStartCommandLabel": "Comando de inicio personalizado",
-    "customStartCommandTooltip": "Sustituye el script de inicio predeterminado por un comando personalizado. Admite argumentos. Déjalo vacío para usar la detección automática del archivo bat/sh.",
+    "customStartCommandTooltip": "Sustituye el script de inicio predeterminado por un comando personalizado. Admite argumentos. Déjalo vacío y el panel regenerará el script de inicio bat/sh predeterminado a partir de esta configuración cada vez que se inicie el servidor — esto SOBRESCRIBE ese archivo, incluidas las ediciones manuales, aunque primero se hace una copia de seguridad del archivo modificado.",
     "customStartCommandPlaceholder": "p. ej. ./start-server.sh -servername MiServidor",
     "customStartCommandDisallowed": "El comando contiene caracteres de shell no permitidos",
     "noSteamLabel": "Iniciar sin Steam",
@@ -206,20 +223,25 @@
     "maxMemoryLabel": "Memoria máx. (GB)",
     "cancel": "Cancelar",
     "saving": "Guardando…",
-    "saveChanges": "Guardar cambios"
+    "saveChanges": "Guardar cambios",
+    "noPermission": "Guardar la configuración del servidor requiere el permiso servers.manage, del cual este rol no dispone."
   },
   "deleteDialog": {
     "title": "¿Quitar servidor del panel?",
     "description": "Esto quitará «{{name}}» de la gestión del panel.",
     "alsoDeleteFilesLabel": "También eliminar los archivos del servidor",
     "alsoDeleteFilesDesc": "Esto eliminará permanentemente todos los archivos en:",
+    "dataPathNestedWarningTitle": "Esto también eliminará la partida guardada del mundo",
+    "dataPathNestedWarningDesc": "La carpeta de datos de Zomboid de este servidor está dentro de la carpeta de instalación de arriba, así que no hay una copia separada — eliminarla destruye también la partida guardada del mundo. El panel se negará a hacerlo hasta que muevas la ruta de datos en Ajustes o hagas tú mismo una copia de seguridad:",
     "filesNotDeleted": "Los archivos del servidor NO se eliminarán; puedes volver a añadir este servidor más adelante.",
     "deletingFiles": "Eliminando archivos del servidor…",
     "removingServer": "Quitando servidor…",
     "cancel": "Cancelar",
     "removing": "Quitando…",
     "deleteEverything": "Eliminar todo",
-    "removeFromPanel": "Quitar del panel"
+    "removeFromPanel": "Quitar del panel",
+    "noPermission": "Eliminar un servidor requiere el permiso servers.manage, del cual este rol no dispone.",
+    "deleteFilesNoPermission": "Eliminar los archivos del servidor requiere el permiso server.wipe, del cual este rol no dispone. Aún se permite quitar solo el registro del panel."
   },
   "steamDialog": {
     "verifyTitle": "Verificar archivos del juego",
@@ -247,7 +269,8 @@
     "startVerify": "Iniciar verificación",
     "startUpdate": "Iniciar actualización",
     "done": "Hecho",
-    "retry": "Reintentar"
+    "retry": "Reintentar",
+    "noPermission": "Actualizar o verificar los archivos del servidor requiere el permiso server.install, del cual este rol no dispone."
   },
   "clearInstallDialog": {
     "title": "¿Vaciar carpeta de instalación?",
@@ -255,7 +278,8 @@
     "descriptionAfter": "— incluidos los archivos del juego, el estado de descarga de SteamCMD y cualquier mod instalado ahí. Usa esto para recuperarte de una actualización de SteamCMD que sigue fallando (instalación corrupta o atascada). Después tendrás que pulsar Iniciar actualización de nuevo para reinstalar desde cero. Esto no afecta a tus partidas guardadas.",
     "cancel": "Cancelar",
     "clearing": "Vaciando…",
-    "clearFolder": "Vaciar carpeta"
+    "clearFolder": "Vaciar carpeta",
+    "noPermission": "Vaciar la carpeta de instalación requiere el permiso server.wipe, del cual este rol no dispone."
   },
   "branches": {
     "public": "Pública (estable)",
@@ -314,7 +338,8 @@
     "deletedFromPanel": "Servidor «{{name}}» quitado del panel",
     "deleteServerFailed": "No se pudo eliminar el servidor",
     "rconPortRangeError": "El puerto de RCON debe estar entre 1 y 65535",
-    "gamePortRangeError": "El puerto del juego debe estar entre 1 y 65535",
+    "gamePortRangeError": "El puerto del juego debe estar entre 1 y 65534",
+    "memoryRequiredError": "Indica un valor mínimo y máximo de memoria",
     "savedTitle": "Guardado",
     "savedDesc": "Ajustes del servidor actualizados",
     "updateServerFailed": "No se pudo actualizar el servidor",

@@ -350,7 +350,10 @@ export default function OidcSettings({ embedded = false }: { embedded?: boolean 
                 <Input
                   id="oidc-redirect-uri"
                   value={form.redirectUri}
-                  onChange={(e) => setForm((prev) => ({ ...prev, redirectUri: e.target.value }))}
+                  onChange={(e) => {
+                    setForm((prev) => ({ ...prev, redirectUri: e.target.value }))
+                    setDiscoveryResult(null)
+                  }}
                   disabled={envOverrides?.redirectUri}
                 />
                 {envOverrides?.redirectUri ? (
@@ -387,7 +390,10 @@ export default function OidcSettings({ embedded = false }: { embedded?: boolean 
                   <Input
                     id="oidc-client-id"
                     value={form.clientId}
-                    onChange={(e) => setForm((prev) => ({ ...prev, clientId: e.target.value }))}
+                    onChange={(e) => {
+                      setForm((prev) => ({ ...prev, clientId: e.target.value }))
+                      setDiscoveryResult(null)
+                    }}
                     disabled={envOverrides?.clientId}
                   />
                   {envOverrides?.clientId && (
@@ -401,7 +407,10 @@ export default function OidcSettings({ embedded = false }: { embedded?: boolean 
                     id="oidc-client-secret"
                     type="password"
                     value={clientSecret}
-                    onChange={(e) => setClientSecret(e.target.value)}
+                    onChange={(e) => {
+                      setClientSecret(e.target.value)
+                      setDiscoveryResult(null)
+                    }}
                     placeholder={
                       settings.clientSecretConfigured
                         ? t('fields.clientSecretPlaceholderConfigured')
@@ -428,7 +437,10 @@ export default function OidcSettings({ embedded = false }: { embedded?: boolean 
                 <Input
                   id="oidc-scope"
                   value={form.scope}
-                  onChange={(e) => setForm((prev) => ({ ...prev, scope: e.target.value }))}
+                  onChange={(e) => {
+                    setForm((prev) => ({ ...prev, scope: e.target.value }))
+                    setDiscoveryResult(null)
+                  }}
                   disabled={envOverrides?.scope}
                 />
                 <p className="text-xs text-muted-foreground">

@@ -1,4 +1,13 @@
 {
+  "noAccess": {
+    "title": "你没有访问服务器配置的权限",
+    "description": "此页面需要“管理服务器文件”权限。如果你需要在此处编辑服务器设置，请让管理员为你的角色授予该权限。"
+  },
+  "duplicateKeysWarning": {
+    "title_one": "此配置文件中「{{keys}}」出现了不止一次",
+    "title_other": "此配置文件中有 {{count}} 项设置出现了不止一次：{{keys}}",
+    "desc": "此编辑器读取的是最后一份副本，而模组页面读取的是第一份，因此两者对同一设置显示的值可能不一致。"
+  },
   "loading": "正在加载配置…",
   "loadErrorTitle": "配置数据未能完全加载",
   "retry": "重试",
@@ -7,7 +16,7 @@
     "description": "编辑此服务器当前生效的 INI、沙盒、出生点及模组设置。",
     "eyebrow": "配置",
     "unsavedChanges": "有未保存的更改",
-    "templates": "模板",
+    "templates": "已保存的配置",
     "backups": "备份",
     "refresh": "刷新"
   },
@@ -33,7 +42,9 @@
   },
   "stopServerAlert": {
     "title": "服务器正在运行",
-    "description": "您现在可以保存更改。根据您编辑的内容，可能需要重启服务器才能生效——保存后的提示会告诉您具体情况。"
+    "description": "您现在可以保存更改。根据您编辑的内容，可能需要重启服务器才能生效——保存后的提示会告诉您具体情况。",
+    "unknownTitle": "无法确认服务器是否已停止",
+    "unknownDescription": "我们无法确定服务器当前是否正在运行。如果正在运行，更改可能需要重启服务器才能生效——保存后的提示会告诉您具体情况。"
   },
   "invalidValuesAlert": {
     "title": "保存前修正无效的值",
@@ -167,7 +178,10 @@
     "collapseAll": "全部折叠",
     "expandAll": "全部展开",
     "notLoadedTitle": "模组设置尚未加载",
-    "notLoadedDesc": "点击「加载」以通过 PanelBridge 获取所有已安装模组的沙盒选项。PZ 服务器必须处于运行状态且 PanelBridge 已激活。",
+    "notLoadedDescPrefix": "点击「加载」以通过 PanelBridge",
+    "notLoadedDescSuffix": " 获取所有已安装模组的沙盒选项。PZ 服务器必须处于运行状态且 PanelBridge 已激活。",
+    "panelBridgeLabel": "PanelBridge",
+    "panelBridgeTip": "PanelBridge 是运行在游戏服务器上的 Lua 模组,它让本面板实时访问沙盒选项、天气、传送和物品控制等功能。只有当它已安装在服务器上且服务器正在运行时，模组设置才会加载。",
     "refreshFailedTitle": "刷新失败——显示的是先前的数据",
     "loadFailedTitle": "加载模组设置失败",
     "loadFailedNotConnected": "加载模组设置失败。PanelBridge 是否已连接？",
@@ -226,45 +240,51 @@
     "sizeKb": "{{size}}KB"
   },
   "templatesDialog": {
-    "title": "配置模板",
-    "applyTip": "应用模板会替换你当前的全部设置——而不是与现有设置合并。面板会在应用前备份当前生效的配置，因此可以通过“还原”撤销，但必须先停止服务器。",
-    "description": "将当前配置保存为模板，或加载已保存的模板。",
-    "savedCount_one": "已保存 {{count}} 个模板",
-    "savedCount_other": "已保存 {{count}} 个模板",
-    "saveCurrentAsTemplate": "将当前配置保存为模板",
-    "emptyTitle": "尚未保存任何模板",
-    "emptyDesc": "点击「将当前配置保存为模板」以创建你的第一个模板",
+    "title": "已保存的配置",
+    "applyTip": "应用已保存的配置会替换你当前的全部设置——而不是与现有设置合并。面板会在应用前备份当前生效的配置，因此可以通过“还原”撤销，但必须先停止服务器。",
+    "description": "保存当前配置，或加载你之前保存的配置。",
+    "savedCount_one": "已保存 {{count}} 个配置",
+    "savedCount_other": "已保存 {{count}} 个配置",
+    "saveCurrentAsTemplate": "保存当前配置",
+    "emptyTitle": "尚未保存任何配置",
+    "emptyDesc": "点击「保存当前配置」以创建第一个",
     "typeBoth": "INI ＋ 沙盒",
     "createdLabel": "创建时间：{{date}}",
     "apply": "应用",
-    "applyTooltip": "加载此模板（会先创建备份）",
-    "deleteAria": "删除模板 {{name}}",
-    "deleteTooltip": "删除此模板",
+    "applyTooltip": "加载此配置（会先创建备份）",
+    "deleteAria": "删除已保存的配置 {{name}}",
+    "deleteTooltip": "删除此已保存的配置",
     "close": "关闭"
   },
   "saveTemplateDialog": {
-    "title": "另存为模板",
-    "description": "将当前的 INI 和／或沙盒设置保存为可重复使用的模板。",
-    "nameLabel": "模板名称 *",
+    "title": "保存当前配置",
+    "description": "保存当前的 INI 和／或沙盒设置，以便日后重新加载。",
+    "nameLabel": "名称 *",
     "namePlaceholder": "例如：PvE 休闲、硬核生存……",
     "nameCharCount": "{{count}}/60 字符",
     "descLabel": "描述（可选）",
-    "descPlaceholder": "描述此模板的用途…",
+    "descPlaceholder": "描述这个配置的用途…",
     "descCharCount": "{{count}}/240 字符",
-    "includeLabel": "包含在模板中",
+    "includeLabel": "包含",
     "includeIniTitle": "服务器设置（INI）",
     "includeIniDesc": "网络、玩家、RCON、服务器行为",
-    "includeIniAria": "在模板中包含服务器设置",
+    "includeIniAria": "包含服务器设置",
     "includeSandboxTitle": "沙盒设置",
     "includeSandboxDesc": "世界、丧尸、战利品、生存设置",
-    "includeSandboxAria": "在模板中包含沙盒设置",
+    "includeSandboxAria": "包含沙盒设置",
     "cancel": "取消",
-    "save": "保存模板"
+    "save": "保存配置"
   },
   "deleteTemplateConfirm": {
-    "title": "删除模板？",
-    "description": "删除模板“{{name}}”？此操作无法撤销。",
+    "title": "删除已保存的配置？",
+    "description": "删除已保存的配置“{{name}}”？此操作无法撤销。",
     "confirmLabel": "删除"
+  },
+  "applyTemplateConfirm": {
+    "title": "应用已保存的配置“{{name}}”？",
+    "description": "用此已保存的配置替换当前的服务器设置？面板会先备份当前生效的配置，如有需要可通过“恢复”撤销。",
+    "rconWarning": "已保存的配置不会保存 RCON 密码，因此应用后会移除服务器当前的 RCON 密码——之后需要重新输入。",
+    "confirmLabel": "应用"
   },
   "fileBrowserDialog": {
     "title": "选择图片文件",
@@ -323,6 +343,7 @@
     "bridgeUnverifiedDesc": "{{action}} 已发送，但模组无法确认是否生效。",
     "bridgeOldBridgeDesc": "{{action}} 可能已生效，但此版本的 PanelBridge 模组不会回报结果。请更新模组以确认结果。",
     "appliedNotSavedTitle": "已应用，但未保存",
+    "worldSaveFailedDesc": "{{option}} 已应用，但服务器的世界保存失败（{{reason}}），因此可能无法在下次重启后保留。",
     "notPersistedDesc": "{{option}} 不在 SandboxVars.lua 中，服务器重启后将会重置。",
     "willResetFallback": "{{option}} 将在服务器重启后重置。",
     "failedToUpdateTitle": "更新失败",
@@ -330,18 +351,20 @@
     "setOptionFailed": "设置选项失败",
     "browseFilesFailed": "浏览文件失败",
     "navigateFailed": "导航失败",
-    "templateNameRequired": "模板名称为必填项",
+    "templateNameRequired": "名称为必填项",
     "loadBackupsFailed": "加载备份失败。",
     "restoredTitle": "已恢复",
     "restoredDesc": "已从 {{filename}} 恢复",
     "restoreBackupFailed": "恢复备份失败。",
-    "loadTemplatesFailed": "加载模板失败。",
+    "loadTemplatesFailed": "加载已保存的配置失败。",
     "appliedTitle": "已应用",
-    "applyTemplateFailed": "应用模板失败。",
-    "saveTemplateFailed": "保存模板失败。",
+    "applyTemplateFailed": "应用已保存的配置失败。",
+    "applyTemplatePartialTitle": "部分已应用",
+    "applyTemplatePartialDesc": "{{applied}} 设置在此次失败前已写入磁盘：{{error}} 已保存配置的其余部分未应用。",
+    "saveTemplateFailed": "保存配置失败。",
     "deletedTitle": "已删除",
-    "templateDeletedDesc": "模板“{{name}}”已删除",
-    "deleteTemplateFailed": "删除模板失败。"
+    "templateDeletedDesc": "已保存的配置“{{name}}”已删除",
+    "deleteTemplateFailed": "删除已保存的配置失败。"
   },
   "restoreBackupConfirm": {
     "title": "恢复此备份？",

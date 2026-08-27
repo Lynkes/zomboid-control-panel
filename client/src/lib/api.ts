@@ -1,5 +1,7 @@
 import { reportClientWarning } from "./client-errors";
 import { clearAccessToken, getAccessToken, setAccessToken } from "./authToken";
+import { toast } from "@/components/ui/use-toast";
+import i18n from "@/i18n";
 
 const API_BASE = "/api";
 
@@ -387,6 +389,20 @@ async function handleResponse<T = any>(response: Response): Promise<T> {
   if ((data as { success?: unknown }).success === false) {
     throw buildResponseError(response, data);
   }
+  // ~30 config-writing routes (mods.js, serverFiles.js) attach this when the
+  // edit itself succeeded but the pre-write backup couldn't be made -- the
+  // operator's change landed, but there is now no safety copy of what was
+  // there before. Surfaced here, once, through this shared choke point every
+  // mutating call already passes through, instead of requiring each of the
+  // ~30 call sites to individually remember to check for it.
+  const backupWarning = (data as { backupWarning?: unknown }).backupWarning;
+  if (typeof backupWarning === "string" && backupWarning) {
+    toast({
+      variant: "warning",
+      title: i18n.t("toastTitle", { ns: "backupWarning" }),
+      description: backupWarning,
+    });
+  }
   return data as T;
 }
 
@@ -534,8 +550,12 @@ export const serverApi = {
   // Wipe
   wipePreview: (targets: string[]) =>
     apiPost("/server/wipe/preview", { targets }),
-  wipe: (targets: string[]) =>
-    apiPost("/server/wipe", { targets, confirm: true }),
+  wipe: (targets: string[], createBackup: boolean = true) =>
+    apiPost("/server/wipe", { targets, confirm: true, createBackup }) as Promise<{
+      success: boolean;
+      backupCreated: boolean;
+      backupName: string | null;
+    }>,
 
   // Panel info - returns the panel's own network address
   getPanelInfo: () =>
@@ -823,12 +843,17 @@ export const schedulerApi = {
   deleteTask: (id: number) => apiDelete(`/scheduler/tasks/${id}`),
   runTask: (id: number) => apiPost(`/scheduler/tasks/${id}/run`),
   restartNow: (warningMinutes?: number) =>
-    apiPost("/scheduler/restart-now", { warningMinutes }),
+    apiPost("/scheduler/restart-now", { warningMinutes }) as Promise<{
+      success: boolean;
+      message: string;
+      warningMinutes: number;
+    }>,
   getCronPresets: () => apiGet("/scheduler/cron-presets"),
   validateCron: (cronExpression: string) =>
     apiPost("/scheduler/validate-cron", { cronExpression }) as Promise<{
       valid: boolean;
       error?: string;
+      code?: string;
     }>,
   getHistory: (limit?: number, taskId?: number) => {
     const params = new URLSearchParams();
@@ -1179,12 +1204,18 @@ export const modsApi = {
         detected: boolean;
       }>;
     }>,
+  // On success the server extracts AND saves the credentials in one step
+  // (2026-08-26 bug hunt: the raw values never need to cross the wire, since
+  // nothing displays them) -- `saved: true` and no sessionid/steamLoginSecure
+  // fields. On failure the shape is unchanged: no credentials were found or
+  // extractable, so there's nothing to omit.
   collectionExtractCookies: (browser: string) =>
     apiPost("/mods/collection/extract-cookies", { browser }) as Promise<{
       ok: boolean;
       browser: string;
-      sessionid: string | null;
-      steamLoginSecure: string | null;
+      saved?: boolean;
+      sessionid?: string | null;
+      steamLoginSecure?: string | null;
       missing?: string[];
       notes?: string[];
       error?: string | null;
@@ -1372,10 +1403,6 @@ export const chunksApi = {
 
 // Config API
 export const configApi = {
-  getServerConfig: () => apiGet("/config"),
-  updateServerConfig: (config: Record<string, string>) =>
-    apiPut("/config", { config }),
-  reloadOptions: () => apiPost("/config/reload"),
   getAppSettings: () => apiGet("/config/app-settings"),
   updateAppSettings: (settings: Record<string, unknown>) =>
     apiPut("/config/app-settings", { settings }),
@@ -1435,14 +1462,23 @@ export const configApi = {
         lastLoadedAt: string | null;
       };
     }>,
-  getPaths: () => apiGet("/config/paths"),
-  updatePaths: (serverPath: string, savePath: string) =>
-    apiPut("/config/paths", { serverPath, savePath }),
-  getRconConfig: () => apiGet("/config/rcon"),
-  updateRconConfig: (host: string, port: number, password: string) =>
-    apiPut("/config/rcon", { host, port, password }),
-  testRcon: () => apiPost("/config/test-rcon"),
+  testRcon: () => apiPost<ConfigTestRconResult>("/config/test-rcon"),
 };
+
+// Result of testing the currently-saved RCON config (as opposed to
+// RconTestResult above, which tests arbitrary unsaved credentials). Failure
+// carries the same "unreachable" vs "auth_failed" split as RconTestResult
+// (server/routes/config.js POST /test-rcon) so callers can tell "host is
+// down" apart from "host is up, password is stale" instead of collapsing
+// both into one generic failure.
+export interface ConfigTestRconResult {
+  success: boolean;
+  connected: boolean;
+  message?: string;
+  warning?: boolean;
+  error?: "unreachable" | "auth_failed";
+  detail?: string;
+}
 
 // Discord API
 export const discordApi = {
@@ -1508,6 +1544,7 @@ export interface ServerInstance {
   maxMemory: number;
   useNoSteam: boolean;
   useDebug: boolean;
+  useUpnp?: boolean;
   isRemote: boolean;
   // Only set on /servers/active: the remote Server folder is reachable over SFTP.
   remoteConfigConfigured?: boolean;
@@ -1582,7 +1619,15 @@ export const serversApi = {
     }>,
   get: (id: string | number) =>
     apiGet(`/servers/${id}`) as Promise<{ server: ServerInstance }>,
-  create: (config: Partial<ServerInstance>) =>
+  create: (
+    config: Partial<ServerInstance> & {
+      // Set instead of rconPassword when importing a server detected by
+      // /auto-scan or /detect -- those never return the ini's RCON
+      // password, so the server re-reads it from this reference at
+      // creation time.
+      importIniFrom?: { dataPath: string; serverName: string };
+    },
+  ) =>
     apiPost("/servers", config) as Promise<{
       server: ServerInstance;
       message: string;
@@ -1591,6 +1636,7 @@ export const serversApi = {
     apiPut(`/servers/${id}`, updates) as Promise<{
       server: ServerInstance;
       message: string;
+      warnings?: string[];
     }>,
   delete: (id: string | number) =>
     apiDelete(`/servers/${id}`) as Promise<{
@@ -1723,7 +1769,17 @@ export interface UtilitiesChangeResult {
   persistReason?: string | null;
 }
 
-export interface BackupFile {
+// server-files/backups' own shape (config-file .bak backups made by the
+// server-files subsystem -- see serverFiles.js's GET /backups) -- distinct
+// from backup.js/backupService.js's full .zip server backups below
+// (ServerBackupArchive). These two were both named BackupFile until
+// 2026-08-27: TypeScript silently merged the same-named interfaces into one
+// type requiring every field from both, so the merged type falsely claimed
+// this shape always carries name/path too (see ServerBackupArchive's
+// comment for the mirror image of this note, and
+// eslint-rules/no-duplicate-interface-name.js for the rule that now catches
+// this class of collision repo-wide).
+export interface ConfigBackupFile {
   filename: string;
   size: number;
   created: string;
@@ -1790,6 +1846,7 @@ export const serverFilesApi = {
       settings: Record<string, string>;
       path: string;
       serverName: string;
+      duplicateKeys?: Array<{ key: string; count: number }>;
     }>,
   saveIni: (settings: Record<string, string>) =>
     apiPut("/server-files/ini", { settings }) as Promise<{
@@ -1864,7 +1921,7 @@ export const serverFilesApi = {
   // Backups
   getBackups: () =>
     apiGet("/server-files/backups") as Promise<{
-      backups: BackupFile[];
+      backups: ConfigBackupFile[];
       path: string;
     }>,
   restoreBackup: (filename: string) =>
@@ -2551,6 +2608,13 @@ export const panelBridgeApi = {
         waterShut: string;
         elecShutModifier: number;
         waterShutModifier: number;
+        // The Lua replicates the game's own power-shutoff formula
+        // (ISButtonPrompt.lua:421 -- elecShutModifier > -1 AND worldAgeDays
+        // < elecShutModifier) to compute powerOn/waterOn above; these are
+        // the inputs to that formula, so the UI can show WHY, not just the
+        // on/off verdict.
+        currentWorldDay: number;
+        nightsSurvived: number;
       };
     }>,
 
@@ -2680,7 +2744,11 @@ export interface BackupStatus extends BackupSettings {
   savesExists: boolean;
 }
 
-export interface BackupFile {
+// backup.js/backupService.js's own shape (full .zip server backups --
+// listBackups()/createBackup() in backupService.js) -- distinct from
+// server-files/backups' config-file .bak backups above (ConfigBackupFile).
+// See that interface's comment for why these have separate names now.
+export interface ServerBackupArchive {
   name: string;
   path: string;
   size: number;
@@ -2702,7 +2770,7 @@ export const backupApi = {
   getInfo: (): Promise<BackupContentsInfo> => apiGet("/backup/info"),
 
   // Get list of backups
-  listBackups: (): Promise<{ backups: BackupFile[] }> => apiGet("/backup/list"),
+  listBackups: (): Promise<{ backups: ServerBackupArchive[] }> => apiGet("/backup/list"),
 
   getHistory: (serverId?: string | number) =>
     apiGet(`/backup/history${serverId != null ? `?serverId=${encodeURIComponent(serverId)}` : ""}`) as Promise<{
@@ -2723,7 +2791,7 @@ export const backupApi = {
     includeDb?: boolean;
   }): Promise<{
     success: boolean;
-    backup?: BackupFile;
+    backup?: ServerBackupArchive;
     duration?: number;
     message?: string;
   }> => apiPost("/backup/create", options || {}),
@@ -2916,12 +2984,31 @@ export interface UpdateStatus {
   lastCheck: string;
 }
 
+// 2026-08-26: persisted server-side (not a live-only socket event) so any
+// page can read it cold, long after the unattended run finished -- see
+// server/services/updateChecker.js's own comment on _recordAutoUpdateResult
+// for why. `reason` is a stable key (never a raw message), translated
+// client-side the same way every other coded failure in this app is.
+export interface AutoUpdateResult {
+  status: "success" | "failed";
+  at: string;
+  dismissed: boolean;
+  // failure-only
+  reason?: string;
+  params?: Record<string, string | number> | null;
+  phase?: "not-started" | "before-stop" | "updating";
+  serverUp?: boolean | null;
+  // success-only
+  appliedVersion?: string | null;
+}
+
 export interface UpdateCheckerStatus {
   updateAvailable: UpdateStatus | null;
   gameVersion: string | null;
   lastCheck: string | null;
   intervalMinutes: number;
   isChecking: boolean;
+  lastAutoUpdateResult: AutoUpdateResult | null;
 }
 
 export interface PanelUpdateAsset {
@@ -3012,6 +3099,12 @@ export const updateApi = {
     minutes: number,
   ): Promise<{ success: boolean; intervalMinutes: number }> =>
     apiPost("/server/update-check/interval", { minutes }),
+
+  // Acknowledge the last automatic-update result -- shared server-side
+  // state, not per-browser, so it stops showing for every admin/device at
+  // once (see the server route's own comment).
+  dismissAutoUpdateResult: (): Promise<UpdateCheckerStatus> =>
+    apiPost("/server/update-check/auto-update-result/dismiss"),
 };
 
 export const mapApi = {

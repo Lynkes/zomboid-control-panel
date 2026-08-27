@@ -70,6 +70,9 @@
   "emptyState": {
     "noServersTitle": "Pa gen sèvè piblik jwenn",
     "noServersDesc": "Eseye aktyalize lis la nan yon ti moman.",
+    "noServersDescUnreachable": "Panèl la pa t' kapab jwenn lis sèvè yo ditou. Tcheke pwòp koneksyon rezo panèl la, epi eseye aktyalize ankò.",
+    "noServersDescNoneResponded": "Yon lis sèvè te retounen, men okenn nan sèvè sa yo pa t' reponn nan tan. Sa a nòmal sou yon eskanè ki gen anpil chaj — eseye aktyalize ankò.",
+    "noServersDescGenuinelyEmpty": "Lis sèvè a te reponn e li vrèman vid kounye a. Eseye aktyalize nan yon ti moman.",
     "noApiKeyTitle": "Kle API Steam manke",
     "noApiKeyDesc": "Ajoute kle API Steam ou nan Paramèt pou chaje lis sèvè piblik Project Zomboid la.",
     "noMatchTitle": "Pa gen sèvè ki koresponn ak filtè ou yo",
@@ -80,6 +83,8 @@
     "passwordProtected": "Modpas Pwoteje",
     "vacSecured": "VAC Sekirize",
     "pingNa": "N/A",
+    "pingFailUnparseable": "Sèvè a te reponn, men nan yon fòma panèl la pa t' kapab li — gen chans se yon vèsyon oswa pwotokòl ki pa matche. Li ap kouri e li reyachab.",
+    "pingFailUnreachable": "Sèvè a pa janm reponn. Tcheke si li ap kouri, pò a kòrèk, e anyen (yon firewall, yon dekoneksyon) pa bloke koneksyon an.",
     "pingMs": "{{ping}}ms",
     "pingButton": "Ping",
     "connect": "Konekte",

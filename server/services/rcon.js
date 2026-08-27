@@ -10,6 +10,8 @@ import {
 } from "../database/init.js";
 import { SourceRconClient } from "../utils/sourceRcon.js";
 import { readSecret } from "../utils/secrets.js";
+import { parseBoundedInteger } from "../utils/queryNumbers.js";
+import { redactRconCommandSecrets } from "../utils/rconCommandRedaction.js";
 
 // Common accented Latin letters (French in particular -- this panel ships an
 // FR locale) transliterated to their closest plain-ASCII equivalent, for
@@ -46,6 +48,17 @@ export function normalizeRconHost(host) {
   return host.trim() || "127.0.0.1";
 }
 
+function parseConfiguredRconPort(value) {
+  if (
+    value === undefined ||
+    value === null ||
+    (typeof value === "string" && value.trim() === "")
+  ) {
+    return 27015;
+  }
+  return parseBoundedInteger(value, null, 1, 65535);
+}
+
 // Raw TCP reachability probe used by testRconConnection() below — separate
 // from RconService.checkPortOpen() because that method has a fixed 2s
 // timeout tuned for the background auto-reconnect loop, while a
@@ -66,16 +79,29 @@ export function checkTcpReachable(host, port, timeoutMs) {
   });
 }
 
+// Default timeout for a user-initiated connection attempt: this function's
+// own probe, and POST /connect's follow-up reachability check below (routes/
+// rcon.js) when reused for the same purpose. Longer than checkPortOpen()'s
+// 2s background-loop timeout, same reasoning as that method's comment.
+export const RCON_USER_ACTION_TIMEOUT_MS = 5000;
+
+// The two canonical detail strings for a first-time RCON handshake failure.
+// Exported so POST /connect (routes/rcon.js) can report the exact same
+// wording for the exact same two classes /test already distinguishes,
+// instead of maintaining a second, independently-drifting mapping.
+export const RCON_UNREACHABLE_DETAIL = "Unreachable: check host and port";
+export const RCON_AUTH_FAILED_DETAIL = "Authentication failed: check RCON password";
+
 // Tests arbitrary RCON credentials without touching the shared RconService
 // singleton's connection state — used by the "Test Connection" UI so a user
 // can validate host/port/password before saving them.
-export async function testRconConnection({ host, port, password, timeoutMs = 5000 }) {
+export async function testRconConnection({ host, port, password, timeoutMs = RCON_USER_ACTION_TIMEOUT_MS }) {
   const reachable = await checkTcpReachable(host, port, timeoutMs);
   if (!reachable) {
     return {
       success: false,
       error: "unreachable",
-      detail: "Unreachable: check host and port",
+      detail: RCON_UNREACHABLE_DETAIL,
     };
   }
 
@@ -87,7 +113,7 @@ export async function testRconConnection({ host, port, password, timeoutMs = 500
     return {
       success: false,
       error: "auth_failed",
-      detail: "Authentication failed: check RCON password",
+      detail: RCON_AUTH_FAILED_DETAIL,
     };
   } finally {
     client.disconnect();
@@ -109,7 +135,7 @@ export async function testRconConnection({ host, port, password, timeoutMs = 500
 // commands' real success text enumerated with confidence, which static
 // bytecode reading can't give, and would fail closed on every command
 // whose success text isn't in it.
-const KNOWN_RCON_REJECTIONS = [
+export const KNOWN_RCON_REJECTIONS = [
   {
     pattern: /^\s*Unknown command\b/i,
     describe: (text) => `${text}. This command is not available on this server build.`,
@@ -375,7 +401,7 @@ export class RconService extends EventEmitter {
         // listening there. Whether we can authenticate is decided
         // separately, below — it never changes WHERE we try to connect.
         this.config.host = normalizeRconHost(targetServer.rconHost);
-        this.config.port = parseInt(targetServer.rconPort, 10) || 27015;
+        this.config.port = parseConfiguredRconPort(targetServer.rconPort);
 
         if (targetServer.rconPassword) {
           if (!this.passwordFromSecretFile) {
@@ -416,8 +442,8 @@ export class RconService extends EventEmitter {
           this.config.password = dbPassword;
           log.info("password loaded from legacy settings");
         }
-        if (dbPort) {
-          this.config.port = parseInt(dbPort, 10);
+        if (dbPort !== undefined && dbPort !== null && dbPort !== "") {
+          this.config.port = parseConfiguredRconPort(dbPort);
         }
         if (dbHost) {
           this.config.host = normalizeRconHost(dbHost);
@@ -606,6 +632,11 @@ export class RconService extends EventEmitter {
 
     // Load config from database before connecting
     await this.loadConfig();
+
+    if (!Number.isInteger(this.config.port) || this.config.port < 1 || this.config.port > 65535) {
+      log.warn("RCON port configuration is invalid; skipping connection attempt");
+      return false;
+    }
 
     // Check if version changed (connection was force reset)
     if (this.connectionVersion !== startVersion) {
@@ -943,7 +974,7 @@ export class RconService extends EventEmitter {
         }
       }
 
-      log.debug(`executing: ${command}`);
+      log.debug(`executing: ${redactRconCommandSecrets(command)}`);
 
       // Execute with timeout
       let timeoutId;
@@ -976,7 +1007,7 @@ export class RconService extends EventEmitter {
       }
 
       if (rejection) {
-        log.warn(`Server rejected command: ${command} (${rejection.response})`);
+        log.warn(`Server rejected command: ${redactRconCommandSecrets(command)} (${rejection.response})`);
         return { success: false, error: rejection.error, response: rejection.response };
       }
 
@@ -1056,7 +1087,7 @@ export class RconService extends EventEmitter {
               logCommand(command, rejection ? rejection.error : response, !rejection);
             }
             if (rejection) {
-              log.warn(`Server rejected command on retry: ${command} (${rejection.response})`);
+              log.warn(`Server rejected command on retry: ${redactRconCommandSecrets(command)} (${rejection.response})`);
               return { success: false, error: rejection.error, response: rejection.response };
             }
             return {
@@ -1406,14 +1437,23 @@ export class RconService extends EventEmitter {
     return this.execute("stoprain");
   }
 
+  // 2026-08-26 bug hunt: this used to send a bare "startstorm" with no
+  // duration when the caller omitted one, leaving PZ's own internal default
+  // to decide the length -- an internal default this panel has no way to
+  // read, and one that PanelBridge's triggerStorm Lua handler does NOT
+  // share, since it explicitly defaults an omitted duration to 2.0 hours.
+  // Two controls both labeled "Storm" could silently run for different
+  // lengths depending on which one was pressed, with nothing surfacing that
+  // they could disagree. Fixed by always sending an explicit duration here
+  // too -- 2.0 hours, matching PanelBridge's own existing default exactly,
+  // rather than inventing a new number or trying to guess PZ's hidden one
+  // (unverifiable from this repo, and not the point: the fix is making both
+  // paths agree with EACH OTHER, not with a number neither of us can see).
   async startStorm(duration = null) {
-    if (duration !== null && duration !== undefined) {
-      const n = Number(duration);
-      if (!Number.isFinite(n) || n < 0 || n > 168)
-        throw new Error("duration must be 0-168");
-      return this.execute(`startstorm ${n}`);
-    }
-    return this.execute("startstorm");
+    const n = duration === null || duration === undefined ? 2.0 : Number(duration);
+    if (!Number.isFinite(n) || n < 0 || n > 168)
+      throw new Error("duration must be 0-168");
+    return this.execute(`startstorm ${n}`);
   }
 
   async stopWeather() {

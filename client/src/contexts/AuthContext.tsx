@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
 import { clearAccessToken, getAccessToken, setAccessToken } from '../lib/authToken'
+import { ApiError } from '../lib/api'
+import { getUserErrorMessage } from '../lib/errorMessage'
 
 interface User {
   id: string
@@ -39,23 +41,41 @@ const AuthContext = createContext<AuthContextType | null>(null)
 
 const CORS_LOGIN_MESSAGE = 'Connection blocked by browser origin policy. For first-time reverse-proxy setup, set CORS_ORIGINS to this URL in the panel environment and restart it. Otherwise open the panel from a local/LAN address; after setup, manage origins in Settings > Remote Access.'
 
-async function getErrorPayload(response: Response): Promise<{ error?: string } | null> {
+async function getErrorPayload(response: Response): Promise<{ error?: string; code?: string } | null> {
   try {
     const data = await response.json()
-    return data && typeof data === 'object' ? (data as { error?: string }) : null
+    return data && typeof data === 'object' ? (data as { error?: string; code?: string }) : null
   } catch {
     return null
   }
 }
 
-function getLoginErrorMessage(error: unknown): string {
+export const LOGIN_FAILED_MESSAGE = "We couldn't sign you in. Check your username and password and try again."
+
+// Exported solely so its 5xx-vs-auth-failure branch can be unit tested
+// directly (see __tests__/AuthContext.test.ts) without standing up a
+// rendered AuthProvider + mocked fetch harness this file has never needed
+// before -- the function itself has no dependency on component state.
+export function getLoginErrorMessage(error: unknown): string {
   if (error instanceof TypeError) {
     return CORS_LOGIN_MESSAGE
   }
   if (error instanceof Error && /cors|origin policy|failed to fetch/i.test(error.message)) {
     return CORS_LOGIN_MESSAGE
   }
-  return "We couldn't sign you in. Check your username and password and try again."
+  // 2026-08-26: the enumeration ruling (revealing WHY authentication failed
+  // -- wrong username vs. wrong password vs. locked account -- is an
+  // account-enumeration oracle) only applies to an actual auth failure
+  // (4xx). It says nothing about a genuine server error, which reveals no
+  // information about the account either way -- collapsing a real 500 into
+  // the identical "check your password" text was never required by that
+  // ruling, just an accidental side effect of throwing a plain Error that
+  // discarded the response status. A coded 5xx is preferred to the generic
+  // fallback text here too, via getUserErrorMessage's normal precedence.
+  if (error instanceof ApiError && typeof error.status === 'number' && error.status >= 500) {
+    return getUserErrorMessage(error, LOGIN_FAILED_MESSAGE)
+  }
+  return LOGIN_FAILED_MESSAGE
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -167,8 +187,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
 
       if (!res.ok) {
+        // 2026-08-26: this fetch bypasses lib/api.ts's handleResponse(), so
+        // constructing an ApiError (not a plain Error) here is what lets
+        // getLoginErrorMessage() below tell a genuine 5xx apart from an
+        // actual auth failure -- a plain Error would discard res.status
+        // before that distinction could ever be made.
         const data = await getErrorPayload(res)
-        throw new Error(data?.error || "We couldn't sign you in. Check your username and password and try again.")
+        throw new ApiError(data?.error || LOGIN_FAILED_MESSAGE, { status: res.status, code: data?.code })
       }
 
       const data = await res.json()
@@ -181,7 +206,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         authEnabled: true,
       })
     } catch (error) {
-      throw new Error(getLoginErrorMessage(error))
+      throw new ApiError(getLoginErrorMessage(error), {
+        status: error instanceof ApiError ? error.status : undefined,
+      })
     }
   }, [])
 
@@ -197,10 +224,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const data = await res.json()
       // Setup.tsx recognizes this exact message and swaps in a localized,
       // token-specific explanation instead of the generic setup-failed copy.
+      // Untouched by the ApiError conversion below: its own copy (see
+      // setup.json's invalidSetupToken) is more specific than the
+      // registered SETUP_TOKEN_REQUIRED translation, so it must keep
+      // winning ahead of getUserErrorMessage() rather than being replaced
+      // by it.
       if (data.code === 'SETUP_TOKEN_REQUIRED') {
         throw new Error('SETUP_TOKEN_REQUIRED')
       }
-      throw new Error(data.error || "We couldn't create the admin account. Try again.")
+      // 2026-08-26: this fetch bypasses lib/api.ts's handleResponse(), so
+      // an ApiError (not a plain Error) is what lets Setup.tsx's
+      // getUserErrorMessage() call translate a coded failure or wrap an
+      // uncoded 5xx instead of always showing this raw fallback text.
+      throw new ApiError(data.error || "We couldn't create the admin account. Try again.", {
+        status: res.status,
+        code: data.code,
+      })
     }
 
     const data = await res.json()

@@ -5,5 +5,7 @@
   "description": "An error occurred while loading this section",
   "tryAgain": "Try Again",
   "dashboard": "Dashboard",
-  "defaultFeatureName": "This feature"
+  "defaultFeatureName": "This feature",
+  "showDetails": "Show technical details",
+  "openRecoveryPage": "Open the page that can fix this"
 }

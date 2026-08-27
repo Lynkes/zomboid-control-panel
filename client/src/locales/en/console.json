@@ -57,7 +57,8 @@
     "linesHidden_one": "{{count}} line hidden by filter · ",
     "linesHidden_other": "{{count}} lines hidden by filter · ",
     "showAll": "show all",
-    "noStreamOutput": "no stream output",
+    "noStreamOutput": "No log output yet — the server hasn't written anything since this view opened.",
+    "noOutputStreamDown": "Log output unknown — the stream is down, see the error above.",
     "shown": "shown",
     "hidden": "hidden",
     "loaded": "loaded",
@@ -76,6 +77,8 @@
     "notConfiguredDesc": "Set the host, port, and password in My Servers before using live commands.",
     "hostUnreachableTitle": "host unreachable",
     "hostUnreachableDesc": "Start the server, then confirm RCON host, port, and password in Panel Settings.",
+    "authFailedTitle": "authentication failed",
+    "authFailedDesc": "The host is reachable — confirm the RCON password on My Servers.",
     "outputLabel": "rcon output",
     "entries_one": "{{count}} entry",
     "entries_other": "{{count}} entries",
@@ -91,7 +94,8 @@
     "executeAria": "Execute command",
     "run": "run",
     "keyboardHint": "// enter · run · ↑↓ history",
-    "noResponseFallback": "No response"
+    "noResponseFallback": "No response",
+    "noPermission": "Your role doesn't have permission to run RCON commands."
   },
   "quickCommands": {
     "players": "Players",
@@ -131,6 +135,7 @@
     "toggleLabel": "history",
     "entries_one": "{{count}} entry",
     "entries_other": "{{count}} entries",
+    "truncatedHint": "(most recent -- older commands may not be shown)",
     "searchPlaceholder": "Search command history...",
     "searchAria": "Search command history",
     "emptyTitle": "No command history",

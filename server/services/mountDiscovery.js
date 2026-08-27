@@ -23,12 +23,23 @@ function safeReaddir(dir) {
   }
 }
 
-function safeIsDir(dirPath) {
+// Distinguishes "genuinely not there" (ENOENT) from "something is there but
+// we couldn't read it" (EACCES/EPERM/etc). safeIsDir() collapsed both into
+// the same false, which sends an operator with a real-but-unreadable bind
+// mount off to check their Docker volume config when the volume is fine and
+// the host permissions are not -- exactly the kind of misdiagnosis that
+// makes a new operator give up.
+function classifyDir(dirPath) {
+  if (!dirPath) return "missing";
   try {
-    return fs.existsSync(dirPath) && fs.statSync(dirPath).isDirectory();
-  } catch {
-    return false;
+    return fs.statSync(dirPath).isDirectory() ? "ok" : "not-a-directory";
+  } catch (err) {
+    return err && err.code === "ENOENT" ? "missing" : "inaccessible";
   }
+}
+
+function safeIsDir(dirPath) {
+  return classifyDir(dirPath) === "ok";
 }
 
 // Server .ini files under a `Server/` folder, minus the sidecar files PZ
@@ -46,9 +57,11 @@ function readServerNames(serverDir) {
 
 // Does `installPath` look like a PZ dedicated server install?
 export function probeInstallPath(installPath) {
-  if (!installPath || !safeIsDir(installPath)) {
+  const dirState = classifyDir(installPath);
+  if (dirState !== "ok") {
     return {
       valid: false,
+      reason: dirState === "inaccessible" ? "permission-denied" : undefined,
       serverNames: [],
       hasStartScript: false,
       hasPanelBridge: false,
@@ -74,8 +87,14 @@ export function probeInstallPath(installPath) {
 // Does `dataPath` look like a PZ user/save data folder (the `-cachedir`
 // target, conventionally named `Zomboid`)?
 export function probeDataPath(dataPath) {
-  if (!dataPath || !safeIsDir(dataPath)) {
-    return { valid: false, path: dataPath || null, serverNames: [] };
+  const dirState = classifyDir(dataPath);
+  if (dirState !== "ok") {
+    return {
+      valid: false,
+      reason: dirState === "inaccessible" ? "permission-denied" : undefined,
+      path: dataPath || null,
+      serverNames: [],
+    };
   }
 
   const serverNames = readServerNames(path.join(dataPath, "Server"));
@@ -149,6 +168,46 @@ export function discoverMounts() {
   return candidates;
 }
 
+// Common-mount candidates that exist but couldn't be read (permission
+// denied), as opposed to candidates that simply aren't mounted at all --
+// discoverMounts() silently treats both the same way (skip), which is
+// correct for "not mounted" (the normal case for most of the candidate
+// list) but wrong for "mounted, unreadable" (the operator's Docker volume
+// IS there and misconfigured host permissions are the actual problem). Kept
+// separate from discoverMounts() so its return shape stays a plain array of
+// valid mounts for every existing caller.
+export function discoverMountIssues() {
+  const issues = [];
+  const seen = new Set();
+
+  for (const candidate of [...envCandidates(), ...COMMON_MOUNT_CANDIDATES]) {
+    if (!candidate.install || seen.has(candidate.install)) continue;
+    seen.add(candidate.install);
+
+    const installResult = probeInstallPath(candidate.install);
+    if (installResult.reason === "permission-denied") {
+      issues.push({
+        path: candidate.install,
+        source: candidate.source,
+        reason: "permission-denied",
+      });
+      continue;
+    }
+    if (!installResult.valid) continue;
+
+    const dataPath = candidate.data || findDataPath(candidate.install);
+    if (probeDataPath(dataPath).reason === "permission-denied") {
+      issues.push({
+        path: dataPath,
+        source: candidate.source,
+        reason: "permission-denied",
+      });
+    }
+  }
+
+  return issues;
+}
+
 function parseIni(content) {
   const result = {};
   for (const line of content.split(/\r?\n/)) {
@@ -162,24 +221,39 @@ function parseIni(content) {
   return result;
 }
 
+function parsePort(value, fallback, max = 65535) {
+  if (value === undefined || value === null || value.trim() === "") {
+    return fallback;
+  }
+  if (!/^\d+$/.test(value.trim())) return null;
+  const port = Number(value.trim());
+  return Number.isInteger(port) && port >= 1 && port <= max ? port : null;
+}
+
 // Read RCON/port/name settings out of a discovered server's
 // `Server/<name>.ini` so create-from-discovery can pre-fill a profile
 // instead of leaving RCON blank.
 export function readServerIniSettings(dataPath, serverName) {
   const iniPath = path.join(dataPath, "Server", `${serverName}.ini`);
+  // codeql[js/path-injection] dataPath/serverName here come from discovery.js's POST /create-from-discovery, which only passes through discovered.dataPath (matched from the server-computed discoverMounts() list, never the raw request value) and a serverName that passed both a strict identifier regex and membership in the discovered mount's own serverNames list.
   if (!fs.existsSync(iniPath)) return null;
 
   let settings;
   try {
+    // codeql[js/path-injection] dataPath/serverName here come from discovery.js's POST /create-from-discovery, which only passes through discovered.dataPath (matched from the server-computed discoverMounts() list, never the raw request value) and a serverName that passed both a strict identifier regex and membership in the discovered mount's own serverNames list.
     settings = parseIni(fs.readFileSync(iniPath, "utf-8"));
   } catch {
     return null;
   }
 
+  const rconPort = parsePort(settings.RCONPort, 27015);
+  const serverPort = parsePort(settings.DefaultPort, 16261, 65534);
+  if (rconPort === null || serverPort === null) return null;
+
   return {
-    rconPort: parseInt(settings.RCONPort, 10) || 27015,
+    rconPort,
     rconPassword: settings.RCONPassword || "",
-    serverPort: parseInt(settings.DefaultPort, 10) || 16261,
+    serverPort,
     publicName: settings.PublicName || serverName,
   };
 }

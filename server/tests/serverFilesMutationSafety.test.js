@@ -237,7 +237,7 @@ describe("local config mutation safety", () => {
       expect(request.configEditRestartWarning).toBe(true);
     });
 
-    it("warns rather than silently assuming stopped when checkServerRunning itself throws", async () => {
+    it("warns rather than silently assuming stopped when getServerProcessDetails itself throws", async () => {
       const response = createResponse();
       const next = vi.fn();
       const request = {
@@ -245,9 +245,41 @@ describe("local config mutation safety", () => {
         path: "/ini",
         app: {
           get: () => ({
-            checkServerRunning: vi.fn(async () => {
+            getServerProcessDetails: vi.fn(async () => {
               throw new Error("boom");
             }),
+          }),
+        },
+      };
+
+      await warnRunningForLocalConfigEdit(request, response, next);
+
+      expect(next).toHaveBeenCalledOnce();
+      expect(request.configEditRestartWarning).toBe(true);
+    });
+
+    // Regression: this guard used to call serverManager.checkServerRunning(),
+    // which internally discards getServerProcessDetails()'s own scanFailed
+    // flag and resolves a plain `false` for a scan that failed outright --
+    // indistinguishable from a confirmed-stopped server. `running !== false`
+    // then evaluated to `false`, so NO warning was shown on an undetermined
+    // server state, the exact opposite of this function's documented policy
+    // (2026-08-26 bug hunt finding 2). Only getServerProcessDetails() is
+    // consulted now, so a manager that still exposes checkServerRunning
+    // alongside it must not influence the result at all.
+    it("warns on scanFailed even when checkServerRunning would have reported false", async () => {
+      const response = createResponse();
+      const next = vi.fn();
+      const request = {
+        method: "PUT",
+        path: "/ini",
+        app: {
+          get: () => ({
+            checkServerRunning: vi.fn(async () => false),
+            getServerProcessDetails: vi.fn(async () => ({
+              running: false,
+              scanFailed: true,
+            })),
           }),
         },
       };

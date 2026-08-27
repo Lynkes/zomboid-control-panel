@@ -3,6 +3,10 @@
     "title": "Depuración y registros",
     "description": "Diagnósticos en tiempo real, historial reciente y detalles del entorno de este panel"
   },
+  "permissionDenied": {
+    "title": "No se puede ver el diagnóstico del panel",
+    "description": "El rol de tu cuenta no incluye \"Ver diagnóstico del panel\". Pide a un administrador que lo conceda si necesitas acceso a esta página."
+  },
   "headerActions": {
     "bundling": "Generando paquete…",
     "supportBundleZip": "Paquete de soporte (.zip)",
@@ -233,6 +237,7 @@
     "allChecksPassDesc": "No hay nada que mostrar con las comprobaciones correctas ocultas. Desactivar «Ocultar correctas» para ver el informe completo.",
     "manualFixTitle": "Se recomienda una solución manual",
     "manualFixFallback": "Abrir la página sugerida y aplicar la solución indicada.",
+    "noPermissionFix": "Tu rol no tiene permiso para aplicar esta solución.",
     "applyFixTitle": "¿Aplicar solución?",
     "applyFixFallback": "¿Aplicar {{label}}?",
     "applyButton": "Aplicar",
@@ -1310,6 +1315,7 @@
   },
   "crashesTab": {
     "crashLogsTitle": "Registros de fallos",
+    "crashLogsCountTruncated": "{{shown}} de {{total}}",
     "crashLogsDesc": "Volcados de fallos de Java y registros de errores.",
     "refreshCrashLogsAria": "Actualizar registros de fallos",
     "noCrashLogsTitle": "No se encontraron registros de fallos",
@@ -1399,6 +1405,8 @@
     "databaseLabel": "Base de datos:",
     "logsFolderLabel": "Carpeta de registros:",
     "copyPathTooltip": "Copiar ruta",
+    "copyDbPathAria": "Copiar ruta de la base de datos",
+    "copyLogsPathAria": "Copiar ruta de la carpeta de registros",
     "pathsUpdatedTitle": "Rutas actualizadas",
     "enterAtLeastOnePath": "Es necesario introducir al menos una ruta",
     "updatePathsFailedFallback": "Error al actualizar las rutas"

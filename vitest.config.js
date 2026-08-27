@@ -1,6 +1,6 @@
 import { defineConfig } from "vitest/config";
 
-// Modernization DISC-001. This file sets `globalSetup` and `testTimeout`, and nothing else,
+// Modernization DISC-001. This file sets `setupFiles` and `testTimeout`, and nothing else,
 // deliberately.
 //
 // Before this existed, `npm run test:server` was a bare `vitest run server/tests` on stock
@@ -12,6 +12,15 @@ import { defineConfig } from "vitest/config";
 //
 // See docs/modernization/DECISIONS.md, DISC-001.
 //
+// bug-hunt-2026-08-26: `globalSetup` (server/tests/vitest.globalSetup.mjs) minted ONE temp
+// dataDir for the whole `vitest run` invocation -- fine for DISC-001's original goal (keep test
+// runs off the repo's real data/ and off each other's paths.config.json), but it meant every test
+// file exercising the real, unmocked database/init.js shared ONE physical db.json with no lock or
+// merge, which turned out to produce both false failures and false passes under parallel file
+// execution (see server/tests/vitest.perFileDataDir.setup.mjs for the full mechanism). Replaced
+// with a setupFiles script so every test FILE gets its own dataDir instead of the whole run
+// sharing one -- vitest.globalSetup.mjs is kept in place, inert, since docs/modernization still
+// names its path; see that file's own header.
 // testTimeout: stock vitest defaults to 5000ms per test. This floor commonly runs several
 // concurrent Claude agents plus normal dev tooling, and this suite includes tests that spawn
 // real OS subprocesses (curl, powershell, cmd.exe) and probe real timers -- work whose wall-clock
@@ -28,7 +37,7 @@ import { defineConfig } from "vitest/config";
 // precedence where a narrower value is more appropriate.
 export default defineConfig({
   test: {
-    globalSetup: ["./server/tests/vitest.globalSetup.mjs"],
+    setupFiles: ["./server/tests/vitest.perFileDataDir.setup.mjs"],
     testTimeout: 60000,
   },
 });

@@ -1,4 +1,7 @@
 {
+  "permissions": {
+    "noManage": "Das Bereinigen von Karten-Chunks erfordert die Berechtigung chunks.manage, über die diese Rolle nicht verfügt."
+  },
   "pageHeader": {
     "title": "Kartenbereinigung",
     "description": "Beschädigte oder übermäßig geplünderte Kartenbereiche unwiderruflich löschen, damit sich die Welt sauber neu generieren kann.",
@@ -86,8 +89,8 @@
     "scanningChunks": "Karte wird gescannt… {{count}} Chunks",
     "loadingChunks": "Chunks werden geladen…",
     "noChunksTitle": "Keine Chunks gefunden",
-    "noChunksDesc": "Der Kartenordner ist möglicherweise leer, oder der Pfad muss angepasst werden.",
-    "ariaLabel": "Chunk-Karte — Bereiche zur Bereinigung auswählen"
+    "noChunksDesc": "Der Kartenordner dieses Spielstands ist möglicherweise leer, oder der konfigurierte Pfad muss angepasst werden. Wähle oben einen anderen Spielstand aus, oder überprüfe den Pfad in den Einstellungen.",
+    "ariaLabel": "Chunk-Karte. Das Auswählen von Bereichen zur Bereinigung erfordert eine Maus oder ein Touchscreen; diese Karte ist nicht per Tastatur bedienbar."
   },
   "help": {
     "hide": "Hilfe ausblenden",
@@ -140,6 +143,8 @@
     "loadSavesFailedTitle": "Spielstände konnten nicht geladen werden",
     "loadSavesFailedFallback": "Laden der Spielständeordner fehlgeschlagen.",
     "pathSavedTitle": "Pfad gespeichert",
+    "liveVehicleCleanupNoPermissionTitle": "Live-Fahrzeugbereinigung übersprungen",
+    "liveVehicleCleanupNoPermissionDesc": "Chunks und ihre Fahrzeugdatensätze wurden gelöscht. Das Entfernen bereits geladener Fahrzeuge vom laufenden Server erfordert die Berechtigung bridge.command, über die diese Rolle nicht verfügt -- ein Administrator kann sie erteilen, oder ein veraltetes Fahrzeug verschwindet von selbst, sobald das Gebiet das nächste Mal neu geladen wird.",
     "pathSavedServerDesc": "In der aktiven Serverkonfiguration gespeichert — das Panel verwendet diesen Pfad beim nächsten Mal.",
     "pathSavedPanelDesc": "In den Paneleinstellungen gespeichert.",
     "pathSaveFailedTitle": "Pfad konnte nicht gespeichert werden",

@@ -103,4 +103,15 @@ describe('SystemHealthBanner', () => {
     await waitFor(() => expect(getStorageHealth).toHaveBeenCalled())
     expect(container).toBeEmptyDOMElement()
   })
+
+  it('ignores an incomplete health response without crashing the layout', async () => {
+    getStorageHealth.mockResolvedValue({ success: true, demo: true } as unknown as StorageHealth)
+    const { container } = render(
+      <MemoryRouter>
+        <SystemHealthBanner />
+      </MemoryRouter>
+    )
+    await waitFor(() => expect(getStorageHealth).toHaveBeenCalled())
+    expect(container).toBeEmptyDOMElement()
+  })
 })

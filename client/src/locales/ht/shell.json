@@ -39,7 +39,12 @@
     },
     "notAvailableRemote": "Pa disponib pou sèvè aleka (RCON sèlman)",
     "localBadge": "Lokal",
-    "requiresServer": "Ajoute yon sèvè dabò — paj sa a bezwen youn pou l fonksyone"
+    "requiresServer": "Ajoute yon sèvè dabò — paj sa a bezwen youn pou l fonksyone",
+    "noServerBanner": {
+      "title": "Poko gen sèvè",
+      "description": "Pifò nan panèl la debloke depi ou ajoute youn.",
+      "cta": "Konfigire yon sèvè"
+    }
   },
   "mobileMenu": {
     "open": "Ouvri meni",

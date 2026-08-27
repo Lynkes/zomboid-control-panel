@@ -111,7 +111,7 @@
     "users": {
       "manage": {
         "label": "Benutzerkonten verwalten",
-        "description": "Konten erstellen, auflisten und deren Rolle ändern."
+        "description": "Konten erstellen, auflisten, deren Rolle ändern und ein Konto dauerhaft löschen."
       }
     },
     "roles": {
@@ -137,7 +137,7 @@
     "server": {
       "control": {
         "label": "Server starten, stoppen, neu starten & speichern",
-        "description": "Den laufenden Server starten, stoppen, erzwungen stoppen, neu starten oder speichern."
+        "description": "Den laufenden Server starten, stoppen, erzwungen stoppen, neu starten oder speichern — unabhängig davon, wie er bereitgestellt wird, auch bei einem per Docker verwalteten Server. Docker-Container-Status, -Statistiken und direkte Container-Aktionen sind eine eigene Berechtigung (docker.manage)."
       },
       "install": {
         "label": "Server installieren & aktualisieren",
@@ -145,21 +145,21 @@
       },
       "configure": {
         "label": "Serverkonfiguration bearbeiten",
-        "description": "Die .ini-Einstellungen des Servers, die RCON-Verbindungsdetails sowie die Netzwerk-/Pfadkonfiguration bearbeiten."
+        "description": "Die .ini-Einstellungen des Servers, die RCON-Verbindungsdetails sowie die Netzwerk-/Pfadkonfiguration bearbeiten, und die Lua-Skripte des Servers bei laufendem Server neu laden."
       },
       "wipe": {
         "label": "Welt unwiderruflich löschen",
-        "description": "Karten-, Spieler- oder Weltspielstanddaten unwiderruflich löschen."
+        "description": "Karten-, Spieler- oder Weltspielstanddaten unwiderruflich löschen — und über die Aktion „Installationsordner leeren” auch jedes andere Verzeichnis auf dem Host, das lediglich eine PZ-Installations-Markerdatei-Prüfung besteht, nicht nur den Ordner des konfigurierten Servers selbst."
       },
       "world_events": {
         "label": "Weltereignisse auslösen",
-        "description": "Wetter, Klima, Tageszeit, Umgebungsgeräusche, Zombiehorden, Versorgungseinrichtungen, visuelle Einstellungen und Rundschreiben — weltweite Effekte, nicht auf einen bestimmten Spieler gerichtet."
+        "description": "Wetter, Klima, Tageszeit, Umgebungsgeräusche, Zombiehorden (nur entfernen, nicht auf jemanden spawnen), Versorgungseinrichtungen, visuelle Einstellungen und vom Server gesendete Rundschreiben — weltweite Effekte, nicht auf einen bestimmten Spieler gerichtet. Zombies oder Klangeffekte auf einen namentlich genannten Spieler richten, gezielter Blitz/Donner und das Vortäuschen der Identität eines Spielers im Chat sind eine eigene Berechtigung, players.endanger_or_impersonate."
       }
     },
     "rcon": {
       "execute": {
         "label": "RCON-Befehle ausführen",
-        "description": "Mit RCON verbinden und beliebige Konsolenbefehle ausführen."
+        "description": "Mit RCON verbinden und beliebige Konsolenbefehle ausführen, einschließlich solcher, die den Server stoppen können. Gewährt außerdem Lesezugriff auf den vollständigen RCON-Befehlsverlauf — einschließlich echter Spielerpasswörter, die in Whitelist-Befehlen wie adduser eingegeben wurden."
       }
     },
     "servers": {
@@ -169,7 +169,7 @@
       },
       "discover": {
         "label": "Server auf dieser Maschine automatisch erkennen",
-        "description": "Das Dateisystem des Hosts nach bestehenden PZ-Serverinstallationen durchsuchen."
+        "description": "Einen beliebigen von Ihnen angegebenen Pfad im Dateisystem des Hosts nach bestehenden PZ-Serverinstallationen durchsuchen, einschließlich des Lesens und Auswertens des Inhalts der dabei gefundenen .ini-Konfigurationsdateien."
       }
     },
     "templates": {
@@ -181,11 +181,11 @@
     "bridge": {
       "setup": {
         "label": "PanelBridge verbinden & konfigurieren",
-        "description": "Die Ingame-Mod-Brücke, ihren SFTP-Transport verbinden oder neu konfigurieren und die Mod installieren."
+        "description": "Die Ingame-Mod-Brücke verbinden oder neu konfigurieren — einschließlich der Eingabe und Speicherung des SFTP-Anmeldepassworts für den Zugriff auf einen entfernten Server, dem Durchsuchen beliebiger Pfade auf diesem Server per SFTP und dem Verweisen der lokalen Brücke auf einen beliebigen absoluten Host-Pfad außerhalb einer kleinen Liste gesperrter Verzeichnisse. Installiert außerdem die Mod."
       },
       "diagnostics": {
         "label": "PanelBridge-Diagnose",
-        "description": "Das Debug-Protokoll und die Statistiken der Mod einsehen und Item-/Fahrzeugkatalog-Scans ausführen."
+        "description": "Das Debug-Protokoll und die Statistiken der Mod einsehen, ihre API, verfügbaren Handler und Item-Skripte untersuchen, Item-/Fahrzeugkatalog-Scans ausführen, ihren Debug-Modus umschalten und ihr Fehlerprotokoll löschen."
       },
       "command": {
         "label": "Beliebige PanelBridge-Aktion ausführen",
@@ -195,7 +195,7 @@
     "players": {
       "moderate": {
         "label": "Spieler maßregeln",
-        "description": "Einen Spieler bannen, entbannen, kicken oder auf die Whitelist setzen."
+        "description": "Einen Spieler bannen, entbannen, kicken oder auf die Whitelist setzen sowie den Ingame-Zugriffslevel eines Spielers ändern — einschließlich Admin-Rechte vergeben oder entziehen."
       },
       "gm_tools": {
         "label": "Game-Master-Werkzeuge",
@@ -204,12 +204,16 @@
       "view": {
         "label": "Spielerinfos einsehen",
         "description": "Spielerdetails, -status und -verlauf einsehen."
+      },
+      "endanger_or_impersonate": {
+        "label": "Spieler gefährden oder sich als Spieler ausgeben",
+        "description": "Bis zu 500 Zombies direkt am Standort eines namentlich genannten Spielers oder direkt hinter ihm spawnen, oder eine auf ihn gerichtete Horde auslösen; einen Schuss- oder Lockgeräusch-Effekt auf seine Position richten; ihn mit gezieltem Blitz oder Donner treffen. Separat, und eine andere Art von Schaden: eine Nachricht im allgemeinen Chat unter einem beliebigen, frei wählbaren Autorennamen senden — auch dem eines anderen Spielers —, sodass es aussieht, als hätte dieser Spieler sie selbst geschrieben."
       }
     },
     "mods": {
       "manage": {
         "label": "Mods verwalten",
-        "description": "Workshop-Mods verfolgen, installieren und konfigurieren."
+        "description": "Workshop-Mods verfolgen, installieren, konfigurieren und dauerhaft von der Festplatte löschen — einschließlich des Extrahierens oder Überschreibens der für Workshop-Uploads verwendeten Steam-Anmeldesitzung, bis hin zum direkten Auslesen aus dem Cookie-Speicher eines installierten Browsers auf diesem Rechner."
       }
     },
     "automation": {
@@ -227,13 +231,13 @@
     "docker": {
       "manage": {
         "label": "Docker-Container verwalten",
-        "description": "Status/Statistiken einsehen und den Container des Spielservers starten, stoppen oder neu starten."
+        "description": "Docker-Container-Status und -Statistiken einsehen und direkte Container-Aktionen über den Docker-Bildschirm ausführen. Das Starten, Stoppen und Neustarten des Servers selbst — ob per Docker verwaltet oder nicht — wird von server.control geregelt, nicht von dieser Berechtigung."
       }
     },
     "chunks": {
       "manage": {
         "label": "Kartenchunks verwalten",
-        "description": "Kartenchunk-Regionen bereinigen oder löschen und den Speicherpfad für Chunks konfigurieren."
+        "description": "Kartenchunk-Regionen bereinigen oder löschen, auch aus einem beliebigen von Ihnen angegebenen Host-Verzeichnis — nicht beschränkt auf den konfigurierten Speicherort dieses Servers — und den Speicherpfad für Chunks konfigurieren."
       }
     },
     "serverfiles": {
@@ -245,13 +249,13 @@
     "diagnostics": {
       "manage": {
         "label": "Panel-Diagnose einsehen",
-        "description": "Protokolle, Leistungsverlauf, Datenbank-Wartungswerkzeuge und CORS-Diagnose einsehen."
+        "description": "Protokolle, Leistungsverlauf, CORS-Diagnose und Datenbankstatistiken einsehen, die Datenbank sichern, sie komprimieren — wobei alte Datensätze dauerhaft entfernt werden — und veraltete Sperrdateien löschen. Verlagert außerdem die Daten- und Protokollverzeichnisse des Panels an einen beliebigen beschreibbaren Pfad auf dem Host (nur Systemverzeichnisse des Betriebssystems und die Ordner eines konfigurierten Servers sind gesperrt) und kann dabei alles bereits Vorhandene mitverschieben — einschließlich des JWT-Signaturschlüssels, der gespeicherten RCON-Passwörter aller Server und der Hauptdatenbank."
       }
     },
     "panel": {
       "settings": {
         "label": "Panelweite Einstellungen verwalten",
-        "description": "CORS-Richtlinie, Mod-Prüfintervall und andere App-weite Einstellungen ändern."
+        "description": "CORS-Richtlinie, Mod-Prüfintervall und andere App-weite Einstellungen ändern — einschließlich der Möglichkeit, den HTTPS-Listener des Panels auf eine beliebige Zertifikats-/Schlüsseldatei auf dem Host zu verweisen — sowie SSO/OIDC-Anmeldung konfigurieren (einschließlich Client-Secret)."
       }
     }
   }

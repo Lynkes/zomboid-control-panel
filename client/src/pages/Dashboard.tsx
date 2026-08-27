@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState, useCallback, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import type { ReactElement } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { Trans, useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { usePageShortcut } from '../hooks/useKeyboardShortcuts'
@@ -10,6 +11,7 @@ import {
 } from 'lucide-react'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { useToast } from '@/components/ui/use-toast'
+import { ToastAction } from '@/components/ui/toast'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -22,11 +24,18 @@ import {
   panelUpdateApi, modsApi, schedulerApi, ServerInstance, PanelUpdateStatus, ComposedServerStatus,
 } from '@/lib/api'
 import { formatUptime } from '@/lib/utils'
+import { resolveClientProvider } from '@/lib/serverStatus'
 import { useSocket } from '@/contexts/SocketContext'
+import { useAuth } from '@/contexts/AuthContext'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Switch } from '@/components/ui/switch'
+import { Progress } from '@/components/ui/progress'
 import { Label } from '@/components/ui/label'
+import { HelpTip } from '@/components/HelpTip'
+import { DisabledReason } from '@/components/DisabledReason'
+import { AutoUpdateResultBanner } from '@/components/AutoUpdateResultBanner'
 import { cn, copyText } from '@/lib/utils'
-import { getUserErrorMessage } from '@/lib/errorMessage'
+import { getUserErrorMessage, getRecoveryUrl } from '@/lib/errorMessage'
 import { VerdictBand, WorkList } from '@/components/dashboard/DashboardVerdict'
 import type { Verdict, WorkItem } from '@/components/dashboard/DashboardVerdict'
 
@@ -57,6 +66,7 @@ interface PerformancePoint {
   time: string; timestamp?: string; playerCount: number; memoryMB: number
   pzMemMB?: number; cpuPercent?: number; hostMemUsedGB?: number; hostMemTotalGB?: number
   hostDiskUsedGB?: number; hostDiskTotalGB?: number
+  hostSwapUsedGB?: number; hostSwapTotalGB?: number
 }
 
 const DashboardPerformanceCharts = lazy(() => import('@/components/DashboardPerformanceCharts'))
@@ -83,6 +93,37 @@ function getDashboardSuccessCopy(t: TFunction<'dashboard'>, action: string) {
   }
 }
 
+// Force Stop attempts a bounded, fail-open save before killing the server
+// (server.js's attemptBoundedSaveBeforeForceStop) and reports the outcome as
+// saveOutcome on every response shape. "saved" uses the plain success copy
+// (getDashboardSuccessCopy above) -- this only covers the other three, which
+// must NOT be collapsed into one message: "the save was refused" and "the
+// save didn't answer in time" mean different things about server state, and
+// "skipped" has to say why rather than reading as a silent nothing. Returns
+// null for "saved" or an unrecognized/absent value, telling the caller to
+// fall through to the generic success toast instead.
+export function getForceStopSaveOutcomeCopy(t: TFunction<'dashboard'>, saveOutcome: string | undefined) {
+  switch (saveOutcome) {
+    case 'failed':   return { title: t('successCopy.forceStopSaveFailed.title'), description: t('successCopy.forceStopSaveFailed.description') }
+    case 'timedOut': return { title: t('successCopy.forceStopSaveTimedOut.title'), description: t('successCopy.forceStopSaveTimedOut.description') }
+    case 'skipped':  return { title: t('successCopy.forceStopSaveSkipped.title'), description: t('successCopy.forceStopSaveSkipped.description') }
+    default:         return null
+  }
+}
+
+// 2026-08-26: unreachable for every current handleAction() caller (serverApi
+// .start/.save, rconApi.connect, backupApi.createBackup) -- each resolves
+// through apiPost, and lib/api.ts's handleResponse() already throws on any
+// 200 body with success: false before this function's own .then() branch
+// could ever see it (see the same note on Console.tsx/Events.tsx/etc.,
+// which document the same centralized mechanism for their own call sites).
+// Kept, and commented rather than deleted, because a check that WOULD fire
+// if a future caller ever bypassed apiPost is a trap, not a safety net: it
+// throws a bare Error with no status/code, which getUserErrorMessage()
+// cannot translate -- strictly worse than what the live apiPost path
+// already does automatically today. If this ever starts actually firing,
+// that is a sign a new handleAction() caller skipped apiPost, not that this
+// check earned its keep.
 function isFailedActionResult(value: unknown): value is { success: false; error?: string; message?: string } {
   return typeof value === 'object'
     && value !== null
@@ -233,9 +274,26 @@ export default function Dashboard() {
     truncated?: boolean
   } | null>(null)
   const [wipeLoading, setWipeLoading] = useState(false)
+  // Defaults to true, same as ChunkCleaner.tsx's chunk-delete backup switch --
+  // the panel already has one convention for "destructive delete backs up
+  // first unless you opt out," this just applies it here too.
+  const [wipeCreateBackup, setWipeCreateBackup] = useState(true)
+  const [wipeBackupProgress, setWipeBackupProgress] = useState<{
+    phase: string; percent: number; message: string
+  } | null>(null)
 
   const { toast } = useToast()
   const socket = useSocket()
+  const navigate = useNavigate()
+  const { can } = useAuth()
+  // server.control gates Start/Stop/Force-Stop/Restart/Restart-Now/Save
+  // (server/routes/server.js) -- one capability behind six triggers on this
+  // page. server.wipe is a SEPARATE, more dangerous capability (server.js's
+  // /wipe and /wipe/preview) -- holding server.control must never unlock
+  // the Wipe control. can() fails open on unknown/null capabilities, same
+  // convention as every other capability check in the app.
+  const canControlServer = can('server.control')
+  const canWipeServer = can('server.wipe')
 
   /* ---------------------------- effects ----------------------------------- */
   useEffect(() => { initialLoadingRef.current = initialLoading }, [initialLoading])
@@ -274,6 +332,22 @@ export default function Dashboard() {
       socket.off('panel:updateApplied', handleApplied)
     }
   }, [socket])
+
+  // Surfaces backupService's pre-wipe backup progress inside the wipe dialog.
+  // `backup:progress` is a single global event (see Backups.tsx's identical
+  // listener) with no id tying it to a specific caller -- gating on
+  // wipeLoading is safe because backupService only ever runs one backup at a
+  // time (its own internal mutex refuses a second), so any event that lands
+  // while a wipe request is in flight is this wipe's own backup.
+  useEffect(() => {
+    if (!socket) return
+    const handleBackupProgress = (data: { phase: string; percent: number; message: string }) => {
+      if (!wipeLoading) return
+      setWipeBackupProgress(data)
+    }
+    socket.on('backup:progress', handleBackupProgress)
+    return () => { socket.off('backup:progress', handleBackupProgress) }
+  }, [socket, wipeLoading])
 
   const copyToClipboard = async (text: string, label: string) => {
     try { await copyText(text); toast({ title: t('toasts.copied'), description: t('toasts.copiedDesc', { label }), duration: 2000 }) }
@@ -323,6 +397,12 @@ export default function Dashboard() {
           hostMemTotalGB: h.hostMemTotal ? +((h.hostMemTotal as number) / (1024 * 1024 * 1024)).toFixed(1) : undefined,
           hostDiskUsedGB: h.hostDiskUsed ? +((h.hostDiskUsed as number) / (1024 * 1024 * 1024)).toFixed(1) : undefined,
           hostDiskTotalGB: h.hostDiskTotal ? +((h.hostDiskTotal as number) / (1024 * 1024 * 1024)).toFixed(1) : undefined,
+          // != null, not truthy: a real 0 (swap genuinely not configured) is
+          // the answer this feature exists to surface, and must survive this
+          // mapping rather than collapsing to undefined ("could not
+          // determine") the way a truthy check would.
+          hostSwapUsedGB: h.hostSwapUsed != null ? +((h.hostSwapUsed as number) / (1024 * 1024 * 1024)).toFixed(1) : undefined,
+          hostSwapTotalGB: h.hostSwapTotal != null ? +((h.hostSwapTotal as number) / (1024 * 1024 * 1024)).toFixed(1) : undefined,
         })))
       }
     } catch {
@@ -497,6 +577,10 @@ export default function Dashboard() {
         hostMemTotalGB: snap.hostMemTotal ? +((snap.hostMemTotal as number) / (1024 * 1024 * 1024)).toFixed(1) : undefined,
         hostDiskUsedGB: snap.hostDiskUsed ? +((snap.hostDiskUsed as number) / (1024 * 1024 * 1024)).toFixed(1) : undefined,
         hostDiskTotalGB: snap.hostDiskTotal ? +((snap.hostDiskTotal as number) / (1024 * 1024 * 1024)).toFixed(1) : undefined,
+        // != null, not truthy -- see the identical comment in
+        // fetchPerformanceHistory above.
+        hostSwapUsedGB: snap.hostSwapUsed != null ? +((snap.hostSwapUsed as number) / (1024 * 1024 * 1024)).toFixed(1) : undefined,
+        hostSwapTotalGB: snap.hostSwapTotal != null ? +((snap.hostSwapTotal as number) / (1024 * 1024 * 1024)).toFixed(1) : undefined,
       }
       setPerformanceHistory(prev => {
         const next = [...prev, point]
@@ -522,7 +606,16 @@ export default function Dashboard() {
   }, [fetchStatus, fetchPlayers, fetchBridgeStatus, fetchPlayerActivity, fetchPerformanceHistory, showPerformanceCharts])
 
   /* ---------------------------- actions ----------------------------------- */
-  const handleAction = async (action: string, fn: () => Promise<unknown>) => {
+  // errorAction lets one call site attach a toast action button specific to
+  // the error it got back (e.g. "Open Servers" only for a fixable RCON
+  // failure) without every OTHER handleAction caller needing to know it
+  // exists -- returning undefined (the default for anyone who doesn't pass
+  // it) renders no action, identical to today's behavior.
+  const handleAction = async (
+    action: string,
+    fn: () => Promise<unknown>,
+    options?: { errorAction?: (error: unknown) => ReactElement | undefined },
+  ) => {
     setLoading(action)
     try {
       const result = await fn()
@@ -530,7 +623,55 @@ export default function Dashboard() {
         throw new Error(result.error || result.message || t('toasts.actionFailedFallback'))
       }
       const copy = getDashboardSuccessCopy(t, action)
-      toast({ title: copy.title, description: copy.description, variant: 'success' as const })
+      // 2026-08-26 bug hunt: POST /start regenerates the startup script on
+      // every stopped-to-started transition and now backs up + reports any
+      // existing content it didn't itself last write (a hand-edit, or a
+      // pre-fix install) instead of silently discarding it. A silent log
+      // line is what let that go unnoticed in the first place, so this gets
+      // its own toast rather than folding into the generic success copy.
+      const scriptWarnings = action === 'Start server' && result && typeof result === 'object'
+        ? (result as { scriptWarnings?: string[] }).scriptWarnings
+        : undefined
+      // 2026-08-26 bug hunt: POST /stop used to report success:true (and this
+      // toast used to say "Server stopped") the instant rconService.quit()
+      // returned -- which only proves PZ accepted the quit command, not that
+      // its save-and-exit has actually finished. Now the server marks this
+      // response confirmed:false for exactly that case, so the toast can
+      // stop claiming completion it doesn't have; the real "stopped" state
+      // still arrives over the socket (Layout.tsx's status listener) once
+      // the watchdog genuinely observes the process gone.
+      const stopUnconfirmed = action === 'Stop server' && result && typeof result === 'object'
+        && (result as { confirmed?: boolean }).confirmed === false
+      // 2026-08-26 bug hunt: Force Stop now attempts a bounded, fail-open save
+      // before killing the server (server.js's attemptBoundedSaveBeforeForceStop)
+      // and reports the outcome as saveOutcome -- but the generic success toast
+      // read nothing from the response, so a failed/timed-out/skipped save was
+      // reported identically to a genuine save. "saved" still uses the plain
+      // success copy below; the other three get their own warning-tier toast
+      // (this operation's outer action DID succeed -- the server IS stopped --
+      // so destructive-red would overstate it, and folding into success would
+      // hide the one thing an operator needs to know after a force-stop).
+      const forceStopSaveOutcome = action === 'Force stop server' && result && typeof result === 'object'
+        ? (result as { saveOutcome?: string }).saveOutcome
+        : undefined
+      const forceStopOutcomeCopy = getForceStopSaveOutcomeCopy(t, forceStopSaveOutcome)
+      if (scriptWarnings && scriptWarnings.length > 0) {
+        toast({
+          title: t('successCopy.startServerScriptBackup.title'),
+          description: `${t('successCopy.startServerScriptBackup.description')} ${scriptWarnings.join(' ')}`,
+          variant: 'success' as const,
+        })
+      } else if (stopUnconfirmed) {
+        toast({
+          title: t('successCopy.stopServerRequested.title'),
+          description: t('successCopy.stopServerRequested.description'),
+          variant: 'success' as const,
+        })
+      } else if (forceStopOutcomeCopy) {
+        toast({ title: forceStopOutcomeCopy.title, description: forceStopOutcomeCopy.description, variant: 'warning' as const })
+      } else {
+        toast({ title: copy.title, description: copy.description, variant: 'success' as const })
+      }
       if (action === 'Start server') {
         if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
         let attempts = 0
@@ -550,10 +691,48 @@ export default function Dashboard() {
         }, 2000)
       } else { fetchStatus() }
     } catch (error) {
-      toast({ title: t('toasts.errorTitle'), description: getUserErrorMessage(error, t('toasts.actionFailedFallback')), variant: 'destructive' })
+      toast({
+        title: t('toasts.errorTitle'),
+        description: getUserErrorMessage(error, t('toasts.actionFailedFallback')),
+        variant: 'destructive',
+        action: options?.errorAction?.(error),
+      })
     } finally { setLoading(null) }
   }
-  const handleConnect = async () => { await handleAction('Connect RCON', () => rconApi.connect()) }
+  // Two of the six server.control triggers on this page (this Start button,
+  // and the verdict band's shortcut for the same action below) call
+  // handleAction() directly with no confirm dialog in between -- guarded
+  // here, inside the function, not just on the buttons that call it. Same
+  // lesson as Console.tsx's Enter-key path: a disabled attribute is an
+  // affordance, the function guard is the actual gate.
+  const startServer = () => {
+    if (!canControlServer) return
+    void handleAction('Start server', serverApi.start)
+  }
+  const saveWorld = () => {
+    if (!canControlServer) return
+    void handleAction('Save world', serverApi.save)
+  }
+  const handleConnect = async () => {
+    await handleAction('Connect RCON', () => rconApi.connect(), {
+      // getRecoveryUrl (lib/errorMessage.ts) is the single place that knows
+      // RCON_CONNECT_AUTH_FAILED is fixable from Servers while
+      // RCON_CONNECT_UNREACHABLE (install-level: server not running,
+      // firewall never opened) isn't fixable from any in-app screen --
+      // reusing it here instead of re-deriving that same classification
+      // inline is what keeps the two from drifting apart the way
+      // routes/rcon.js's OWN two error-reporting paths once did tonight.
+      errorAction: (error) => {
+        const url = getRecoveryUrl(error)
+        if (url !== '/servers') return undefined
+        return (
+          <ToastAction altText={t('toasts.rconAuthFailed.openServersAlt')} onClick={() => navigate(url)}>
+            {t('toasts.rconAuthFailed.openServers')}
+          </ToastAction>
+        )
+      },
+    })
+  }
 
   /* ---------------------------- loading ----------------------------------- */
   if (initialLoading) {
@@ -569,7 +748,18 @@ export default function Dashboard() {
 
   /* ---------------------------- derived ----------------------------------- */
   const hasServer = !!activeServer
-  const localProcessStatus = !activeServer?.isRemote && typeof status?.running === 'boolean'
+  // GH#114: status.running is a local process scan -- it can only ever see a
+  // process in *this* container/host. That's a valid, freshest signal for a
+  // native server, but for docker-local/docker-managed the mapped process
+  // runs in a DIFFERENT container, so the scan always finds nothing and
+  // (because isRemote is false for a Docker provider too, not just native)
+  // used to win the ?? chain below over the provider-aware composedStatus --
+  // a Docker container correctly shown running in the Docker panel could
+  // still read "down" on this exact same page. isRemote only distinguishes
+  // remote-SFTP from everything else; it was never a "this process is local
+  // to this container" proxy, which is what this check actually needs.
+  const provider = composedStatus?.provider ?? resolveClientProvider(activeServer)
+  const localProcessStatus = provider === 'native' && typeof status?.running === 'boolean'
     ? status.running
     : null
   const hostRunning = hasServer && (localProcessStatus ?? (composedStatus ? composedStatus.host.status === 'running' : !!status?.running))
@@ -628,11 +818,16 @@ export default function Dashboard() {
       return {
         level: hostUnknown ? 'warning' : 'critical',
         headline: hostUnknown ? t('verdict.serverStatusUnknown') : t('verdict.serverStopped'),
-        action: hostUnknown || activeServer?.isRemote
+        // Omit the shortcut entirely rather than show it disabled with no
+        // explanation -- VerdictAction has no reason/tooltip support, same
+        // treatment isRemote/hostUnknown already get here. The header Start
+        // button (which DOES carry a DisabledReason) remains the explained
+        // affordance for why this operator can't start the server.
+        action: hostUnknown || activeServer?.isRemote || !canControlServer
           ? undefined
           : {
               label: t('actions.start'),
-              onClick: () => { void handleAction('Start server', serverApi.start) },
+              onClick: startServer,
               busy: loading === 'Start server',
               disabled: loading !== null,
             },
@@ -642,6 +837,11 @@ export default function Dashboard() {
       return {
         level: 'warning',
         headline: t('verdict.rconDisconnected'),
+        headlineHelp: (
+          <HelpTip label={t('verdict.rconHelpLabel')} className="ml-1.5 align-[-2px]">
+            {t('verdict.rconHelpTip')}
+          </HelpTip>
+        ),
         action: {
           label: t('actions.connectRcon'),
           onClick: () => { void handleConnect() },
@@ -763,6 +963,7 @@ export default function Dashboard() {
   /* ====================================================================== */
   return (
     <div className="page-transition pb-12">
+      <AutoUpdateResultBanner />
       {/* ─── TOP STATUS BAR ───────────────────────────────────────── */}
       <header
         aria-label={t('header.ariaLabel')}
@@ -868,77 +1069,96 @@ export default function Dashboard() {
           {/* primary controls — right-aligned */}
           <div className="order-2 ml-auto flex flex-wrap justify-end gap-1">
           {!online ? (
-            <Button
-              onClick={() => handleAction('Start server', serverApi.start)}
-              disabled={!hasServer || hostUnknown || loading !== null || activeServer?.isRemote}
-              variant="ghost"
-              size="sm"
-              className="h-8 gap-1.5 rounded-md border border-emerald-500/30 px-2.5 text-xs text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300 disabled:border-border/50 disabled:text-muted-foreground"
-              title={!hasServer ? t('actions.addServerFirst') : activeServer?.isRemote ? t('actions.notAvailableRemote') : undefined}
-            >
-              {loading === 'Start server' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-              {t('actions.start')}
-            </Button>
+            <DisabledReason reason={
+              !hasServer ? t('actions.addServerFirst')
+              : activeServer?.isRemote ? t('actions.notAvailableRemote')
+              : !canControlServer ? t('actions.noPermissionControl')
+              : null
+            }>
+              <Button
+                onClick={startServer}
+                disabled={!hasServer || hostUnknown || loading !== null || activeServer?.isRemote || !canControlServer}
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1.5 rounded-md border border-emerald-500/30 px-2.5 text-xs text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300 disabled:border-border/50 disabled:text-muted-foreground"
+              >
+                {loading === 'Start server' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                {t('actions.start')}
+              </Button>
+            </DisabledReason>
           ) : (
             <>
-              <Button
-                onClick={() => setConfirmAction({
-                  actionId: 'Stop server',
-                  title: t('confirm.stopServer.title'),
-                  description: t('confirm.stopServer.description'),
-                  action: serverApi.stop,
-                  variant: 'destructive',
-                })}
-                disabled={loading !== null || !hostRunning}
-                variant="ghost"
-                size="sm"
-                className="h-8 gap-1.5 rounded-md border border-red-500/30 px-2.5 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-300 disabled:border-border/50 disabled:text-muted-foreground"
-              >
-                {loading === 'Stop server' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
-                {t('actions.stop')}
-              </Button>
-              <Button
-                onClick={() => setConfirmAction({
-                  actionId: 'Force stop server',
-                  title: t('confirm.forceStopServer.title'),
-                  description: t('confirm.forceStopServer.description') + (players.length > 0 ? t('confirm.forceStopServer.descriptionPlayers', { count: players.length }) : ''),
-                  action: serverApi.forceStop,
-                  variant: 'destructive',
-                })}
-                disabled={loading !== null || !hostRunning || activeServer?.isRemote}
-                variant="ghost"
-                size="sm"
-                className="h-8 gap-1.5 rounded-md border border-red-500/30 px-2.5 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-300 disabled:border-border/50 disabled:text-muted-foreground"
-                title={activeServer?.isRemote ? t('actions.notAvailableRemote') : t('actions.forceStopTooltip')}
-              >
-                {loading === 'Force stop server' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Skull className="h-3.5 w-3.5" />}
-                {t('actions.forceStop')}
-              </Button>
-              <Button
-                onClick={() => setConfirmAction({
-                  actionId: 'Restart server',
-                  title: t('confirm.restartServer.title'),
-                  description: t('confirm.restartServer.description'),
-                  action: () => serverApi.restart(5),
-                  variant: 'warning',
-                })}
-                disabled={loading !== null || !hostRunning || activeServer?.isRemote}
-                variant="ghost"
-                size="sm"
-                className="h-8 gap-1.5 rounded-md border border-amber-500/30 px-2.5 text-xs text-amber-400 hover:bg-amber-500/10 hover:text-amber-300 disabled:border-border/50 disabled:text-muted-foreground"
-                title={activeServer?.isRemote ? t('actions.notAvailableRemote') : undefined}
-              >
-                <RotateCcw className="h-3.5 w-3.5" /> {t('actions.restart')}
-              </Button>
-              <Button
-                onClick={() => handleAction('Save world', serverApi.save)}
-                disabled={loading !== null || !rconConnected}
-                variant="ghost"
-                size="sm"
-                className="h-8 gap-1.5 rounded-md border border-sky-500/30 px-2.5 text-xs text-sky-400 hover:bg-sky-500/10 hover:text-sky-300 disabled:border-border/50 disabled:text-muted-foreground"
-              >
-                <Save className="h-3.5 w-3.5" /> {t('actions.save')}
-              </Button>
+              <DisabledReason reason={!canControlServer ? t('actions.noPermissionControl') : null}>
+                <Button
+                  onClick={() => setConfirmAction({
+                    actionId: 'Stop server',
+                    title: t('confirm.stopServer.title'),
+                    description: t('confirm.stopServer.description'),
+                    action: serverApi.stop,
+                    // Same severity class as the adjacent graceful Restart
+                    // button (reversible, comes back with a click) -- was
+                    // styled destructive-red while Restart uses warning-amber
+                    // for the same "disconnects players, nothing is lost"
+                    // outcome. Matches Restart's precedent instead of
+                    // inventing a third tier.
+                    variant: 'warning',
+                  })}
+                  disabled={loading !== null || !hostRunning || !canControlServer}
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 gap-1.5 rounded-md border border-red-500/30 px-2.5 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-300 disabled:border-border/50 disabled:text-muted-foreground"
+                >
+                  {loading === 'Stop server' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
+                  {t('actions.stop')}
+                </Button>
+              </DisabledReason>
+              <DisabledReason reason={activeServer?.isRemote ? t('actions.notAvailableRemote') : !canControlServer ? t('actions.noPermissionControl') : null}>
+                <Button
+                  onClick={() => setConfirmAction({
+                    actionId: 'Force stop server',
+                    title: t('confirm.forceStopServer.title'),
+                    description: t('confirm.forceStopServer.description') + (players.length > 0 ? t('confirm.forceStopServer.descriptionPlayers', { count: players.length }) : ''),
+                    action: serverApi.forceStop,
+                    variant: 'destructive',
+                  })}
+                  disabled={loading !== null || !hostRunning || activeServer?.isRemote || !canControlServer}
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 gap-1.5 rounded-md border border-red-500/30 px-2.5 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-300 disabled:border-border/50 disabled:text-muted-foreground"
+                  title={activeServer?.isRemote ? undefined : t('actions.forceStopTooltip')}
+                >
+                  {loading === 'Force stop server' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Skull className="h-3.5 w-3.5" />}
+                  {t('actions.forceStop')}
+                </Button>
+              </DisabledReason>
+              <DisabledReason reason={activeServer?.isRemote ? t('actions.notAvailableRemote') : !canControlServer ? t('actions.noPermissionControl') : null}>
+                <Button
+                  onClick={() => setConfirmAction({
+                    actionId: 'Restart server',
+                    title: t('confirm.restartServer.title'),
+                    description: t('confirm.restartServer.description'),
+                    action: () => serverApi.restart(5),
+                    variant: 'warning',
+                  })}
+                  disabled={loading !== null || !hostRunning || activeServer?.isRemote || !canControlServer}
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 gap-1.5 rounded-md border border-amber-500/30 px-2.5 text-xs text-amber-400 hover:bg-amber-500/10 hover:text-amber-300 disabled:border-border/50 disabled:text-muted-foreground"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" /> {t('actions.restart')}
+                </Button>
+              </DisabledReason>
+              <DisabledReason reason={!canControlServer ? t('actions.noPermissionControl') : null}>
+                <Button
+                  onClick={saveWorld}
+                  disabled={loading !== null || !rconConnected || !canControlServer}
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 gap-1.5 rounded-md border border-sky-500/30 px-2.5 text-xs text-sky-400 hover:bg-sky-500/10 hover:text-sky-300 disabled:border-border/50 disabled:text-muted-foreground"
+                >
+                  <Save className="h-3.5 w-3.5" /> {t('actions.save')}
+                </Button>
+              </DisabledReason>
             </>
           )}
           <DropdownMenu>
@@ -961,31 +1181,82 @@ export default function Dashboard() {
                 <Link to="/settings" className="flex items-center"><Server className="mr-2 h-4 w-4" /> {t('actions.bridgeSettings')}</Link>
               </DropdownMenuItem>
               {!rconConnected && (
-                <DropdownMenuItem onClick={handleConnect} disabled={!hasServer || loading !== null}>
-                  <Wifi className="mr-2 h-4 w-4" /> {t('actions.connectRcon')}
-                </DropdownMenuItem>
+                <DisabledReason
+                  className="w-full"
+                  reason={
+                    !hasServer
+                      ? t('actions.addServerFirst')
+                      : !activeServer?.isRemote && !hostRunning
+                        ? t('actions.connectRconNeedsHostRunning')
+                        : null
+                  }
+                >
+                  <DropdownMenuItem onClick={handleConnect} disabled={!hasServer || loading !== null || (!activeServer?.isRemote && !hostRunning)}>
+                    <Wifi className="mr-2 h-4 w-4" /> {t('actions.connectRcon')}
+                  </DropdownMenuItem>
+                </DisabledReason>
               )}
               <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => setConfirmAction({
-                  actionId: 'Restart server now',
-                  title: t('confirm.restartServerNow.title'),
-                  description: t('confirm.restartServerNow.description') + (players.length > 0 ? t('confirm.restartServerNow.descriptionPlayers', { count: players.length }) : ''),
-                  action: () => serverApi.restart(0),
-                  variant: 'destructive',
-                })}
-                disabled={!hasServer || !hostRunning || loading !== null || activeServer?.isRemote}
-                className="text-destructive focus:text-destructive"
+              <DisabledReason
+                className="w-full"
+                reason={
+                  activeServer?.isRemote ? t('actions.notAvailableRemote')
+                  : !canControlServer ? t('actions.noPermissionControl')
+                  : null
+                }
               >
-                <Zap className="mr-2 h-4 w-4" /> {t('actions.restartNow')}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => { setWipePreview(null); setWipeDialog(true) }}
-                disabled={!hasServer || online || loading !== null || activeServer?.isRemote}
-                className="text-destructive focus:text-destructive"
+                <DropdownMenuItem
+                  onClick={() => {
+                    // Radix's MenuItem composes this onClick to fire BEFORE
+                    // its own disabled check (which only guards its internal
+                    // select/close behavior, not an arbitrary onClick prop) --
+                    // the disabled attribute below is an affordance, this
+                    // guard is the actual gate, same lesson as Console.tsx's
+                    // Enter-key path.
+                    if (!canControlServer) return
+                    setConfirmAction({
+                      actionId: 'Restart server now',
+                      title: t('confirm.restartServerNow.title'),
+                      description: t('confirm.restartServerNow.description') + (players.length > 0 ? t('confirm.restartServerNow.descriptionPlayers', { count: players.length }) : ''),
+                      action: () => serverApi.restart(0),
+                      variant: 'destructive',
+                    })
+                  }}
+                  disabled={!hasServer || !hostRunning || loading !== null || activeServer?.isRemote || !canControlServer}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <Zap className="mr-2 h-4 w-4" /> {t('actions.restartNow')}
+                </DropdownMenuItem>
+              </DisabledReason>
+              <DisabledReason
+                className="w-full"
+                reason={
+                  !hasServer ? t('actions.addServerFirst')
+                  : activeServer?.isRemote ? t('actions.notAvailableRemote')
+                  // Capability before the transient "server is running" reason
+                  // -- an operator who will never hold server.wipe gets told
+                  // that, not sent to wait for a restart that wouldn't help them.
+                  : !canWipeServer ? t('actions.noPermissionWipe')
+                  : online ? t('actions.wipeMustStopFirst')
+                  : null
+                }
               >
-                <Trash2 className="mr-2 h-4 w-4" /> {t('actions.wipeServer')}
-              </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    // Same Radix quirk as Restart Now above: this onClick
+                    // fires before the disabled prop is ever consulted, so
+                    // the real gate on the single most destructive control
+                    // in the product has to live here, not in the attribute.
+                    if (!canWipeServer) return
+                    setWipePreview(null)
+                    setWipeDialog(true)
+                  }}
+                  disabled={!hasServer || online || loading !== null || activeServer?.isRemote || !canWipeServer}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <Trash2 className="mr-2 h-4 w-4" /> {t('actions.wipeServer')}
+                </DropdownMenuItem>
+              </DisabledReason>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -1190,7 +1461,7 @@ export default function Dashboard() {
                   return (
                     <li key={a.id} className="group grid grid-cols-[3.25rem_1rem_minmax(0,8rem)_minmax(0,1fr)] items-center gap-2 px-3 py-[3px] transition-colors hover:bg-muted/20">
                       <time className="font-mono text-[10px] tabular-nums text-muted-foreground/50">
-                        {new Date(a.logged_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                        {new Date(a.logged_at).toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })}
                       </time>
                       <span className={cn('flex justify-center', s.tone)} aria-hidden="true">{s.icon}</span>
                       <span className="truncate text-[11px] font-medium text-foreground/85" dir="auto" title={a.player_name}>
@@ -1296,7 +1567,7 @@ export default function Dashboard() {
                   <RefreshCw className={cn('h-3 w-3', loading ? 'animate-spin' : '')} />
                   {t('maintenance.refreshStatus')}
                   <span className="ml-auto font-mono text-[10px] text-muted-foreground/65">
-                    {lastUpdated ? lastUpdated.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '—'}
+                    {lastUpdated ? lastUpdated.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' }) : '—'}
                   </span>
                 </Button>
                 <Button
@@ -1309,17 +1580,36 @@ export default function Dashboard() {
                   {loading === 'Create backup' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Archive className="h-3 w-3" />}
                   {t('maintenance.createBackup')}
                 </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 w-full justify-start gap-2 text-xs text-destructive hover:text-destructive"
-                  disabled={!hasServer || online || loading !== null || activeServer?.isRemote}
-                  onClick={() => { setWipePreview(null); setWipeDialog(true) }}
-                  title={online ? t('maintenance.wipeTooltipOnline') : t('maintenance.wipeTooltipOffline')}
+                <DisabledReason
+                  className="w-full"
+                  reason={
+                    // Same priority order and same Radix onClick-before-disabled
+                    // guard as the "..." dropdown's Wipe item -- this sidebar
+                    // button opens the identical destructive dialog and was
+                    // missing both, which let a role without server.wipe
+                    // open the wipe dialog only to strand on unexplained
+                    // disabled Preview/Wipe Now buttons inside it.
+                    !canWipeServer ? t('actions.noPermissionWipe')
+                    : online ? t('maintenance.wipeTooltipOnline')
+                    : null
+                  }
                 >
-                  <Trash2 className="h-3 w-3" />
-                  {t('maintenance.wipeServer')}
-                </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 w-full justify-start gap-2 text-xs text-destructive hover:text-destructive"
+                    disabled={!hasServer || online || loading !== null || activeServer?.isRemote || !canWipeServer}
+                    onClick={() => {
+                      if (!canWipeServer) return
+                      setWipePreview(null)
+                      setWipeDialog(true)
+                    }}
+                    title={online ? undefined : t('maintenance.wipeTooltipOffline')}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    {t('maintenance.wipeServer')}
+                  </Button>
+                </DisabledReason>
                 <label className="mt-1 flex cursor-pointer items-center gap-2 border-t border-border/30 px-1 pt-2">
                   <Checkbox
                     id="autoStartServer"
@@ -1359,8 +1649,28 @@ export default function Dashboard() {
           <AlertDialogFooter className="gap-2 sm:gap-2">
             <AlertDialogCancel className="mt-0">{t('confirm.cancel')}</AlertDialogCancel>
             <AlertDialogAction
+              disabled={loading !== null}
               className={cn(buttonVariants({ variant: confirmAction?.variant === 'destructive' ? 'destructive' : 'warning' }))}
-              onClick={async () => { if (confirmAction) { await handleAction(confirmAction.actionId, confirmAction.action); setConfirmAction(null) } }}
+              onClick={async (e) => {
+                // AlertDialogAction is Radix's own Close primitive -- it
+                // auto-closes the dialog on click unless preventDefault()
+                // is called, which otherwise leaves a narrow window (the
+                // CSS exit-animation) where a second click can still land
+                // and fire Stop/Force Stop a second time before the first
+                // resolves (Stop/Force Stop have no server-side mutex,
+                // unlike Restart's restartInProgress flag).
+                e.preventDefault()
+                if (!confirmAction) return
+                // Stop/Force Stop/Restart/Restart Now all require
+                // server.control and all share this one AlertDialogAction --
+                // the buttons that stage confirmAction above only open this
+                // dialog, so THIS is the real execution point and where the
+                // gate actually has to live, same as Console.tsx's
+                // executeCommand()/sendAnnouncement() guards.
+                if (!canControlServer) { setConfirmAction(null); return }
+                await handleAction(confirmAction.actionId, confirmAction.action)
+                setConfirmAction(null)
+              }}
             >
               {confirmAction?.title}
             </AlertDialogAction>
@@ -1400,7 +1710,29 @@ export default function Dashboard() {
               </label>
             ))}
             <div className="px-3 pb-1 text-xs text-muted-foreground">{t('wipeDialog.notice')}</div>
+
+            <div className="flex items-center justify-between rounded-lg bg-muted p-3">
+              <div>
+                <Label>{t('wipeDialog.backupLabel')}</Label>
+                <p className="text-xs text-muted-foreground">{t('wipeDialog.backupDesc')}</p>
+              </div>
+              <Switch checked={wipeCreateBackup} disabled={wipeLoading} onCheckedChange={setWipeCreateBackup} />
+            </div>
+
+            {!wipeCreateBackup && (
+              <div className="rounded-lg border border-destructive/25 bg-destructive/8 p-3 text-sm">
+                <p className="font-medium text-destructive">{t('wipeDialog.noBackupTitle')}</p>
+                <p className="text-muted-foreground">{t('wipeDialog.noBackupDesc')}</p>
+              </div>
+            )}
           </div>
+
+          {wipeLoading && wipeBackupProgress && wipeBackupProgress.phase !== 'complete' && (
+            <div className="space-y-1.5 rounded-md border border-border/50 bg-muted/30 p-3 text-sm">
+              <div className="text-muted-foreground">{wipeBackupProgress.message}</div>
+              <Progress value={wipeBackupProgress.percent} className="h-1.5" />
+            </div>
+          )}
 
           {wipePreview && (
             <div className="space-y-1 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm">
@@ -1415,14 +1747,14 @@ export default function Dashboard() {
                     const category = t(`wipeDialog.categoryLabels.${key}`)
                     if (key === 'leftovers') {
                       return data.files > 0
-                        ? <div key={key}>{t('wipeDialog.filesCount', { count: data.files.toLocaleString(), category, mb: (data.size / 1024 / 1024).toFixed(1) })}</div>
+                        ? <div key={key}>{t('wipeDialog.filesCount', { count: data.files.toLocaleString(i18n.language), category, mb: (data.size / 1024 / 1024).toFixed(1) })}</div>
                         : null
                     }
                     return data.files > 0
-                      ? <div key={key}>{t('wipeDialog.filesCount', { count: data.files.toLocaleString(), category, mb: (data.size / 1024 / 1024).toFixed(1) })}</div>
+                      ? <div key={key}>{t('wipeDialog.filesCount', { count: data.files.toLocaleString(i18n.language), category, mb: (data.size / 1024 / 1024).toFixed(1) })}</div>
                       : <div key={key} className="text-muted-foreground">{t('wipeDialog.noCategoryFilesFound', { category })}</div>
                   })}
-                  <div className="pt-1 font-medium">{t('wipeDialog.total', { count: wipePreview.totalFiles.toLocaleString(), mb: (wipePreview.totalSize / 1024 / 1024).toFixed(1) })}</div>
+                  <div className="pt-1 font-medium">{t('wipeDialog.total', { count: wipePreview.totalFiles.toLocaleString(i18n.language), mb: (wipePreview.totalSize / 1024 / 1024).toFixed(1) })}</div>
                   {wipePreview.truncated && (
                     <div className="pt-1 text-warning">{t('wipeDialog.truncatedWarning')}</div>
                   )}
@@ -1436,9 +1768,13 @@ export default function Dashboard() {
             {!wipePreview ? (
               <Button
                 variant="warning"
-                disabled={!Object.values(wipeTargets).some(Boolean) || wipeLoading}
+                disabled={!Object.values(wipeTargets).some(Boolean) || wipeLoading || !canWipeServer}
                 onClick={async () => {
-                  if (wipeLoading) return
+                  // POST /server/wipe/preview requires server.wipe too --
+                  // guarded here as well as on the DropdownMenuItem that
+                  // opens this dialog, so this stays safe even if something
+                  // else ever opens wipeDialog without checking first.
+                  if (wipeLoading || !canWipeServer) return
                   setWipeLoading(true)
                   try {
                     const targets = Object.entries(wipeTargets).filter(([, v]) => v).map(([k]) => k)
@@ -1455,18 +1791,24 @@ export default function Dashboard() {
             ) : (
               <Button
                 variant="destructive"
-                disabled={wipeLoading || wipePreview.totalFiles === 0}
+                disabled={wipeLoading || wipePreview.totalFiles === 0 || !canWipeServer}
                 onClick={async () => {
-                  if (wipeLoading) return
+                  if (wipeLoading || !canWipeServer) return
                   setWipeLoading(true)
+                  setWipeBackupProgress(wipeCreateBackup ? { phase: 'preparing', percent: 0, message: t('wipeDialog.backupStarting') } : null)
                   try {
                     const targets = Object.entries(wipeTargets).filter(([, v]) => v).map(([k]) => k)
-                    await serverApi.wipe(targets)
-                    toast({ title: t('wipeDialog.wipedTitle'), description: t('wipeDialog.wipedDesc', { targets: targets.join(', ') }) })
+                    const result = await serverApi.wipe(targets, wipeCreateBackup)
+                    toast({
+                      title: t('wipeDialog.wipedTitle'),
+                      description: result.backupCreated
+                        ? t('wipeDialog.wipedDescWithBackup', { targets: targets.join(', '), name: result.backupName || '' })
+                        : t('wipeDialog.wipedDesc', { targets: targets.join(', ') }),
+                    })
                     setWipeDialog(false); setWipePreview(null)
                   } catch (e: unknown) {
                     toast({ title: t('wipeDialog.wipeFailedTitle'), description: e instanceof Error ? e.message : t('wipeDialog.wipeFailedFallback'), variant: 'destructive' })
-                  } finally { setWipeLoading(false) }
+                  } finally { setWipeLoading(false); setWipeBackupProgress(null) }
                 }}
               >
                 {wipeLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}

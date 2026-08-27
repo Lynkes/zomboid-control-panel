@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import cron from "node-cron";
 import { createLogger } from "../utils/logger.js";
 const log = createLogger("Scheduler");
@@ -5,14 +7,23 @@ import panelBridge from "./panelBridge.js";
 import { RconService } from "./rcon.js";
 import { ServerManager } from "./serverManager.js";
 import { runManagedLifecycle } from "./managedContainer.js";
+import { createBackupIfChanged } from "../utils/configBackup.js";
+import {
+  candidateIniPaths,
+  refreshLaunchTargetBeforeStart,
+} from "../routes/server.js";
 import {
   getScheduledTasks,
   updateTaskLastRun,
   logServerEvent,
   logScheduleExecution,
   getActiveServer,
+  getServer,
 } from "../database/init.js";
-
+import {
+  isCronTooFrequent,
+  isSupportedFiveFieldCron,
+} from "../utils/cronValidation.js";
 // Built-in PanelBridge actions exposed to the scheduler via the
 // `bridge:<action>` command syntax. Optional JSON args follow the action,
 // e.g. `bridge:triggerBlizzard {"duration":2}`. Only the actions listed
@@ -50,6 +61,74 @@ export function classifyScheduledCommand(command) {
   if (commandLower.startsWith("servermsg ")) return "servermsg";
   if (commandLower.startsWith("bridge:")) return "bridge";
   return "raw";
+}
+
+// Extracts the action name from a `bridge:<action>` scheduled command (the
+// part before any JSON args blob), preserving original casing since
+// PanelBridge action names are case-sensitive. Shared by executeBridgeAction
+// (which needs the name to dispatch) and requiredCapabilityForScheduledCommand
+// below (which needs it to tell saveWorld apart from every other bridge:
+// action) so the two can't parse it two different ways.
+function parseBridgeActionName(rawCommand) {
+  const body = rawCommand.slice("bridge:".length).trim();
+  const firstSpace = body.indexOf(" ");
+  return (firstSpace === -1 ? body : body.slice(0, firstSpace)).trim();
+}
+
+// The single source of truth for which panel capability a scheduled command
+// requires -- the SAME capability its direct/interactive equivalent route
+// requires, because scheduling an action must not cost less than performing
+// it (docs/qa/kevin-adversarial-findings.md Finding 1 established this for
+// raw/rcon.execute specifically; this generalises it to the other three
+// curated classifications, closing the gap Finding 1's own fix never
+// checked -- automation.manage was verified against rcon.execute, never
+// against server.world_events or server.control).
+// routes/scheduler.js's write-time (POST/PUT /tasks) and run-time
+// (POST /tasks/:id/run) permission checks all call this, so they can never
+// silently drift on what a given command needs -- same reasoning as
+// classifyScheduledCommand's own header comment, extended.
+//
+// bridge:saveWorld is the one bridge: action that is NOT a world event: it's
+// PanelBridge's own equivalent of POST /server/save and POST
+// /panel-bridge/world/save, both gated server.control (panelBridge.js:2003).
+//
+// 2026-08-27 (operator ruling on ranked-bug #5): server.world_events itself
+// split, and three more schedulable bridge: actions went with the targeted
+// half -- triggerGunshot and triggerAlarmSound both accept {username} and,
+// per the Lua handler, resolve it to that player's exact x/y/z before
+// playing (services/panelBridge.js triggerGunshot/triggerAlarmSound ->
+// PanelBridge.lua handlers.triggerGunshot/triggerAlarmSound), the same
+// attraction-sound-at-a-player shape as POST /panel-bridge/sound/gunshot
+// and /sound/alarm; sendToAdminChat is PanelBridge's own equivalent of POST
+// /panel-bridge/chat/admin. All three now require
+// players.endanger_or_impersonate, matching their direct routes, not
+// server.world_events -- otherwise a moderator (who kept server.world_events
+// but lost players.endanger_or_impersonate in the split) could still reach
+// them by scheduling instead of calling the route directly, the exact
+// "scheduling an action must not cost less than performing it" gap this
+// function exists to close, just reopened by the split. createNoise
+// (/sound/noise's equivalent, also {username}-capable) is NOT in
+// SCHEDULABLE_BRIDGE_ACTIONS, so it isn't reachable via the scheduler at
+// all -- nothing to remap there.
+const ENDANGER_OR_IMPERSONATE_BRIDGE_ACTIONS = new Set([
+  "triggerGunshot",
+  "triggerAlarmSound",
+  "sendToAdminChat",
+]);
+
+export function requiredCapabilityForScheduledCommand(command) {
+  const kind = classifyScheduledCommand(command);
+  if (kind === "restart" || kind === "save") return "server.control";
+  if (kind === "servermsg") return "server.world_events";
+  if (kind === "bridge") {
+    const action = parseBridgeActionName(String(command ?? ""));
+    if (action === "saveWorld") return "server.control";
+    if (ENDANGER_OR_IMPERSONATE_BRIDGE_ACTIONS.has(action)) {
+      return "players.endanger_or_impersonate";
+    }
+    return "server.world_events";
+  }
+  return "rcon.execute"; // kind === "raw"
 }
 
 export class Scheduler {
@@ -115,7 +194,10 @@ export class Scheduler {
   }
 
   scheduleTask(task) {
-    if (!cron.validate(task.cron_expression)) {
+    if (
+      !isSupportedFiveFieldCron(task.cron_expression) ||
+      isCronTooFrequent(task.cron_expression)
+    ) {
       log.error(
         `Invalid cron expression for task ${task.id} (${task.name}): ${task.cron_expression}`,
       );
@@ -139,12 +221,19 @@ export class Scheduler {
   // servermsg/bridge: special-casing in executeTask), so a manual "run now"
   // behaves identically to the scheduled fire instead of shelling the raw
   // command string straight to RCON.
+  // Returns {success, message} -- previously implicit `undefined` on every
+  // path, including failure (this method already caught and logged its own
+  // errors to Schedule History, so nothing rethrew and a caller had no way
+  // to learn the outcome without a second, separate history query). The
+  // route now uses this to report the real result over the socket instead
+  // of a blind "Task triggered" (2026-08-26 bug hunt, scheduler
+  // blind-success family).
   async runTaskNow(task) {
     if (this.runningTasks.has(task.id)) {
       log.debug(
         `Skipping duplicate execution of task ${task.name} (already running)`,
       );
-      return;
+      return { success: false, message: "Already running" };
     }
 
     this.runningTasks.add(task.id);
@@ -154,15 +243,17 @@ export class Scheduler {
       await this.executeTask(task);
       const duration = Date.now() - startTime;
       await updateTaskLastRun(task.id);
+      const message = "Completed successfully";
       await logScheduleExecution(
         task.id,
         task.name,
         task.command,
         true,
-        "Completed successfully",
+        message,
         duration,
       );
       await logServerEvent("scheduled_task", `Executed: ${task.name}`);
+      return { success: true, message };
     } catch (error) {
       const duration = Date.now() - startTime;
       log.error(`Scheduled task failed ${task.name}: ${error.message}`);
@@ -178,6 +269,7 @@ export class Scheduler {
         "scheduled_task_error",
         `${task.name}: ${error.message}`,
       );
+      return { success: false, message: error.message };
     } finally {
       this.runningTasks.delete(task.id);
     }
@@ -326,6 +418,100 @@ export class Scheduler {
     await serverManager.reloadConfig(pinnedServerId);
   }
 
+  // Config-backup coverage for the ONE call site every restart trigger
+  // funnels through -- manual (Dashboard/Scheduler-page "Restart Now",
+  // Discord command) and automated (the AUTO_RESTART_CRON job, a
+  // mod-update-triggered restart) alike, since they all call
+  // performRestart(). 2026-08-27 user report (loonE, Discord): config
+  // reverted to default after a SCHEDULED reboot -- and separately,
+  // confirmed by grep, that createBackup()/writeIniWithBackup() only ever
+  // fire from an explicit human edit-and-save action, never from any
+  // restart or the scheduled world-backup job. So the one event class most
+  // likely to silently replace a config (an unattended restart, at 4am,
+  // nobody watching) was also the one event class the config-backup net
+  // never covered. This closes that gap at the one place that reaches
+  // every restart trigger, using the existing createBackup() machinery
+  // (via createBackupIfChanged() -- see its own comment for why "if
+  // changed" specifically: an unconditional backup on every restart of a
+  // server that restarts on a schedule would fill the keep-10 quota with
+  // duplicate copies of unchanged content and evict the real,
+  // content-different human-edit backups instead).
+  //
+  // Called once the old process is confirmed stopped and before the new
+  // one starts -- config files are static in that window, on both the
+  // managed-container and directly-spawned paths, so this runs
+  // unconditionally regardless of which one this restart takes.
+  // Deliberately best-effort: a backup failure must never block the
+  // restart itself, matching every other pre-restart step in this
+  // function (RCON verify, world save) that logs and continues rather
+  // than throwing out of performRestart entirely for a housekeeping
+  // failure -- except unlike those, a failed *backup* specifically isn't
+  // even something to fail the restart FOR, since skipping it only means
+  // this one restart isn't covered, not that the restart itself is unsafe.
+  //
+  // Resolves the config directory/filenames via candidateIniPaths() --
+  // the SAME 4-way fallback ensureRconConfigured() uses (server.js), not
+  // the single serverConfigPath-or-zomboidDataPath/Server guess this
+  // method originally used. 2026-08-27, operator-flagged: the installs
+  // most likely to have their real ini at one of the legacy locations are
+  // exactly the ones the stale-launch-script defect (see
+  // refreshLaunchTargetBeforeStart()) is most likely to hit -- a backup
+  // step that only checks the default location would silently skip
+  // covering exactly the installs at risk. One shared resolver so this
+  // and ensureRconConfigured() cannot drift on where "the" ini is, same
+  // reasoning as listBackupsFor() in configBackup.js. The sandbox
+  // filename is derived from whichever ini was ACTUALLY found (its own
+  // basename, not necessarily server.serverName) -- PZ's own
+  // SandboxVars.lua naming follows the ini's basename, and the legacy
+  // fallback locations (servertest.ini, serveroptions.ini) use fixed
+  // names that can differ from the configured serverName.
+  //
+  // Returns the resolved server record (or null) so a caller needing the
+  // same record for a related pre-start step doesn't have to re-fetch it.
+  async _backupConfigBeforeRestart(pinnedServerId) {
+    let server = null;
+    try {
+      server =
+        pinnedServerId != null
+          ? await getServer(pinnedServerId)
+          : await getActiveServer();
+      if (!server?.serverName) return server;
+
+      const serverConfigPath =
+        server.serverConfigPath ||
+        (server.zomboidDataPath
+          ? path.join(server.zomboidDataPath, "Server")
+          : null);
+      if (!serverConfigPath) return server;
+
+      const iniPath =
+        candidateIniPaths(
+          serverConfigPath,
+          server.zomboidDataPath,
+          server.serverName,
+        ).find((candidate) => fs.existsSync(candidate)) ||
+        path.join(serverConfigPath, `${server.serverName}.ini`);
+
+      const configDir = path.dirname(iniPath);
+      const iniFilename = path.basename(iniPath);
+      const sandboxFilename = iniFilename.toLowerCase().endsWith(".ini")
+        ? `${iniFilename.slice(0, -4)}_SandboxVars.lua`
+        : `${server.serverName}_SandboxVars.lua`;
+
+      for (const filename of [iniFilename, sandboxFilename]) {
+        const result = await createBackupIfChanged(configDir, filename);
+        if (result.reason === "failed") {
+          log.warn(
+            `Pre-restart config backup of ${filename} failed: ${result.error}`,
+          );
+        }
+      }
+    } catch (error) {
+      log.warn(`Pre-restart config backup failed: ${error.message}`);
+    }
+    return server;
+  }
+
   // Picks the RconService/ServerManager pair a task should run against.
   // Returns the shared singletons (cleanup: null) for a task with no
   // server_id (legacy) or one that targets the currently-active server.
@@ -381,11 +567,11 @@ export class Scheduler {
     const body = rawCommand.slice("bridge:".length).trim();
     if (!body) throw new Error("bridge: action missing");
 
-    // First whitespace separates the action name from its args blob.
+    // action comes from the same shared parser requiredCapabilityForScheduledCommand
+    // uses, so dispatch and permission-checking can never disagree on which
+    // action a given command names.
+    const action = parseBridgeActionName(rawCommand);
     const firstSpace = body.indexOf(" ");
-    const action = (
-      firstSpace === -1 ? body : body.slice(0, firstSpace)
-    ).trim();
     const argsRaw = firstSpace === -1 ? "" : body.slice(firstSpace + 1).trim();
 
     if (!SCHEDULABLE_BRIDGE_ACTIONS.has(action)) {
@@ -406,11 +592,15 @@ export class Scheduler {
       }
     }
 
-    const result = await panelBridge.sendCommand(action, args);
-    if (result && result.success === false) {
-      throw new Error(result.error || `bridge action ${action} failed`);
-    }
-    return result;
+    // sendCommand()'s returned promise only ever resolves {success: true,
+    // data} or rejects (services/panelBridge.js processResult()'s only two
+    // outcomes) -- it never resolves an explicit {success: false}. A
+    // caller-side `if (result.success === false) throw` here was dead code,
+    // unreachable through this path, and implied a failure shape that
+    // structurally cannot occur -- the `await` below already surfaces a
+    // real bridge failure by rejecting, which propagates to executeTask()'s
+    // caller the same as every other throw in this function.
+    return panelBridge.sendCommand(action, args);
   }
 
   cancelTask(taskId) {
@@ -483,7 +673,10 @@ export class Scheduler {
         return;
       }
 
-      if (!cron.validate(settings.schedule)) {
+      if (
+        !isSupportedFiveFieldCron(settings.schedule) ||
+        isCronTooFrequent(settings.schedule)
+      ) {
         log.error(
           `Invalid backup schedule cron expression: ${settings.schedule}`,
         );
@@ -499,15 +692,24 @@ export class Scheduler {
           });
           const duration = Date.now() - startTime;
           if (result.success) {
+            // 2026-08-26 bug hunt: createBackup surfaces skipped files
+            // rather than deciding policy -- a scheduled backup tolerates a
+            // skip (same reasoning as the manual /backup/create route) but
+            // must not bury it inside a message that reads identically to a
+            // clean run, since Schedule History is the only place anyone
+            // would ever see it for an unattended backup.
+            const skipNote = result.skippedFiles?.length
+              ? ` (skipped ${result.skippedFiles.length} file(s) that vanished during archiving: ${result.skippedFiles.join(", ")})`
+              : "";
             await logScheduleExecution(
               null,
               "Scheduled Backup",
               "backup",
               true,
-              `Created: ${result.backup.name}`,
+              `Created: ${result.backup.name}${skipNote}`,
               duration,
             );
-            log.info(`Scheduled backup completed: ${result.backup.name}`);
+            log.info(`Scheduled backup completed: ${result.backup.name}${skipNote}`);
           } else {
             await logScheduleExecution(
               null,
@@ -547,7 +749,10 @@ export class Scheduler {
       return;
     }
 
-    if (!cron.validate(cronExpression)) {
+    if (
+      !isSupportedFiveFieldCron(cronExpression) ||
+      isCronTooFrequent(cronExpression)
+    ) {
       log.error(`Invalid auto-restart cron expression: ${cronExpression}`);
       return;
     }
@@ -702,8 +907,24 @@ export class Scheduler {
     }
 
     try {
+      // No fallback to checkServerRunning() when getServerProcessDetails
+      // isn't available -- that call collapses a failed scan into a plain
+      // `false`, and hardcoding scanFailed:false here would additionally
+      // LIE about a check that never actually ran. Treat "the richer check
+      // isn't available" as equivalent to a failed scan and let the
+      // existing processScanFailed handling below refuse, same shape as
+      // server/index.js's Docker-update gate (handlePanelUpdateDownload).
+      const readProcessDetails = async () => {
+        if (typeof serverManager.getServerProcessDetails === "function") {
+          return serverManager.getServerProcessDetails();
+        }
+        return { running: false, scanFailed: true };
+      };
+
       // Check if server is actually running - use multiple methods
-      let wasRunning = await serverManager.checkServerRunning();
+      const initialProcessDetails = await readProcessDetails();
+      const processScanFailed = Boolean(initialProcessDetails?.scanFailed);
+      let wasRunning = Boolean(initialProcessDetails?.running);
       log.info(`Auto-restart: Process check returned: ${wasRunning}`);
 
       // If process check says not running, also try RCON as a fallback
@@ -734,10 +955,36 @@ export class Scheduler {
       }
 
       if (!wasRunning) {
-        // Server wasn't running - just start it
+        if (processScanFailed) {
+          const restartDuration = Date.now() - restartStartTime;
+          const errorMsg =
+            "Could not confirm whether the server is stopped because process detection failed";
+          await logScheduleExecution(
+            null,
+            label,
+            "restart",
+            false,
+            errorMsg,
+            restartDuration,
+          );
+          logServerEvent("auto_restart_error", errorMsg);
+          return { success: false, wasRunning: false, message: errorMsg };
+        }
+
+        // Server wasn't running - just start it. Already-stopped, so config
+        // files are already static -- same coverage as the main branch
+        // below, see _backupConfigBeforeRestart()'s own comment. Also
+        // refresh the launch target first, same as the manual /start route
+        // does, so this branch doesn't reintroduce the stale-script defect
+        // just because it takes a different path than the main one below --
+        // see refreshLaunchTargetBeforeStart()'s own comment.
         log.info(
           "Auto-restart triggered but server was not running - starting server",
         );
+        const restartTarget = await this._backupConfigBeforeRestart(pinnedServerId);
+        await refreshLaunchTargetBeforeStart(restartTarget, {
+          managedHandled: false,
+        });
         const started = await serverManager.startServer();
         if (!started?.success) {
           log.warn(
@@ -747,7 +994,10 @@ export class Scheduler {
 
         // Wait a bit and verify it started
         await this.sleep(10000);
-        const isNowRunning = await serverManager.checkServerRunning();
+        const postStartDetails = await readProcessDetails();
+        const isNowRunning =
+          rconService.connected ||
+          Boolean(postStartDetails && !postStartDetails.scanFailed && postStartDetails.running);
 
         const restartDuration = Date.now() - restartStartTime;
         if (isNowRunning) {
@@ -952,20 +1202,70 @@ export class Scheduler {
         }
         await this.sleep(10000);
 
-        // Wait for server to stop
+        // Wait for server to stop. A failed scan is unknown, not stopped.
         let attempts = 0;
-        while ((await serverManager.checkServerRunning()) && attempts < 60) {
+        let processDetails = await readProcessDetails();
+        if (!processDetails || processDetails.scanFailed) {
+          const restartDuration = Date.now() - restartStartTime;
+          const errorMsg =
+            "Could not confirm the old server stopped because process detection failed";
+          await logScheduleExecution(
+            null,
+            label,
+            "restart",
+            false,
+            errorMsg,
+            restartDuration,
+          );
+          logServerEvent("auto_restart_error", errorMsg);
+          return { success: false, wasRunning: true, message: errorMsg };
+        }
+        while (processDetails.running && attempts < 60) {
           await this.sleep(1000);
           attempts++;
+          processDetails = await readProcessDetails();
+          if (!processDetails || processDetails.scanFailed) {
+            const restartDuration = Date.now() - restartStartTime;
+            const errorMsg =
+              "Could not confirm the old server stopped because process detection failed";
+            await logScheduleExecution(
+              null,
+              label,
+              "restart",
+              false,
+              errorMsg,
+              restartDuration,
+            );
+            logServerEvent("auto_restart_error", errorMsg);
+            return { success: false, wasRunning: true, message: errorMsg };
+          }
         }
 
         // Force stop if needed
-        if (await serverManager.checkServerRunning()) {
+        if (processDetails.running) {
           const forced = await serverManager.stopServer(false);
-          if (!forced?.success) {
-            log.warn(
-              `Auto-restart: forced stop reported failure: ${forced?.error || forced?.message || "unknown error"}`,
+          if (!forced?.success || forced.confirmed === false) {
+            const stopError =
+              forced?.error || forced?.message || "unknown error";
+            const restartDuration = Date.now() - restartStartTime;
+            log.warn(`Auto-restart: forced stop failed: ${stopError}`);
+            await logScheduleExecution(
+              null,
+              label,
+              "restart",
+              false,
+              `Could not confirm the old server stopped: ${stopError}`,
+              restartDuration,
             );
+            logServerEvent(
+              "auto_restart_error",
+              `Could not confirm the old server stopped: ${stopError}`,
+            );
+            return {
+              success: false,
+              wasRunning: true,
+              message: `Could not confirm the old server stopped: ${stopError}`,
+            };
           }
           await this.sleep(5000);
         }
@@ -974,6 +1274,23 @@ export class Scheduler {
         // (zombie processes on Linux, WMI cache on Windows)
         await this.sleep(3000);
       }
+
+      // See _backupConfigBeforeRestart()'s own comment: config files are
+      // static in this window (old process confirmed stopped, new one not
+      // started yet), on both the managed-container and directly-spawned
+      // paths below, so this runs unconditionally regardless of which one
+      // this restart takes.
+      const restartTarget = await this._backupConfigBeforeRestart(pinnedServerId);
+
+      // Refresh RCON config and the launch script against current settings,
+      // same as the manual /start route -- see
+      // refreshLaunchTargetBeforeStart()'s own comment. RCON always runs
+      // (matches the route); script regen is skipped for a managed
+      // container the same way the route skips it, since Docker owns the
+      // launch command there.
+      await refreshLaunchTargetBeforeStart(restartTarget, {
+        managedHandled: managed.handled,
+      });
 
       // Set flag to prevent RCON auto-reconnect from interfering during startup
       // Use setServerStarting which has a 5-minute failsafe timeout
@@ -1007,7 +1324,13 @@ export class Scheduler {
         // Wait for server process to be running (up to 60 seconds)
         for (let i = 0; i < 60; i++) {
           await this.sleep(1000);
-          if (await serverManager.checkServerRunning()) {
+          const processDetails = await readProcessDetails();
+          if (
+            rconService.connected ||
+            (processDetails &&
+              !processDetails.scanFailed &&
+              processDetails.running)
+          ) {
             serverStarted = true;
             log.info("Auto-restart: Server process detected as running");
             break;

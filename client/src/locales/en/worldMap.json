@@ -1,4 +1,10 @@
 {
+  "permissions": {
+    "noBridgeCommand": "This in-game action requires the bridge.command permission, which this role doesn't have.",
+    "noWorldEvents": "Triggering world events requires the server.world_events permission, which this role doesn't have.",
+    "noGmTools": "Spawning a vehicle requires the players.gm_tools permission, which this role doesn't have.",
+    "noGmToolsBridgeAction": "This action requires the players.gm_tools permission, which this role doesn't have."
+  },
   "pageHeader": {
     "title": "World Map",
     "description": "Live player positions on the Knox County map. Right-click for actions."
@@ -38,7 +44,24 @@
     "coverageTitle": "No map tiles at this zoom",
     "coverageDesc": "<1>tiles.pzmap.org</1> is reachable but hasn't rendered this area at this detail level. Zoom out, or try Refresh later.",
     "networkTitle": "Map tiles aren't loading",
-    "networkDesc": "Panel can't reach <1>tiles.pzmap.org</1>. Check outbound HTTPS access and try Refresh."
+    "networkDesc": "This tile couldn't be loaded from the panel. Check the panel's own network connection and try <1>Refresh</1>.",
+    "diagnostic": "Diagnostic: {{detail}}",
+    "gzipTitle": "Map tile arrived still compressed",
+    "gzipDesc": "This tile's data reached the browser still gzip-compressed instead of being decompressed automatically. This usually means a reverse proxy in front of the panel (nginx, Apache, Caddy, etc.) is stripping or mishandling the Content-Encoding header. If that matches your setup, ask whoever manages the proxy to check that setting.",
+    "htmlTitle": "An HTML page arrived instead of a map tile",
+    "htmlDesc": "Something in front of the panel returned an HTML page instead of the tile image -- often a proxy error page, a login page, or a network sign-in portal intercepting the request. Check whatever sits in front of the panel (a reverse proxy, VPN, or captive network) for something intercepting this request.",
+    "jsonTitle": "The panel returned an error instead of a map tile",
+    "jsonDesc": "The response was a JSON error message rather than image data. This points to a problem on the panel's own side rather than the network in between.",
+    "pngTitle": "A PNG image arrived where a JPEG was expected",
+    "pngDesc": "This tile's data is a real image, just not in the format the panel expected. This points to a mismatch on the panel's own side, not the network in between.",
+    "emptyTitle": "Map tile arrived empty",
+    "emptyDesc": "No data came back for this tile at all. This usually points to a network or proxy issue rather than a problem with the map itself.",
+    "truncatedTitle": "Map tile was cut short in transit",
+    "truncatedDesc": "This tile's image data is genuine, but only {{received}} of {{expected}} bytes arrived. The connection was cut short in transit, which usually points to a proxy or network issue rather than a problem with the map.",
+    "corruptTitle": "Map tile data is corrupted",
+    "corruptDesc": "This tile's data is genuine image data that arrived complete but couldn't be decoded. This may be a one-off glitch -- try Refresh.",
+    "unrecognizedTitle": "Map tile arrived as unrecognized data",
+    "unrecognizedDesc": "This tile's data doesn't match any known format the panel recognizes. Raw bytes: {{hex}}"
   },
   "roster": {
     "label": "roster",

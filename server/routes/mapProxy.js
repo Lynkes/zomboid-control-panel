@@ -7,6 +7,7 @@ import { createLogger } from "../utils/logger.js";
 import { getDataPaths } from "../utils/paths.js";
 import { getActiveServer } from "../database/init.js";
 import { listPersistedVehicles } from "../utils/vehiclesDb.js";
+import { parseBoundedInteger } from "../utils/queryNumbers.js";
 const log = createLogger("API:MapProxy");
 const execFileAsync = promisify(execFile);
 
@@ -191,10 +192,30 @@ async function fetchViaCurl(url) {
   };
 }
 
-// 42.19.0 was removed from map.projectzomboid.com - /maps/42.19.0/base/ now
-// 404s in its entirety, so the previous fallback could not serve a single tile.
-// It is still listed in the build list, so "listed" is not evidence a build is
-// still rendered; only the fallback needs to be a build that actually exists.
+// Verified live against tiles.pzmap.org (the host this file actually
+// queries -- see PZ_TILES_ROOT below), 2026-08-26: 42.19.0's base/
+// map_info.json and base/layer0.dzi both return 200 with geometry
+// BYTE-IDENTICAL to 42.20.0's (same width/height/x0/y0/sqr, even the same
+// git_commit) -- upstream appears to serve one current render under both
+// version tags for the base isometric layer today. Its base_top (top-down)
+// layer, separately, DOES 404 (Cloudflare R2 "object not found"), so
+// 42.19.0 is not uniformly gone, only partially, and not the way the prior
+// version of this comment claimed.
+//
+// That prior claim ("42.19.0 was removed from map.projectzomboid.com -
+// /maps/42.19.0/base/ now 404s in its entirety") was never evidence
+// specific to 42.19.0: /maps/42.20.0/base/ 404s identically on that same
+// legacy domain (which 308-redirects to pzmap.org) -- the whole /maps/
+// URL scheme there is dead for every build, and it is not the host this
+// code queries in the first place. "Listed is not evidence rendered"
+// remains a sound general principle; it just wasn't what was actually
+// wrong here.
+//
+// This is still just a hardcoded last-resort literal -- getB42Map() above
+// tries to dynamically resolve the CURRENT build first (/api/builds/default,
+// then /api/builds) and only reaches this constant if that entire mechanism
+// fails. Re-verify before trusting the numbers below; the 42.19.0/42.20.0
+// convergence observed today may not be permanent.
 const B42_DIR_FALLBACK = "42.20.0";
 const B42_DIR_TTL_MS = 24 * 60 * 60 * 1000; // re-resolve at most once per 24 h
 const B42_DIR_RETRY_MS = 5 * 60 * 1000; // ...but retry a failed resolve sooner
@@ -203,30 +224,51 @@ const B42_DIR_RETRY_MS = 5 * 60 * 1000; // ...but retry a failed resolve sooner
 // own base/map_info.json (skip:0 => scale 1<<0 = 1). Note x0 and scale both
 // differ from 42.19.0's, so the directory cannot be bumped on its own without
 // putting every player marker in the wrong place.
+// DELIBERATE EXCEPTION to the conservative maxLevel-6 floor (see
+// conservativeRenderedMaxLevel below, and its own comment) — this is NOT a
+// fourth call site of that rule, it's a verified override of it. The
+// fallback directory is 42.20.0, and the same inhabited-area probes used
+// by discovery resolve through level 22 -- confirmed when this was set
+// (df75b9a, 2026-08-24, replacing what used to be conservativeRenderedMaxLevel-
+// shaped: renderedMaxLevel: 16) and covered by mapProxyRenderedMaxLevel.
+// test.js's "keeps the verified fallback ceiling when curl itself is
+// unavailable" test. Keep the full DZI ceiling available when build
+// discovery is temporarily blocked; individual sparse/edge 404s still use
+// WorldMap's coarser-tile fallback. If this ever needs to revert to the
+// conservative floor, that's a real behaviour change (losing verified zoom
+// depth on a known-good build), not a mechanical unification -- don't fold
+// it into conservativeRenderedMaxLevel() without re-verifying live
+// coverage first.
+const B42_GEOMETRY_FALLBACK_VERIFIED_RENDERED_MAX_LEVEL = 22;
+
 const B42_GEOMETRY_FALLBACK = {
   tileSize: 2048,
   width: 2318656,
   height: 1019040,
   maxLevel: 22,
-  // The fallback directory is 42.20.0, and the same inhabited-area probes
-  // used by discovery resolve through level 22. Keep the full DZI ceiling
-  // available when build discovery is temporarily blocked. Individual
-  // sparse/edge 404s still use WorldMap's coarser-tile fallback.
-  renderedMaxLevel: 22,
+  renderedMaxLevel: B42_GEOMETRY_FALLBACK_VERIFIED_RENDERED_MAX_LEVEL,
   x0: 1040384,
   y0: -139296,
   sqr: 128,
   scale: 1,
 };
 
-// The projection origin is NOT derivable from the image dimensions: 42.20.0 is
-// exactly 2x the height of 42.19.0 but 4032 px wider, because the renderer
-// crops/pads each build independently. The map service (tiles.pzmap.org)
-// publishes the real origin per build in base/map_info.json and its own viewer projects with
+// The projection origin is NOT derivable from the image dimensions: the
+// renderer can crop/pad each build independently, so two builds with the
+// same width/height are not guaranteed to share an origin, and a build
+// with a different width/height is not guaranteed to have a
+// proportionally-scaled one either. (An earlier version of this comment
+// cited 42.19.0 vs 42.20.0 as a live example of differing dimensions and a
+// derived pixel-offset consequence; verified live 2026-08-26 that the two
+// currently report IDENTICAL width/height/x0/y0/sqr, so that specific pair
+// no longer demonstrates the risk -- the risk itself is unrelated to
+// whether any two particular builds happen to differ today.) The map
+// service (tiles.pzmap.org) publishes the real origin per build in
+// base/map_info.json and its own viewer projects with
 //   imageX = (x0 + (sx - sy) * sqr / 2) / scale
 //   imageY = (y0 + (sx + sy) * sqr / 4) / scale
-// where scale = 1 << skip. Scaling a previous build's origin by the width
-// ratio instead puts markers ~2300 px (~36 tiles) west of where they are.
+// where scale = 1 << skip. Always read a new fallback build's origin from
+// its own map_info.json; never derive it from another build's origin.
 async function fetchMapProjection(directory) {
   try {
     // JSON descriptor path — Node's own TLS stack is challenged here, curl
@@ -246,10 +288,13 @@ async function fetchMapProjection(directory) {
     return null;
   }
 }
-// Map builds are not all rendered at the same resolution: 42.19.0 is
-// TileSize=1024 / 1157312x509520, while 42.20.0 doubled to TileSize=2048 /
-// 2318656x1019040. Nothing about the geometry can be assumed, so read it from
-// the build's own DZI descriptor and hand it to the client.
+// Map builds are not guaranteed to share a resolution -- verified live
+// 2026-08-26 that 42.19.0 and 42.20.0 currently BOTH report TileSize=2048 /
+// 2318656x1019040 (identical; an earlier version of this comment claimed
+// 42.19.0 was TileSize=1024 / 1157312x509520, which does not match what
+// tiles.pzmap.org serves today). Whatever the current numbers, nothing
+// about the geometry can be assumed going forward, so read it from the
+// build's own DZI descriptor and hand it to the client.
 async function fetchMapGeometry(directory) {
   try {
     // XML descriptor path — same Cloudflare-vs-Node's-TLS-stack situation as
@@ -312,6 +357,25 @@ let _b42ResolvePromise = null;
 let _b42Source = null; // "dynamic" | "fallback" — contract fixed in conv-mapbuild, shared with getB42ResolutionStatus()'s consumers
 let _b42FallbackReason = null; // why we're not on "dynamic", or null when the last resolution attempt succeeded
 
+// Same known-safe conservative floor as the client's own
+// conservativeRenderedMaxLevel() (client/src/pages/worldMapTileFallback.ts)
+// — duplicated here rather than shared as one module because client and
+// server are separate build targets (Vite-bundled React vs. this plain
+// Node route file). Single source of truth ON THIS SIDE of that boundary:
+// every server-side "deepest level probably safe to trust before real
+// discovery confirms otherwise" computation goes through this one
+// constant/function rather than repeating the literal `- 6` inline, so a
+// future change to the offset can't silently miss a site (bug-hunt-
+// 2026-08-27, the-maxlevel-minus-6-floor-is-one-rule-on-the-client-and-
+// four-literals-on-the-server card — this collapses three of those four
+// into one; the fourth, B42_GEOMETRY_FALLBACK below, is a DELIBERATE
+// exception to this rule, not a fourth call site of it — see its own
+// comment for why).
+const RENDERED_MAX_LEVEL_CONSERVATIVE_OFFSET = 6;
+function conservativeRenderedMaxLevel(maxLevel) {
+  return Math.max(0, maxLevel - RENDERED_MAX_LEVEL_CONSERVATIVE_OFFSET);
+}
+
 // A HEAD probe against a tile BYTE path, not a JSON/XML descriptor — this is
 // the one discovery request that's fine on plain Node fetch (see the
 // perf-regression note on CURL_DISCOVERY_UA above): tile bytes aren't behind
@@ -347,7 +411,7 @@ async function hasTileCoverage(directory, geometry) {
   return probeLevelHasCoverage(
     directory,
     geometry,
-    Math.max(0, geometry.maxLevel - 6),
+    conservativeRenderedMaxLevel(geometry.maxLevel),
   );
 }
 
@@ -368,7 +432,7 @@ async function hasTileCoverage(directory, geometry) {
 // resolves at, and report that as the depth a client should actually be
 // allowed to zoom to.
 async function discoverRenderedMaxLevel(directory, geometry) {
-  const floor = Math.max(0, geometry.maxLevel - 6);
+  const floor = conservativeRenderedMaxLevel(geometry.maxLevel);
   let lo = floor; // known covered — hasTileCoverage just confirmed it
   let hi = geometry.maxLevel;
   while (lo < hi) {
@@ -383,9 +447,14 @@ async function discoverRenderedMaxLevel(directory, geometry) {
 }
 
 // The top-down (base_top) view is rendered separately from the isometric base
-// and does not use the same image format across builds: 42.19.0 publishes webp
-// while 42.20.0 publishes jpg. Requesting the wrong extension is a hard 404, so
-// read the format from the build's own base_top descriptor.
+// and is not guaranteed to use the same image format across builds -- verified
+// live 2026-08-26 that 42.20.0 publishes jpg; 42.19.0's base_top/layer0.dzi
+// now 404s entirely (Cloudflare R2 "object not found", unlike its still-live
+// base/ tree), so its format can no longer be confirmed at all. An earlier
+// version of this comment claimed it was webp -- unverifiable today, may
+// have been true once. Requesting the wrong extension is a hard 404, so
+// read the format from the build's own base_top descriptor rather than
+// assuming one.
 const TOP_FORMAT_FALLBACK = "jpg";
 const TOP_CONTENT_TYPES = {
   webp: "image/webp",
@@ -722,6 +791,14 @@ async function serveTile(req, res, url, contentType, relPath) {
           : response.status >= 500
             ? 502
             : response.status;
+      // Reaching this branch means fetchTileWithRetry actually got a response
+      // from upstream (however bad) — mark it the same as a cache miss so the
+      // client can tell "upstream answered and it was bad" apart from a local
+      // failure (a 502 from the catch block below, or a pre-validation 400)
+      // where upstream was never contacted at all. See WorldMap.tsx's
+      // loadViaProxy: it only names tiles.pzmap.org in the failure banner
+      // when this header confirms upstream actually participated.
+      res.set("X-Tile-Cache", "miss");
       return res.status(status).end();
     }
     const buffer = Buffer.from(await response.arrayBuffer());
@@ -765,7 +842,7 @@ router.get("/resolve", async (req, res) => {
     // known-safe floor discoverRenderedMaxLevel's own search starts from —
     // NOT map.maxLevel, which is exactly the inflated, never-actually-
     // rendered ceiling this whole fix exists to stop trusting.
-    renderedMaxLevel: map.renderedMaxLevel ?? Math.max(0, map.maxLevel - 6),
+    renderedMaxLevel: map.renderedMaxLevel ?? conservativeRenderedMaxLevel(map.maxLevel),
     x0: map.x0,
     y0: map.y0,
     sqr: map.sqr,
@@ -806,19 +883,19 @@ router.get("/vehicles", async (req, res) => {
 // Validates inputs to prevent SSRF — only allows numeric level 0-22,
 // floor -17..30, and tile filenames matching the DZI convention.
 router.get("/tiles/:level/:tile", async (req, res) => {
-  const level = parseInt(req.params.level, 10);
+  const level = parseBoundedInteger(req.params.level, null, 0, 22);
   const tile = req.params.tile;
   const floorRaw = Array.isArray(req.query.floor)
     ? req.query.floor[0]
     : req.query.floor;
-  const floor = parseInt(String(floorRaw ?? "0"), 10);
+  const floor = parseBoundedInteger(String(floorRaw ?? "0"), null, -17, 29);
 
-  if (isNaN(level) || level < 0 || level > 22) {
+  if (level === null) {
     return res.status(400).json({ error: "Invalid level" });
   }
   // Client clamps floor to -17..29 (WorldMap.tsx changeFloor); keep the
   // backend in sync so anything outside the real range is rejected early.
-  if (isNaN(floor) || floor < -17 || floor > 29) {
+  if (floor === null) {
     return res.status(400).json({ error: "Invalid floor" });
   }
   // Every B42 layer DZI declares JPEG tiles, including basements and upper floors.
@@ -838,10 +915,10 @@ router.get("/tiles/:level/:tile", async (req, res) => {
 // These tiles use webp format at all levels.
 // Only floor 0 is available in the top-down view.
 router.get("/toptiles/:level/:tile", async (req, res) => {
-  const level = parseInt(req.params.level, 10);
+  const level = parseBoundedInteger(req.params.level, null, 0, 22);
   const tile = req.params.tile;
 
-  if (isNaN(level) || level < 0 || level > 22) {
+  if (level === null) {
     return res.status(400).json({ error: "Invalid level" });
   }
   const parsed = /^(\d+_\d+)\.(webp|jpe?g|png)$/.exec(tile);
@@ -861,10 +938,10 @@ router.get("/toptiles/:level/:tile", async (req, res) => {
 
 // Proxy B41 DZI tiles from tiles.pzmap.org.
 router.get("/b41tiles/:level/:tile", async (req, res) => {
-  const level = parseInt(req.params.level, 10);
+  const level = parseBoundedInteger(req.params.level, null, 0, 22);
   const tile = req.params.tile;
 
-  if (isNaN(level) || level < 0 || level > 22) {
+  if (level === null) {
     return res.status(400).json({ error: "Invalid level" });
   }
   if (!/^\d+_\d+\.jpg$/.test(tile)) {

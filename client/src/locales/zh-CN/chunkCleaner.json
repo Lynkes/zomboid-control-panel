@@ -1,4 +1,7 @@
 {
+  "permissions": {
+    "noManage": "清理地图区块需要 chunks.manage 权限，而该角色没有此权限。"
+  },
   "pageHeader": {
     "title": "地图清理",
     "description": "重置受损或过度搜刮的地图区域，使世界能够重新干净地生成",
@@ -86,8 +89,8 @@
     "scanningChunks": "正在扫描地图…… {{count}} 个区块",
     "loadingChunks": "正在加载区块……",
     "noChunksTitle": "未找到区块",
-    "noChunksDesc": "地图文件夹可能为空，或路径需要调整。",
-    "ariaLabel": "区块地图——选择要清理的区域"
+    "noChunksDesc": "此存档的地图文件夹可能为空，或配置的路径需要调整。请从上方列表中尝试其他存档，或在设置中检查路径。",
+    "ariaLabel": "区块地图。选择要清理的区域需要使用鼠标或触摸屏；此地图不支持键盘操作。"
   },
   "help": {
     "hide": "隐藏帮助",
@@ -140,6 +143,8 @@
     "loadSavesFailedTitle": "无法加载存档",
     "loadSavesFailedFallback": "加载存档文件夹失败。",
     "pathSavedTitle": "路径已保存",
+    "liveVehicleCleanupNoPermissionTitle": "跳过了实时载具清理",
+    "liveVehicleCleanupNoPermissionDesc": "区块及其载具记录已删除。从正在运行的服务器中移除已加载的载具需要 bridge.command 权限，而该角色没有此权限——管理员可以授予该权限，或者过时的载具会在该区域下次重新加载时自行消失。",
     "pathSavedServerDesc": "已保存到当前服务器配置——面板下次将使用此路径。",
     "pathSavedPanelDesc": "已保存到面板设置。",
     "pathSaveFailedTitle": "无法保存路径",

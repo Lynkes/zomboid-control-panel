@@ -4,6 +4,7 @@ import path from 'path';
 import SftpClient from 'ssh2-sftp-client';
 import { createLogger } from '../utils/logger.js';
 import { getDataPaths } from '../utils/paths.js';
+import { ErrorCode } from '../utils/errorCodes.js';
 
 const log = createLogger('Bridge:SFTP');
 
@@ -25,28 +26,72 @@ function isRemoteFile(entryType) {
   return entryType === true || entryType === '-';
 }
 
-export function getSftpErrorGuidance(error) {
+// Single source of truth for classifying an SFTP failure: which ErrorCode it
+// is, AND the English guidance sentence that code's errors.json translation
+// mirrors exactly (see that file for the {{detail}}-carrying versions of
+// these same seven sentences). Kept as one ordered list -- not two functions
+// that could drift from each other -- so a code and its English text can
+// never disagree about which failure they describe. Order matters: earlier
+// patterns are more specific and must be checked first (e.g. a chrooted
+// account's mkdir failure also contains "permission denied").
+const SFTP_ERROR_CLASSIFIERS = [
+  {
+    code: ErrorCode.SFTP_CHROOTED_ACCOUNT,
+    guidance:
+      'This SFTP account appears to be chrooted. Remove the /home prefix and enter the path exactly as shown in the SFTP client, for example /server-data/lua/panelbridge/<server name>.',
+    test: (message) =>
+      /chroot|remove the \/home prefix|remote bridge path .*\/home(?:\/|$)/i.test(message) ||
+      /mkdir.*permission denied.*\/(?:home|Home)(?:[\s/]|$)/i.test(message),
+  },
+  {
+    code: ErrorCode.SFTP_AUTH_FAILED,
+    guidance: 'Verify the SFTP username and password, then confirm the account can log in over port 22.',
+    test: (message) =>
+      /authentication|auth fail|all configured authentication methods failed|permission denied.*auth|publickey|keyboard-interactive/i.test(message),
+  },
+  {
+    code: ErrorCode.SFTP_PERMISSION_DENIED,
+    guidance: 'Give the SFTP account read and write permission for the remote bridge folder and its parent directory.',
+    test: (message) => /permission denied|eacces|failure.*mkdir|failure.*put/i.test(message),
+  },
+  {
+    code: ErrorCode.SFTP_REMOTE_PATH_MISSING,
+    guidance:
+      'Verify the remote bridge folder is the VPS path to Lua/panelbridge/<server name>. The panel will create its inbox and outbox folders after the parent path is correct.',
+    test: (message, error) => isMissingRemotePath(error),
+  },
+  {
+    code: ErrorCode.SFTP_PATH_OCCUPIED,
+    guidance: 'Remove or rename the directory occupying that bridge file path, then run Verify and prepare SFTP again.',
+    test: (message) => /found a directory|non-regular entry|occupied by a directory/i.test(message),
+  },
+  {
+    code: ErrorCode.SFTP_UNREACHABLE,
+    guidance: 'Check the SFTP host, port, firewall, and that the hosting provider allows SFTP from this panel computer.',
+    test: (message) => /econnrefused|etimedout|timeout|enotfound|ehostunreach|network/i.test(message),
+  },
+  {
+    code: ErrorCode.SFTP_UNKNOWN,
+    guidance: 'Run Verify and prepare SFTP again. If it still fails, download a support bundle and include sftp-diagnostics.json.',
+    test: () => true,
+  },
+];
+
+function classifySftpError(error) {
   const message = error?.message || String(error);
-  if (/chroot|remove the \/home prefix|remote bridge path .*\/home(?:\/|$)/i.test(message)
-    || /mkdir.*permission denied.*\/(?:home|Home)(?:[\s/]|$)/i.test(message)) {
-    return 'This SFTP account appears to be chrooted. Remove the /home prefix and enter the path exactly as shown in the SFTP client, for example /server-data/lua/panelbridge/<server name>.';
-  }
-  if (/authentication|auth fail|all configured authentication methods failed|permission denied.*auth|publickey|keyboard-interactive/i.test(message)) {
-    return 'Verify the SFTP username and password, then confirm the account can log in over port 22.';
-  }
-  if (/permission denied|eacces|failure.*mkdir|failure.*put/i.test(message)) {
-    return 'Give the SFTP account read and write permission for the remote bridge folder and its parent directory.';
-  }
-  if (isMissingRemotePath(error)) {
-    return 'Verify the remote bridge folder is the VPS path to Lua/panelbridge/<server name>. The panel will create its inbox and outbox folders after the parent path is correct.';
-  }
-  if (/found a directory|non-regular entry|occupied by a directory/i.test(message)) {
-    return 'Remove or rename the directory occupying that bridge file path, then run Verify and prepare SFTP again.';
-  }
-  if (/econnrefused|etimedout|timeout|enotfound|ehostunreach|network/i.test(message)) {
-    return 'Check the SFTP host, port, firewall, and that the hosting provider allows SFTP from this panel computer.';
-  }
-  return 'Run Test SFTP again. If it still fails, download a support bundle and include sftp-diagnostics.json.';
+  return SFTP_ERROR_CLASSIFIERS.find((entry) => entry.test(message, error));
+}
+
+// Stable wire code for this failure (SFTP_CHROOTED_ACCOUNT, SFTP_AUTH_FAILED,
+// ...) -- lets a route response carry `code` + `params: {detail: message}`
+// so the client can show a translated version of the exact sentence
+// formatSftpError() below builds in English, instead of the raw string.
+export function classifySftpErrorCode(error) {
+  return classifySftpError(error).code;
+}
+
+export function getSftpErrorGuidance(error) {
+  return classifySftpError(error).guidance;
 }
 
 export function formatSftpError(error) {
@@ -57,8 +102,16 @@ export function formatSftpError(error) {
 export function validateSftpBridgeConfig(config) {
   const host = typeof config?.host === 'string' ? config.host.trim() : '';
   const username = typeof config?.username === 'string' ? config.username.trim() : '';
-  const port = Number(config?.port || 22);
-  const pollIntervalSeconds = Number(config?.pollIntervalSeconds || 3);
+  const port =
+    config?.port === undefined || config?.port === null || config?.port === ""
+      ? 22
+      : Number(config.port);
+  const pollIntervalSeconds =
+    config?.pollIntervalSeconds === undefined ||
+    config?.pollIntervalSeconds === null ||
+    config?.pollIntervalSeconds === ""
+      ? 3
+      : Number(config.pollIntervalSeconds);
   if (!host || host.length > 253 || /[\s/\\]/.test(host)) throw new Error('A valid SFTP host is required');
   if (!username || username.length > 128 || /[\r\n]/.test(username)) throw new Error('A valid SFTP username is required');
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('SFTP port must be between 1 and 65535');
@@ -271,6 +324,16 @@ export class PanelBridgeSftpTransport {
     return `${this.config.bridgePath}/${relativeName}`;
   }
 
+  // Mirrors remote()'s validation rather than relying on copyRemote() having
+  // already called remote() earlier in the same function -- that ordering
+  // was the only thing keeping relativeName out of this join, and nothing
+  // enforced it (2026-08-26 injection-sink sweep). Re-validating here means
+  // a future reorder can't silently drop the guard.
+  local(relativeName) {
+    if (!relativeName || relativeName.includes('..') || relativeName.includes('\\')) throw new Error('Invalid remote bridge file path');
+    return path.join(this.cachePath, relativeName);
+  }
+
   async copyRemote(relativeName) {
     const client = await this.connect();
     const remotePath = this.remote(relativeName);
@@ -287,7 +350,7 @@ export class PanelBridgeSftpTransport {
     if (size > MAX_BRIDGE_FILE_BYTES) {
       throw new Error(`Remote bridge file ${remotePath} exceeds the ${MAX_BRIDGE_FILE_BYTES / (1024 * 1024)} MB download limit`);
     }
-    const localPath = path.join(this.cachePath, relativeName);
+    const localPath = this.local(relativeName);
     fs.mkdirSync(path.dirname(localPath), { recursive: true, mode: 0o700 });
     const temporaryPath = `${localPath}.${this.transferId}.download`;
     await client.fastGet(remotePath, temporaryPath);
@@ -404,6 +467,7 @@ export class PanelBridgeSftpTransport {
       lastLatencyMs: this.lastLatencyMs,
       lastError: this.lastError,
       lastErrorGuidance: this.lastError ? getSftpErrorGuidance({ message: this.lastError }) : null,
+      lastErrorCode: this.lastError ? classifySftpErrorCode({ message: this.lastError }) : null,
       pollIntervalSeconds: this.config?.pollIntervalSeconds ?? null,
       remotePath: this.config?.bridgePath ?? null,
       remoteDirectories: this.config ? {
@@ -444,7 +508,7 @@ export async function testSftpBridge(config) {
       latencyMs: Date.now() - startedAt,
       nextStep: statusExists
         ? 'The remote bridge is ready. Start the SFTP bridge.'
-        : 'Folders are ready. Start or restart the PZ server with PanelBridge.lua installed and LuaChecksum=false to create status.json.',
+        : 'Folders are ready. Start or restart the PZ server with PanelBridge.lua installed and DoLuaChecksum=false to create status.json.',
     };
   } finally {
     await client.end().catch(() => {});

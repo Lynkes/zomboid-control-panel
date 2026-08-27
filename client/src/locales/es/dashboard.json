@@ -1,5 +1,30 @@
 {
   "loading": "Estableciendo conexión…",
+  "autoUpdateResult": {
+    "successTitle": "Actualización automática completada",
+    "successDescription": "La actualización automática del servidor se completó correctamente.",
+    "successDescriptionVersioned": "La actualización automática del servidor se completó correctamente (ahora ejecuta la versión {{version}}).",
+    "failedTitle": "La actualización automática falló",
+    "dismiss": "Descartar",
+    "dismissAria": "Descartar aviso de actualización automática",
+    "dismissFailedTitle": "No se pudo descartar el aviso",
+    "dismissFailedFallback": "No se pudo descartar el aviso. Inténtalo de nuevo.",
+    "serverUp": "Tu servidor está actualmente en ejecución.",
+    "serverDown": "Tu servidor está actualmente detenido.",
+    "serverUnaffected": "No se cambió nada; el estado de tu servidor no se vio afectado.",
+    "reasons": {
+      "MANAGED_CONTAINER": "Este servidor se ejecuta en un contenedor Docker gestionado por el panel. Actualiza la imagen del contenedor en su lugar — el panel no ejecuta SteamCMD contra un contenedor gestionado.",
+      "NOT_CONFIGURED": "La ruta de SteamCMD o la ruta de instalación del servidor no está configurada.",
+      "INITIAL_SCAN_FAILED": "No se pudo comprobar si el servidor estaba en ejecución, así que la actualización se abandonó por seguridad.",
+      "RCON_NOT_CONNECTED": "RCON no estaba conectado, así que el servidor no se pudo detener de forma segura.",
+      "SAVE_FAILED": "No se pudo guardar el mundo ({{reason}}), así que la actualización se abandonó para no perder progreso.",
+      "STOP_SCAN_FAILED": "Se perdió la capacidad de comprobar si el servidor se había detenido, así que la actualización se abandonó por seguridad.",
+      "STOP_TIMEOUT": "El servidor no se detuvo en 5 minutos.",
+      "STEAMCMD_NOT_FOUND": "No se encontró SteamCMD en {{path}}.",
+      "STEAMCMD_EXIT_CODE": "SteamCMD terminó con el código {{code}}.",
+      "UNKNOWN": "Ocurrió un error inesperado durante la actualización automática."
+    }
+  },
   "errors": {
     "failedToConnect": "No se pudo conectar con el servidor.",
     "failedToLoad": "No se pudo cargar el estado del tablero.",
@@ -48,7 +73,11 @@
     "autoStartDisabledDesc": "El servidor no se iniciará automáticamente",
     "autoStartSaveFailed": "No se pudo guardar el ajuste de inicio automático",
     "errorTitle": "Error",
-    "actionFailedFallback": "La acción falló. Intentarlo de nuevo."
+    "actionFailedFallback": "La acción falló. Intentarlo de nuevo.",
+    "rconAuthFailed": {
+      "openServers": "Abrir Servidores",
+      "openServersAlt": "Abrir la página Servidores para actualizar la contraseña de RCON"
+    }
   },
   "actions": {
     "start": "Iniciar",
@@ -65,7 +94,11 @@
     "moreActionsAria": "Más acciones del servidor",
     "addServerFirst": "Añadir o seleccionar un servidor primero",
     "notAvailableRemote": "No disponible para servidores remotos (solo RCON)",
-    "forceStopTooltip": "Detiene el juego de inmediato sin guardar"
+    "forceStopTooltip": "Intenta un guardado rápido y luego detiene el juego de inmediato en cualquier caso",
+    "connectRconNeedsHostRunning": "Inicia el servidor primero",
+    "noPermissionControl": "Tu rol no tiene permiso para controlar el servidor.",
+    "noPermissionWipe": "Tu rol no tiene permiso para borrar el mundo.",
+    "wipeMustStopFirst": "Detén el servidor antes de borrar."
   },
   "confirm": {
     "cancel": "Cancelar",
@@ -75,7 +108,7 @@
     },
     "forceStopServer": {
       "title": "Forzar detención del servidor",
-      "description": "Esto terminará el proceso del juego de inmediato sin guardar.",
+      "description": "Esto intenta un guardado rápido (hasta 3 segundos) y luego detiene el juego de inmediato, tanto si el guardado tiene éxito como si no.",
       "descriptionPlayers": " ¡Se desconectará a {{count}} jugador(es)!"
     },
     "restartServer": {
@@ -90,8 +123,13 @@
   },
   "successCopy": {
     "startServer": { "title": "Iniciando servidor", "description": "Consultar el tablero para ver el estado en vivo." },
+    "startServerScriptBackup": { "title": "Iniciando servidor — script de inicio respaldado", "description": "El panel detectó cambios en tu script de inicio y guardó tu versión antes de regenerarlo." },
     "stopServer": { "title": "Servidor detenido", "description": "Sesión cerrada correctamente." },
-    "forceStopServer": { "title": "Servidor detenido a la fuerza", "description": "El proceso del juego se terminó sin RCON." },
+    "stopServerRequested": { "title": "Apagado solicitado", "description": "El servidor está guardando y cerrando de forma ordenada — puede tardar un momento en un mundo grande. La insignia de estado se actualizará una vez que se confirme la detención." },
+    "forceStopServer": { "title": "Servidor detenido a la fuerza", "description": "Se guardó el mundo y luego se detuvo el proceso del juego." },
+    "forceStopSaveFailed": { "title": "Servidor detenido a la fuerza — guardado fallido", "description": "El guardado previo a la detención fue rechazado. El progreso reciente podría perderse." },
+    "forceStopSaveTimedOut": { "title": "Servidor detenido a la fuerza — el guardado tardó demasiado", "description": "El guardado previo a la detención no respondió en 3 segundos. El progreso reciente podría perderse." },
+    "forceStopSaveSkipped": { "title": "Servidor detenido a la fuerza — no se intentó guardar", "description": "RCON no estaba conectado, así que no se intentó guardar antes de detener. El progreso reciente podría perderse." },
     "restartServer": { "title": "Reinicio programado", "description": "El servidor se reiniciará en breve." },
     "restartServerNow": { "title": "Reinicio iniciado", "description": "Comando de reinicio forzado enviado." },
     "saveWorld": { "title": "Mundo guardado", "description": "Estado actual escrito en disco." },
@@ -108,6 +146,8 @@
     "serverStatusUnknown": "Estado del servidor desconocido",
     "serverStopped": "Servidor detenido",
     "rconDisconnected": "RCON desconectado",
+    "rconHelpLabel": "RCON",
+    "rconHelpTip": "RCON es el protocolo de consola remota que este panel usa para enviar comandos al juego en ejecución: expulsar jugadores, guardar el mundo, difundir mensajes y todo lo demás que hace el panel. Mientras esté desconectado, esas acciones no estarán disponibles hasta que se reconecte.",
     "hostMemory": "Memoria del host {{percent}}%",
     "diskAlmostFull": "Disco casi lleno, quedan {{gb}} GB",
     "diskPercent": "Disco {{percent}}%, quedan {{gb}} GB",
@@ -265,7 +305,12 @@
       "world": { "label": "Estado del mundo", "desc": "Diccionario del mundo, metadatos, erosión, estados de objetos del juego, radio." },
       "accounts": { "label": "Cuentas y baneos", "desc": "Cuentas de usuario, contraseñas, roles, lista blanca y listas de baneo. Todos deberán volver a registrarse en su próxima conexión." }
     },
-    "notice": "Seleccionar mapa, jugadores y mundo vacía por completo la carpeta de guardado, incluido cualquier resto dejado por los mods. El .ini del servidor y los ajustes de sandbox se almacenan por separado y no se verán afectados.",
+    "notice": "Seleccionar mapa, jugadores o mundo elimina esos datos de forma permanente — no hay forma de deshacerlo salvo que hagas una copia de seguridad primero, más abajo. Seleccionar cuentas elimina permanentemente la lista blanca y las listas de baneo; todos deberán volver a registrarse en su próxima conexión. El .ini del servidor y los ajustes de sandbox se almacenan por separado y no se verán afectados.",
+    "backupLabel": "Crear copia de seguridad antes de borrar",
+    "backupDesc": "Crea una copia de seguridad completa de la partida actual (y de la base de datos de cuentas, si está seleccionada) antes de eliminar nada. Restáurala desde la página de Copias de seguridad.",
+    "noBackupTitle": "No se creará ninguna copia de seguridad",
+    "noBackupDesc": "Lo que borres desaparecerá de forma permanente, sin ninguna forma de deshacerlo desde el panel.",
+    "backupStarting": "Iniciando copia de seguridad…",
     "noFilesFound": "No se encontraron archivos para los elementos seleccionados.",
     "willDelete": "Esto eliminará permanentemente:",
     "categoryLabels": {
@@ -286,6 +331,7 @@
     "previewFailedFallback": "No se pudo escanear la carpeta de guardado",
     "wipedTitle": "Servidor borrado por completo",
     "wipedDesc": "Eliminado: {{targets}}",
+    "wipedDescWithBackup": "Eliminado: {{targets}}. Se hizo una copia de seguridad antes, guardada como {{name}}.",
     "wipeFailedTitle": "Error al borrar",
     "wipeFailedFallback": "Error desconocido"
   }

@@ -27,7 +27,8 @@
     "placeholderAdmin": "admins only — press enter to send…",
     "placeholderGeneral": "post as Admin — press enter to send…",
     "placeholderServer": "broadcast to all players — press enter to send…",
-    "sendButton": "send"
+    "sendButton": "send",
+    "noPermission": "You don't have permission to send chat messages."
   },
   "footer": {
     "adminOnly": "admins only — hidden from regular players",
@@ -51,7 +52,11 @@
     "addAria": "Add preset",
     "saveAria": "Save",
     "cancelAria": "Cancel",
-    "deleteAria": "Delete preset {{index}}"
+    "deleteAria": "Delete preset {{index}}",
+    "deleteConfirmTitle": "Delete this preset?",
+    "deleteConfirmDescription": "\"{{preset}}\" is shared -- every admin who uses quick broadcasts loses it too. You can always re-add it.",
+    "deleteConfirmButton": "Delete Preset",
+    "noPermission": "You don't have permission to manage quick broadcast presets."
   },
   "toasts": {
     "adminSentTitle": "Admin Message Sent",

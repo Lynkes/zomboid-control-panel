@@ -59,6 +59,10 @@
     "cancel": "取消"
   },
   "resetTokenCreated": "找回令牌已创建于 data/reset-token.txt。请在下方粘贴以继续。",
+  "repeatedFailureHint": {
+    "title": "仍然无法登录？",
+    "body": "多次登录失败后，账户会作为安全措施自动锁定 15 分钟——此界面不会显示这一点。使用已保存的找回代码，或在服务器终端上以 <code>--reset-password</code> 启动面板，均可立即重置密码，无需等待。"
+  },
   "errors": {
     "loginFailed": "登录失败",
     "resetTokenTooShort": "重置令牌必须至少为 8 个字符",

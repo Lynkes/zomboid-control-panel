@@ -57,8 +57,8 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
-const EN_DIR = "client/src/locales/en";
-const ALL_LANGS = ["fr", "de", "es", "zh-CN", "ht"];
+export const EN_DIR = "client/src/locales/en";
+export const ALL_LANGS = ["fr", "de", "es", "zh-CN", "ht"];
 
 // Two locale values touched within this window of each other are treated as
 // part of ONE coherent change (a translator working through the same fix the
@@ -192,7 +192,7 @@ function keyMapForFile(relPath) {
   return map;
 }
 
-function analyzeNamespace(ns, langs) {
+export function analyzeNamespace(ns, langs) {
   const enPath = `${EN_DIR}/${ns}`;
   const enMap = keyMapForFile(enPath);
   if (enMap === null) return [];
@@ -267,4 +267,14 @@ function main() {
   // Always exit 0 -- report tool, never a gate. See header.
 }
 
-main();
+// Runnable as a CLI (`node scripts/i18n-staleness-check.mjs`) and importable
+// as a module (server/tests/roleDescriptionStalenessGate.test.js reuses
+// analyzeNamespace directly rather than re-implementing its git-blame/
+// co-change-window logic) -- only invoke main() when this file is the
+// process entrypoint, not when import()'d.
+const isMain =
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+if (isMain) {
+  main();
+}

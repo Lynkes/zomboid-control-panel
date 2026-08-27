@@ -59,6 +59,10 @@
     "cancel": "Cancel"
   },
   "resetTokenCreated": "Recovery token created at data/reset-token.txt. Paste it below to continue.",
+  "repeatedFailureHint": {
+    "title": "Still not working?",
+    "body": "After several failed attempts, an account locks automatically for 15 minutes as a security precaution -- this screen will not say so. A saved recovery code, or starting the panel with <code>--reset-password</code> from the server terminal, can reset the password without waiting."
+  },
   "errors": {
     "loginFailed": "Login failed",
     "resetTokenTooShort": "Reset token must be at least 8 characters",

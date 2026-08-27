@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/use-toast'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import { templatesApi, SimTemplate } from '@/lib/api'
+import { getUserErrorMessage } from '@/lib/errorMessage'
 import { TemplateCard } from '@/components/templates/TemplateCard'
 import { TemplatePreviewDialog } from '@/components/templates/TemplatePreviewDialog'
 import { CreateTemplateDialog } from '@/components/templates/CreateTemplateDialog'
@@ -17,8 +18,16 @@ export default function Templates() {
   const { t } = useTranslation('templates')
   const { toast } = useToast()
   const confirm = useConfirm()
-  const { user, authEnabled } = useAuth()
-  const canManage = !authEnabled || user?.role === 'admin'
+  const { can, authEnabled } = useAuth()
+  // Was `user?.role === 'admin'` -- a hardcoded role literal where the
+  // server checks a capability (requirePermission("templates.manage") on
+  // POST/import/apply/delete in routes/templates.js). A default Technician
+  // role holds templates.manage and the server honors it, but that check
+  // hid every manage control from them anyway. can() already fails OPEN
+  // when capabilities are unknown -- see AuthContext's own doc comment --
+  // so this is strictly more permissive for anyone this could have wrongly
+  // blocked, never less.
+  const canManage = !authEnabled || can('templates.manage')
 
   const [templates, setTemplates] = useState<SimTemplate[]>([])
   const [loading, setLoading] = useState(true)
@@ -34,7 +43,7 @@ export default function Templates() {
       setTemplates(list)
       setLoadError(null)
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : t('toasts.loadFailedFallback'))
+      setLoadError(getUserErrorMessage(error, t('toasts.loadFailedFallback')))
     } finally {
       setLoading(false)
     }
@@ -51,7 +60,7 @@ export default function Templates() {
     } catch (error) {
       toast({
         title: t('toasts.exportFailedTitle'),
-        description: error instanceof Error ? error.message : t('toasts.exportFailedFallback'),
+        description: getUserErrorMessage(error, t('toasts.exportFailedFallback')),
         variant: 'destructive',
       })
     }
@@ -72,7 +81,7 @@ export default function Templates() {
     } catch (error) {
       toast({
         title: t('toasts.deleteFailedTitle'),
-        description: error instanceof Error ? error.message : t('toasts.deleteFailedFallback'),
+        description: getUserErrorMessage(error, t('toasts.deleteFailedFallback')),
         variant: 'destructive',
       })
     }
@@ -115,7 +124,7 @@ export default function Templates() {
           type="empty"
           title={t('emptyState.noTemplatesTitle')}
           description={t('emptyState.noTemplatesDesc')}
-          action={{ label: t('pageHeader.saveCurrentConfig'), onClick: () => setCreateOpen(true) }}
+          action={canManage ? { label: t('pageHeader.saveCurrentConfig'), onClick: () => setCreateOpen(true) } : undefined}
         />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

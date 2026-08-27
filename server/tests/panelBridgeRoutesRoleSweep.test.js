@@ -208,28 +208,38 @@ describe("panelBridge.js: server.world_events (world-wide GM effects, folded in 
     ["/world/stats", "get"],
     ["/message", "post"],
     ["/sound/world", "post"],
-    ["/sound/near-player", "post"],
-    ["/sound/gunshot", "post"],
-    ["/sound/alarm", "post"],
-    ["/sound/noise", "post"],
     ["/utilities/status", "get"],
     ["/utilities/restore", "post"],
     ["/utilities/shutoff", "post"],
     ["/zombies/count", "get"],
     ["/zombies/clear-near-player", "post"],
     ["/zombies/clear-all", "post"],
-    ["/zombies/spawn-near", "post"],
-    ["/zombies/spawn-behind", "post"],
     ["/visual/view-distance", "post"],
     ["/visual/daylight", "post"],
     ["/visual/night-strength", "post"],
     ["/visual/desaturation", "post"],
     ["/visual/ambient", "post"],
     ["/chat/info", "get"],
-    ["/chat/admin", "post"],
-    ["/chat/general", "post"],
     ["/chat/alert", "post"],
   ];
+  // /sound/near-player, /sound/gunshot, /sound/alarm, /sound/noise,
+  // /zombies/spawn-near, /zombies/spawn-behind, /chat/admin and
+  // /chat/general used to be in this list -- moved out 2026-08-27 (operator
+  // ruling on ranked-bug #5) to players.endanger_or_impersonate, see the
+  // describe block below. Each takes an optional target (a username, or in
+  // chat/general's case an arbitrary custom author name) and can spawn
+  // zombies/sound at a named player or make a chat message read as if they
+  // said it, unlike every route still in this array (/zombies/clear-near-
+  // player also takes a username but is benign -- it clears zombies FROM
+  // near a player, a help action not a harm one -- so it stayed here).
+  // /sound/alarm and /sound/noise were caught in a second pass, AFTER the
+  // operator had already ruled on the original 7+2 -- both take the exact
+  // same {username} -> resolve-to-player's-x/y/z shape as /sound/gunshot
+  // and /sound/near-player (PanelBridge.lua handlers.triggerAlarmSound/
+  // createNoise), just missed in the first enumeration. Flagged to the
+  // operator and folded into the same already-approved capability rather
+  // than left half-fixed, since the harm shape is identical to routes he
+  // already ruled on, not a new category needing its own decision.
 
   it.each(WORLD_EVENTS_ROUTES)("does not refuse a moderator on %s %s", async (routePath, method) => {
     const { default: router } = await import("../routes/panelBridge.js");
@@ -240,6 +250,37 @@ describe("panelBridge.js: server.world_events (world-wide GM effects, folded in 
   it.each(WORLD_EVENTS_ROUTES)("does not refuse a technician on %s %s", async (routePath, method) => {
     const { default: router } = await import("../routes/panelBridge.js");
     const { calledNext } = await runGate(router, routePath, method, "technician");
+    expect(calledNext).toBe(true);
+  });
+});
+
+describe("panelBridge.js: players.endanger_or_impersonate (targeted zombie/sound actions + chat impersonation) -- admin only, carved out of server.world_events", () => {
+  const ENDANGER_ROUTES = [
+    ["/sound/near-player", "post"],
+    ["/sound/gunshot", "post"],
+    ["/sound/alarm", "post"],
+    ["/sound/noise", "post"],
+    ["/zombies/spawn-near", "post"],
+    ["/zombies/spawn-behind", "post"],
+    ["/chat/admin", "post"],
+    ["/chat/general", "post"],
+  ];
+
+  it.each(ENDANGER_ROUTES)("refuses a moderator on %s %s (lost with the split -- intended)", async (routePath, method) => {
+    const { default: router } = await import("../routes/panelBridge.js");
+    const { res } = await runGate(router, routePath, method, "moderator");
+    expect(res.getStatusCode()).toBe(403);
+  });
+
+  it.each(ENDANGER_ROUTES)("refuses a technician on %s %s (lost with the split -- intended)", async (routePath, method) => {
+    const { default: router } = await import("../routes/panelBridge.js");
+    const { res } = await runGate(router, routePath, method, "technician");
+    expect(res.getStatusCode()).toBe(403);
+  });
+
+  it.each(ENDANGER_ROUTES)("does not refuse an admin on %s %s", async (routePath, method) => {
+    const { default: router } = await import("../routes/panelBridge.js");
+    const { calledNext } = await runGate(router, routePath, method, "admin");
     expect(calledNext).toBe(true);
   });
 });

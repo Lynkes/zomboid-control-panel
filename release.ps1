@@ -148,6 +148,26 @@ if ($untrackedFiles.Count -gt 0) {
     throw "Untracked files detected. Stage intentional new source files before releasing; refusing to stage runtime state automatically."
 }
 
+# v1.2.6 shipped with its changelog entries still sitting under [Unreleased] --
+# nothing in this script or in CI ever promoted them to a numbered heading, and
+# the one thing that looked like a check (release-artifacts.yml's CHANGELOG
+# read) sits in a code path this script's own STEP 6 makes unreachable in the
+# normal flow. This is the fix: block here, before any work happens, rather
+# than auto-writing a heading -- the heading's PRESENCE is mechanical to check,
+# but what goes under it is prose with one writer, not this script's to author.
+$changelogFile = Join-Path $RepoDir "CHANGELOG.md"
+if (Test-Path $changelogFile) {
+    $changelogContent = Get-Content $changelogFile -Raw
+    $headingPattern = "(?m)^## \[$([regex]::Escape($Version))\]"
+    if ($changelogContent -notmatch $headingPattern) {
+        throw "CHANGELOG.md has no '## [$Version]' section. Promote the [Unreleased] entries to '## [$Version] - $(Get-Date -Format yyyy-MM-dd)' and open a fresh [Unreleased] section before releasing."
+    } else {
+        Write-Ok "CHANGELOG.md has a '## [$Version]' section"
+    }
+} else {
+    Write-Warning "CHANGELOG.md not found -- skipping changelog heading check"
+}
+
 # ============================================
 # STEP 1: Bump version in package.json
 # ============================================
@@ -167,6 +187,57 @@ if (Test-Path $pkgFile) {
     }
 } else {
     Write-Warning "Package file not found: $pkgFile"
+}
+
+# client/package.json drifted from root for four releases (1.2.2 while root
+# reached 1.2.6) because this step never touched it -- bump it in the same
+# step as root so there's no window where they can disagree. A test
+# (server/tests/clientVersionMatchesRoot.test.js) asserts they match, but
+# this is the fix at the one place versions actually get bumped; the test is
+# the backstop for every OTHER way they could still drift (a hand-edit, a
+# merge like the one that didn't cause this drift but could have).
+$clientPkgFile = Join-Path $RepoDir "client\package.json"
+if (Test-Path $clientPkgFile) {
+    $clientContent = Get-Content $clientPkgFile -Raw
+    $newClientContent = $clientContent -replace '"version":\s*"[^"]*"', "`"version`": `"$Version`""
+    if ($DryRun) {
+        Write-Dry "Would update $clientPkgFile"
+    } else {
+        [System.IO.File]::WriteAllText($clientPkgFile, $newClientContent, [System.Text.UTF8Encoding]::new($false))
+        Write-Ok "Updated $clientPkgFile"
+    }
+} else {
+    Write-Warning "Package file not found: $clientPkgFile"
+}
+
+# client/package-lock.json carries the version TWICE (top-level, and again
+# under packages[""]) -- a blind "replace every version string" would also
+# clobber unrelated dependencies that happen to share the same version
+# number (e.g. a dependency pinned to the same "1.2.x" string). Anchor on
+# the package's own name, which appears nowhere else in the file, so only
+# the two real occurrences move.
+$clientLockFile = Join-Path $RepoDir "client\package-lock.json"
+if (Test-Path $clientLockFile) {
+    $lockContent = Get-Content $clientLockFile -Raw
+    $lockPattern = '("name":\s*"pz-server-manager-client",\s*\r?\n\s*"version":\s*")[^"]*(")'
+    # ${1}/${2}, not $1/$2 -- .NET tries to parse digits immediately after a
+    # bare $N as part of the group number, and $Version starts with a digit,
+    # so "$1" + "9.9.9" reads as "reference group 19" (which doesn't exist)
+    # and silently drops the whole backreference instead of falling back to
+    # group 1. Caught this only by actually running it against a scratch
+    # copy -- the pattern read correctly, the substitution didn't.
+    $newLockContent = [regex]::Replace($lockContent, $lockPattern, "`${1}$Version`${2}")
+    $matchCount = [regex]::Matches($lockContent, $lockPattern).Count
+    if ($matchCount -ne 2) {
+        Write-Warning "Expected exactly 2 version occurrences anchored to pz-server-manager-client in $clientLockFile, found $matchCount -- skipping automatic edit, update it by hand"
+    } elseif ($DryRun) {
+        Write-Dry "Would update $clientLockFile ($matchCount occurrences)"
+    } else {
+        [System.IO.File]::WriteAllText($clientLockFile, $newLockContent, [System.Text.UTF8Encoding]::new($false))
+        Write-Ok "Updated $clientLockFile ($matchCount occurrences)"
+    }
+} else {
+    Write-Warning "Package lock file not found: $clientLockFile"
 }
 
 # ============================================

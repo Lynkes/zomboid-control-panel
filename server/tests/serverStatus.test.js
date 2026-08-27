@@ -21,4 +21,13 @@ describe("isServerObservedRunning", () => {
       }),
     ).toBe(true);
   });
+
+  it("preserves an unknown state when process detection fails without another live signal", () => {
+    expect(
+      isServerObservedRunning({
+        processRunning: false,
+        processScanFailed: true,
+      }),
+    ).toBeNull();
+  });
 });

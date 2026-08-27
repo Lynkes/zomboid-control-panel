@@ -73,15 +73,24 @@ describe('SpawnBrowser -- items (Give)', () => {
   })
 
   it('quantity cannot go below 1 or above 100', async () => {
-    await renderItems({ playerName: 'Aurélie' })
+    const { onSpawn } = await renderItems({ playerName: 'Aurélie' })
     const qtyInput = screen.getByRole('spinbutton', { name: 'Quantity' })
     expect(screen.getByRole('button', { name: 'Decrease quantity' })).toBeDisabled()
 
     fireEvent.change(qtyInput, { target: { value: '999' } })
     expect(qtyInput).toHaveValue(100)
 
+    // Clearing/breaking the field mid-edit must show exactly what's there (empty),
+    // never silently snap the visible field back to a default under the operator's
+    // cursor -- and the underlying qty used for Give must hold its last valid value
+    // (100), not corrupt to NaN, since nothing downstream sanitizes it before it
+    // reaches the RCON give-item command.
     fireEvent.change(qtyInput, { target: { value: 'not a number' } })
-    expect(qtyInput).toHaveValue(1)
+    expect(qtyInput).toHaveValue(null)
+
+    fireEvent.click(screen.getByText('Café Empañada'))
+    fireEvent.click(screen.getByRole('button', { name: /^Give/ }))
+    await waitFor(() => expect(onSpawn).toHaveBeenCalledWith('Base.EmpanadaCafe', 100))
   })
 
   it('a successful give adds a Recent entry and persists it across the mode-specific localStorage key', async () => {

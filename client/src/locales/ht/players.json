@@ -5,6 +5,11 @@
     "updated": "Mete ajou {{time}}",
     "refresh": "Rafrechi"
   },
+  "permissions": {
+    "noModerate": "Pou aksyon sa a, ou bezwen pèmisyon players.moderate, e wòl sa a pa genyen li.",
+    "noGmTools": "Pou aksyon sa a, ou bezwen pèmisyon players.gm_tools, e wòl sa a pa genyen li.",
+    "noBridgeCommand": "Pou aksyon sa a, ou bezwen pèmisyon bridge.command, e wòl sa a pa genyen li."
+  },
   "errorBanner": {
     "title": "Paj Jwè a pa disponib nèt",
     "retry": "Eseye ankò"
@@ -262,7 +267,8 @@
     "on": "AKTIVE",
     "off": "DEZAKTIVE",
     "enable": "Aktive",
-    "disable": "Dezaktive"
+    "disable": "Dezaktive",
+    "bridgeRequiredTooltip": "Mande pou PanelBridge konekte"
   },
   "notes": {
     "selectPlayerEmpty": "Chwazi yon jwè pou wè oswa ajoute nòt",
@@ -288,6 +294,7 @@
     "deleteConfirmConfirm": "Efase nòt la",
     "saveButton": "Sove Nòt",
     "activityLogTitle": "Jounal Aktivite",
+    "activityLogTruncatedHint": "N ap montre {{count}} antre ki pi resan yo -- aktivite ki pi ansyen ka pa parèt.",
     "logsErrorTitle": "Jounal aktivite pa disponib",
     "filterPlaceholder": "Filtre pa non jwè...",
     "filterAria": "Filtre jounal aktivite pa non jwè",
@@ -296,7 +303,7 @@
     "tableAction": "Aksyon",
     "tableDetails": "Detay",
     "loadingRow": "N ap chaje...",
-    "noLogsRow": "Pa gen jounal aktivite",
+    "noLogsRow": "Poko gen jounal aktivite — aksyon moderasyon ki fèt sou jwè sa a (ban, kick, chanjman whitelist) ap parèt isit la.",
     "detailsFallback": "-"
   },
   "importExport": {
@@ -309,6 +316,8 @@
     "exportButton": "Ekspòte {{player}}",
     "exportButtonFallback": "Jwè",
     "characterDataLabel": "Done Pèsonaj",
+    "copyCharacterDataAria": "Kopye done pèsonaj",
+    "copiedAria": "Kopye",
     "downloadFileButton": "Telechaje Dosye",
     "importTitle": "Enpòte Pèsonaj",
     "importDesc": "Retabli XP, konpetans, ak envantè ekspòte",
@@ -321,7 +330,15 @@
     "savedExportsTitle": "Ekspòtasyon Sove ({{count}})",
     "sizeKb": "({{size}} KB)",
     "downloadTitle": "Telechaje",
-    "deleteTitle": "Efase"
+    "deleteTitle": "Efase",
+    "downloadExportAria": "Telechaje ekspòte sovgade pou {{username}}",
+    "deleteExportAria": "Efase ekspòte sovgade pou {{username}}"
+  },
+  "importConfirm": {
+    "title": "Ekraze karaktè {{player}} a?",
+    "description": "Sa a ranplase XP, perks, konpetans, trè, envantè, ak bagay {{player}} genyen sou li ak done ou kole yo. Eta aktyèl {{player}} sove nan Ekspòtasyon Sovgade yo anvan, konsa ou ka restore l soti la si se te move jwè a oswa move fichye a.",
+    "cancel": "Anile",
+    "confirm": "Wi, Ekraze Karaktè a"
   },
   "actions": {
     "kickPlayer": "Mete jwè a deyò",
@@ -380,6 +397,8 @@
     "invalidJsonDesc": "Done pèsonaj yo se pa yon fòma JSON valid",
     "characterImportedTitle": "Pèsonaj Enpòte",
     "characterImportedDesc": "Aplike {{perks}} konpetans ak {{items}} atik pou {{player}}",
+    "characterImportedTitleNoneApplied": "Enpòtasyon an pa aplike anyen",
+    "characterImportedDescNoneApplied": "Okenn nan konpetans oswa atik yo soumèt yo pa t aplike sou {{player}}. Done yo ka pa koresponn ak mod oswa definisyon atik sèvè sa a.",
     "importFailedTitle": "Enpòtasyon Echwe",
     "importFailedFallback": "Enpòte pèsonaj la echwe",
     "fileTooLargeTitle": "Dosye Twò Gwo",

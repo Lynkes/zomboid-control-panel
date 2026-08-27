@@ -16,6 +16,7 @@ function renderWithStatus(status: Status, props: { showLabel?: boolean } = {}) {
 }
 
 const connected: Status = { connected: true, reconnecting: false, reconnectAttempt: 0, error: null }
+const reconnectingEarly: Status = { connected: false, reconnecting: true, reconnectAttempt: 1, error: null }
 const reconnecting: Status = { connected: false, reconnecting: true, reconnectAttempt: 3, error: null }
 const disconnected: Status = { connected: false, reconnecting: false, reconnectAttempt: 0, error: null }
 const disconnectedWithError: Status = {
@@ -36,18 +37,39 @@ describe('ConnectionStatus', () => {
     expect(screen.getByText(en.reconnecting.label)).toBeInTheDocument()
   })
 
-  it('reports disconnected with the real backend error message in the tooltip, not a canned string', async () => {
+  it('does not show the reverse-proxy hint on an early reconnect attempt -- a single retry is normal network noise', async () => {
+    renderWithStatus(reconnectingEarly, { showLabel: true })
+    fireEvent.focus(screen.getByText(en.reconnecting.label).closest('div')!)
+    // Give the tooltip a beat to render, then confirm the hint text never appears.
+    await new Promise((r) => setTimeout(r, 0))
+    expect(screen.queryByText(en.reconnecting.hint)).not.toBeInTheDocument()
+  })
+
+  it('shows the reverse-proxy hint once reconnect attempts pile up', async () => {
+    renderWithStatus(reconnecting, { showLabel: true })
+    fireEvent.focus(screen.getByText(en.reconnecting.label).closest('div')!)
+    expect(await screen.findByText(en.reconnecting.hint)).toBeInTheDocument()
+  })
+
+  it('always shows the reassurance description on disconnect -- the page loaded, so the server is reachable', async () => {
     renderWithStatus(disconnectedWithError, { showLabel: true })
     expect(screen.getByText(en.disconnected.label)).toBeInTheDocument()
 
     fireEvent.focus(screen.getByText(en.disconnected.label).closest('div')!)
-    expect(await screen.findByText('socket hang up')).toBeInTheDocument()
+    expect(await screen.findByText(en.disconnected.description)).toBeInTheDocument()
   })
 
-  it('falls back to a generic disconnected description only when no error is known', async () => {
+  it('appends the real backend error as a separate technical-detail line when one is known, not a canned string', async () => {
+    renderWithStatus(disconnectedWithError, { showLabel: true })
+    fireEvent.focus(screen.getByText(en.disconnected.label).closest('div')!)
+    expect(await screen.findByText('Technical detail: socket hang up')).toBeInTheDocument()
+  })
+
+  it('omits the technical-detail line entirely when no backend error is known', async () => {
     renderWithStatus(disconnected, { showLabel: true })
     fireEvent.focus(screen.getByText(en.disconnected.label).closest('div')!)
-    expect(await screen.findByText(en.disconnected.description)).toBeInTheDocument()
+    await screen.findByText(en.disconnected.hint)
+    expect(screen.queryByText(/Technical detail:/)).not.toBeInTheDocument()
   })
 
   it('keeps the label visually hidden (not absent) when showLabel is false, for screen readers', () => {

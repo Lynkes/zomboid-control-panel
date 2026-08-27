@@ -1,4 +1,12 @@
 {
+  "permissions": {
+    "noModsManage": "Tu rol no tiene permiso para gestionar mods.",
+    "noServersManage": "Tu rol no tiene permiso para gestionar servidores."
+  },
+  "permissionDenied": {
+    "title": "No puedes ver los mods",
+    "description": "El rol de tu cuenta no incluye \"Gestionar mods\". Pide a un administrador que lo conceda si necesitas acceso a esta página."
+  },
   "fetchError": {
     "title": "No se pudieron cargar los datos de los mods",
     "retry": "Reintentar"
@@ -47,6 +55,11 @@
     "reported_other": "{{count}} actualizaciones de mod reportadas por Steam — indicadores desincronizados",
     "desc": "La carpeta de Workshop muestra archivos más recientes que los registrados por el panel. Ejecutar una comprobación para actualizar el estado de cada mod.",
     "checkNow": "Comprobar ahora"
+  },
+  "duplicateKeysWarning": {
+    "title_one": "\"{{keys}}\" aparece más de una vez en este archivo de configuración",
+    "title_other": "{{count}} ajustes aparecen más de una vez en este archivo de configuración: {{keys}}",
+    "desc": "Esta página lee la primera copia y el editor de configuración del servidor lee la última, por lo que ambos pueden mostrar valores distintos para el mismo ajuste."
   },
   "nav": {
     "aria": "Secciones de gestión de mods",
@@ -457,12 +470,12 @@
     "reEnable": "Reactivar",
     "reEnableCount": "Reactivar ({{count}})",
     "trackingCleanup": "Limpieza de seguimiento",
-    "destructive": "destructivo",
+    "destructive": "solo configuración, los archivos se conservan",
     "deleteHint": "Eliminar solo quita el seguimiento del panel. Los archivos de Workshop permanecen en el disco, pero habrá que añadir el mod manualmente más adelante.",
-    "deleteSelectedConfirm_one": "¿Eliminar del seguimiento {{count}} mod desactivado seleccionado? Esta acción no se puede deshacer (volver a añadirlo manualmente si hace falta).",
-    "deleteSelectedConfirm_other": "¿Eliminar del seguimiento {{count}} mods desactivados seleccionados? Esta acción no se puede deshacer (volver a añadirlos manualmente si hace falta).",
-    "deleteAllConfirm_one": "¿Eliminar TODOS los {{count}} mod desactivado del seguimiento? Esta acción no se puede deshacer (volver a añadirlo manualmente si hace falta).",
-    "deleteAllConfirm_other": "¿Eliminar TODOS los {{count}} mods desactivados del seguimiento? Esta acción no se puede deshacer (volver a añadirlos manualmente si hace falta).",
+    "deleteSelectedConfirm_one": "¿Quitar del seguimiento {{count}} mod desactivado seleccionado? Los archivos de Workshop permanecen en el disco: podrás volver a añadirlo más adelante.",
+    "deleteSelectedConfirm_other": "¿Quitar del seguimiento {{count}} mods desactivados seleccionados? Los archivos de Workshop permanecen en el disco: podrás volver a añadirlos más adelante.",
+    "deleteAllConfirm_one": "¿Quitar TODOS los {{count}} mod desactivado del seguimiento? Los archivos de Workshop permanecen en el disco: podrás volver a añadirlo más adelante.",
+    "deleteAllConfirm_other": "¿Quitar TODOS los {{count}} mods desactivados del seguimiento? Los archivos de Workshop permanecen en el disco: podrás volver a añadirlos más adelante.",
     "deleteFromTrackingTitle": "¿Eliminar del seguimiento?",
     "deleteConfirmButton": "Eliminar",
     "deleteSelected": "Eliminar seleccionados ({{count}})",
@@ -629,8 +642,10 @@
     "invalidFormatDesc": "Escribir la URL de una colección de Steam Workshop o un ID numérico de colección.",
     "noModsFoundInCollectionTitle": "No se encontraron mods",
     "noModsFoundInCollectionDesc": "Esta colección parece estar vacía. Comprobar la URL e intentarlo de nuevo.",
+    "collectionOnlySubCollectionsDesc": "Todos los elementos de esta colección son a su vez subcolecciones ({{count}}) — Steam no permite añadirlas directamente como mods. Abre la subcolección en Steam e impórtala por separado.",
     "modsFoundTitle": "Se encontraron {{count}} mods",
     "modsFoundDesc": "Seleccionar los mods que añadir y confirmar.",
+    "modsFoundDescWithSkipped": "Selecciona los mods que añadir y confirma. Se omitieron {{count}} elemento(s) por ser subcolecciones, no mods.",
     "collectionImportFailedTitle": "Error al importar la colección",
     "collectionImportFailedFallback": "No se pudo obtener la colección de Steam. Comprobar la URL e intentarlo de nuevo.",
     "noModsSelectedTitle": "No hay mods seleccionados",

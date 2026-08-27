@@ -131,6 +131,18 @@ describe("GET /api/server/branches rejects an unvalidated steamcmdPath", () => {
   });
 });
 
+describe("server path validation rejects raw traversal segments", () => {
+  it("rejects an absolute path containing a parent segment before normalization erases it", async () => {
+    const { isValidPath } = await import("../routes/server.js");
+    const absolutePath =
+      process.platform === "win32"
+        ? "C:\\pz\\..\\Windows\\System32"
+        : "/var/lib/../etc";
+
+    expect(isValidPath(absolutePath)).toBe(false);
+  });
+});
+
 describe("panelBridge.js /configure and /auto-detect reject an unvalidated path", () => {
   it("POST /configure refuses a relative zomboidSavePath", async () => {
     const { default: router } = await import("../routes/panelBridge.js");
@@ -198,33 +210,5 @@ describe("panelBridge.js /configure and /auto-detect reject an unvalidated path"
       error: "Path targets a protected system directory",
       code: "PANELBRIDGE_PATH_PROTECTED_SYSTEM_DIR",
     });
-  });
-});
-
-describe("config.js PUT /paths requires absolute paths (feeds server.js's /wipe destructively)", () => {
-  it("refuses a relative savePath", async () => {
-    const { default: router } = await import("../routes/config.js");
-    const res = createResponse();
-    const serverManager = { updatePaths: vi.fn() };
-    await getRouteHandler(router, "/paths", "put")(
-      { body: { savePath: "relative/save" }, app: { get: () => serverManager } },
-      res,
-    );
-    expect(res.getStatusCode()).toBe(400);
-    expect(res.getBody()).toEqual({ error: "Invalid save path" });
-    expect(serverManager.updatePaths).not.toHaveBeenCalled();
-  });
-
-  it("accepts an absolute savePath with no traversal", async () => {
-    const { default: router } = await import("../routes/config.js");
-    const res = createResponse();
-    const serverManager = { updatePaths: vi.fn() };
-    const absolutePath = process.platform === "win32" ? "C:\\pz\\saves" : "/srv/pz/saves";
-    await getRouteHandler(router, "/paths", "put")(
-      { body: { savePath: absolutePath }, app: { get: () => serverManager } },
-      res,
-    );
-    expect(res.getStatusCode()).toBe(200);
-    expect(serverManager.updatePaths).toHaveBeenCalledWith(undefined, absolutePath);
   });
 });

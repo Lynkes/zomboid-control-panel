@@ -1,4 +1,7 @@
 {
+  "permissions": {
+    "noManage": "Pou ou netwaye chunk mapa yo, ou bezwen pèmisyon chunks.manage, e wòl sa a pa genyen li."
+  },
   "pageHeader": {
     "title": "Netwayaj Kat la",
     "description": "Reyinisyalize zòn kat domaje oswa twò piyaje pou mond lan ka regenere san pwoblèm",
@@ -86,8 +89,8 @@
     "scanningChunks": "Ap eskane kat la… {{count}} chunk",
     "loadingChunks": "Ap chaje chunk yo…",
     "noChunksTitle": "Pa gen chunk jwenn",
-    "noChunksDesc": "Dosye kat la ka vid oswa chemen an bezwen ajiste.",
-    "ariaLabel": "Kat chunk — chwazi zòn pou netwaye"
+    "noChunksDesc": "Dosye kat pou sovgad sa a ka vid, oswa chemen konfigire a bezwen ajiste. Eseye yon lòt sovgad nan lis anwo a, oswa tcheke chemen an nan Paramèt.",
+    "ariaLabel": "Kat chunk. Chwazi zòn pou netwaye mande yon sourit oswa yon ekran tactil; kat sa a pa fonksyone ak klavye."
   },
   "help": {
     "hide": "Kache èd",
@@ -140,6 +143,8 @@
     "loadSavesFailedTitle": "Pa T Kapab Chaje Sovgad",
     "loadSavesFailedFallback": "Pa t kapab chaje dosye sovgad yo.",
     "pathSavedTitle": "Chemen Sove",
+    "liveVehicleCleanupNoPermissionTitle": "Netwayaj Veyikil An Dirèk Pa Fèt",
+    "liveVehicleCleanupNoPermissionDesc": "Chunk yo ak done veyikil yo efase. Pou retire veyikil ki deja chaje sou sèvè a an dirèk, ou bezwen pèmisyon bridge.command, e wòl sa a pa genyen li -- yon admin ka bay li, oswa yon vye veyikil ap disparèt pou kont li lè zòn nan reload ankò.",
     "pathSavedServerDesc": "Sove nan konfigirasyon sèvè aktif la — panèl la ap itilize chemen sa a pwochen fwa.",
     "pathSavedPanelDesc": "Sove nan paramèt panèl la.",
     "pathSaveFailedTitle": "Pa T Kapab Sove Chemen",

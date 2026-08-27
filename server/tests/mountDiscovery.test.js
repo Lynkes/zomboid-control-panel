@@ -7,6 +7,7 @@ import {
   probeDataPath,
   findDataPath,
   discoverMounts,
+  discoverMountIssues,
   readServerIniSettings,
 } from "../services/mountDiscovery.js";
 import { isContainerized } from "../utils/dockerDetect.js";
@@ -35,6 +36,24 @@ describe("probeInstallPath", () => {
 
   it("rejects an unrelated empty directory", () => {
     expect(probeInstallPath(tmpRoot).valid).toBe(false);
+  });
+
+  it("distinguishes permission-denied from genuinely missing", () => {
+    const denied = new Error("EACCES: permission denied");
+    denied.code = "EACCES";
+    vi.spyOn(fs, "statSync").mockImplementation(() => {
+      throw denied;
+    });
+
+    const result = probeInstallPath(path.join(tmpRoot, "locked"));
+    expect(result.valid).toBe(false);
+    expect(result.reason).toBe("permission-denied");
+  });
+
+  it("reports no reason for a genuinely missing path", () => {
+    const result = probeInstallPath(path.join(tmpRoot, "nope"));
+    expect(result.valid).toBe(false);
+    expect(result.reason).toBeUndefined();
   });
 
   it("detects a ProjectZomboid64 binary as a PZ signature", () => {
@@ -76,6 +95,19 @@ describe("probeDataPath", () => {
   it("rejects a missing path", () => {
     const result = probeDataPath(path.join(tmpRoot, "nope"));
     expect(result.valid).toBe(false);
+    expect(result.reason).toBeUndefined();
+  });
+
+  it("distinguishes permission-denied from genuinely missing", () => {
+    const denied = new Error("EACCES: permission denied");
+    denied.code = "EACCES";
+    vi.spyOn(fs, "statSync").mockImplementation(() => {
+      throw denied;
+    });
+
+    const result = probeDataPath(path.join(tmpRoot, "locked"));
+    expect(result.valid).toBe(false);
+    expect(result.reason).toBe("permission-denied");
   });
 
   it("rejects a directory with no PZ data markers", () => {
@@ -172,6 +204,34 @@ describe("discoverMounts", () => {
     const mounts = discoverMounts();
     expect(mounts).toHaveLength(1);
     expect(mounts[0].dataPath).toBe(path.join(installDir, "Zomboid"));
+  });
+});
+
+describe("discoverMountIssues", () => {
+  it("returns nothing when no common-mount candidate is even present", () => {
+    expect(discoverMountIssues()).toEqual([]);
+  });
+
+  it("reports a common-mount install candidate that exists but can't be read", () => {
+    const denied = new Error("EACCES: permission denied");
+    denied.code = "EACCES";
+    vi.spyOn(fs, "statSync").mockImplementation((p) => {
+      if (p === "/pz-server") throw denied;
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    });
+
+    const issues = discoverMountIssues();
+    expect(issues).toContainEqual({
+      path: "/pz-server",
+      source: "common-mount",
+      reason: "permission-denied",
+    });
+  });
+
+  it("does not report a candidate that simply isn't mounted", () => {
+    // Default fs behaviour in the tmp-only test environment: nothing at the
+    // hardcoded common-mount paths, which should be silent (not an issue).
+    expect(discoverMountIssues()).toEqual([]);
   });
 });
 

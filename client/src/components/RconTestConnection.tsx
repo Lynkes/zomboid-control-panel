@@ -2,9 +2,9 @@ import { useState } from 'react'
 import { CheckCircle2, Loader2, XCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
-import { rconApi, ApiError, type RconTestResult } from '@/lib/api'
+import { rconApi, type RconTestResult } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { getRecoveryUrl } from '@/lib/errorMessage'
+import { getRecoveryUrl, getUserErrorMessage } from '@/lib/errorMessage'
 
 interface RconTestConnectionProps {
   host: string
@@ -29,7 +29,7 @@ export function RconTestConnection({ host, port, password, className }: RconTest
       const outcome = await rconApi.testConnection(host, port, password)
       setResult(outcome)
     } catch (error) {
-      const detail = error instanceof ApiError ? error.message : 'Test request failed'
+      const detail = getUserErrorMessage(error, 'Test request failed')
       setResult({ success: false, error: 'internal_error', detail })
       setRecoveryUrl(getRecoveryUrl(error))
     } finally {

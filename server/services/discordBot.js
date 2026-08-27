@@ -871,8 +871,13 @@ export class DiscordBot {
   async handleStatus(interaction) {
     await interaction.deferReply();
 
-    const isRunning = await this.serverManager.checkServerRunning();
+    // getServerStatus() already runs getServerProcessDetails() internally
+    // and exposes scanFailed -- no need for a second, separate
+    // checkServerRunning() call that would silently discard it and report
+    // a confident "offline" during a detection hiccup.
     const status = await this.serverManager.getServerStatus();
+    const isRunning = status.running;
+    const statusUnknown = status.scanFailed;
 
     // Format uptime from seconds
     let uptimeStr = "N/A";
@@ -884,11 +889,15 @@ export class DiscordBot {
 
     const embed = new EmbedBuilder()
       .setTitle("🧟 Project Zomboid Server Status")
-      .setColor(isRunning ? 0x00ff00 : 0xff0000)
+      .setColor(statusUnknown ? 0xffaa00 : isRunning ? 0x00ff00 : 0xff0000)
       .addFields(
         {
           name: "Status",
-          value: isRunning ? "🟢 Online" : "🔴 Offline",
+          value: statusUnknown
+            ? "🟡 Unknown (detection failed)"
+            : isRunning
+              ? "🟢 Online"
+              : "🔴 Offline",
           inline: true,
         },
         { name: "Uptime", value: uptimeStr, inline: true },
@@ -916,8 +925,14 @@ export class DiscordBot {
   async handlePlayers(interaction) {
     await interaction.deferReply();
 
-    const isRunning = await this.serverManager.checkServerRunning();
-    if (!isRunning) {
+    const details = await this.serverManager.getServerProcessDetails();
+    if (details.scanFailed) {
+      await interaction.editReply(
+        "🟡 Unable to verify server status — try again shortly.",
+      );
+      return;
+    }
+    if (!details.running) {
       await interaction.editReply("🔴 Server is offline");
       return;
     }
@@ -978,8 +993,19 @@ export class DiscordBot {
   async handleStart(interaction) {
     await interaction.deferReply();
 
-    const isRunning = await this.serverManager.checkServerRunning();
-    if (isRunning) {
+    // getServerProcessDetails(), not checkServerRunning() -- the latter
+    // collapses a failed detection scan into a confident "not running,"
+    // which would let this command launch a second server process
+    // alongside one that's actually still up. Same fail-open class already
+    // fixed at /wipe, /delete-files, chunks.js, templates.js and others.
+    const details = await this.serverManager.getServerProcessDetails();
+    if (details.scanFailed) {
+      await interaction.editReply(
+        "⚠️ Unable to verify whether the server is already running — refusing to start to avoid launching a second process. Check the panel UI directly.",
+      );
+      return;
+    }
+    if (details.running) {
       await interaction.editReply("⚠️ Server is already running");
       return;
     }
@@ -1006,8 +1032,14 @@ export class DiscordBot {
   async handleStop(interaction) {
     await interaction.deferReply();
 
-    const isRunning = await this.serverManager.checkServerRunning();
-    if (!isRunning) {
+    const details = await this.serverManager.getServerProcessDetails();
+    if (details.scanFailed) {
+      await interaction.editReply(
+        "⚠️ Unable to verify whether the server is running. Check the panel UI directly before retrying.",
+      );
+      return;
+    }
+    if (!details.running) {
       await interaction.editReply("⚠️ Server is not running");
       return;
     }
@@ -1048,8 +1080,14 @@ export class DiscordBot {
 
     const minutes = interaction.options.getInteger("minutes") ?? 5;
 
-    const isRunning = await this.serverManager.checkServerRunning();
-    if (!isRunning) {
+    const details = await this.serverManager.getServerProcessDetails();
+    if (details.scanFailed) {
+      await interaction.editReply(
+        "⚠️ Unable to verify whether the server is running. Check the panel UI directly before retrying.",
+      );
+      return;
+    }
+    if (!details.running) {
       await interaction.editReply(
         "⚠️ Server is not running. Use /start to start the server.",
       );
@@ -1346,8 +1384,10 @@ export class DiscordBot {
     this._presenceUpdateInFlight = (async () => {
       let activity = "Server offline";
       try {
-        const serverRunning = await this.serverManager.checkServerRunning();
-        if (serverRunning) {
+        const details = await this.serverManager.getServerProcessDetails();
+        if (details.scanFailed) {
+          activity = "Status unknown";
+        } else if (details.running) {
           if (this.rconService?.connected) {
             const result = await this.rconService.getPlayers();
             if (result?.success) {

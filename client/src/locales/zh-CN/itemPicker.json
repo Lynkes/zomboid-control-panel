@@ -16,6 +16,7 @@
   "clearSelectionAria": "清除选择",
   "searchNItemsPlaceholder": "搜索 {{count}} 件物品…",
   "filterItemsAria": "筛选物品",
+  "clearSearchAria": "清除搜索",
   "rescanTitle": "重新扫描服务器物品",
   "allItems": "全部物品",
   "itemListAria": "物品列表",

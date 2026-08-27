@@ -29,9 +29,11 @@ import { mockGetRoleByName } from "./helpers/mockPermissionsDb.js";
 vi.mock("../database/init.js", () => ({
   getActiveServer: vi.fn(),
   getRoleByName: mockGetRoleByName,
+  getServers: vi.fn(),
+  getSetting: vi.fn(),
 }));
 
-const { getActiveServer } = await import("../database/init.js");
+const { getActiveServer, getServers, getSetting } = await import("../database/init.js");
 const { default: router } = await import("../routes/chunks.js");
 
 // ── sql.js setup for a real vehicles.db fixture ────────────────────────────
@@ -155,6 +157,12 @@ beforeEach(() => {
     zomboidDataPath: dataRoot,
     isRemote: false,
   });
+  // bug-hunt-2026-08-27: delete-chunks/delete-region now require a
+  // customPath to match a configured server's zomboidDataPath (or an
+  // OS-standard candidate) via assertKnownSaveRoot -- default to none
+  // configured, so tests that use customPath must opt in explicitly.
+  getServers.mockReset().mockResolvedValue([]);
+  getSetting.mockReset().mockResolvedValue(null);
 });
 
 afterEach(() => {
@@ -585,5 +593,311 @@ describe("delete-chunks/delete-region: an undetermined server state must refuse,
 
     expect(res.getStatusCode()).toBe(200);
     expect(fs.existsSync(chunk)).toBe(false);
+  });
+
+  // Regression: a serverManager without getServerProcessDetails (an older or
+  // lighter injected manager) used to fall back to checkServerRunning(),
+  // which collapses a failed scan into a plain `false` -- indistinguishable
+  // from a confirmed-stopped server -- and one of the two fallbacks then
+  // silently swallowed even a THROWN check and proceeded anyway (the
+  // "proceeding cautiously" log line). Both routes must refuse the same way
+  // scanFailed does when the richer check isn't there to even ask.
+  it("delete-chunks refuses with SERVER_STATE_UNKNOWN when the serverManager has no process-detection method at all", async () => {
+    const chunk = path.join(savePath, "map", "0", "0.bin");
+    writeFileDeep(chunk, "a");
+    const serverManager = {
+      checkServerRunning: async () => false,
+    };
+
+    const res = await postAsWithServerManager(
+      "/delete-chunks",
+      { saveName: SAVE_NAME, chunks: [{ file: "0/0.bin", x: 0, y: 0 }] },
+      serverManager,
+    );
+
+    expect(res.getStatusCode()).toBe(503);
+    expect(res.getBody()).toMatchObject({ code: "SERVER_STATE_UNKNOWN" });
+    expect(fs.existsSync(chunk)).toBe(true);
+  });
+
+  it("delete-region refuses with SERVER_STATE_UNKNOWN when the serverManager has no process-detection method at all", async () => {
+    const chunk = path.join(savePath, "map", "0", "0.bin");
+    writeFileDeep(chunk, "a");
+    const serverManager = {
+      checkServerRunning: async () => false,
+    };
+
+    const res = await postAsWithServerManager(
+      "/delete-region",
+      { saveName: SAVE_NAME, minX: 0, maxX: 10, minY: 0, maxY: 10 },
+      serverManager,
+    );
+
+    expect(res.getStatusCode()).toBe(503);
+    expect(res.getBody()).toMatchObject({ code: "SERVER_STATE_UNKNOWN" });
+    expect(fs.existsSync(chunk)).toBe(true);
+  });
+
+  it("delete-chunks refuses with SERVER_STATE_UNKNOWN when checkServerRunning would have said false but process detection actually threw", async () => {
+    const chunk = path.join(savePath, "map", "0", "0.bin");
+    writeFileDeep(chunk, "a");
+    const serverManager = {
+      // A manager with getServerProcessDetails but which throws must still
+      // refuse -- and must NOT fall back to checkServerRunning() (which
+      // here would wrongly say "not running" and let the delete through).
+      getServerProcessDetails: async () => {
+        throw new Error("boom-process-scan");
+      },
+      checkServerRunning: async () => false,
+    };
+
+    const res = await postAsWithServerManager(
+      "/delete-chunks",
+      { saveName: SAVE_NAME, chunks: [{ file: "0/0.bin", x: 0, y: 0 }] },
+      serverManager,
+    );
+
+    expect(res.getStatusCode()).toBe(503);
+    expect(res.getBody()).toMatchObject({ code: "SERVER_STATE_UNKNOWN" });
+    expect(fs.existsSync(chunk)).toBe(true);
+  });
+});
+
+// bug-hunt-2026-08-27, item (C): a customPath used to only need to LOOK
+// Zomboid-related (inspectZomboidPath's hasZomboidMarker/isInsideSavesDir
+// signals are pure substring matches on the path string, satisfiable with
+// zero real filesystem structure). Verified empirically that tightening
+// just that heuristic doesn't change what's actually deletable, though --
+// delete-chunks/delete-region's own fs.existsSync(savePath) check already
+// independently requires a real Saves/Multiplayer/<saveName> subtree to
+// exist before anything can be deleted, regardless of which inspection
+// signal passed. The real gap is that ANY host location satisfying that
+// shape works, not just ones the panel already trusts. assertKnownSaveRoot
+// closes that: a delete-chunks/delete-region customPath must now resolve
+// to either a configured server's own zomboidDataPath (servers.manage-
+// gated -- chunks.manage alone can't create one) or one of the panel's own
+// OS-standard auto-detected candidate paths, not an arbitrary directory
+// that merely has (or was made to have) the right shape.
+describe("customPath must resolve to a location the panel already recognizes", () => {
+  it("refuses delete-chunks when customPath matches no configured server and no OS-standard candidate", async () => {
+    // A real Saves/Multiplayer/<SAVE_NAME> subtree with real chunk content
+    // -- exactly the shape that used to be sufficient on its own -- but
+    // getServers() (mocked in beforeEach) has nothing pointing at it.
+    const chunk = path.join(savePath, "map", "0", "0.bin");
+    writeFileDeep(chunk, "a");
+
+    const res = await postAs("/delete-chunks", {
+      saveName: SAVE_NAME,
+      chunks: [{ file: "0/0.bin", x: 0, y: 0 }],
+      customPath: dataRoot,
+    });
+
+    expect(res.getStatusCode()).toBe(400);
+    expect(res.getBody().error).toMatch(/isn't a location the panel already recognizes/i);
+    expect(fs.existsSync(chunk)).toBe(true);
+  });
+
+  it("refuses delete-region the same way", async () => {
+    const chunk = path.join(savePath, "map", "0", "0.bin");
+    writeFileDeep(chunk, "a");
+
+    const res = await postAs("/delete-region", {
+      saveName: SAVE_NAME,
+      minX: 0,
+      maxX: 1,
+      minY: 0,
+      maxY: 1,
+      customPath: dataRoot,
+    });
+
+    expect(res.getStatusCode()).toBe(400);
+    expect(res.getBody().error).toMatch(/isn't a location the panel already recognizes/i);
+    expect(fs.existsSync(chunk)).toBe(true);
+  });
+
+  it("still deletes via customPath when it matches a DIFFERENT configured server's zomboidDataPath (not just the active one)", async () => {
+    const chunk = path.join(savePath, "map", "0", "0.bin");
+    writeFileDeep(chunk, "a");
+    // The active server (from the outer beforeEach) points elsewhere;
+    // dataRoot belongs to a second, non-active configured server -- proves
+    // the allowlist checks ALL configured servers, not just the active one.
+    getServers.mockResolvedValue([
+      { id: "server-1", zomboidDataPath: path.join(os.tmpdir(), "unrelated-active-server") },
+      { id: "server-2", zomboidDataPath: dataRoot },
+    ]);
+
+    const res = await postAs("/delete-chunks", {
+      saveName: SAVE_NAME,
+      chunks: [{ file: "0/0.bin", x: 0, y: 0 }],
+      customPath: dataRoot,
+    });
+
+    expect(res.getStatusCode()).toBe(200);
+    expect(res.getBody()).toEqual(expect.objectContaining({ success: true, deleted: 1 }));
+    expect(fs.existsSync(chunk)).toBe(false);
+  });
+
+  it("still deletes when no customPath is given at all (the active server's own path is trusted by default, unaffected by this gate)", async () => {
+    const chunk = path.join(savePath, "map", "0", "0.bin");
+    writeFileDeep(chunk, "a");
+
+    const res = await postAs("/delete-chunks", {
+      saveName: SAVE_NAME,
+      chunks: [{ file: "0/0.bin", x: 0, y: 0 }],
+    });
+
+    expect(res.getStatusCode()).toBe(200);
+    expect(res.getBody()).toEqual(expect.objectContaining({ success: true, deleted: 1 }));
+    expect(fs.existsSync(chunk)).toBe(false);
+  });
+});
+
+// bug-hunt-2026-08-27, card delete-region-two-completeness-gaps-vs-its-
+// sibling (ranked #4/46): delete-region did measurably less of the same
+// destructive cleanup than /delete-chunks -- silently, since both return a
+// plain success response either way. Two gaps named by the card, both
+// confirmed still real at HEAD before being fixed:
+// (a) delete-region's own scan never walked the chunkdata/ folder at all,
+//     so a cell whose ONLY record is a chunkdata entry (no map/X/Y.bin)
+//     survived a region delete untouched -- GET /chunks/:saveName and
+//     /delete-chunks both handle this source.
+// (b) delete-region's B42/B41 classification used the narrower
+//     `xDirs.length > 0` (does map/ currently have numeric subdirectories)
+//     instead of the shared detectSaveIsB42Sync() (also checks B42
+//     indicator files) -- misreads a B42 save with a fresh or emptied-out
+//     map/ folder as B41, picking the wrong cell divisor.
+// A third gap falls directly out of fixing (a) correctly rather than just
+// "not crashing" on chunkdata entries: the vehicles.db cleanup box for a
+// chunkdata entry must span its WHOLE cell, not one chunk -- delete-chunks
+// already knows this (see its own "chunkdata covers the whole cell" box-
+// building comment); porting chunkdata support into delete-region without
+// the same expansion would have shipped a new, narrower silent-miss in the
+// same request that closes the other two.
+describe("delete-region: chunkdata-only cells (gap a)", () => {
+  it("deletes a chunkdata-only cell inside the region even though it has no matching map/X/Y.bin file at all", async () => {
+    // Unrelated real B42 chunk elsewhere, purely so xDirs.length > 0 and
+    // this test exercises gap (a) in isolation from gap (b)'s detection fix.
+    const unrelatedChunk = path.join(savePath, "map", "50", "50.bin");
+    writeFileDeep(unrelatedChunk, "u");
+
+    // Cell (0,0): ONLY a chunkdata record, no map/0/0.bin -- the exact shape
+    // the card's "chunkdata-only entries" gap describes.
+    // Bare "X_Y.bin" -- the per-entry chunkdata scan format used by GET
+    // /chunks/:saveName and /delete-chunks (NOT the "chunkdata_X_Y.bin" cell-
+    // AUX naming cleanupEmptyCellFiles uses -- a different file, different
+    // purpose, same folder).
+    const chunkDataOnly = path.join(savePath, "chunkdata", "0_0.bin");
+    writeFileDeep(chunkDataOnly, "cd");
+
+    const res = await postAs("/delete-region", {
+      saveName: SAVE_NAME,
+      minX: 0,
+      maxX: 5,
+      minY: 0,
+      maxY: 5,
+    });
+
+    expect(res.getStatusCode()).toBe(200);
+    expect(res.getBody()).toEqual(expect.objectContaining({ success: true, deleted: 1 }));
+    expect(fs.existsSync(chunkDataOnly), "the chunkdata-only cell must be deleted").toBe(false);
+    expect(fs.existsSync(unrelatedChunk), "unrelated cell must survive").toBe(true);
+  });
+
+  it("leaves a chunkdata entry outside the region untouched, and invert:true deletes it instead while sparing the in-region one", async () => {
+    // 9_9.bin's displayX/Y lands outside [0,5] under either B42 or B41 math
+    // (288 or 270), so this test doesn't need to isolate gap (b) separately.
+    const insideRegion = path.join(savePath, "chunkdata", "0_0.bin"); // displayX/Y = 0,0
+    const outsideRegion = path.join(savePath, "chunkdata", "9_9.bin"); // displayX/Y = 288 or 270
+    writeFileDeep(insideRegion, "a");
+    writeFileDeep(outsideRegion, "b");
+
+    const res1 = await postAs("/delete-region", {
+      saveName: SAVE_NAME,
+      minX: 0,
+      maxX: 5,
+      minY: 0,
+      maxY: 5,
+      invert: false,
+    });
+    expect(res1.getBody()).toEqual(expect.objectContaining({ success: true, deleted: 1 }));
+    expect(fs.existsSync(insideRegion)).toBe(false);
+    expect(fs.existsSync(outsideRegion), "outside the region -- must survive a non-inverted delete").toBe(true);
+
+    const res2 = await postAs("/delete-region", {
+      saveName: SAVE_NAME,
+      minX: 0,
+      maxX: 5,
+      minY: 0,
+      maxY: 5,
+      invert: true,
+    });
+    expect(res2.getBody()).toEqual(expect.objectContaining({ success: true, deleted: 1 }));
+    expect(fs.existsSync(outsideRegion), "inverted delete removes what's outside the region").toBe(false);
+  });
+});
+
+describe("delete-region: B42 vs B41 classification for chunkdata coordinates (gap b)", () => {
+  it("converts chunkdata cell coords using the B42 divisor (32), not B41 (30), even when map/ has no numeric subdirectories yet", async () => {
+    // map/ exists but is EMPTY -- xDirs.length === 0, the exact "fresh or
+    // empty map/ folder" shape the card names. The old `xDirs.length > 0`
+    // heuristic would misread this as B41; a B42 indicator file at the save
+    // root is the only evidence detectSaveIsB42Sync has to go on here.
+    fs.mkdirSync(path.join(savePath, "map"), { recursive: true });
+    writeFileDeep(path.join(savePath, "WorldDictionary.bin"), "indicator");
+
+    // 1_0.bin: rawX=1 -> displayX = 32 under correct B42 math, or 30 under
+    // the old buggy B41-shaped math. Region [31,40] straddles that exact
+    // gap: only the correct (B42) conversion falls inside it.
+    const cell = path.join(savePath, "chunkdata", "1_0.bin");
+    writeFileDeep(cell, "cd");
+
+    const res = await postAs("/delete-region", {
+      saveName: SAVE_NAME,
+      minX: 31,
+      maxX: 40,
+      minY: 0,
+      maxY: 0,
+    });
+
+    expect(res.getStatusCode()).toBe(200);
+    expect(res.getBody()).toEqual(expect.objectContaining({ success: true, deleted: 1 }));
+    expect(fs.existsSync(cell), "misclassifying this save as B41 would compute displayX=30, outside [31,40], and silently skip it").toBe(false);
+  });
+});
+
+describe("delete-region: chunkdata deletion prunes vehicles across the WHOLE cell, not just its corner chunk", () => {
+  it("prunes a vehicle sitting in the cell's interior (well outside the corner chunk's own 8x8 tile box) when deleting a chunkdata-only cell", async () => {
+    writeFileDeep(path.join(savePath, "map", "50", "50.bin"), "u"); // xDirs.length > 0, isolates this from gap (b)
+
+    const chunkDataOnly = path.join(savePath, "chunkdata", "0_0.bin"); // cell (0,0)
+    writeFileDeep(chunkDataOnly, "cd");
+
+    const dbPath = path.join(savePath, "vehicles.db");
+    await createVehiclesDb(dbPath, [
+      // Cell (0,0) at B42 spans tiles [0,256)x[0,256); the corner chunk
+      // alone only spans [0,8)x[0,8). x:100,y:50 is inside the cell but far
+      // outside the corner chunk -- only reachable if the box was expanded
+      // to the full cell. wx/wy deliberately far off so the chunk-coord
+      // fallback pass can't accidentally cover for a missing expansion.
+      { wx: 999, wy: 999, x: 100, y: 50 },
+      { wx: 999, wy: 999, x: 500, y: 500 }, // outside the cell entirely -- must survive
+    ]);
+
+    const res = await postAs("/delete-region", {
+      saveName: SAVE_NAME,
+      minX: 0,
+      maxX: 5,
+      minY: 0,
+      maxY: 5,
+      deleteVehicles: true,
+    });
+
+    expect(res.getStatusCode()).toBe(200);
+    expect(res.getBody()).toEqual(
+      expect.objectContaining({ success: true, deleted: 1, vehiclesDeleted: 1 }),
+    );
+    const remaining = await readVehicleIds(dbPath);
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]).toEqual(expect.objectContaining({ x: 500, y: 500 }));
   });
 });

@@ -3,6 +3,10 @@
     "title": "Debug & Protokolle",
     "description": "Live-Diagnose, aktueller Verlauf und Umgebungsdetails für dieses Panel"
   },
+  "permissionDenied": {
+    "title": "Du kannst keine Panel-Diagnosen einsehen",
+    "description": "Die Rolle deines Kontos enthält nicht das Recht „Panel-Diagnose einsehen“. Bitte einen Administrator, es zu vergeben, wenn du Zugriff auf diese Seite brauchst."
+  },
   "headerActions": {
     "bundling": "Bündeln…",
     "supportBundleZip": "Support-Paket (.zip)",
@@ -233,6 +237,7 @@
     "allChecksPassDesc": "Es gibt nichts anzuzeigen, wenn bestandene Prüfungen ausgeblendet sind. Deaktiviere „Bestandene ausblenden“, um den vollständigen Bericht zu sehen.",
     "manualFixTitle": "Manuelle Korrektur empfohlen",
     "manualFixFallback": "Öffne die vorgeschlagene Seite und wende die aufgeführte Korrektur an.",
+    "noPermissionFix": "Ihre Rolle hat keine Berechtigung, diese Korrektur anzuwenden.",
     "applyFixTitle": "Korrektur anwenden?",
     "applyFixFallback": "{{label}} anwenden?",
     "applyButton": "Anwenden",
@@ -1310,6 +1315,7 @@
   },
   "crashesTab": {
     "crashLogsTitle": "Absturzprotokolle",
+    "crashLogsCountTruncated": "{{shown}} von {{total}}",
     "crashLogsDesc": "Java-Absturzdumps und Fehlerprotokolle.",
     "refreshCrashLogsAria": "Absturzprotokolle aktualisieren",
     "noCrashLogsTitle": "Keine Absturzprotokolle gefunden",
@@ -1399,6 +1405,8 @@
     "databaseLabel": "Datenbank:",
     "logsFolderLabel": "Protokollordner:",
     "copyPathTooltip": "Pfad kopieren",
+    "copyDbPathAria": "Datenbankpfad kopieren",
+    "copyLogsPathAria": "Pfad des Protokollordners kopieren",
     "pathsUpdatedTitle": "Pfade aktualisiert",
     "enterAtLeastOnePath": "Gib mindestens einen Pfad ein",
     "updatePathsFailedFallback": "Aktualisieren der Pfade fehlgeschlagen"

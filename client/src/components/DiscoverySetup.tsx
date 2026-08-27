@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useToast } from '@/components/ui/use-toast'
+import { HelpTip } from '@/components/HelpTip'
 import { serversApi, type DiscoveredMount, type ServerInstance } from '@/lib/api'
 
 interface DiscoverySetupProps {
@@ -103,7 +104,10 @@ export function DiscoverySetup({ open, onOpenChange, mount, onCreated }: Discove
 
           {mount.serverNames.length > 1 && (
             <div className="space-y-2">
-              <Label>{t('configuration')}</Label>
+              <div className="flex items-center gap-1.5">
+                <Label>{t('configuration')}</Label>
+                <HelpTip label={t('configuration')}>{t('configurationHelp')}</HelpTip>
+              </div>
               <Select value={selectedName} onValueChange={selectServer}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -116,7 +120,10 @@ export function DiscoverySetup({ open, onOpenChange, mount, onCreated }: Discove
           )}
 
           <div className="space-y-2">
-            <Label>{t('displayName')}</Label>
+            <div className="flex items-center gap-1.5">
+              <Label>{t('displayName')}</Label>
+              <HelpTip label={t('displayName')}>{t('displayNameHelp')}</HelpTip>
+            </div>
             <Input value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={100} />
           </div>
 

@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "fs";
+import os from "os";
+import path from "path";
 
 const createServer = vi.fn();
 const updateServer = vi.fn();
 const getServers = vi.fn();
 const getSetting = vi.fn();
+const getAllSettings = vi.fn();
 const testRconConnection = vi.fn();
 
 import { mockGetRoleByName } from "./helpers/mockPermissionsDb.js";
@@ -11,6 +15,7 @@ import { mockGetRoleByName } from "./helpers/mockPermissionsDb.js";
 vi.mock("../database/init.js", () => ({
   getServers,
   getSetting,
+  getAllSettings,
   getServer: vi.fn(),
   getActiveServer: vi.fn(),
   createServer,
@@ -25,7 +30,11 @@ vi.mock("../services/rcon.js", () => ({
   testRconConnection,
 }));
 
-const { default: router } = await import("../routes/servers.js");
+const {
+  default: router,
+  parseDiscoveredPort,
+  parseServerId,
+} = await import("../routes/servers.js");
 const { getServer, getActiveServer, deleteServer } = await import("../database/init.js");
 const {
   getSteamLoginArgs,
@@ -50,11 +59,21 @@ function getLayer(routePath, method) {
   );
 }
 
-// POST / now has requireRole("admin", "technician") ahead of the real
-// handler (see roles.test.js for coverage of that gate itself) — grab the
-// last stack entry rather than the first, same as getUpdateHandler() below,
-// so this keeps working regardless of how many gating middlewares precede
-// the handler.
+// POST / and PUT /:id (below) both have requirePermission("servers.manage")
+// ahead of the real handler -- grab the last stack entry rather than the
+// first, so this keeps working regardless of how many gating middlewares
+// precede the handler. This intentionally SKIPS that gate: it's testing the
+// handler's own business logic, not authorization. The stale claim that
+// used to sit here ("see roles.test.js for coverage of that gate itself")
+// was WRONG -- roles.test.js only ever imported routes/auth.js and
+// routes/docker.js, never routes/servers.js -- so nothing tested the
+// servers.manage gate on these two routes (or POST /:id/activate) at all
+// until server/tests/serversManageGateCoverage.test.js was added
+// (bug-hunt-2026-08-27, if-your-change-is-in-middleware-a-handler-only-
+// test-is-blind-to-it): confirmed by break-verify that stripping
+// requirePermission from all three routes left every test in THIS file
+// green, while that dedicated file caught it immediately. See that file
+// for the actual gate coverage.
 function getCreateHandler() {
   const layer = getLayer("/", "post");
   return layer.route.stack[layer.route.stack.length - 1].handle;
@@ -131,6 +150,30 @@ describe("POST /api/servers", () => {
     expect(response.status).toHaveBeenCalledWith(400);
   });
 
+  it("rejects a non-string serverName instead of converting it to text", async () => {
+    const response = createResponse();
+
+    await getUpdateHandler()(
+      { params: { id: "1" }, body: { serverName: null } },
+      response,
+    );
+
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(updateServer).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-string display name instead of persisting it", async () => {
+    const response = createResponse();
+
+    await getUpdateHandler()(
+      { params: { id: "1" }, body: { name: { value: "Test Server" } } },
+      response,
+    );
+
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(updateServer).not.toHaveBeenCalled();
+  });
+
   it("rejects an unsafe Docker container mapping on creation", async () => {
     const response = createResponse();
 
@@ -173,6 +216,129 @@ describe("POST /api/servers", () => {
     const payload = response.json.mock.calls[0][0];
     expect(payload.server.rconPassword).not.toBe("rcon-password");
   });
+
+  it("rejects a prefixed RCON port instead of truncating it", async () => {
+    const response = createResponse();
+
+    await getCreateHandler()(
+      {
+        body: {
+          name: "Test Server",
+          installPath: "C:\\PZ",
+          rconHost: "127.0.0.1",
+          rconPort: "27015junk",
+          rconPassword: "rcon-password",
+        },
+      },
+      response,
+    );
+
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(createServer).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed RCON host instead of defaulting to localhost", async () => {
+    const response = createResponse();
+
+    await getCreateHandler()(
+      {
+        body: {
+          name: "Test Server",
+          installPath: "C:\\PZ",
+          rconHost: { host: "not-a-host" },
+          rconPort: 27015,
+          rconPassword: "rcon-password",
+        },
+      },
+      response,
+    );
+
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(createServer).not.toHaveBeenCalled();
+  });
+
+  it("rejects string booleans instead of turning false into true", async () => {
+    const response = createResponse();
+
+    await getCreateHandler()(
+      {
+        body: {
+          name: "Test Server",
+          installPath: "C:\\PZ",
+          rconHost: "127.0.0.1",
+          rconPort: 27015,
+          rconPassword: "rcon-password",
+          useDebug: "false",
+        },
+      },
+      response,
+    );
+
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(createServer).not.toHaveBeenCalled();
+  });
+
+  it("returns a client error instead of throwing on an empty request body", async () => {
+    const response = createResponse();
+
+    await getCreateHandler()({ body: null }, response);
+
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(createServer).not.toHaveBeenCalled();
+  });
+});
+
+describe("server discovery port parsing", () => {
+  it("uses defaults only when an INI port is absent", () => {
+    expect(parseDiscoveredPort(undefined, 27015)).toBe(27015);
+    expect(parseDiscoveredPort("  ", 16261)).toBe(16261);
+  });
+
+  it.each(["27015junk", "16261.5", "0", "65536"])(
+    "rejects malformed explicit port %s",
+    (value) => {
+      expect(parseDiscoveredPort(value, 27015)).toBeNull();
+    },
+  );
+
+  it("agrees with mountDiscovery.js's readServerIniSettings on a signed port -- the real bug this proves", async () => {
+    // 2026-08-27, two-implementations-of-server-ini-parsing: on
+    // "RCONPort=+27015", pre-fix parseDiscoveredPort returned 27015 (a
+    // valid server) while mountDiscovery.js's parsePort -- reading the
+    // exact same ini field for create-from-discovery -- rejected it,
+    // because parseBoundedInteger's regex allows a leading sign and
+    // parsePort's does not. This test fails on the pre-fix code (asserts
+    // null, would have received 27015) and cross-checks against the real
+    // readServerIniSettings function (not a copy) on a real temp ini, so
+    // it can't drift back out of sync with mountDiscovery.js's actual
+    // behaviour the way a hand-copied fixture could.
+    expect(parseDiscoveredPort("+27015", 27015)).toBeNull();
+
+    const { readServerIniSettings } = await import("../services/mountDiscovery.js");
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "auto-scan-port-sign-"));
+    try {
+      const serverDir = path.join(tmpRoot, "Server");
+      fs.mkdirSync(serverDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(serverDir, "signedport.ini"),
+        ["RCONPort=+27015", "RCONPassword=secret", "DefaultPort=16261", "PublicName=Test"].join("\n"),
+      );
+      expect(readServerIniSettings(tmpRoot, "signedport")).toBeNull();
+    } finally {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("server ID parsing", () => {
+  it("keeps opaque IDs opaque instead of truncating numeric prefixes", () => {
+    expect(parseServerId("123xyz")).toBe("123xyz");
+    expect(parseServerId("1.2")).toBeNull();
+  });
+
+  it("preserves legacy numeric IDs as numbers", () => {
+    expect(parseServerId(" 123 ")).toBe(123);
+  });
 });
 
 describe("PUT /api/servers/:id", () => {
@@ -206,6 +372,92 @@ describe("PUT /api/servers/:id", () => {
     expect(updateServer).toHaveBeenCalledWith(
       1,
       expect.objectContaining({ serverName: "My-Server_2" }),
+    );
+  });
+
+  it("rejects a prefixed game port instead of truncating it", async () => {
+    const response = createResponse();
+
+    await getUpdateHandler()(
+      { params: { id: "1" }, body: { serverPort: "16261junk" } },
+      response,
+    );
+
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(updateServer).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-string RCON password instead of persisting it", async () => {
+    const response = createResponse();
+
+    await getUpdateHandler()(
+      { params: { id: "1" }, body: { rconPassword: 12345 } },
+      response,
+    );
+
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(updateServer).not.toHaveBeenCalled();
+  });
+
+  it("returns a client error instead of throwing on an empty update body", async () => {
+    const response = createResponse();
+
+    await getUpdateHandler()({ params: { id: "1" }, body: null }, response);
+
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(updateServer).not.toHaveBeenCalled();
+  });
+
+  it("reports when an active server profile was saved but its live manager could not reload", async () => {
+    updateServer.mockResolvedValue({ id: 1, name: "Test Server", isActive: true });
+    const response = createResponse();
+    const serverManager = {
+      reloadConfig: vi.fn(async () => {
+        throw new Error("manager unavailable");
+      }),
+    };
+
+    await getUpdateHandler()(
+      {
+        params: { id: "1" },
+        body: { serverPort: 16262 },
+        app: { get: (key) => (key === "serverManager" ? serverManager : undefined) },
+      },
+      response,
+    );
+
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Server updated successfully",
+        warnings: [expect.stringMatching(/manager failed to reload/i)],
+      }),
+    );
+  });
+
+  it("reports when an active server profile reconnect returns false", async () => {
+    updateServer.mockResolvedValue({ id: 1, name: "Test Server", isActive: true });
+    const response = createResponse();
+    const rconService = {
+      isConnected: vi.fn(() => false),
+      reloadConfig: vi.fn(async () => {}),
+      connect: vi.fn(async () => false),
+    };
+
+    await getUpdateHandler()(
+      {
+        params: { id: "1" },
+        body: { rconPort: 27016 },
+        app: { get: (key) => (key === "rconService" ? rconService : undefined) },
+      },
+      response,
+    );
+
+    expect(rconService.connect).toHaveBeenCalled();
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Server updated successfully",
+        warnings: [expect.stringMatching(/could not reconnect/i)],
+      }),
     );
   });
 
@@ -300,9 +552,32 @@ describe("GET /api/servers/rcon-status", () => {
     });
     expect(JSON.stringify(response.json.mock.calls[0][0])).not.toMatch(/secret|other/);
   });
+
+  it("marks a malformed persisted port unavailable without failing every server status", async () => {
+    getServers.mockResolvedValue([
+      { id: "bad", rconHost: "127.0.0.1", rconPort: "27015junk" },
+      { id: "good", rconHost: "127.0.0.1", rconPort: 27015 },
+    ]);
+    testRconConnection.mockResolvedValue({ success: true });
+    const response = createResponse();
+
+    await runRoute("/rcon-status", "get", {}, response);
+
+    expect(response.json).toHaveBeenCalledWith({
+      servers: [
+        { id: "bad", status: "unavailable" },
+        { id: "good", status: "connected" },
+      ],
+    });
+    expect(testRconConnection).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("GET /api/servers", () => {
+  beforeEach(() => {
+    getAllSettings.mockReset().mockResolvedValue({});
+  });
+
   it("masks rconPassword/adminPassword for every server in the list", async () => {
     getServers.mockResolvedValue([
       { id: 1, name: "A", rconPassword: "secret-a", adminPassword: "admin-a" },
@@ -317,6 +592,58 @@ describe("GET /api/servers", () => {
     expect(payload.servers[0].rconPassword).not.toBe("secret-a");
     expect(payload.servers[0].adminPassword).not.toBe("admin-a");
     expect(payload.servers[1].rconPassword).not.toBe("secret-b");
+  });
+
+  // The Layout.tsx sidebar nav only ever reads remoteConfigConfigured off
+  // the entry it finds in THIS list's response (see GET /active, which sets
+  // the same field, is a dead end for that consumer -- nothing calls it).
+  // A regression here silently re-locks Server Configuration/Templates for
+  // every remote-server operator, with no error and no failed request.
+  it("marks a remote server as remoteConfigConfigured when SFTP-based remote config is set up", async () => {
+    getAllSettings.mockResolvedValue({
+      panelBridgeSftpHost: "192.168.1.50",
+      panelBridgeSftpConfigPath: "/home/pz/Server",
+    });
+    getServers.mockResolvedValue([
+      { id: 1, name: "Remote", isRemote: true },
+    ]);
+    const response = createResponse();
+    const layer = getLayer("/", "get");
+
+    await layer.route.stack[0].handle({}, response);
+
+    const payload = response.json.mock.calls[0][0];
+    expect(payload.servers[0].remoteConfigConfigured).toBe(true);
+  });
+
+  it("does NOT mark a remote server as remoteConfigConfigured when SFTP is not set up", async () => {
+    getServers.mockResolvedValue([
+      { id: 1, name: "Remote", isRemote: true },
+    ]);
+    const response = createResponse();
+    const layer = getLayer("/", "get");
+
+    await layer.route.stack[0].handle({}, response);
+
+    const payload = response.json.mock.calls[0][0];
+    expect(payload.servers[0].remoteConfigConfigured).toBe(false);
+  });
+
+  it("does NOT mark a local server as remoteConfigConfigured even when SFTP is set up (unused for local servers)", async () => {
+    getAllSettings.mockResolvedValue({
+      panelBridgeSftpHost: "192.168.1.50",
+      panelBridgeSftpConfigPath: "/home/pz/Server",
+    });
+    getServers.mockResolvedValue([
+      { id: 1, name: "Local", isRemote: false },
+    ]);
+    const response = createResponse();
+    const layer = getLayer("/", "get");
+
+    await layer.route.stack[0].handle({}, response);
+
+    const payload = response.json.mock.calls[0][0];
+    expect(payload.servers[0].remoteConfigConfigured).toBe(false);
   });
 });
 

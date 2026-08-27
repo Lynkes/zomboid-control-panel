@@ -5,6 +5,7 @@
     "eyebrow": "Flotte",
     "scanAria": "Nach Servern suchen",
     "scanTitle": "Nach Servern suchen",
+    "scanNoPermission": "Das Scannen nach Bind-Mount-Installationen erfordert die Berechtigung servers.discover, über die diese Rolle nicht verfügt.",
     "addRemote": "Remote-Server hinzufügen",
     "addExisting": "Bestehenden Server hinzufügen",
     "installNew": "Neuen Server installieren"
@@ -40,6 +41,8 @@
     "dataPath": "Datenpfad",
     "startContainer": "Container starten",
     "stopContainer": "Container stoppen",
+    "stopContainerConfirmTitle": "Diesen Container stoppen?",
+    "stopContainerConfirmDescription": "{{name}} speichert zuerst über RCON, aber der Container selbst wird von Docker gestoppt -- beendet er sich nicht rechtzeitig, erzwingt Docker das Beenden. Das kann anders als beim normalen Stopp-Button in einer nicht sauberen Beendigung enden.",
     "restartContainer": "Container neu starten",
     "startContainerAria": "{{name}} starten",
     "stopContainerAria": "{{name}} stoppen",
@@ -54,12 +57,15 @@
     "memory": "Arbeitsspeicher",
     "statusHost": "Host",
     "statusProcess": "Prozess",
+    "statusContainer": "Container",
     "statusNotConfigured": "Nicht konfiguriert",
     "statusAuthFailed": "Authentifizierung fehlgeschlagen",
     "statusUnavailable": "Nicht verfügbar",
     "buildLabel": "Build:",
     "branchLabel": "Branch:",
     "stopThisServer": "Diesen Server stoppen",
+    "stopConfirmTitle": "Server stoppen?",
+    "stopConfirmDescription": "Dadurch werden alle verbundenen Spieler getrennt. Du kannst ihn jederzeit wieder starten.",
     "stopping": "Wird gestoppt...",
     "stop": "Stoppen",
     "startThisServer": "Diesen Server starten",
@@ -72,6 +78,9 @@
     "activating": "Wird aktiviert...",
     "switchToThisServer": "Zu diesem Server wechseln",
     "added": "Hinzugefügt am {{date}}",
+    "noPermissionDocker": "Die Verwaltung dieses Containers erfordert die Berechtigung docker.manage, über die diese Rolle nicht verfügt.",
+    "noPermissionManage": "Diese Aktion erfordert die Berechtigung servers.manage, über die diese Rolle nicht verfügt.",
+    "noPermissionStartStop": "Erfordert sowohl servers.manage als auch server.control — ein unvollständiger Berechtigungssatz würde den Server aktiviert, aber nicht gestartet/gestoppt lassen.",
     "restartContainerAria": "Neu starten: {{name}}"
   },
   "tandem": {
@@ -113,7 +122,8 @@
     "rconOnlyDesc": "Funktionen wie das Bearbeiten der Konfiguration, die Mod-Verwaltung, Backups, Start/Stopp des Servers und Dateioperationen stehen nicht zur Verfügung. Du kannst weiterhin die Konsole nutzen, Spieler verwalten, Chatnachrichten senden, Wetter und Ereignisse steuern und geplante Befehle ausführen.",
     "cancel": "Abbrechen",
     "adding": "Wird hinzugefügt...",
-    "addServer": "Server hinzufügen"
+    "addServer": "Server hinzufügen",
+    "noPermission": "Das Hinzufügen eines Servers erfordert die Berechtigung servers.manage, über die diese Rolle nicht verfügt."
   },
   "remoteForm": {
     "displayNameLabel": "Anzeigename des Servers *",
@@ -150,6 +160,8 @@
     "dataPathHint": "Der Ordner mit den Unterordnern Server/, Saves/, Logs/",
     "installPathLabel": "Installationspfad des Servers (optional)",
     "installPathPlaceholder": "Pfad zum PZ-Serverordner (enthält StartServer64.bat oder start-server.sh)",
+    "customLauncherNoticeTitle": "Modus für eigenes Startskript",
+    "customLauncherNoticeBody": "Dieser Pfad zeigt auf ein Skript, keinen Ordner — das Panel startet es unverändert und wird es nie neu generieren oder bearbeiten. Einstellungen, die normalerweise automatisch in ein Startskript geschrieben werden (Arbeitsspeicher, Admin-Passwort, der Datenpfad, der Servername), erreichen den Server nicht, es sei denn, Sie tragen sie selbst in dieses Skript ein.",
     "noConfigsFoundTitle": "Keine Serverkonfigurationen gefunden",
     "noConfigsFoundDesc": "Starte den Server einmal, um die INI-Datei zu erstellen.",
     "selectConfigLabel": "Serverkonfiguration auswählen",
@@ -161,12 +173,15 @@
     "rconPortLabel": "RCON-Port:",
     "rconPasswordLabel": "RCON-Passwort *",
     "rconPasswordPlaceholder": "RCON-Passwort eingeben",
+    "rconPasswordImportPlaceholder": "Leer lassen, um es automatisch zu importieren",
     "rconPasswordAria": "RCON-Passwort",
     "rconPasswordRequired": "Erforderlich für die Serversteuerung. Du kannst auch <1>RCONPassword=yourpassword</1> in deiner {{iniName}}.ini-Datei festlegen.",
     "passwordSet": "Passwort festgelegt",
+    "passwordWillImport": "Wird automatisch aus {{iniName}}.ini importiert — leer lassen, um es zu verwenden, oder ein neues eingeben, um es zu überschreiben.",
     "minMemoryLabel": "Min. Arbeitsspeicher (GB)",
     "maxMemoryLabel": "Max. Arbeitsspeicher (GB)",
-    "selectScannedConfigAria": "Erkannten Server verwenden: {{name}}"
+    "selectScannedConfigAria": "Erkannten Server verwenden: {{name}}",
+    "discoverNoPermission": "Das Erkennen oder Scannen nach Servern erfordert die Berechtigung servers.discover, über die diese Rolle nicht verfügt."
   },
   "editDialog": {
     "title": "Server bearbeiten",
@@ -179,10 +194,12 @@
     "dockerContainerPlaceholder": "Optionaler expliziter Containername",
     "dockerContainerHint": "Erfordert PANEL_DOCKER_CONTROL_ENABLED und das Containerlabel zomboid-panel.managed=true.",
     "installPathLabel": "Installationspfad",
+    "customLauncherNoticeTitle": "Modus für eigenes Startskript",
+    "customLauncherNoticeBody": "Dieser Pfad zeigt auf ein Skript, keinen Ordner — das Panel startet es unverändert und wird es nie neu generieren oder bearbeiten. Einstellungen, die normalerweise automatisch in ein Startskript geschrieben werden (Arbeitsspeicher, Admin-Passwort, der Datenpfad, der Servername), erreichen den Server nicht, es sei denn, Sie tragen sie selbst in dieses Skript ein.",
     "dataPathLabel": "Zomboid-Datenpfad",
     "dataPathPlaceholder": "Leer lassen für Standard",
     "customStartCommandLabel": "Eigener Startbefehl",
-    "customStartCommandTooltip": "Überschreibt das Standard-Startskript mit einem eigenen Befehl. Unterstützt Argumente. Leer lassen, um die automatische Erkennung der bat/sh-Datei zu verwenden.",
+    "customStartCommandTooltip": "Überschreibt das Standard-Startskript mit einem eigenen Befehl. Unterstützt Argumente. Leer lassen, und der Panel erzeugt bei jedem Serverstart das Standard-bat/sh-Startskript aus diesen Einstellungen neu — dabei wird diese Datei ÜBERSCHRIEBEN, auch manuelle Änderungen, wobei eine geänderte Datei zuvor gesichert wird.",
     "customStartCommandPlaceholder": "z. B. ./start-server.sh -servername MyServer",
     "customStartCommandDisallowed": "Befehl enthält nicht erlaubte Shell-Zeichen",
     "noSteamLabel": "Ohne Steam starten",
@@ -206,20 +223,25 @@
     "maxMemoryLabel": "Max. Arbeitsspeicher (GB)",
     "cancel": "Abbrechen",
     "saving": "Wird gespeichert...",
-    "saveChanges": "Änderungen speichern"
+    "saveChanges": "Änderungen speichern",
+    "noPermission": "Das Speichern der Servereinstellungen erfordert die Berechtigung servers.manage, über die diese Rolle nicht verfügt."
   },
   "deleteDialog": {
     "title": "Server aus dem Panel entfernen?",
     "description": "Dies entfernt „{{name}}“ aus der Panelverwaltung.",
     "alsoDeleteFilesLabel": "Auch Serverdateien löschen",
     "alsoDeleteFilesDesc": "Dies löscht endgültig alle Dateien in:",
+    "dataPathNestedWarningTitle": "Dadurch wird auch der Welt-Spielstand gelöscht",
+    "dataPathNestedWarningDesc": "Der Zomboid-Datenordner dieses Servers liegt innerhalb des oben genannten Installationsordners, es gibt also keine separate Kopie — das Löschen zerstört auch den Welt-Spielstand. Das Panel verweigert dies, bis du den Datenpfad in den Einstellungen verschiebst oder ihn selbst sicherst:",
     "filesNotDeleted": "Serverdateien werden NICHT gelöscht – du kannst diesen Server später wieder hinzufügen.",
     "deletingFiles": "Serverdateien werden gelöscht...",
     "removingServer": "Server wird entfernt...",
     "cancel": "Abbrechen",
     "removing": "Wird entfernt...",
     "deleteEverything": "Alles löschen",
-    "removeFromPanel": "Aus Panel entfernen"
+    "removeFromPanel": "Aus Panel entfernen",
+    "noPermission": "Das Entfernen eines Servers erfordert die Berechtigung servers.manage, über die diese Rolle nicht verfügt.",
+    "deleteFilesNoPermission": "Das Löschen von Serverdateien erfordert die Berechtigung server.wipe, über die diese Rolle nicht verfügt. Das alleinige Entfernen des Paneleintrags ist weiterhin erlaubt."
   },
   "steamDialog": {
     "verifyTitle": "Spieldateien überprüfen",
@@ -247,7 +269,8 @@
     "startVerify": "Überprüfung starten",
     "startUpdate": "Update starten",
     "done": "Fertig",
-    "retry": "Erneut versuchen"
+    "retry": "Erneut versuchen",
+    "noPermission": "Das Aktualisieren oder Überprüfen von Serverdateien erfordert die Berechtigung server.install, über die diese Rolle nicht verfügt."
   },
   "clearInstallDialog": {
     "title": "Installationsordner leeren?",
@@ -255,7 +278,8 @@
     "descriptionAfter": "— einschließlich der Spieldateien, des Downloadstatus von SteamCMD und aller dort installierten Mods. Verwende dies, um dich von einem SteamCMD-Update zu erholen, das immer wieder fehlschlägt (beschädigte oder hängende Installation). Danach musst du erneut auf „Update starten“ klicken, um von Grund auf neu zu installieren. Deine Spielstände sind davon nicht betroffen.",
     "cancel": "Abbrechen",
     "clearing": "Wird geleert...",
-    "clearFolder": "Ordner leeren"
+    "clearFolder": "Ordner leeren",
+    "noPermission": "Das Leeren des Installationsordners erfordert die Berechtigung server.wipe, über die diese Rolle nicht verfügt."
   },
   "branches": {
     "public": "Public (Stabil)",
@@ -314,7 +338,8 @@
     "deletedFromPanel": "Server „{{name}}“ aus dem Panel entfernt",
     "deleteServerFailed": "Server konnte nicht gelöscht werden",
     "rconPortRangeError": "Der RCON-Port muss zwischen 1 und 65535 liegen",
-    "gamePortRangeError": "Der Spielport muss zwischen 1 und 65535 liegen",
+    "gamePortRangeError": "Der Spielport muss zwischen 1 und 65534 liegen",
+    "memoryRequiredError": "Gib einen Mindest- und einen Höchstwert für den Arbeitsspeicher ein",
     "savedTitle": "Gespeichert",
     "savedDesc": "Servereinstellungen aktualisiert",
     "updateServerFailed": "Server konnte nicht aktualisiert werden",

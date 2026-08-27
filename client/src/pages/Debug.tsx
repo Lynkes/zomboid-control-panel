@@ -53,6 +53,7 @@ import {
   PlayCircle,
   Archive,
   FileDown,
+  ShieldAlert,
 } from "lucide-react";
 import {
   Card,
@@ -64,6 +65,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { reportClientError } from "@/lib/client-errors";
+import { getUserErrorMessage } from "@/lib/errorMessage";
 import { translateDiagnosticCheck } from "@/lib/diagnosticsTranslation";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -86,12 +88,15 @@ import {
 } from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/use-toast";
 import { useConfirm } from "@/contexts/ConfirmContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { SocketContext } from "@/contexts/SocketContext";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
+import { DisabledReason } from "@/components/DisabledReason";
 import { cn, copyText } from "@/lib/utils";
 import {
   apiFetch,
+  ApiError,
   modsApi,
   panelBridgeApi,
   serverApi,
@@ -259,10 +264,24 @@ type TimeFormat = "relative" | "time" | "datetime";
 type DiagnosticsFixAction = {
   label: string;
   automated: boolean;
-  /** When true, ask the user before applying (used for bulk destructive operations). */
-  requiresConfirm?: boolean;
-  /** Confirmation text shown in the native confirm dialog. */
-  confirmMessage?: string;
+  /** Present only when the user must confirm before this automated fix runs.
+   *  destructive is required (not optional) inside this object on purpose:
+   *  requiresConfirm/confirmMessage/destructive used to be three independent
+   *  optional fields, so a fix could ask for confirmation without ever
+   *  deciding destructive, and destructive:true with no requiresConfirm was
+   *  silently inert (the only place destructive was read was gated behind
+   *  requiresConfirm). Folding them into one object makes "confirms but
+   *  never says whether it's destructive" a compile error instead of a trap
+   *  for the next fix added to the switch below. */
+  confirm?: {
+    /** Confirmation text shown in the native confirm dialog. */
+    message: string;
+    /** Styles the confirm button red when true. Explicit per action rather than
+     *  defaulting to red for every confirmed action -- a bounded, reversible
+     *  INI toggle and an actual file deletion aren't the same severity, and
+     *  rendering both the same color flattens that distinction for the operator. */
+    destructive: boolean;
+  };
   openServerConfig?: boolean;
   openMods?: boolean;
   /** Extra navigation buttons rendered next to the primary action. */
@@ -321,8 +340,15 @@ export function getDiagnosticsFixAction(
             ? t("fixActions.modsNumericInMods.labelWithCount", { count })
             : t("fixActions.modsNumericInMods.labelGeneric"),
         automated: true,
-        requiresConfirm: count > 10,
-        confirmMessage: t("fixActions.modsNumericInMods.confirmMessage", { count }),
+        confirm:
+          count > 10
+            ? {
+                message: t("fixActions.modsNumericInMods.confirmMessage", { count }),
+                // Disables INI entries, doesn't delete anything -- re-enabling is a
+                // toggle, not a rebuild. Bounded/reversible, not red.
+                destructive: false,
+              }
+            : undefined,
         openServerConfig: true,
         note:
           count > 0
@@ -357,8 +383,14 @@ export function getDiagnosticsFixAction(
             ? t("fixActions.modsOrphanWorkshop.labelWithCount", { count })
             : t("fixActions.modsOrphanWorkshop.labelGeneric"),
         automated: true,
-        requiresConfirm: count > 10,
-        confirmMessage: t("fixActions.modsOrphanWorkshop.confirmMessage", { count }),
+        confirm:
+          count > 10
+            ? {
+                message: t("fixActions.modsOrphanWorkshop.confirmMessage", { count }),
+                // Same class as numericInMods above -- an INI toggle, not a deletion.
+                destructive: false,
+              }
+            : undefined,
         openServerConfig: true,
         openMods: true,
         note:
@@ -471,8 +503,12 @@ export function getDiagnosticsFixAction(
       return {
         label: t("fixActions.serverStaleLocks.label"),
         automated: true,
-        requiresConfirm: true,
-        confirmMessage: t("fixActions.serverStaleLocks.confirmMessage"),
+        confirm: {
+          message: t("fixActions.serverStaleLocks.confirmMessage"),
+          // Actually deletes files in the save-adjacent lock directory, unlike
+          // the two INI-toggle fixes above -- stays red deliberately.
+          destructive: true,
+        },
         links: [{ to: "/chunks", label: L("openChunkCleaner") }],
         note: t("fixActions.serverStaleLocks.note"),
       };
@@ -644,6 +680,49 @@ export function getDiagnosticsFixAction(
   }
 }
 
+// Each automated fix POSTs to its own route, and those routes are gated by
+// SEVEN DIFFERENT capabilities, not one page-level concern -- read directly
+// from server/routes/*.js rather than assumed from the page's own admin-only
+// read endpoints:
+//   mods.numericInMods / mods.orphanWorkshop / mods.maps / mods.duplicates
+//     -> mods.manage (mods.js's router.use, whole router)
+//   server.process -> server.control (server.js POST /start)
+//   rcon.connected -> rcon.execute (rcon.js POST /connect)
+//   db.backup -> backups.manage (backup.js POST /create)
+//   server.staleLocks -> diagnostics.manage (debug.js POST /clear-stale-locks)
+//   bridge.configured / worldmap.bridge.configured -> bridge.setup
+//     (panelBridge.js POST /auto-configure)
+//   server.sandboxCorrupt -> serverfiles.manage (serverFiles.js's router.use)
+// server.recentCrash makes no API call at all (it only switches tabs), so it
+// needs no capability. Every other check.id is either non-automated (manual
+// fix: a toast or a navigation, never an API call) or falls to the `default`
+// case in getDiagnosticsFixAction, which is also never automated -- neither
+// needs a capability either.
+export function getRequiredCapabilityForCheck(checkId: string): string | null {
+  switch (checkId) {
+    case "mods.numericInMods":
+    case "mods.orphanWorkshop":
+    case "mods.maps":
+    case "mods.duplicates":
+      return "mods.manage";
+    case "server.process":
+      return "server.control";
+    case "rcon.connected":
+      return "rcon.execute";
+    case "db.backup":
+      return "backups.manage";
+    case "server.staleLocks":
+      return "diagnostics.manage";
+    case "bridge.configured":
+    case "worldmap.bridge.configured":
+      return "bridge.setup";
+    case "server.sandboxCorrupt":
+      return "serverfiles.manage";
+    default:
+      return null;
+  }
+}
+
 const DebugPerformanceCharts = lazy(
   () => import("@/components/DebugPerformanceCharts"),
 );
@@ -661,6 +740,10 @@ export default function Debug() {
   const [perfRange, setPerfRange] = useState<"1h" | "6h" | "24h">("1h");
   const [refreshingPerformance, setRefreshingPerformance] = useState(false);
   const [crashLogs, setCrashLogs] = useState<CrashLog[]>([]);
+  // The route caps the returned list at 20; totalCount is the real count
+  // before that cap, so the badges below can say "showing 20 of 47" instead
+  // of just "20" once there are more crash dumps than the cap.
+  const [crashLogsTotalCount, setCrashLogsTotalCount] = useState(0);
   const [selectedCrashLog, setSelectedCrashLog] = useState<string | null>(null);
   const [crashLogContent, setCrashLogContent] = useState<string>("");
   const [loadingCrashLog, setLoadingCrashLog] = useState(false);
@@ -697,6 +780,15 @@ export default function Debug() {
   );
   const [refreshingDiagnostics, setRefreshingDiagnostics] = useState(false);
   const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
+  // Every read endpoint this page hits requires diagnostics.manage (server/
+  // routes/debug.js's file-level comment says so explicitly) -- so a role
+  // that lacks it doesn't get a partially-broken page, it gets a wall of
+  // 403s across every tab. Answer that with one clean page-level state
+  // instead of per-tab error banners, same precedent as Users.tsx/
+  // RolesPermissions.tsx/OidcSettings.tsx (a real 403 from the mount-time
+  // fetch, not a client-side can() guess).
+  const [diagnosticsPermissionDenied, setDiagnosticsPermissionDenied] =
+    useState(false);
   const [diagnosticsHideOk, setDiagnosticsHideOk] = useState(false);
   const [fixingDiagnosticsCheckId, setFixingDiagnosticsCheckId] = useState<
     string | null
@@ -744,12 +836,19 @@ export default function Debug() {
   >("food");
   const [armedAction, setArmedAction] = useState<string | null>(null);
   const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Generation counters so a slower response to an earlier filter selection
+  // (activitySource / perfRange) can't land after a newer one and overwrite
+  // it with stale data -- both are dropdowns a user can click through
+  // quickly, and both fetches are also re-triggered by a poll interval.
+  const activityFetchIdRef = useRef(0);
+  const perfFetchIdRef = useRef(0);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const logsScrollAreaRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const confirm = useConfirm();
   const socket = useContext(SocketContext);
+  const { can } = useAuth();
 
   const authFetch = useCallback((url: string, options: RequestInit = {}) => {
     const endpoint = url.startsWith("/api") ? url.slice(4) : url;
@@ -830,7 +929,7 @@ export default function Debug() {
         setHealthError(t("worldMapTab.unexpectedResponse"));
       }
     } catch (error) {
-      const msg = error instanceof Error ? error.message : t("worldMapTab.networkError");
+      const msg = getUserErrorMessage(error, t("worldMapTab.networkError"));
       setHealthError(msg);
       reportClientError("Failed to fetch health status.", error);
     } finally {
@@ -843,7 +942,12 @@ export default function Debug() {
     setRefreshingDiagnostics(true);
     try {
       const res = await authFetch("/api/debug/diagnostics");
+      if (res.status === 403) {
+        setDiagnosticsPermissionDenied(true);
+        return;
+      }
       if (!res.ok) throw new Error(await parseDownloadError(res, `HTTP ${res.status}`));
+      setDiagnosticsPermissionDenied(false);
       const data = await res.json();
       if (data?.checks) {
         setDiagnostics(data);
@@ -867,7 +971,7 @@ export default function Debug() {
         setDiagnosticsError(t("worldMapTab.unexpectedResponse"));
       }
     } catch (error) {
-      const msg = error instanceof Error ? error.message : t("worldMapTab.networkError");
+      const msg = getUserErrorMessage(error, t("worldMapTab.networkError"));
       setDiagnosticsError(msg);
       reportClientError("Failed to fetch diagnostics.", error);
     } finally {
@@ -879,6 +983,16 @@ export default function Debug() {
     async (check: DiagCheck) => {
       const action = getDiagnosticsFixAction(check, t);
       if (!action) return;
+
+      // The button's own disabled state (below, in the render) is an
+      // affordance -- this is the actual gate, same two-layer pattern as
+      // every other capability check tonight. Manual fixes (a toast or a
+      // navigation) call no API and need no capability; only look this up
+      // for the automated ones that actually reach a gated route.
+      if (action.automated) {
+        const requiredCapability = getRequiredCapabilityForCheck(check.id);
+        if (requiredCapability && !can(requiredCapability)) return;
+      }
 
       setFixingDiagnosticsCheckId(check.id);
       setDiagnosticsFixErrors((prev) => {
@@ -903,14 +1017,18 @@ export default function Debug() {
           return;
         }
 
-        if (action.requiresConfirm) {
+        if (action.confirm) {
           const message =
-            action.confirmMessage ||
+            action.confirm.message ||
             t("diagnostics.applyFixFallback", { label: action.label });
           const ok = await confirm({
             title: t("diagnostics.applyFixTitle"),
             description: message,
             confirmLabel: t("diagnostics.applyButton"),
+            // No `!== false` fallback needed any more -- destructive is a
+            // required field inside confirm, so this is always a real,
+            // deliberately-set boolean, never an absent one defaulting to true.
+            destructive: action.confirm.destructive,
           });
           if (!ok) {
             return;
@@ -1061,10 +1179,18 @@ export default function Debug() {
             failed?: number;
             message?: string;
             error?: string;
+            code?: string;
           } | null;
           if (!res.ok || data?.success === false) {
-            throw new Error(
+            // 2026-08-26: authFetch/apiFetch bypasses lib/api.ts's
+            // handleResponse(), so this throw is the only place that ever
+            // sees this response -- a plain Error here would discard
+            // res.status and any code the server sent before the
+            // getUserErrorMessage() call in this function's own catch
+            // block (below) could ever use them.
+            throw new ApiError(
               data?.error || data?.message || `HTTP ${res.status}`,
+              { status: res.status, code: data?.code },
             );
           }
           toast({
@@ -1131,10 +1257,7 @@ export default function Debug() {
         await fetchDiagnostics();
       } catch (error) {
         reportClientError("Diagnostics auto-fix failed.", error);
-        const message =
-          error instanceof Error
-            ? error.message
-            : t("diagnostics.fixFailedFallback");
+        const message = getUserErrorMessage(error, t("diagnostics.fixFailedFallback"));
         toast({
           title: t("diagnostics.fixFailedTitle"),
           description: message,
@@ -1145,7 +1268,7 @@ export default function Debug() {
         setFixingDiagnosticsCheckId(null);
       }
     },
-    [fetchDiagnostics, toast, authFetch, confirm, t, i18n.language],
+    [fetchDiagnostics, toast, authFetch, confirm, t, i18n.language, can],
   );
 
   // Fetch world-map specific diagnostics
@@ -1165,7 +1288,7 @@ export default function Debug() {
         setWorldMapError(t("worldMapTab.unexpectedResponse"));
       }
     } catch (error) {
-      const msg = error instanceof Error ? error.message : t("worldMapTab.networkError");
+      const msg = getUserErrorMessage(error, t("worldMapTab.networkError"));
       setWorldMapError(msg);
       reportClientError("Failed to fetch World Map diagnostics.", error);
     } finally {
@@ -1187,6 +1310,15 @@ export default function Debug() {
         const r = await fn();
         // Treat explicit success:false as a probe failure so the user sees
         // the underlying error message rather than a misleading green badge.
+        // 2026-08-26: unreachable for every current probe (panelBridgeApi
+        // .getServerInfo/.sendCommand, all resolved through apiGet/apiPost)
+        // -- lib/api.ts's handleResponse() already throws on a 200 body with
+        // success: false before this .then() branch could ever see it. Kept
+        // and commented, not deleted: a future probe that bypasses apiPost
+        // would hit a bare Error with no status/code instead of the caught,
+        // fully-translatable ApiError the live path already produces, so
+        // this check firing would be a regression signal, not a working
+        // safety net.
         const res = r as {
           success?: boolean;
           error?: string;
@@ -1219,7 +1351,7 @@ export default function Debug() {
           },
         }));
       } catch (error) {
-        const msg = error instanceof Error ? error.message : t("worldMapTab.requestFailed");
+        const msg = getUserErrorMessage(error, t("worldMapTab.requestFailed"));
         setProbeResults((prev) => ({
           ...prev,
           [id]: {
@@ -1425,7 +1557,7 @@ export default function Debug() {
         toast({ title: successTitle, description: successDesc });
       } catch (error) {
         const msg =
-          error instanceof Error ? error.message : t("common.actionFailedFallback");
+          getUserErrorMessage(error, t("common.actionFailedFallback"));
         toast({
           title: t("common.actionFailedTitle"),
           description: msg,
@@ -1453,21 +1585,24 @@ export default function Debug() {
   };
 
   const fetchPerformanceHistory = useCallback(async () => {
+    const thisFetchId = ++perfFetchIdRef.current;
     setRefreshingPerformance(true);
     try {
       const limit = perfRange === "24h" ? 1440 : perfRange === "6h" ? 360 : 60;
       const res = await authFetch(
         `/api/debug/performance-history?limit=${limit}`,
       );
+      if (thisFetchId !== perfFetchIdRef.current) return;
       if (!res.ok) return;
       const data = await res.json();
+      if (thisFetchId !== perfFetchIdRef.current) return;
       if (data.history) {
         setPerformanceHistory(
           data.history.map((h: PerformanceSnapshot) => ({
             ...h,
             memoryMB: Math.round(h.memoryUsed / (1024 * 1024)),
             cpuLoad: h.cpuUsage,
-            time: new Date(h.timestamp).toLocaleTimeString(),
+            time: new Date(h.timestamp).toLocaleTimeString(i18n.language),
             hostMemGB: h.hostMemTotal
               ? +(h.hostMemTotal / (1024 * 1024 * 1024)).toFixed(1)
               : undefined,
@@ -1483,9 +1618,9 @@ export default function Debug() {
     } catch {
       // Endpoint may not exist yet
     } finally {
-      setRefreshingPerformance(false);
+      if (thisFetchId === perfFetchIdRef.current) setRefreshingPerformance(false);
     }
-  }, [authFetch, perfRange]);
+  }, [authFetch, perfRange, i18n.language]);
 
   const fetchCrashLogs = async () => {
     setRefreshingCrashLogs(true);
@@ -1495,6 +1630,9 @@ export default function Debug() {
       const data = await res.json();
       if (data.crashLogs) {
         setCrashLogs(data.crashLogs);
+        setCrashLogsTotalCount(
+          typeof data.totalCount === "number" ? data.totalCount : data.crashLogs.length,
+        );
       }
     } catch {
       // Endpoint may not exist yet
@@ -1518,7 +1656,7 @@ export default function Debug() {
         setCrashLogContent(t("crashesTab.loadFailed"));
       }
     } catch (error) {
-      setCrashLogContent(error instanceof Error ? error.message : t("crashesTab.loadFailed"));
+      setCrashLogContent(getUserErrorMessage(error, t("crashesTab.loadFailed")));
     } finally {
       setLoadingCrashLog(false);
     }
@@ -1554,13 +1692,16 @@ export default function Debug() {
 
   // Fetch activity log
   const fetchActivity = useCallback(async () => {
+    const thisFetchId = ++activityFetchIdRef.current;
     setRefreshingActivity(true);
     try {
       const res = await authFetch(
         `/api/debug/activity?limit=200&source=${activitySource}`,
       );
+      if (thisFetchId !== activityFetchIdRef.current) return;
       if (!res.ok) return;
       const data = await res.json();
+      if (thisFetchId !== activityFetchIdRef.current) return;
       if (data.entries) {
         setActivityEntries(data.entries);
         setActivityLastLoaded(new Date());
@@ -1568,7 +1709,7 @@ export default function Debug() {
     } catch {
       // Endpoint may not exist yet
     } finally {
-      setRefreshingActivity(false);
+      if (thisFetchId === activityFetchIdRef.current) setRefreshingActivity(false);
     }
   }, [authFetch, activitySource]);
 
@@ -1791,7 +1932,7 @@ export default function Debug() {
     } catch (error) {
       toast({
         title: t("logsTab.downloadFailedTitle"),
-        description: error instanceof Error ? error.message : t("logsTab.downloadFailedDesc"),
+        description: getUserErrorMessage(error, t("logsTab.downloadFailedDesc")),
         variant: "destructive",
       });
     } finally {
@@ -1820,7 +1961,7 @@ export default function Debug() {
       } catch (error) {
         toast({
           title: t("logsTab.downloadFailedTitle"),
-          description: error instanceof Error ? error.message : t("logsTab.downloadFileFailedDesc", { name: filename }),
+          description: getUserErrorMessage(error, t("logsTab.downloadFileFailedDesc", { name: filename })),
           variant: "destructive",
         });
       } finally {
@@ -1854,7 +1995,7 @@ export default function Debug() {
     } catch (error) {
       toast({
         title: t("logsTab.downloadFailedTitle"),
-        description: error instanceof Error ? error.message : t("logsTab.downloadArchiveFailedDesc"),
+        description: getUserErrorMessage(error, t("logsTab.downloadArchiveFailedDesc")),
         variant: "destructive",
       });
     } finally {
@@ -1962,10 +2103,7 @@ export default function Debug() {
     } catch (error) {
       toast({
         title: t("common.errorTitle"),
-        description:
-          error instanceof Error
-            ? error.message
-            : t("systemTab.updatePathsFailedFallback"),
+        description: getUserErrorMessage(error, t("systemTab.updatePathsFailedFallback")),
         variant: "destructive",
       });
     } finally {
@@ -2233,6 +2371,13 @@ export default function Debug() {
         }
       />
 
+      {diagnosticsPermissionDenied ? (
+        <EmptyState
+          icon={<ShieldAlert className="h-14 w-14 text-muted-foreground/40" />}
+          title={t("permissionDenied.title")}
+          description={t("permissionDenied.description")}
+        />
+      ) : (
       <Tabs
         value={activeTab}
         onValueChange={setActiveTab}
@@ -2305,7 +2450,7 @@ export default function Debug() {
             {t("tabs.crashes")}
             {crashLogs.length > 0 && (
               <Badge variant="outline" className="ml-1 h-5 px-1.5 text-[10px]">
-                {crashLogs.length}
+                {crashLogsTotalCount > crashLogs.length ? `${crashLogs.length}+` : crashLogs.length}
               </Badge>
             )}
           </TabsTrigger>
@@ -2568,6 +2713,14 @@ export default function Debug() {
                           // translated display copy.
                           const fixAction = getDiagnosticsFixAction(check, t);
                           const translated = translateDiagnosticCheck(check);
+                          // Manual fixes call no API (a toast or a
+                          // navigation) and need no capability -- only an
+                          // automated fix can be blocked here.
+                          const requiredCapability = fixAction?.automated
+                            ? getRequiredCapabilityForCheck(check.id)
+                            : null;
+                          const canRunFix =
+                            !requiredCapability || can(requiredCapability);
                           return (
                             <li
                               key={check.id}
@@ -2614,28 +2767,38 @@ export default function Debug() {
                                 )}
                                 {fixAction && (
                                   <div className="mt-2 flex items-center gap-1.5 flex-wrap">
-                                    <Button
-                                      size="sm"
-                                      className="h-7 px-2 text-[11px]"
-                                      variant={
-                                        fixAction.automated
-                                          ? "default"
-                                          : "outline"
-                                      }
-                                      onClick={() => {
-                                        void handleDiagnosticsFix(check);
-                                      }}
-                                      disabled={
-                                        !!fixingDiagnosticsCheckId &&
-                                        fixingDiagnosticsCheckId !== check.id
+                                    <DisabledReason
+                                      reason={
+                                        !canRunFix
+                                          ? t("diagnostics.noPermissionFix")
+                                          : null
                                       }
                                     >
-                                      {fixingDiagnosticsCheckId ===
-                                        check.id && (
-                                        <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                                      )}
-                                      {fixAction.label}
-                                    </Button>
+                                      <Button
+                                        size="sm"
+                                        className="h-7 px-2 text-[11px]"
+                                        variant={
+                                          fixAction.automated
+                                            ? "default"
+                                            : "outline"
+                                        }
+                                        onClick={() => {
+                                          void handleDiagnosticsFix(check);
+                                        }}
+                                        disabled={
+                                          (!!fixingDiagnosticsCheckId &&
+                                            fixingDiagnosticsCheckId !==
+                                              check.id) ||
+                                          !canRunFix
+                                        }
+                                      >
+                                        {fixingDiagnosticsCheckId ===
+                                          check.id && (
+                                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                        )}
+                                        {fixAction.label}
+                                      </Button>
+                                    </DisabledReason>
                                     {fixAction.openServerConfig && (
                                       <Button
                                         asChild
@@ -4242,7 +4405,7 @@ export default function Debug() {
                     >
                       {activityPaused ? t("activityTab.pausedPrefix") : ""}
                       {t("activityTab.lastRefresh", {
-                        time: activityLastLoaded.toLocaleTimeString(),
+                        time: activityLastLoaded.toLocaleTimeString(i18n.language),
                       })}
                     </span>
                   )}
@@ -4311,9 +4474,9 @@ export default function Debug() {
                           >
                             <span
                               className="text-muted-foreground shrink-0 w-[65px]"
-                              title={new Date(entry.timestamp).toLocaleString()}
+                              title={new Date(entry.timestamp).toLocaleString(i18n.language)}
                             >
-                              {new Date(entry.timestamp).toLocaleTimeString()}
+                              {new Date(entry.timestamp).toLocaleTimeString(i18n.language)}
                             </span>
                             <Badge
                               variant="outline"
@@ -4524,7 +4687,7 @@ export default function Debug() {
                             s.value,
                           )}
                         >
-                          {tile.value.toLocaleString()}
+                          {tile.value.toLocaleString(i18n.language)}
                         </p>
                       </div>
                     </CardContent>
@@ -4913,7 +5076,7 @@ export default function Debug() {
                               <span className="mx-1.5 text-muted-foreground/50">
                                 ·
                               </span>
-                              {new Date(file.modified).toLocaleString()}
+                              {new Date(file.modified).toLocaleString(i18n.language)}
                             </p>
                           </div>
                         </div>
@@ -4956,7 +5119,12 @@ export default function Debug() {
                       {t("crashesTab.crashLogsTitle")}
                       {crashLogs.length > 0 && (
                         <Badge variant="destructive" className="ml-1">
-                          {crashLogs.length}
+                          {crashLogsTotalCount > crashLogs.length
+                            ? t("crashesTab.crashLogsCountTruncated", {
+                                shown: crashLogs.length,
+                                total: crashLogsTotalCount,
+                              })
+                            : crashLogs.length}
                         </Badge>
                       )}
                     </CardTitle>
@@ -5032,7 +5200,7 @@ export default function Debug() {
                                 <span
                                   title={new Date(
                                     log.modified,
-                                  ).toLocaleString()}
+                                  ).toLocaleString(i18n.language)}
                                 >
                                   {formatTimestamp(new Date(log.modified))}
                                 </span>
@@ -5492,7 +5660,7 @@ export default function Debug() {
                         <span
                           title={new Date(
                             healthStatus.timestamp,
-                          ).toLocaleString()}
+                          ).toLocaleString(i18n.language)}
                         >
                           {t("healthTab.lastChecked", {
                             time: formatTimestamp(new Date(healthStatus.timestamp)),
@@ -5737,7 +5905,7 @@ export default function Debug() {
                   t("healthTab.since", {
                     date: new Date(
                       Date.now() - healthStatus.uptime * 1000,
-                    ).toLocaleString(),
+                    ).toLocaleString(i18n.language),
                   })}
                 {!healthStatus && "-"}
               </p>
@@ -5924,6 +6092,7 @@ export default function Debug() {
                             variant="ghost"
                             size="sm"
                             className="h-7 w-7 p-0 shrink-0"
+                            aria-label={t("systemTab.copyDbPathAria")}
                             onClick={async () => {
                               const ok = await copyText(systemInfo.dbPath);
                               toast({
@@ -5958,6 +6127,7 @@ export default function Debug() {
                             variant="ghost"
                             size="sm"
                             className="h-7 w-7 p-0 shrink-0"
+                            aria-label={t("systemTab.copyLogsPathAria")}
                             onClick={async () => {
                               const ok = await copyText(systemInfo.logsPath);
                               toast({
@@ -5984,6 +6154,7 @@ export default function Debug() {
           </Card>
         </TabsContent>
       </Tabs>
+      )}
     </div>
   );
 }

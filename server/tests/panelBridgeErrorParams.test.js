@@ -46,6 +46,48 @@ async function runHandler(routePath, method, req) {
 }
 
 describe("panelBridge.js: previously-PARTIAL error codes now carry params on the wire", () => {
+  it("returns the action-required error for a missing command body", async () => {
+    const res = await runHandler("/command", "post", { body: null });
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "PANELBRIDGE_ACTION_REQUIRED" }),
+    );
+  });
+
+  it("rejects a string godmode toggle instead of converting it to false", async () => {
+    bridge.isRunning = true;
+    const sendCommand = vi.spyOn(bridge, "sendCommand").mockResolvedValue({
+      success: true,
+    });
+    try {
+      const res = await runHandler("/players/:username/godmode", "post", {
+        params: { username: "TestPlayer" },
+        body: { enabled: "false" },
+      });
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(sendCommand).not.toHaveBeenCalled();
+    } finally {
+      sendCommand.mockRestore();
+      bridge.isRunning = false;
+    }
+  });
+
+  it("rejects a missing debug-mode toggle instead of disabling debug mode", async () => {
+    bridge.isRunning = true;
+    const sendCommand = vi.spyOn(bridge, "sendCommand").mockResolvedValue({
+      success: true,
+    });
+    try {
+      const res = await runHandler("/debug/mode", "post", { body: {} });
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(sendCommand).not.toHaveBeenCalled();
+    } finally {
+      sendCommand.mockRestore();
+      bridge.isRunning = false;
+    }
+  });
+
   it("PANELBRIDGE_SERVER_ID_NOT_FOUND (GET /scan-server/:serverId) sends { serverId }", async () => {
     getServer.mockReset().mockResolvedValue(null);
     const res = await runHandler("/scan-server/:serverId", "get", {

@@ -1,4 +1,10 @@
 {
+  "permissions": {
+    "noBridgeCommand": "Aksyon anndan jwèt sa a bezwen pèmisyon bridge.command, e wòl sa a pa genyen li.",
+    "noWorldEvents": "Pou ou deklanche evènman mond, ou bezwen pèmisyon server.world_events, e wòl sa a pa genyen li.",
+    "noGmTools": "Pou ou fè yon veyikil parèt, ou bezwen pèmisyon players.gm_tools, e wòl sa a pa genyen li.",
+    "noGmToolsBridgeAction": "Aksyon sa a bezwen pèmisyon players.gm_tools, e wòl sa a pa genyen li."
+  },
   "pageHeader": {
     "title": "Kat Mond",
     "description": "Pozisyon jwè an dirèk sou kat Konte Knox la. Klike-dwat pou aksyon."
@@ -38,7 +44,24 @@
     "coverageTitle": "Pa gen kawo kat nan nivo zoum sa a",
     "coverageDesc": "<1>tiles.pzmap.org</1> reyachab men li poko fè rann zòn sa a nan nivo detay sa a. Zoume pi lwen, oswa eseye Rafrechi pita.",
     "networkTitle": "Kawo kat yo pa chaje",
-    "networkDesc": "Panèl la pa ka rive nan <1>tiles.pzmap.org</1>. Tcheke aksè HTTPS sòti a epi eseye Rafrechi."
+    "networkDesc": "Panèl la pa t' kapab chaje kawo sa a. Tcheke pwòp koneksyon rezo panèl la epi eseye <1>Rafrechi</1>.",
+    "diagnostic": "Dyagnostik: {{detail}}",
+    "gzipTitle": "Kawo kat la rive toujou konprese",
+    "gzipDesc": "Done kawo sa a rive nan navigatè a toujou konprese ak gzip olye pou li dekonprese otomatikman. Sa jeneralman vle di gen yon reverse proxy devan panèl la (nginx, Apache, Caddy, elatriye) ki retire oswa jere mal antèt Content-Encoding lan. Si sa matche ak konfigirasyon w lan, mande moun ki jere proxy a verifye paramèt sa a.",
+    "htmlTitle": "Yon paj HTML rive olye yon kawo kat",
+    "htmlDesc": "Gen yon bagay devan panèl la ki voye yon paj HTML olye imaj kawo a -- souvan yon paj erè proxy, yon paj koneksyon, oswa yon pòtay koneksyon rezo k ap entèsepte demann lan. Tcheke sa ki devan panèl la (yon reverse proxy, VPN, oswa yon rezo ak pòtay kaptif) pou wè si gen bagay k ap entèsepte demann sa a.",
+    "jsonTitle": "Panèl la voye yon erè olye yon kawo kat",
+    "jsonDesc": "Repons lan se te yon mesaj erè JSON olye done imaj. Sa montre gen yon pwoblèm sou kote panèl la, pa sou rezo a nan mitan.",
+    "pngTitle": "Yon imaj PNG rive kote yo t ap tann yon JPEG",
+    "pngDesc": "Done kawo sa a se yon vrè imaj, sèlman se pa nan fòma panèl la t ap tann lan. Sa montre gen yon diskonkòdans sou kote panèl la, pa sou rezo a nan mitan.",
+    "emptyTitle": "Kawo kat la rive vid",
+    "emptyDesc": "Pa gen okenn done ki retounen pou kawo sa a ditou. Sa jeneralman montre gen yon pwoblèm rezo oswa proxy, pa yon pwoblèm ak kat la limenm.",
+    "truncatedTitle": "Kawo kat la koupe pandan transmisyon an",
+    "truncatedDesc": "Done imaj kawo sa a otantik, men se sèlman {{received}} nan {{expected}} bytes ki rive. Koneksyon an te koupe pandan transmisyon an, sa ki jeneralman montre gen yon pwoblèm proxy oswa rezo, pa yon pwoblèm ak kat la.",
+    "corruptTitle": "Done kawo kat la kòwonpi",
+    "corruptDesc": "Done kawo sa a se vrè done imaj ki rive konplè men yo pa t kapab dekode. Sa ka yon ti erè yon sèl fwa -- eseye Rafrechi.",
+    "unrecognizedTitle": "Kawo kat la rive kòm done ki pa rekonèt",
+    "unrecognizedDesc": "Done kawo sa a pa matche ak okenn fòma panèl la rekonèt. Bytes bri: {{hex}}"
   },
   "roster": {
     "label": "lis jwè",

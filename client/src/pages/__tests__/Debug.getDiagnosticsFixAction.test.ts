@@ -101,3 +101,76 @@ describe('getDiagnosticsFixAction fallback branch (uncovered check ids)', () => 
     ).toBeNull()
   })
 })
+
+// 2026-08-27, debug-tsx-destructive-flag-catalogue follow-up: destructive
+// used to be a fully independent optional field, only ever read inside the
+// requiresConfirm branch -- so destructive:true with no requiresConfirm was
+// silently inert (dialog never shown, fix ran immediately, nothing to catch
+// it). Folded requiresConfirm/confirmMessage/destructive into one `confirm`
+// object where `destructive` is a REQUIRED field, making that combination a
+// compile error instead of a trap. These tests pin the three real fixes that
+// carry `confirm` today, and confirm every other automated fix has none.
+function manyIds(n: number) {
+  return Array.from({ length: n }, (_, i) => String(i + 1))
+}
+
+describe('getDiagnosticsFixAction -- confirm/destructive pairing', () => {
+  it('server.staleLocks always confirms and is destructive (it deletes files)', () => {
+    const action = getDiagnosticsFixAction(
+      fallbackCheck({ id: 'server.staleLocks', category: 'server' }),
+      t,
+    )
+    expect(action?.confirm).toBeDefined()
+    expect(action?.confirm?.destructive).toBe(true)
+  })
+
+  it('mods.numericInMods only confirms above the 10-item threshold, and is never destructive (an INI toggle)', () => {
+    const few = getDiagnosticsFixAction(
+      {
+        ...fallbackCheck({ id: 'mods.numericInMods', category: 'mods' }),
+        meta: { numericInMods: manyIds(3) },
+      },
+      t,
+    )
+    expect(few?.confirm).toBeUndefined()
+
+    const many = getDiagnosticsFixAction(
+      {
+        ...fallbackCheck({ id: 'mods.numericInMods', category: 'mods' }),
+        meta: { numericInMods: manyIds(11) },
+      },
+      t,
+    )
+    expect(many?.confirm).toBeDefined()
+    expect(many?.confirm?.destructive).toBe(false)
+  })
+
+  it('mods.orphanWorkshop only confirms above the 10-item threshold, and is never destructive (an INI toggle)', () => {
+    const few = getDiagnosticsFixAction(
+      {
+        ...fallbackCheck({ id: 'mods.orphanWorkshop', category: 'mods' }),
+        meta: { orphanWorkshop: manyIds(3) },
+      },
+      t,
+    )
+    expect(few?.confirm).toBeUndefined()
+
+    const many = getDiagnosticsFixAction(
+      {
+        ...fallbackCheck({ id: 'mods.orphanWorkshop', category: 'mods' }),
+        meta: { orphanWorkshop: manyIds(11) },
+      },
+      t,
+    )
+    expect(many?.confirm).toBeDefined()
+    expect(many?.confirm?.destructive).toBe(false)
+  })
+
+  it('automated fixes that never ask for confirmation carry no confirm object at all', () => {
+    for (const id of ['mods.maps', 'mods.duplicates', 'server.process', 'rcon.connected', 'db.backup']) {
+      const action = getDiagnosticsFixAction(fallbackCheck({ id, category: 'server' }), t)
+      expect(action?.automated).toBe(true)
+      expect(action?.confirm).toBeUndefined()
+    }
+  })
+})

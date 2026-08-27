@@ -1,12 +1,36 @@
 import express from "express";
 import { createLogger } from "../utils/logger.js";
-import { sanitizeError } from "../utils/sanitize.js";
+import { sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
 import { normalizeChatRelayScope } from "../services/discordBot.js";
 import { describeStartFailure } from "../services/discordStartFailure.js";
-import { requirePermission } from "../services/permissions.js";
+import { requirePermission, getRoleByName } from "../services/permissions.js";
+import { ErrorCode } from "../utils/errorCodes.js";
 const log = createLogger("API:Discord");
 
 const router = express.Router();
+
+// Maps each Discord slash command to the panel capability that gates the
+// identical action on the panel's own side -- same shape as
+// services/scheduler.js's requiredCapabilityForScheduledCommand(): a
+// curated action must cost at least as much to hand out as it costs to run.
+// `null` means the command has no panel-side capability gate to match
+// against (server.js's own GET /status is likewise ungated for every role),
+// so retuning its own tier needs nothing beyond integrations.manage itself.
+// Checked individually against each command's own real route rather than a
+// blanket rule, same discipline as the bridge:saveWorld carve-out earlier
+// tonight -- one family rule would have gotten at least "start"/"stop"
+// wrong if a future command reused a generic verb.
+const DISCORD_COMMAND_CAPABILITY = {
+  status: null,
+  players: "players.view",
+  save: "server.control",
+  broadcast: "server.world_events",
+  kick: "players.moderate",
+  start: "server.control",
+  stop: "server.control",
+  restart: "server.control",
+  rcon: "rcon.execute",
+};
 
 // Bot config/lifecycle/permissions — "config" is technician's job per the
 // role brief; moderator has no need to reconfigure the Discord integration.
@@ -41,7 +65,10 @@ router.get("/config", async (req, res) => {
   try {
     const discordBot = req.app.get("discordBot");
     if (!discordBot) {
-      return res.status(500).json({ error: "Discord bot not initialized" });
+      return res.status(500).json({
+        error: "Discord bot not initialized",
+        code: ErrorCode.DISCORD_BOT_NOT_INITIALIZED,
+      });
     }
 
     await discordBot.loadConfig();
@@ -88,7 +115,10 @@ router.put("/config", async (req, res) => {
 
     const discordBot = req.app.get("discordBot");
     if (!discordBot) {
-      return res.status(500).json({ error: "Discord bot not initialized" });
+      return res.status(500).json({
+        error: "Discord bot not initialized",
+        code: ErrorCode.DISCORD_BOT_NOT_INITIALIZED,
+      });
     }
 
     // Load current config to check for existing token
@@ -99,7 +129,10 @@ router.put("/config", async (req, res) => {
       token === "KEEP_EXISTING" && discordBot.token ? discordBot.token : token;
 
     if (!finalToken || !guildId) {
-      return res.status(400).json({ error: "Token and Guild ID are required" });
+      return res.status(400).json({
+        error: "Token and Guild ID are required",
+        code: ErrorCode.DISCORD_TOKEN_AND_GUILD_REQUIRED,
+      });
     }
 
     // Validate Discord Snowflake format for IDs
@@ -107,21 +140,32 @@ router.put("/config", async (req, res) => {
     if (!SNOWFLAKE.test(guildId)) {
       return res.status(400).json({
         error: "Invalid Guild ID format (must be a Discord Snowflake)",
+        code: ErrorCode.DISCORD_INVALID_GUILD_ID,
       });
     }
     if (adminRoleId && !SNOWFLAKE.test(adminRoleId)) {
-      return res.status(400).json({ error: "Invalid Admin Role ID format" });
+      return res.status(400).json({
+        error: "Invalid Admin Role ID format",
+        code: ErrorCode.DISCORD_INVALID_ADMIN_ROLE_ID,
+      });
     }
     if (modRoleId && !SNOWFLAKE.test(modRoleId)) {
-      return res.status(400).json({ error: "Invalid Mod Role ID format" });
+      return res.status(400).json({
+        error: "Invalid Mod Role ID format",
+        code: ErrorCode.DISCORD_INVALID_MOD_ROLE_ID,
+      });
     }
     if (channelId && !SNOWFLAKE.test(channelId)) {
-      return res.status(400).json({ error: "Invalid Channel ID format" });
+      return res.status(400).json({
+        error: "Invalid Channel ID format",
+        code: ErrorCode.DISCORD_INVALID_CHANNEL_ID,
+      });
     }
     if (chatRelayChannelId && !SNOWFLAKE.test(chatRelayChannelId)) {
-      return res
-        .status(400)
-        .json({ error: "Invalid Chat Relay Channel ID format" });
+      return res.status(400).json({
+        error: "Invalid Chat Relay Channel ID format",
+        code: ErrorCode.DISCORD_INVALID_CHAT_RELAY_CHANNEL_ID,
+      });
     }
     if (
       chatRelayScope !== undefined &&
@@ -129,7 +173,10 @@ router.put("/config", async (req, res) => {
       chatRelayScope !== "no-yell" &&
       chatRelayScope !== "general"
     ) {
-      return res.status(400).json({ error: "Invalid Chat Relay Scope" });
+      return res.status(400).json({
+        error: "Invalid Chat Relay Scope",
+        code: ErrorCode.DISCORD_INVALID_CHAT_RELAY_SCOPE,
+      });
     }
 
     // Snapshot current auth credentials before overwriting them so we know
@@ -213,7 +260,10 @@ router.post("/start", async (req, res) => {
     log.info("POST /start — starting Discord bot");
     const discordBot = req.app.get("discordBot");
     if (!discordBot) {
-      return res.status(500).json({ error: "Discord bot not initialized" });
+      return res.status(500).json({
+        error: "Discord bot not initialized",
+        code: ErrorCode.DISCORD_BOT_NOT_INITIALIZED,
+      });
     }
 
     if (discordBot.isRunning) {
@@ -234,7 +284,12 @@ router.post("/start", async (req, res) => {
       // is the same mapping getStatus() uses for the persistent version of
       // this same message, so the toast here and the record that survives a
       // page refresh never say two different things about the same failure.
-      res.status(400).json({ error: describeStartFailure(discordBot.lastStartError) });
+      const reason = describeStartFailure(discordBot.lastStartError);
+      res.status(400).json({
+        error: reason,
+        code: ErrorCode.DISCORD_START_FAILED,
+        params: sanitizeErrorParams({ reason }),
+      });
     }
   } catch (error) {
     log.error(`Failed to start Discord bot: ${error.message}`);
@@ -247,7 +302,10 @@ router.post("/stop", async (req, res) => {
   try {
     const discordBot = req.app.get("discordBot");
     if (!discordBot) {
-      return res.status(500).json({ error: "Discord bot not initialized" });
+      return res.status(500).json({
+        error: "Discord bot not initialized",
+        code: ErrorCode.DISCORD_BOT_NOT_INITIALIZED,
+      });
     }
 
     if (!discordBot.isRunning) {
@@ -267,7 +325,10 @@ router.post("/reset", async (req, res) => {
   try {
     const discordBot = req.app.get("discordBot");
     if (!discordBot) {
-      return res.status(500).json({ error: "Discord bot not initialized" });
+      return res.status(500).json({
+        error: "Discord bot not initialized",
+        code: ErrorCode.DISCORD_BOT_NOT_INITIALIZED,
+      });
     }
 
     await discordBot.resetConfig();
@@ -287,13 +348,17 @@ router.post("/test", async (req, res) => {
     const { token } = req.body || {};
 
     if (typeof token !== "string" || token.length === 0 || token.length > 200) {
-      return res
-        .status(400)
-        .json({ error: "Token must be a non-empty string (max 200 chars)" });
+      return res.status(400).json({
+        error: "Token must be a non-empty string (max 200 chars)",
+        code: ErrorCode.DISCORD_TEST_TOKEN_INVALID_INPUT,
+      });
     }
     // Discord bot tokens are URL-safe base64-ish: letters/digits/_-./
     if (!/^[A-Za-z0-9._-]+$/.test(token)) {
-      return res.status(400).json({ error: "Invalid token format" });
+      return res.status(400).json({
+        error: "Invalid token format",
+        code: ErrorCode.DISCORD_TEST_TOKEN_INVALID_FORMAT,
+      });
     }
 
     // Try to validate token by making a test request
@@ -312,19 +377,29 @@ router.post("/test", async (req, res) => {
       if (response.status === 429) {
         return res.status(429).json({
           error: "Discord is rate-limiting this request. Wait a moment and try again.",
+          code: ErrorCode.DISCORD_TEST_RATE_LIMITED,
         });
       }
       if (response.status >= 500) {
+        const message = `Discord's API is unavailable right now (HTTP ${response.status}). This isn't your token -- try again shortly.`;
         return res.status(502).json({
-          error: `Discord's API is unavailable right now (HTTP ${response.status}). This isn't your token -- try again shortly.`,
+          error: message,
+          code: ErrorCode.DISCORD_TEST_API_UNAVAILABLE,
+          params: sanitizeErrorParams({ status: response.status }),
         });
       }
       if (response.status !== 401) {
+        const message = `Discord rejected the request (HTTP ${response.status}).`;
         return res.status(400).json({
-          error: `Discord rejected the request (HTTP ${response.status}).`,
+          error: message,
+          code: ErrorCode.DISCORD_TEST_REQUEST_REJECTED,
+          params: sanitizeErrorParams({ status: response.status }),
         });
       }
-      return res.status(400).json({ error: "Invalid token" });
+      return res.status(400).json({
+        error: "Invalid token",
+        code: ErrorCode.DISCORD_TEST_TOKEN_INVALID,
+      });
     }
 
     const userData = await response.json();
@@ -358,11 +433,17 @@ router.post("/test-message", async (req, res) => {
     const discordBot = req.app.get("discordBot");
 
     if (!discordBot) {
-      return res.status(400).json({ error: "Discord bot not initialized" });
+      return res.status(400).json({
+        error: "Discord bot not initialized",
+        code: ErrorCode.DISCORD_BOT_NOT_INITIALIZED,
+      });
     }
 
     if (!discordBot.isRunning) {
-      return res.status(400).json({ error: "Bot is not running" });
+      return res.status(400).json({
+        error: "Bot is not running",
+        code: ErrorCode.DISCORD_BOT_NOT_RUNNING,
+      });
     }
 
     const sent = await discordBot.sendNotification(
@@ -372,6 +453,7 @@ router.post("/test-message", async (req, res) => {
       return res.status(502).json({
         error:
           "Discord rejected the message. Check the notification channel ID and that the bot can post there.",
+        code: ErrorCode.DISCORD_TEST_MESSAGE_REJECTED,
       });
     }
     res.json({ success: true, message: "Test message sent" });
@@ -435,12 +517,18 @@ router.put("/webhook-events", async (req, res) => {
   try {
     const discordBot = req.app.get("discordBot");
     if (!discordBot) {
-      return res.status(500).json({ error: "Discord bot not initialized" });
+      return res.status(500).json({
+        error: "Discord bot not initialized",
+        code: ErrorCode.DISCORD_BOT_NOT_INITIALIZED,
+      });
     }
 
     const { events } = req.body;
     if (!events || typeof events !== "object") {
-      return res.status(400).json({ error: "Events configuration required" });
+      return res.status(400).json({
+        error: "Events configuration required",
+        code: ErrorCode.DISCORD_EVENTS_CONFIG_REQUIRED,
+      });
     }
 
     // Whitelist allowed event keys to prevent arbitrary data storage
@@ -487,7 +575,10 @@ router.get("/permissions", async (req, res) => {
   try {
     const discordBot = req.app.get("discordBot");
     if (!discordBot) {
-      return res.status(500).json({ error: "Discord bot not initialized" });
+      return res.status(500).json({
+        error: "Discord bot not initialized",
+        code: ErrorCode.DISCORD_BOT_NOT_INITIALIZED,
+      });
     }
 
     res.json({ permissions: discordBot.getCommandPermissions() });
@@ -502,12 +593,57 @@ router.put("/permissions", async (req, res) => {
   try {
     const discordBot = req.app.get("discordBot");
     if (!discordBot) {
-      return res.status(500).json({ error: "Discord bot not initialized" });
+      return res.status(500).json({
+        error: "Discord bot not initialized",
+        code: ErrorCode.DISCORD_BOT_NOT_INITIALIZED,
+      });
     }
 
     const { permissions } = req.body;
     if (!permissions || typeof permissions !== "object") {
-      return res.status(400).json({ error: "Permissions object required" });
+      return res.status(400).json({
+        error: "Permissions object required",
+        code: ErrorCode.DISCORD_PERMISSIONS_OBJECT_REQUIRED,
+      });
+    }
+
+    // Retuning a command's Discord tier is handing out an authority through
+    // a second, unaudited door (Discord's own role check, not the panel's)
+    // -- an integrations.manage holder cannot grant an authority they do
+    // not themselves hold in the panel, e.g. dropping /rcon to "everyone"
+    // without holding rcon.execute. Only a tier that would actually CHANGE
+    // is checked: the settings UI may resend every tier on each save
+    // (Settings' PUT /app-settings and serverFiles.js's PUT /ini hit this
+    // same shape earlier tonight), and re-submitting an unchanged value
+    // must never require a capability the caller never needed for the
+    // status quo.
+    const current = discordBot.getCommandPermissions();
+    const missing = [];
+    let callerCapabilities = null;
+    for (const [command, tier] of Object.entries(permissions)) {
+      const requiredCapability = DISCORD_COMMAND_CAPABILITY[command];
+      if (!requiredCapability) continue; // unmapped/no-op key, or status (null)
+      if (!(command in current) || current[command] === tier) continue;
+      if (callerCapabilities === null) {
+        const role = req.user ? await getRoleByName(req.user.role) : null;
+        callerCapabilities = Array.isArray(role?.capabilities)
+          ? role.capabilities
+          : [];
+      }
+      if (!callerCapabilities.includes(requiredCapability)) {
+        missing.push({ command, requiredCapability });
+      }
+    }
+    if (missing.length > 0) {
+      const detail = missing
+        .map((m) => `"${m.command}" needs ${m.requiredCapability}`)
+        .join(", ");
+      return res.status(403).json({
+        error: `Cannot change the Discord tier for ${detail} without holding that capability yourself.`,
+        code: ErrorCode.DISCORD_PERMISSIONS_CAPABILITY_REQUIRED,
+        params: sanitizeErrorParams({ detail }),
+        missing,
+      });
     }
 
     const updated = await discordBot.updateCommandPermissions(permissions);

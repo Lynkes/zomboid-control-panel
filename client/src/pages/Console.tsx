@@ -10,12 +10,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useToast } from '@/components/ui/use-toast'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { rconApi, configApi, serverApi, serversApi, type ServerInstance } from '@/lib/api'
+import { rconApi, configApi, serverApi, serversApi, ApiError, type ServerInstance } from '@/lib/api'
 import { useSocket } from '@/contexts/SocketContext'
 import { useConfirm } from '@/contexts/ConfirmContext'
+import { useAuth } from '@/contexts/AuthContext'
 import { EmptyState } from '@/components/EmptyState'
 import { PageHeader } from '@/components/PageHeader'
+import { DisabledReason } from '@/components/DisabledReason'
 import { cn } from '@/lib/utils'
+import { getUserErrorMessage } from '@/lib/errorMessage'
 import { usePageShortcut } from '@/hooks/useKeyboardShortcuts'
 
 // rconService.execute() routes most connection-loss cases through
@@ -227,8 +230,14 @@ function getQuickBroadcasts(t: TFunction<'console'>) {
   }))
 }
 
+// No pagination on this panel -- when a fetch returns exactly this many
+// rows, older commands may exist and be silently excluded (server allows
+// up to 1000, see server/routes/rcon.js). Hint, not a hard truth: hitting
+// the limit exactly by coincidence is possible too.
+const COMMAND_HISTORY_FETCH_LIMIT = 50
+
 export default function Console() {
-  const { t } = useTranslation('console')
+  const { t, i18n } = useTranslation('console')
   const chatChannels = useMemo(() => getChatChannels(t), [t])
   const quickCommands = useMemo(() => getQuickCommands(t), [t])
   const quickBroadcasts = useMemo(() => getQuickBroadcasts(t), [t])
@@ -241,6 +250,11 @@ export default function Console() {
   const [commandHistoryIndex, setCommandHistoryIndex] = useState(-1)
   const [commandCache, setCommandCache] = useState<string[]>([])
   const [rconConnected, setRconConnected] = useState<boolean | null>(null)
+  // Only meaningful while rconConnected === false -- distinguishes "host
+  // never reachable" from "reachable, but the saved password is wrong" so
+  // the disconnected banner below doesn't tell a stale-password user their
+  // host is unreachable (see 2026-08-26 bug hunt finding 1).
+  const [rconFailureReason, setRconFailureReason] = useState<'unreachable' | 'auth_failed' | null>(null)
   const [testingConnection, setTestingConnection] = useState(false)
   const [announcement, setAnnouncement] = useState('')
   const [selectedChannel, setSelectedChannel] = useState('all')
@@ -255,7 +269,17 @@ export default function Console() {
   const { toast } = useToast()
   const socket = useSocket()
   const confirm = useConfirm()
-  
+  const { can } = useAuth()
+  // POST /rcon/execute (server/routes/rcon.js) requires rcon.execute -- both
+  // the typed-command path (executeCommand) and the broadcast path
+  // (sendAnnouncement) end up calling it. can() fails OPEN when capabilities
+  // are unknown/null, same convention as every other capability check in
+  // the app -- this only ever blocks the action when the answer is a
+  // confirmed no. Guarded inside the handlers themselves, not just on the
+  // visible buttons: the command input's Enter key calls executeCommand
+  // directly, bypassing whatever the Run button's disabled state says.
+  const canExecuteRcon = can('rcon.execute')
+
   // Server Console Log state
   const [serverLogLines, setServerLogLines] = useState<string[]>([])
   const [_serverLogSize, setServerLogSize] = useState(0)
@@ -346,7 +370,7 @@ export default function Console() {
     }
 
     try {
-      const data = await rconApi.getHistory(50)
+      const data = await rconApi.getHistory(COMMAND_HISTORY_FETCH_LIMIT)
       setHistory(data.history || [])
       setCommandCache(data.history?.map((h: CommandEntry) => h.command).reverse() || [])
     } catch {
@@ -361,6 +385,7 @@ export default function Console() {
   const testRconConnection = useCallback(async () => {
     if (!hasRconConfig) {
       setRconConnected(null)
+      setRconFailureReason(null)
       setTestingConnection(false)
       return
     }
@@ -369,8 +394,15 @@ export default function Console() {
     try {
       const result = await configApi.testRcon()
       setRconConnected(result.success && result.connected)
-    } catch {
+      setRconFailureReason(null)
+    } catch (err) {
       setRconConnected(false)
+      // handleResponse() (lib/api.ts) throws on a 200 `{success:false}` body
+      // too, so the unreachable/auth_failed split from the response payload
+      // survives on err.data even though this is a caught throw, not a
+      // resolved result.
+      const data = err instanceof ApiError ? (err.data as { error?: string } | undefined) : undefined
+      setRconFailureReason(data?.error === 'auth_failed' ? 'auth_failed' : 'unreachable')
     } finally {
       setTestingConnection(false)
     }
@@ -453,7 +485,7 @@ export default function Console() {
     } catch (error) {
       toast({
         title: t('toasts.errorTitle'),
-        description: error instanceof Error ? error.message : t('toasts.clearLogFailed'),
+        description: getUserErrorMessage(error, t('toasts.clearLogFailed')),
         variant: 'destructive',
       })
     }
@@ -509,6 +541,7 @@ export default function Console() {
       testRconConnection()
     } else {
       setRconConnected(null)
+      setRconFailureReason(null)
     }
     // Auto-focus input on mount
     inputRef.current?.focus()
@@ -521,6 +554,7 @@ export default function Console() {
         setLiveLog(prev => [...prev, entry].slice(-100))
         // If we get a response, RCON is connected
         setRconConnected(true)
+        setRconFailureReason(null)
       }
 
       socket.on('rcon:response', handleRconResponse)
@@ -541,6 +575,7 @@ export default function Console() {
 
   const executeCommand = async () => {
     if (!command.trim()) return
+    if (!canExecuteRcon) return
 
     setLoading(true)
     try {
@@ -559,15 +594,21 @@ export default function Console() {
       } catch (error) {
         result = {
           success: false,
-          error: error instanceof Error ? error.message : t('toasts.commandFailedFallback'),
+          error: getUserErrorMessage(error, t('toasts.commandFailedFallback')),
         }
       }
 
-      // Update connection status based on result.
+      // Update connection status based on result. A mid-session drop
+      // detected here is a transport-level signal, not the classified
+      // unreachable-vs-auth_failed probe testRconConnection() runs -- reset
+      // to null so the banner falls back to its unreachable copy rather
+      // than showing a stale auth_failed reason from an earlier test.
       if (isRconDisconnectError(result.error)) {
         setRconConnected(false)
+        setRconFailureReason(null)
       } else if (result.success) {
         setRconConnected(true)
+        setRconFailureReason(null)
       }
 
       if (!result.success) {
@@ -600,9 +641,10 @@ export default function Console() {
       fetchHistory()
     } catch (error) {
       setRconConnected(false)
+      setRconFailureReason(null)
       toast({
         title: t('toasts.errorTitle'),
-        description: error instanceof Error ? error.message : t('toasts.commandFailedFallback'),
+        description: getUserErrorMessage(error, t('toasts.commandFailedFallback')),
         variant: 'destructive',
       })
     } finally {
@@ -647,6 +689,7 @@ export default function Console() {
 
   const sendAnnouncement = async () => {
     if (!announcement.trim()) return
+    if (!canExecuteRcon) return
 
     setSendingAnnouncement(true)
     try {
@@ -665,7 +708,7 @@ export default function Console() {
       } catch (error) {
         result = {
           success: false,
-          error: error instanceof Error ? error.message : t('toasts.broadcastFailedFallback'),
+          error: getUserErrorMessage(error, t('toasts.broadcastFailedFallback')),
         }
       }
 
@@ -692,8 +735,12 @@ export default function Console() {
         })
         setAnnouncement('')
         setRconConnected(true)
+        setRconFailureReason(null)
       } else {
-        if (isRconDisconnectError(result.error)) setRconConnected(false)
+        if (isRconDisconnectError(result.error)) {
+          setRconConnected(false)
+          setRconFailureReason(null)
+        }
         toast({
           title: t('toasts.errorTitle'),
           description: result.error || t('toasts.broadcastFailedFallback'),
@@ -701,8 +748,11 @@ export default function Console() {
         })
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : t('toasts.broadcastFailedFallback')
-      if (isRconDisconnectError(message)) setRconConnected(false)
+      const message = getUserErrorMessage(error, t('toasts.broadcastFailedFallback'))
+      if (isRconDisconnectError(message)) {
+        setRconConnected(false)
+        setRconFailureReason(null)
+      }
       toast({
         title: t('toasts.errorTitle'),
         description: message,
@@ -915,6 +965,13 @@ export default function Console() {
                           {t('serverLog.showAll')}
                         </button>
                       </span>
+                    ) : serverLogError ? (
+                      // Distinct from the genuinely-quiet case below: the error
+                      // banner right above already explains the stream is down,
+                      // so this must not also claim anything about the server
+                      // itself -- an empty body here is caused by OUR broken
+                      // connection, not by the server having nothing to say.
+                      <span>{t('serverLog.noOutputStreamDown')}</span>
                     ) : (
                       <span>{t('serverLog.noStreamOutput')}</span>
                     )}
@@ -999,7 +1056,9 @@ export default function Console() {
             </div>
           )}
 
-          {/* RCON Disconnected Warning */}
+          {/* RCON Disconnected Warning -- title/desc branch on WHY the test
+              failed (see rconFailureReason above) so a reachable host with a
+              stale password isn't told to go debug its network. */}
           {hasRconConfig && rconConnected === false && (
             <div
               role="alert"
@@ -1007,9 +1066,11 @@ export default function Console() {
             >
               <WifiOff className="w-4 h-4 shrink-0 text-destructive" />
               <div className="min-w-0">
-                <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-destructive">{t('rcon.hostUnreachableTitle')}</p>
+                <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-destructive">
+                  {rconFailureReason === 'auth_failed' ? t('rcon.authFailedTitle') : t('rcon.hostUnreachableTitle')}
+                </p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {t('rcon.hostUnreachableDesc')}
+                  {rconFailureReason === 'auth_failed' ? t('rcon.authFailedDesc') : t('rcon.hostUnreachableDesc')}
                 </p>
               </div>
             </div>
@@ -1060,7 +1121,7 @@ export default function Console() {
                       <span className="text-primary">$</span>
                       <span className="text-foreground/90">{entry.command}</span>
                       <span className="text-muted-foreground/60 text-[10px] ml-auto tabular-nums font-mono">
-                        {new Date(entry.timestamp).toLocaleTimeString()}
+                        {new Date(entry.timestamp).toLocaleTimeString(i18n.language)}
                       </span>
                     </div>
                     <div className={cn('ml-4 mt-0.5 text-xs border-l-2 pl-2', entry.success ? 'border-primary/30 text-foreground/85' : 'border-destructive/50 text-destructive')}>
@@ -1107,19 +1168,21 @@ export default function Console() {
                 onKeyDown={handleKeyDown}
                 placeholder={t('rcon.placeholder')}
                 className="pl-[5.5rem] font-mono bg-card/70 border-border/55 focus-visible:border-primary/60"
-                disabled={loading || !hasRconConfig}
+                disabled={loading || !hasRconConfig || !canExecuteRcon}
                 maxLength={2000}
                 aria-label={t('rcon.inputAria')}
               />
             </div>
-            <Button
-              onClick={executeCommand}
-              disabled={loading || !command.trim() || !hasRconConfig}
-              aria-label={t('rcon.executeAria')}
-              className="font-mono text-[11px] uppercase tracking-[0.18em]"
-            >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Send className="w-3.5 h-3.5 mr-1.5" />{t('rcon.run')}</>}
-            </Button>
+            <DisabledReason reason={!canExecuteRcon ? t('rcon.noPermission') : null}>
+              <Button
+                onClick={executeCommand}
+                disabled={loading || !command.trim() || !hasRconConfig || !canExecuteRcon}
+                aria-label={t('rcon.executeAria')}
+                className="font-mono text-[11px] uppercase tracking-[0.18em]"
+              >
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Send className="w-3.5 h-3.5 mr-1.5" />{t('rcon.run')}</>}
+              </Button>
+            </DisabledReason>
           </div>
           <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/60">
             {t('rcon.keyboardHint')}
@@ -1193,17 +1256,19 @@ export default function Console() {
                   <p className="text-xs text-muted-foreground">
                     <Trans i18nKey="broadcast.sendsVia" t={t} components={{ code: <code className="text-foreground/80" /> }} />
                   </p>
-                  <Button
-                    onClick={sendAnnouncement}
-                    disabled={sendingAnnouncement || !announcement.trim() || !hasRconConfig || rconConnected === false}
-                  >
-                    {sendingAnnouncement ? (
-                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                    ) : (
-                      <Send className="w-4 h-4 mr-2" />
-                    )}
-                    {t('broadcast.send')}
-                  </Button>
+                  <DisabledReason reason={!canExecuteRcon ? t('rcon.noPermission') : null}>
+                    <Button
+                      onClick={sendAnnouncement}
+                      disabled={sendingAnnouncement || !announcement.trim() || !hasRconConfig || rconConnected === false || !canExecuteRcon}
+                    >
+                      {sendingAnnouncement ? (
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      ) : (
+                        <Send className="w-4 h-4 mr-2" />
+                      )}
+                      {t('broadcast.send')}
+                    </Button>
+                  </DisabledReason>
                 </div>
               </div>
             )}
@@ -1224,6 +1289,9 @@ export default function Console() {
                   <>
                     <span className="text-muted-foreground/40 normal-case tracking-normal">·</span>
                     <span className="text-muted-foreground/70 normal-case tracking-normal tabular-nums">{t('history.entries', { count: history.length })}</span>
+                    {history.length >= COMMAND_HISTORY_FETCH_LIMIT && (
+                      <span className="text-muted-foreground/50 normal-case tracking-normal">{t('history.truncatedHint')}</span>
+                    )}
                   </>
                 )}
               </span>
@@ -1265,7 +1333,7 @@ export default function Console() {
                           <div className="flex items-center justify-between">
                             <code className="text-sm font-mono text-primary truncate">{entry.command}</code>
                             <span className="text-xs text-muted-foreground">
-                              {new Date(entry.executed_at).toLocaleString()}
+                              {new Date(entry.executed_at).toLocaleString(i18n.language)}
                             </span>
                           </div>
                           {entry.response && (

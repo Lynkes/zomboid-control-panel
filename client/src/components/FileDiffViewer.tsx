@@ -2,6 +2,8 @@ import { useState, useCallback, useRef, useEffect, memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChevronDown, FileCode, ImageIcon, FileQuestion, Loader2, RotateCcw } from 'lucide-react'
 import { getAccessToken } from '@/lib/authToken'
+import { ApiError } from '@/lib/api'
+import { getUserErrorMessage } from '@/lib/errorMessage'
 
 type TFn = (key: string, opts?: Record<string, unknown>) => string
 
@@ -108,14 +110,19 @@ export const FileDiffViewer = memo(function FileDiffViewer({ file, modAId, modBI
       const res = await fetch(`/api/mods/conflicts/diff?${params}`, { headers, signal: controller.signal })
       if (controller.signal.aborted) return
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error(body.error || `HTTP ${res.status}`)
+        // 2026-08-26: this fetch bypasses lib/api.ts's handleResponse(), so
+        // preserving status/code here is the only way getUserErrorMessage()
+        // below can translate this failure -- mods.js's conflicts/diff
+        // route already ships registered codes (MODS_CONFLICTS_DIFF_*) that
+        // a plain Error would have discarded before they ever reached it.
+        const body = await res.json().catch(() => ({} as { error?: string; code?: string }))
+        throw new ApiError(body.error || `HTTP ${res.status}`, { status: res.status, code: body.code })
       }
       const data = await res.json()
       setDiff(data)
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') return
-      setError(e instanceof Error ? e.message : t('failedToLoadDiff'))
+      setError(getUserErrorMessage(e, t('failedToLoadDiff')))
     } finally {
       if (!controller.signal.aborted) setLoading(false)
     }

@@ -252,18 +252,107 @@ describe("logout and export trust boundaries", () => {
 });
 
 describe("config mutation guard", () => {
+  // requireStoppedForLocalConfigMutation's FIRST line reads the real,
+  // process-shared database via getActiveServer() -- this test used to
+  // never control it (same dynamic-import + vi.spyOn pattern already used
+  // above for getDb, chosen over a file-level vi.mock so it can't affect
+  // this file's other, unrelated describe blocks). It states its
+  // precondition explicitly now instead of silently inheriting whatever
+  // another test file left active in the shared DB: it passed in isolation
+  // and failed in the full suite specifically because a remote server left
+  // active by another test file made the isRemote short-circuit fire
+  // before the no-serverManager branch below it ever ran.
   it("fails closed when server state cannot be verified", async () => {
-    const next = vi.fn();
-    const req = { app: { get: vi.fn() } };
-    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    const dbModule = await import("../database/init.js");
+    const getActiveServerSpy = vi
+      .spyOn(dbModule, "getActiveServer")
+      .mockResolvedValue(null);
 
-    await requireStoppedForLocalConfigMutation(req, res, next);
+    try {
+      const next = vi.fn();
+      const req = { app: { get: vi.fn() } };
+      const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
 
-    expect(next).not.toHaveBeenCalled();
-    expect(res.status).toHaveBeenCalledWith(503);
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ code: "SERVER_STATE_UNKNOWN" }),
-    );
+      await requireStoppedForLocalConfigMutation(req, res, next);
+
+      expect(next).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(503);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ code: "SERVER_STATE_UNKNOWN" }),
+      );
+    } finally {
+      getActiveServerSpy.mockRestore();
+    }
+  });
+
+  // The remote short-circuit itself was, until now, exercised only by
+  // accident -- by whichever other test file happened to leave a remote
+  // server active in the shared DB when this file's test ran after it.
+  // Pinned deliberately: a remote server's config is edited over SFTP, so
+  // local process detection must never even be attempted for it.
+  it("lets a remote server's config mutation through without probing local process state", async () => {
+    const dbModule = await import("../database/init.js");
+    const getActiveServerSpy = vi
+      .spyOn(dbModule, "getActiveServer")
+      .mockResolvedValue({ isRemote: true });
+
+    try {
+      const next = vi.fn();
+      const appGet = vi.fn();
+      const req = { app: { get: appGet } };
+      const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+
+      await requireStoppedForLocalConfigMutation(req, res, next);
+
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(res.status).not.toHaveBeenCalled();
+      expect(appGet).not.toHaveBeenCalled();
+    } finally {
+      getActiveServerSpy.mockRestore();
+    }
+  });
+
+  // 2026-08-26: activeServer.isRemote is COMPUTED by normalizeServerMemory
+  // from whether the configured path resolves on THIS filesystem right now
+  // -- not a stored fact. A genuinely local, genuinely RUNNING server whose
+  // path is transiently unreachable (a disconnected network mount, a slow-
+  // mounting drive, an AV lock) would normalize to isRemote:true exactly
+  // like a real remote server, and the short-circuit above would let a
+  // wholesale config overwrite proceed against it unverified -- discovered
+  // by accident via upnpEditAppliesLive.test.js leaving an orphaned local
+  // server active with its temp install path deleted (fixed separately,
+  // 5fc722e). The guard now re-checks path reachability itself and treats
+  // "configured but unreachable" as unverifiable, matching backup.js's
+  // POST /restore/:name posture (refuse rather than proceed) instead of
+  // trusting the computed isRemote in the one direction that's unsafe to
+  // get wrong.
+  it("treats a configured-but-unreachable local path as unverifiable, not as remote", async () => {
+    const missingPath = path.join(os.tmpdir(), "zcp-guard-test-missing-path-does-not-exist");
+    expect(fs.existsSync(missingPath)).toBe(false);
+
+    const dbModule = await import("../database/init.js");
+    const getActiveServerSpy = vi.spyOn(dbModule, "getActiveServer").mockResolvedValue({
+      installPath: missingPath,
+      isRemote: true, // what normalizeServerMemory would actually compute here
+    });
+
+    try {
+      const next = vi.fn();
+      const appGet = vi.fn();
+      const req = { app: { get: appGet } };
+      const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+
+      await requireStoppedForLocalConfigMutation(req, res, next);
+
+      expect(next).not.toHaveBeenCalled();
+      expect(appGet).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(503);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ code: "SERVER_STATE_UNKNOWN" }),
+      );
+    } finally {
+      getActiveServerSpy.mockRestore();
+    }
   });
 });
 
@@ -525,8 +614,11 @@ describe("conflict pair grouping", () => {
   it("never pairs a mod with itself when it ships the same path twice", () => {
     // A mod shipping both media/ and 42/media/ used to appear twice in
     // conflict.mods, producing an "A vs A" pair.
-    const pairs = groupIntoPairs([conflict(["ModA", "ModA", "ModB"])]);
+    const { pairs, truncated } = groupIntoPairs([
+      conflict(["ModA", "ModA", "ModB"]),
+    ]);
 
+    expect(truncated).toBe(false);
     expect(pairs).toHaveLength(1);
     expect(pairs[0].modA.modId).toBe("ModA");
     expect(pairs[0].modB.modId).toBe("ModB");
@@ -535,14 +627,31 @@ describe("conflict pair grouping", () => {
   });
 
   it("counts each real pair once per conflicting file", () => {
-    const pairs = groupIntoPairs([
+    const { pairs, truncated } = groupIntoPairs([
       conflict(["ModA", "ModB"]),
       conflict(["ModA", "ModB"], "medium"),
     ]);
 
+    expect(truncated).toBe(false);
     expect(pairs).toHaveLength(1);
     expect(pairs[0].highCount).toBe(1);
     expect(pairs[0].mediumCount).toBe(1);
+  });
+
+  it("caps the pair-file projection across high-fanout conflicts", () => {
+    const modIds = Array.from({ length: 20 }, (_, i) => `Mod${i}`);
+    const maxFileEntries = 50;
+
+    const { pairs, truncated, groupedFileEntries } = groupIntoPairs(
+      [conflict(modIds), conflict(modIds, "medium")],
+      maxFileEntries,
+    );
+
+    expect(truncated).toBe(true);
+    expect(groupedFileEntries).toBe(maxFileEntries);
+    expect(
+      pairs.reduce((total, pair) => total + pair.files.length, 0),
+    ).toBe(maxFileEntries);
   });
 });
 
@@ -663,7 +772,16 @@ describe("online player count when RCON is unavailable", () => {
 describe("backup restore guards against a running server", () => {
   it("refuses to restore while the server is running", async () => {
     const service = new BackupService();
-    service.setServerManager({ checkServerRunning: async () => true });
+    // getServerProcessDetails, not checkServerRunning: the latter is no
+    // longer consulted at all (it used to be a fallback that collapsed a
+    // failed scan into a plain `false`, indistinguishable from a
+    // confirmed-stopped server -- see the comment above the check in
+    // backupService.js). A serverManager offering only checkServerRunning
+    // now refuses with "process detection is unavailable" instead of
+    // silently trusting it either way.
+    service.setServerManager({
+      getServerProcessDetails: async () => ({ running: true, scanFailed: false }),
+    });
 
     const result = await service.restoreBackup("world.zip", {
       createPreRestoreBackup: false,
@@ -1085,7 +1203,9 @@ describe("Discord player presence", () => {
     const bot = Object.create(DiscordBot.prototype);
     bot.isRunning = true;
     bot.client = { user: { setActivity } };
-    bot.serverManager = { checkServerRunning: async () => true };
+    bot.serverManager = {
+      getServerProcessDetails: async () => ({ running: true, scanFailed: false }),
+    };
     bot.rconService = {
       connected: true,
       getPlayers: async () => ({ success: true, players: ["alice", "bob"] }),
@@ -1107,7 +1227,9 @@ describe("Discord player presence", () => {
     const bot = Object.create(DiscordBot.prototype);
     bot.isRunning = true;
     bot.client = { user: { setActivity } };
-    bot.serverManager = { checkServerRunning: async () => true };
+    bot.serverManager = {
+      getServerProcessDetails: async () => ({ running: true, scanFailed: false }),
+    };
     bot.rconService = { connected: false, getPlayers };
     bot._presenceUpdateInFlight = null;
 
@@ -1154,7 +1276,9 @@ describe("Discord /stop", () => {
   const makeBot = async (saveResult) => {
     const bot = Object.create(DiscordBot.prototype);
     const calls = [];
-    bot.serverManager = { checkServerRunning: async () => true };
+    bot.serverManager = {
+      getServerProcessDetails: async () => ({ running: true, scanFailed: false }),
+    };
     bot.rconService = {
       connected: true,
       save: async () => {
@@ -1323,7 +1447,9 @@ describe("Discord /restart", () => {
   const makeBot = async (restartResult) => {
     const bot = Object.create(DiscordBot.prototype);
     const serverMessages = [];
-    bot.serverManager = { checkServerRunning: async () => true };
+    bot.serverManager = {
+      getServerProcessDetails: async () => ({ running: true, scanFailed: false }),
+    };
     bot.rconService = {
       connected: true,
       serverMessage: async (m) => {
@@ -1402,7 +1528,7 @@ describe("Discord /start", () => {
   it("reports a failed start instead of claiming the server is starting", async () => {
     const bot = Object.create(DiscordBot.prototype);
     bot.serverManager = {
-      checkServerRunning: async () => false,
+      getServerProcessDetails: async () => ({ running: false, scanFailed: false }),
       startServer: async () => ({ success: false, error: "port in use" }),
     };
     const replies = [];

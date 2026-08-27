@@ -5,6 +5,11 @@
     "updated": "Aktualisiert {{time}}",
     "refresh": "Aktualisieren"
   },
+  "permissions": {
+    "noModerate": "Diese Aktion erfordert die Berechtigung players.moderate, über die diese Rolle nicht verfügt.",
+    "noGmTools": "Diese Aktion erfordert die Berechtigung players.gm_tools, über die diese Rolle nicht verfügt.",
+    "noBridgeCommand": "Diese Aktion erfordert die Berechtigung bridge.command, über die diese Rolle nicht verfügt."
+  },
   "errorBanner": {
     "title": "Spielerseite ist teilweise nicht verfügbar",
     "retry": "Erneut versuchen"
@@ -262,7 +267,8 @@
     "on": "AN",
     "off": "AUS",
     "enable": "Aktivieren",
-    "disable": "Deaktivieren"
+    "disable": "Deaktivieren",
+    "bridgeRequiredTooltip": "Erfordert eine Verbindung zu PanelBridge"
   },
   "notes": {
     "selectPlayerEmpty": "Wähle einen Spieler aus, um Notizen anzusehen oder hinzuzufügen",
@@ -284,6 +290,7 @@
     "deleteButton": "Löschen",
     "saveButton": "Notiz speichern",
     "activityLogTitle": "Aktivitätsprotokoll",
+    "activityLogTruncatedHint": "Die neuesten {{count}} Einträge werden angezeigt -- ältere Aktivitäten werden möglicherweise nicht angezeigt.",
     "logsErrorTitle": "Aktivitätsprotokoll nicht verfügbar",
     "filterPlaceholder": "Nach Spielername filtern...",
     "filterAria": "Aktivitätsprotokoll nach Spielername filtern",
@@ -292,7 +299,7 @@
     "tableAction": "Aktion",
     "tableDetails": "Details",
     "loadingRow": "Lädt...",
-    "noLogsRow": "Keine Aktivitätsprotokolle",
+    "noLogsRow": "Noch keine Aktivitätsprotokolle — Moderationsaktionen für diesen Spieler (Sperren, Kicks, Whitelist-Änderungen) werden hier angezeigt.",
     "detailsFallback": "-",
     "deleteConfirmTitle": "Diese Notiz löschen?",
     "deleteConfirmDesc": "Die Admin-Notiz und die Tags für {{player}} werden endgültig gelöscht. Dies kann nicht rückgängig gemacht werden.",
@@ -309,6 +316,8 @@
     "exportButton": "{{player}} exportieren",
     "exportButtonFallback": "Spieler",
     "characterDataLabel": "Charakterdaten",
+    "copyCharacterDataAria": "Charakterdaten kopieren",
+    "copiedAria": "Kopiert",
     "downloadFileButton": "Datei herunterladen",
     "importTitle": "Charakter importieren",
     "importDesc": "XP, Perks, Skills und exportiertes Inventar wiederherstellen",
@@ -321,7 +330,15 @@
     "savedExportsTitle": "Gespeicherte Exporte ({{count}})",
     "sizeKb": "({{size}} KB)",
     "downloadTitle": "Herunterladen",
-    "deleteTitle": "Löschen"
+    "deleteTitle": "Löschen",
+    "downloadExportAria": "Gespeicherten Export von {{username}} herunterladen",
+    "deleteExportAria": "Gespeicherten Export von {{username}} löschen"
+  },
+  "importConfirm": {
+    "title": "{{player}}s Charakter überschreiben?",
+    "description": "Dies ersetzt {{player}}s EP, Perks, Fertigkeiten, Eigenschaften, Inventar und getragene Gegenstände durch die eingefügten Daten. {{player}}s aktueller Stand wird zuerst in den gespeicherten Exporten gesichert, sodass du ihn von dort wiederherstellen kannst, falls dies der falsche Spieler oder die falsche Datei war.",
+    "cancel": "Abbrechen",
+    "confirm": "Ja, Charakter überschreiben"
   },
   "actions": {
     "kickPlayer": "Spieler kicken",
@@ -380,6 +397,8 @@
     "invalidJsonDesc": "Die Charakterdaten sind kein gültiges JSON-Format",
     "characterImportedTitle": "Charakter importiert",
     "characterImportedDesc": "{{perks}} Skills und {{items}} Items auf {{player}} angewendet",
+    "characterImportedTitleNoneApplied": "Import hat nichts übernommen",
+    "characterImportedDescNoneApplied": "Keine der übermittelten Skills oder Items wurden auf {{player}} angewendet. Die Daten passen möglicherweise nicht zu den Mods oder Item-Definitionen dieses Servers.",
     "importFailedTitle": "Import fehlgeschlagen",
     "importFailedFallback": "Charakter konnte nicht importiert werden",
     "fileTooLargeTitle": "Datei zu groß",

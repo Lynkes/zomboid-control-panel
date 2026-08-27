@@ -36,6 +36,7 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+*.code-workspace
 
 # Copilot instructions (internal dev context)
 .github/copilot-instructions.md

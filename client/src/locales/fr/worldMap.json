@@ -1,4 +1,10 @@
 {
+  "permissions": {
+    "noBridgeCommand": "Cette action en jeu nécessite la permission bridge.command, que ce rôle ne possède pas.",
+    "noWorldEvents": "Déclencher des événements mondiaux nécessite la permission server.world_events, que ce rôle ne possède pas.",
+    "noGmTools": "Faire apparaître un véhicule nécessite la permission players.gm_tools, que ce rôle ne possède pas.",
+    "noGmToolsBridgeAction": "Cette action nécessite la permission players.gm_tools, que ce rôle ne possède pas."
+  },
   "pageHeader": {
     "title": "Carte du monde",
     "description": "Positions des joueurs en direct sur la carte du comté de Knox. Clic droit pour les actions."
@@ -38,7 +44,24 @@
     "coverageTitle": "Aucune tuile de carte à ce niveau de zoom",
     "coverageDesc": "<1>tiles.pzmap.org</1> est joignable mais n'a pas encore rendu cette zone à ce niveau de détail. Dézoomez, ou réessayez plus tard avec Actualiser.",
     "networkTitle": "Les tuiles de carte ne se chargent pas",
-    "networkDesc": "Le panneau ne peut pas joindre <1>tiles.pzmap.org</1>. Vérifiez l'accès HTTPS sortant et réessayez avec Actualiser."
+    "networkDesc": "Cette tuile n'a pas pu être chargée depuis le panneau. Vérifiez la propre connexion réseau du panneau et réessayez avec <1>Actualiser</1>.",
+    "diagnostic": "Diagnostic : {{detail}}",
+    "gzipTitle": "La tuile de carte est arrivée encore compressée",
+    "gzipDesc": "Les données de cette tuile sont arrivées au navigateur encore compressées en gzip au lieu d'être automatiquement décompressées. Cela signifie généralement qu'un proxy inverse devant le panneau (nginx, Apache, Caddy, etc.) supprime ou traite mal l'en-tête Content-Encoding. Si cela correspond à votre configuration, demandez à la personne qui gère le proxy de vérifier ce réglage.",
+    "htmlTitle": "Une page HTML est arrivée à la place d'une tuile de carte",
+    "htmlDesc": "Quelque chose devant le panneau a renvoyé une page HTML au lieu de l'image de la tuile -- souvent une page d'erreur de proxy, une page de connexion, ou un portail de connexion réseau interceptant la requête. Vérifiez ce qui se trouve devant le panneau (un proxy inverse, un VPN, ou un réseau avec portail captif) pour repérer ce qui intercepte cette requête.",
+    "jsonTitle": "Le panneau a renvoyé une erreur à la place d'une tuile de carte",
+    "jsonDesc": "La réponse était un message d'erreur JSON plutôt que des données d'image. Cela indique un problème du côté du panneau lui-même, pas du réseau intermédiaire.",
+    "pngTitle": "Une image PNG est arrivée alors qu'un JPEG était attendu",
+    "pngDesc": "Les données de cette tuile sont une image réelle, mais pas dans le format attendu par le panneau. Cela indique une incohérence du côté du panneau lui-même, pas du réseau intermédiaire.",
+    "emptyTitle": "La tuile de carte est arrivée vide",
+    "emptyDesc": "Aucune donnée n'est revenue pour cette tuile. Cela indique généralement un problème de réseau ou de proxy, pas un problème avec la carte elle-même.",
+    "truncatedTitle": "La tuile de carte a été coupée en transit",
+    "truncatedDesc": "Les données d'image de cette tuile sont authentiques, mais seulement {{received}} des {{expected}} octets sont arrivés. La connexion a été coupée en transit, ce qui indique généralement un problème de proxy ou de réseau, pas un problème avec la carte.",
+    "corruptTitle": "Les données de la tuile de carte sont corrompues",
+    "corruptDesc": "Les données de cette tuile sont des données d'image authentiques arrivées complètes mais n'ont pas pu être décodées. Il peut s'agir d'un incident isolé -- essayez Actualiser.",
+    "unrecognizedTitle": "La tuile de carte est arrivée sous forme de données non reconnues",
+    "unrecognizedDesc": "Les données de cette tuile ne correspondent à aucun format reconnu par le panneau. Octets bruts : {{hex}}"
   },
   "roster": {
     "label": "effectif",

@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import i18n from '@/i18n'
 import { FileDiffViewer } from '../FileDiffViewer'
 
 const baseProps = {
@@ -63,12 +64,19 @@ describe('FileDiffViewer', () => {
   })
 
   it('surfaces a real fetch error, not a silently empty panel', async () => {
+    // 2026-08-26: this fetch bypasses lib/api.ts's handleResponse(), so the
+    // component constructs an ApiError itself (status + code preserved) and
+    // routes it through getUserErrorMessage() -- a 500 with no code now gets
+    // wrapUncodedServerError()'s generic wrapper around the preserved raw
+    // detail, so the displayed text CONTAINS the server's message rather
+    // than being byte-identical to it. Regex match, not exact, so this
+    // doesn't need updating every time that wrapper's copy changes.
     vi.mocked(fetch).mockResolvedValue({ ok: false, status: 500, json: async () => ({ error: 'diff service unavailable' }) } as any)
     render(<FileDiffViewer {...baseProps} />)
 
     fireEvent.click(screen.getByRole('button', { name: /Recipes.lua/ }))
 
-    expect(await screen.findByText('diff service unavailable')).toBeInTheDocument()
+    expect(await screen.findByText(/diff service unavailable/)).toBeInTheDocument()
   })
 
   it('Retry after a failure actually re-fetches, not a no-op button', async () => {
@@ -78,12 +86,41 @@ describe('FileDiffViewer', () => {
     render(<FileDiffViewer {...baseProps} />)
 
     fireEvent.click(screen.getByRole('button', { name: /Recipes.lua/ }))
-    await screen.findByText('boom')
+    await screen.findByText(/boom/)
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry file comparison' }))
 
     expect(await screen.findByText('+1')).toBeInTheDocument()
     expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  // 2026-08-26: before this fix, the fetch here threw a plain Error built
+  // from res.status/body.code discarded -- so a registered, already-
+  // translated code (mods.js emits MODS_CONFLICTS_DIFF_FILES_NOT_FOUND)
+  // never reached getUserErrorMessage() at all and every locale saw the
+  // same raw English text. Proves the fix actually unlocks that dormant
+  // translation, not just that it doesn't crash.
+  describe('translates a registered error code once status/code survive the fetch', () => {
+    afterEach(() => {
+      void i18n.changeLanguage('en')
+    })
+
+    it('shows the French translation for a coded 4xx instead of the raw English text', async () => {
+      void i18n.changeLanguage('fr')
+      vi.mocked(fetch).mockResolvedValue({
+        ok: false,
+        status: 404,
+        json: async () => ({
+          error: 'Could not find both mod files on disk — they may have been removed or updated since the last scan',
+          code: 'MODS_CONFLICTS_DIFF_FILES_NOT_FOUND',
+        }),
+      } as any)
+      render(<FileDiffViewer {...baseProps} />)
+
+      fireEvent.click(screen.getByRole('button', { name: /Recipes.lua/ }))
+
+      expect(await screen.findByText(/Impossible de trouver les deux fichiers de mod/)).toBeInTheDocument()
+    })
   })
 
   it('renders the real hash/size for a binary file instead of pretending it has a text diff', async () => {

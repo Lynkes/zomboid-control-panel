@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
+  classifyProcessKillError,
   isWindowsDedicatedServerCommandLine,
   scoreServerProcessOwnership,
+  resolveConfiguredRconPort,
   ServerManager,
 } from '../services/serverManager.js';
 
@@ -22,6 +24,17 @@ describe('ServerManager Windows detection', () => {
     const commandLine = '"C:\\Games\\ProjectZomboid\\ProjectZomboid64.exe"';
 
     expect(isWindowsDedicatedServerCommandLine(commandLine)).toBe(false);
+  });
+});
+
+describe('ServerManager RCON port resolution', () => {
+  it('rejects malformed persisted ports instead of truncating them', () => {
+    expect(resolveConfiguredRconPort('27016junk')).toBeNull();
+  });
+
+  it('uses the default only when no port was configured', () => {
+    expect(resolveConfiguredRconPort(undefined)).toBe(27015);
+    expect(resolveConfiguredRconPort('27016')).toBe(27016);
   });
 });
 
@@ -111,6 +124,85 @@ describe('ServerManager detection with two servers on one host', () => {
 });
 
 describe('ServerManager status state', () => {
+  it('classifies kill command outcomes without treating real errors as success', () => {
+    expect(classifyProcessKillError({ killed: true })).toBe('timedOut');
+    expect(classifyProcessKillError({ code: 'ESRCH', message: 'No such process' })).toBe('alreadyGone');
+    expect(classifyProcessKillError({ code: 'EACCES', message: 'Permission denied' })).toBe('failed');
+  });
+
+  it('refuses to start when process detection cannot confirm the server is stopped', async () => {
+    const manager = new ServerManager();
+    manager.configLoaded = true;
+    manager.serverPath = 'C:\\pz';
+    manager.loadConfig = async () => {};
+    manager.getServerProcessDetails = async () => ({
+      running: false,
+      scanFailed: true,
+    });
+
+    await expect(manager.startServer()).rejects.toThrow(/process detection failed/i);
+  });
+
+  it('refuses to restart when post-quit process detection cannot confirm the old server stopped', async () => {
+    const manager = new ServerManager();
+    manager.sleep = async () => {};
+    manager.getServerProcessDetails = async () => ({
+      running: false,
+      scanFailed: true,
+    });
+    const rconService = {
+      serverMessage: async () => ({ success: true }),
+      save: async () => ({ success: true }),
+      quit: async () => ({ success: true }),
+    };
+
+    await expect(manager.restartServer(rconService, 0)).rejects.toThrow(
+      /old server stopped.*process detection failed/i,
+    );
+  });
+
+  it('does not quit or restart when the pre-restart save reports failure', async () => {
+    const manager = new ServerManager();
+    manager.sleep = async () => {};
+    const quit = vi.fn(async () => ({ success: true }));
+    const startServer = vi.fn();
+    manager.getServerProcessDetails = async () => ({
+      running: true,
+      scanFailed: false,
+    });
+    manager.startServer = startServer;
+    const rconService = {
+      serverMessage: async () => ({ success: true }),
+      save: async () => ({ success: false, error: "disk full" }),
+      quit,
+    };
+
+    await expect(manager.restartServer(rconService, 0)).rejects.toThrow(
+      /Save before restart failed.*disk full/i,
+    );
+    expect(quit).not.toHaveBeenCalled();
+    expect(startServer).not.toHaveBeenCalled();
+  });
+
+  it('does not report a force stop as successful when kill confirmation times out', async () => {
+    const manager = new ServerManager();
+    manager.serverName = 'ServerA';
+    manager.configLoaded = true;
+    manager.getServerProcessDetails = async () => ({
+      owned: [{ pid: '111' }],
+      scanFailed: false,
+    });
+    manager._killPids = async () => ({ timedOut: true });
+
+    const result = await manager.stopServer(false);
+
+    expect(result).toMatchObject({
+      success: true,
+      confirmed: false,
+      timedOut: true,
+    });
+  });
+
   it('clears tracked process state when a graceful stop is accepted', () => {
     const manager = new ServerManager();
     manager.isRunning = true;

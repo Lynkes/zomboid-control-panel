@@ -13,6 +13,10 @@ export interface DashboardPerformancePoint {
   hostMemTotalGB?: number
   hostDiskUsedGB?: number
   hostDiskTotalGB?: number
+  /** Host swap/pagefile, GB. undefined means "could not be determined" --
+   * NOT the same as 0, which means swap is genuinely not configured. */
+  hostSwapUsedGB?: number
+  hostSwapTotalGB?: number
 }
 
 interface DashboardPerformanceChartsProps {
@@ -81,14 +85,20 @@ function DashboardPerformanceCharts({
   const hostTotal = latest?.hostMemTotalGB
   const diskUsed = latest?.hostDiskUsedGB
   const diskTotal = latest?.hostDiskTotalGB
+  const swapUsed = latest?.hostSwapUsedGB
+  const swapTotal = latest?.hostSwapTotalGB
 
   const pzMemoryGB = pzMem / 1024
   const pzRatio = maxMemoryGB != null ? pzMemoryGB / maxMemoryGB : null
   const hostRatio = hostUsed != null && hostTotal != null ? hostUsed / hostTotal : null
   const diskRatio = diskUsed != null && diskTotal != null && diskTotal > 0 ? diskUsed / diskTotal : null
+  // total === 0 (swap genuinely not configured) deliberately leaves this
+  // null -- a real, calm reading, not a ratio to alert on.
+  const swapRatio = swapUsed != null && swapTotal != null && swapTotal > 0 ? swapUsed / swapTotal : null
   const cpuAlert = cpu >= 90
   const hostRamAlert = hostRatio != null && hostRatio > 0.9
   const diskAlert = diskRatio != null && diskRatio >= 0.9
+  const swapAlert = swapRatio != null && swapRatio >= 0.9
 
   const metrics: Metric[] = useMemo(() => {
     const m: Metric[] = []
@@ -145,6 +155,26 @@ function DashboardPerformanceCharts({
       })
     }
 
+    // Answers "is that host-memory percentage fine or an emergency" -- if
+    // swap is absorbing the pressure, high RAM usage is normal; if swap is
+    // also exhausted (or there simply isn't any), the next allocation has
+    // nowhere left to go. Placed right after Host memory since it exists to
+    // interpret that number. Shown whenever a reading exists, including a
+    // real total===0 ("no swap configured" IS the answer here) -- hidden
+    // only when the lookup could not determine an answer at all (undefined).
+    if (swapUsed != null && swapTotal != null) {
+      m.push({
+        key: 'swap',
+        label: t('hostSwap'),
+        value: `${swapUsed.toFixed(1)} / ${swapTotal}`,
+        unit: 'GB',
+        dataKey: 'hostSwapUsedGB',
+        alert: swapAlert,
+        tone: loadTone(swapRatio),
+        ratio: swapRatio,
+      })
+    }
+
     // A full disk corrupts saves and kills backups silently, so it earns a row
     // even though it barely moves from one sample to the next.
     if (diskUsed != null && diskTotal != null) {
@@ -161,7 +191,7 @@ function DashboardPerformanceCharts({
     }
 
     return m
-  }, [t, performanceHistory, serverRunning, maxMemoryGB, latest, pzMem, pzMemoryGB, cpu, hostUsed, hostTotal, diskUsed, diskTotal, cpuAlert, hostRamAlert, diskAlert, pzRatio, hostRatio, diskRatio])
+  }, [t, performanceHistory, serverRunning, maxMemoryGB, latest, pzMem, pzMemoryGB, cpu, hostUsed, hostTotal, diskUsed, diskTotal, swapUsed, swapTotal, cpuAlert, hostRamAlert, diskAlert, swapAlert, pzRatio, hostRatio, diskRatio, swapRatio])
 
   if (!latest) return null
 

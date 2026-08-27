@@ -100,6 +100,51 @@ describe("POST /api/players/add-item item ID validation", () => {
     expect(addItem).not.toHaveBeenCalled();
     expect(response.status).toHaveBeenCalledWith(400);
   });
+
+  it("returns 400 for a missing body instead of throwing", async () => {
+    const response = createResponse();
+
+    await getHandler("/add-item")(
+      createRequest(null),
+      response,
+    );
+
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(addItem).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/players/add-vehicle-at coordinate validation", () => {
+  it("rejects blank coordinate fields instead of converting them to zero", async () => {
+    const addVehicleAt = vi.fn();
+    const response = createResponse();
+
+    await getHandler("/add-vehicle-at")(
+      {
+        body: { vehicle: "Base.CarNormal", x: " ", y: "", z: " " },
+        app: { get: () => ({ addVehicleAt }) },
+      },
+      response,
+    );
+
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(addVehicleAt).not.toHaveBeenCalled();
+  });
+
+  it("passes validated coordinates as numbers", async () => {
+    const addVehicleAt = vi.fn().mockResolvedValue({ success: true });
+    const response = createResponse();
+
+    await getHandler("/add-vehicle-at")(
+      {
+        body: { vehicle: "Base.CarNormal", x: "10.5", y: "20", z: "1" },
+        app: { get: () => ({ addVehicleAt }) },
+      },
+      response,
+    );
+
+    expect(addVehicleAt).toHaveBeenCalledWith("Base.CarNormal", 10.5, 20, 1);
+  });
 });
 
 describe("DELETE /api/players/notes/:playerName", () => {
@@ -116,6 +161,8 @@ describe("DELETE /api/players/notes/:playerName", () => {
     expect(response.json).toHaveBeenCalledWith({
       success: false,
       error: "Player note not found",
+      // 2026-08-26 bug hunt round 2: players.js adopted the ErrorCode registry.
+      code: "PLAYERS_NOTE_NOT_FOUND",
     });
   });
 });

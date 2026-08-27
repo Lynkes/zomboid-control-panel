@@ -1,4 +1,7 @@
 {
+  "permissions": {
+    "noManage": "Cleaning up map chunks requires the chunks.manage permission, which this role doesn't have."
+  },
   "pageHeader": {
     "title": "Map Cleanup",
     "description": "Reset damaged or over-looted map areas so the world can regenerate cleanly",
@@ -86,8 +89,8 @@
     "scanningChunks": "Scanning map… {{count}} chunks",
     "loadingChunks": "Loading chunks…",
     "noChunksTitle": "No chunks found",
-    "noChunksDesc": "Map folder may be empty or the path needs adjusting.",
-    "ariaLabel": "Chunk map — select areas to clean up"
+    "noChunksDesc": "This save's map folder may be empty, or the configured path needs adjusting. Try a different save from the list above, or check the path in Settings.",
+    "ariaLabel": "Chunk map. Selecting areas to clean up requires a mouse or touchscreen; this map is not keyboard-operable."
   },
   "help": {
     "hide": "Hide help",
@@ -140,6 +143,8 @@
     "loadSavesFailedTitle": "Could Not Load Saves",
     "loadSavesFailedFallback": "Failed to load save folders.",
     "pathSavedTitle": "Path Saved",
+    "liveVehicleCleanupNoPermissionTitle": "Live Vehicle Cleanup Skipped",
+    "liveVehicleCleanupNoPermissionDesc": "Chunks and their vehicle records were deleted. Removing already-loaded vehicles from the live server needs the bridge.command permission, which this role doesn't have -- an admin can grant it, or a stale vehicle will disappear on its own next time the area reloads.",
     "pathSavedServerDesc": "Saved to the active server config — the panel will use this path next time.",
     "pathSavedPanelDesc": "Saved to panel settings.",
     "pathSaveFailedTitle": "Could Not Save Path",

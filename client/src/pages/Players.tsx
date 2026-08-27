@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Trans, useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { reportClientError } from '@/lib/client-errors'
+import { getUserErrorMessage } from '@/lib/errorMessage'
 import {
   Users,
   UserX,
@@ -86,9 +87,12 @@ import { useToast } from '@/components/ui/use-toast'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { EmptyState } from '@/components/EmptyState'
 import { SpawnBrowser } from '@/components/SpawnBrowser'
+import { NumberInput } from '@/components/NumberInput'
 import { playersApi, panelBridgeApi, configApi } from '@/lib/api'
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
 import { PageHeader } from '@/components/PageHeader'
+import { DisabledReason } from '@/components/DisabledReason'
+import { useAuth } from '@/contexts/AuthContext'
 import { cn, copyText } from '@/lib/utils'
 
 interface PerkChoice {
@@ -131,6 +135,34 @@ const ACCESS_LEVELS = ['admin', 'moderator', 'overseer', 'gm', 'observer', 'user
 export function sanitizeSteamId(value: string): string {
   return value.replace(/\D/g, '').slice(0, 17);
 }
+
+// Whether the whitelist has loaded successfully and confirms the given
+// player is NOT on it -- used to gate "Remove from whitelist". Fails open
+// (returns false, leaving the control enabled) while the fetch is still in
+// flight or failed, since a wrong disable here costs a real capability
+// (can't remove someone who genuinely is whitelisted, no explanation)
+// while a wrong enable costs one failed click and an error message.
+export function isPlayerConfirmedNotWhitelisted(
+  selectedPlayer: string | null,
+  whitelistAccounts: Array<{ username: string }>,
+  whitelistLoading: boolean,
+  whitelistError: string | null,
+): boolean {
+  return (
+    !whitelistLoading &&
+    !whitelistError &&
+    !!selectedPlayer &&
+    !whitelistAccounts.some(account => account.username === selectedPlayer)
+  );
+}
+
+// The activity log table has no pagination -- when a fetch returns exactly
+// this many rows, older entries may exist and be silently excluded (the
+// server retains up to 1000, see server/database/init.js). Shown as a hint
+// rather than a hard truth ("logs.length === LIMIT" could also mean the
+// real total happens to equal the limit) because there's no cheap way to
+// distinguish the two without a separate total-count query.
+const ACTIVITY_LOG_FETCH_LIMIT = 200
 
 function getAccessLevelLabels(t: TFunction): Record<string, string> {
   return {
@@ -272,8 +304,25 @@ function ActionTile({
 }
 
 export default function Players() {
-  const { t } = useTranslation('players')
+  const { t, i18n } = useTranslation('players')
   const accessLevelLabels = useMemo(() => getAccessLevelLabels(t), [t])
+  // Two server gates, not three -- kick/ban/whitelist/access-level require
+  // players.moderate; teleport/spawn/character import-export AND
+  // godmode/invisible/noclip/heal all require players.gm_tools.
+  // godmode/invisible/noclip/heal route through the generic PanelBridge
+  // passthrough (POST /panel-bridge/command), but as of an operator ruling
+  // (bug-hunt-2026-08-27, reverses server commit c3083d5 from earlier the
+  // same day) players.gm_tools ALONE gates them there too -- bridge.command
+  // is not required. c3083d5 had briefly made it "gm_tools AND
+  // bridge.command"; the operator ruled bridge.command was only ever an
+  // accidental side effect of these four routing through the passthrough,
+  // not a deliberate second gate, and requiring it would deny Technician
+  // (who holds gm_tools but not bridge.command by default) the GM tools
+  // it's meant to have. See server/routes/panelBridge.js's
+  // BRIDGE_ACTION_CAPABILITY / GM_TOOLS_ONLY_ACTIONS.
+  const { can } = useAuth()
+  const canModerate = can('players.moderate')
+  const canGmTools = can('players.gm_tools')
   const [players, setPlayers] = useState<Player[]>([])
   const [perks, setPerks] = useState<PerkChoice[]>([])
   const [selectedPlayer, setSelectedPlayer] = useState<string>('')
@@ -341,6 +390,8 @@ export default function Players() {
   const [importing, setImporting] = useState(false)
   const [copied, setCopied] = useState(false)
   const [importExportOpen, setImportExportOpen] = useState(false)
+  const [importConfirmOpen, setImportConfirmOpen] = useState(false)
+  const [pendingImportData, setPendingImportData] = useState<Record<string, unknown> | null>(null)
 
   // Bridge status for character export/import
   const [bridgeConnected, setBridgeConnected] = useState(false)
@@ -485,7 +536,7 @@ export default function Players() {
   const fetchActivityLogs = useCallback(async (playerFilter?: string) => {
     setLogsLoading(true)
     try {
-      const data = await playersApi.getActivityLogs(playerFilter, 200)
+      const data = await playersApi.getActivityLogs(playerFilter, ACTIVITY_LOG_FETCH_LIMIT)
       if (data.logs) {
         setActivityLogs(data.logs)
       }
@@ -557,7 +608,7 @@ export default function Players() {
     } catch (error) {
       toast({
         title: t('toasts.errorTitle'),
-        description: error instanceof Error ? error.message : t('toasts.saveNoteFailedFallback'),
+        description: getUserErrorMessage(error, t('toasts.saveNoteFailedFallback')),
         variant: 'destructive',
       })
     } finally {
@@ -586,7 +637,7 @@ export default function Players() {
     } catch (error) {
       toast({
         title: t('toasts.errorTitle'),
-        description: error instanceof Error ? error.message : t('toasts.deleteNoteFailedFallback'),
+        description: getUserErrorMessage(error, t('toasts.deleteNoteFailedFallback')),
         variant: 'destructive',
       })
     } finally {
@@ -742,7 +793,7 @@ export default function Players() {
     } catch (error) {
       toast({
         title: t('toasts.errorTitle'),
-        description: error instanceof Error ? error.message : t('toasts.actionFailedFallback'),
+        description: getUserErrorMessage(error, t('toasts.actionFailedFallback')),
         variant: 'destructive',
       })
     } finally {
@@ -758,6 +809,43 @@ export default function Players() {
       setSelectedPlayer('')
       searchInputRef.current?.focus()
     })
+  }
+
+  // Overwrites the target player's XP/perks/skills/traits/inventory/wornItems --
+  // split out of the Apply button so the confirm dialog can hold the parsed
+  // data until the operator confirms the target player by name.
+  const runCharacterImport = async (data: Record<string, unknown>) => {
+    setImporting(true)
+    try {
+      const { panelBridgeApi } = await import('@/lib/api')
+      const response = await panelBridgeApi.importCharacter(selectedPlayer, data)
+      const restored = response.data?.restored
+      // Submitted a non-empty perks/inventory section but restored
+      // nothing from it: the Lua side counts honestly (see
+      // PanelBridge.lua importPlayerData) but a caller that only
+      // reads the counts from the description, not the title,
+      // would still see an unconditionally success-styled toast.
+      const submittedPerks = data && typeof data.perks === 'object' && data.perks !== null && Object.keys(data.perks).length > 0
+      const submittedItems = Array.isArray((data as { inventory?: unknown[] })?.inventory) && (data as { inventory: unknown[] }).inventory.length > 0
+      const noneApplied = (restored?.perks ?? 0) === 0 && (restored?.items ?? 0) === 0 && (submittedPerks || submittedItems)
+      toast({
+        title: t(noneApplied ? 'toasts.characterImportedTitleNoneApplied' : 'toasts.characterImportedTitle'),
+        description: noneApplied
+          ? t('toasts.characterImportedDescNoneApplied', { player: selectedPlayer })
+          : t('toasts.characterImportedDesc', { perks: restored?.perks ?? 0, items: restored?.items ?? 0, player: selectedPlayer }),
+      })
+      setImportCharacterData('')
+    } catch (error) {
+      toast({
+        title: t('toasts.importFailedTitle'),
+        description: error instanceof Error ? error.message : t('toasts.importFailedFallback'),
+        variant: 'destructive',
+      })
+    } finally {
+      setImporting(false)
+      setImportConfirmOpen(false)
+      setPendingImportData(null)
+    }
   }
 
   const handleBan = () => {
@@ -917,7 +1005,7 @@ export default function Players() {
     } catch (error) {
       toast({
         title: t('toasts.giveItemFailedTitle'),
-        description: error instanceof Error ? error.message : t('toasts.giveItemFailedFallback'),
+        description: getUserErrorMessage(error, t('toasts.giveItemFailedFallback')),
         variant: 'destructive',
       })
       throw error
@@ -942,7 +1030,7 @@ export default function Players() {
     } catch (error) {
       toast({
         title: t('toasts.vehicleSpawnFailedTitle'),
-        description: error instanceof Error ? error.message : t('toasts.vehicleSpawnFailedFallback'),
+        description: getUserErrorMessage(error, t('toasts.vehicleSpawnFailedFallback')),
         variant: 'destructive',
       })
       throw error
@@ -1025,6 +1113,11 @@ export default function Players() {
     [selectedPlayer, playerPowers]
   )
 
+  const selectedPlayerConfirmedNotWhitelisted = useMemo(() =>
+    isPlayerConfirmedNotWhitelisted(selectedPlayer, whitelistAccounts, whitelistLoading, whitelistError),
+    [selectedPlayer, whitelistAccounts, whitelistLoading, whitelistError]
+  )
+
   return (
     <div className="space-y-6 page-transition">
       {/* Header */}
@@ -1036,7 +1129,7 @@ export default function Players() {
           <div className="flex items-center gap-2">
             {lastRefresh && (
               <span className="text-xs text-muted-foreground">
-                {t('pageHeader.updated', { time: lastRefresh.toLocaleTimeString() })}
+                {t('pageHeader.updated', { time: lastRefresh.toLocaleTimeString(i18n.language) })}
               </span>
             )}
             <Button onClick={() => { fetchPlayers(); void fetchWhitelist() }} variant="outline" size="sm" className="gap-2">
@@ -1092,10 +1185,12 @@ export default function Players() {
           caption={t('summary.rosterCaption')}
         />
         {bannedSteamIds.length > 0 && (
+          <DisabledReason className="flex-1" reason={!canModerate ? t('permissions.noModerate') : null}>
           <button
             type="button"
             onClick={() => setUnbanSteamIdDialogOpen(true)}
-            className="group relative flex flex-1 items-center gap-3 overflow-hidden rounded-md border border-border/55 bg-card/70 px-4 py-3 text-left shadow-sm transition-colors hover:border-destructive/45 hover:bg-destructive/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+            disabled={!canModerate}
+            className="group relative flex flex-1 items-center gap-3 overflow-hidden rounded-md border border-border/55 bg-card/70 px-4 py-3 text-left shadow-sm transition-colors hover:border-destructive/45 hover:bg-destructive/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 disabled:opacity-50 disabled:cursor-not-allowed"
             aria-label={t('summary.bannedAria', { count: bannedSteamIds.length })}
           >
             <span aria-hidden="true" className="absolute inset-y-0 left-0 w-[2px] bg-destructive/60" />
@@ -1110,6 +1205,7 @@ export default function Players() {
               <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.22em] text-destructive/80">{t('summary.bannedLabel')}</p>
             </div>
           </button>
+          </DisabledReason>
         )}
       </div>
 
@@ -1349,7 +1445,7 @@ export default function Players() {
                               : 'hover:bg-muted/50 border-transparent hover:border-border'
                           }`}
                           onClick={() => setSelectedPlayer(name)}
-                          title={t('roster.lastSeenTitle', { when: lastSeen ? lastSeen.toLocaleString() : t('roster.lastSeenUnknown') })}
+                          title={t('roster.lastSeenTitle', { when: lastSeen ? lastSeen.toLocaleString(i18n.language) : t('roster.lastSeenUnknown') })}
                         >
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2 min-w-0">
@@ -1367,7 +1463,7 @@ export default function Players() {
                               </span>
                               {lastSeen && (
                                 <span className="text-[10px] text-muted-foreground/70">
-                                  {lastSeen.toLocaleDateString()}
+                                  {lastSeen.toLocaleDateString(i18n.language)}
                                 </span>
                               )}
                             </div>
@@ -1406,22 +1502,26 @@ export default function Players() {
                               <p className="text-[11px] text-muted-foreground truncate" title={ban.reason || ''}>
                                 {ban.reason ? `\u201c${ban.reason}\u201d` : ''}
                                 {ban.reason && ban.banned_at ? ' \u00b7 ' : ''}
-                                {ban.banned_at ? new Date(ban.banned_at).toLocaleDateString() : ''}
+                                {ban.banned_at ? new Date(ban.banned_at).toLocaleDateString(i18n.language) : ''}
                               </p>
                             )}
                           </div>
+                          <DisabledReason reason={!canModerate ? t('permissions.noModerate') : null}>
                           <Button
                             variant="outline"
                             size="sm"
                             className="shrink-0"
+                            disabled={!canModerate}
                             onClick={() => {
                               setUnbanSteamId(ban.steamId)
                               setUnbanSteamIdDialogOpen(true)
                             }}
+                            // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Unban {steamId}"); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                             title={t('roster.unbanTitle', { steamId: ban.steamId })}
                           >
                             {t('roster.unbanButton')}
                           </Button>
+                          </DisabledReason>
                         </div>
                       </div>
                     ))}
@@ -1461,21 +1561,24 @@ export default function Players() {
                               </div>
                               <div className="mt-1 flex flex-wrap gap-x-2 text-[10px] text-muted-foreground">
                                 {account.steamId && <span className="font-mono">{account.steamId}</span>}
-                                {account.lastConnection && <span>{t('roster.whitelistLastConnection', { date: new Date(account.lastConnection).toLocaleDateString() })}</span>}
+                                {account.lastConnection && <span>{t('roster.whitelistLastConnection', { date: new Date(account.lastConnection).toLocaleDateString(i18n.language) })}</span>}
                                 <span>{online ? t('roster.whitelistOnline') : t('roster.whitelistOffline')}</span>
                               </div>
                             </div>
+                            <DisabledReason reason={!canModerate ? t('permissions.noModerate') : null}>
                             <Button
                               variant="outline"
                               size="sm"
                               className="shrink-0"
                               onClick={() => handleAction(t('actions.removeFromWhitelist'), () => playersApi.removeFromWhitelist(account.username), () => { void fetchWhitelist() })}
-                              disabled={loading}
+                              disabled={loading || !canModerate}
+                              // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Remove {username} from whitelist"); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                               title={t('roster.removeTitle', { username: account.username })}
                             >
                               <UserMinus className="mr-1.5 h-3.5 w-3.5" />
                               {t('roster.removeButton')}
                             </Button>
+                            </DisabledReason>
                           </div>
                         </div>
                       )
@@ -1499,23 +1602,28 @@ export default function Players() {
                       className="h-8 font-mono text-xs"
                       aria-label={t('roster.allowedSteamIdAria')}
                     />
-                    <Button onClick={handleAddAllowedSteamId} disabled={loading || allowedSteamIdInput.length !== 17} size="sm" className="shrink-0">
+                    <DisabledReason reason={!canModerate ? t('permissions.noModerate') : null}>
+                    <Button onClick={handleAddAllowedSteamId} disabled={loading || !canModerate || allowedSteamIdInput.length !== 17} size="sm" className="shrink-0">
                       <Plus className="mr-1.5 h-3.5 w-3.5" /> {t('roster.addButton')}
                     </Button>
+                    </DisabledReason>
                   </div>
                   {allowedSteamIds.filter(id => !playerSearchFilter.trim() || id.includes(playerSearchFilter.trim())).map((steamId) => (
                     <div key={steamId} className="flex items-center justify-between gap-2 rounded-md border border-transparent px-2 py-1.5 hover:border-border hover:bg-muted/30">
                       <span className="font-mono text-xs">{steamId}</span>
+                      <DisabledReason reason={!canModerate ? t('permissions.noModerate') : null}>
                       <Button
                         variant="ghost"
                         size="sm"
                         className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
                         onClick={() => handleAction(t('actions.removeAllowedSteamId'), () => playersApi.removeAllowedSteamId(steamId), () => { void fetchWhitelist() })}
-                        disabled={loading}
+                        disabled={loading || !canModerate}
+                        // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Remove allowed Steam ID {steamId}"); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                         title={t('roster.removeAllowedTitle', { steamId })}
                       >
                         <Trash2 className="mr-1 h-3.5 w-3.5" /> {t('roster.removeAllowedButton')}
                       </Button>
+                      </DisabledReason>
                     </div>
                   ))}
                 </div>
@@ -1604,7 +1712,7 @@ export default function Players() {
                                 </span>
                                 {stat.last_seen && (
                                   <span className="text-muted-foreground/70">
-                                    {t('dossier.lastLabel')} <span className="text-foreground/80">{new Date(stat.last_seen).toLocaleDateString()}</span>
+                                    {t('dossier.lastLabel')} <span className="text-foreground/80">{new Date(stat.last_seen).toLocaleDateString(i18n.language)}</span>
                                   </span>
                                 )}
                               </>
@@ -1646,26 +1754,34 @@ export default function Players() {
 
                         {/* Quick danger actions */}
                         <div className="flex shrink-0 items-center gap-1.5">
+                          <DisabledReason reason={!canModerate ? t('permissions.noModerate') : null}>
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={() => setKickDialogOpen(true)}
+                            disabled={!canModerate}
                             className="h-8 gap-1.5 border-amber-500/40 text-xs font-medium text-amber-300 hover:border-amber-500/60 hover:bg-amber-500/10 hover:text-amber-200"
+                            // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Kick player"); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                             title={t('dossier.kickTitle')}
                           >
                             <UserX className="h-3.5 w-3.5" />
                             <span className="hidden sm:inline">{t('dossier.kickButton')}</span>
                           </Button>
+                          </DisabledReason>
+                          <DisabledReason reason={!canModerate ? t('permissions.noModerate') : null}>
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={() => setBanDialogOpen(true)}
+                            disabled={!canModerate}
                             className="h-8 gap-1.5 border-destructive/45 text-xs font-medium text-destructive hover:border-destructive/65 hover:bg-destructive/10"
+                            // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Ban player"); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                             title={t('dossier.banTitle')}
                           >
                             <Ban className="h-3.5 w-3.5" />
                             <span className="hidden sm:inline">{t('dossier.banButton')}</span>
                           </Button>
+                          </DisabledReason>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button variant="outline" size="sm" className="h-8 w-8 p-0" aria-label={t('dossier.moreActionsAria')}>
@@ -1673,45 +1789,58 @@ export default function Players() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => handleGodMode(!selectedPlayerPowers?.godMode)} disabled={loading}>
-                                <Ghost className="w-4 h-4 mr-2" />
-                                {selectedPlayerPowers?.godMode ? t('dossier.disableGodMode') : t('dossier.enableGodMode')}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleInvisible(!selectedPlayerPowers?.invisible)} disabled={loading}>
-                                <Eye className="w-4 h-4 mr-2" />
-                                {selectedPlayerPowers?.invisible ? t('dossier.disableInvisible') : t('dossier.enableInvisible')}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleNoclip(!selectedPlayerPowers?.noclip)} disabled={loading}>
-                                <Layers className="w-4 h-4 mr-2" />
-                                {selectedPlayerPowers?.noclip ? t('dossier.disableNoclip') : t('dossier.enableNoclip')}
-                              </DropdownMenuItem>
+                              <DisabledReason className="w-full" reason={!canGmTools ? t('permissions.noGmTools') : (!bridgeConnected ? t('powers.bridgeRequiredTooltip') : null)}>
+                                <DropdownMenuItem onClick={() => { if (!canGmTools) return; handleGodMode(!selectedPlayerPowers?.godMode) }} disabled={loading || !bridgeConnected || !canGmTools}>
+                                  <Ghost className="w-4 h-4 mr-2" />
+                                  {selectedPlayerPowers?.godMode ? t('dossier.disableGodMode') : t('dossier.enableGodMode')}
+                                </DropdownMenuItem>
+                              </DisabledReason>
+                              <DisabledReason className="w-full" reason={!canGmTools ? t('permissions.noGmTools') : (!bridgeConnected ? t('powers.bridgeRequiredTooltip') : null)}>
+                                <DropdownMenuItem onClick={() => { if (!canGmTools) return; handleInvisible(!selectedPlayerPowers?.invisible) }} disabled={loading || !bridgeConnected || !canGmTools}>
+                                  <Eye className="w-4 h-4 mr-2" />
+                                  {selectedPlayerPowers?.invisible ? t('dossier.disableInvisible') : t('dossier.enableInvisible')}
+                                </DropdownMenuItem>
+                              </DisabledReason>
+                              <DisabledReason className="w-full" reason={!canGmTools ? t('permissions.noGmTools') : (!bridgeConnected ? t('powers.bridgeRequiredTooltip') : null)}>
+                                <DropdownMenuItem onClick={() => { if (!canGmTools) return; handleNoclip(!selectedPlayerPowers?.noclip) }} disabled={loading || !bridgeConnected || !canGmTools}>
+                                  <Layers className="w-4 h-4 mr-2" />
+                                  {selectedPlayerPowers?.noclip ? t('dossier.disableNoclip') : t('dossier.enableNoclip')}
+                                </DropdownMenuItem>
+                              </DisabledReason>
                               <DropdownMenuSeparator />
+                              <DisabledReason className="w-full" reason={!canModerate ? t('permissions.noModerate') : null}>
                               <DropdownMenuItem
                                 onClick={() => {
+                                  if (!canModerate) return
                                   setAddUserUsername(selectedPlayer)
                                   setAddUserPassword('')
                                   setAddUserDialogOpen(true)
                                 }}
-                                disabled={loading}
+                                disabled={loading || !canModerate}
                               >
                                 <UserPlus className="w-4 h-4 mr-2" />
                                 {t('dossier.addToWhitelist')}
                               </DropdownMenuItem>
+                              </DisabledReason>
+                              <DisabledReason className="w-full" reason={!canModerate ? t('permissions.noModerate') : null}>
                               <DropdownMenuItem
-                                onClick={() => handleAction(t('actions.removeFromWhitelist'), () => playersApi.removeFromWhitelist(selectedPlayer), () => { void fetchWhitelist() })}
-                                disabled={loading}
+                                onClick={() => { if (!canModerate) return; handleAction(t('actions.removeFromWhitelist'), () => playersApi.removeFromWhitelist(selectedPlayer), () => { void fetchWhitelist() }) }}
+                                disabled={loading || !canModerate || selectedPlayerConfirmedNotWhitelisted}
                               >
                                 <UserMinus className="w-4 h-4 mr-2" />
                                 {t('dossier.removeFromWhitelist')}
                               </DropdownMenuItem>
+                              </DisabledReason>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onClick={() => setImportExportOpen(true)}
-                                disabled={!bridgeConnected}
-                              >
-                                <Download className="w-4 h-4 mr-2" />
-                                {t('dossier.importExportCharacter')}
-                              </DropdownMenuItem>
+                              <DisabledReason className="w-full" reason={!canGmTools ? t('permissions.noGmTools') : (!bridgeConnected ? t('powers.bridgeRequiredTooltip') : null)}>
+                                <DropdownMenuItem
+                                  onClick={() => { if (!canGmTools) return; setImportExportOpen(true) }}
+                                  disabled={!bridgeConnected || !canGmTools}
+                                >
+                                  <Download className="w-4 h-4 mr-2" />
+                                  {t('dossier.importExportCharacter')}
+                                </DropdownMenuItem>
+                              </DisabledReason>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </div>
@@ -1752,9 +1881,10 @@ export default function Players() {
                 {selectedPlayer ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                   {/* Kick */}
+                  <DisabledReason className="w-full" reason={selectedPlayer && !canModerate ? t('permissions.noModerate') : null}>
                   <Dialog open={kickDialogOpen} onOpenChange={setKickDialogOpen}>
                     <DialogTrigger asChild>
-                      <button type="button" disabled={!selectedPlayer} className="block h-auto w-full p-0 text-left">
+                      <button type="button" disabled={!selectedPlayer || !canModerate} className="block h-auto w-full p-0 text-left">
                         <ActionTile icon={<UserX className="w-4 h-4" />} label={t('dossier.kickButton')} description={t('actionTiles.kickDesc')} disabled={!selectedPlayer} emphasis="warning" />
                       </button>
                     </DialogTrigger>
@@ -1784,11 +1914,13 @@ export default function Players() {
                       </DialogFooter>
                     </DialogContent>
                   </Dialog>
+                  </DisabledReason>
 
                   {/* Ban */}
+                  <DisabledReason className="w-full" reason={selectedPlayer && !canModerate ? t('permissions.noModerate') : null}>
                   <Dialog open={banDialogOpen} onOpenChange={setBanDialogOpen}>
                     <DialogTrigger asChild>
-                      <button type="button" disabled={!selectedPlayer} className="block h-auto w-full p-0 text-left">
+                      <button type="button" disabled={!selectedPlayer || !canModerate} className="block h-auto w-full p-0 text-left">
                         <ActionTile icon={<Ban className="w-4 h-4" />} label={t('dossier.banButton')} description={t('actionTiles.banDesc')} disabled={!selectedPlayer} emphasis="danger" />
                       </button>
                     </DialogTrigger>
@@ -1831,6 +1963,7 @@ export default function Players() {
                       </DialogFooter>
                     </DialogContent>
                   </Dialog>
+                  </DisabledReason>
 
                   {/* Ban Confirmation */}
                   <AlertDialog open={banConfirmOpen} onOpenChange={setBanConfirmOpen}>
@@ -1849,7 +1982,8 @@ export default function Players() {
                       <AlertDialogFooter>
                         <AlertDialogCancel>{t('banConfirm.cancel')}</AlertDialogCancel>
                         <AlertDialogAction
-                          onClick={handleBan}
+                          disabled={loading}
+                          onClick={(e) => { e.preventDefault(); handleBan() }}
                           className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                         >
                           {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
@@ -1860,9 +1994,10 @@ export default function Players() {
                   </AlertDialog>
 
                   {/* Access Level */}
+                  <DisabledReason className="w-full" reason={selectedPlayer && !canModerate ? t('permissions.noModerate') : null}>
                   <Dialog>
                     <DialogTrigger asChild>
-                      <button type="button" disabled={!selectedPlayer} className="block h-auto w-full p-0 text-left">
+                      <button type="button" disabled={!selectedPlayer || !canModerate} className="block h-auto w-full p-0 text-left">
                         <ActionTile icon={<Shield className="w-4 h-4" />} label={t('actionTiles.accessLevelLabel')} description={t('actionTiles.accessLevelDesc')} disabled={!selectedPlayer} emphasis="primary" />
                       </button>
                     </DialogTrigger>
@@ -1895,15 +2030,17 @@ export default function Players() {
                       </DialogFooter>
                     </DialogContent>
                   </Dialog>
+                  </DisabledReason>
 
                   {/* Teleport — requires PanelBridge; syncs via teleportTo + setNetworkTeleportEnabled.
                       Note: known unreliable in B42 multiplayer; we still surface the dialog so admins can try. */}
+                  <DisabledReason className="w-full" reason={!canGmTools ? t('permissions.noGmTools') : null}>
                   <Dialog open={teleportDialogOpen} onOpenChange={(open) => {
                     setTeleportDialogOpen(open)
                     if (open && !teleportTarget) setTeleportTarget(selectedPlayer)
                   }}>
                     <DialogTrigger asChild>
-                      <button type="button" className="block h-auto w-full p-0 text-left">
+                      <button type="button" disabled={!canGmTools} className="block h-auto w-full p-0 text-left">
                         <ActionTile icon={<MapPin className="w-4 h-4" />} label={t('actionTiles.teleportLabel')} description={t('actionTiles.teleportDesc')} />
                       </button>
                     </DialogTrigger>
@@ -1997,6 +2134,7 @@ export default function Players() {
                       </DialogFooter>
                     </DialogContent>
                   </Dialog>
+                  </DisabledReason>
                 </div>
                 ) : null}
 
@@ -2009,9 +2147,11 @@ export default function Players() {
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                   {/* Voice Ban */}
+                  <DisabledReason className="w-full" reason={!canModerate ? t('permissions.noModerate') : null}>
                   <Dialog open={voiceBanDialogOpen} onOpenChange={setVoiceBanDialogOpen}>
                     <DialogTrigger asChild>
-                      <button type="button" title={t('actionTiles.voiceBanTooltip')} className="block h-auto w-full p-0 text-left">
+                      {/* eslint-disable-next-line local/no-dead-disabled-title -- pure hint (explains what voice-banning does); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27. */}
+                      <button type="button" disabled={!canModerate} title={t('actionTiles.voiceBanTooltip')} className="block h-auto w-full p-0 text-left">
                         <ActionTile icon={<MicOff className="w-4 h-4" />} label={t('actionTiles.voiceBanLabel')} compact />
                       </button>
                     </DialogTrigger>
@@ -2066,11 +2206,14 @@ export default function Players() {
                       </DialogFooter>
                     </DialogContent>
                   </Dialog>
+                  </DisabledReason>
 
                   {/* SteamID Ban */}
+                  <DisabledReason className="w-full" reason={!canModerate ? t('permissions.noModerate') : null}>
                   <Dialog open={steamIdBanDialogOpen} onOpenChange={setSteamIdBanDialogOpen}>
                     <DialogTrigger asChild>
-                      <button type="button" title={t('actionTiles.steamIdBanTooltip')} className="block h-auto w-full p-0 text-left">
+                      {/* eslint-disable-next-line local/no-dead-disabled-title -- pure hint (explains what SteamID banning does); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27. */}
+                      <button type="button" disabled={!canModerate} title={t('actionTiles.steamIdBanTooltip')} className="block h-auto w-full p-0 text-left">
                         <ActionTile icon={<Ban className="w-4 h-4" />} label={t('actionTiles.steamIdBanLabel')} emphasis="danger" compact />
                       </button>
                     </DialogTrigger>
@@ -2117,11 +2260,14 @@ export default function Players() {
                       </DialogFooter>
                     </DialogContent>
                   </Dialog>
+                  </DisabledReason>
 
                   {/* Add User */}
+                  <DisabledReason className="w-full" reason={!canModerate ? t('permissions.noModerate') : null}>
                   <Dialog open={addUserDialogOpen} onOpenChange={setAddUserDialogOpen}>
                     <DialogTrigger asChild>
-                      <button type="button" title={t('actionTiles.addUserTooltip')} className="block h-auto w-full p-0 text-left">
+                      {/* eslint-disable-next-line local/no-dead-disabled-title -- pure hint (explains what adding a user does); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27. */}
+                      <button type="button" disabled={!canModerate} title={t('actionTiles.addUserTooltip')} className="block h-auto w-full p-0 text-left">
                         <ActionTile icon={<UserPlus className="w-4 h-4" />} label={t('actionTiles.addUserLabel')} compact />
                       </button>
                     </DialogTrigger>
@@ -2167,11 +2313,14 @@ export default function Players() {
                       </DialogFooter>
                     </DialogContent>
                   </Dialog>
+                  </DisabledReason>
 
                   {/* Unban */}
+                  <DisabledReason className="w-full" reason={!canModerate ? t('permissions.noModerate') : null}>
                   <Dialog open={unbanDialogOpen} onOpenChange={setUnbanDialogOpen}>
                     <DialogTrigger asChild>
-                      <button type="button" title={t('actionTiles.unbanTooltip')} className="block h-auto w-full p-0 text-left">
+                      {/* eslint-disable-next-line local/no-dead-disabled-title -- pure hint (explains what unbanning by username does); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27. */}
+                      <button type="button" disabled={!canModerate} title={t('actionTiles.unbanTooltip')} className="block h-auto w-full p-0 text-left">
                         <ActionTile icon={<UserPlus className="w-4 h-4" />} label={t('actionTiles.unbanLabel')} compact />
                       </button>
                     </DialogTrigger>
@@ -2195,15 +2344,18 @@ export default function Players() {
                       </DialogFooter>
                     </DialogContent>
                   </Dialog>
+                  </DisabledReason>
 
                   {/* Unban SteamID */}
+                  <DisabledReason className="w-full" reason={!canModerate ? t('permissions.noModerate') : null}>
                   <Dialog open={unbanSteamIdDialogOpen} onOpenChange={(open) => {
                     setUnbanSteamIdDialogOpen(open)
                     if (open) fetchBannedSteamIds()
                     else setUnbanSteamId('')
                   }}>
                     <DialogTrigger asChild>
-                      <button type="button" title={t('actionTiles.unbanSteamIdTooltip')} className="block h-auto w-full p-0 text-left">
+                      {/* eslint-disable-next-line local/no-dead-disabled-title -- pure hint (explains what lifting a SteamID ban does); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27. */}
+                      <button type="button" disabled={!canModerate} title={t('actionTiles.unbanSteamIdTooltip')} className="block h-auto w-full p-0 text-left">
                         <ActionTile icon={<UserPlus className="w-4 h-4" />} label={t('actionTiles.unbanSteamIdLabel')} compact />
                       </button>
                     </DialogTrigger>
@@ -2223,7 +2375,7 @@ export default function Players() {
                                 {bannedSteamIds.map((ban) => (
                                   <SelectItem key={ban.steamId} value={ban.steamId}>
                                     {ban.steamId}
-                                    {ban.banned_at && <span className="ml-2 text-xs text-muted-foreground">{new Date(ban.banned_at).toLocaleDateString()}</span>}
+                                    {ban.banned_at && <span className="ml-2 text-xs text-muted-foreground">{new Date(ban.banned_at).toLocaleDateString(i18n.language)}</span>}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
@@ -2247,16 +2399,18 @@ export default function Players() {
                       </DialogFooter>
                     </DialogContent>
                   </Dialog>
+                  </DisabledReason>
                 </div>
                 </div>
               </TabsContent>
               {/* Spawn Tab — Items, Vehicles, XP */}
               <TabsContent value="spawn" className="space-y-3 mt-4">
                 {/* Give Item */}
+                <DisabledReason className="w-full" reason={selectedPlayer && !canGmTools ? t('permissions.noGmTools') : null}>
                 <button
                   type="button"
                   onClick={() => setItemBrowserOpen(true)}
-                  disabled={!selectedPlayer || loading}
+                  disabled={!selectedPlayer || loading || !canGmTools}
                   className={cn(
                     'group w-full rounded-xl border bg-card/50 p-4 text-left',
                     'motion-safe:transition-all duration-150',
@@ -2300,12 +2454,14 @@ export default function Players() {
                     </div>
                   </div>
                 </button>
+                </DisabledReason>
 
                 {/* Spawn Vehicle */}
+                <DisabledReason className="w-full" reason={!canGmTools ? t('permissions.noGmTools') : null}>
                 <button
                   type="button"
                   onClick={() => setVehicleBrowserOpen(true)}
-                  disabled={loading}
+                  disabled={loading || !canGmTools}
                   className={cn(
                     'group w-full rounded-xl border bg-card/50 p-4 text-left',
                     'motion-safe:transition-all duration-150',
@@ -2349,6 +2505,7 @@ export default function Players() {
                     </div>
                   </div>
                 </button>
+                </DisabledReason>
 
                 {/* Give XP */}
                 <div className="rounded-xl border border-border/60 bg-card/50 p-4 transition-colors">
@@ -2387,23 +2544,24 @@ export default function Players() {
                     </div>
                     <div className="w-full sm:w-24 shrink-0">
                       <Label className="text-xs text-muted-foreground">{t('spawn.amountLabel')}</Label>
-                      <Input
-                        type="number"
+                      <NumberInput
                         value={xpAmount}
-                        onChange={(e) => setXpAmount(parseInt(e.target.value) || 0)}
+                        onChange={setXpAmount}
                         min={1}
                         max={10000}
                       />
                     </div>
+                    <DisabledReason reason={!canGmTools ? t('permissions.noGmTools') : null}>
                     <Button
                       onClick={handleAddXp}
-                      disabled={loading || !selectedPlayer || !selectedPerk}
+                      disabled={loading || !canGmTools || !selectedPlayer || !selectedPerk || !Number.isFinite(xpAmount)}
                       size="sm"
                       className="shrink-0 sm:min-w-[100px]"
                     >
                       <TrendingUp className="w-4 h-4 mr-2" />
                       {t('spawn.giveXpButton')}
                     </Button>
+                    </DisabledReason>
                   </div>
                 </div>
               </TabsContent>
@@ -2431,14 +2589,16 @@ export default function Players() {
                           {selectedPlayerPowers.godMode ? t('powers.on') : t('powers.off')}
                         </Badge>
                       )}
-                      <Button
-                        variant={selectedPlayerPowers?.godMode ? 'default' : 'outline'}
-                        size="sm"
-                        disabled={!selectedPlayer || loading}
-                        onClick={() => handleGodMode(!selectedPlayerPowers?.godMode)}
-                      >
-                        {selectedPlayerPowers?.godMode ? t('powers.disable') : t('powers.enable')}
-                      </Button>
+                      <DisabledReason reason={!canGmTools ? t('permissions.noGmTools') : (selectedPlayer && !bridgeConnected ? t('powers.bridgeRequiredTooltip') : null)}>
+                        <Button
+                          variant={selectedPlayerPowers?.godMode ? 'default' : 'outline'}
+                          size="sm"
+                          disabled={!selectedPlayer || loading || !bridgeConnected || !canGmTools}
+                          onClick={() => handleGodMode(!selectedPlayerPowers?.godMode)}
+                        >
+                          {selectedPlayerPowers?.godMode ? t('powers.disable') : t('powers.enable')}
+                        </Button>
+                      </DisabledReason>
                     </div>
                   </div>
 
@@ -2459,14 +2619,16 @@ export default function Players() {
                           {selectedPlayerPowers.invisible ? t('powers.on') : t('powers.off')}
                         </Badge>
                       )}
-                      <Button
-                        variant={selectedPlayerPowers?.invisible ? 'default' : 'outline'}
-                        size="sm"
-                        disabled={!selectedPlayer || loading}
-                        onClick={() => handleInvisible(!selectedPlayerPowers?.invisible)}
-                      >
-                        {selectedPlayerPowers?.invisible ? t('powers.disable') : t('powers.enable')}
-                      </Button>
+                      <DisabledReason reason={!canGmTools ? t('permissions.noGmTools') : (selectedPlayer && !bridgeConnected ? t('powers.bridgeRequiredTooltip') : null)}>
+                        <Button
+                          variant={selectedPlayerPowers?.invisible ? 'default' : 'outline'}
+                          size="sm"
+                          disabled={!selectedPlayer || loading || !bridgeConnected || !canGmTools}
+                          onClick={() => handleInvisible(!selectedPlayerPowers?.invisible)}
+                        >
+                          {selectedPlayerPowers?.invisible ? t('powers.disable') : t('powers.enable')}
+                        </Button>
+                      </DisabledReason>
                     </div>
                   </div>
 
@@ -2487,14 +2649,16 @@ export default function Players() {
                           {selectedPlayerPowers.noclip ? t('powers.on') : t('powers.off')}
                         </Badge>
                       )}
-                      <Button
-                        variant={selectedPlayerPowers?.noclip ? 'default' : 'outline'}
-                        size="sm"
-                        disabled={!selectedPlayer || loading}
-                        onClick={() => handleNoclip(!selectedPlayerPowers?.noclip)}
-                      >
-                        {selectedPlayerPowers?.noclip ? t('powers.disable') : t('powers.enable')}
-                      </Button>
+                      <DisabledReason reason={!canGmTools ? t('permissions.noGmTools') : (selectedPlayer && !bridgeConnected ? t('powers.bridgeRequiredTooltip') : null)}>
+                        <Button
+                          variant={selectedPlayerPowers?.noclip ? 'default' : 'outline'}
+                          size="sm"
+                          disabled={!selectedPlayer || loading || !bridgeConnected || !canGmTools}
+                          onClick={() => handleNoclip(!selectedPlayerPowers?.noclip)}
+                        >
+                          {selectedPlayerPowers?.noclip ? t('powers.disable') : t('powers.enable')}
+                        </Button>
+                      </DisabledReason>
                     </div>
                   </div>
 
@@ -2509,14 +2673,16 @@ export default function Players() {
                         <p className="text-xs text-muted-foreground">{t('powers.healDesc')}</p>
                       </div>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={!selectedPlayer || loading}
-                      onClick={handleHealPlayer}
-                    >
-                      {t('powers.healButton')}
-                    </Button>
+                    <DisabledReason reason={!canGmTools ? t('permissions.noGmTools') : (selectedPlayer && !bridgeConnected ? t('powers.bridgeRequiredTooltip') : null)}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={!selectedPlayer || loading || !bridgeConnected || !canGmTools}
+                        onClick={handleHealPlayer}
+                      >
+                        {t('powers.healButton')}
+                      </Button>
+                    </DisabledReason>
                   </div>
                 </div>
               </TabsContent>
@@ -2552,11 +2718,11 @@ export default function Players() {
                             </div>
                             <div>
                               <div className="text-muted-foreground text-xs">{t('notes.firstSeen')}</div>
-                              <div className="font-medium text-xs">{new Date(playerStats[selectedPlayer].first_seen).toLocaleDateString()}</div>
+                              <div className="font-medium text-xs">{new Date(playerStats[selectedPlayer].first_seen).toLocaleDateString(i18n.language)}</div>
                             </div>
                             <div>
                               <div className="text-muted-foreground text-xs">{t('notes.lastSeen')}</div>
-                              <div className="font-medium text-xs">{new Date(playerStats[selectedPlayer].last_seen).toLocaleString()}</div>
+                              <div className="font-medium text-xs">{new Date(playerStats[selectedPlayer].last_seen).toLocaleString(i18n.language)}</div>
                             </div>
                           </div>
                         </CardContent>
@@ -2639,21 +2805,23 @@ export default function Players() {
                     <div className="flex justify-between items-center pt-2">
                       <div className="text-xs text-muted-foreground">
                         {playerNotes[selectedPlayer]?.updated_at && (
-                          <span>{t('notes.lastUpdated', { date: new Date(playerNotes[selectedPlayer].updated_at).toLocaleString() })}</span>
+                          <span>{t('notes.lastUpdated', { date: new Date(playerNotes[selectedPlayer].updated_at).toLocaleString(i18n.language) })}</span>
                         )}
                       </div>
                       <div className="flex gap-2">
                         {playerNotes[selectedPlayer] && (
+                          <DisabledReason reason={!canModerate ? t('permissions.noModerate') : null}>
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={() => setDeleteNoteConfirmOpen(true)}
-                            disabled={savingNote}
+                            disabled={savingNote || !canModerate}
                             className="text-destructive hover:text-destructive"
                           >
                             <Trash2 className="w-4 h-4 mr-1" />
                             {t('notes.deleteButton')}
                           </Button>
+                          </DisabledReason>
                         )}
                         <AlertDialog open={deleteNoteConfirmOpen} onOpenChange={setDeleteNoteConfirmOpen}>
                           <AlertDialogContent>
@@ -2676,14 +2844,16 @@ export default function Players() {
                             </AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>
+                        <DisabledReason reason={!canModerate ? t('permissions.noModerate') : null}>
                         <Button
                           size="sm"
                           onClick={handleSaveNote}
-                          disabled={savingNote || (!currentNote.trim() && currentTags.length === 0)}
+                          disabled={savingNote || !canModerate || (!currentNote.trim() && currentTags.length === 0)}
                         >
                           {savingNote ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Save className="w-4 h-4 mr-1" />}
                           {t('notes.saveButton')}
                         </Button>
+                        </DisabledReason>
                       </div>
                     </div>
                   </div>
@@ -2755,7 +2925,7 @@ export default function Players() {
                           activityLogs.map((log) => (
                             <tr key={log.id} className="hover:bg-muted/50">
                               <td className="p-2 whitespace-nowrap text-xs text-muted-foreground">
-                                {new Date(log.logged_at).toLocaleString()}
+                                {new Date(log.logged_at).toLocaleString(i18n.language)}
                               </td>
                               <td className="p-2 text-xs font-medium break-words">{log.player_name}</td>
                               <td className="p-2">
@@ -2783,6 +2953,11 @@ export default function Players() {
                       </tbody>
                     </table>
                   </div>
+                  {activityLogs.length >= ACTIVITY_LOG_FETCH_LIMIT && (
+                    <p className="text-xs text-muted-foreground">
+                      {t('notes.activityLogTruncatedHint', { count: activityLogs.length })}
+                    </p>
+                  )}
                 </div>
               </TabsContent>
             </Tabs>
@@ -2867,6 +3042,7 @@ export default function Players() {
                       size="sm"
                       variant="ghost"
                       className="h-7 w-7 p-0"
+                      aria-label={copied ? t('importExport.copiedAria') : t('importExport.copyCharacterDataAria')}
                       onClick={() => {
                         copyText(characterData)
                         setCopied(true)
@@ -2919,7 +3095,7 @@ export default function Players() {
               <div className="flex gap-2">
                 <Button
                   disabled={importing || !selectedPlayer || !importCharacterData.trim()}
-                  onClick={async () => {
+                  onClick={() => {
                     let data
                     try {
                       data = JSON.parse(importCharacterData)
@@ -2931,26 +3107,8 @@ export default function Players() {
                       })
                       return
                     }
-
-                    setImporting(true)
-                    try {
-                      const { panelBridgeApi } = await import('@/lib/api')
-                      const response = await panelBridgeApi.importCharacter(selectedPlayer, data)
-                      const restored = response.data?.restored
-                      toast({
-                        title: t('toasts.characterImportedTitle'),
-                        description: t('toasts.characterImportedDesc', { perks: restored?.perks ?? 0, items: restored?.items ?? 0, player: selectedPlayer }),
-                      })
-                      setImportCharacterData('')
-                    } catch (error) {
-                      toast({
-                        title: t('toasts.importFailedTitle'),
-                        description: error instanceof Error ? error.message : t('toasts.importFailedFallback'),
-                        variant: 'destructive',
-                      })
-                    } finally {
-                      setImporting(false)
-                    }
+                    setPendingImportData(data)
+                    setImportConfirmOpen(true)
                   }}
                   size="sm"
                   className="flex-1"
@@ -3031,7 +3189,7 @@ export default function Players() {
                       <div key={`${exp.username}-${exp.filename}`} className="flex items-center justify-between gap-2 rounded-md border border-border/40 px-3 py-1.5 text-xs">
                         <div className="min-w-0 flex-1">
                           <span className="font-medium">{exp.username}</span>
-                          <span className="text-muted-foreground ml-2">{new Date(exp.timestamp).toLocaleString()}</span>
+                          <span className="text-muted-foreground ml-2">{new Date(exp.timestamp).toLocaleString(i18n.language)}</span>
                           <span className="text-muted-foreground ml-2">{t('importExport.sizeKb', { size: (exp.size / 1024).toFixed(1) })}</span>
                         </div>
                         <div className="flex gap-1 shrink-0">
@@ -3040,6 +3198,7 @@ export default function Players() {
                             size="sm"
                             className="h-6 w-6 p-0"
                             title={t('importExport.downloadTitle')}
+                            aria-label={t('importExport.downloadExportAria', { username: exp.username })}
                             onClick={async () => {
                               try {
                                 const data = await playersApi.getExport(exp.username, exp.filename)
@@ -3062,6 +3221,7 @@ export default function Players() {
                             size="sm"
                             className="h-6 w-6 p-0 text-destructive hover:text-destructive"
                             title={t('importExport.deleteTitle')}
+                            aria-label={t('importExport.deleteExportAria', { username: exp.username })}
                             onClick={async () => {
                               try {
                                 await playersApi.deleteExport(exp.username, exp.filename)
@@ -3083,6 +3243,34 @@ export default function Players() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Character Import Confirmation -- the failure mode here is the wrong
+          player, so the target's name is the title, not a line inside the
+          body. Pam's panelBridge.js snapshots the target's current data to
+          Saved Exports before overwriting; if that snapshot fails the server
+          refuses the import instead of proceeding, so this is honestly
+          recoverable and the copy says so. */}
+      <AlertDialog open={importConfirmOpen} onOpenChange={(open) => { if (!open) { setImportConfirmOpen(false); setPendingImportData(null) } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('importConfirm.title', { player: selectedPlayer })}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('importConfirm.description', { player: selectedPlayer })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={importing}>{t('importConfirm.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={importing}
+              onClick={(e) => { e.preventDefault(); if (pendingImportData) runCharacterImport(pendingImportData) }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {importing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              {t('importConfirm.confirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Spawn browser dialogs — items + vehicles, stay-open workflow */}
       <SpawnBrowser

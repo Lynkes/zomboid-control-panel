@@ -1,5 +1,6 @@
 import { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import {
   InboxIcon,
   SearchX,
@@ -30,23 +31,47 @@ const emptyStateIcons = {
 
 export type EmptyStateType = keyof typeof emptyStateIcons
 
+type EmptyStateActionVariant = 'default' | 'outline' | 'secondary' | 'ghost'
+
+// Either a click handler (retry, clear filters, open a dialog) or an
+// internal route to link to (a destination that isn't on this screen).
+// A prior version only had onClick, so every empty-state hint that pointed
+// at another page ("configure this in Settings") had nowhere to send the
+// click -- widened here rather than adding a second, differently-shaped prop.
+export type EmptyStateAction =
+  | { label: string; variant?: EmptyStateActionVariant; onClick: () => void; to?: undefined }
+  | { label: string; variant?: EmptyStateActionVariant; to: string; onClick?: undefined }
+
 interface EmptyStateProps {
   type?: EmptyStateType
   icon?: ReactNode
   title: string
-  description?: string
-  action?: {
-    label: string
-    onClick: () => void
-    variant?: 'default' | 'outline' | 'secondary' | 'ghost'
-  }
-  secondaryAction?: {
-    label: string
-    onClick: () => void
-    variant?: 'default' | 'outline' | 'secondary' | 'ghost'
-  }
+  // A plain string covers most callers, but body copy that needs to define a
+  // jargon term inline (e.g. a HelpTip on "PanelBridge") has nowhere else to
+  // put it -- widened from `string` so that case has an escape hatch without
+  // a second, differently-shaped prop next to this one.
+  description?: ReactNode
+  action?: EmptyStateAction
+  secondaryAction?: EmptyStateAction
   compact?: boolean
   className?: string
+}
+
+function EmptyStateActionButton({ action, compact }: { action: EmptyStateAction; compact: boolean }) {
+  const size = compact ? 'sm' : 'default'
+  const variant = action.variant || 'outline'
+  if (action.to !== undefined) {
+    return (
+      <Button asChild variant={variant} size={size} className="min-h-11">
+        <Link to={action.to}>{action.label}</Link>
+      </Button>
+    )
+  }
+  return (
+    <Button variant={variant} size={size} onClick={action.onClick} className="min-h-11">
+      {action.label}
+    </Button>
+  )
 }
 
 export function EmptyState({ 
@@ -80,23 +105,9 @@ export function EmptyState({
       )}
       {action && (
         <div className="mt-4 flex items-center gap-2">
-          <Button
-            variant={action.variant || 'outline'}
-            size={compact ? 'sm' : 'default'}
-            onClick={action.onClick}
-            className="min-h-11"
-          >
-            {action.label}
-          </Button>
+          <EmptyStateActionButton action={action} compact={compact} />
           {secondaryAction && (
-            <Button
-              variant={secondaryAction.variant || 'ghost'}
-              size={compact ? 'sm' : 'default'}
-              onClick={secondaryAction.onClick}
-              className="min-h-11"
-            >
-              {secondaryAction.label}
-            </Button>
+            <EmptyStateActionButton action={{ variant: 'ghost', ...secondaryAction }} compact={compact} />
           )}
         </div>
       )}

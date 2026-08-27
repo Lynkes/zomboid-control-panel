@@ -8,8 +8,35 @@ describe('getRecoveryUrl', () => {
     expect(getRecoveryUrl(new ApiError('Bridge not running', { data: { fixUrl: '/settings?tab=bridge' } }))).toBe('/settings?tab=bridge')
   })
 
-  it('maps established RCON failures to connection settings', () => {
-    expect(getRecoveryUrl(new Error('RCON authentication failed'))).toBe('/settings?tab=connection')
+  it('never returns a destination that is not an internal path, even if fixUrl tries to supply one', () => {
+    expect(getRecoveryUrl(new ApiError('Some unrelated failure', { data: { fixUrl: 'https://evil.example/phish' } }))).toBeNull()
+  })
+
+  // Not /settings?tab=connection: that tab's own copy (settings.json
+  // connection.cardDesc) says host/port/password are per-server fields on
+  // Servers now -- pointing there was one extra, unhelpful hop.
+  it('maps established RCON failures (by message, no code available) to Servers', () => {
+    expect(getRecoveryUrl(new Error('RCON authentication failed'))).toBe('/servers')
+  })
+
+  it('routes a code-classified RCON auth failure to Servers, where the password field lives', () => {
+    expect(getRecoveryUrl(new ApiError('Connected to the server, but authentication failed. Check the RCON password in server settings.', { code: 'RCON_CONNECT_AUTH_FAILED' }))).toBe('/servers')
+  })
+
+  it('gives no destination for a code-classified RCON unreachable failure -- no settings screen fixes a closed firewall or a stopped server', () => {
+    expect(getRecoveryUrl(new ApiError('Could not connect to RCON. Is the server running and RCON enabled?', { code: 'RCON_CONNECT_UNREACHABLE' }))).toBeNull()
+  })
+
+  it('prefers the code classification over the message even though the unreachable message also contains "RCON"', () => {
+    // Without the code check running first, this would match the same
+    // message regex the auth-failed case does and wrongly offer a fix-it
+    // link for a problem no settings page can fix.
+    const error = new ApiError('Could not connect to RCON. Is the server running and RCON enabled?', { code: 'RCON_CONNECT_UNREACHABLE' })
+    expect(getRecoveryUrl(error)).not.toBe('/servers')
+  })
+
+  it('routes a permission-denied (EACCES) failure to Servers, where per-server install/data paths live', () => {
+    expect(getRecoveryUrl(new Error('Cannot read /srv/pz (EACCES). The panel service account needs read and execute permission on this folder and every parent folder.'))).toBe('/servers')
   })
 
   it('does not create a destination for unrelated failures', () => {
@@ -180,5 +207,77 @@ describe('getUserErrorMessage — structured params interpolation', () => {
       data: { params: ['Moderator'] },
     })
     expect(getUserErrorMessage(error, 'fallback')).toBe('A role named "Moderator" already exists')
+  })
+
+  // 2026-08-26: panelBridgeSftp.js's formatSftpError() built its "{{detail}}
+  // Fix: ..." classification as a parallel, English-only system that never
+  // fed into this registry. These lock in that the move preserved the exact
+  // dynamic detail the English version carried (the raw SFTP client error
+  // text) via {{detail}}, and that a response which forgets to send it degrades
+  // to the untranslated server text rather than a broken "{{detail}}" literal --
+  // same guarantee ROLE_NAME_TAKEN's tests above prove for {{name}}.
+  it('interpolates the original SFTP error text into the translated classification', () => {
+    const error = new ApiError('Permission denied (publickey). Fix: Verify the SFTP username and password, then confirm the account can log in over port 22.', {
+      code: 'SFTP_AUTH_FAILED',
+      data: { params: { detail: 'Permission denied (publickey).' } },
+    })
+    expect(getUserErrorMessage(error, 'fallback')).toBe(
+      "Permission denied (publickey). Correction : Vérifiez le nom d'utilisateur et le mot de passe SFTP, puis confirmez que le compte peut se connecter sur le port 22.",
+    )
+  })
+
+  it('falls through to the raw English text when an SFTP response omits params.detail', () => {
+    const error = new ApiError('Permission denied (publickey). Fix: Verify the SFTP username and password, then confirm the account can log in over port 22.', {
+      code: 'SFTP_AUTH_FAILED',
+    })
+    expect(getUserErrorMessage(error, 'fallback')).toBe(
+      'Permission denied (publickey). Fix: Verify the SFTP username and password, then confirm the account can log in over port 22.',
+    )
+  })
+})
+
+// 2026-08-26: panelBridge.js's 76-of-88 generic catch-all shape (server.js
+// has the same convention: 500s stay uncoded by design, only explicit
+// validation branches get a code). api.ts synthesizes `code: HTTP_<status>`
+// for any response missing one, so these exercise via a real fetched shape
+// (status set, no *registered* translation resolves) rather than a bare
+// `code: undefined` a real network response would never actually produce.
+describe('getUserErrorMessage — generic wrapper for an uncoded 5xx', () => {
+  beforeEach(() => {
+    void i18n.changeLanguage('fr')
+  })
+
+  afterEach(() => {
+    void i18n.changeLanguage('en')
+  })
+
+  it('wraps a 500 with no registered code translation, preserving the raw detail', () => {
+    const error = new ApiError('EACCES: permission denied, open [path]', { status: 500, code: 'HTTP_500' })
+    expect(getUserErrorMessage(error, 'fallback')).toBe(
+      "EACCES: permission denied, open [path] Ce n'était pas attendu — si cela persiste, téléchargez un pack de support afin qu'il puisse être examiné.",
+    )
+  })
+
+  it('also wraps other 5xx statuses (e.g. 503, 504), not just 500', () => {
+    const error = new ApiError('upstream timed out', { status: 504, code: 'HTTP_504' })
+    expect(getUserErrorMessage(error, 'fallback')).toContain("n'était pas attendu")
+  })
+
+  it('does NOT wrap a 4xx with no registered code -- deliberate validation text stays untouched', () => {
+    const error = new ApiError('Username is required', { status: 400, code: 'HTTP_400' })
+    expect(getUserErrorMessage(error, 'fallback')).toBe('Username is required')
+  })
+
+  it('does not wrap when a real code already resolves a translation, even at 5xx', () => {
+    const error = new ApiError('Update checker not available', { status: 503, code: 'UPDATE_CHECKER_NOT_AVAILABLE' })
+    expect(getUserErrorMessage(error, 'fallback')).toBe("Le vérificateur de mises à jour n'est pas disponible")
+  })
+
+  it('is a no-op in English (the wrapper text would be identical to a hand-written one, so assert it is present rather than absent)', () => {
+    void i18n.changeLanguage('en')
+    const error = new ApiError('ECONNREFUSED', { status: 500, code: 'HTTP_500' })
+    expect(getUserErrorMessage(error, 'fallback')).toBe(
+      "ECONNREFUSED This wasn't expected — if it keeps happening, download a support bundle so it can be investigated.",
+    )
   })
 })

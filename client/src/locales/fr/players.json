@@ -5,6 +5,11 @@
     "updated": "Mis à jour {{time}}",
     "refresh": "Actualiser"
   },
+  "permissions": {
+    "noModerate": "Cette action nécessite la permission players.moderate, que ce rôle ne possède pas.",
+    "noGmTools": "Cette action nécessite la permission players.gm_tools, que ce rôle ne possède pas.",
+    "noBridgeCommand": "Cette action nécessite la permission bridge.command, que ce rôle ne possède pas."
+  },
   "errorBanner": {
     "title": "La page Joueurs est partiellement indisponible",
     "retry": "Réessayer"
@@ -262,7 +267,8 @@
     "on": "ACTIVÉ",
     "off": "DÉSACTIVÉ",
     "enable": "Activer",
-    "disable": "Désactiver"
+    "disable": "Désactiver",
+    "bridgeRequiredTooltip": "Nécessite que PanelBridge soit connecté"
   },
   "notes": {
     "selectPlayerEmpty": "Sélectionnez un joueur pour voir ou ajouter des notes",
@@ -284,6 +290,7 @@
     "deleteButton": "Supprimer",
     "saveButton": "Enregistrer la note",
     "activityLogTitle": "Journal d'activité",
+    "activityLogTruncatedHint": "Affichage des {{count}} entrées les plus récentes -- une activité plus ancienne peut ne pas être affichée.",
     "logsErrorTitle": "Journal d'activité indisponible",
     "filterPlaceholder": "Filtrer par nom de joueur...",
     "filterAria": "Filtrer le journal d'activité par nom de joueur",
@@ -292,7 +299,7 @@
     "tableAction": "Action",
     "tableDetails": "Détails",
     "loadingRow": "Chargement...",
-    "noLogsRow": "Aucun journal d'activité",
+    "noLogsRow": "Aucun journal d'activité pour l'instant — les actions de modération sur ce joueur (bannissements, expulsions, modifications de la liste blanche) apparaîtront ici.",
     "detailsFallback": "-",
     "deleteConfirmTitle": "Supprimer cette note ?",
     "deleteConfirmDesc": "La note admin et les tags enregistrés pour {{player}} seront définitivement supprimés. Cette action est irréversible.",
@@ -309,6 +316,8 @@
     "exportButton": "Exporter {{player}}",
     "exportButtonFallback": "Joueur",
     "characterDataLabel": "Données du personnage",
+    "copyCharacterDataAria": "Copier les données du personnage",
+    "copiedAria": "Copié",
     "downloadFileButton": "Télécharger le fichier",
     "importTitle": "Importer le personnage",
     "importDesc": "Restaurer l'XP, les compétences, capacités et l'inventaire exporté",
@@ -321,7 +330,15 @@
     "savedExportsTitle": "Exports enregistrés ({{count}})",
     "sizeKb": "({{size}} Ko)",
     "downloadTitle": "Télécharger",
-    "deleteTitle": "Supprimer"
+    "deleteTitle": "Supprimer",
+    "downloadExportAria": "Télécharger l'export enregistré de {{username}}",
+    "deleteExportAria": "Supprimer l'export enregistré de {{username}}"
+  },
+  "importConfirm": {
+    "title": "Écraser le personnage de {{player}} ?",
+    "description": "Cela remplace l'XP, les perks, les compétences, les traits, l'inventaire et les objets portés de {{player}} par les données collées. L'état actuel de {{player}} est d'abord enregistré dans les exports sauvegardés, afin que vous puissiez le restaurer depuis là si c'était le mauvais joueur ou le mauvais fichier.",
+    "cancel": "Annuler",
+    "confirm": "Oui, écraser le personnage"
   },
   "actions": {
     "kickPlayer": "Expulser le joueur",
@@ -380,6 +397,8 @@
     "invalidJsonDesc": "Les données du personnage ne sont pas un JSON valide",
     "characterImportedTitle": "Personnage importé",
     "characterImportedDesc": "{{perks}} compétences et {{items}} objets appliqués à {{player}}",
+    "characterImportedTitleNoneApplied": "L'import n'a rien appliqué",
+    "characterImportedDescNoneApplied": "Aucune des compétences ou objets soumis n'a été appliqué à {{player}}. Les données ne correspondent peut-être pas aux mods ou aux définitions d'objets de ce serveur.",
     "importFailedTitle": "Échec de l'import",
     "importFailedFallback": "Échec de l'import du personnage",
     "fileTooLargeTitle": "Fichier trop volumineux",

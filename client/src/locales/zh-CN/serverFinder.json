@@ -70,6 +70,9 @@
   "emptyState": {
     "noServersTitle": "未找到公共服务器",
     "noServersDesc": "请稍后重新刷新列表。",
+    "noServersDescUnreachable": "面板完全无法获取服务器列表。请检查面板自身的网络连接，然后重试刷新。",
+    "noServersDescNoneResponded": "已收到服务器列表，但没有一台服务器及时响应。这在扫描负载较高时属于正常现象——请重试刷新。",
+    "noServersDescGenuinelyEmpty": "服务器列表已返回，目前确实为空。请稍后重试刷新。",
     "noApiKeyTitle": "缺少 Steam API 密钥",
     "noApiKeyDesc": "请在设置中添加 Steam API 密钥以加载 Project Zomboid 公共服务器列表。",
     "noMatchTitle": "没有符合筛选条件的服务器",
@@ -80,6 +83,8 @@
     "passwordProtected": "已设密码",
     "vacSecured": "VAC 保护",
     "pingNa": "N/A",
+    "pingFailUnparseable": "服务器已响应，但面板无法解析返回的数据——可能是版本或协议不匹配。服务器正在运行且可访问。",
+    "pingFailUnreachable": "服务器未响应。请检查服务器是否在运行、端口是否正确，以及是否有防火墙或断线阻挡了连接。",
     "pingMs": "{{ping}} 毫秒",
     "pingButton": "测速",
     "connect": "连接",

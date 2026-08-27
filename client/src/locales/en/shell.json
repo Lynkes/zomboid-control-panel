@@ -39,7 +39,12 @@
     },
     "notAvailableRemote": "Not available for remote (RCON-only) servers",
     "localBadge": "Local",
-    "requiresServer": "Add a server first — this page needs one to work with"
+    "requiresServer": "Add a server first — this page needs one to work with",
+    "noServerBanner": {
+      "title": "No server yet",
+      "description": "Most of the panel unlocks once you add one.",
+      "cta": "Set up a server"
+    }
   },
   "mobileMenu": {
     "open": "Open menu",

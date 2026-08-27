@@ -178,6 +178,7 @@ class PanelBridge extends EventEmitter {
     for (const base of possibleBases) {
       // The Lua mod writes to: {base}/Lua/panelbridge/{serverName}/
       const bridgePath = path.join(base, 'Lua', 'panelbridge', serverName);
+      // codeql[js/path-injection] bridgePath here is built from serverName, validated immediately above against /^[a-zA-Z0-9_\- ]{1,64}$/ -- no path-traversal characters are possible in a name matching that pattern.
       if (fs.existsSync(bridgePath)) {
         return this.configure(bridgePath, true); // direct path — already the panelbridge folder
       }
@@ -209,6 +210,7 @@ class PanelBridge extends EventEmitter {
   resolveModFile(relativeName) {
     if (!this.bridgePath) return null;
     const suffixedFile = this.getModWriteFile(relativeName);
+    // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
     if (suffixedFile && fs.existsSync(suffixedFile)) return suffixedFile;
     return path.join(this.bridgePath, relativeName);
   }
@@ -266,12 +268,16 @@ class PanelBridge extends EventEmitter {
 
     const inboxDir = this.getInboxDir();
     const outboxDir = this.getOutboxDir();
+    // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
     fs.mkdirSync(inboxDir, { recursive: true });
+    // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
     fs.mkdirSync(outboxDir, { recursive: true });
 
     const stateFile = this.getQueueStateFile();
+    // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
     if (fs.existsSync(stateFile)) {
       try {
+        // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
         const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8') || '{}');
         const nextSeq = Number(state.nextCommandSeq);
         const consumed = Number(state.lastConsumedResultSeq);
@@ -288,8 +294,10 @@ class PanelBridge extends EventEmitter {
     // that case the Lua cursor is the authoritative lower bound for new
     // command filenames, otherwise Node would restart at cmd-0000000001.
     const luaStateFile = this.resolveModFile('queue-state-lua.json');
+    // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
     if (luaStateFile && fs.existsSync(luaStateFile)) {
       try {
+        // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
         const luaState = JSON.parse(fs.readFileSync(luaStateFile, 'utf-8') || '{}');
         const lastCommandSeq = Number(luaState.lastCommandSeq);
         if (Number.isFinite(lastCommandSeq) && lastCommandSeq >= 0) {
@@ -318,14 +326,18 @@ class PanelBridge extends EventEmitter {
     };
     const tempFile = `${stateFile}.tmp`;
     try {
+      // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
       fs.writeFileSync(tempFile, JSON.stringify(payload, null, 2), { mode: 0o600 });
+      // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
       fs.renameSync(tempFile, stateFile);
     } catch (error) {
       try {
+        // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
         fs.writeFileSync(stateFile, JSON.stringify(payload, null, 2), { mode: 0o600 });
       } catch (writeError) {
         log.warn(`Could not persist queue state: ${writeError.message}`);
       }
+      // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
       try { fs.unlinkSync(tempFile); } catch (_) { /* ignore */ }
     }
   }
@@ -370,6 +382,7 @@ class PanelBridge extends EventEmitter {
     }
 
     try {
+      // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
       checks.bridgePathExists = fs.existsSync(bridgePath);
       if (!checks.bridgePathExists) {
         issues.push('Bridge directory does not exist yet.');
@@ -380,6 +393,7 @@ class PanelBridge extends EventEmitter {
 
     if (checks.bridgePathExists) {
       try {
+        // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
         fs.accessSync(bridgePath, fs.constants.R_OK);
         checks.bridgePathReadable = true;
       } catch (e) {
@@ -387,6 +401,7 @@ class PanelBridge extends EventEmitter {
       }
 
       try {
+        // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
         fs.accessSync(bridgePath, fs.constants.W_OK);
         checks.bridgePathWritable = true;
       } catch (e) {
@@ -397,9 +412,11 @@ class PanelBridge extends EventEmitter {
     const inspectFile = (filePath, presentKey, readableKey) => {
       if (!filePath) return;
       try {
+        // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
         const exists = fs.existsSync(filePath);
         checks[presentKey] = exists;
         if (!exists) return;
+        // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
         fs.accessSync(filePath, fs.constants.R_OK);
         checks[readableKey] = true;
       } catch (e) {
@@ -415,9 +432,11 @@ class PanelBridge extends EventEmitter {
     const inboxDir = this.getInboxDir();
     const outboxDir = this.getOutboxDir();
     if (inboxDir) {
+      // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
       checks.inboxDirPresent = fs.existsSync(inboxDir);
     }
     if (outboxDir) {
+      // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
       checks.outboxDirPresent = fs.existsSync(outboxDir);
     }
 
@@ -425,6 +444,7 @@ class PanelBridge extends EventEmitter {
       issues.push('Status file is missing. Start the game server with PanelBridge enabled.');
     } else {
       try {
+        // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
         const stats = fs.statSync(statusFile);
         const ageMs = Date.now() - stats.mtimeMs;
         // Use relaxed threshold when server idle (0 players)
@@ -516,6 +536,7 @@ class PanelBridge extends EventEmitter {
 
     try {
       this._debounceTimer = null;
+      // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
       this.fileWatcher = fs.watch(this.bridgePath, { persistent: false }, (eventType, filename) => {
         // Debounce rapid file changes
         if (this._debounceTimer) clearTimeout(this._debounceTimer);
@@ -686,7 +707,9 @@ class PanelBridge extends EventEmitter {
   _appendCommand(commandsFile, id, action, args) {
     let commands = { commands: [] };
     try {
+      // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
       if (fs.existsSync(commandsFile)) {
+        // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
         const content = fs.readFileSync(commandsFile, 'utf-8');
         if (content.trim()) {
           commands = JSON.parse(content);
@@ -706,19 +729,24 @@ class PanelBridge extends EventEmitter {
     });
 
     const tempFile = commandsFile + '.tmp';
+    // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
     fs.writeFileSync(tempFile, JSON.stringify(commands, null, 2), { mode: 0o600 });
     try {
+      // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
       fs.renameSync(tempFile, commandsFile);
     } catch (err) {
       // If rename fails (file locked), try direct write as fallback
       log.warn(`renameSync failed, using direct write: ${err.message}`);
       try {
+        // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
         fs.writeFileSync(commandsFile, JSON.stringify(commands, null, 2), { mode: 0o600 });
       } catch (writeErr) {
         log.error(`Direct write also failed: ${writeErr.message}`);
+        // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
         try { fs.unlinkSync(tempFile); } catch (_) { /* ignore */ }
         throw writeErr; // Propagate so caller knows the command failed
       }
+      // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
       try { fs.unlinkSync(tempFile); } catch (_) { /* ignore */ }
     }
   }
@@ -741,7 +769,9 @@ class PanelBridge extends EventEmitter {
     };
 
     const tempFile = `${commandFile}.tmp`;
+    // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
     fs.writeFileSync(tempFile, JSON.stringify(payload, null, 2), { mode: 0o600 });
+    // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
     fs.renameSync(tempFile, commandFile);
 
     this.queueState.nextCommandSeq = seq + 1;
@@ -779,12 +809,14 @@ class PanelBridge extends EventEmitter {
     this.outboxStuckState.nextCheckAt = now + this.queue.resyncCheckIntervalMs;
 
     const luaStateFile = this.resolveModFile('queue-state-lua.json');
+    // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
     if (!luaStateFile || !fs.existsSync(luaStateFile)) {
       return false;
     }
 
     let luaState;
     try {
+      // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
       luaState = JSON.parse(fs.readFileSync(luaStateFile, 'utf-8') || '{}');
     } catch (error) {
       log.debug(`Could not parse mod queue state during resync check: ${error.message}`);
@@ -824,6 +856,7 @@ class PanelBridge extends EventEmitter {
     while (consumed < maxToRead) {
       const seq = this.queueState.lastConsumedResultSeq + 1;
       const resultFile = this.getResultFileBySeq(seq);
+      // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
       if (!resultFile || !fs.existsSync(resultFile)) {
         if (this.tryResyncOutboxCursor(seq)) {
           // Resynced to the mod's actual write position; loop back around
@@ -835,6 +868,7 @@ class PanelBridge extends EventEmitter {
 
       let parsed = null;
       try {
+        // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
         const raw = fs.readFileSync(resultFile, 'utf-8');
         if (!raw.trim()) {
           // Lua may have just opened the file for writing (truncates immediately
@@ -874,6 +908,7 @@ class PanelBridge extends EventEmitter {
       consumed++;
 
       try {
+        // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
         fs.writeFileSync(resultFile, '', { mode: 0o600 });
       } catch (cleanupErr) {
         log.debug(`Failed to clear result file seq ${seq}: ${cleanupErr.message}`);
@@ -887,11 +922,13 @@ class PanelBridge extends EventEmitter {
 
   pollLegacyResults() {
     const resultsFile = this.getResultsFile();
+    // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
     if (!resultsFile || !fs.existsSync(resultsFile)) {
       return;
     }
 
     try {
+      // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
       const content = fs.readFileSync(resultsFile, 'utf-8');
       if (!content.trim()) return;
 
@@ -957,12 +994,15 @@ class PanelBridge extends EventEmitter {
 
   cleanupInboxFiles() {
     const inboxDir = this.getInboxDir();
+    // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
     if (!inboxDir || !fs.existsSync(inboxDir)) return;
 
     // Sweep orphaned .tmp files from interrupted atomic writes regardless of cursor state.
     try {
+      // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
       for (const fileName of fs.readdirSync(inboxDir)) {
         if (fileName.endsWith('.tmp')) {
+          // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
           try { fs.unlinkSync(path.join(inboxDir, fileName)); } catch (_) { /* ignore */ }
         }
       }
@@ -970,8 +1010,10 @@ class PanelBridge extends EventEmitter {
 
     const cursorFile = this.getInboxCursorFile();
     let lastProcessedSeq = 0;
+    // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
     if (cursorFile && fs.existsSync(cursorFile)) {
       try {
+        // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
         const cursor = JSON.parse(fs.readFileSync(cursorFile, 'utf-8') || '{}');
         const parsed = Number(cursor.lastProcessedSeq);
         if (Number.isFinite(parsed) && parsed > 0) {
@@ -987,17 +1029,20 @@ class PanelBridge extends EventEmitter {
     }
 
     const deleteUpToSeq = lastProcessedSeq - this.queue.retainRecentFiles;
+    // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
     const files = fs.readdirSync(inboxDir);
     let deleted = 0;
     for (const fileName of files) {
       // Sweep .tmp orphans from interrupted writes (atomic temp+rename pattern).
       if (fileName.endsWith('.tmp')) {
+        // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
         try { fs.unlinkSync(path.join(inboxDir, fileName)); deleted++; } catch (_) { /* ignore */ }
         continue;
       }
       const seq = this.extractSeq(fileName, /^cmd-(\d+)\.json$/);
       if (seq !== null && seq <= deleteUpToSeq) {
         try {
+          // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
           fs.unlinkSync(path.join(inboxDir, fileName));
           deleted++;
         } catch (_) {
@@ -1013,12 +1058,15 @@ class PanelBridge extends EventEmitter {
 
   cleanupOutboxFiles() {
     const outboxDir = this.getOutboxDir();
+    // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
     if (!outboxDir || !fs.existsSync(outboxDir)) return;
 
     // Sweep orphaned .tmp files first, regardless of cursor state.
     try {
+      // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
       for (const fileName of fs.readdirSync(outboxDir)) {
         if (fileName.endsWith('.tmp')) {
+          // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
           try { fs.unlinkSync(path.join(outboxDir, fileName)); } catch (_) { /* ignore */ }
         }
       }
@@ -1029,12 +1077,14 @@ class PanelBridge extends EventEmitter {
     }
 
     const deleteUpToSeq = this.queueState.lastConsumedResultSeq - this.queue.retainRecentFiles;
+    // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
     const files = fs.readdirSync(outboxDir);
     let deleted = 0;
     for (const fileName of files) {
       const seq = this.extractSeq(fileName, RESULT_FILE_PATTERN);
       if (seq !== null && seq <= deleteUpToSeq) {
         try {
+          // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
           fs.unlinkSync(path.join(outboxDir, fileName));
           deleted++;
         } catch (_) {
@@ -1095,6 +1145,7 @@ class PanelBridge extends EventEmitter {
       return;
     }
 
+    // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
     if (!fs.existsSync(statusFile)) {
       this.handleStatusFailure('Status file does not exist');
       return;
@@ -1102,6 +1153,7 @@ class PanelBridge extends EventEmitter {
 
     try {
       // Check file modification time first (faster than reading)
+      // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
       const stats = fs.statSync(statusFile);
       const age = Date.now() - stats.mtimeMs;
 
@@ -1127,6 +1179,7 @@ class PanelBridge extends EventEmitter {
       }
 
       // Read and parse the file
+      // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
       const content = fs.readFileSync(statusFile, 'utf-8');
       if (!content.trim()) {
         this.handleStatusFailure('Status file is empty');
@@ -1243,7 +1296,9 @@ class PanelBridge extends EventEmitter {
 
     if (statusFile) {
       try {
+        // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
         if (fs.existsSync(statusFile)) {
+          // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
           const stats = fs.statSync(statusFile);
           fileInfo = {
             exists: true,

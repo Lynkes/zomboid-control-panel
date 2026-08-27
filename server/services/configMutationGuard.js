@@ -1,7 +1,27 @@
+import fs from "fs";
 import { getActiveServer } from "../database/init.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("ConfigMutationGuard");
+
+// Mirrors database/init.js's normalizeServerMemory() path resolution
+// (installPath/zomboidDataPath, falling back to PZ_SERVER_PATH/
+// PZ_SAVE_PATH) so this guard's own "is the configured path reachable
+// right now" check agrees with what normalization would compute from the
+// same server record. Deliberately duplicated rather than imported:
+// normalizeServerMemory's unit of work is a fully-shaped server object,
+// not this boolean pair, and threading a new export through a function
+// nine other files already call is a bigger change than this guard needs.
+// If that resolution logic changes, check here too.
+function resolveLocalPathReachability(server) {
+  const installPath = server?.installPath || process.env.PZ_SERVER_PATH || "";
+  const zomboidDataPath = server?.zomboidDataPath || process.env.PZ_SAVE_PATH || null;
+  const pathsConfigured = Boolean(installPath || zomboidDataPath);
+  const pathsExistLocally =
+    Boolean(installPath && fs.existsSync(installPath)) ||
+    Boolean(zomboidDataPath && fs.existsSync(zomboidDataPath));
+  return { pathsConfigured, pathsExistLocally };
+}
 
 // Refuses a request outright while the server is running. As of 2026-08-23
 // this is used for WHOLESALE FILE OVERWRITES only (restoring a backup,
@@ -11,6 +31,39 @@ const log = createLogger("ConfigMutationGuard");
 export async function requireStoppedForLocalConfigMutation(req, res, next) {
   try {
     const activeServer = await getActiveServer();
+
+    // activeServer.isRemote is COMPUTED, not stored -- normalizeServerMemory
+    // infers it fresh from whether the configured path currently resolves on
+    // this filesystem, specifically so a stale stored flag self-heals (see
+    // 2a6c9b4's own commit message). That self-healing is right for most of
+    // isRemote's other 17 consumers, which mostly choose a local-vs-SFTP
+    // code path and fail loud if wrong. It is the wrong signal to trust HERE
+    // specifically: a transiently-unreachable LOCAL path (a disconnected
+    // network mount, a slow-mounting drive, an antivirus lock -- this app's
+    // own docs support network-attached install paths, so this is a real
+    // configuration, not a contrived one) reads as "remote" and would skip
+    // the stopped-check entirely, letting a wholesale local config overwrite
+    // proceed against a server that may still be running -- exactly what
+    // this guard exists to prevent. backup.js's POST /restore/:name reads
+    // the identical activeServer.isRemote signal and REFUSES in that
+    // ambiguous case (BACKUP_RESTORE_REMOTE_NOT_AVAILABLE) rather than
+    // proceeding -- the safe direction to be wrong in, since a false refusal
+    // costs a confusing error and a false proceed costs an unrecoverable
+    // overwrite. This guard adopts the same posture: a path that is
+    // CONFIGURED but does not resolve right now means "can't verify",
+    // not "remote". Only the no-path-configured case (a server genuinely
+    // never given a local path -- pure SFTP management, isRemote required
+    // true and installPath never asked for at creation, see servers.js POST
+    // /) still means remote. Found via a real intermittent test failure
+    // (2026-08-26) that reproduced this exact shape by accident -- see
+    // upnpEditAppliesLive.test.js's afterEach fix for how.
+    const { pathsConfigured, pathsExistLocally } = resolveLocalPathReachability(activeServer);
+    if (pathsConfigured && !pathsExistLocally) {
+      return res.status(503).json({
+        code: "SERVER_STATE_UNKNOWN",
+        error: "Can't verify whether the server is actually stopped — the process-detection scan itself failed, not the server. Check the panel's log for the error. If this keeps happening, something on this host (antivirus, a full disk, or a missing system tool) may be blocking detection.",
+      });
+    }
     if (activeServer?.isRemote) return next();
 
     const serverManager = req.app?.get?.("serverManager");
@@ -77,15 +130,25 @@ export async function warnRunningForLocalConfigEdit(req, res, next) {
     if (activeServer?.isRemote) return next();
 
     const serverManager = req.app?.get?.("serverManager");
-    if (typeof serverManager?.checkServerRunning !== "function") {
+    // getServerProcessDetails(), not checkServerRunning() -- same reason as
+    // this file's sibling guard above. checkServerRunning() discards the
+    // scan's own scanFailed flag and collapses a failed scan straight to
+    // `running: false`, so `running !== false` below was false on a scan
+    // failure and NO warning was shown -- the exact opposite of this
+    // function's own documented policy ("cannot verify is treated the same
+    // as running... defaulting to warn is the harmless direction"). Found
+    // in the 2026-08-26 bug hunt: two functions in this one file, one
+    // hardened to getServerProcessDetails() and one never migrated.
+    if (typeof serverManager?.getServerProcessDetails !== "function") {
       req.configEditRestartWarning = true;
       return next();
     }
 
-    const running = await serverManager
-      .checkServerRunning()
-      .catch(() => true);
-    req.configEditRestartWarning = running !== false;
+    const processDetails = await serverManager
+      .getServerProcessDetails()
+      .catch(() => ({ running: true, scanFailed: true }));
+    req.configEditRestartWarning =
+      processDetails.scanFailed || processDetails.running !== false;
     return next();
   } catch (error) {
     log.warn(

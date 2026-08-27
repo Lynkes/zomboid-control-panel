@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ChevronRight, Loader2 } from 'lucide-react'
@@ -27,6 +28,14 @@ export interface Verdict {
    * skip past.
    */
   headline?: string
+  /**
+   * Inline explainer for a term inside the headline a first-time user can't
+   * be expected to know (e.g. a HelpTip on "RCON"). Kept separate from
+   * `headline` itself, which stays a plain string -- it also feeds the
+   * status dot's `title` attribute and its sr-only echo up in Dashboard.tsx,
+   * neither of which can hold JSX.
+   */
+  headlineHelp?: ReactNode
   /** Raw technical text, only where the operator genuinely needs it. */
   detail?: string
   action?: VerdictAction
@@ -149,6 +158,7 @@ export function VerdictBand({
                 )}
               >
                 {verdict.headline}
+                {verdict.headlineHelp}
               </h2>
             )}
             {verdict.detail && (

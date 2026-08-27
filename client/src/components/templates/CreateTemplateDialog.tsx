@@ -17,6 +17,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { useToast } from '@/components/ui/use-toast'
 import { serverFilesApi, templatesApi } from '@/lib/api'
 import { buildTemplateCapture, TemplateCapture } from '@/lib/templateBuilder'
+import { getUserErrorMessage } from '@/lib/errorMessage'
 
 interface CreateTemplateDialogProps {
   open: boolean
@@ -64,7 +65,7 @@ export function CreateTemplateDialog({ open, onClose, onCreated }: CreateTemplat
       toast({ title: t('toastSavedTitle'), description: t('toastSavedDesc', { name: name.trim() }), variant: 'success' as const })
       onCreated()
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('failedToSave'))
+      setError(getUserErrorMessage(err, t('failedToSave')))
     } finally {
       setSaving(false)
     }

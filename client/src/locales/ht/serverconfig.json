@@ -1,4 +1,13 @@
 {
+  "noAccess": {
+    "title": "Ou pa gen aksè nan Konfigirasyon Sèvè",
+    "description": "Paj sa a mande pèmisyon \"Jere fichye sèvè\". Mande yon administratè bay wòl ou pèmisyon sa a si ou bezwen modifye paramèt sèvè a isit la."
+  },
+  "duplicateKeysWarning": {
+    "title_one": "\"{{keys}}\" parèt plis pase yon fwa nan fichye konfigirasyon sa a",
+    "title_other": "{{count}} paramèt parèt plis pase yon fwa nan fichye konfigirasyon sa a: {{keys}}",
+    "desc": "Editè sa a li dènye kopi a, epi paj Mods li premye a — konsa toude ka montre valè diferan pou menm paramèt la."
+  },
   "loading": "ap chaje konfigirasyon…",
   "loadErrorTitle": "Done konfigirasyon pa t kapab chaje nèt",
   "retry": "Eseye ankò",
@@ -7,7 +16,7 @@
     "description": "Modifye paramèt INI, sandbox, spawn, ak mod k ap fonksyone kounye a pou sèvè sa a.",
     "eyebrow": "config",
     "unsavedChanges": "Chanjman ki pa sove",
-    "templates": "Modèl",
+    "templates": "Konfigirasyon Sove",
     "backups": "Kopi Sovgad",
     "refresh": "Aktyalize"
   },
@@ -33,7 +42,9 @@
   },
   "stopServerAlert": {
     "title": "Sèvè a ap fonksyone",
-    "description": "Ou ka sove chanjman yo kounye a. Selon sa w ap modifye, yo ka bezwen yon redemaraj sèvè pou pran efè — konfimasyon apre ou sove a ap di ou."
+    "description": "Ou ka sove chanjman yo kounye a. Selon sa w ap modifye, yo ka bezwen yon redemaraj sèvè pou pran efè — konfimasyon apre ou sove a ap di ou.",
+    "unknownTitle": "Nou pa ka konfime si sèvè a kanpe",
+    "unknownDescription": "Nou pa t kapab detèmine si sèvè a ap fonksyone kounye a. Si li ap fonksyone, chanjman yo ka bezwen yon redemaraj sèvè pou pran efè — konfimasyon apre ou sove a ap di ou."
   },
   "invalidValuesAlert": {
     "title": "Korije valè envalid anvan ou sove",
@@ -167,7 +178,10 @@
     "collapseAll": "Fèmen tout",
     "expandAll": "louvri tout",
     "notLoadedTitle": "Paramèt mod pa chaje",
-    "notLoadedDesc": "Klike chaje pou jwenn opsyon sandbox nan tout mod enstale atravè PanelBridge. Sèvè PZ a dwe ap fonksyone ak PanelBridge aktif.",
+    "notLoadedDescPrefix": "Klike chaje pou jwenn opsyon sandbox nan tout mod enstale atravè PanelBridge",
+    "notLoadedDescSuffix": ". Sèvè PZ a dwe ap fonksyone ak PanelBridge aktif.",
+    "panelBridgeLabel": "PanelBridge",
+    "panelBridgeTip": "PanelBridge se mod Lua ki fonksyone sou sèvè jwèt la epi ki bay panèl sa a aksè an dirèk a opsyon sandbox, tan, teleportasyon, ak kontwòl atik. Paramèt mod yo chaje sèlman lè li enstale sou sèvè a epi sèvè a ap fonksyone.",
     "refreshFailedTitle": "Aktyalizasyon echwe — ap montre ansyen done",
     "loadFailedTitle": "Pa t kapab chaje paramèt mod",
     "loadFailedNotConnected": "Pa t kapab chaje paramèt mod. Èske PanelBridge konekte?",
@@ -226,45 +240,51 @@
     "sizeKb": "{{size}}KB"
   },
   "templatesDialog": {
-    "title": "Modèl Konfigirasyon",
-    "applyTip": "Aplike yon modèl ranplase TOUT paramèt aktyèl ou yo — li pa fusion ak sa ki la kounye a. Panèl la fè kopi sovgad sa k ap fonksyone anvan li aplike, pou Retabli ka anile li, men sèvè a dwe sispann anvan.",
-    "description": "Sove konfigirasyon aktyèl ou kòm yon modèl oswa chaje yon modèl ki sove.",
-    "savedCount_one": "{{count}} modèl sove",
-    "savedCount_other": "{{count}} modèl sove",
-    "saveCurrentAsTemplate": "Sove Aktyèl kòm Modèl",
-    "emptyTitle": "Pa gen modèl sove toujou",
-    "emptyDesc": "Klike 'Sove Aktyèl kòm Modèl' pou kreye premye modèl ou",
+    "title": "Konfigirasyon Sove",
+    "applyTip": "Aplike yon konfigirasyon sove ranplase TOUT paramèt aktyèl ou yo — li pa fusion ak sa ki la kounye a. Panèl la fè kopi sovgad sa k ap fonksyone anvan li aplike, pou Retabli ka anile li, men sèvè a dwe sispann anvan.",
+    "description": "Sove konfigirasyon aktyèl ou, oswa chaje youn ou te sove anvan.",
+    "savedCount_one": "{{count}} konfigirasyon sove",
+    "savedCount_other": "{{count}} konfigirasyon sove",
+    "saveCurrentAsTemplate": "Sove Konfigirasyon Aktyèl la",
+    "emptyTitle": "Pa gen konfigirasyon sove toujou",
+    "emptyDesc": "Klike 'Sove Konfigirasyon Aktyèl la' pou kreye premye a",
     "typeBoth": "INI + Sandbox",
     "createdLabel": "Kreye: {{date}}",
     "apply": "Aplike",
-    "applyTooltip": "Chaje modèl sa a (kreye kopi sovgad anvan)",
-    "deleteAria": "Efase modèl {{name}}",
-    "deleteTooltip": "Efase modèl sa a",
+    "applyTooltip": "Chaje konfigirasyon sa a (kreye kopi sovgad anvan)",
+    "deleteAria": "Efase konfigirasyon sove {{name}}",
+    "deleteTooltip": "Efase konfigirasyon sove sa a",
     "close": "Fèmen"
   },
   "saveTemplateDialog": {
-    "title": "Sove kòm Modèl",
-    "description": "Sove paramèt INI ak/oswa Sandbox aktyèl ou yo kòm yon modèl reyitilizab.",
-    "nameLabel": "Non Modèl *",
+    "title": "Sove Konfigirasyon Aktyèl la",
+    "description": "Sove paramèt INI ak/oswa Sandbox aktyèl ou yo pou ou ka chaje yo ankò pita.",
+    "nameLabel": "Non *",
     "namePlaceholder": "pa egzanp, PvE Kazyèl, Siviv Difisil...",
     "nameCharCount": "{{count}}/60 karaktè",
     "descLabel": "Deskripsyon (opsyonèl)",
-    "descPlaceholder": "Dekri pou kisa modèl sa a ye...",
+    "descPlaceholder": "Dekri pou kisa sa a ye...",
     "descCharCount": "{{count}}/240 karaktè",
-    "includeLabel": "Enkli nan Modèl",
+    "includeLabel": "Enkli",
     "includeIniTitle": "Paramèt Sèvè (INI)",
     "includeIniDesc": "Rezo, jwè, RCON, konpòtman sèvè",
-    "includeIniAria": "Enkli paramèt sèvè nan modèl",
+    "includeIniAria": "Enkli paramèt sèvè",
     "includeSandboxTitle": "Paramèt Sandbox",
     "includeSandboxDesc": "Mond, zonbi, piyaj, paramèt siviv",
-    "includeSandboxAria": "Enkli paramèt sandbox nan modèl",
+    "includeSandboxAria": "Enkli paramèt sandbox",
     "cancel": "Anile",
-    "save": "Sove Modèl"
+    "save": "Sove Konfigirasyon"
   },
   "deleteTemplateConfirm": {
-    "title": "Efase modèl?",
-    "description": "Efase modèl \"{{name}}\"? Sa a pa ka anile.",
+    "title": "Efase konfigirasyon sove a?",
+    "description": "Efase konfigirasyon sove \"{{name}}\"? Sa a pa ka anile.",
     "confirmLabel": "Efase"
+  },
+  "applyTemplateConfirm": {
+    "title": "Aplike konfigirasyon sove \"{{name}}\"?",
+    "description": "Ranplase paramèt sèvè aktyèl ou yo ak konfigirasyon sove sa a? Panèl la fè yon sovgad anvan, kidonk ou ka anile sa ak Restore si w bezwen l.",
+    "rconWarning": "Konfigirasyon sove yo pa konsève modpas RCON, kidonk aplike sa a ap retire modpas RCON sèvè ou a — w ap bezwen antre l ankò apre.",
+    "confirmLabel": "Aplike"
   },
   "restoreBackupConfirm": {
     "title": "Retabli kopi sovgad sa a?",
@@ -328,6 +348,7 @@
     "bridgeUnverifiedDesc": "{{action}} te voye, men mod la pa t kapab konfime li te fè efè.",
     "bridgeOldBridgeDesc": "{{action}} ka te fonksyone, men vèsyon mod PanelBridge sa a pa rapòte si li te fè sa. Mete mod la ajou pou konfime rezilta yo.",
     "appliedNotSavedTitle": "Aplike, men pa sove",
+    "worldSaveFailedDesc": "{{option}} te aplike, men sovgad mond sèvè a echwe ({{reason}}), kidonk li ka pa siviv pwochen redemaraj la.",
     "notPersistedDesc": "{{option}} pa nan SandboxVars.lua, kidonk li ap reyinisyalize lè sèvè a redemare.",
     "willResetFallback": "{{option}} ap reyinisyalize lè sèvè a redemare.",
     "failedToUpdateTitle": "Pa T Kapab Mete Ajou",
@@ -335,17 +356,19 @@
     "setOptionFailed": "Pa t kapab defini opsyon an",
     "browseFilesFailed": "Pa t kapab navige fichye yo",
     "navigateFailed": "Pa t kapab navige",
-    "templateNameRequired": "Non modèl la obligatwa",
+    "templateNameRequired": "Non an obligatwa",
     "loadBackupsFailed": "Pa t kapab chaje kopi sovgad yo.",
     "restoredTitle": "Retabli",
     "restoredDesc": "Retabli soti nan {{filename}}",
     "restoreBackupFailed": "Pa t kapab retabli kopi sovgad.",
-    "loadTemplatesFailed": "Pa t kapab chaje modèl yo.",
+    "loadTemplatesFailed": "Pa t kapab chaje konfigirasyon sove yo.",
     "appliedTitle": "Aplike",
-    "applyTemplateFailed": "Pa t kapab aplike modèl la.",
-    "saveTemplateFailed": "Pa t kapab sove modèl la.",
+    "applyTemplateFailed": "Pa t kapab aplike konfigirasyon sove a.",
+    "applyTemplatePartialTitle": "Aplike pasyèlman",
+    "applyTemplatePartialDesc": "Paramèt {{applied}} yo te ekri sou disk anvan echèk sa a: {{error}} Rès konfigirasyon sove a pa t aplike.",
+    "saveTemplateFailed": "Pa t kapab sove konfigirasyon an.",
     "deletedTitle": "Efase",
-    "templateDeletedDesc": "Modèl \"{{name}}\" efase",
-    "deleteTemplateFailed": "Pa t kapab efase modèl la."
+    "templateDeletedDesc": "Konfigirasyon sove \"{{name}}\" efase",
+    "deleteTemplateFailed": "Pa t kapab efase konfigirasyon sove a."
   }
 }

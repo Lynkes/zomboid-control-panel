@@ -25,7 +25,8 @@
     "noMatches": "没有匹配该搜索的控制项。",
     "bridgeBadge": "桥接",
     "bridgeBadgeTitle": "需要 PanelBridge",
-    "recentActions": "最近操作"
+    "recentActions": "最近操作",
+    "noRecentActions": "暂无最近操作——从此页面触发的操作将记录在此处。"
   },
   "bridgeOfflineAlert": {
     "title": "PanelBridge 已离线",
@@ -196,7 +197,9 @@
     "statusOffline": "离线",
     "statusPending": "…",
     "restore": "恢复",
-    "shutOff": "关闭"
+    "shutOff": "关闭",
+    "timingReasoning": "修正值 {{modifier}} · 世界第 {{day}} 天 · 已存活 {{nights}} 夜",
+    "modifierNever": "永不"
   },
   "quickSounds": {
     "sublabel": "RCON · 吸引丧尸",
@@ -239,6 +242,8 @@
     "random": "随机",
     "targetFallback": "目标",
     "clearLoadedZombies": "清除已加载的丧尸",
+    "removeAllConfirmTitle": "清除所有已加载的丧尸？",
+    "removeAllConfirmDescription": "这会立即清除已加载区域内的所有丧尸，影响整个服务器——包括玩家正在战斗中的丧尸。丧尸会随时间重新生成，但对当时正在战斗的玩家来说，这场战斗会立刻结束。",
     "noPlayersOnlineTitle": "没有在线玩家",
     "bridgeOfflineTitle": "桥接离线",
     "sizeAria": "尸群规模"
@@ -342,6 +347,11 @@
     "bridgeFileLink": "桥接文件链接：{{summary}}",
     "bridgeConnectionRequiredTitle": "需要桥接连接",
     "bridgeConnectionRequiredDesc": "这些操作需要有效的 PanelBridge 连接。请先在设置中进行配置。",
+    "moderationConfirmTitle": "运行{{operation}}？",
+    "moderationConfirmDescription": "这将通过实时桥接发送真实的管理命令{{target}}{{reason}}。请在继续之前仔细核对上方的值。",
+    "moderationConfirmTarget": "，目标为 {{target}}",
+    "moderationConfirmReason": "（原因：{{reason}}）",
+    "moderationConfirmButton": "运行操作",
     "runOperation": "运行操作",
     "resetFields": "重置字段",
     "clearResults": "清除结果",
@@ -373,7 +383,7 @@
     "runEventSequence": { "label": "运行事件序列", "description": "运行连锁的聊天/天气/蜂拥/设施/噪音序列。" },
     "getInfrastructureSnapshot": { "label": "基础设施快照", "description": "读取水电/天气状态及可选采样点。" },
     "moderationKickUser": { "label": "踢出用户", "description": "通过 BanSystem 踢出玩家。" },
-    "moderationBanUser": { "label": "封禁用户", "description": "封禁或解封玩家。" },
+    "moderationBanUser": { "label": "封禁用户", "description": "仅按用户名封禁或解封——不会封禁其 IP 地址。如需同时封禁用户名和 IP，请前往玩家页面。" },
     "moderationBanIP": { "label": "封禁 IP", "description": "封禁或解封 IP 地址。" },
     "moderationBanSteamID": { "label": "封禁 SteamID", "description": "封禁或解封 SteamID。" }
   },
@@ -513,6 +523,7 @@
     "bridgeCommandFailedFallback": "桥接命令失败。",
     "notPersistedDesc": "仅应用于当前运行中的世界 — SandboxVars.lua 未被更新（{{reason}}），因此服务器重启后此更改将被撤销。",
     "notPersistedUnknownReason": "未知原因",
+    "powerDidNotTakeEffectDesc": "服务器报告电力状态仍为{{state}} — 更改未生效。",
     "noPlayersOnlineError": "没有在线玩家",
     "targetPlayerRequiredHorde": "生成尸群需要目标玩家",
     "operationCompletedDesc": "操作已成功完成。",
