@@ -33,6 +33,14 @@ RUN cd client && npm install --no-audit --prefer-offline --include=optional
 # The root package.json is needed because vite.config.ts reads the panel version from it.
 COPY package.json ./
 COPY client/ ./client/
+
+# The FRONTEND needs the sha too. client/vite.config.ts already prefers
+# process.env.PANEL_BUILD_SHA over shelling out to git, and the builder stage has no .git
+# either -- so without this the bundle bakes in "unknown" while the backend reports the real
+# sha, and the build-compatibility gate compares "unknown" against it and blocks the UI.
+# Both halves must be given the same value or the check compares two different things.
+ARG PANEL_BUILD_SHA=""
+ENV PANEL_BUILD_SHA=${PANEL_BUILD_SHA}
 RUN cd client && npm run build
 
 # --- Runtime stage ---
@@ -95,6 +103,14 @@ RUN chmod 0755 /usr/local/bin/zomboid-panel-entrypoint
 # Create runtime directories owned by the panel user (numeric IDs survive
 # the case where we're reusing the base image's existing user).
 RUN mkdir -p data logs && chown -R ${UID}:${GID} /app
+
+# Build provenance. server/index.js prefers process.env.PANEL_BUILD_SHA over shelling out to
+# `git rev-parse HEAD`, which cannot work in an image: there is no .git and no git binary. Passing
+# the sha in makes the frontend/backend build-compatibility check meaningful in Docker rather than
+# merely non-fatal. CI supplies this via --build-arg; a local `docker build` without it simply
+# leaves the sha unknown, which is now harmless on its own.
+ARG PANEL_BUILD_SHA=""
+ENV PANEL_BUILD_SHA=${PANEL_BUILD_SHA}
 
 EXPOSE 3001
 

@@ -207,6 +207,11 @@
       "sendTest": "Voye Tès",
       "sendingTest": "N ap voye..."
     },
+    "gatewayIssue": {
+      "label": "Koneksyon Discord la enstab depi yon bon ti tan — alèt ak kòmand yo ka an reta jiskaske li retabli.",
+      "dismissAria": "Ekate avètisman koneksyon an",
+      "dismissTooltip": "Kite tonbe jiskaske sa chanje"
+    },
     "commandPermissions": {
       "title": "Otorizasyon Kòmand",
       "description": "Kontwole ki moun ki ka itilize chak kòmand slash. Asiyen yon nivo otorizasyon pou chak kòmand.",

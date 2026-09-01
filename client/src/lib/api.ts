@@ -60,7 +60,11 @@ function withAuth(options?: RequestInit): RequestInit {
 let isRefreshing = false;
 let refreshPromise: Promise<boolean> | null = null;
 
-async function tryRefreshToken(): Promise<boolean> {
+// Exported so callers outside the 401-retry path below (App.tsx's socket
+// auth, ahead of a reconnect attempt) can reuse the exact same
+// isRefreshing/refreshPromise dedupe instead of racing a second,
+// independent refresh call against this one.
+export async function tryRefreshToken(): Promise<boolean> {
   if (isRefreshing && refreshPromise) return refreshPromise;
 
   isRefreshing = true;
@@ -97,6 +101,12 @@ const RETRY_CONFIG = {
   maxDelay: 5000,
   fetchTimeout: 15000, // 15 second timeout for fetch requests
 };
+
+const RETRY_SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+function requestMethod(options?: RequestInit): string {
+  return String(options?.method || "GET").toUpperCase();
+}
 
 // Exponential backoff with jitter
 function getRetryDelay(attempt: number): number {
@@ -255,6 +265,24 @@ function buildResponseError(response: Response, payload?: unknown): ApiError {
   });
 }
 
+async function responseHasCode(
+  response: Response,
+  expectedCode: string,
+): Promise<boolean> {
+  if (response.status !== 401) return false;
+  try {
+    const payload = await response.clone().json();
+    return (
+      payload !== null &&
+      typeof payload === "object" &&
+      "code" in payload &&
+      payload.code === expectedCode
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function fetchWithRetry(
   url: string,
   options?: RequestInit & { timeout?: number },
@@ -262,8 +290,11 @@ async function fetchWithRetry(
 ): Promise<Response> {
   let lastError: unknown;
   const effectiveTimeout = options?.timeout || RETRY_CONFIG.fetchTimeout;
+  const method = requestMethod(options);
+  const transportRetries = RETRY_SAFE_METHODS.has(method) ? retries : 0;
+  let authenticationReplayUsed = false;
 
-  for (let attempt = 0; attempt <= retries; attempt++) {
+  for (let attempt = 0; attempt <= transportRetries; attempt++) {
     try {
       // Create AbortController for timeout
       const controller = new AbortController();
@@ -284,18 +315,23 @@ async function fetchWithRetry(
       }
 
       try {
-        let response = await fetch(url, {
+        const response = await fetch(url, {
           ...withAuth(options),
           signal: controller.signal,
         });
         clearTimeout(timeoutId);
 
-        // Handle 401 — try token refresh once, then retry
+        // Authentication replay is separate from transport retries. It is
+        // allowed once, and only when the server explicitly says the access
+        // token expired. This remains safe for mutations because the server
+        // rejected the original request before performing it.
         if (
           response.status === 401 &&
-          attempt === 0 &&
-          !url.includes("/api/auth/")
+          !authenticationReplayUsed &&
+          !url.includes("/api/auth/") &&
+          (await responseHasCode(response, "TOKEN_EXPIRED"))
         ) {
+          authenticationReplayUsed = true;
           const refreshed = await tryRefreshToken();
           if (refreshed) {
             const retryController = new AbortController();
@@ -309,20 +345,13 @@ async function fetchWithRetry(
               signal: retryController.signal,
             }).finally(() => clearTimeout(retryTimeoutId));
             if (retryResponse.status === 401) {
-              // Refreshed token still 401s — nothing left to retry, force
-              // reload to show login.
+              clearAccessToken();
               window.location.reload();
-              return response;
             }
-            // The refresh-retry consumed this attempt's fetch, but a
-            // transient failure (5xx/429) on the RETRIED request still
-            // deserves the same backoff-retry resilience as every other
-            // response. Replace `response` and fall through to the shared
-            // retryable check below instead of returning unconditionally --
-            // returning here unconditionally used to skip fetchWithRetry's
-            // own retry loop entirely for exactly the unluckiest requests:
-            // an expired token AND a transient blip on the very next call.
-            response = retryResponse;
+            // The authentication replay is the final send for this logical
+            // request. A failure here must be surfaced rather than retried,
+            // especially when the request is a mutation.
+            return retryResponse;
           } else {
             // Refresh failed — force reload to show login.
             window.location.reload();
@@ -331,7 +360,10 @@ async function fetchWithRetry(
         }
 
         // If response is not retryable error, return it
-        if (!isRetryableError(null, response) || attempt === retries) {
+        if (
+          !isRetryableError(null, response) ||
+          attempt === transportRetries
+        ) {
           return response;
         }
       } catch (error) {
@@ -347,12 +379,15 @@ async function fetchWithRetry(
       lastError = toApiError(error);
 
       // Don't retry if it's the last attempt or non-retryable
-      if (attempt === retries || !isRetryableError(lastError)) {
+      if (
+        attempt === transportRetries ||
+        !isRetryableError(lastError)
+      ) {
         throw lastError;
       }
 
       reportClientWarning(
-        `Request failed, retrying (${attempt + 1}/${retries})...`,
+        `Request failed, retrying (${attempt + 1}/${transportRetries})...`,
         lastError,
       );
       await new Promise((resolve) =>
@@ -410,8 +445,9 @@ async function handleResponse<T = any>(response: Response): Promise<T> {
 function apiGet<T = any>(
   endpoint: string,
   options?: RequestInit & { timeout?: number },
+  retries?: number,
 ): Promise<T> {
-  return fetchWithRetry(`${API_BASE}${endpoint}`, options).then((response) =>
+  return fetchWithRetry(`${API_BASE}${endpoint}`, options, retries).then((response) =>
     handleResponse<T>(response),
   );
 }
@@ -865,6 +901,13 @@ export const schedulerApi = {
     }>;
   },
   clearHistory: () => apiDelete("/scheduler/history"),
+  setTimezone: (timezone: string) =>
+    apiPut("/scheduler/timezone", { timezone }) as Promise<{
+      success: boolean;
+      timezone: string;
+      configuredTimezone: string | null;
+      timezoneFallback: { configured: string; effective: string } | null;
+    }>,
 };
 
 // Mods API
@@ -1072,6 +1115,21 @@ export const modsApi = {
       wsAdded: number;
       modIdsAdded: number;
       mapFolders: string[];
+      // Per-item outcome, one entry per requested dep, same field names as
+      // the single-add sibling above (addMissingDep) -- see
+      // server/routes/mods.js's own comment on why. The aggregate counts
+      // above can't tell a caller WHICH dep (if any) never got a real Mod
+      // ID resolved; callers must check each entry's own `modId` for null
+      // to decide per-row success, not the aggregate counts or the absence
+      // of a thrown error (a batch with one unresolved dep out of three
+      // still returns success:true, by design, since the other two did
+      // apply and a hard failure would discard those too).
+      results: Array<{
+        workshopId: string;
+        modId: string | null;
+        wsAdded: boolean;
+        modIdAdded: boolean;
+      }>;
       message: string;
     }>,
 
@@ -1535,6 +1593,7 @@ export interface ServerInstance {
   zomboidDataPath: string | null;
   serverConfigPath: string | null;
   dockerContainerName?: string | null;
+  dockerContainerId?: string | null;
   branch?: string;
   rconHost: string;
   rconPort: number;
@@ -1550,6 +1609,7 @@ export interface ServerInstance {
   remoteConfigConfigured?: boolean;
   isActive: boolean;
   startCommand: string;
+  lifecycleProvider?: "direct" | "systemd" | "openrc";
   adminPassword: string;
   createdAt: string;
 }
@@ -1587,7 +1647,15 @@ export interface ComposedServerStatus {
 
 // Servers API (multi-server management)
 export const serversApi = {
-  getAll: () => apiGet("/servers") as Promise<{ servers: ServerInstance[] }>,
+  getAll: () => apiGet("/servers") as Promise<{
+    servers: ServerInstance[];
+    lifecycleCapabilities?: {
+      supported: boolean;
+      platform: string;
+      containerized: boolean;
+      providers: Array<"direct" | "systemd" | "openrc">;
+    };
+  }>,
   getActive: () =>
     apiGet("/servers/active") as Promise<{ server: ServerInstance }>,
   getComposedStatus: () =>
@@ -1637,6 +1705,32 @@ export const serversApi = {
       server: ServerInstance;
       message: string;
       warnings?: string[];
+    }>,
+  getLifecycleTemplate: (
+    id: string | number,
+    provider: "systemd" | "openrc",
+  ) =>
+    apiGet(
+      `/servers/${id}/lifecycle-template?provider=${encodeURIComponent(provider)}`,
+    ) as Promise<{
+      provider: "systemd" | "openrc";
+      serviceName: string;
+      filename: string;
+      installPath: string;
+      content: string;
+      commands: string[];
+      warning: string;
+    }>,
+  activateLifecycleProvider: (
+    id: string | number,
+    provider: "direct" | "systemd" | "openrc",
+  ) =>
+    apiPost(`/servers/${id}/lifecycle-provider`, {
+      provider,
+      confirm: true,
+    }) as Promise<{
+      server: ServerInstance;
+      message: string;
     }>,
   delete: (id: string | number) =>
     apiDelete(`/servers/${id}`) as Promise<{
@@ -2108,6 +2202,15 @@ export const templatesApi = {
       success: boolean;
       error?: string;
     }>,
+  // A hidden built-in never appears in list() -- it's not deleted, just
+  // filtered out server-side (server/services/templateService.js) -- so
+  // these two are the only way to see one again and bring it back.
+  listHidden: () => apiGet("/templates/hidden") as Promise<{ templates: SimTemplate[] }>,
+  unhide: (id: string) =>
+    apiPost(`/templates/${encodeURIComponent(id)}/unhide`, {}) as Promise<{
+      success: boolean;
+      error?: string;
+    }>,
 };
 
 // Wire shape of every response from POST /panel-bridge/command. `data.verified`
@@ -2355,8 +2458,45 @@ export const panelBridgeApi = {
   ) =>
     apiPost<BridgeCommandResult<T>>("/panel-bridge/command", { action, args }),
 
+  // Server-wide helicopter event (2026-08-30). Zero-arg, no dedicated route
+  // -- same generic-passthrough shape trigger already used before this
+  // (VALID_ACTIONS in server/routes/panelBridge.js), not a new pattern.
+  // See PanelBridge.lua's handlers.triggerHelicopterEvent/
+  // stopHelicopterEvent for why there's no per-player targeting: the only
+  // confirmed real API (testHelicopter/endHelicopter) is server-wide.
+  triggerHelicopterEvent: () =>
+    apiPost<BridgeCommandResult<{ message: string }>>(
+      "/panel-bridge/command",
+      { action: "triggerHelicopterEvent", args: {} },
+    ),
+  stopHelicopterEvent: () =>
+    apiPost<BridgeCommandResult<{ message: string }>>(
+      "/panel-bridge/command",
+      { action: "stopHelicopterEvent", args: {} },
+    ),
+
   // Get weather info
-  getWeather: () => apiGet("/panel-bridge/weather"),
+  getWeather: () =>
+    apiGet("/panel-bridge/weather") as Promise<{
+      success: boolean;
+      data: {
+        temperature: number;
+        humidity: number;
+        windSpeed: number;
+        windAngle: number;
+        fogIntensity: number;
+        cloudIntensity: number;
+        precipitationIntensity: number;
+        isRaining: boolean;
+        isSnowing: boolean;
+        isThunderStorming: boolean;
+        dayLight: number;
+        nightStrength: number;
+        desaturation: number;
+        viewDistance: number;
+        ambient: number;
+      };
+    }>,
 
   // Get server info from mod
   getServerInfo: () => apiGet("/panel-bridge/server-info"),
@@ -2371,6 +2511,15 @@ export const panelBridgeApi = {
   stopWeather: () => apiPost("/panel-bridge/weather/stop"),
   setSnow: (enabled: boolean) =>
     apiPost("/panel-bridge/weather/snow", { enabled }),
+  // Generates a real B42 weather front (WeatherPeriod, via
+  // ClimateManager.transmitGenerateWeather/triggerCustomWeather) -- distinct
+  // from triggerBlizzard/triggerTropicalStorm/triggerStorm, which each fire
+  // one fixed preset stage. This is the adjustable one: an operator picks
+  // strength and whether the front is cold, warm, or stationary.
+  // frontType: 0 = stationary, 1 = cold, 2 = warm (mapped to the game's own
+  // FRONT_COLD/STATIONARY/WARM constants server-side).
+  generateWeather: (strength?: number, frontType?: number) =>
+    apiPost("/panel-bridge/weather/generate", { strength, frontType }),
 
   // Rain & Lightning (v1.1.0)
   startRain: (intensity?: number) =>
@@ -2419,6 +2568,11 @@ export const panelBridgeApi = {
         worldAgeHours: number;
         moonPhase: number;
         nightsSurvived: number;
+        // Optional: added 2026-08-30 (panelbridge-audit) to the Lua
+        // handler's response, and read defensively (typeof check, not a
+        // required field) by Events.tsx's time-speed slider -- a bridge
+        // mod predating that Lua change simply won't send it yet.
+        multiplier?: number;
       };
     }>,
   setGameTime: (options: {
@@ -2429,7 +2583,19 @@ export const panelBridgeApi = {
   }) => apiPost("/panel-bridge/time", options),
 
   // World controls (v1.1.0)
-  getWorldStats: () => apiGet("/panel-bridge/world/stats"),
+  getWorldStats: () =>
+    apiGet("/panel-bridge/world/stats") as Promise<{
+      success: boolean;
+      data: { serverName: string; map: string; zombiesInCell: number };
+    }>,
+
+  // Zombie count in currently loaded cells only (PanelBridge.lua's own
+  // caveat -- not a world-wide total, Project Zomboid has no such number).
+  getZombieCount: () =>
+    apiGet("/panel-bridge/zombies/count") as Promise<{
+      success: boolean;
+      data: { zombieCount: number; note: string };
+    }>,
   saveWorld: () => apiPost("/panel-bridge/world/save"),
 
   // Player controls (v1.1.0)
@@ -2454,13 +2620,62 @@ export const panelBridgeApi = {
       };
     }>,
   getPlayerDetails: (username: string) =>
-    apiGet(`/panel-bridge/players/${encodeURIComponent(username)}`),
+    apiGet(`/panel-bridge/players/${encodeURIComponent(username)}`) as Promise<{
+      success: boolean;
+      data: {
+        username?: string;
+        displayName?: string;
+        x?: number;
+        y?: number;
+        z?: number;
+        accessLevel?: string;
+        isAlive?: boolean;
+        isAsleep?: boolean;
+        isSneaking?: boolean;
+        isRunning?: boolean;
+        // Any field PZ's Stats/BodyDamage couldn't read is OMITTED (not
+        // defaulted to 0) -- see PanelBridge.lua's statGet(). Never treat an
+        // absent key here as "0", only as "unknown".
+        stats?: {
+          hunger?: number;
+          thirst?: number;
+          fatigue?: number;
+          stress?: number;
+          boredom?: number;
+          unhappiness?: number;
+          pain?: number;
+          endurance?: number;
+        };
+        health?: {
+          overallBodyHealth?: number;
+          isInfected?: boolean;
+          isBleeding?: boolean;
+          health?: number;
+          temperature?: number;
+          wetness?: number;
+        };
+      };
+      error?: string;
+    }>,
   teleportPlayerBridge: (username: string, x: number, y: number, z?: number) =>
     apiPost(`/panel-bridge/players/${encodeURIComponent(username)}/teleport`, {
       x,
       y,
       z,
     }),
+
+  // Kill player -- permanent character loss in a permadeath game, unlike
+  // heal/godmode/invisible/noclip which route through the generic
+  // sendCommand passthrough. There is no players.js-native equivalent (the
+  // way teleport/give-item have one) for this action to shadow, so this
+  // dedicated route (server/routes/panelBridge.js's POST
+  // /players/:username/kill) is the one genuine live path, not a redundant
+  // second one -- keep calling it here rather than switching to
+  // sendCommand('killPlayer', ...) later.
+  killPlayer: (username: string) =>
+    apiPost<BridgeCommandResult<{ message: string; username: string; isDead: boolean; debug: string }>>(
+      `/panel-bridge/players/${encodeURIComponent(username)}/kill`,
+    ),
 
   // Server message (v1.1.0)
   sendServerMessage: (message: string, color?: string) =>
@@ -2478,6 +2693,19 @@ export const panelBridgeApi = {
       message,
       author: author?.trim() || "Server",
     }),
+
+  // Whether the game's native ChatServer API is available right now, or
+  // sendToServerChat/sendToAdminChat/sendToGeneralChat above are falling
+  // back to player:Say/RCON. chatServerAvailable and rconFallback are
+  // logical opposites of the same underlying fact (Lua reports both for
+  // readability) -- only chatServerAvailable is surfaced client-side.
+  // getChatInfo's other field (availableChats, a hardcoded description
+  // list) is API documentation, not live state, and is not fetched here.
+  getChatInfo: () =>
+    apiGet("/panel-bridge/chat/info") as Promise<{
+      success: boolean;
+      data: { chatServerAvailable: boolean; rconFallback: boolean };
+    }>,
 
   // Sandbox options (v1.1.0)
   getSandboxOptions: () => apiGet("/panel-bridge/sandbox"),
@@ -2661,6 +2889,8 @@ export const panelBridgeApi = {
 
   // Clear ALL zombies from loaded cells
   clearAllZombies: () => apiPost("/panel-bridge/zombies/clear-all"),
+  clearZombiesNearPlayer: (username: string, radius?: number) =>
+    apiPost("/panel-bridge/zombies/clear-near-player", { username, radius }),
 
   // =============================================
   // ITEM & VEHICLE CATALOG
@@ -2742,6 +2972,15 @@ export interface BackupStatus extends BackupSettings {
   savesPath: string | null;
   backupsPath: string | null;
   savesExists: boolean;
+  // Only populated while `enabled` is true -- the newest schedule_history
+  // entry for the backup job, independent of whether it actually produced a
+  // file. `lastBackup` above stays silent about a scheduler that has been
+  // failing every attempt; this is what lets the UI say so.
+  lastScheduledBackupAttempt: {
+    success: boolean;
+    message: string | null;
+    executedAt: string;
+  } | null;
 }
 
 // backup.js/backupService.js's own shape (full .zip server backups --
@@ -2844,38 +3083,57 @@ export const backupApi = {
     size: number;
     message: string;
   }> => {
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", `${API_BASE}/backup/upload`, true);
-      const token = getAuthToken();
-      if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
-      xhr.setRequestHeader("Content-Type", "application/zip");
-      xhr.setRequestHeader("X-Backup-Filename", file.name);
-      if (onProgress) {
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable)
-            onProgress(Math.round((e.loaded / e.total) * 100));
+    // Raw XHR (not fetchWithRetry) because it needs upload progress events,
+    // which the fetch API cannot report. That means it does NOT get
+    // fetchWithRetry's automatic "refresh once on TOKEN_EXPIRED, then
+    // replay" behaviour for free -- every other mutating call in this file
+    // gets that for free through handleResponse/fetchWithRetry, so this one
+    // reimplements it by hand rather than silently doing without: a large
+    // backup upload can easily outlast the 15m access token TTL (see
+    // server/services/auth.js's own comment on why 15m), and a user
+    // returning after being idle that long would otherwise see a raw 401
+    // instead of a transparent refresh-and-retry like everywhere else.
+    const sendOnce = (
+      token: string | null,
+    ): Promise<{ status: number; payload: any }> =>
+      new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${API_BASE}/backup/upload`, true);
+        if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+        xhr.setRequestHeader("Content-Type", "application/zip");
+        xhr.setRequestHeader("X-Backup-Filename", file.name);
+        if (onProgress) {
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable)
+              onProgress(Math.round((e.loaded / e.total) * 100));
+          };
+        }
+        xhr.onload = () => {
+          let payload: any = null;
+          try {
+            payload = JSON.parse(xhr.responseText);
+          } catch {
+            /* non-JSON */
+          }
+          resolve({ status: xhr.status, payload });
         };
+        xhr.onerror = () => reject(new Error("Network error during upload"));
+        xhr.onabort = () => reject(new Error("Upload aborted"));
+        xhr.send(file);
+      });
+
+    let { status, payload } = await sendOnce(getAuthToken());
+    if (status === 401 && payload?.code === "TOKEN_EXPIRED") {
+      const refreshed = await tryRefreshToken();
+      if (refreshed) {
+        ({ status, payload } = await sendOnce(getAuthToken()));
       }
-      xhr.onload = () => {
-        let payload: any = null;
-        try {
-          payload = JSON.parse(xhr.responseText);
-        } catch {
-          /* non-JSON */
-        }
-        if (xhr.status >= 200 && xhr.status < 300 && payload?.success) {
-          resolve(payload);
-        } else {
-          const message =
-            payload?.error || `Upload failed (HTTP ${xhr.status})`;
-          reject(new Error(message));
-        }
-      };
-      xhr.onerror = () => reject(new Error("Network error during upload"));
-      xhr.onabort = () => reject(new Error("Upload aborted"));
-      xhr.send(file);
-    });
+    }
+
+    if (status >= 200 && status < 300 && payload?.success) {
+      return payload;
+    }
+    throw new Error(payload?.error || `Upload failed (HTTP ${status})`);
   },
 
   // Download a backup file with authentication
@@ -3073,7 +3331,16 @@ export interface PanelUpdatePreflight {
     programFiles?: boolean;
     stagedUpdate?: { version: string | null; path: string };
     oldPath?: string;
+    temporaryDirectory?: string;
+    applyLogPath?: string;
+    restartAssessment?: RestartAssessment;
   };
+}
+
+export interface RestartAssessment {
+  gameServers: "preserved" | "at-risk" | "unknown";
+  requiresConfirmation: boolean;
+  reason: string;
 }
 
 export interface PanelUpdateActionResult {
@@ -3142,7 +3409,7 @@ export const panelUpdateApi = {
     apiGet("/panel/update-preflight"),
   download: (confirm: boolean = false): Promise<PanelUpdateActionResult> =>
     apiPost("/panel/update-download", { confirm }),
-  getApplyLog: (): Promise<{ log: string | null }> =>
+  getApplyLog: (): Promise<{ log: string | null; logPath: string }> =>
     apiGet("/panel/update-apply-log"),
 };
 
@@ -3173,10 +3440,22 @@ export interface StorageHealth {
   circuitBreaker: CircuitBreakerStatus;
 }
 
+export interface RuntimeInfo {
+  platform: string;
+  family: "windows" | "posix" | "unknown";
+  pathSeparator: string;
+  temporaryDirectory: string;
+  serviceManager: "systemd" | "openrc" | "container" | "none" | "unknown";
+  restartAssessment: RestartAssessment;
+}
+
 export const systemApi = {
   getDiskSpace: (): Promise<DiskSpaceReport> => apiGet("/system/disk-space"),
   getStorageHealth: (): Promise<StorageHealth> =>
     apiGet("/system/storage-health"),
+  // UI copy can safely remain neutral when this optional discovery request
+  // fails; avoid delaying unrelated screens with transport backoff.
+  getRuntime: (): Promise<RuntimeInfo> => apiGet("/system/runtime", undefined, 0),
 };
 
 // ============================================

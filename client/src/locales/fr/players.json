@@ -30,6 +30,7 @@
     "peakToday": "Pic du jour",
     "roster": "Effectif",
     "rosterCaption": "vus",
+    "rosterTip": "Joueurs avec qui vous vous êtes déjà connecté, actuellement hors ligne. Quelqu'un en ligne à l'instant n'est pas compté ici tant qu'il ne s'est pas déconnecté — c'est pourquoi ce nombre peut afficher 0 alors qu'une carte joueur est active au-dessus.",
     "bannedLabel": "SteamID bannis",
     "bannedManage": "gérer",
     "bannedAria": "Voir les {{count}} SteamID bannis"
@@ -51,6 +52,7 @@
     "searchAria": "Rechercher des joueurs",
     "onlineEmptyTitle": "Aucun joueur en ligne",
     "onlineEmptyDesc": "Les joueurs apparaissent ici lorsqu'ils se connectent.",
+    "rosterHealthTooltip": "Santé : {{health}} %",
     "seePreviouslySeen_one": "Voir {{count}} joueur déjà vu",
     "seePreviouslySeen_other": "Voir {{count}} joueurs déjà vus",
     "reviewBanned_one": "Examiner {{count}} SteamID banni",
@@ -123,10 +125,36 @@
     "noTargetDesc": "Choisissez un joueur dans l'effectif pour voir son dossier, ou saisissez un nom d'utilisateur sous <1>› Cible manuelle</1>."
   },
   "tabs": {
+    "vitals": "Constantes",
     "moderation": "Modération",
     "spawn": "Génération",
     "powers": "Pouvoirs",
     "notesLog": "Notes et journal"
+  },
+  "vitals": {
+    "noTarget": "Sélectionnez un joueur pour voir son état en direct.",
+    "offline": "Ce joueur est hors ligne.",
+    "bridgeRequired": "PanelBridge n'est pas connecté.",
+    "loading": "Chargement de l'état en direct…",
+    "unavailable": "L'état en direct n'est pas disponible pour ce joueur.",
+    "loadError": "Échec du chargement de l'état en direct.",
+    "infected": "Infecté",
+    "bleeding": "Saigne",
+    "asleep": "Endormi",
+    "sneaking": "Furtif",
+    "running": "Court",
+    "health": "PV",
+    "hunger": "Faim",
+    "thirst": "Soif",
+    "fatigue": "Fatigue",
+    "endurance": "Endurance",
+    "stress": "Stress",
+    "boredom": "Ennui",
+    "unhappiness": "Malheur",
+    "pain": "Douleur",
+    "wetness": "Humidité",
+    "otherStatsLabel": "Autres statistiques",
+    "otherStatsTip": "Affichées en nombres bruts, pas en barre comme les vitaux ci-dessus : PanelBridge envoie ces valeurs, mais l'échelle 0-1 ou 0-100 de chacune n'a pas été confirmée face au jeu lui-même. Une barre colorée devrait deviner l'échelle, et une gravité affichée avec assurance mais fausse est pire que l'absence de gravité."
   },
   "actionTiles": {
     "kickDesc": "Expulser avec un motif",
@@ -134,7 +162,7 @@
     "accessLevelLabel": "Niveau d'accès",
     "accessLevelDesc": "Admin · Mod · User",
     "teleportLabel": "Téléporter",
-    "teleportDesc": "B42 MP · peut ne pas se synchroniser",
+    "teleportDesc": "Build 42 multijoueur · peut ne pas se synchroniser",
     "voiceBanLabel": "Ban vocal",
     "voiceBanTooltip": "Rendre muet ou réactiver un joueur sur le chat vocal du jeu. Il reste connecté, mais ne peut plus parler en voix de proximité.",
     "steamIdBanLabel": "Ban par SteamID",
@@ -159,6 +187,7 @@
     "reasonLabel": "Motif (optionnel)",
     "reasonPlaceholder": "Entrer un motif...",
     "banIpLabel": "Bannir aussi l'adresse IP",
+    "banIpTip": "Bloque aussi l'adresse IP, pas seulement le compte — peut affecter d'autres personnes sur le même réseau, et ce panneau ne permet pas de consulter ou de lever les bannissements IP séparément.",
     "cancel": "Annuler",
     "continue": "Continuer vers le bannissement"
   },
@@ -186,6 +215,7 @@
     "xLabel": "X",
     "yLabel": "Y",
     "zLabel": "Z",
+    "zTip": "L'étage du bâtiment, pas une hauteur — 0 est le rez-de-chaussée, les valeurs plus élevées sont des étages supérieurs.",
     "submit": "Téléporter"
   },
   "secondaryOpsHeader": "opérations autonomes",
@@ -264,8 +294,17 @@
     "healLabel": "Soigner",
     "healDesc": "Restaurer la santé et les stats au complet",
     "healButton": "Soigner",
+    "killLabel": "Tuer",
+    "killDesc": "Met fin au personnage de façon permanente",
+    "killTip": "Désactive aussi d'abord le Mode Dieu, même si la mise à mort échoue elle-même — il n'est pas réactivé automatiquement.",
+    "killButton": "Tuer",
+    "killConfirmTitle": "Tuer {{player}} ?",
+    "killConfirmDesc": "Ceci met fin immédiatement au personnage de {{player}}. Sur un serveur permadeath, il n'y a ni annulation, ni réapparition avec le même personnage, ni restauration. Tapez son nom d'utilisateur ci-dessous pour confirmer que c'est bien ce que vous voulez lui faire.",
+    "killConfirmButton": "Tuer le joueur",
+    "killConfirmTypeLabel": "Tapez {{player}} pour confirmer",
     "on": "ACTIVÉ",
     "off": "DÉSACTIVÉ",
+    "unknown": "INCONNU",
     "enable": "Activer",
     "disable": "Désactiver",
     "bridgeRequiredTooltip": "Nécessite que PanelBridge soit connecté"
@@ -361,7 +400,8 @@
     "disableInvisible": "Désactiver invisible",
     "enableNoclip": "Activer la traversée",
     "disableNoclip": "Désactiver la traversée",
-    "healPlayer": "Soigner le joueur"
+    "healPlayer": "Soigner le joueur",
+    "killPlayer": "Tuer le joueur"
   },
   "toasts": {
     "successTitle": "Succès",

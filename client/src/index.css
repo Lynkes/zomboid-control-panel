@@ -31,6 +31,21 @@ input[type="number"] {
   -moz-appearance: textfield;
 }
 
+/* Safe-center utility: behaves like justify-center, but falls back to
+   start-alignment instead of overflowing symmetrically when content is
+   wider than its container (CSS Box Alignment "safe" fallback keyword).
+   Tailwind's justifyContent core plugin registers a fixed set of 7 classes
+   via addUtilities (not matchUtilities), so justify-[safe_center] compiles
+   to nothing in this Tailwind version -- confirmed by building the actual
+   CSS output and grepping it, zero rules emitted. Hand-written class is the
+   only way to ship this. The plain `justify-content: center;` line is a
+   fallback for browsers without `safe` support: an unsupported value only
+   invalidates the declaration that uses it, so `center` above still holds. */
+.justify-safe-center {
+  justify-content: center;
+  justify-content: safe center;
+}
+
 @layer base {
   /* Base tokens: PZ-themed dark fallback (matches survival spirit).
      The app is always dark — :root inherits from .dark when no theme class is set. */
@@ -1519,12 +1534,12 @@ input[type="number"] {
   border-radius: var(--radius);
 }
 
-.theme-survival [data-slot="button"][data-variant="warning"] {
+.theme-survival [data-slot="button"][data-variant="warning"]:not(:disabled) {
   background: linear-gradient(135deg, hsl(var(--warning) / 0.96), hsl(33 88% 42%));
   color: hsl(var(--warning-foreground));
 }
 
-.theme-survival [data-slot="button"][data-variant="destructive"] {
+.theme-survival [data-slot="button"][data-variant="destructive"]:not(:disabled) {
   background: linear-gradient(135deg, hsl(6 46% 34%), hsl(2 42% 26%));
   border-color: hsl(4 38% 24%);
 }
@@ -2152,12 +2167,12 @@ tr:hover td {
   border-color: hsl(var(--border));
 }
 
-.theme-light [data-slot="button"][data-variant="destructive"] {
+.theme-light [data-slot="button"][data-variant="destructive"]:not(:disabled) {
   background: hsl(var(--destructive));
   border-color: hsl(var(--destructive));
 }
 
-.theme-light [data-slot="button"][data-variant="warning"] {
+.theme-light [data-slot="button"][data-variant="warning"]:not(:disabled) {
   background: hsl(var(--warning));
   color: hsl(var(--warning-foreground));
 }

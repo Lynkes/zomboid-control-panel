@@ -71,7 +71,9 @@
     "panToAriaWithHealth": "Ansicht zu {{name}} schwenken, Gesundheit {{health}}%",
     "loading": "lädt …",
     "noPlayersOnline": "keine Spieler online",
-    "bridgeOffline": "Brücke offline"
+    "bridgeOffline": "Brücke offline",
+    "collapseAria": "Liste einklappen",
+    "expandAria": "Liste ausklappen"
   },
   "hud": {
     "hoverForCoords": "Für Koordinaten hovern"
@@ -83,11 +85,15 @@
     "pos": "Pos.",
     "floor": "Etage",
     "hp": "HP",
+    "hunger": "Hunger",
+    "thirst": "Durst",
+    "fatigue": "Erschöpfung",
     "role": "Rolle",
     "status": "Status",
     "infected": "Infiziert",
     "heal": "Heilen",
     "god": "Godmode",
+    "godTip": "Aktiviert für diesen Spieler immer den Godmode — kein Umschalten. Zum Deaktivieren stattdessen die Spieler-Seite verwenden.",
     "healedTitle": "Geheilt",
     "healedDesc": "{{username}} wurde geheilt.",
     "godModeEnabled": "Godmode aktiviert"
@@ -183,6 +189,7 @@
   "spawnDialog": {
     "title": "Fahrzeug spawnen",
     "location": "Standort: {{x}}, {{y}} · Etage {{z}}",
+    "floorTip": "Fahrzeuge erscheinen nur im Erdgeschoss oder im Keller — auf jedem Stockwerk darüber schlägt dies fehl.",
     "cancel": "Abbrechen",
     "spawn": "Spawnen"
   },

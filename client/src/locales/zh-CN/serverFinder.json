@@ -3,7 +3,8 @@
     "title": "浏览公共服务器",
     "description": "搜索 Project Zomboid 公共服务器列表，复制服务器地址以快速加入",
     "refreshList": "刷新列表",
-    "reloadFromSteam": "从 Steam 重新加载"
+    "reloadFromSteam": "从 Steam 重新加载",
+    "reloadFromSteamTip": "「刷新列表」显示的是面板自身缓存中的结果，可能长达一分钟未更新。「从 Steam 重新加载」总是直接向 Steam 查询——如果你刚在自己的服务器上做了修改却还没看到变化，请使用这个按钮。"
   },
   "apiKeyWarning": {
     "title": "缺少 Steam API 密钥",

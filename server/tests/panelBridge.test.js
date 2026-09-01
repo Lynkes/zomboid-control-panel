@@ -331,7 +331,17 @@ describe('PanelBridge player healing compatibility', () => {
     expect(killStart).toBeGreaterThanOrEqual(0);
     expect(godModeStart).toBeGreaterThan(killStart);
     expect(killHandler).toContain('PanelBridge.invoke(player, "Kill", nil)');
-    expect(killHandler).toContain('return isDead, {');
+    // 2026-08-30 (total-audit return-contract fix): the old single
+    // `return isDead, { ... }` never populated a third (error) value on
+    // failure, so the dispatcher forwarded a null error to the panel while
+    // the real reason sat unread in data.message. Now branches explicitly
+    // and puts a real error string in the failure path's third slot, same
+    // shape as handlers.teleportPlayer. See
+    // panelBridgeKillPlayerHonestFailure.test.js for the behavioural
+    // coverage this source-shape check can't provide on its own.
+    expect(killHandler).toContain('if not isDead then');
+    expect(killHandler).toMatch(/return false, \{[\s\S]*?\}, "/);
+    expect(killHandler).toContain('return true, {');
     expect(killHandler).not.toContain('setOverallBodyHealth');
     expect(killHandler).not.toContain('DoDeath');
   });

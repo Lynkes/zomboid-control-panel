@@ -38,6 +38,9 @@ import {
   Save,
   Trash2,
   Heart,
+  Skull,
+  Moon,
+  Thermometer,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -86,6 +89,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { useToast } from '@/components/ui/use-toast'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { EmptyState } from '@/components/EmptyState'
+import { HelpTip } from '@/components/HelpTip'
 import { SpawnBrowser } from '@/components/SpawnBrowser'
 import { NumberInput } from '@/components/NumberInput'
 import { playersApi, panelBridgeApi, configApi } from '@/lib/api'
@@ -93,6 +97,7 @@ import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
 import { PageHeader } from '@/components/PageHeader'
 import { DisabledReason } from '@/components/DisabledReason'
 import { useAuth } from '@/contexts/AuthContext'
+import { useConfirm } from '@/contexts/ConfirmContext'
 import { cn, copyText } from '@/lib/utils'
 
 interface PerkChoice {
@@ -117,18 +122,6 @@ interface WhitelistAccount {
   displayName: string | null
 }
 
-const ACCESS_LEVELS = ['admin', 'moderator', 'overseer', 'gm', 'observer', 'user', 'none']
-
-// Labels for the access-level dropdown.
-//
-// Per the official PZ Admin Commands wiki (Build 42.17.0), the documented
-// values are: Admin, Moderator, Overseer, GM, Observer, none. "none" is the
-// canonical way to demote a player back to a regular user.
-//
-// However, PZ's player list displays "user" as the role for regular players,
-// and many server builds also accept `setaccesslevel "<user>" "user"` directly.
-// Some operators report that "none" silently does nothing on their build while
-// "user" works. We expose both so admins can pick whichever their build accepts.
 // Mirrors server/routes/players.js's own SteamID64 check (/^\d{17}$/ on both
 // /banid and /unbanid) so a manually-typed SteamID can't reach a submit
 // button in a shape the server will reject.
@@ -168,9 +161,16 @@ function getAccessLevelLabels(t: TFunction): Record<string, string> {
   return {
     admin: t('accessLevels.admin'),
     moderator: t('accessLevels.moderator'),
-    overseer: t('accessLevels.overseer'),
     gm: t('accessLevels.gm'),
     observer: t('accessLevels.observer'),
+    // 'priority' has no translated entry, deliberately -- it falls through
+    // to the raw-token capitalize fallback below ("Priority"). A wire token
+    // and its display label have already diverged unpredictably once on
+    // this floor (bug-hunt-2026-08-27, 16 of 35 PZ perk ids differed from
+    // their label by no rule); the real in-game name is "PriorityUser", not
+    // "Priority", so this is a deliberate "close enough and honest" choice,
+    // not an oversight -- adding a real translated label would mean
+    // touching every locale file, out of this fix's scope.
     user: t('accessLevels.user'),
     none: t('accessLevels.none'),
   }
@@ -194,12 +194,14 @@ function SummaryCard({
   value,
   tone = 'default',
   caption,
+  help,
 }: {
   icon: React.ReactNode
   label: string
   value: string | number
   tone?: 'default' | 'success' | 'warning' | 'danger'
   caption?: string
+  help?: React.ReactNode
 }) {
   const toneMap = {
     default: {
@@ -237,7 +239,10 @@ function SummaryCard({
             <span className="text-xs font-medium text-muted-foreground/70">{caption}</span>
           ) : null}
         </div>
-        <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground/75">{label}</p>
+        <div className="mt-1 flex items-center gap-1">
+          <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground/75">{label}</p>
+          {help}
+        </div>
       </div>
     </div>
   )
@@ -295,9 +300,40 @@ function ActionTile({
       </div>
       <div className="min-w-0 flex-1">
         <p className={cn('font-medium leading-tight', compact ? 'text-[12px]' : 'text-sm', e.label)}>{label}</p>
+        {/* line-clamp-2, not truncate: truncate's single-line ellipsis cut
+            real meaning out of short phrases ("Permanent · two-step" ->
+            "Permanent · two-s...") specifically in the desktop 3/4-column
+            grid, where these cards are narrower than they are on mobile's
+            single column -- the same content read complete one viewport
+            over (2026-08-31 visual sweep). Two lines is enough headroom for
+            every description these tiles actually carry. */}
         {description && !compact ? (
-          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{description}</p>
+          <p className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground">{description}</p>
         ) : null}
+      </div>
+    </div>
+  )
+}
+
+// A 0-1 severity bar for a PZ stat (health, hunger/thirst/fatigue).
+// goodWhenLow=true means higher is worse (hunger/thirst/fatigue -- PZ's own
+// scale, confirmed against vanilla Lua thresholds like FATIGUE <= 0.3/0.85
+// gating sleep); goodWhenLow=false means higher is better (health).
+function VitalBar({ label, value, goodWhenLow }: { label: string; value: number; goodWhenLow: boolean }) {
+  const pct = Math.max(0, Math.min(100, value * 100))
+  const severity = goodWhenLow ? value : 1 - value
+  const color =
+    severity < 0.5 ? 'hsl(var(--success))'
+    : severity < 0.75 ? 'hsl(var(--warning))'
+    : 'hsl(var(--destructive))'
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="w-16 shrink-0 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{label}</span>
+      <div className="flex flex-1 items-center gap-1.5">
+        <div className="h-1.5 flex-1 overflow-hidden rounded-sm bg-muted/60 ring-1 ring-black/20">
+          <div className="h-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
+        </div>
+        <span className="w-8 shrink-0 text-right font-mono text-xs tabular-nums text-foreground/85">{Math.round(pct)}%</span>
       </div>
     </div>
   )
@@ -329,6 +365,7 @@ export default function Players() {
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
   const { toast } = useToast()
+  const confirm = useConfirm()
 
   // Stats tracking
   const [peakPlayers, setPeakPlayers] = useState(0)
@@ -453,6 +490,52 @@ export default function Players() {
   const [notesError, setNotesError] = useState<string | null>(null)
   const [logsError, setLogsError] = useState<string | null>(null)
 
+  // Live vitals (Vitals tab) -- PanelBridge.getPlayerDetails for the
+  // selected online player: position, health, and the eight
+  // stats:get(CharacterStat.X) fields.
+  interface PlayerVitals {
+    x?: number
+    y?: number
+    z?: number
+    accessLevel?: string
+    isAsleep?: boolean
+    isSneaking?: boolean
+    isRunning?: boolean
+    stats?: {
+      hunger?: number
+      thirst?: number
+      fatigue?: number
+      stress?: number
+      boredom?: number
+      unhappiness?: number
+      pain?: number
+      endurance?: number
+    }
+    health?: {
+      overallBodyHealth?: number
+      isInfected?: boolean
+      isBleeding?: boolean
+      temperature?: number
+      wetness?: number
+    }
+  }
+  const [playerVitals, setPlayerVitals] = useState<PlayerVitals | null>(null)
+  const [playerVitalsLoading, setPlayerVitalsLoading] = useState(false)
+  const [playerVitalsError, setPlayerVitalsError] = useState<string | null>(null)
+
+  // At-a-glance roster health -- PanelBridge.getAllPlayerDetails (the
+  // PLURAL bulk endpoint, distinct from getPlayerDetails above, which is
+  // one player at a time and only fetched for whoever is currently
+  // selected). Nothing else on this page or elsewhere reads it: the roster
+  // list itself comes from RCON's `players` command, which reports only
+  // {name, online} -- no health, hunger, or infection status at all, so
+  // this is genuinely new data, not a second view of something already
+  // shown. Keyed by username, keyed off the SAME 15s interval fetchPlayers
+  // already uses but fired independently (own .then/.catch, not part of
+  // any awaited Promise.all) so a slow or failing bridge call can never
+  // delay the roster list itself from rendering.
+  const [rosterVitals, setRosterVitals] = useState<Record<string, { health?: number; isInfected?: boolean }>>({})
+
   const getErrorMessage = (error: unknown, fallback: string) =>
     error instanceof Error ? error.message : fallback
 
@@ -475,6 +558,13 @@ export default function Players() {
   const [whitelistAvailable, setWhitelistAvailable] = useState(true)
   const [whitelistError, setWhitelistError] = useState<string | null>(null)
   const [whitelistLoading, setWhitelistLoading] = useState(false)
+  // Sourced from GET /players/access-levels, which reads the server's own
+  // live role table (access-levels-should-come-from-the-server-not-a-
+  // hardcoded-array) -- no client-side fallback copy. The server already
+  // falls back to its own static list when the db is unavailable or the
+  // server is remote, so an empty array here only ever means "not loaded
+  // yet", not "the feature is unavailable".
+  const [accessLevelOptions, setAccessLevelOptions] = useState<string[]>([])
   const offlineRoster = useMemo(() => {
     const onlineLower = new Set(players.map(p => p.name.toLowerCase()))
     const stats = Object.values(playerStats) as PlayerStat[]
@@ -532,6 +622,26 @@ export default function Players() {
       setPlayersLoadError(getErrorMessage(error, t('loadErrors.players')))
     }
   }, [t])
+
+  // Gated on players.gm_tools -- the same capability GET /panel-bridge/players
+  // (the route getAllPlayerDetails lives behind) actually requires, not the
+  // players.view the base roster list itself uses. Silent no-op on failure
+  // (bridge down, permission denied): the roster still renders fine without
+  // this, it just won't show the health/infection indicator.
+  const fetchRosterVitals = useCallback(async () => {
+    try {
+      const res = await panelBridgeApi.getAllPlayerDetails()
+      if (!res.success || !res.data?.players) return
+      const next: Record<string, { health?: number; isInfected?: boolean }> = {}
+      for (const p of res.data.players) {
+        next[p.username] = { health: p.health, isInfected: p.isInfected }
+      }
+      setRosterVitals(next)
+    } catch {
+      // Bridge down or unreachable -- leave whatever was last fetched (or
+      // nothing) rather than clearing it on a single transient failure.
+    }
+  }, [])
 
   const fetchActivityLogs = useCallback(async (playerFilter?: string) => {
     setLogsLoading(true)
@@ -723,8 +833,17 @@ export default function Players() {
     }
   }, [t])
 
+  const fetchAccessLevels = useCallback(async () => {
+    try {
+      const result = await playersApi.getAccessLevels()
+      setAccessLevelOptions(result.levels || [])
+    } catch (error) {
+      reportClientError('Failed to fetch access levels.', error)
+    }
+  }, [])
+
   useEffect(() => {
-    Promise.all([fetchPlayers(), fetchData(), fetchNotesAndStats(), fetchBannedSteamIds(), fetchWhitelist()]).catch(err => {
+    Promise.all([fetchPlayers(), fetchData(), fetchNotesAndStats(), fetchBannedSteamIds(), fetchWhitelist(), fetchAccessLevels()]).catch(err => {
       reportClientError('Failed to load initial player data.', err)
     })
     let isMounted = true
@@ -742,15 +861,17 @@ export default function Players() {
     playersApi.getExports().then(response => {
       if (isMounted && response?.exports) setSavedExports(response.exports)
     }).catch(() => {})
+    if (canGmTools) fetchRosterVitals()
     const interval = setInterval(() => {
       if (document.visibilityState === 'hidden') return
       fetchPlayers()
+      if (canGmTools) fetchRosterVitals()
     }, 15000)
     return () => {
       isMounted = false
       clearInterval(interval)
     }
-  }, [fetchPlayers, fetchData, fetchNotesAndStats, fetchBannedSteamIds, fetchWhitelist])
+  }, [fetchPlayers, fetchData, fetchNotesAndStats, fetchBannedSteamIds, fetchWhitelist, fetchAccessLevels, fetchRosterVitals, canGmTools])
 
   // Load note/tags when selected player changes
   useEffect(() => {
@@ -838,7 +959,7 @@ export default function Players() {
     } catch (error) {
       toast({
         title: t('toasts.importFailedTitle'),
-        description: error instanceof Error ? error.message : t('toasts.importFailedFallback'),
+        description: getUserErrorMessage(error, t('toasts.importFailedFallback')),
         variant: 'destructive',
       })
     } finally {
@@ -1107,11 +1228,92 @@ export default function Players() {
       })
   }
 
+  // Permanent character loss in a permadeath game, inflicted on someone
+  // else -- the only destructive one of these five GM-tools actions. Guarded
+  // by requiring the operator to type the TARGET's username (not just click
+  // through), so a fast-clicking admin can't kill the wrong player they
+  // happened to have selected. killPlayer has no players.js-native route and
+  // isn't bridge-verify-gated (see bridgeVerify.ts), unlike heal/godmode/
+  // invisible/noclip -- it goes through panelBridgeApi.killPlayer (the
+  // dedicated PanelBridge route), not the generic sendCommand passthrough.
+  const handleKillPlayer = async () => {
+    const player = selectedPlayer
+    if (!player) return
+    const confirmed = await confirm({
+      title: t('powers.killConfirmTitle', { player }),
+      description: t('powers.killConfirmDesc', { player }),
+      confirmLabel: t('powers.killConfirmButton'),
+      destructive: true,
+      requireTypedConfirmation: {
+        value: player,
+        label: t('powers.killConfirmTypeLabel', { player }),
+        // ConfirmContext.tsx defaults an omitted placeholder to the
+        // required value itself -- here that would render the exact
+        // string "Kate" in placeholder-gray inside an untouched input,
+        // pixel-indistinguishable at a glance from having already typed
+        // it (2026-08-31 impeccable pass, verified by cropping the
+        // rendered screenshot and comparing text color against the
+        // Cancel button's real text). An explicit empty placeholder
+        // leaves the box genuinely blank instead.
+        placeholder: '',
+      },
+    })
+    if (!confirmed) return
+    handleAction(t('actions.killPlayer'),
+      async () => {
+        await panelBridgeApi.killPlayer(player)
+      })
+  }
+
   // Get selected player's current powers
   const selectedPlayerPowers = useMemo(() =>
     selectedPlayer ? playerPowers[selectedPlayer] : null,
     [selectedPlayer, playerPowers]
   )
+
+  const isSelectedPlayerOnline = useMemo(
+    () => !!selectedPlayer && players.some(p => p.name === selectedPlayer),
+    [selectedPlayer, players]
+  )
+
+  // Poll getPlayerDetails while an online player is selected and the bridge
+  // is up. Keyed on the boolean (not the `players` array itself) so a
+  // reference-only change from the 15s roster poll doesn't restart this.
+  useEffect(() => {
+    if (!selectedPlayer || !isSelectedPlayerOnline || !bridgeConnected) {
+      setPlayerVitals(null)
+      setPlayerVitalsError(null)
+      setPlayerVitalsLoading(false)
+      return
+    }
+    let cancelled = false
+    const load = async () => {
+      setPlayerVitalsLoading(true)
+      try {
+        const response = await panelBridgeApi.getPlayerDetails(selectedPlayer)
+        if (cancelled) return
+        if (response.success) {
+          setPlayerVitals(response.data)
+          setPlayerVitalsError(null)
+        } else {
+          setPlayerVitalsError(response.error || t('vitals.loadError'))
+        }
+      } catch (err) {
+        if (!cancelled) setPlayerVitalsError(getErrorMessage(err, t('vitals.loadError')))
+      } finally {
+        if (!cancelled) setPlayerVitalsLoading(false)
+      }
+    }
+    load()
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'hidden') return
+      load()
+    }, 5000)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [selectedPlayer, isSelectedPlayerOnline, bridgeConnected, t])
 
   const selectedPlayerConfirmedNotWhitelisted = useMemo(() =>
     isPlayerConfirmedNotWhitelisted(selectedPlayer, whitelistAccounts, whitelistLoading, whitelistError),
@@ -1183,6 +1385,7 @@ export default function Players() {
           label={t('summary.roster')}
           value={offlineRoster.length}
           caption={t('summary.rosterCaption')}
+          help={<HelpTip label={t('summary.roster')}>{t('summary.rosterTip')}</HelpTip>}
         />
         {bannedSteamIds.length > 0 && (
           <DisabledReason className="flex-1" reason={!canModerate ? t('permissions.noModerate') : null}>
@@ -1347,6 +1550,7 @@ export default function Players() {
                       const hasPowers = powers && (powers.godMode || powers.invisible || powers.noclip)
                       const note = playerNotes[player.name]
                       const stat = playerStats[player.name]
+                      const vitals = rosterVitals[player.name]
 
                       return (
                         <button
@@ -1380,6 +1584,21 @@ export default function Players() {
                               )}
                             </div>
                             <div className="flex items-center gap-1">
+                              {vitals && typeof vitals.health === 'number' && (
+                                <span
+                                  className={cn(
+                                    'flex items-center gap-0.5 text-xs font-mono tabular-nums mr-1',
+                                    vitals.health >= 60 ? 'text-emerald-500' : vitals.health >= 30 ? 'text-amber-500' : 'text-destructive',
+                                  )}
+                                  title={t('roster.rosterHealthTooltip', { health: Math.round(vitals.health) })}
+                                >
+                                  <Heart className="w-3 h-3" />
+                                  {Math.round(vitals.health)}%
+                                </span>
+                              )}
+                              {vitals?.isInfected && (
+                                <Skull className="w-3 h-3 text-destructive mr-1" aria-label={t('vitals.infected')} />
+                              )}
                               {stat && (
                                 <span className="text-xs text-muted-foreground mr-1">
                                   {formatPlaytime(stat.total_playtime_seconds)}
@@ -1866,14 +2085,152 @@ export default function Players() {
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="moderation">
-              <div className="overflow-x-auto pb-1">
-                <TabsList className="inline-flex h-auto min-w-max gap-1 rounded-md border border-border/55 bg-muted/30 p-1">
-                  <TabsTrigger value="moderation" className="min-h-8 shrink-0 px-3 text-xs font-medium">{t('tabs.moderation')}</TabsTrigger>
-                  <TabsTrigger value="spawn" className="min-h-8 shrink-0 px-3 text-xs font-medium">{t('tabs.spawn')}</TabsTrigger>
-                  <TabsTrigger value="powers" className="min-h-8 shrink-0 px-3 text-xs font-medium">{t('tabs.powers')}</TabsTrigger>
-                  <TabsTrigger value="notes" className="min-h-8 shrink-0 px-3 text-xs font-medium" onClick={() => fetchActivityLogs()}>{t('tabs.notesLog')}</TabsTrigger>
-                </TabsList>
-              </div>
+              {/* flex-wrap, not horizontal scroll: the previous overflow-x-auto
+                  strip clipped "Notes & Log" down to a bare "N" on mobile,
+                  with only a 12px edge mask as the sole cue that there was
+                  more to scroll to -- easy to miss, no arrow or shadow, and
+                  the strip starts scrolled to the clipped position by
+                  default (2026-08-31 visual sweep). These five tabs are
+                  label-only, same shape as Debug.tsx's own tab strip, which
+                  already wraps instead of scrolling -- matching that
+                  existing, already-proven convention here instead of tuning
+                  the mask/adding scroll arrows. */}
+              <TabsList className="flex h-auto flex-wrap items-center gap-1 rounded-md border border-border/55 bg-muted/30 p-1">
+                <TabsTrigger value="vitals" className="min-h-8 shrink-0 px-3 text-xs font-medium">{t('tabs.vitals')}</TabsTrigger>
+                <TabsTrigger value="moderation" className="min-h-8 shrink-0 px-3 text-xs font-medium">{t('tabs.moderation')}</TabsTrigger>
+                <TabsTrigger value="spawn" className="min-h-8 shrink-0 px-3 text-xs font-medium">{t('tabs.spawn')}</TabsTrigger>
+                <TabsTrigger value="powers" className="min-h-8 shrink-0 px-3 text-xs font-medium">{t('tabs.powers')}</TabsTrigger>
+                <TabsTrigger value="notes" className="min-h-8 shrink-0 px-3 text-xs font-medium" onClick={() => fetchActivityLogs()}>{t('tabs.notesLog')}</TabsTrigger>
+              </TabsList>
+
+              {/* Vitals Tab -- live PanelBridge.getPlayerDetails read-back:
+                  position, health, and the eight stats:get(CharacterStat.X)
+                  fields. 2026-08-30: this data has been correctly served by
+                  the server since the same-day stats-repair fix, but had no
+                  UI consumer at all until now. */}
+              <TabsContent value="vitals" className="space-y-4 mt-4">
+                {!selectedPlayer ? (
+                  <p className="text-sm text-muted-foreground">{t('vitals.noTarget')}</p>
+                ) : !isSelectedPlayerOnline ? (
+                  <p className="text-sm text-muted-foreground">{t('vitals.offline')}</p>
+                ) : !bridgeConnected ? (
+                  <p className="text-sm text-muted-foreground">{t('vitals.bridgeRequired')}</p>
+                ) : playerVitalsLoading && !playerVitals ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" /> {t('vitals.loading')}
+                  </div>
+                ) : playerVitalsError && !playerVitals ? (
+                  <p className="text-sm text-destructive">{playerVitalsError}</p>
+                ) : !playerVitals ? (
+                  <p className="text-sm text-muted-foreground">{t('vitals.unavailable')}</p>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {playerVitals.accessLevel && playerVitals.accessLevel !== 'none' && playerVitals.accessLevel !== 'user' && (
+                        <Badge variant="outline" className="text-[10px] font-mono uppercase tracking-wider text-amber-400">
+                          {playerVitals.accessLevel}
+                        </Badge>
+                      )}
+                      {playerVitals.health?.isInfected && (
+                        <Badge variant="outline" className="gap-1 border-destructive/40 text-[10px] font-mono uppercase tracking-wider text-destructive">
+                          <Skull className="h-3 w-3" /> {t('vitals.infected')}
+                        </Badge>
+                      )}
+                      {playerVitals.health?.isBleeding && (
+                        <Badge variant="outline" className="border-destructive/40 text-[10px] font-mono uppercase tracking-wider text-destructive">
+                          {t('vitals.bleeding')}
+                        </Badge>
+                      )}
+                      {playerVitals.isAsleep && (
+                        <Badge variant="outline" className="gap-1 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                          <Moon className="h-3 w-3" /> {t('vitals.asleep')}
+                        </Badge>
+                      )}
+                      {playerVitals.isSneaking && (
+                        <Badge variant="outline" className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                          {t('vitals.sneaking')}
+                        </Badge>
+                      )}
+                      {playerVitals.isRunning && (
+                        <Badge variant="outline" className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                          {t('vitals.running')}
+                        </Badge>
+                      )}
+                    </div>
+
+                    {typeof playerVitals.x === 'number' && typeof playerVitals.y === 'number' && (
+                      <div className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground/85">
+                        <MapPin className="h-3.5 w-3.5 text-primary/70" />
+                        <span className="tabular-nums">{Math.round(playerVitals.x)}, {Math.round(playerVitals.y)}{typeof playerVitals.z === 'number' ? `, ${playerVitals.z}` : ''}</span>
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      {playerVitals.health?.overallBodyHealth !== undefined && (
+                        <VitalBar
+                          label={t('vitals.health')}
+                          value={playerVitals.health.overallBodyHealth / 100}
+                          goodWhenLow={false}
+                        />
+                      )}
+                      {([
+                        { key: 'hunger', value: playerVitals.stats?.hunger, label: t('vitals.hunger') },
+                        { key: 'thirst', value: playerVitals.stats?.thirst, label: t('vitals.thirst') },
+                        { key: 'fatigue', value: playerVitals.stats?.fatigue, label: t('vitals.fatigue') },
+                      ] as const).map(({ key, value, label }) => value === undefined ? null : (
+                        <VitalBar key={key} label={label} value={value} goodWhenLow />
+                      ))}
+                    </div>
+
+                    {/* Endurance/stress/boredom/unhappiness/pain: real values
+                        the bridge sends, but PZ's 0-1 vs 0-100 scale per stat
+                        isn't confirmed against the jar the way hunger/thirst/
+                        fatigue is (see statGet's comment in PanelBridge.lua)
+                        -- shown as raw numbers rather than a bar that could
+                        misrepresent the scale. That reasoning was invisible on
+                        screen (2026-08-31 impeccable pass) -- the HelpTip below
+                        surfaces it instead of just the comment here. */}
+                    {playerVitals.stats && (
+                      <div className="border-t border-border/40 pt-2">
+                        <div className="mb-1 flex items-center gap-1">
+                          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                            {t('vitals.otherStatsLabel')}
+                          </span>
+                          <HelpTip label={t('vitals.otherStatsLabel')}>{t('vitals.otherStatsTip')}</HelpTip>
+                        </div>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-xs text-muted-foreground/85 sm:grid-cols-3">
+                        {([
+                          ['endurance', playerVitals.stats.endurance, t('vitals.endurance')],
+                          ['stress', playerVitals.stats.stress, t('vitals.stress')],
+                          ['boredom', playerVitals.stats.boredom, t('vitals.boredom')],
+                          ['unhappiness', playerVitals.stats.unhappiness, t('vitals.unhappiness')],
+                          ['pain', playerVitals.stats.pain, t('vitals.pain')],
+                        ] as const).map(([key, value, label]) => value === undefined ? null : (
+                          <div key={key} className="flex items-center justify-between gap-2">
+                            <span className="uppercase tracking-wide text-[10px] text-muted-foreground/70">{label}</span>
+                            <span className="tabular-nums text-foreground/85">{Math.round(value * 100) / 100}</span>
+                          </div>
+                        ))}
+                      </div>
+                      </div>
+                    )}
+
+                    {(playerVitals.health?.temperature !== undefined || playerVitals.health?.wetness !== undefined) && (
+                      <div className="flex items-center gap-4 border-t border-border/40 pt-2 font-mono text-xs text-muted-foreground/85">
+                        {playerVitals.health?.temperature !== undefined && (
+                          <span className="flex items-center gap-1.5">
+                            <Thermometer className="h-3.5 w-3.5 text-primary/70" />
+                            <span className="tabular-nums">{Math.round(playerVitals.health.temperature * 10) / 10}°</span>
+                          </span>
+                        )}
+                        {playerVitals.health?.wetness !== undefined && (
+                          <span className="tabular-nums">{t('vitals.wetness')}: {Math.round(playerVitals.health.wetness * 100)}%</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </TabsContent>
 
               {/* Moderation Tab */}
               <TabsContent value="moderation" className="space-y-4 mt-4">
@@ -1885,7 +2242,7 @@ export default function Players() {
                   <Dialog open={kickDialogOpen} onOpenChange={setKickDialogOpen}>
                     <DialogTrigger asChild>
                       <button type="button" disabled={!selectedPlayer || !canModerate} className="block h-auto w-full p-0 text-left">
-                        <ActionTile icon={<UserX className="w-4 h-4" />} label={t('dossier.kickButton')} description={t('actionTiles.kickDesc')} disabled={!selectedPlayer} emphasis="warning" />
+                        <ActionTile icon={<UserX className="w-4 h-4" />} label={t('dossier.kickButton')} description={t('actionTiles.kickDesc')} disabled={!selectedPlayer || !canModerate} emphasis="warning" />
                       </button>
                     </DialogTrigger>
                     <DialogContent>
@@ -1921,7 +2278,7 @@ export default function Players() {
                   <Dialog open={banDialogOpen} onOpenChange={setBanDialogOpen}>
                     <DialogTrigger asChild>
                       <button type="button" disabled={!selectedPlayer || !canModerate} className="block h-auto w-full p-0 text-left">
-                        <ActionTile icon={<Ban className="w-4 h-4" />} label={t('dossier.banButton')} description={t('actionTiles.banDesc')} disabled={!selectedPlayer} emphasis="danger" />
+                        <ActionTile icon={<Ban className="w-4 h-4" />} label={t('dossier.banButton')} description={t('actionTiles.banDesc')} disabled={!selectedPlayer || !canModerate} emphasis="danger" />
                       </button>
                     </DialogTrigger>
                     <DialogContent>
@@ -1951,6 +2308,7 @@ export default function Players() {
                             onCheckedChange={(checked) => setBanIp(checked === true)}
                           />
                           <Label htmlFor="banIp">{t('banDialog.banIpLabel')}</Label>
+                          <HelpTip label={t('banDialog.banIpLabel')}>{t('banDialog.banIpTip')}</HelpTip>
                         </div>
                       </div>
                       <DialogFooter>
@@ -1998,7 +2356,7 @@ export default function Players() {
                   <Dialog>
                     <DialogTrigger asChild>
                       <button type="button" disabled={!selectedPlayer || !canModerate} className="block h-auto w-full p-0 text-left">
-                        <ActionTile icon={<Shield className="w-4 h-4" />} label={t('actionTiles.accessLevelLabel')} description={t('actionTiles.accessLevelDesc')} disabled={!selectedPlayer} emphasis="primary" />
+                        <ActionTile icon={<Shield className="w-4 h-4" />} label={t('actionTiles.accessLevelLabel')} description={t('actionTiles.accessLevelDesc')} disabled={!selectedPlayer || !canModerate} emphasis="primary" />
                       </button>
                     </DialogTrigger>
                     <DialogContent>
@@ -2015,7 +2373,7 @@ export default function Players() {
                             <SelectValue placeholder={t('accessLevelDialog.placeholder')} />
                           </SelectTrigger>
                           <SelectContent>
-                            {ACCESS_LEVELS.map((level) => (
+                            {accessLevelOptions.map((level) => (
                               <SelectItem key={level} value={level}>
                                 {accessLevelLabels[level] || level.charAt(0).toUpperCase() + level.slice(1)}
                               </SelectItem>
@@ -2110,7 +2468,10 @@ export default function Players() {
                             />
                           </div>
                           <div>
-                            <Label htmlFor="teleport-z">{t('teleportDialog.zLabel')}</Label>
+                            <div className="flex items-center gap-1.5">
+                              <Label htmlFor="teleport-z">{t('teleportDialog.zLabel')}</Label>
+                              <HelpTip label={t('teleportDialog.zLabel')}>{t('teleportDialog.zTip')}</HelpTip>
+                            </div>
                             <Input
                               id="teleport-z"
                               type="number"
@@ -2436,7 +2797,28 @@ export default function Players() {
                           {t('spawn.browserBadge')}
                         </span>
                       </p>
-                      <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                      {/* line-clamp-2, not truncate -- same defect class as the moderation
+                          ActionTile descriptions fixed earlier tonight, found here too on the
+                          2026-08-31 impeccable pass ("...without closing the dial…" was
+                          genuinely clipping mid-word). CANNOT be verified by reshooting:
+                          scripts/ui-shot-tour.mjs's expandMainForCapture() forces
+                          overflow:visible/height:auto on any element whose scrollHeight
+                          exceeds its clientHeight before every screenshot (to keep genuinely
+                          scrollable panels from being clipped by fullPage capture) -- which
+                          also defeats -webkit-line-clamp's own overflow:hidden the moment
+                          there's real text to cut, so a reshoot of this row shows spilled
+                          text overlapping the next card even though the class is correct and
+                          the real app renders it properly clamped. (First-pass mistake here:
+                          reshot, saw the spillover, chased it as a real bug, shortened this
+                          copy and its three siblings across all 6 locales to dodge the
+                          symptom, and stripped the <Trans> nested player-name span suspecting
+                          it as the cause -- none of that was the actual defect. Reverted; the
+                          class alone is the fix.) Verified instead via the compiled CSS
+                          (.line-clamp-2 correctly emits display:-webkit-box;
+                          -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden)
+                          and the RTL test below, which never runs the tour's capture-time DOM
+                          rewrite. */}
+                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
                         {selectedPlayer
                           ? <Trans i18nKey="spawn.giveItemsDescWithPlayer" t={t} values={{ player: selectedPlayer }} components={{ 1: <span className="text-primary font-medium" /> }} />
                           : t('spawn.giveItemsDescNoPlayer')}
@@ -2487,7 +2869,9 @@ export default function Players() {
                           {t('spawn.browserBadge')}
                         </span>
                       </p>
-                      <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                      {/* line-clamp-2, not truncate -- see the matching comment on the
+                          Give Items row above. */}
+                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
                         {selectedPlayer
                           ? <Trans i18nKey="spawn.spawnVehiclesDescWithPlayer" t={t} values={{ player: selectedPlayer }} components={{ 1: <span className="text-primary font-medium" /> }} />
                           : t('spawn.spawnVehiclesDescNoPlayer')}
@@ -2584,20 +2968,42 @@ export default function Players() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      {selectedPlayer && selectedPlayerPowers?.godMode !== undefined && (
-                        <Badge variant={selectedPlayerPowers.godMode ? 'default' : 'secondary'} className="text-xs">
-                          {selectedPlayerPowers.godMode ? t('powers.on') : t('powers.off')}
+                      {selectedPlayer && (
+                        <Badge
+                          variant={selectedPlayerPowers?.godMode === undefined ? 'outline' : selectedPlayerPowers.godMode ? 'default' : 'secondary'}
+                          className={cn('text-xs', selectedPlayerPowers?.godMode === undefined && 'border-dashed text-muted-foreground')}
+                        >
+                          {selectedPlayerPowers?.godMode === undefined ? t('powers.unknown') : selectedPlayerPowers.godMode ? t('powers.on') : t('powers.off')}
                         </Badge>
                       )}
                       <DisabledReason reason={!canGmTools ? t('permissions.noGmTools') : (selectedPlayer && !bridgeConnected ? t('powers.bridgeRequiredTooltip') : null)}>
-                        <Button
-                          variant={selectedPlayerPowers?.godMode ? 'default' : 'outline'}
-                          size="sm"
-                          disabled={!selectedPlayer || loading || !bridgeConnected || !canGmTools}
-                          onClick={() => handleGodMode(!selectedPlayerPowers?.godMode)}
-                        >
-                          {selectedPlayerPowers?.godMode ? t('powers.disable') : t('powers.enable')}
-                        </Button>
+                        {selectedPlayerPowers?.godMode === undefined ? (
+                          // Nothing has reported this player's real current state yet --
+                          // true on every page load until the operator toggles it once
+                          // this session (no fetch populates playerPowers, only the
+                          // optimistic update after a bridge-confirmed toggle). A single
+                          // "Enable" button here would silently assume "currently off",
+                          // which is exactly the state the operator can't actually see.
+                          // Offering both directions keeps each button's own outcome
+                          // predictable instead of guessing one on the operator's behalf.
+                          <div className="flex items-center gap-1.5">
+                            <Button variant="outline" size="sm" disabled={!selectedPlayer || loading || !bridgeConnected || !canGmTools} onClick={() => handleGodMode(true)}>
+                              {t('powers.enable')}
+                            </Button>
+                            <Button variant="outline" size="sm" disabled={!selectedPlayer || loading || !bridgeConnected || !canGmTools} onClick={() => handleGodMode(false)}>
+                              {t('powers.disable')}
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            variant={selectedPlayerPowers.godMode ? 'default' : 'outline'}
+                            size="sm"
+                            disabled={!selectedPlayer || loading || !bridgeConnected || !canGmTools}
+                            onClick={() => handleGodMode(!selectedPlayerPowers.godMode)}
+                          >
+                            {selectedPlayerPowers.godMode ? t('powers.disable') : t('powers.enable')}
+                          </Button>
+                        )}
                       </DisabledReason>
                     </div>
                   </div>
@@ -2614,20 +3020,34 @@ export default function Players() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      {selectedPlayer && selectedPlayerPowers?.invisible !== undefined && (
-                        <Badge variant={selectedPlayerPowers.invisible ? 'default' : 'secondary'} className="text-xs">
-                          {selectedPlayerPowers.invisible ? t('powers.on') : t('powers.off')}
+                      {selectedPlayer && (
+                        <Badge
+                          variant={selectedPlayerPowers?.invisible === undefined ? 'outline' : selectedPlayerPowers.invisible ? 'default' : 'secondary'}
+                          className={cn('text-xs', selectedPlayerPowers?.invisible === undefined && 'border-dashed text-muted-foreground')}
+                        >
+                          {selectedPlayerPowers?.invisible === undefined ? t('powers.unknown') : selectedPlayerPowers.invisible ? t('powers.on') : t('powers.off')}
                         </Badge>
                       )}
                       <DisabledReason reason={!canGmTools ? t('permissions.noGmTools') : (selectedPlayer && !bridgeConnected ? t('powers.bridgeRequiredTooltip') : null)}>
-                        <Button
-                          variant={selectedPlayerPowers?.invisible ? 'default' : 'outline'}
-                          size="sm"
-                          disabled={!selectedPlayer || loading || !bridgeConnected || !canGmTools}
-                          onClick={() => handleInvisible(!selectedPlayerPowers?.invisible)}
-                        >
-                          {selectedPlayerPowers?.invisible ? t('powers.disable') : t('powers.enable')}
-                        </Button>
+                        {selectedPlayerPowers?.invisible === undefined ? (
+                          <div className="flex items-center gap-1.5">
+                            <Button variant="outline" size="sm" disabled={!selectedPlayer || loading || !bridgeConnected || !canGmTools} onClick={() => handleInvisible(true)}>
+                              {t('powers.enable')}
+                            </Button>
+                            <Button variant="outline" size="sm" disabled={!selectedPlayer || loading || !bridgeConnected || !canGmTools} onClick={() => handleInvisible(false)}>
+                              {t('powers.disable')}
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            variant={selectedPlayerPowers.invisible ? 'default' : 'outline'}
+                            size="sm"
+                            disabled={!selectedPlayer || loading || !bridgeConnected || !canGmTools}
+                            onClick={() => handleInvisible(!selectedPlayerPowers.invisible)}
+                          >
+                            {selectedPlayerPowers.invisible ? t('powers.disable') : t('powers.enable')}
+                          </Button>
+                        )}
                       </DisabledReason>
                     </div>
                   </div>
@@ -2644,20 +3064,34 @@ export default function Players() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      {selectedPlayer && selectedPlayerPowers?.noclip !== undefined && (
-                        <Badge variant={selectedPlayerPowers.noclip ? 'default' : 'secondary'} className="text-xs">
-                          {selectedPlayerPowers.noclip ? t('powers.on') : t('powers.off')}
+                      {selectedPlayer && (
+                        <Badge
+                          variant={selectedPlayerPowers?.noclip === undefined ? 'outline' : selectedPlayerPowers.noclip ? 'default' : 'secondary'}
+                          className={cn('text-xs', selectedPlayerPowers?.noclip === undefined && 'border-dashed text-muted-foreground')}
+                        >
+                          {selectedPlayerPowers?.noclip === undefined ? t('powers.unknown') : selectedPlayerPowers.noclip ? t('powers.on') : t('powers.off')}
                         </Badge>
                       )}
                       <DisabledReason reason={!canGmTools ? t('permissions.noGmTools') : (selectedPlayer && !bridgeConnected ? t('powers.bridgeRequiredTooltip') : null)}>
-                        <Button
-                          variant={selectedPlayerPowers?.noclip ? 'default' : 'outline'}
-                          size="sm"
-                          disabled={!selectedPlayer || loading || !bridgeConnected || !canGmTools}
-                          onClick={() => handleNoclip(!selectedPlayerPowers?.noclip)}
-                        >
-                          {selectedPlayerPowers?.noclip ? t('powers.disable') : t('powers.enable')}
-                        </Button>
+                        {selectedPlayerPowers?.noclip === undefined ? (
+                          <div className="flex items-center gap-1.5">
+                            <Button variant="outline" size="sm" disabled={!selectedPlayer || loading || !bridgeConnected || !canGmTools} onClick={() => handleNoclip(true)}>
+                              {t('powers.enable')}
+                            </Button>
+                            <Button variant="outline" size="sm" disabled={!selectedPlayer || loading || !bridgeConnected || !canGmTools} onClick={() => handleNoclip(false)}>
+                              {t('powers.disable')}
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            variant={selectedPlayerPowers.noclip ? 'default' : 'outline'}
+                            size="sm"
+                            disabled={!selectedPlayer || loading || !bridgeConnected || !canGmTools}
+                            onClick={() => handleNoclip(!selectedPlayerPowers.noclip)}
+                          >
+                            {selectedPlayerPowers.noclip ? t('powers.disable') : t('powers.enable')}
+                          </Button>
+                        )}
                       </DisabledReason>
                     </div>
                   </div>
@@ -2681,6 +3115,34 @@ export default function Players() {
                         onClick={handleHealPlayer}
                       >
                         {t('powers.healButton')}
+                      </Button>
+                    </DisabledReason>
+                  </div>
+
+                  {/* Kill -- destructive, permanent in permadeath. Only power on this
+                      tab that can inflict irreversible harm on someone other than the
+                      admin, so it gets a red treatment the others don't. */}
+                  <div className="flex items-center justify-between rounded-xl border border-destructive/30 bg-destructive/5 p-4 transition-colors hover:bg-destructive/10">
+                    <div className="flex items-center gap-3">
+                      <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-2 text-destructive">
+                        <Skull className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <p className="font-medium">{t('powers.killLabel')}</p>
+                          <HelpTip label={t('powers.killLabel')}>{t('powers.killTip')}</HelpTip>
+                        </div>
+                        <p className="text-xs text-muted-foreground">{t('powers.killDesc')}</p>
+                      </div>
+                    </div>
+                    <DisabledReason reason={!canGmTools ? t('permissions.noGmTools') : (selectedPlayer && !bridgeConnected ? t('powers.bridgeRequiredTooltip') : null)}>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        disabled={!selectedPlayer || loading || !bridgeConnected || !canGmTools}
+                        onClick={handleKillPlayer}
+                      >
+                        {t('powers.killButton')}
                       </Button>
                     </DisabledReason>
                   </div>
@@ -2943,6 +3405,17 @@ export default function Players() {
                                 >
                                   {log.action}
                                 </Badge>
+                                {/* The dedicated Details column is hidden below
+                                    sm (no room for a 4th column at 390px) --
+                                    fold it in here instead of dropping it
+                                    outright, so a real entry's details are
+                                    still readable on mobile once this table
+                                    actually has data (2026-08-31 visual
+                                    sweep: empty today hid that nothing was
+                                    reachable there at all). */}
+                                <p className="mt-1 max-w-[220px] text-[11px] text-muted-foreground break-words sm:hidden">
+                                  {log.details || t('notes.detailsFallback')}
+                                </p>
                               </td>
                               <td className="max-w-[220px] p-2 text-xs text-muted-foreground break-words hidden sm:table-cell">
                                 {log.details || t('notes.detailsFallback')}
@@ -3016,7 +3489,7 @@ export default function Players() {
                   } catch (error) {
                     toast({
                       title: t('toasts.exportFailedTitle'),
-                      description: error instanceof Error ? error.message : t('toasts.exportFailedFallback'),
+                      description: getUserErrorMessage(error, t('toasts.exportFailedFallback')),
                       variant: 'destructive',
                     })
                   } finally {

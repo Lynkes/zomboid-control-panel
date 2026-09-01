@@ -79,6 +79,8 @@
     "hostUnreachableDesc": "Iniciar el servidor y luego confirmar el host, el puerto y la contraseña de RCON en Ajustes del panel.",
     "authFailedTitle": "error de autenticación",
     "authFailedDesc": "El host es accesible; confirma la contraseña de RCON en Mis servidores.",
+    "droppedTitle": "conexión interrumpida",
+    "droppedDesc": "RCON se desconectó mientras se ejecutaba un comando. El host, el puerto y la contraseña se acaban de confirmar como correctos -- selecciona \"Volver a comprobar\" arriba en cuanto creas que la conexión volvió.",
     "outputLabel": "salida de rcon",
     "entries_one": "{{count}} entrada",
     "entries_other": "{{count}} entradas",
@@ -88,6 +90,8 @@
     "noCommandsTitle": "Aún no hay comandos",
     "noCommandsDesc": "Ejecutar un comando RCON para ver aquí la respuesta.",
     "quickLabel": "rápido",
+    "commandLabel": "comando",
+    "commandTip": "Los comandos aquí se ejecutan de inmediato contra el servidor en vivo, sin paso de confirmación — incluso para algo que detiene el servidor o expulsa a un jugador. Si no estás seguro de lo que hace un comando, compruébalo antes de ejecutarlo; la mayoría no se puede deshacer.",
     "promptPrefix": "rcon $",
     "placeholder": "escribir un comando…",
     "inputAria": "Entrada de comando RCON",
@@ -95,7 +99,8 @@
     "run": "ejecutar",
     "keyboardHint": "// intro · ejecutar · ↑↓ historial",
     "noResponseFallback": "Sin respuesta",
-    "noPermission": "Tu rol no tiene permiso para ejecutar comandos RCON."
+    "noPermission": "Tu rol no tiene permiso para ejecutar comandos RCON.",
+    "disconnectedUseRecheck": "RCON no está disponible en este momento -- selecciona \"Volver a comprobar\" arriba antes de intentarlo de nuevo."
   },
   "quickCommands": {
     "players": "Jugadores",

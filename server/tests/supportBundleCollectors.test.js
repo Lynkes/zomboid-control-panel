@@ -19,7 +19,10 @@ const {
   buildDbWriteHealth,
   buildBackupsSummary,
   buildDiscordBotStatus,
+  buildDockerContainerLogsText,
+  buildManagedServiceLogsText,
 } = await import("../routes/debug.js");
+const { setDockerClient } = await import("../services/managedContainer.js");
 
 function fakeReq(services = {}, headers = {}) {
   return { app: { get: (key) => services[key] }, headers };
@@ -320,5 +323,156 @@ describe("support bundle assembly: one collector throwing never breaks the rest"
     // README.md was updated to describe every file actually produced.
     expect(byName["README.md"]).toContain("roles-and-permissions.json");
     expect(byName["README.md"]).toContain("oidc-status.json");
+  });
+});
+
+// support-bundle-2026-08-30: hive/agents/god/research/discord-restart-etxtbsy-2026-08-30.md --
+// a real production report was only diagnosable from a "Text file busy"
+// stack trace a user pasted BY HAND from `docker logs`. None of the
+// filesystem-scanning collectors above would have captured it -- container
+// stdout/stderr is not a file on disk anywhere this panel looks.
+describe("support bundle: Docker container logs", () => {
+  afterEach(() => setDockerClient(null));
+
+  it("skips with a clear reason when no container is mapped to the active server", async () => {
+    const text = await buildDockerContainerLogsText({ id: "s1" });
+    expect(text).toContain("No Docker container is mapped");
+  });
+
+  it("skips with a clear reason when a container is mapped but Docker control is off", async () => {
+    setDockerClient({ enabled: false, available: false });
+    const text = await buildDockerContainerLogsText({
+      id: "s1",
+      dockerContainerName: "pz-server",
+    });
+    expect(text).toContain('"pz-server"');
+    expect(text).toContain("Docker control is disabled");
+  });
+
+  it("includes the fetched log text -- the whole point of this file", async () => {
+    const getContainerLogs = vi.fn(async (ref, opts) => {
+      expect(ref).toBe("pz-server");
+      expect(opts.tail).toBe(500);
+      return "Unhandled exception. System.IO.IOException: Text file busy : '/project-zomboid/jre64/bin/java'\n";
+    });
+    setDockerClient({ enabled: true, available: true, getContainerLogs });
+    const text = await buildDockerContainerLogsText({
+      id: "s1",
+      dockerContainerName: "pz-server",
+    });
+    expect(text).toContain("Text file busy");
+    expect(text).toContain("pz-server");
+    expect(getContainerLogs).toHaveBeenCalledOnce();
+  });
+
+  it("reports a fetch failure rather than silently omitting the file", async () => {
+    setDockerClient({
+      enabled: true,
+      available: true,
+      getContainerLogs: vi.fn(async () => null),
+    });
+    const text = await buildDockerContainerLogsText({
+      id: "s1",
+      dockerContainerName: "pz-server",
+    });
+    expect(text).toContain("could not be fetched");
+  });
+
+  it("reports an empty history distinctly from a fetch failure", async () => {
+    setDockerClient({
+      enabled: true,
+      available: true,
+      getContainerLogs: vi.fn(async () => ""),
+    });
+    const text = await buildDockerContainerLogsText({
+      id: "s1",
+      dockerContainerName: "pz-server",
+    });
+    expect(text).toContain("no stdout/stderr history yet");
+  });
+
+  it("falls back to dockerContainerId when no name is set", async () => {
+    const getContainerLogs = vi.fn(async (ref) => {
+      expect(ref).toBe("abc123");
+      return "hello\n";
+    });
+    setDockerClient({ enabled: true, available: true, getContainerLogs });
+    await buildDockerContainerLogsText({ id: "s1", dockerContainerId: "abc123" });
+    expect(getContainerLogs).toHaveBeenCalledOnce();
+  });
+});
+
+describe("support bundle: managed-service (systemd/OpenRC) logs", () => {
+  // The systemd branch is gated on process.platform === "linux" (systemd
+  // --user is a Linux-only concept). Pin the platform explicitly for each
+  // test rather than skipping on a non-Linux CI runner, so this suite's
+  // pass/fail doesn't depend on which OS happens to run it -- mirrors
+  // server/tests/swapInfo.test.js's own process.platform stub pattern.
+  const originalPlatform = process.platform;
+  function setPlatform(value) {
+    Object.defineProperty(process, "platform", { value, configurable: true });
+  }
+  // A test earlier in this file (the "one collector throwing" suite) sets
+  // mockExecFile's implementation and calls it via buildWorldMapDiagnostics()
+  // but has no afterEach of its own to clear the call history -- reset here
+  // too so this suite's not.toHaveBeenCalled() assertions don't depend on
+  // execution order across describe blocks.
+  beforeEach(() => mockExecFile.mockReset());
+  afterEach(() => {
+    setPlatform(originalPlatform);
+    mockExecFile.mockReset();
+  });
+
+  it("skips with a clear reason when the server is not lifecycle-managed", async () => {
+    const text = await buildManagedServiceLogsText({ id: "s1", lifecycleProvider: "direct" });
+    expect(text).toContain("not running under a systemd/OpenRC managed lifecycle");
+    expect(mockExecFile).not.toHaveBeenCalled();
+  });
+
+  it("reports OpenRC as a known, honest gap rather than guessing a log path", async () => {
+    const text = await buildManagedServiceLogsText({ id: "s1", lifecycleProvider: "openrc" });
+    expect(text).toContain("known gap");
+    expect(mockExecFile).not.toHaveBeenCalled();
+  });
+
+  it("skips with a clear reason on a non-Linux panel host", async () => {
+    setPlatform("win32");
+    const text = await buildManagedServiceLogsText({ id: "s1", lifecycleProvider: "systemd" });
+    expect(text).toContain("Linux-only");
+    expect(mockExecFile).not.toHaveBeenCalled();
+  });
+
+  it("includes journalctl's output for a systemd-managed server", async () => {
+    setPlatform("linux");
+    mockExecFile.mockImplementation((cmd, args, opts, cb) => {
+      expect(cmd).toBe("journalctl");
+      expect(args).toContain("--user");
+      expect(args).toContain("-u");
+      expect(args.find((a) => a.endsWith(".service"))).toBe(
+        "zomboid-panel-server-s1.service",
+      );
+      cb(null, "Aug 30 sacha bash[1]: server ready\n", "");
+    });
+    const text = await buildManagedServiceLogsText({ id: "s1", lifecycleProvider: "systemd" });
+    expect(text).toContain("server ready");
+    expect(text).toContain("zomboid-panel-server-s1.service");
+  });
+
+  it("reports a journalctl failure (e.g. permission denied) instead of pretending the file is empty", async () => {
+    setPlatform("linux");
+    mockExecFile.mockImplementation((cmd, args, opts, cb) => {
+      const err = new Error("Command failed");
+      err.code = 1;
+      cb(err, "", "Failed to query journal: Permission denied");
+    });
+    const text = await buildManagedServiceLogsText({ id: "s1", lifecycleProvider: "systemd" });
+    expect(text).toContain("Permission denied");
+  });
+
+  it("reports an empty journal distinctly from a failure", async () => {
+    setPlatform("linux");
+    mockExecFile.mockImplementation((cmd, args, opts, cb) => cb(null, "", ""));
+    const text = await buildManagedServiceLogsText({ id: "s1", lifecycleProvider: "systemd" });
+    expect(text).toContain("no entries for this unit yet");
   });
 });

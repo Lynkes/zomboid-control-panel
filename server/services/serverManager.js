@@ -17,6 +17,11 @@ import { withFileLock, writeFileAtomic } from "../utils/fileWriteQueue.js";
 import { escapeRegExp } from "../utils/regex.js";
 import { getDataPaths } from "../utils/paths.js";
 import { parseBoundedInteger } from "../utils/queryNumbers.js";
+import {
+  createLinuxServiceLifecycle,
+  isManagedLifecycleProvider,
+} from "./linuxServiceLifecycle.js";
+import { hasActiveSteamOperation } from "./activeSteamOperations.js";
 
 const isWindows = process.platform === "win32";
 // How long a live-looked-up public IP is trusted before re-checking.
@@ -94,6 +99,26 @@ function buildLdLibraryPath(serverDir) {
     `buildLdLibraryPath: ${existing.length}/${candidates.length} dirs exist → LD_LIBRARY_PATH=${result}`,
   );
   return result;
+}
+
+// Locates the actual JVM executable inside a PZ install directory (jre64 for
+// 64-bit installs, jre for older/32-bit ones -- same directories buildLdLibraryPath
+// already knows about). Returns null if neither exists so callers can treat
+// "can't find it" as "nothing to check" rather than failing outright -- this
+// check is best-effort, not a hard requirement of every install layout.
+function findJvmExecutable(serverDir) {
+  const candidates = [
+    path.join(serverDir, "jre64", "bin", "java"),
+    path.join(serverDir, "jre", "bin", "java"),
+  ];
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) return candidate;
+    } catch {
+      // ignore and try the next candidate
+    }
+  }
+  return null;
 }
 
 // Allowed extensions for custom start commands
@@ -197,6 +222,73 @@ function isLinuxDedicatedServerCommandLine(commandLine) {
   return false;
 }
 
+// Deliberately BROADER than isLinuxDedicatedServerCommandLine above, and used
+// for a different purpose: not to decide ownership, but to decide whether a
+// zero-match scan is entitled to claim "definitely not running" at all.
+//
+// isLinuxDedicatedServerCommandLine requires a specific launch shape
+// (zombie.network.GameServer, or ProjectZomboid64/32 combined with a
+// -server-ish flag). A REAL dedicated server invoked a different way -- a
+// -jar launcher (plausible for Build 42's shaded jar, see
+// buildClasspathEntries()'s own comment), a wrapper script, a renamed
+// binary -- produces a command line this function would confidently (and
+// wrongly) call "not a dedicated server", and the scan around it returns
+// `{running:false, scanFailed:false}`: a CONFIDENT wrong answer that skips
+// every downstream fallback written to trigger on doubt (2026-08-29 Linux
+// bug hunt, live Discord report -- verified false negative:
+// isLinuxDedicatedServerCommandLine("... -jar projectzomboid.jar") is false
+// even though the process is genuinely a running PZ server).
+//
+// This can never be made "complete" by adding more shapes to the narrow
+// matcher -- there will always be one more shape nobody thought of, failing
+// exactly as silently. Instead, the scan casts THIS wider, looser net
+// (just "zomboid" or "zombie.network" appearing anywhere) purely to detect
+// its own uncertainty: a candidate this catches that the narrow matcher
+// rejects is EVIDENCE WORTH DOUBTING, not automatic proof -- see
+// looksLikeUndeterminedJvmCandidate below for the second filter that turns
+// "mentions zomboid somewhere" into "plausibly IS the thing we're unsure
+// about".
+function looksZomboidAdjacent(commandLine) {
+  const lower = String(commandLine || "").toLowerCase();
+  return lower.includes("zomboid") || lower.includes("zombie.network");
+}
+
+// CI regression (2026-08-29, same day as the fix above): a v1 version of
+// this classified ANY looksZomboidAdjacent() match that failed the narrow
+// test as ambiguous -- which is wrong, and the wrongness is exactly what
+// god's dispatch warned about: "the exclusion has to be about what a
+// candidate IS, not which pid it is". On a GitHub Actions runner the repo
+// is checked out to /home/runner/work/zomboid-control-panel/zomboid-
+// control-panel -- so EVERY sibling process on that host (other vitest
+// workers, the runner's own supervisor, an unrelated shell) has "zomboid"
+// somewhere in its own cwd-derived argv or script path, none of them a PZ
+// server. The original fix only excluded THIS process's own pid
+// (process.pid), which does nothing for a DIFFERENT process on the same
+// host with a different pid -- so a genuinely idle CI runner reported
+// "unknown" on every single check, permanently. Confirmed by reproducing
+// the runner's exact checkout shape locally (a checkout literally named
+// .../zomboid-control-panel/zomboid-control-panel with other node
+// processes alive) -- byte-identical failure, not a hypothesis.
+//
+// The real fix has to ask a different question than "does this path
+// mention zomboid" -- a path can ALWAYS mention zomboid for reasons that
+// have nothing to do with a game server (this very repo's own directory
+// name, a terminal cd'd into it, a backup job, an unrelated tool). What
+// actually distinguishes a plausible-but-unrecognized PZ server from that
+// noise is that a PZ dedicated server, however it's invoked -- the panel's
+// own script, a -jar launcher, a native ProjectZomboid64/32 stub that execs
+// into one -- is ALWAYS, by the time it's running, a JVM. A vitest worker,
+// a shell, a backup script, an editor sitting in a zomboid-named directory
+// are never going to have "java" as a substring of their own command line.
+// Requiring BOTH signals (mentions zomboid/zombie.network AND looks like a
+// JVM) is what makes "worth doubting" actually mean something, instead of
+// "shares a directory name with the panel".
+function looksLikeUndeterminedJvmCandidate(commandLine) {
+  const lower = String(commandLine || "").toLowerCase();
+  if (!looksZomboidAdjacent(lower)) return false;
+  return /\bjava\b|\bjavaw\b|\/java$/.test(lower);
+}
+
 // Pull the value of a PZ launch argument (`-servername X`, `-cachedir="Y"`)
 // out of a raw command line.
 function extractLaunchArgValue(commandLine, flag) {
@@ -289,7 +381,7 @@ export function scoreServerProcessOwnership(commandLine, descriptor = {}) {
 }
 
 export class ServerManager {
-  constructor() {
+  constructor({ lifecycleFactory = createLinuxServiceLifecycle } = {}) {
     this.serverProcess = null;
     this.serverPath = process.env.PZ_SERVER_PATH || "";
     this.serverBat = process.env.PZ_SERVER_BAT || getDefaultStartupScript();
@@ -304,6 +396,9 @@ export class ServerManager {
     // "managed" (the panel owns and regenerates the launch script) or
     // "custom" (the operator's own .bat/.sh/.exe -- see resolveLaunchMode()).
     this.launchMode = "managed";
+    this.lifecycleProvider = "direct";
+    this._serverRecord = null;
+    this._lifecycleFactory = lifecycleFactory;
     // Which server this instance's currently-loaded config belongs to (null
     // = "the active server", the shared-singleton default). Recorded so
     // internal reload points (e.g. startServer()'s "settings may have
@@ -330,6 +425,8 @@ export class ServerManager {
     this.rconHost = null;
     this.rconPort = null;
     this.launchMode = "managed";
+    this.lifecycleProvider = "direct";
+    this._serverRecord = null;
     this.configLoaded = false;
     await this.loadConfig(serverId);
   }
@@ -350,6 +447,8 @@ export class ServerManager {
         ? await getServer(serverId)
         : await getActiveServer();
       if (activeServer) {
+        this._serverRecord = activeServer;
+        this.lifecycleProvider = activeServer.lifecycleProvider || "direct";
         // Use serverPath if available, otherwise extract from installPath
         let serverDir = activeServer.serverPath || activeServer.installPath;
 
@@ -475,6 +574,79 @@ export class ServerManager {
     return details.running;
   }
 
+  /**
+   * Whether the previous server's JVM binary is still held open by a running
+   * process -- checked directly at the kernel/filesystem level (ETXTBSY on
+   * open-for-write) rather than inferred from the OS process table.
+   *
+   * getServerProcessDetails()'s pgrep/ps scan only sees processes in the
+   * panel's OWN PID namespace. Our own docker-compose.yml explicitly
+   * recommends and supports topologies where that isn't true -- PZ running
+   * natively on the host, or in a separate container, with only the install
+   * directory bind-mounted into the panel's container (docker-compose.yml's
+   * "Topology 1"/"Topology 2"). In that shape the process scan can never see
+   * the real PZ process and reports a confident `running: false` even while
+   * it's still alive and shutting down -- there's nothing wrong with the
+   * scan reading empty, the emptiness just isn't evidence of anything in
+   * this topology. restartServer()'s "wait until the old process is
+   * confirmed dead" loop then has nothing left to wait on, and starts a new
+   * JVM while the old one still holds its own binary open -- the old one (or
+   * whatever validates/patches the install before relaunching) then hits
+   * "Text file busy" (Discord report, Rhazun, 2026-08-30) trying to rewrite
+   * a file a process is still executing.
+   *
+   * This asks the kernel the actual question ETXTBSY is about -- is this
+   * exact file currently busy -- which works regardless of which PID
+   * namespace holds the process, because it's a property of the inode, not
+   * the process table. Non-destructive: opens for read+write and closes
+   * immediately without writing a single byte, so a clean result never
+   * touches the binary's contents.
+   *
+   * Best-effort by design: if the JVM binary can't be located (unusual
+   * install layout, custom launcher), or the open fails for any reason OTHER
+   * than ETXTBSY (permissions, the file genuinely not existing), this
+   * returns false rather than treating an unrelated error as "still busy" --
+   * a permissions problem would fail identically forever and turn every
+   * restart into an infinite wait, which is a worse failure than the one
+   * this exists to catch. Windows doesn't have this failure mode at all
+   * (file locking works differently there), so this is a no-op on Windows.
+   *
+   * This answers "is this file busy", never "is this MY server's old
+   * process" -- multiple PZ servers legitimately sharing one install
+   * directory (differing only by -servername/-cachedir, a normal
+   * deployment shape this codebase already accommodates elsewhere) both
+   * execute this same binary, so a "busy" result alone is NOT evidence of
+   * anything wrong. That makes it safe to use as a REFUSAL only where the
+   * cause is already known and unambiguous -- restartServer()'s wait loop,
+   * right after THIS manager told the process at THIS path to quit. Anywhere
+   * else (2026-08-30, caught before landing -- see startServer()'s own
+   * comment at its call site), it must never be more than a bounded WAIT
+   * that proceeds regardless once the bound expires: launching a new process
+   * against a binary another process is already executing is ordinary,
+   * unrestricted POSIX behavior (ETXTBSY is about opening for WRITE, never
+   * about a second execute), so "still busy" after waiting a little is not
+   * a reason to refuse -- it likely just means a sibling server is
+   * legitimately running from the same install.
+   */
+  isJvmExecutableBusy() {
+    if (isWindows) return false;
+
+    const javaPath = findJvmExecutable(path.resolve(this.serverPath || ""));
+    if (!javaPath) return false;
+
+    try {
+      const fd = fs.openSync(javaPath, "r+");
+      fs.closeSync(fd);
+      return false;
+    } catch (error) {
+      if (error?.code === "ETXTBSY") return true;
+      log.debug(
+        `isJvmExecutableBusy: could not probe ${javaPath} (${error?.code || error?.message}), not treating as busy`,
+      );
+      return false;
+    }
+  }
+
   // The identifying traits of the server this instance represents.
   _getOwnershipDescriptor() {
     return {
@@ -500,6 +672,35 @@ export class ServerManager {
    */
   async getServerProcessDetails() {
     await this.loadConfig(this._serverId);
+
+    if (this.usesManagedServiceLifecycle()) {
+      try {
+        const lifecycle = this._getManagedLifecycle();
+        const status = await lifecycle.status();
+        if (!status.scanFailed) this.isRunning = status.running;
+        return {
+          running: status.running,
+          matched: [],
+          owned: [],
+          scanFailed: Boolean(status.scanFailed),
+          provider: this.lifecycleProvider,
+          serviceName: lifecycle.serviceName,
+          ...(status.error ? { error: status.error } : {}),
+        };
+      } catch (error) {
+        log.warn(
+          `Managed lifecycle status failed for "${this.serverName}": ${error.message}`,
+        );
+        return {
+          running: false,
+          matched: [],
+          owned: [],
+          scanFailed: true,
+          provider: this.lifecycleProvider,
+          error: error.message,
+        };
+      }
+    }
 
     // Fast path: if we recorded the PID we spawned and it's still alive
     // with a command line that still looks like (and is attributable to)
@@ -635,6 +836,28 @@ export class ServerManager {
               return;
             }
 
+            // Same three-bucket classification the Linux branch below uses
+            // (CONFIRMED / AMBIGUOUS / noise), and for the same reason: the
+            // WMI filter above already narrows candidates to
+            // java.exe/ProjectZomboid64.exe/ProjectZomboid32.exe, but a real
+            // dedicated server can still be launched in a shape
+            // isWindowsDedicatedServerCommandLine doesn't recognize (a
+            // generic `java -jar` invocation with no "zomboid" in the jar
+            // path and no -server/startserver flag -- plausible for a
+            // custom/shaded jar launcher). Reusing
+            // looksLikeUndeterminedJvmCandidate (java/javaw-in-its-own-
+            // command-line AND zomboid-adjacent) rather than inventing a
+            // Windows-specific check also gets the right answer for
+            // ProjectZomboid64.exe/32.exe candidates for free: that helper's
+            // java/javaw regex never matches a native .exe's own command
+            // line (no "java" substring in it), so a plain client launch
+            // with no server flags is correctly left as noise, not flagged
+            // ambiguous -- an operator playing the game locally on the same
+            // host must not flip every scan to "can't confirm stopped".
+            const ambiguous = [];
+            const pushAmbiguous = (cmd) => {
+              ambiguous.push(String(cmd || "").slice(0, 240));
+            };
             const lines = psStdout.split(/\r?\n/);
             for (let raw of lines) {
               raw = raw.trim();
@@ -650,7 +873,24 @@ export class ServerManager {
                   `getServerProcessDetails: matched PZ server process pid=${pid}: ${cmd.substring(0, 200)}`,
                 );
                 pushMatch(cmd, pid);
+              } else if (looksLikeUndeterminedJvmCandidate(cmd)) {
+                log.debug(
+                  `getServerProcessDetails: Windows candidate ignored (not a recognized dedicated-server shape, but JVM-shaped and zomboid-adjacent -- treating as ambiguous): ${cmd.substring(0, 200)}`,
+                );
+                pushAmbiguous(cmd);
               }
+            }
+
+            if (matched.length === 0 && ambiguous.length > 0) {
+              // Leave this.isRunning untouched -- same "a scan that couldn't
+              // tell must not overwrite the last known-good state" rule as
+              // every other uncertain case (see getServerProcessDetails()'s
+              // own comment).
+              log.warn(
+                `getServerProcessDetails: found ${ambiguous.length} JVM-shaped process(es) mentioning zomboid/zombie.network that don't match a known dedicated-server launch shape -- cannot confirm the server is stopped (first: ${ambiguous[0]})`,
+              );
+              resolve({ running: false, matched: [], scanFailed: true });
+              return;
             }
 
             this.isRunning = matched.length > 0;
@@ -664,9 +904,38 @@ export class ServerManager {
         // *game* (ProjectZomboid64) on the same box doesn't false-positive
         // as a running dedicated server. Direct `zombie.network.GameServer`
         // java invocations always qualify.
+        //
+        // The search itself is deliberately BROADER than
+        // isLinuxDedicatedServerCommandLine -- see looksZomboidAdjacent's
+        // own comment. Every candidate this turns up is classified into one
+        // of three buckets: CONFIRMED (matches the narrow launch-shape
+        // pattern -- pushed into `matched`, unchanged behavior), AMBIGUOUS
+        // (fails the narrow pattern but ALSO looks like an unidentified JVM
+        // -- see looksLikeUndeterminedJvmCandidate's own comment for why
+        // this second filter, not just "mentions zomboid", is required), or
+        // discarded as noise (mentions zomboid/zombie.network for a reason
+        // that has nothing to do with a game server -- a checkout path, a
+        // sibling test-runner process, a shell sitting in this repo). Zero
+        // confirmed AND zero ambiguous is a genuinely idle host: confidently
+        // not running, exactly as before. Zero confirmed but at least one
+        // ambiguous candidate is the case this fix exists for: real
+        // JVM-shaped evidence we can't rule out, so the scan reports
+        // scanFailed:true (renders as "unknown" downstream) instead of a
+        // confident, possibly wrong, "not running".
         log.debug("getServerProcessDetails: trying pgrep -af first...");
+        const ambiguous = [];
+        const pushAmbiguous = (cmd) => {
+          ambiguous.push(String(cmd || "").slice(0, 240));
+        };
+        // Bracket-obfuscated (matches the narrow pattern's own existing
+        // convention below, NOT a plain -i flag): exec() runs this through
+        // `sh -c "<command>"`, and that wrapper's OWN argv, read back by
+        // this very scan, literally contains the pattern text -- a plain
+        // "zomboid|zombie.network" search string self-matches its own
+        // invocation. "[Zz]omboid" in the wrapper's own argv does not
+        // contain the bare substring "zomboid", so it doesn't self-trigger.
         exec(
-          'pgrep -af "zombie.network.[Gg]ame[Ss]erver|[Pp]roject[Zz]omboid64|[Pp]roject[Zz]omboid32"',
+          'pgrep -af "[Zz]omboid|[Zz]ombie\\.network"',
           { timeout: 8000 },
           (pgrepErr, pgrepOut) => {
             if (!pgrepErr && pgrepOut && pgrepOut.trim()) {
@@ -677,18 +946,43 @@ export class ServerManager {
                 const m = trimmed.match(/^(\d+)\s+(.*)$/);
                 const pid = m ? m[1] : undefined;
                 const cmd = m ? m[2] : trimmed;
-                if (!isLinuxDedicatedServerCommandLine(cmd)) {
+                // Belt-and-braces: exclude the panel's own process. Not the
+                // load-bearing fix (a `node` process never matches
+                // looksLikeUndeterminedJvmCandidate's java requirement
+                // anyway), but cheap and makes the intent explicit even in
+                // some future edge case where a panel process's own args
+                // happen to contain "java" as a substring.
+                if (pid && Number(pid) === process.pid) continue;
+                if (isLinuxDedicatedServerCommandLine(cmd)) {
+                  pushMatch(cmd, pid);
+                } else if (looksLikeUndeterminedJvmCandidate(cmd)) {
                   log.debug(
-                    `getServerProcessDetails: pgrep candidate ignored (not a dedicated server): ${cmd.substring(0, 200)}`,
+                    `getServerProcessDetails: pgrep candidate ignored (not a recognized dedicated-server shape, but JVM-shaped and zomboid-adjacent -- treating as ambiguous): ${cmd.substring(0, 200)}`,
                   );
-                  continue;
+                  pushAmbiguous(cmd);
+                } else {
+                  log.debug(
+                    `getServerProcessDetails: pgrep candidate discarded (zomboid-adjacent but not JVM-shaped -- not evidence): ${cmd.substring(0, 200)}`,
+                  );
                 }
-                pushMatch(cmd, pid);
               }
               log.debug(
-                `getServerProcessDetails: pgrep matched ${matched.length} process(es)`,
+                `getServerProcessDetails: pgrep matched ${matched.length} confirmed / ${ambiguous.length} ambiguous process(es)`,
               );
               clearTimeout(timeout);
+              if (matched.length === 0 && ambiguous.length > 0) {
+                // Leave this.isRunning at its previous value -- exactly the
+                // same "a scan that couldn't tell must not overwrite the
+                // last known-good state" rule getServerProcessDetails()
+                // already applies via scanFailed for every OTHER uncertain
+                // case (see its own comment). Only a scan that ran clean
+                // and found nothing at all is entitled to claim false.
+                log.warn(
+                  `getServerProcessDetails: found ${ambiguous.length} JVM-shaped process(es) mentioning zomboid/zombie.network that don't match a known dedicated-server launch shape -- cannot confirm the server is stopped (first: ${ambiguous[0]})`,
+                );
+                resolve({ running: false, matched: [], scanFailed: true });
+                return;
+              }
               this.isRunning = matched.length > 0;
               resolve({ running: matched.length > 0, matched });
               return;
@@ -708,16 +1002,10 @@ export class ServerManager {
               }
               for (const line of stdout.split(/\r?\n/)) {
                 const lower = line.toLowerCase();
-                if (
-                  !lower.includes("zombie.network.gameserver") &&
-                  !lower.includes("projectzomboid64") &&
-                  !lower.includes("projectzomboid32")
-                ) {
-                  continue;
-                }
+                if (!looksZomboidAdjacent(lower)) continue;
                 // Skip our own grep / pgrep / ps invocations
                 if (
-                  /\b(ps|pgrep|grep)\b.*\b(zombie|projectzomboid)/.test(
+                  /\b(ps|pgrep|grep)\b.*\b(zombie|zomboid|projectzomboid)/.test(
                     lower,
                   ) &&
                   !lower.includes("java") &&
@@ -733,8 +1021,19 @@ export class ServerManager {
                   );
                 const pid = m ? m[1] : undefined;
                 const cmd = m ? m[2] : line.trim();
-                if (!isLinuxDedicatedServerCommandLine(cmd)) continue;
-                pushMatch(cmd, pid);
+                if (pid && Number(pid) === process.pid) continue;
+                if (isLinuxDedicatedServerCommandLine(cmd)) {
+                  pushMatch(cmd, pid);
+                } else if (looksLikeUndeterminedJvmCandidate(cmd)) {
+                  pushAmbiguous(cmd);
+                }
+              }
+              if (matched.length === 0 && ambiguous.length > 0) {
+                log.warn(
+                  `getServerProcessDetails: found ${ambiguous.length} JVM-shaped process(es) mentioning zomboid/zombie.network that don't match a known dedicated-server launch shape -- cannot confirm the server is stopped (first: ${ambiguous[0]})`,
+                );
+                resolve({ running: false, matched: [], scanFailed: true });
+                return;
               }
               this.isRunning = matched.length > 0;
               resolve({ running: matched.length > 0, matched });
@@ -912,6 +1211,62 @@ export class ServerManager {
       this.configLoaded = false;
       await this.loadConfig(this._serverId);
 
+      // SteamCMD (POST /install, POST /steam-update -- see
+      // ../services/activeSteamOperations.js) writes game files directly
+      // into this same directory. Spawning the PZ JVM while that write is
+      // still in flight means launching against a partially-patched
+      // install: a truncated/corrupted jar, a ClassNotFoundError, or a
+      // version mismatch between files that finished writing and ones
+      // that haven't -- not merely untidy, a real crash-or-worse shape
+      // (hunt-wave5-2026-08-29 concurrency hunt). Every path that can
+      // reach startServer() -- POST /start, performRestart()'s two start
+      // steps, the Discord bot's /start command, index.js's own
+      // auto-start-on-panel-boot, and updateChecker.js's restart-after-
+      // update -- funnels through this ONE function, so the guard lives
+      // here rather than duplicated at each caller; a guard only at the
+      // HTTP route protects the human clicking Start and nothing else.
+      // Deliberately unconditional, not nested inside the
+      // skipRunningCheck branch below: "is SteamCMD active" is orthogonal
+      // to "is the OLD PZ process confirmed stopped" -- restartServer()'s
+      // skipRunningCheck:true is specifically about skipping the latter.
+      // Placed ABOVE the managed-lifecycle branch below (2026-08-31 fix --
+      // it used to sit after that branch's own early return, so a
+      // systemd/openrc-managed install could get systemctl-started while
+      // SteamCMD was still writing into the exact same directory, silently
+      // bypassing the one guard this comment claims is unconditional).
+      // Thrown as a plain Error with no ErrorCode, matching every OTHER
+      // refusal already in this function (Server path not configured /
+      // already running / RCON port in use, none of which carry one
+      // either) rather than introducing the one site in this function
+      // that departs from its own neighbors' convention -- the message
+      // itself is the "named, visible, not a quiet no-op" signal here.
+      const installPathForSteamCheck =
+        this._serverRecord?.installPath || this.serverPath;
+      if (installPathForSteamCheck) {
+        const normalizedInstallPath = path
+          .normalize(installPathForSteamCheck)
+          .toLowerCase();
+        if (hasActiveSteamOperation(normalizedInstallPath)) {
+          throw new Error(
+            "A Steam install or update is currently in progress for this server's install directory. Wait for it to finish before starting the server.",
+          );
+        }
+      }
+
+      if (this.usesManagedServiceLifecycle()) {
+        const result = await this._getManagedLifecycle().run("start");
+        if (!result.success) throw new Error(result.error || result.message);
+        this.serverProcess = null;
+        this.isRunning = true;
+        this.startTime = this.startTime || new Date();
+        this._deletePidFile();
+        await logServerEvent(
+          "server_start",
+          `Server started through ${this.lifecycleProvider}`,
+        ).catch((error) => log.warn(`Failed to log event: ${error.message}`));
+        return result;
+      }
+
       if (!this.startCommand && !this.serverPath) {
         throw new Error("Server path not configured");
       }
@@ -966,6 +1321,52 @@ export class ServerManager {
           throw new Error(
             `RCON port ${rconHost}:${rconPort} is already in use — a server may be running that process detection missed. Aborting start to prevent port conflict.`,
           );
+        }
+      }
+
+      // isJvmExecutableBusy() answers a DIFFERENT question than
+      // restartServer()'s (dead-code, no real caller) wait loop: not "has
+      // the process I just told to quit released the binary" but "is ANY
+      // process anywhere executing it" -- and that has a legitimate "yes"
+      // that isn't a bug. Multiple PZ servers (differing only by
+      // -servername/-cachedir) sharing ONE install directory to avoid a
+      // second multi-gigabyte copy is a normal deployment shape this
+      // codebase already accommodates elsewhere (db.data.servers has no
+      // installPath uniqueness constraint; server/routes/server.js's and
+      // updateChecker.js's activeSteamOperations guards are keyed by PATH,
+      // not by server, for exactly this reason).
+      //
+      // So this WAITS, then PROCEEDS regardless -- never refuses. The
+      // actual danger ETXTBSY describes is something REWRITING the binary
+      // while a process executes it; simply launching a new process
+      // against a binary another process is already executing is
+      // ordinary, unrestricted POSIX behavior (many processes can
+      // execve() the same file at once with zero conflict -- ETXTBSY is
+      // specifically about OPENING FOR WRITE, never about a second
+      // execute). So a bounded wait protects the case this exists for
+      // (Rhazun's own prior instance still finishing its exit right after
+      // a manual Stop, in the Stop-then-Start workaround) without ever
+      // punishing the shared-install case: if it's still busy once the
+      // bound expires -- most likely a legitimately running sibling
+      // server -- starting anyway is correct, not a compromise.
+      //
+      // Moved OUT of the !skipRunningCheck block above (2026-08-31,
+      // ordering-dependent-guards pass): the ONLY reachable production
+      // restart flow, scheduler.js's performRestart(), stops the old
+      // process itself and then calls startServer({skipRunningCheck:
+      // true}) specifically to skip re-verifying "is the old process
+      // confirmed stopped" -- a concern this comment's own SteamCMD-guard
+      // sibling above was already pulled out for being orthogonal to that.
+      // The ETXTBSY wait is exactly as orthogonal (it answers "did the
+      // kernel finish releasing the binary", not "does the process table
+      // still show it"), but had been left nested here, so every real
+      // restart launched a new JVM with zero wait for the kernel to
+      // release the binary -- reproducing the exact "Text file busy" crash
+      // this check exists to prevent, through the one code path that
+      // actually restarts a server in production.
+      if (this.isJvmExecutableBusy()) {
+        for (let attempt = 0; attempt < 10 && this.isJvmExecutableBusy(); attempt++) {
+          await this.sleep(300);
         }
       }
 
@@ -1039,6 +1440,22 @@ export class ServerManager {
             env: { ...process.env, LD_LIBRARY_PATH: ldPath },
           });
         } else {
+          // Reached on Linux only for a no-extension custom command (the
+          // other allowed non-Windows extension besides .sh -- a compiled
+          // launcher binary or extensionless wrapper script, both common on
+          // Linux). Unlike the ".sh" branch above, this spawns resolvedCmd
+          // DIRECTLY rather than via `bash`, so the OS itself enforces the
+          // execute bit -- a freshly downloaded/copied/SteamCMD-installed
+          // file commonly lacks it, and without this chmod the spawn fails
+          // with EACCES every time, exactly the class of "worked on my
+          // Windows box, dead on Linux" bug this hunt exists to catch.
+          if (!isWindows) {
+            try {
+              fs.chmodSync(resolvedCmd, 0o750);
+            } catch (e) {
+              log.debug(`chmod on custom command failed: ${e.message}`);
+            }
+          }
           const spawnEnv = isWindows
             ? process.env
             : (() => {
@@ -1246,9 +1663,44 @@ export class ServerManager {
       };
     }
 
+    // startServer() already refuses outright when this._stopping is true
+    // (see "Prevent start while a stop is still in flight" above) -- this
+    // function only ever SET the flag, it never checked it on its OWN
+    // entry, so two overlapping force-stop calls (two Force Stops, or a
+    // Force Stop racing the service-managed branch of a plain Stop) both
+    // ran past every guard: both scanned, both found the same PID, both
+    // issued a kill for it (server/tests/stopServerConcurrentForceStop.test.js
+    // proves this deterministically). Harmless on a stock Linux/Windows
+    // config (a second kill on an already-reaped PID is a no-op), but
+    // still redundant work with no user-visible signal that a stop was
+    // already underway -- refusing here instead mirrors startServer()'s
+    // own guard, one direction earlier.
+    if (this._stopping) {
+      return {
+        success: false,
+        confirmed: false,
+        error: "Stop already in progress",
+        message:
+          "A stop or force-stop is already in progress for this server. Wait for it to finish, then try again.",
+      };
+    }
+
     // Block overlapping starts while kill/state-clear is pending.
     this._stopping = true;
     try {
+      await this.loadConfig(this._serverId);
+      if (this.usesManagedServiceLifecycle()) {
+        const result = await this._getManagedLifecycle().run("stop");
+        if (result.success && result.confirmed !== false) this._clearRunState();
+        if (result.success) {
+          await logServerEvent(
+            "server_stop",
+            `Server stopped through ${this.lifecycleProvider}`,
+          ).catch((error) => log.warn(`Failed to log event: ${error.message}`));
+        }
+        return result;
+      }
+
       // Only PIDs this server owns: a host can run several dedicated servers
       // and killing every PZ process would take the others down with it.
       const details = await this.getServerProcessDetails();
@@ -1533,6 +1985,29 @@ export class ServerManager {
       }
       await this.sleep(3000);
 
+      await this.loadConfig(this._serverId);
+      if (this.usesManagedServiceLifecycle()) {
+        const restarted = await this._getManagedLifecycle().run("restart");
+        if (!restarted.success || restarted.confirmed === false) {
+          throw new Error(
+            restarted.error ||
+              `${this.lifecycleProvider} did not confirm the restart`,
+          );
+        }
+        this.serverProcess = null;
+        this.isRunning = true;
+        this.startTime = new Date();
+        this._deletePidFile();
+        await logServerEvent(
+          "server_restart",
+          `Server restarted through ${this.lifecycleProvider}`,
+        );
+        return {
+          success: true,
+          message: `Server restarted successfully through ${this.lifecycleProvider}`,
+        };
+      }
+
       // Quit the server (with timeout)
       try {
         let quitTimeoutId;
@@ -1556,8 +2031,13 @@ export class ServerManager {
           "Could not confirm the old server stopped because process detection failed",
         );
       }
+      // The process-table check above is blind whenever PZ runs outside the
+      // panel's own PID namespace (see isJvmExecutableBusy()'s doc comment)
+      // -- checked alongside it, not instead of it, so this only ever ADDS a
+      // wait condition on setups where it can find the binary at all.
+      let jvmBusy = this.isJvmExecutableBusy();
       let attempts = 0;
-      while (processDetails.running && attempts < 30) {
+      while ((processDetails.running || jvmBusy) && attempts < 30) {
         await this.sleep(1000);
         attempts++;
         processDetails = await this.getServerProcessDetails();
@@ -1566,6 +2046,7 @@ export class ServerManager {
             "Could not confirm the old server stopped because process detection failed",
           );
         }
+        jvmBusy = this.isJvmExecutableBusy();
       }
 
       // Force stop if still running
@@ -1577,6 +2058,22 @@ export class ServerManager {
           );
         }
         await this.sleep(5000);
+        // Re-check: a successful force-stop through the process table says
+        // nothing about whether the kernel has finished releasing the
+        // binary yet (this is the exact gap isJvmExecutableBusy exists to
+        // catch -- ETXTBSY is about the file, not the PID).
+        jvmBusy = this.isJvmExecutableBusy();
+      }
+
+      // The process table (even force-stop) has no way to act on this --
+      // ETXTBSY clears on its own once the kernel finishes tearing the old
+      // process down. If it's still busy after everything above, refuse
+      // rather than start a new JVM against a binary that may still be
+      // rewritten out from under it.
+      if (jvmBusy) {
+        throw new Error(
+          "The previous server process appears to have exited, but its Java executable is still locked by the kernel (\"Text file busy\") -- refusing to start a new one until it clears, to avoid a corrupted install",
+        );
       }
 
       // Extra delay to let OS reap the process
@@ -1671,11 +2168,44 @@ export class ServerManager {
       startTime: this.startTime,
       uptime: uptimeSeconds,
       serverPath: this.serverPath,
-      configured: !!this.serverPath,
+      // Renamed from `configured` (2026-08-31, quality-pass follow-up):
+      // this has only ever meant "does the LOCAL process-launch path have
+      // a directory to run in" -- the exact thing startServer() itself
+      // checks (`!this.startCommand && !this.serverPath`, above) before
+      // it will spawn anything. That's a real, narrower question than "is
+      // this server configured": a remote server's launch happens on a
+      // different host entirely and correctly never sets serverPath, so
+      // under the old name every remote server read as permanently
+      // unconfigured to any consumer that didn't already know to special-
+      // case isRemote. Four independent readers (client/src/pages/
+      // Dashboard.tsx's verdict, banner, and Live Activity empty state)
+      // hit exactly that misreading in the same night before this was
+      // traced to its root and renamed rather than "fixed" -- the VALUE
+      // was already right for what it actually gates, only the name over-
+      // promised. Callers that want "is this server profile complete"
+      // should look at isRemote-aware validation, not this field.
+      serverPathConfigured: !!this.serverPath,
       publicIp: this.publicIp,
       localIp: await this.getLocalIp(),
       port: this.gamePort,
     };
+  }
+
+  usesManagedServiceLifecycle() {
+    return (
+      isManagedLifecycleProvider(this.lifecycleProvider) &&
+      Boolean(this._serverRecord)
+    );
+  }
+
+  _getManagedLifecycle() {
+    if (!this.usesManagedServiceLifecycle()) {
+      throw new Error("No managed service lifecycle is configured");
+    }
+    return this._lifecycleFactory(
+      this._serverRecord,
+      this.lifecycleProvider,
+    );
   }
 
   // All non-internal IPv4 addresses currently present on the host, e.g. one
@@ -1865,7 +2395,17 @@ export class ServerManager {
             continue;
           }
           const escapedKey = escapeRegExp(key);
-          const regex = new RegExp(`^${escapedKey}=.*$`, "m");
+          // [ \t]* tolerance around "=" matches the convention routes/mods.js
+          // settled on 2026-08-27 and server/utils/templateFiles.js's
+          // readIniValues/mergeIniValues were just brought in line with
+          // (bughunt-2026-08-31-b): a bare `^key=` regex doesn't match a
+          // hand-edited "Key = value" line, so this would have replaced
+          // nothing and appended a duplicate key instead. saveServerConfig()
+          // is not called from anywhere today (verified via a full grep of
+          // every call site) -- this is aligned to the settled convention on
+          // principle, not because it was observed to fire live, so a future
+          // reader doesn't mistake this for a confirmed live bug.
+          const regex = new RegExp(`^[ \\t]*${escapedKey}[ \\t]*=.*$`, "m");
           // Strip newlines from values to prevent INI injection
           const safeValue = String(value).replace(/[\r\n]/g, "");
           if (content.match(regex)) {

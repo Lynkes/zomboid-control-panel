@@ -3,15 +3,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const getActiveServer = vi.fn();
 const saveTemplate = vi.fn();
 const applyTemplate = vi.fn();
+const listHiddenBuiltinTemplates = vi.fn();
+const unhideTemplate = vi.fn();
 
 import { mockGetRoleByName } from "./helpers/mockPermissionsDb.js";
 
 vi.mock("../database/init.js", () => ({ getActiveServer, getRoleByName: mockGetRoleByName }));
 vi.mock("../services/templateService.js", () => ({
   listTemplates: vi.fn(),
+  listHiddenBuiltinTemplates,
   getTemplate: vi.fn(),
   saveTemplate,
   deleteTemplate: vi.fn(),
+  unhideTemplate,
   exportTemplate: vi.fn(),
   importTemplate: vi.fn(),
   previewTemplate: vi.fn(),
@@ -47,6 +51,8 @@ describe("template mutation routes", () => {
     getActiveServer.mockReset();
     saveTemplate.mockReset();
     applyTemplate.mockReset();
+    listHiddenBuiltinTemplates.mockReset();
+    unhideTemplate.mockReset();
   });
 
   it("rejects template creation by a non-admin user", async () => {
@@ -224,5 +230,73 @@ describe("template mutation routes", () => {
     expect(applyTemplate).toHaveBeenCalledWith("template-1", "server-1", {});
     expect(response.status).not.toHaveBeenCalledWith(409);
     expect(response.status).not.toHaveBeenCalledWith(503);
+  });
+
+  // 2026-08-31 bug hunt (templates-builtin-hidden-with-no-restore-path):
+  // GET /hidden + POST /:id/unhide are the routes that make a hidden
+  // built-in template reachable again. Both gated on templates.manage --
+  // same permission as deleting/hiding one.
+  it("rejects listing hidden templates by a non-admin user", async () => {
+    const response = createResponse();
+
+    await runRoute("/hidden", "get", { user: { role: "viewer" } }, response);
+
+    expect(response.status).toHaveBeenCalledWith(403);
+    expect(listHiddenBuiltinTemplates).not.toHaveBeenCalled();
+  });
+
+  it("lists hidden templates for an admin", async () => {
+    listHiddenBuiltinTemplates.mockResolvedValue([{ meta: { id: "vanilla-apocalypse" } }]);
+    const response = createResponse();
+
+    await runRoute("/hidden", "get", { user: { role: "admin" } }, response);
+
+    expect(listHiddenBuiltinTemplates).toHaveBeenCalled();
+    expect(response.json).toHaveBeenCalledWith({
+      templates: [{ meta: { id: "vanilla-apocalypse" } }],
+    });
+  });
+
+  it("rejects unhiding a template by a non-admin user", async () => {
+    const response = createResponse();
+
+    await runRoute(
+      "/:id/unhide",
+      "post",
+      { params: { id: "vanilla-apocalypse" }, user: { role: "viewer" } },
+      response,
+    );
+
+    expect(response.status).toHaveBeenCalledWith(403);
+    expect(unhideTemplate).not.toHaveBeenCalled();
+  });
+
+  it("unhides a template for an admin", async () => {
+    unhideTemplate.mockResolvedValue({ success: true });
+    const response = createResponse();
+
+    await runRoute(
+      "/:id/unhide",
+      "post",
+      { params: { id: "vanilla-apocalypse" }, user: { role: "admin" } },
+      response,
+    );
+
+    expect(unhideTemplate).toHaveBeenCalledWith("vanilla-apocalypse");
+    expect(response.json).toHaveBeenCalledWith({ success: true });
+  });
+
+  it("reports a 400 when unhiding an id that isn't actually hidden", async () => {
+    unhideTemplate.mockResolvedValue({ success: false, error: "Template not found" });
+    const response = createResponse();
+
+    await runRoute(
+      "/:id/unhide",
+      "post",
+      { params: { id: "not-hidden" }, user: { role: "admin" } },
+      response,
+    );
+
+    expect(response.status).toHaveBeenCalledWith(400);
   });
 });

@@ -19,9 +19,14 @@ const LIST_MAX = 200;
 // A GET can reuse a mirror this recent; a write always re-pulls first.
 const MIRROR_FRESH_MS = 5000;
 
+// A trailing-slash-trim regex on an unbounded string is quadratic (CodeQL
+// js/polynomial-redos #3) -- cap the length before it ever reaches the regex.
+const MAX_REMOTE_PATH_LENGTH = 500;
+
 function safeRemoteDir(value) {
   if (
     typeof value !== "string" ||
+    value.length > MAX_REMOTE_PATH_LENGTH ||
     !value.startsWith("/") ||
     value.includes("..") ||
     value.includes("\\")
@@ -151,7 +156,20 @@ export async function pullRemoteConfigFiles(rawConfig, serverName) {
   const config = validateRemoteConfigTransport(rawConfig);
   const names = mirroredFileNames(serverName);
   const mirrorDir = getMirrorPath(config, serverName);
-  fs.mkdirSync(mirrorDir, { recursive: true });
+  // 2026-08-29 Linux secrets hunt: this mirror is a byte-for-byte local copy
+  // of a REMOTE hosted server's actual server.ini -- RCONPassword= included,
+  // same as the live local config -- so it needs the same 0700/0600
+  // discipline serverRconSecrets.js and panelBridgeSftp.js's own cache
+  // directories already use, not the previous no-mode-at-all default that
+  // left both the directory and its files at whatever the process umask
+  // happened to produce (confirmed on real Linux: world-writable directory,
+  // world-readable file, at a loose umask).
+  fs.mkdirSync(mirrorDir, { recursive: true, mode: 0o700 });
+  try {
+    fs.chmodSync(mirrorDir, 0o700);
+  } catch {
+    /* best-effort: Windows / network shares */
+  }
 
   const manifest = {};
   await withClient(config, async (client) => {
@@ -176,7 +194,19 @@ export async function pullRemoteConfigFiles(rawConfig, serverName) {
       fs.writeFileSync(
         localPath,
         Buffer.isBuffer(buffer) ? buffer : Buffer.from(String(buffer ?? "")),
+        { mode: 0o600 },
       );
+      // mode above only applies when writeFileSync CREATES localPath -- a
+      // repeat pull overwriting an already-mirrored file needs the same
+      // explicit chmodSync-after-write every other secret writer in this
+      // codebase uses, or a file that started out 0600 could stay at
+      // whatever looser mode a prior version of this code (or a manual
+      // copy) left it at.
+      try {
+        fs.chmodSync(localPath, 0o600);
+      } catch {
+        /* best-effort: Windows / network shares */
+      }
       manifest[name] = hashFile(localPath);
     }
   });

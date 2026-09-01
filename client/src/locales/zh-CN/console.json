@@ -79,6 +79,8 @@
     "hostUnreachableDesc": "启动服务器，然后在面板设置中确认 RCON 主机、端口和密码。",
     "authFailedTitle": "身份验证失败",
     "authFailedDesc": "主机可达——请在「我的服务器」中确认 RCON 密码。",
+    "droppedTitle": "连接已断开",
+    "droppedDesc": "执行命令时 RCON 断开了连接。主机、端口和密码刚刚已确认无误 -- 请在确信连接已恢复后，点击上方的\"重新检查\"。",
     "outputLabel": "RCON 输出",
     "entries_one": "{{count}} 条记录",
     "entries_other": "{{count}} 条记录",
@@ -88,6 +90,8 @@
     "noCommandsTitle": "尚无命令",
     "noCommandsDesc": "运行 RCON 命令后，响应将显示于此。",
     "quickLabel": "快捷",
+    "commandLabel": "命令",
+    "commandTip": "这里的命令会立即在正在运行的服务器上执行，没有确认步骤——即使是会停止服务器或移除玩家的命令也是如此。如果不确定某条命令的作用，请先查清楚再执行；大多数命令无法撤销。",
     "promptPrefix": "rcon $",
     "placeholder": "输入命令…",
     "inputAria": "RCON 命令输入框",
@@ -95,7 +99,8 @@
     "run": "运行",
     "keyboardHint": "// enter · 运行 · ↑↓ 历史记录",
     "noResponseFallback": "无响应",
-    "noPermission": "您的角色没有执行 RCON 命令的权限。"
+    "noPermission": "您的角色没有执行 RCON 命令的权限。",
+    "disconnectedUseRecheck": "RCON 当前无法访问 -- 请先点击上方的\"重新检查\"，然后再试一次。"
   },
   "quickCommands": {
     "players": "玩家",

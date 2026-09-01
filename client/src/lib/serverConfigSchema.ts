@@ -4707,7 +4707,20 @@ export function getIniSetting(key: string): IniSetting | undefined {
   return INI_SCHEMA.find(s => s.key === key)
 }
 
-export function getSandboxSetting(key: string): SandboxSetting | undefined {
+// `key` alone is ambiguous for a handful of entries: PZ's own SandboxVars.lua
+// genuinely reuses the same key across two unrelated top-level tables (e.g.
+// `Farming` is both `settings.Farming`, a 1-5 Agriculture-skill-growth
+// select, and `MultiplierConfig.Farming`, a 0.001-1000 XP multiplier;
+// `Strength` collides the same way between `zombieLore` and `xpMultipliers`
+// categories -- see this file's own note above translatedSandboxLabel).
+// `section` (SandboxSetting's own field, e.g. 'settings'/'MultiplierConfig')
+// disambiguates when the caller has it; falling back to the first key match
+// keeps every existing key-only call site's behavior unchanged.
+export function getSandboxSetting(key: string, section?: string): SandboxSetting | undefined {
+  if (section !== undefined) {
+    const bySection = SANDBOX_SCHEMA.find(s => s.key === key && s.section === section)
+    if (bySection) return bySection
+  }
   return SANDBOX_SCHEMA.find(s => s.key === key)
 }
 

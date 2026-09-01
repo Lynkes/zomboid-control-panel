@@ -81,6 +81,18 @@ undone"). The confirming button is `AlertDialogAction` styled
 `bg-destructive text-destructive-foreground hover:bg-destructive/90`; `AlertDialogCancel` is the
 escape hatch, always present.
 
+**"Are you absolutely sure?" is the default title, not the only allowed one.** A typed-confirmation
+flow (`useConfirm`'s `requireTypedConfirmation` — the admin must type the exact target name before the
+confirm button un-disables, reserved for actions with no undo that harm someone other than the admin
+clicking) may title itself with the specific irreversible consequence instead — e.g. Players.tsx's
+Kill confirmation: **"Kill Kate?"**, not the generic phrase. The generic title exists to force a beat
+before a habituated operator clicks through; naming the target and the consequence does that same job
+and does it better for the single most permanent action in the app, where a generic question is easier
+to click past on autopilot than a sentence that says exactly who stops existing. This is a deliberate,
+reviewed exception (2026-08-31 impeccable pass), not a drift to flag and "fix" back to the generic
+phrase on a future pass — the rest of the destructive-action contract above (two steps, specific
+consequence in the description, destructive styling, an always-present cancel) still applies in full.
+
 ## Callouts
 
 Two distinct `Alert` treatments, chosen by severity, not interchangeable:

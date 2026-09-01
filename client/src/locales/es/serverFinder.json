@@ -3,7 +3,8 @@
     "title": "Explorar servidores públicos",
     "description": "Busca en la lista pública de servidores de Project Zomboid y copia la dirección de un servidor para unirte rápidamente",
     "refreshList": "Actualizar lista",
-    "reloadFromSteam": "Recargar desde Steam"
+    "reloadFromSteam": "Recargar desde Steam",
+    "reloadFromSteamTip": "«Actualizar lista» vuelve a mostrar resultados de la caché propia del panel, que puede tener hasta un minuto de antigüedad. «Recargar desde Steam» siempre pregunta directamente a Steam — úsalo si acabas de cambiar algo en tu propio servidor y todavía no lo ves reflejado."
   },
   "apiKeyWarning": {
     "title": "Falta la clave de API de Steam",

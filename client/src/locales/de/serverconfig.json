@@ -31,6 +31,24 @@
     "fileNotFoundTitle": "{{label}}: Datei nicht gefunden",
     "notFoundAria": "Nicht gefunden"
   },
+  "unresolvedReview": {
+    "title": "Nicht aufgelöste Mods=-IDs",
+    "causeUnknown": "Für diesen Eintrag liegt noch keine Triage vor — führe die Diagnose erneut aus.",
+    "causeTypo": "Sieht aus wie ein Tippfehler des installierten Mods \"{{suggestion}}\".",
+    "correctAction": "\"{{suggestion}}\" verwenden",
+    "causeStillDownloading": "Ein Workshop-Download läuft gerade — warte, bis er abgeschlossen ist, und führe die Diagnose erneut aus.",
+    "causeWorkshopNotOnDisk": "In WorkshopItems= gelistet, aber der Inhalt ist nicht auf der Festplatte und wird derzeit nicht heruntergeladen. Starte den Server neu oder validiere den Workshop-Download erneut, dann führe die Diagnose erneut aus.",
+    "rerunDiagnostics": "Diagnose erneut ausführen",
+    "causeAbsent": "Kein installierter Workshop- oder lokaler Mod entspricht dieser ID.",
+    "removeAction": "Aus Mods= entfernen",
+    "correctedTitle": "Mods=-Eintrag korrigiert",
+    "correctedToast": "\"{{modId}}\" wurde in Mods= durch \"{{suggestion}}\" ersetzt. Nicht gespeichert — unten prüfen und speichern.",
+    "removeConfirmTitle": "Aus Mods= entfernen?",
+    "removeConfirm": "\"{{modId}}\" aus Mods= entfernen? Dies wird nur hier vorgemerkt — nichts wird auf die Festplatte geschrieben, bis du speicherst.",
+    "removeConfirmButton": "Entfernen",
+    "removedTitle": "Mods=-Eintrag entfernt",
+    "removedToast": "\"{{modId}}\" wurde aus Mods= entfernt. Nicht gespeichert — unten prüfen und speichern."
+  },
   "tabs": {
     "serverSettings": "Servereinstellungen",
     "sandbox": "Sandbox",
@@ -315,8 +333,6 @@
   "toasts": {
     "error": "Fehler",
     "loadConfigFailed": "Laden der Serverkonfiguration fehlgeschlagen.",
-    "stopServerTitle": "Stoppe den Server vor dem Speichern",
-    "stopServerDesc": "Project Zomboid kann Konfigurationsdateien überschreiben, während der Server läuft.",
     "invalidIniTitle": "Ungültige Servereinstellungen",
     "invalidSandboxTitle": "Ungültige Sandbox-Werte",
     "fixSettings": "Beheben: {{settings}}",

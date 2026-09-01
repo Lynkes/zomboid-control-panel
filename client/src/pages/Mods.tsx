@@ -42,6 +42,7 @@ import {
   ArrowRight,
   Wand2,
   ShieldAlert,
+  CloudOff,
 } from 'lucide-react'
 import { ConflictScanResult, ScanStreamModScanned, ScanStreamConflictFound } from '@/types'
 import { WorkshopCollectionPanel } from '@/components/WorkshopCollectionPanel'
@@ -58,6 +59,7 @@ import {
 } from '@/lib/modsShared'
 import { getAccessToken } from '@/lib/authToken'
 import { isDemoMode } from '@/lib/demo'
+import { createConflictScanSnapshot, recalculateConflictWinners } from '@/lib/conflictSeverity'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/ui/button'
@@ -195,6 +197,17 @@ function getModsNav(t: (key: string) => string): Array<{
   ]
 }
 
+// Stores the exact lastSteamApiFailureAt value that was dismissed, not a
+// boolean. That field is re-stamped to now() on EVERY consecutive failed
+// check cycle (not just the first one of an outage -- see modChecker.js),
+// so this isn't a stable "outage started at" episode key the way Discord's
+// gatewayDegradedSince is; it's "most recent failure seen". A dismiss here
+// re-surfaces the indicator once the NEXT failed cycle re-stamps the value
+// -- a gentle periodic reminder for a still-unresolved outage, not a
+// permanent one-time silence, which is the right tradeoff given the field
+// actually available (no server-side episode id to build a tighter key on).
+const STEAM_API_ISSUE_DISMISSED_KEY = 'pz-mods-steam-api-issue-dismissed'
+
 export default function Mods() {
   const { t, i18n } = useTranslation('mods')
   const MODS_NAV = useMemo(() => getModsNav(t), [t])
@@ -204,6 +217,13 @@ export default function Mods() {
   const demoMode = isDemoMode()
   const [mods, setMods] = useState<TrackedMod[]>([])
   const [status, setStatus] = useState<ModStatus | null>(null)
+  const [steamApiIssueDismissed, setSteamApiIssueDismissed] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(STEAM_API_ISSUE_DISMISSED_KEY)
+    } catch {
+      return null
+    }
+  })
   const [loading, setLoading] = useState(false)
   const [checking, setChecking] = useState(false)
   const [syncing, setSyncing] = useState(false)
@@ -370,10 +390,7 @@ export default function Mods() {
   // Detect stale conflict results when INI config changes
   const conflictsStale = useMemo(() => {
     if (!conflicts || !scanIniSnapshot) return false
-    const currentSnapshot = JSON.stringify({
-      ws: iniConfig?.workshopIds?.slice().sort() || [],
-      mods: iniConfig?.modIds?.slice().sort() || []
-    })
+    const currentSnapshot = createConflictScanSnapshot(iniConfig?.workshopIds, iniConfig?.modIds)
     return currentSnapshot !== scanIniSnapshot
   }, [conflicts, scanIniSnapshot, iniConfig?.workshopIds, iniConfig?.modIds])
 
@@ -907,10 +924,7 @@ export default function Mods() {
           setConflictsError(null) // clear any stale error from a previous session
           setLastScanTime(new Date()) // approximate — exact time isn't stored
           // Set a snapshot so stale detection works when modIds change after cached load
-          setScanIniSnapshot(JSON.stringify({
-            ws: cached._workshopIdsSnapshot || [],
-            mods: cached._modIdsSnapshot || []
-          }))
+          setScanIniSnapshot(createConflictScanSnapshot(cached._workshopIdsSnapshot, cached._modIdsSnapshot))
           if (cached.stale) {
             // Config changed since last scan — the stale banner will show
           }
@@ -1043,6 +1057,20 @@ export default function Mods() {
     () => [...groupedMods.updateAvailable, ...groupedMods.neverChecked, ...groupedMods.upToDate],
     [groupedMods]
   )
+
+  // hunt-wave7-2026-08-29: status.removedWorkshopIds is bare workshop ids
+  // (Steam confirmed EResult 9 -- FileNotFound, permanently gone) -- resolve
+  // to names for a message an operator can actually act on. A removed item
+  // still shows by its raw id if it's somehow not in the tracked list (e.g.
+  // the tracking record itself was deleted separately) rather than being
+  // silently dropped from the count.
+  const removedWorkshopMods = useMemo(() => {
+    const byId = new Map(mods.map((m) => [m.workshop_id, m]))
+    return (status?.removedWorkshopIds || []).map((id) => ({
+      workshopId: id,
+      name: byId.get(id)?.name || null,
+    }))
+  }, [status?.removedWorkshopIds, mods])
 
   // Collapse "up-to-date" by default, expand when searching
   const [upToDateExpanded, setUpToDateExpanded] = useState(false)
@@ -1886,6 +1914,8 @@ export default function Mods() {
     try {
       setSavingModOrder(true)
       await modsApi.saveModOrder(orderedModIds)
+      setConflicts(prev => prev ? recalculateConflictWinners(prev, orderedModIds) : prev)
+      setScanIniSnapshot(createConflictScanSnapshot(iniConfig?.workshopIds, orderedModIds))
       toast({
         title: t('toasts.modOrderSavedTitle'),
         description: t('toasts.modOrderSavedDesc'),
@@ -1929,7 +1959,8 @@ export default function Mods() {
       setSavingModOrder(true)
       await modsApi.saveModOrder(next)
       setOrderedModIds(next)
-      setConflicts(prev => prev ? { ...prev, modLoadOrder: next } : prev)
+      setConflicts(prev => prev ? recalculateConflictWinners(prev, next) : prev)
+      setScanIniSnapshot(createConflictScanSnapshot(iniConfig?.workshopIds, next))
       toast({
         title: t('toasts.loadOrderUpdatedTitle'),
         description: t('toasts.loadOrderUpdatedDesc', { winner: winnerName, loser: loserName }),
@@ -2390,10 +2421,7 @@ export default function Mods() {
         scanBatchRef.current.dirty = false
         setConflicts(data)
         setLastScanTime(new Date())
-        setScanIniSnapshot(JSON.stringify({
-          ws: iniConfig?.workshopIds?.slice().sort() || [],
-          mods: iniConfig?.modIds?.slice().sort() || []
-        }))
+        setScanIniSnapshot(createConflictScanSnapshot(iniConfig?.workshopIds, iniConfig?.modIds))
         setScanProgress(100)
       } catch (err) {
         setConflictsError(t('toasts.scanParseFailed'))
@@ -2492,6 +2520,7 @@ export default function Mods() {
 
         {permissionDenied ? (
           <EmptyState
+            type="accessDenied"
             icon={<ShieldAlert className="h-14 w-14 text-muted-foreground/40" />}
             title={t('permissionDenied.title')}
             description={t('permissionDenied.description')}
@@ -2675,6 +2704,110 @@ export default function Mods() {
               <RefreshCw className={`w-4 h-4 mr-2 ${checking ? 'animate-spin' : ''}`} />
               {t('staleFlag.checkNow')}
             </Button>
+          </div>
+        )}
+
+        {/* hunt-wave7-2026-08-29: mods Steam confirmed no longer exist on the
+            Workshop (EResult 9 -- FileNotFound). Warning-style, not quiet --
+            unlike a transient Steam API outage below, this needs the
+            operator to actually act: the item is never coming back and will
+            keep breaking future update checks / restarts until removed. */}
+        {removedWorkshopMods.length > 0 && (
+          <div className="flex flex-col gap-3 rounded-lg border border-warning/40 bg-warning/10 p-3 shadow-sm">
+            <div className="flex items-start gap-3">
+              <Trash2 className="w-5 h-5 shrink-0 text-warning" />
+              <div className="min-w-0 flex-1">
+                <p className="font-medium text-warning">
+                  {t('removedFromWorkshop.title', { count: removedWorkshopMods.length })}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t('removedFromWorkshop.desc')}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {removedWorkshopMods.map((m) => (
+                    <span
+                      key={m.workshopId}
+                      className="inline-flex items-center gap-1 rounded-md border border-warning/30 bg-background/60 py-1 pl-2 pr-1 text-xs"
+                    >
+                      <span className="max-w-[16rem] truncate" title={m.name || m.workshopId}>
+                        {m.name || m.workshopId}
+                      </span>
+                      <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmRemoveMod(m.workshopId)}
+                          disabled={loading || !canManageMods}
+                          aria-label={t('removedFromWorkshop.removeAria', { name: m.name || m.workshopId })}
+                          className="rounded p-0.5 text-muted-foreground/70 transition-colors hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 disabled:pointer-events-none disabled:opacity-50"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </DisabledReason>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* hunt-wave7-2026-08-29: Steam Workshop API unreachable this cycle
+            (quiet -- deliberately NOT the accented-warning treatment above).
+            Unlike the removed-mods case, this needs the operator to do
+            NOTHING: mod update-checking silently fell back to local-file-only
+            comparison and will resume checking Steam automatically on the
+            next cycle. Shown immediately on a single failed cycle rather
+            than debounced, because a check cycle (tens of minutes) is
+            already the finest-grained real fact this system produces --
+            there's no sub-cycle flapping to filter the way Discord's
+            multi-second gateway reconnects needed. The muted styling, not a
+            delay, is what keeps this from training the operator to ignore
+            it. */}
+        {status && !status.steamApiHealthy && status.lastSteamApiFailureAt &&
+          steamApiIssueDismissed !== status.lastSteamApiFailureAt && (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              <CloudOff className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+              <span className="min-w-0">{t('steamApiIssue.label')}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  const since = status.lastSteamApiFailureAt
+                  if (!since) return
+                  try {
+                    localStorage.setItem(STEAM_API_ISSUE_DISMISSED_KEY, since)
+                  } catch {
+                    /* ignore storage failures */
+                  }
+                  setSteamApiIssueDismissed(since)
+                }}
+                aria-label={t('steamApiIssue.dismissAria')}
+                title={t('steamApiIssue.dismissTooltip')}
+                className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground/60 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+        )}
+
+        {/* hunt-wave7-2026-08-29: the THIRD state -- Steam answered with a
+            resultCode other than 1 (found) or 9 (removed). Neither
+            "confirmed gone" nor "healthy", so no warning/action framing and
+            no muted "this will self-heal" framing either -- purely
+            informational, no icon severity. Deliberately shows the RAW
+            resultCode rather than any invented explanation: only 1 and 9
+            are verified against Steam's own EResult meaning here, and a
+            guessed label for an unverified code is worse than the bare
+            number, which at least a support ticket can act on precisely. */}
+        {(status?.unknownWorkshopIds?.length ?? 0) > 0 && (
+          <div className="flex flex-wrap items-start gap-2 px-1 text-xs text-muted-foreground">
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+            <span>
+              {t('unknownWorkshopResult.label', { count: status!.unknownWorkshopIds.length })}
+              {' '}
+              {status!.unknownWorkshopIds
+                .map((item) => t('unknownWorkshopResult.item', { id: item.id, code: item.resultCode }))
+                .join(', ')}
+            </span>
           </div>
         )}
 

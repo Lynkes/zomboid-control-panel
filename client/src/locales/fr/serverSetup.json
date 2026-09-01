@@ -97,7 +97,7 @@
     "debugAria": "Activer le mode débogage",
     "customConfigLocation": "Emplacement de configuration personnalisé",
     "customConfigLocationHelp": "Project Zomboid stocke normalement les parties sauvegardées, la configuration du serveur et les journaux à côté du dossier d'installation. Ne définissez ceci que si ces données se trouvent réellement ailleurs — par exemple sur un disque séparé, ou dans un dossier monté en volume sous Docker. Pointer vers le mauvais dossier empêchera le panneau de retrouver vos parties, vos paramètres ou vos sauvegardes existants.",
-    "customDataPathPlaceholder": "ex. C:\\Users\\VotreNom\\Zomboid ou /home/votrenom/Zomboid",
+    "customDataPathPlaceholder": "Path to the Zomboid data folder",
     "useCustomLocation": "Utiliser un emplacement personnalisé",
     "serverNameLabel": "Nom du serveur",
     "serverNamePlaceholder": "monserveur",
@@ -118,7 +118,9 @@
     "progressComplete": "Terminé !",
     "noPermissionInstall": "Installer un serveur nécessite la permission server.install, que ce rôle ne possède pas.",
     "noPermissionSettings": "Enregistrer ce paramètre nécessite la permission panel.settings, que ce rôle ne possède pas.",
-    "noPermissionControl": "Démarrer le serveur nécessite la permission server.control, que ce rôle ne possède pas."
+    "noPermissionControl": "Démarrer le serveur nécessite la permission server.control, que ce rôle ne possède pas.",
+    "customDataPathPlaceholderWindows": "e.g. C:\\Users\\you\\Zomboid or %USERPROFILE%\\Zomboid",
+    "customDataPathPlaceholderPosix": "e.g. /home/you/Zomboid or $HOME/Zomboid"
   },
   "full": {
     "pageTitle": "Nouvelle installation",
@@ -134,20 +136,22 @@
       "manualTrigger": "Vous avez déjà SteamCMD ? Définissez le dossier manuellement",
       "manualTitle": "Configuration manuelle",
       "manualStep1": "Téléchargez SteamCMD depuis Valve",
-      "manualStep2": "Extrayez-le dans un dossier (ex. : <1>C:\\SteamCMD</1> ou <2>~/steamcmd</2>)",
+      "manualStep2": "Extract SteamCMD to a folder on the panel host.",
       "manualStep3": "Exécutez <1>steamcmd</1> une fois pour qu'il se mette à jour automatiquement",
       "downloadButton": "Télécharger SteamCMD",
       "manualPathPlaceholder": "Chemin vers votre dossier SteamCMD existant",
       "savePathButton": "Enregistrer le chemin",
       "readyTitle": "SteamCMD prêt",
-      "changePathButton": "Changer le chemin"
+      "changePathButton": "Changer le chemin",
+      "manualStep2Windows": "Extract to a folder such as <1>C:\\SteamCMD</1>.",
+      "manualStep2Posix": "Extract to a folder such as <1>~/steamcmd</1>."
     },
     "step2": {
       "title": "Détails du serveur",
       "description": "Choisissez où les fichiers sont installés et définissez l'identité du serveur.",
       "installFolderLabel": "Dossier d'installation",
       "useLinuxPath": "Utiliser le chemin du service Linux",
-      "installFolderPlaceholder": "ex. C:\\PZServer ou /home/steamuser/pzserver",
+      "installFolderPlaceholder": "Path to the dedicated server folder",
       "installFolderHelp": "SteamCMD y télécharge environ 3 Go de fichiers serveur et crée le dossier automatiquement s'il n'existe pas encore — le panneau a seulement besoin d'un droit d'écriture ici. Ceci est distinct de l'endroit où sont stockés les sauvegardes et les paramètres ; voir « Emplacement de configuration personnalisé » ci-dessous.",
       "linuxNoteTitle": "Installations via le service Linux",
       "linuxNoteBody1": "Si le panneau fonctionne via le service systemd fourni, utilisez <1>{{path}}</1>. Les autres dossiers nécessitent une modification des permissions systemd.",
@@ -162,7 +166,9 @@
       "buildLabel": "Build : {{buildId}}",
       "customDataLocation": "Emplacement de configuration personnalisé",
       "setBadge": "Défini",
-      "customDataHelp": "Laissez ce champ vide pour créer un dossier de données à côté du dossier d'installation. Sous Docker, choisissez un dossier monté en volume si vous le remplacez."
+      "customDataHelp": "Laissez ce champ vide pour créer un dossier de données à côté du dossier d'installation. Sous Docker, choisissez un dossier monté en volume si vous le remplacez.",
+      "installFolderPlaceholderWindows": "e.g. C:\\PZServer",
+      "installFolderPlaceholderPosix": "e.g. /home/steamuser/pzserver"
     },
     "step3": {
       "title": "Paramètres du serveur",
@@ -196,10 +202,12 @@
       "title": "Sélectionner les fichiers du serveur",
       "description": "Choisissez le dossier existant du serveur dédié Project Zomboid.",
       "usingExistingTitle": "Utilisation de fichiers existants",
-      "usingExistingDesc": "Le dossier doit contenir <1>StartServer64.bat</1> (Windows) ou <2>start-server.sh</2> (Linux), ainsi que le dossier <3>java</3>.",
+      "usingExistingDesc": "Select the existing Project Zomboid dedicated server folder, including its bundled Java runtime.",
       "locationLabel": "Emplacement des fichiers du serveur",
       "locationPlaceholder": "Chemin vers votre dossier de serveur dédié existant",
-      "locationHelp": "Dossier qui contient déjà les fichiers de votre serveur dédié Project Zomboid."
+      "locationHelp": "Dossier qui contient déjà les fichiers de votre serveur dédié Project Zomboid.",
+      "usingExistingDescWindows": "The folder should contain <1>StartServer64.bat</1> and the <3>java</3> folder.",
+      "usingExistingDescPosix": "The folder should contain <1>start-server.sh</1> and the <3>java</3> folder."
     },
     "step2": {
       "title": "Configurer le serveur",

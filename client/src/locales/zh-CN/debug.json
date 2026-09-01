@@ -15,6 +15,7 @@
   "tabs": {
     "diagnostics": "诊断",
     "worldMap": "世界地图",
+    "bridge": "PanelBridge",
     "performance": "性能",
     "activity": "活动",
     "logs": "日志",
@@ -49,7 +50,7 @@
     "modsResolved": {
       "labelWithCount": "查看 {{count}} 个未解析项",
       "labelGeneric": "查看未解析项",
-      "note": "请先修复下方的孤立 Workshop 项，然后重新运行诊断。仅当下载完成后条目仍确实无法解析时，才手动禁用。"
+      "note": "等待 Workshop 下载完成，然后重新运行诊断。如果某个 ID 仍无法解析，请在 Mods= 中更正或移除它。"
     },
     "modsOrphanWorkshop": {
       "labelWithCount": "自动修复 {{count}} 个 Workshop ID",
@@ -93,6 +94,10 @@
       "label": "打开服务器配置",
       "note": "配置服务器设置以生成或修复 .ini 文件。"
     },
+    "serverSandboxVars": {
+      "label": "创建 SandboxVars.lua",
+      "note": "写入一个带默认值的新沙盒设置文件，使其存在并可编辑。重启服务器以应用更改。"
+    },
     "serverSandboxCorrupt": {
       "label": "修复 SandboxVars.lua",
       "note": "尝试自动修复（缺失的代码块头/逗号）。会先保存损坏文件的备份。如果损坏情况不符合已知模式，则不会写入任何内容。"
@@ -122,13 +127,17 @@
       "label": "重新连接 RCON",
       "note": "尝试使用已保存的密码重新连接 RCON。如果仍然失败，请检查服务器配置中的密码是否与设置中一致，然后重启服务器。"
     },
+    "modCheckerStopped": {
+      "label": "启动模组检查器",
+      "note": "使用已配置的设置恢复 Steam 创意工坊更新轮询。"
+    },
     "servicesStuck": {
       "label": "打开设置",
       "note": "重启面板通常可以清除卡住的服务。"
     },
     "discordBot": {
-      "label": "打开 Discord",
-      "note": "检查 Discord 设置中的机器人令牌和 intents 权限。"
+      "retryLabel": "重新连接机器人",
+      "note": "使用已保存的机器人令牌重试连接。如果仍然失败，请检查 Discord 设置中的令牌和 intents 权限。"
     },
     "bridgeConfigured": {
       "label": "自动配置桥接",
@@ -141,6 +150,10 @@
     "dbExistsOrWritable": {
       "label": "打开设置",
       "note": "确认数据目录路径存在，且面板可以写入该目录。"
+    },
+    "dbWritable": {
+      "label": "清除只读属性",
+      "note": "尝试清除 db.json 的只读属性并重新检查。对所有权或权限（ACL）问题无效。"
     },
     "dbBackup": {
       "label": "创建数据库备份",
@@ -276,6 +289,14 @@
     "sandboxRepairedTitle": "SandboxVars.lua 已修复",
     "sandboxRepairedFallback_one": "已应用 {{count}} 项修复。{{restartHint}}",
     "sandboxRepairedFallback_other": "已应用 {{count}} 项修复。{{restartHint}}",
+    "sandboxCreatedTitle": "SandboxVars.lua 已创建",
+    "sandboxCreatedFallback": "已创建默认沙盒设置文件。",
+    "dbWritableFixedTitle": "数据库文件可写入",
+    "dbWritableFixedFallback": "已清除只读属性。",
+    "modCheckerStartedTitle": "模组检查器已启动",
+    "modCheckerStartedFallback": "已恢复 Steam 创意工坊更新轮询。",
+    "discordReconnectedTitle": "Discord 机器人已重新连接",
+    "discordReconnectedFallback": "机器人连接已恢复。",
     "noNumericIdsError": "诊断未提供任何数字 Mods= 条目。",
     "noOrphanWorkshopError": "诊断未提供任何孤立的 Workshop ID。",
     "checks": {
@@ -368,12 +389,12 @@
           "warn": {
             "linux": {
               "label": "找不到内置 JRE",
-              "message": "在安装路径下找不到 jre64/bin/{{javaBin}}。除非系统 Java 已加入 PATH，否则服务器可能无法启动。",
+              "message": "在安装路径下找不到 jre64/bin/{{javaBin}}。请使用 command -v java 检查系统 Java；systemd 服务的 $PATH 可能与登录 shell 不同。",
               "hint": "大多数安装都会在 jre64/ 下附带 JRE。如果缺失，请重新运行 SteamCMD。"
             },
             "windows": {
               "label": "找不到内置 JRE",
-              "message": "在安装路径下找不到 jre64/bin/{{javaBin}}。除非系统 Java 已加入 PATH，否则服务器可能无法启动。",
+              "message": "在安装路径下找不到 jre64/bin/{{javaBin}}。请运行 where java，检查系统 Java 是否可通过 %PATH% 使用。",
               "hint": "重新运行 SteamCMD 以恢复内置 JRE"
             }
           }
@@ -880,11 +901,11 @@
         "resolved": {
           "ok": {
             "label": "Mods= 条目全部可解析",
-            "message": "共列出 {{count}} 个模组，均与已安装的 Workshop 或本地模组文件夹匹配。"
+            "message": "共列出 {{count}} 个模组，均与已安装的 Workshop 或本地模组 ID 匹配。"
           },
           "fail": {
             "label": "Mods= 条目无法解析",
-            "message": "{{total}} 个 Mods= 条目中有 {{count}} 个未匹配到任何已安装的模组文件夹：{{list}}。",
+            "message": "{{total}} 个 Mods= 条目中有 {{count}} 个未匹配到任何已安装的 Workshop 或本地模组 ID：{{list}}。",
             "hint": "通常是拼写错误、缺少 WorkshopItems= ID，或模组尚未下载完成。请在服务器配置中修复。"
           }
         },
@@ -1309,6 +1330,8 @@
     "downloadFailedDesc": "下载日志失败",
     "downloadFileFailedDesc": "下载 {{name}} 失败",
     "downloadArchiveFailedDesc": "下载日志压缩包失败",
+    "supportBundleReadyTitle": "支持包已下载",
+    "supportBundleReadyDesc": "其中包含真实日志。已知形态的凭据会被打码处理，但这并非绝对安全保证——分享给团队以外的人之前请自行检查内容。",
     "logEntryCopiedDesc": "日志条目已复制到剪贴板。",
     "logsFetchFailedTitle": "无法刷新日志",
     "logsFetchFailedDesc": "日志列表未更新。请检查面板连接后重试。"
@@ -1361,7 +1384,11 @@
   "healthTab": {
     "systemStatusTitle": "系统状态",
     "healthy": "健康",
+    "checking": "正在检查…",
     "issuesDetected": "检测到问题",
+    "rconOffline": "RCON 已断开",
+    "gameServerOffline": "游戏服务器已停止",
+    "rconAndServerOffline": "RCON 已断开 · 游戏服务器已停止",
     "lastChecked": "上次检查：{{time}}",
     "neverChecked": "从未检查",
     "autoRefreshes": "每 30 秒自动刷新",
@@ -1390,6 +1417,7 @@
     "platform": "平台",
     "uptime": "运行时长",
     "memory": "内存",
+    "unavailable": "不可用",
     "ofHeap": "占堆内存 {{total}}",
     "filePathsTitle": "文件路径",
     "filePathsDesc": "数据和日志文件的位置。",
@@ -1410,5 +1438,59 @@
     "pathsUpdatedTitle": "路径已更新",
     "enterAtLeastOnePath": "请至少输入一个路径",
     "updatePathsFailedFallback": "更新路径失败"
+  },
+  "bridgeTab": {
+    "heading": "PanelBridge 模组诊断",
+    "headingDesc": "模组自身的实时状态、统计信息和自检 —— 与「世界地图」标签页中特定于地图的检查项是分开的。",
+    "permissionDeniedTitle": "无法查看 PanelBridge 诊断",
+    "permissionDeniedDesc": "当前账户的角色未包含「PanelBridge 诊断」权限。如需访问此标签页，请联系管理员为该账户授予此权限。",
+    "notConnectedDesc": "PanelBridge 模组未连接。请启动已安装该模组的 PZ 服务器以在此查看实时数据。",
+    "notYetProbed": "尚未检查。",
+    "offlineNoData": "桥接已离线 —— 没有可显示的数据。",
+    "statsTitle": "统计信息",
+    "statsDesc": "命令计数、运行时长、检测到的构建版本、调试模式和错误日志。",
+    "versionLabel": "模组版本",
+    "uptimeLabel": "运行时长",
+    "commandsLabel": "成功命令数 / 总数",
+    "commandsFailedLabel": "失败命令数",
+    "detectedVersionLabel": "检测到的构建版本",
+    "detectedVersionCaveat": "该结果来自模组对构建版本字符串的解析 —— 这是其可靠的主要检测方式，而非备用方案。实时天气功能标志无法在不真正触发天气事件的情况下安全确认，因此此处完全不显示这两项，而不是显示一个可能错误的「否」。",
+    "debugModeLabel": "调试模式",
+    "debugModeDesc": "模组端的详细日志记录。可放心切换 —— 只影响日志量。",
+    "debugModeEnabledTitle": "已启用桥接调试模式",
+    "debugModeDisabledTitle": "已禁用桥接调试模式",
+    "noPermission": "你的角色没有「PanelBridge 诊断」权限。",
+    "errorLogLabel_one": "{{count}} 条最近错误",
+    "errorLogLabel_other": "{{count}} 条最近错误",
+    "noErrorsToClear": "没有可清除的错误。",
+    "clearErrorsButton": "清除错误日志",
+    "clearErrorsConfirmTitle": "清除桥接的错误日志？",
+    "clearErrorsConfirmDesc": "此操作会清除模组内存中的错误日志，不会修复任何问题 —— 只是重置计数。",
+    "clearErrorsConfirmButton": "清除",
+    "clearErrorsSuccessTitle": "错误日志已清除",
+    "checkApiTitle": "检查 API",
+    "checkApiDesc": "检查特定游戏对象 —— 以及可选的其某个方法 —— 在当前构建版本上是否可用。",
+    "checkApiObjectLabel": "对象",
+    "checkApiMethodLabel": "方法（可选）",
+    "checkApiMethodPlaceholder": "例如 getTemperature",
+    "checkApiRunButton": "检查",
+    "checkApiAvailable": "可用",
+    "checkApiUnavailable": "不可用",
+    "handlersTitle": "可用处理器",
+    "handlersDesc": "当前这个模组构建版本已注册的每一个命令。",
+    "handlersRunButton": "加载处理器",
+    "handlersSearchPlaceholder": "筛选处理器…",
+    "handlersCount": "{{shown}} / {{total}}",
+    "debugLogTitle": "调试日志",
+    "debugLogDesc": "模组自身环形缓冲日志中的最近条目，最新的排在最前。",
+    "debugLogLimitLabel": "条数上限",
+    "debugLogLevelLabel": "最低级别",
+    "debugLogRunButton": "获取日志",
+    "debugLogShown": "共 {{total}} 条中显示 {{shown}} 条",
+    "debugLogEmpty": "该级别下没有条目。",
+    "selfTestTitle": "运行桥接自检",
+    "selfTestDesc": "针对目录中前 3 个物品探测一组固定的引擎方法 —— 快速了解当前构建版本是否仍与该模组的接口保持一致。只读操作，无需任何输入。",
+    "selfTestRunButton": "运行自检",
+    "selfTestItemColumn": "物品"
   }
 }

@@ -22,6 +22,7 @@
       "STOP_TIMEOUT": "El servidor no se detuvo en 5 minutos.",
       "STEAMCMD_NOT_FOUND": "No se encontró SteamCMD en {{path}}.",
       "STEAMCMD_EXIT_CODE": "SteamCMD terminó con el código {{code}}.",
+      "STEAM_OPERATION_IN_PROGRESS": "Ya había una instalación o actualización de Steam en curso para {{path}}, así que la actualización automática se abandonó para no interferir con ella.",
       "UNKNOWN": "Ocurrió un error inesperado durante la actualización automática."
     }
   },
@@ -34,6 +35,7 @@
     "ariaLabel": "Estado del servidor",
     "everythingNominal": "Todo en orden",
     "upPrefix": "activo {{uptime}}",
+    "mapTooltip": "Mapa (de PanelBridge)",
     "remoteBadge": "remoto",
     "noActiveServer": "Ningún servidor activo"
   },
@@ -171,6 +173,11 @@
     "applyUpdate": "Aplicar actualización",
     "viewUpdate": "Ver actualización"
   },
+  "updateCheckError": {
+    "label": "No se pueden comprobar actualizaciones del panel",
+    "dismissAria": "Descartar aviso de comprobación de actualizaciones",
+    "dismissTooltip": "Descartar hasta que esto cambie"
+  },
   "connectionError": {
     "label": "Error de conexión",
     "suffix": ". Algunas funciones podrían no estar disponibles.",
@@ -220,6 +227,9 @@
     "live": "en vivo",
     "lastSecondsLive": "últimos {{seconds}}s · en vivo",
     "lastMinutesLive": "últimos {{minutes}} min · en vivo",
+    "unconfirmed": "sin confirmar",
+    "lastSecondsUnconfirmed": "últimos {{seconds}}s · sin confirmar",
+    "lastMinutesUnconfirmed": "últimos {{minutes}} min · sin confirmar",
     "placeholderOnline": "La telemetría aparecerá en el próximo ciclo de muestreo.",
     "placeholderOffline": "Iniciar el servidor para rastrear las métricas de CPU, RAM y jugadores."
   },
@@ -246,6 +256,7 @@
   },
   "workItems": {
     "players": "Jugadores",
+    "zombies": "Zombis",
     "console": "Consola",
     "mods": "Mods",
     "schedule": "Programación",

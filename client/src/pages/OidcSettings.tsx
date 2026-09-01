@@ -22,6 +22,7 @@ import { copyText } from '@/lib/utils'
 import {
   oidcSettingsApi,
   ApiError,
+  type OidcSettingsFields,
   type OidcSettingsWithEnv,
   type OidcSettingsUpdate,
   type OidcDiscoveredMetadata,
@@ -68,8 +69,26 @@ const CUSTOM_PRESET_ID = 'custom'
 // else to prefill with).
 const MASKED_SECRET_SENTINEL = '••••••••'
 
-const FIELD_KEYS = ['issuerUrl', 'clientId', 'redirectUri', 'scope', 'providerName'] as const
+const FIELD_KEYS = (['issuerUrl', 'clientId', 'redirectUri', 'scope', 'providerName'] as const) satisfies readonly (keyof OidcSettingsFields)[]
 type FieldKey = (typeof FIELD_KEYS)[number]
+
+// Compile-time guard for buildUpdatePayload below: FIELD_KEYS plus
+// allowInsecureHttp (handled separately there -- it's a boolean, not part of
+// the string-keyed `form` object) must cover every key OidcSettingsFields
+// has. bughunt-2026-08-31: this list can silently fall out of sync with the
+// type it's meant to mirror -- same shape as the mapConfigsEqual bug fixed
+// earlier tonight, just not yet armed since the two currently match. If a
+// field is ever added to OidcSettingsFields (client/src/lib/api.ts) without
+// also adding it here, this line fails to compile instead of letting
+// buildUpdatePayload silently drop the new field from every save. The
+// `satisfies` clause above catches the opposite mistake -- a FIELD_KEYS
+// entry that isn't a real OidcSettingsFields key at all (typo, or a key
+// that no longer exists).
+type UncoveredOidcSettingsField = Exclude<keyof OidcSettingsFields, FieldKey | 'allowInsecureHttp'>
+const _assertFieldKeysCoversOidcSettingsFields: UncoveredOidcSettingsField extends never
+  ? true
+  : { MISSING_FROM_FIELD_KEYS: UncoveredOidcSettingsField } = true
+void _assertFieldKeysCoversOidcSettingsFields
 
 // `embedded`: rendered inside a Settings tab panel instead of as its own
 // route -- see the matching note on Users.tsx.
@@ -257,6 +276,7 @@ export default function OidcSettings({ embedded = false }: { embedded?: boolean 
         </div>
       ) : permissionDenied ? (
         <EmptyState
+          type="accessDenied"
           icon={<ShieldAlert className="h-14 w-14 text-muted-foreground/40" />}
           title={t('permissionDenied.title')}
           description={t('permissionDenied.description')}

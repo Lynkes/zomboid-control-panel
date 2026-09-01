@@ -71,7 +71,9 @@
     "panToAriaWithHealth": "Pan to {{name}}, health {{health}}%",
     "loading": "loading…",
     "noPlayersOnline": "no players online",
-    "bridgeOffline": "bridge offline"
+    "bridgeOffline": "bridge offline",
+    "collapseAria": "Collapse roster",
+    "expandAria": "Expand roster"
   },
   "hud": {
     "hoverForCoords": "hover for coords"
@@ -83,11 +85,15 @@
     "pos": "pos",
     "floor": "floor",
     "hp": "hp",
+    "hunger": "hunger",
+    "thirst": "thirst",
+    "fatigue": "fatigue",
     "role": "role",
     "status": "status",
     "infected": "infected",
     "heal": "Heal",
     "god": "God",
+    "godTip": "Always turns God Mode on for this player — it doesn't toggle. Turn it back off from Players instead.",
     "healedTitle": "Healed",
     "healedDesc": "{{username}} healed",
     "godModeEnabled": "God mode enabled"
@@ -183,6 +189,7 @@
   "spawnDialog": {
     "title": "Spawn Vehicle",
     "location": "Location: {{x}}, {{y}} · Floor {{z}}",
+    "floorTip": "Vehicles only spawn at ground level or in a basement — this fails on any floor above ground.",
     "cancel": "Cancel",
     "spawn": "Spawn"
   },

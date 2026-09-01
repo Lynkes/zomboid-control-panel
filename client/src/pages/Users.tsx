@@ -97,15 +97,17 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
   const rowDeleteButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
   const pendingFocusTargetRef = useRef<string | 'fallback' | null>(null)
   const addUserButtonRef = useRef<HTMLButtonElement>(null)
+  const [failedDeleteFocusId, setFailedDeleteFocusId] = useState<string | null>(null)
 
-  // Radix's AlertDialog (useConfirm()) correctly restores focus to whatever
-  // triggered it when it closes -- the row's own delete button, which still
-  // exists at that instant. The bug isn't the restore; it's that THIS
+  // Radix's AlertDialog (useConfirm()) is SUPPOSED to restore focus to
+  // whatever triggered it when it closes -- the row's own delete button.
+  // On the success path that doesn't matter either way, because this
   // component then deletes the row a moment later (the API call + the
-  // setUsers() filter below), unmounting the very button focus was just
-  // returned to. React doesn't move focus when an element unmounts -- the
-  // browser just drops it to document.body, and a keyboard user is stranded
-  // with no visible indication of where they are on the page.
+  // setUsers() filter below), unmounting the very button focus would have
+  // been returned to -- React doesn't move focus when an element unmounts,
+  // so the browser drops it to document.body regardless of what Radix did,
+  // and a keyboard user is stranded with no visible indication of where
+  // they are on the page.
   //
   // Fix shape: handleDelete computes the right POST-removal focus target
   // while the row (and its neighbors) still exist -- the next row if there
@@ -121,8 +123,9 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
   // list refresh (fetchAll on mount, or any other users-state update) must
   // never yank focus around -- only a delete that this component itself
   // initiated sets the pending target, and it's cleared immediately after
-  // use (or on a failed delete, where the row survives and nothing should
-  // move at all -- see the catch branch in handleDelete).
+  // use (or on a failed delete, where the row survives -- see the catch
+  // branch in handleDelete, which focuses the surviving button directly
+  // instead of relying on Radix).
   useEffect(() => {
     const target = pendingFocusTargetRef.current
     if (target === null) return
@@ -133,6 +136,22 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
     }
     rowDeleteButtonRefs.current.get(target)?.focus()
   }, [users])
+
+  // Failed-delete counterpart to the effect above -- can't reuse it because
+  // `users` never changes when the delete fails (the row survives), so that
+  // effect's dependency never fires. Deliberately ALSO deferred to a
+  // useEffect rather than called synchronously in the catch branch: tried
+  // that first and it didn't stick -- Radix's AlertDialog content is still
+  // present (and its focus trap still active) at the exact moment the catch
+  // branch runs, mid-close, so a synchronous .focus() call there gets
+  // overridden back to document.body. Firing after the next render commit
+  // (same reason the effect above is used instead of an inline call) gives
+  // the dialog's own close/teardown a chance to finish first.
+  useEffect(() => {
+    if (failedDeleteFocusId === null) return
+    rowDeleteButtonRefs.current.get(failedDeleteFocusId)?.focus()
+    setFailedDeleteFocusId(null)
+  }, [failedDeleteFocusId])
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
@@ -202,9 +221,17 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
         variant: 'success',
       })
     } catch (error) {
-      // The row survived -- its own button is still there and still holds
-      // focus (or does once Radix's restore lands). Don't move it anywhere.
+      // The row survived -- its own button is still there. Radix's
+      // onCloseAutoFocus does NOT reliably land focus back on it (confirmed
+      // 2026-08-31 against a real Chromium via scripts/ui-shot-tour.mjs's
+      // bootstrap: focus lands on document.body after this exact flow, a
+      // real keyboard-accessibility defect, not a jsdom artifact) -- so
+      // focus it explicitly rather than trust Radix's restore. Deferred to
+      // the failedDeleteFocusId effect above, not called inline here -- see
+      // that effect's comment for why an inline call loses the race against
+      // Radix's still-active focus trap.
       pendingFocusTargetRef.current = null
+      setFailedDeleteFocusId(user.id)
       if (error instanceof ApiError && error.code === 'ROLE_LOCKOUT_LAST_MANAGER') {
         const actionKey = recoveryActionKeyForRole(getRoleForUser(user))
         const action = actionKey ? t(actionKey) : ''
@@ -346,6 +373,7 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
 
       {permissionDenied ? (
         <EmptyState
+          type="accessDenied"
           icon={<ShieldAlert className="h-14 w-14 text-muted-foreground/40" />}
           title={t('permissionDenied.title')}
           description={t('permissionDenied.description')}

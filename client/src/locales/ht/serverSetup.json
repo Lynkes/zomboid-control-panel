@@ -97,7 +97,7 @@
     "debugAria": "Aktive mòd debogaj",
     "customConfigLocation": "Kote konfigirasyon pèsonalize",
     "customConfigLocationHelp": "Project Zomboid nòmalman kenbe sovgad, konfigirasyon sèvè, ak jounal akote dosye enstalasyon an. Mete sa sèlman si done sa yo vrèman yon lòt kote — pa egzanp yon lòt disk, oswa yon dosye bind-mounted nan Docker. Si w pwente sou move dosye a, panèl la p ap jwenn sovgad, paramèt, oswa kopi sovgad ou yo ki egziste deja.",
-    "customDataPathPlaceholder": "pa egzanp C:\\Users\\NonOu\\Zomboid oswa /home/nonou/Zomboid",
+    "customDataPathPlaceholder": "Path to the Zomboid data folder",
     "useCustomLocation": "Itilize kote pèsonalize",
     "serverNameLabel": "Non Sèvè",
     "serverNamePlaceholder": "myserver",
@@ -118,7 +118,9 @@
     "progressComplete": "Fini!",
     "noPermissionInstall": "Pou ou enstale yon sèvè, ou bezwen pèmisyon server.install, e wòl sa a pa genyen li.",
     "noPermissionSettings": "Pou ou sove paramèt sa a, ou bezwen pèmisyon panel.settings, e wòl sa a pa genyen li.",
-    "noPermissionControl": "Pou ou demare sèvè a, ou bezwen pèmisyon server.control, e wòl sa a pa genyen li."
+    "noPermissionControl": "Pou ou demare sèvè a, ou bezwen pèmisyon server.control, e wòl sa a pa genyen li.",
+    "customDataPathPlaceholderWindows": "e.g. C:\\Users\\you\\Zomboid or %USERPROFILE%\\Zomboid",
+    "customDataPathPlaceholderPosix": "e.g. /home/you/Zomboid or $HOME/Zomboid"
   },
   "full": {
     "pageTitle": "Nouvèl Enstalasyon",
@@ -134,20 +136,22 @@
       "manualTrigger": "Ou deja gen SteamCMD? Mete dosye a manyèlman",
       "manualTitle": "Konfigirasyon Manyèl",
       "manualStep1": "Telechaje SteamCMD nan men Valve",
-      "manualStep2": "Ekstrè nan yon dosye (pa egzanp, <1>C:\\SteamCMD</1> oswa <2>~/steamcmd</2>)",
+      "manualStep2": "Extract SteamCMD to a folder on the panel host.",
       "manualStep3": "Fè <1>steamcmd</1> fonksyone yon fwa pou li ka oto-mete ajou",
       "downloadButton": "Telechaje SteamCMD",
       "manualPathPlaceholder": "Chemen pou dosye SteamCMD ou ki egziste",
       "savePathButton": "Sove Chemen",
       "readyTitle": "SteamCMD Pare",
-      "changePathButton": "Chanje Chemen"
+      "changePathButton": "Chanje Chemen",
+      "manualStep2Windows": "Extract to a folder such as <1>C:\\SteamCMD</1>.",
+      "manualStep2Posix": "Extract to a folder such as <1>~/steamcmd</1>."
     },
     "step2": {
       "title": "Detay Sèvè",
       "description": "Chwazi kote fichye yo enstale epi mete idantite sèvè a.",
       "installFolderLabel": "Dosye Enstalasyon",
       "useLinuxPath": "Itilize chemen sèvis Linux",
-      "installFolderPlaceholder": "pa egzanp C:\\PZServer oswa /home/steamuser/pzserver",
+      "installFolderPlaceholder": "Path to the dedicated server folder",
       "installFolderHelp": "SteamCMD telechaje anviwon 3 GB fichye sèvè isit la, e li kreye dosye a otomatikman si li poko egziste — panèl la sèlman bezwen otorizasyon pou ekri isit la. Sa a separe de kote sovgad ak paramèt yo estoke; gade « Kote konfigirasyon pèsonalize » pi ba.",
       "linuxNoteTitle": "Enstalasyon sèvis Linux",
       "linuxNoteBody1": "Si panèl la fonksyone atravè sèvis systemd enkli a, itilize <1>{{path}}</1>. Lòt dosye mande yon chanjman otorizasyon systemd.",
@@ -162,7 +166,9 @@
       "buildLabel": "Build: {{buildId}}",
       "customDataLocation": "Kote konfigirasyon pèsonalize",
       "setBadge": "Mete",
-      "customDataHelp": "Kite sa vid pou kreye yon dosye done akote dosye enstalasyon an. Nan Docker, chwazi yon dosye bind-mounted lè w ranplase l."
+      "customDataHelp": "Kite sa vid pou kreye yon dosye done akote dosye enstalasyon an. Nan Docker, chwazi yon dosye bind-mounted lè w ranplase l.",
+      "installFolderPlaceholderWindows": "e.g. C:\\PZServer",
+      "installFolderPlaceholderPosix": "e.g. /home/steamuser/pzserver"
     },
     "step3": {
       "title": "Paramèt Sèvè",
@@ -196,10 +202,12 @@
       "title": "Chwazi Fichye Sèvè",
       "description": "Chwazi dosye sèvè dedye Project Zomboid ki egziste a.",
       "usingExistingTitle": "N ap itilize fichye ki egziste",
-      "usingExistingDesc": "Dosye a dwe gen ladan <1>StartServer64.bat</1> (Windows) oswa <2>start-server.sh</2> (Linux), plis dosye <3>java</3> a.",
+      "usingExistingDesc": "Select the existing Project Zomboid dedicated server folder, including its bundled Java runtime.",
       "locationLabel": "Kote Fichye Sèvè",
       "locationPlaceholder": "Chemen pou dosye sèvè dedye ou ki egziste",
-      "locationHelp": "Dosye ki deja gen fichye sèvè dedye Project Zomboid ou yo."
+      "locationHelp": "Dosye ki deja gen fichye sèvè dedye Project Zomboid ou yo.",
+      "usingExistingDescWindows": "The folder should contain <1>StartServer64.bat</1> and the <3>java</3> folder.",
+      "usingExistingDescPosix": "The folder should contain <1>start-server.sh</1> and the <3>java</3> folder."
     },
     "step2": {
       "title": "Konfigire Sèvè",

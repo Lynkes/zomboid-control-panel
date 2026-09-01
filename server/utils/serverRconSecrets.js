@@ -147,8 +147,22 @@ export function rehydrateRconSecrets(data, log) {
  * rconPassword on the real in-memory objects exactly as it does today.
  */
 export function redactRconSecretsForWrite(data) {
+  // `server.rconPassword !== undefined`, not a truthiness check: a truthy
+  // check treated an explicit "" (operator clears the password via PUT
+  // /servers/:id, which accepts and persists an empty string same as any
+  // other value -- see routes/servers.js's rconPassword validation) the
+  // same as the field never having been touched at all, so
+  // writeServerSecret() -- the only thing that ever deletes the sibling
+  // .secret file -- was never called. The stale file survived on disk,
+  // and the very next load's rehydrateRconSecrets() read it back in,
+  // silently undoing the clear on the next restart. `!== undefined` still
+  // skips servers that never had this key touched (no unnecessary
+  // unlink-of-nothing on every flushWrites() cycle), but now reaches ""
+  // and null the same way writeServerSecret()'s own guard already expects.
+  // Found bughunt-2026-08-31-c (server/utils sweep), same shape in both
+  // branches below -- the legacy settings.rconPassword mirror had it too.
   const redactedServers = (data.servers || []).map((server) => {
-    if (server.rconPassword) {
+    if (server.rconPassword !== undefined) {
       writeServerSecret(server.id, server.rconPassword);
       const { rconPassword: _rconPassword, ...rest } = server;
       return rest;
@@ -157,7 +171,7 @@ export function redactRconSecretsForWrite(data) {
   });
 
   let redactedSettings = data.settings;
-  if (data.settings?.rconPassword) {
+  if (data.settings && data.settings.rconPassword !== undefined) {
     writeUiSecretFile("rconPassword", data.settings.rconPassword);
     const { rconPassword: _rconPassword, ...rest } = data.settings;
     redactedSettings = rest;

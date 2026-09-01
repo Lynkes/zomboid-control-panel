@@ -3,13 +3,16 @@ import fs from "fs";
 import { createWriteStream } from "fs";
 import archiver from "archiver";
 import { createReadStream } from "fs";
+import { crc32 } from "zlib";
 import { createLogger } from "../utils/logger.js";
+import { isPidAlive } from "../utils/pidLiveness.js";
 const log = createLogger("Backup");
 import {
   getActiveServer,
   getSetting,
   setSetting,
   logServerEvent,
+  getLatestScheduleExecutionByCommand,
 } from "../database/init.js";
 import { sanitizeError } from "../utils/sanitize.js";
 import { captureBackupSnapshot } from "../utils/backupSnapshot.js";
@@ -51,7 +54,15 @@ async function* walkDirectory(rootDir) {
         const fullPath = path.join(current.dirPath, entry.name);
 
         if (entry.isSymbolicLink()) {
-          log.warn(`Skipping symbolic link during backup: ${fullPath}`);
+          // Deliberately not followed (zip-slip in reverse -- a symlink
+          // inside the save tree pointing outside it must never leak
+          // arbitrary filesystem content into the archive), but that
+          // decision has to be VISIBLE the same way a vanished file already
+          // is via waitForArchiveEntry's ENOENT handling below -- silently
+          // dropping it here meant a pre-restore/pre-wipe backup could be
+          // incomplete with skippedFiles staying empty, defeating the
+          // "any skip is a failure" policy those call sites rely on.
+          yield { entry, fullPath, archivePath, isSymlink: true };
           continue;
         }
 
@@ -77,6 +88,69 @@ async function countFiles(rootDir) {
     if (!entry.isDirectory()) count++;
   }
   return count;
+}
+
+// Orphan temp sweep, hunt-wave11-2026-08-29 follow-up. Dwight found this
+// while copying this function as the model for fileWriteQueue.js's own
+// sweep (531dfd8d) -- his copy came out stronger than the original.
+// cleanupOrphanBackupTemps deleted on FILENAME PATTERN ALONE, with no check
+// that the process which created a match is actually gone. Safe TODAY only
+// because backups are effectively single-flight -- an assumption resting
+// OUTSIDE this function rather than a guarantee inside it. If concurrent
+// backups ever become possible, this deleted a live backup's temp with no
+// warning.
+//
+// Applies the shared isPidAlive() helper (utils/pidLiveness.js) exactly:
+// any outcome other than a confirmed ESRCH (including EPERM, a pid this
+// process cannot signal) is treated as "still alive" -- an ambiguous
+// signal never authorises a delete. fileWriteQueue.js's writeFileAtomic
+// sweep applies the same helper to its own, differently-shaped pattern
+// (hunt-wave12, 2026-08-30: unifies what used to be two duplicated copies
+// of this pid-liveness check, one per file).
+//
+// The two patterns THIS function sweeps do NOT uniformly embed a pid, so
+// this deliberately does NOT force one sweep mechanism onto both (that
+// generalisation is what Dwight correctly deferred rather than inventing,
+// and unifying the pid-liveness check above does not change that):
+//   - .central-{pid}-{timestamp}-{random}.tmp (StreamingZipWriter's own
+//     centralPath, server/utils/streamingZip.js) DOES embed a pid as its
+//     first segment, extracted and liveness-checked below.
+//   - *.zip.tmp (`${backupPath}.tmp`, this file's own createBackup) has NO
+//     pid anywhere in its name. There is no liveness check to run without
+//     changing that naming scheme, which is a separate, larger change than
+//     this card's scope -- left exactly as before (pattern-only deletion),
+//     still resting on the single-flight assumption above. Deliberately
+//     NOT given a false sense of safety by bolting a liveness check onto a
+//     name that cannot carry one.
+const CENTRAL_TEMP_PATTERN = /^\.central-(\d+)-\d+-[0-9a-z]+\.tmp$/;
+
+// Exported alias, not a fresh implementation: kept so this sweep's own
+// tests and callers can name the check in domain terms (is the temp
+// file's *owner* still alive) without every caller needing to know the
+// underlying check is now shared with fileWriteQueue.js.
+export const isBackupTempOwnerAlive = isPidAlive;
+
+export function cleanupOrphanBackupTemps(backupsPath) {
+  let entries;
+  try {
+    entries = fs.readdirSync(backupsPath);
+  } catch {
+    return;
+  }
+  for (const name of entries) {
+    const centralMatch = CENTRAL_TEMP_PATTERN.exec(name);
+    if (centralMatch) {
+      if (isBackupTempOwnerAlive(Number(centralMatch[1]))) continue;
+    } else if (!name.endsWith(".zip.tmp")) {
+      continue;
+    }
+    try {
+      fs.unlinkSync(path.join(backupsPath, name));
+      log.info(`Removed orphan backup temporary file: ${name}`);
+    } catch (error) {
+      log.debug(`Could not remove orphan backup temporary file ${name}: ${error.message}`);
+    }
+  }
 }
 
 // 2026-08-26 bug hunt: used to resolve with nothing (undefined) on BOTH a
@@ -129,19 +203,55 @@ export function waitForArchiveEntry(archive, append) {
   });
 }
 
-// Returns the archive-relative paths of any entries that were skipped
-// (vanished between the scan and the archive pass) rather than swallowing
-// that information the way the caller used to have no way to find out.
+// Returns the archive-relative paths of any entries that were skipped --
+// either vanished between the scan and the archive pass, or a symbolic
+// link deliberately not followed -- rather than swallowing that
+// information the way the caller used to have no way to find out.
 export async function appendDirectoryToArchive(archive, sourceRoot, destinationRoot) {
   const skipped = [];
-  for await (const { entry, fullPath, archivePath } of walkDirectory(sourceRoot)) {
+  for await (const { entry, fullPath, archivePath, isSymlink } of walkDirectory(
+    sourceRoot,
+  )) {
     const entryName = `${destinationRoot}/${archivePath}${entry.isDirectory() ? "/" : ""}`;
+    if (isSymlink) {
+      log.warn(`Skipping symbolic link during backup: ${fullPath}`);
+      skipped.push(entryName);
+      continue;
+    }
     const result = await waitForArchiveEntry(archive, () =>
       archive.file(fullPath, { name: entryName }),
     );
     if (result.skipped) skipped.push(entryName);
   }
   return skipped;
+}
+
+// Sort key for listBackups(): panel-created backups encode their own
+// creation timestamp (down to the millisecond) plus a numeric collision
+// suffix directly in the filename -- see the timestamp/collision-suffix
+// construction in _doCreateBackup(). Parsing that out and sorting on it,
+// the same fix already applied to configBackup.js's listBackupsFor() (see
+// its own comment), avoids relying on fs.stat().birthtime: several backups
+// created in quick succession (a fast/near-empty world backs up in well
+// under a second) can land with an IDENTICAL birthtime on real
+// filesystems, at which point Array.prototype.sort's stability falls back
+// to readdir()'s order -- unrelated to creation order -- and the brand-new
+// backup can be mistaken for the oldest and pruned instead of a genuinely
+// older one. Falls back to birthtime only for names the panel didn't
+// create this way (uploaded-*.zip, hand-copied files) -- there is no
+// better signal for those, and they're already exempt from automatic
+// pruning regardless.
+const BACKUP_TIMESTAMP_RE =
+  /(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3})(?:-(\d+))?\.zip$/;
+function backupSortKey(fileName, stats) {
+  const match = fileName.match(BACKUP_TIMESTAMP_RE);
+  if (match) {
+    return { key: match[1], suffix: match[2] ? parseInt(match[2], 10) : 1 };
+  }
+  return {
+    key: stats.birthtime.toISOString().replace(/[:.]/g, "-").slice(0, 23),
+    suffix: 1,
+  };
 }
 
 export class BackupService {
@@ -337,6 +447,22 @@ export class BackupService {
     if (this.backupInProgress) {
       return { success: false, message: "Backup already in progress" };
     }
+    // restoreBackup() already refuses a new restore (and an independent
+    // createBackup() call) while ITS OWN restoreInProgress is set -- see the
+    // `if (this.backupInProgress)` check near the top of restoreBackup()
+    // below. That guard only ever ran in one direction: a backup could
+    // still start while a restore was mid-swap (savesPath renamed out, then
+    // the extracted world renamed in), reading some files from the world
+    // being replaced and some from its replacement under the same relative
+    // names, silently. `options.isPreRestore` is the same flag
+    // restoreBackup() already passes on its OWN internal pre-restore
+    // createBackup() call (see the call site below) -- it must be exempted
+    // here, or every restore with createPreRestoreBackup !== false would
+    // refuse its own mandatory pre-restore backup the instant this check
+    // was added.
+    if (this.restoreInProgress && !options.isPreRestore) {
+      return { success: false, message: "Restore in progress, please wait" };
+    }
 
     this.backupInProgress = true;
     const startTime = Date.now();
@@ -410,6 +536,7 @@ export class BackupService {
     // truncated file at the real, listed filename, indistinguishable in the
     // UI from a real backup until someone tried to restore it.
     const tempBackupPath = `${backupPath}.tmp`;
+    cleanupOrphanBackupTemps(backupsPath);
     const serverSnapshot = captureBackupSnapshot(activeServer);
 
     log.info(`Starting backup: ${backupName}`);
@@ -500,8 +627,13 @@ export class BackupService {
         const sizeMB = (sizeBytes / (1024 * 1024)).toFixed(2);
 
         if (skippedFiles.length > 0) {
+          // "vanished during archiving" until 2026-08-29 -- no longer
+          // accurate now that a deliberately-excluded symbolic link also
+          // lands in this same array (see walkDirectory's own comment);
+          // kept cause-agnostic since both reasons already get identical
+          // treatment by every consumer of skippedFiles.
           log.warn(
-            `Backup ${backupName} completed but skipped ${skippedFiles.length} file(s) that vanished during archiving: ${skippedFiles.join(", ")}`,
+            `Backup ${backupName} completed but ${skippedFiles.length} file(s) could not be included: ${skippedFiles.join(", ")}`,
           );
         } else {
           log.info(
@@ -680,6 +812,7 @@ export class BackupService {
                 path: filePath,
                 size: stats.size,
                 created: stats.birthtime.toISOString(),
+                sortKey: backupSortKey(f, stats),
               };
             } catch (e) {
               return null;
@@ -689,7 +822,13 @@ export class BackupService {
 
       return backups
         .filter((b) => b !== null)
-        .sort((a, b) => new Date(b.created) - new Date(a.created)); // Newest first
+        .sort((a, b) => {
+          if (a.sortKey.key !== b.sortKey.key) {
+            return a.sortKey.key < b.sortKey.key ? 1 : -1; // newest first
+          }
+          return b.sortKey.suffix - a.sortKey.suffix; // higher collision suffix = created later
+        })
+        .map(({ sortKey: _sortKey, ...backup }) => backup); // internal-only, don't leak the key
     } catch (error) {
       log.error(`Failed to list backups: ${error.message}`);
       return [];
@@ -699,6 +838,12 @@ export class BackupService {
   async getBackupSnapshot(backupName) {
     const backupsPath = await this.getBackupsPath();
     const safeName = path.basename(backupName);
+    // LOAD-BEARING for traversal safety, not just a format check: neither
+    // "." nor ".." ends in ".zip", so this incidentally rejects both even
+    // though safeName is never compared back to backupName itself (the
+    // check every OTHER basename-sanitized route in this codebase uses).
+    // Do not relax or remove the .zip requirement without adding that
+    // explicit "." / ".." rejection first.
     if (!backupsPath || !safeName.endsWith(".zip")) {
       return { success: false, message: "Invalid backup file" };
     }
@@ -754,7 +899,15 @@ export class BackupService {
         log.warn(`Backup record could not be removed for ${safeName}: ${error.message}`);
       }
       log.info(`Deleted backup: ${safeName}`);
-      await logServerEvent("backup_deleted", safeName);
+      try {
+        await logServerEvent("backup_deleted", safeName);
+      } catch (error) {
+        // The file is already unlinked and the record already removed --
+        // a logging failure here must not turn an actually-successful
+        // delete into a reported failure (the caller would retry and get
+        // "Backup not found" for a backup that's genuinely gone).
+        log.warn(`Could not log backup_deleted event for ${safeName}: ${error.message}`);
+      }
 
       return { success: true };
     } catch (error) {
@@ -792,8 +945,12 @@ export class BackupService {
       for (const backup of toDelete) {
         const deleted = await this.deleteBackup(backup.name);
         if (!deleted?.success) {
+          // deleteBackup() only ever sets .message on failure, never
+          // .error -- this read the wrong field, so every real cleanup
+          // failure logged "unknown error" unconditionally regardless of
+          // what actually went wrong.
           log.warn(
-            `Could not clean up old backup ${backup.name}: ${deleted?.error || "unknown error"}`,
+            `Could not clean up old backup ${backup.name}: ${deleted?.message || "unknown error"}`,
           );
           continue;
         }
@@ -879,6 +1036,19 @@ export class BackupService {
     const savesPath = await this.getSavesPath();
     const backupsPath = await this.getBackupsPath();
 
+    // `lastBackup` above only ever reflects a SUCCESSFUL backup (manual or
+    // scheduled) that produced a file -- it says nothing about whether the
+    // scheduler itself has been failing. An operator can have "Auto Backup:
+    // ON" showing green for weeks while every scheduled attempt has been
+    // erroring out (bad schedule, unreachable backupsPath, disk full, ...)
+    // with the failure visible only in the panel's own log and in Schedule
+    // History, neither of which this status card surfaces. Only checked
+    // when scheduling is actually enabled -- a stale failure from before the
+    // operator turned it off isn't this card's business to report.
+    const lastScheduledAttempt = settings.enabled
+      ? await getLatestScheduleExecutionByCommand("backup")
+      : null;
+
     return {
       ...settings,
       backupInProgress: this.backupInProgress,
@@ -888,6 +1058,13 @@ export class BackupService {
       savesPath,
       backupsPath,
       savesExists: savesPath ? fs.existsSync(savesPath) : false,
+      lastScheduledBackupAttempt: lastScheduledAttempt
+        ? {
+            success: !!lastScheduledAttempt.success,
+            message: lastScheduledAttempt.message,
+            executedAt: lastScheduledAttempt.executed_at,
+          }
+        : null,
     };
   }
 
@@ -1074,7 +1251,7 @@ export class BackupService {
           preBackupResult.success && (preBackupResult.skippedFiles?.length ?? 0) > 0;
         if (!preBackupResult.success || preBackupIncomplete) {
           const reason = preBackupIncomplete
-            ? `it skipped ${preBackupResult.skippedFiles.length} file(s) that vanished during archiving (${preBackupResult.skippedFiles.join(", ")}) -- an incomplete pre-restore backup is not a safety net`
+            ? `it could not include ${preBackupResult.skippedFiles.length} file(s) (${preBackupResult.skippedFiles.join(", ")}) -- an incomplete pre-restore backup is not a safety net`
             : preBackupResult.message;
           log.error(`Pre-restore backup failed: ${reason}`);
           emitProgress(
@@ -1204,8 +1381,36 @@ export class BackupService {
           .on("error", settle);
       });
 
-      // Extraction succeeded, so the archive is proven readable. Only now is
-      // it safe to touch the live save.
+      // Extraction succeeding only proves the archive was PARSEABLE -- the
+      // unzipper streaming Parse() this whole block uses reads and discards
+      // each entry's recorded CRC32 as bookkeeping and never actually
+      // recomputes it against the bytes it just wrote (confirmed empirically:
+      // a single flipped data byte inside an otherwise well-formed stored
+      // entry extracts silently with the wrong content and raises no error
+      // anywhere in the pipeline). Bit rot on backup storage, a bad copy, or
+      // a partial download would all look exactly like a healthy backup right
+      // up until this restore replaced a working world with corrupted bytes.
+      // Verify every entry's actual CRC32 against what the archive's own
+      // central directory recorded BEFORE the swap below -- staging is still
+      // disposable at this point, so a failure here costs nothing.
+      emitProgress("verifying", 80, "Verifying restored file integrity...");
+      const integrity = await this._verifyExtractedIntegrity(
+        backupPath,
+        stagingPath,
+      );
+      if (!integrity.ok) {
+        const preview = integrity.corruptFiles.slice(0, 5).join(", ");
+        const more =
+          integrity.corruptFiles.length > 5
+            ? ` (+${integrity.corruptFiles.length - 5} more)`
+            : "";
+        throw new Error(
+          `Backup archive failed integrity verification: ${integrity.corruptFiles.length} file(s) did not match their recorded checksum -- ${preview}${more}. Live save left untouched.`,
+        );
+      }
+
+      // Extraction succeeded and every file verified against the archive's
+      // own checksums. Only now is it safe to touch the live save.
       const stagedWorldPath = this._findExtractedWorld(
         stagingPath,
         expectedFolderName,
@@ -1313,6 +1518,61 @@ export class BackupService {
       }
       this.restoreInProgress = false;
     }
+  }
+
+  // Recomputes each extracted file's CRC32 and compares it against the value
+  // the archive's own central directory recorded for that entry -- the check
+  // the streaming extraction above never performs (see the caller's
+  // comment). unzip.Open.file() reads the central directory directly (the
+  // same API getBackupSnapshot() already uses), independent of the
+  // streaming Parse() used to extract, so a corruption that fooled one
+  // reading path is still caught by the other actually checking the number
+  // it recorded. Mirrors the exact same `path.join(stagingPath, entry.path)`
+  // mapping the extraction loop's zip-slip guard uses, so this checks
+  // precisely the files that were actually written to staging, not a
+  // parallel guess at where they'd be.
+  async _verifyExtractedIntegrity(backupPath, stagingPath) {
+    const corruptFiles = [];
+    let archive;
+    try {
+      const unzip = await getUnzipper();
+      archive = await unzip.Open.file(backupPath);
+    } catch (error) {
+      // Could not even read the central directory to verify against --
+      // fail closed rather than skip verification silently.
+      return { ok: false, corruptFiles: [`(could not read archive directory: ${error.message})`] };
+    }
+
+    for (const entry of archive.files) {
+      if (entry.type !== "File") continue;
+      const entryPath = path.join(stagingPath, entry.path);
+
+      let actualCrc32;
+      try {
+        actualCrc32 = await new Promise((resolve, reject) => {
+          let checksum = 0;
+          const stream = createReadStream(entryPath);
+          stream.on("data", (chunk) => {
+            checksum = crc32(chunk, checksum);
+          });
+          stream.on("end", () => resolve(checksum));
+          stream.on("error", reject);
+        });
+      } catch (error) {
+        // Missing on disk despite being listed in the central directory --
+        // the streaming extraction silently dropped it (an even stranger
+        // failure than a checksum mismatch, but the operator needs to know
+        // either way, not have it discovered only inside the swapped-in world).
+        corruptFiles.push(`${entry.path} (missing after extraction: ${error.message})`);
+        continue;
+      }
+
+      if (actualCrc32 !== entry.crc32) {
+        corruptFiles.push(entry.path);
+      }
+    }
+
+    return { ok: corruptFiles.length === 0, corruptFiles };
   }
 
   // A backup normally wraps the world in its server-name folder, but older or

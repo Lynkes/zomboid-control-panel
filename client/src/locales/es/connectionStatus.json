@@ -12,6 +12,7 @@
     "label": "Actualizaciones en vivo no disponibles",
     "description": "El panel en sí funciona — está viendo esta página a través de una conexión funcional. Solo no se pudo establecer la conexión de actualizaciones en vivo.",
     "hint": "La causa más común es un proxy inverso (nginx, Apache, Caddy, etc.) delante del panel que no reenvía las solicitudes de actualización de WebSocket. Si eso coincide con su configuración, pida a quien administre el proxy que confirme que se transmiten los encabezados Upgrade y Connection: upgrade.",
-    "technicalDetail": "Detalle técnico: {{error}}"
+    "technicalDetail": "Detalle técnico: {{error}}",
+    "retry": "Reintentar ahora"
   }
 }

@@ -10,6 +10,7 @@
  */
 import fs from "fs";
 import path from "path";
+import { isPidAlive } from "./pidLiveness.js";
 
 const fileLocks = new Map(); // resolved path -> tail of the pending promise chain
 
@@ -43,6 +44,44 @@ const RENAME_RETRY_DELAYS_MS = [25, 50, 100];
 function sleepSync(ms) {
   const buffer = new Int32Array(new SharedArrayBuffer(4));
   Atomics.wait(buffer, 0, 0, ms);
+}
+
+// Orphan temp sweep (2026-08-29, config hunt follow-up). writeFileAtomic
+// below only ever cleans up its own tmp file on the SAME call that created
+// it -- a crash between the writeFileSync a few lines down and the
+// rename/unlink that normally follows (power loss, a kill, an uncaught
+// fatal error) leaves a .{filename}.{pid}.{random}.tmp sibling behind
+// forever. Cosmetic, not a safety issue (Pam, same hunt, correctly
+// de-escalated it) -- nothing reads these files, they just accumulate.
+// Mirrors backupService.js's cleanupOrphanBackupTemps in shape (sweep the
+// directory on the next write into it, not a proactive background scan)
+// but needs one thing that function does not: writeFileAtomic has ~15 call
+// sites shared across processes that can briefly overlap (this codebase's
+// own supervised-restart window runs an outgoing and incoming process
+// together), so a temp can't be assumed dead just because it exists. The
+// pid is embedded in the name for exactly this reason -- liveness checked
+// via the shared isPidAlive() helper (utils/pidLiveness.js, hunt-wave12
+// unification of this file's and backupService.js's until-then-duplicated
+// copies of the same process.kill(pid, 0) check).
+const ORPHAN_TEMP_PATTERN = /^\.(.+)\.(\d+)\.[0-9a-z]{6}\.tmp$/;
+
+function sweepOrphanWriteTemps(dir) {
+  let entries;
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of entries) {
+    const match = ORPHAN_TEMP_PATTERN.exec(name);
+    if (!match) continue;
+    if (isPidAlive(Number(match[2]))) continue;
+    try {
+      fs.unlinkSync(path.join(dir, name));
+    } catch {
+      /* best effort -- another sweep or the original writer may have already cleared it */
+    }
+  }
 }
 
 /**
@@ -85,17 +124,57 @@ export function withFileLock(filePath, fn) {
  * the first attempt, no delay. Either way, the tmp file never survives a
  * failure: it's only ever cleaned up once, when this function is done
  * retrying and about to give up for good.
+ *
+ * Permissions (2026-08-29 Linux secrets hunt): rename() makes the LIVE file
+ * inherit the TEMP file's mode, not whatever the live file's mode was a
+ * moment ago. A caller that doesn't pass an explicit `mode` (most of them —
+ * this is shared by ~15 call sites across serverFiles.js/server.js/
+ * serverManager.js/templateFiles.js, several of them rewriting server.ini,
+ * which legitimately carries a plaintext RCONPassword= for the PZ server
+ * binary itself to read) would otherwise silently RESET an already-hardened
+ * file back to whatever the current process umask produces on every single
+ * rewrite — confirmed on real Linux: a file hardened to 0600 came back
+ * 0644/0664/0666 after one unmoded rewrite, depending on umask. Fixed by
+ * preserving the existing target's mode across a mode-less rewrite,
+ * intersected with whatever the umask-derived default would have been so a
+ * rewrite can still TIGHTEN (a stricter umask than last time) but can never
+ * LOOSEN. An explicit `mode` in `options` always wins outright, unchanged
+ * from before. A brand-new file (no existing target) is unaffected — same
+ * umask-derived default as always, so first-write behavior doesn't regress.
  */
 export function writeFileAtomic(filePath, data, options = "utf-8") {
   const dir = path.dirname(filePath);
+  sweepOrphanWriteTemps(dir);
   const tmpPath = path.join(
     dir,
     `.${path.basename(filePath)}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`,
   );
+  const explicitMode =
+    typeof options === "object" && options !== null && options.mode != null
+      ? options.mode
+      : null;
+  let existingMode = null;
+  if (explicitMode == null) {
+    try {
+      existingMode = fs.statSync(filePath).mode & 0o777;
+    } catch {
+      /* no existing target -- nothing to preserve, first-write default stands */
+    }
+  }
+
   // `options` is passed straight through to fs.writeFileSync, so callers can
   // pass either an encoding string ('utf-8') or an options object
   // ({ encoding, mode }) exactly as they would to writeFileSync directly.
   fs.writeFileSync(tmpPath, data, options);
+
+  if (existingMode != null) {
+    const defaultMode = fs.statSync(tmpPath).mode & 0o777;
+    try {
+      fs.chmodSync(tmpPath, existingMode & defaultMode);
+    } catch {
+      /* best-effort: Windows / network shares */
+    }
+  }
 
   let attempt = 0;
   for (;;) {

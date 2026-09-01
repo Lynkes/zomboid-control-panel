@@ -14,6 +14,7 @@ import {
 } from "../routes/auth.js";
 import {
   compareDefinitionSets,
+  createConflictScanSnapshots,
   filterOwnedClientModIds,
   getModDetailsFromWorkshop,
   groupIntoPairs,
@@ -38,25 +39,52 @@ import { requireStoppedForLocalConfigMutation } from "../services/configMutation
 // Verifies that the Promise.race + clearTimeout pattern doesn't leak unhandled rejections
 
 describe("Restart timeout pattern", () => {
-  function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
+  // bughunt-2026-08-31-c (Jim's title-contradicts-assertion sweep, this one
+  // outside his file list): the old body below only ever proved the race
+  // resolved with "done" -- Promise.resolve("done") settles synchronously,
+  // so `clearTimeout` fires within microseconds either way, long before the
+  // real 5000ms timer could ever reject. Sleeping 10ms afterward "to ensure
+  // no unhandled rejection" checked nothing: the losing timeoutPromise was
+  // never even close to its own deadline, cleared or not. Broke this
+  // exactly to confirm: removed the clearTimeout call (the regression this
+  // title claims to guard against) and the old test still passed.
+  //
+  // Fixed with fake timers so the real claim -- clearTimeout genuinely
+  // prevents the timeout promise from ever settling -- can be checked fast
+  // and deterministically: attach a private .catch() to observe the losing
+  // promise's own fate (this also marks it handled to Node, so advancing
+  // past its deadline never risks a real process-level unhandledRejection
+  // regardless of which branch is under test), then fast-forward PAST the
+  // real 5000ms deadline and assert it never settled.
   it("should not leave dangling rejections when operation wins the race", async () => {
-    // This is the FIXED pattern: setTimeout + clearTimeout
-    let timeoutId;
-    const timeoutPromise = new Promise((_, reject) => {
-      timeoutId = setTimeout(() => reject(new Error("Timeout")), 5000);
-    });
+    vi.useFakeTimers();
+    try {
+      // This is the FIXED pattern: setTimeout + clearTimeout
+      let timeoutId;
+      let timeoutSettled = false;
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error("Timeout")), 5000);
+      });
+      timeoutPromise.catch(() => {
+        timeoutSettled = true;
+      });
 
-    const operationPromise = Promise.resolve("done");
+      const operationPromise = Promise.resolve("done");
 
-    const result = await Promise.race([operationPromise, timeoutPromise]);
-    clearTimeout(timeoutId); // Prevents the timeout from firing
+      const result = await Promise.race([operationPromise, timeoutPromise]);
+      clearTimeout(timeoutId); // Prevents the timeout from firing
 
-    expect(result).toBe("done");
-    // Wait a tick to ensure no unhandled rejection
-    await sleep(10);
+      expect(result).toBe("done");
+
+      // Fast-forward past the real 5000ms deadline the timer was set for --
+      // if clearTimeout above had been a no-op (or omitted), this is
+      // exactly where the dangling rejection would surface.
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(timeoutSettled).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("should reject when operation takes too long", async () => {
@@ -652,6 +680,15 @@ describe("conflict pair grouping", () => {
     expect(
       pairs.reduce((total, pair) => total + pair.files.length, 0),
     ).toBe(maxFileEntries);
+  });
+});
+
+describe("conflict scan snapshots", () => {
+  it("normalizes Workshop order but preserves Mods= load order", () => {
+    expect(createConflictScanSnapshots(["2", "1"], ["ModB", "ModA"]))
+      .toEqual({ workshop: "1,2", mods: "ModB,ModA" });
+    expect(createConflictScanSnapshots(["1", "2"], ["ModA", "ModB"]).mods)
+      .not.toBe("ModB,ModA");
   });
 });
 

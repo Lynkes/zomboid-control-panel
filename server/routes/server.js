@@ -16,7 +16,15 @@ import {
   getServers,
 } from "../database/init.js";
 import { sanitizeError, sanitizeIniValue } from "../utils/sanitize.js";
+import { hasIniKeyValue, setIniKeyLine } from "../utils/iniKeyWrite.js";
 import { resolveLaunchMode } from "../services/serverManager.js";
+import {
+  isSteamOperationIdle,
+  getActiveSteamOperations,
+  clearActiveSteamOperation,
+  hasActiveSteamOperation,
+  STEAM_OPERATION_IDLE_TIMEOUT_MS,
+} from "../services/activeSteamOperations.js";
 import { normalizeMemoryGb } from "../utils/memory.js";
 import { withFileLock, writeFileAtomic } from "../utils/fileWriteQueue.js";
 import { requirePermission } from "../services/permissions.js";
@@ -82,16 +90,28 @@ function getSteamCmdExe(steamcmdPath) {
   return primary; // Return primary path even if not found — let caller handle the error
 }
 
-// The single point every spawn() of a SteamCMD-family executable in this
-// file goes through. CodeQL js/command-line-injection #10,11,12,13,297
-// (2026-08-27 triage, operator-ruled fix): every call site used to resolve
-// steamcmdExe from a per-request steamcmdPath/installPath value, checked
-// only for absoluteness and no traversal (isValidPath) -- the DIRECTORY a
-// binary got spawned from was fully caller-chosen within one request, with
-// no persistent record of intent. Operator's own reasoning for choosing
-// this over a stronger capability gate: "a gate on top of a per-request
-// executable path still leaves a per-request executable path -- it relies
-// on that gate being right forever."
+// CodeQL js/command-line-injection #10,11,12,13,297 (2026-08-27 triage,
+// operator-ruled fix): every call site used to resolve steamcmdExe from a
+// per-request steamcmdPath/installPath value, checked only for absoluteness
+// and no traversal (isValidPath) -- the DIRECTORY a binary got spawned from
+// was fully caller-chosen within one request, with no persistent record of
+// intent. Operator's own reasoning for choosing this over a stronger
+// capability gate: "a gate on top of a per-request executable path still
+// leaves a per-request executable path -- it relies on that gate being
+// right forever."
+//
+// THE RULE, not a count of call sites: no spawn() of a SteamCMD-family
+// executable may ever resolve steamcmdExe from a path that wasn't
+// persisted as the saved steamcmdPath setting first. Calling this function
+// is how an async call site does that. A synchronous context that can't
+// await it (see runFirstTimeSetup() below) may resolve via the lower-level
+// getSteamCmdExe() directly instead, but ONLY when reusing a path this
+// function already persisted earlier in the SAME request -- runFirstTimeSetup
+// documents exactly that at its own call. "The single point every spawn()
+// goes through" was asserted here once (bughunt-2026-08-31-b,
+// completeness-claims audit) and was already false the day it was written;
+// check a given spawn() against the rule above, not against this comment's
+// name for itself, since a future exception won't update this count either.
 //
 // candidatePath, when the caller has one (the operator typed/browsed to it
 // in THIS request, already passed through isValidPath by the caller), gets
@@ -331,16 +351,12 @@ async function findSteamCmdPath() {
   return null;
 }
 
-// Track active Steam operations to prevent concurrent runs on the same path
-const activeSteamOperations = new Map();
-const STEAM_OPERATION_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
-
-export function isSteamOperationIdle(operation, now = Date.now()) {
-  return Boolean(
-    operation?.lastOutputAt &&
-      now - operation.lastOutputAt >= STEAM_OPERATION_IDLE_TIMEOUT_MS,
-  );
-}
+// activeSteamOperations itself, isSteamOperationIdle, clearActiveSteamOperation
+// and hasActiveSteamOperation now live in ../services/activeSteamOperations.js
+// (hunt-wave5-2026-08-29) so serverManager.js's startServer() can check the
+// same tracked state before spawning the PZ JVM -- see that module's header
+// comment for why this couldn't just be a reverse import instead.
+const activeSteamOperations = getActiveSteamOperations();
 
 // True only for the exact shape that crashes PZ on first boot: no admin
 // password configured AND this server has never actually started (its
@@ -367,34 +383,6 @@ export function isFirstBootMissingAdminPassword(activeServer) {
     activeServer.serverName,
   );
   return !fs.existsSync(saveDir);
-}
-
-function clearActiveSteamOperation(normalizedPath) {
-  const operation = activeSteamOperations.get(normalizedPath);
-  if (operation?.watchdog) clearInterval(operation.watchdog);
-  activeSteamOperations.delete(normalizedPath);
-}
-
-function hasActiveSteamOperation(normalizedPath) {
-  const operation = activeSteamOperations.get(normalizedPath);
-  if (!operation) return false;
-
-  if (Number.isInteger(operation.pid)) {
-    try {
-      process.kill(operation.pid, 0);
-      return true;
-    } catch (error) {
-      if (error.code === "ESRCH") {
-        clearActiveSteamOperation(normalizedPath);
-        log.warn(
-          `Cleared stale Steam ${operation.type} operation for ${normalizedPath}`,
-        );
-        return false;
-      }
-    }
-  }
-
-  return true;
 }
 
 // Every location serverManager.js's getServerConfig() will accept as "the"
@@ -428,6 +416,14 @@ export function candidateIniPaths(serverConfigPath, zomboidDataPath, serverName)
 // If the INI file doesn't exist yet (first run), creates the directory + a minimal INI
 // so PZ will merge its defaults with our RCON settings instead of generating a blank password.
 export async function ensureRconConfigured() {
+  // Declared ahead of the try block, not inside it, so the outer catch
+  // below can still reach them to build EACCES guidance -- which of the two
+  // configured paths serverConfigPath actually derives from decides only
+  // formatWritablePathError()'s label ("install" vs "data"); the write
+  // target and the remediation are identical either way, just the noun
+  // differs.
+  let serverConfigPathKind = "install";
+  let serverConfigPath = null;
   try {
     const activeServer = await getActiveServer();
     if (!activeServer) {
@@ -435,7 +431,8 @@ export async function ensureRconConfigured() {
       return false;
     }
 
-    const serverConfigPath =
+    serverConfigPathKind = activeServer.serverConfigPath ? "install" : "data";
+    serverConfigPath =
       activeServer.serverConfigPath ||
       (activeServer.zomboidDataPath
         ? path.join(activeServer.zomboidDataPath, "Server")
@@ -490,17 +487,28 @@ export async function ensureRconConfigured() {
           log.info(`Pre-created INI with RCON settings (port: ${rconPort})`);
           return true;
         } catch (createError) {
-          log.error(`Failed to pre-create INI file: ${createError.message}`);
+          // Keep the raw errno in the log alongside the friendly guidance --
+          // someone debugging still needs the real error, not just the
+          // translation of it.
+          if (createError.code === "EACCES" && serverConfigPath) {
+            const guidance = formatWritablePathError(
+              serverConfigPathKind,
+              serverConfigPath,
+            );
+            log.error(
+              `Failed to pre-create INI file: ${createError.message} -- ${guidance.message}`,
+            );
+          } else {
+            log.error(`Failed to pre-create INI file: ${createError.message}`);
+          }
           return false;
         }
       }
 
       // INI exists — check if RCON is already configured correctly
       let content = fs.readFileSync(iniPath, "utf-8").replace(/\r\n/g, "\n");
-      const hasCorrectPassword = content.includes(
-        `RCONPassword=${rconPassword}`,
-      );
-      const hasCorrectPort = content.includes(`RCONPort=${rconPort}`);
+      const hasCorrectPassword = hasIniKeyValue(content, "RCONPassword", rconPassword);
+      const hasCorrectPort = hasIniKeyValue(content, "RCONPort", rconPort);
 
       if (hasCorrectPassword && hasCorrectPort) {
         log.debug("ensureRconConfigured: RCON already configured correctly");
@@ -512,28 +520,25 @@ export async function ensureRconConfigured() {
 
       // Update RCONPassword (sanitize to prevent INI injection via newlines)
       const safePassword = sanitizeIniValue(rconPassword);
-      if (content.includes("RCONPassword=")) {
-        content = content.replace(
-          /RCONPassword=.*/g,
-          () => `RCONPassword=${safePassword}`,
-        );
-      } else {
-        content += `\nRCONPassword=${safePassword}`;
-      }
-
-      // Update RCONPort
-      if (content.includes("RCONPort=")) {
-        content = content.replace(/RCONPort=.*/g, () => `RCONPort=${rconPort}`);
-      } else {
-        content += `\nRCONPort=${rconPort}`;
-      }
+      content = setIniKeyLine(content, "RCONPassword", safePassword);
+      content = setIniKeyLine(content, "RCONPort", rconPort);
 
       writeFileAtomic(iniPath, content, { encoding: "utf-8", mode: 0o600 });
       log.info("RCON auto-configured successfully in server .ini file");
       return true;
     });
   } catch (error) {
-    log.error(`ensureRconConfigured error: ${error.message}`);
+    if (error.code === "EACCES" && serverConfigPath) {
+      const guidance = formatWritablePathError(
+        serverConfigPathKind,
+        serverConfigPath,
+      );
+      log.error(
+        `ensureRconConfigured error: ${error.message} -- ${guidance.message}`,
+      );
+    } else {
+      log.error(`ensureRconConfigured error: ${error.message}`);
+    }
     return false;
   }
 }
@@ -643,11 +648,21 @@ export function formatWritablePathError(
     (fs.existsSync("/.dockerenv") || fs.existsSync("/run/.containerenv"));
   const baseMessage = `${label} is not writable: ${directoryPath}.`;
 
+  // Wording sharpened 2026-08-29 (Linux bug hunt, "raw EACCES with no
+  // pointer to the fix" card): both branches used to correctly detect the
+  // problem and then explain it vaguely -- "choose a writable folder" for
+  // bare metal (never says WHY this one isn't, or how to fix it in place)
+  // and "make it owned by the panel container UID/GID" for Docker (never
+  // names the ACTUAL knob, docker-compose.yml's own PUID/PGID env vars,
+  // right above the bind-mount lines it documents). Same defect class as
+  // "run as Administrator" on Linux and "pull the latest code with git" for
+  // a Docker image: the refusal was correct, the instruction was not.
   if (isContainer) {
     return {
       message:
-        `${baseMessage} In Docker, bind-mount a writable host folder at this path ` +
-        `and make it owned by the panel container UID/GID.`,
+        `${baseMessage} Set PUID/PGID in your .env file to match the owner ` +
+        `of this bind-mounted host folder (see docker-compose.yml's Quick ` +
+        `Start), then recreate the container.`,
       code:
         kind === "install"
           ? ErrorCode.WRITABLE_PATH_INSTALL_CONTAINER
@@ -657,7 +672,10 @@ export function formatWritablePathError(
   }
 
   return {
-    message: `${baseMessage} Choose a folder writable by the panel process.`,
+    message:
+      `${baseMessage} The user running the panel does not own this folder ` +
+      `or lacks write permission to it -- fix it with chown/chmod, or ` +
+      `choose a folder the panel can already write to.`,
     code:
       kind === "install"
         ? ErrorCode.WRITABLE_PATH_INSTALL_BAREMETAL
@@ -1247,6 +1265,114 @@ export async function refreshLaunchTargetBeforeStart(
   return { scriptBackupWarnings };
 }
 
+// Once the process/container is confirmed running, wait for RCON to come up
+// (PZ takes 60-180s to fully start) by polling for the port rather than
+// blindly waiting, and clear serverStarting when done either way. Shared by
+// both the native/managed-lifecycle path (called once the 1s scan-poll below
+// confirms isRunning) and the Docker path (called immediately, since Docker's
+// own start action already confirms the container is up -- see the /start
+// handler's own comment).
+async function waitForRconAfterStart({ rconService, discordBot }) {
+  log.info("Waiting for RCON to be ready - starting port polling...");
+
+  await rconService.loadConfig(); // Ensure clean config
+  const rconHost = rconService.config.host || "127.0.0.1";
+  const rconPort = rconService.config.port || 27015;
+  log.info(`Monitoring TCP port ${rconHost}:${rconPort} for activity...`);
+
+  let rconConnected = false;
+  let rconConfigured = false;
+  let portOpen = false;
+
+  // Poll port for up to 5 minutes (300 seconds) - checking every 5 seconds
+  const maxPollAttempts = 60;
+
+  for (let i = 0; i < maxPollAttempts; i++) {
+    // 1. Check if port is open (if not already found)
+    if (!portOpen) {
+      portOpen = await rconService.checkPortOpen(rconHost, rconPort);
+
+      if (!portOpen) {
+        log.debug(
+          `RCON startup: Port ${rconHost}:${rconPort} not yet open (poll ${i + 1}/${maxPollAttempts})...`,
+        );
+        // Wait 5 seconds before next check
+        await new Promise((r) => setTimeout(r, 5000));
+
+        // Periodically try to configure RCON (Wait for .ini to appear)
+        if (!rconConfigured && i % 3 === 0) {
+          // Every 15s (3 * 5s)
+          rconConfigured = await ensureRconConfigured();
+          if (rconConfigured) {
+            log.info(
+              "RCON settings auto-configured in server .ini file during startup wait",
+            );
+          }
+        }
+        continue;
+      }
+      log.info(
+        `RCON port ${rconHost}:${rconPort} is now open! Initiating connection...`,
+      );
+    }
+
+    // 2. Port is open, try to connect
+    // Reset connection state before attempt to clear any stalled state
+    if (rconService.forceResetConnectionState) {
+      rconService.forceResetConnectionState();
+    }
+
+    try {
+      // Attempt connection with a 15s timeout
+      const connectPromise = rconService.connect();
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error("Connection attempt timed out after 15s")),
+          15000,
+        ),
+      );
+
+      await Promise.race([connectPromise, timeoutPromise]);
+
+      if (rconService.connected) {
+        log.info("RCON connected successfully after server startup");
+        rconConnected = true;
+        break;
+      } else {
+        log.warn(
+          `RCON connected to port but authentication/handshake failed. Retrying...`,
+        );
+        // Wait a bit before retry if port is open but auth fails (service might be starting up)
+        await new Promise((r) => setTimeout(r, 5000));
+      }
+    } catch (e) {
+      log.warn(`RCON connection attempt failed: ${e.message}`);
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+  }
+
+  // Log completion status
+  if (rconConnected) {
+    log.info("RCON startup sequence completed - connected");
+    discordBot
+      ?.sendEventNotification("serverStart", {})
+      .catch((err) =>
+        log.debug(`Discord serverStart notification failed: ${err.message}`),
+      );
+  } else {
+    log.warn(
+      "RCON startup sequence completed - NOT connected (auto-reconnect will keep trying every 30s)",
+    );
+  }
+
+  // Clear the flag when done - now auto-reconnect can take over
+  if (rconService.setServerStarting) {
+    rconService.setServerStarting(false);
+  } else {
+    rconService.serverStarting = false;
+  }
+}
+
 // Start server
 router.post("/start", requirePermission("server.control"), async (req, res) => {
   try {
@@ -1324,6 +1450,29 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
       rconService.serverStarting = true;
     }
 
+    // Docker's own start action already confirms the container is up before
+    // runManagedLifecycle() returns (dockerClient.js's lifecycleTimeoutMs
+    // comment: "Docker answers only once the action completes") -- unlike
+    // the native path below, there is nothing further to poll for. The
+    // scan-poll below is ALSO a local host process scan, which for a
+    // container-managed server can never see PZ running as PID 1 of a
+    // *different* container (GH#114) -- polling it here would just run 30
+    // times and always time out, exactly the gap this fix closes. Emit
+    // immediately and go straight to waiting for RCON, skipping the poll
+    // entirely for this path.
+    if (managed.handled) {
+      if (io) io.emit("server:status", { running: true });
+      log.info("Container start confirmed by Docker; skipping local process poll");
+      waitForRconAfterStart({
+        rconService,
+        discordBot: req.app.get("discordBot"),
+      }).catch((err) =>
+        log.error(`Post-start RCON wait failed: ${err.message}`),
+      );
+      res.json(result);
+      return;
+    }
+
     // Poll for server to actually be running (takes a few seconds to start)
     let attempts = 0;
     const maxAttempts = 30; // 30 seconds max
@@ -1373,114 +1522,7 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
           clearInterval(pollInterval);
           if (io) io.emit("server:status", { running: true });
           log.info("Server detected as running");
-
-          // Wait for RCON to be ready (PZ takes 60-180s to fully start)
-          // Look for open port instead of blindly waiting
-          // Keep serverStarting=true the whole time to block auto-reconnect
-          log.info("Waiting for RCON to be ready - starting port polling...");
-
-          await rconService.loadConfig(); // Ensure clean config
-          const rconHost = rconService.config.host || "127.0.0.1";
-          const rconPort = rconService.config.port || 27015;
-          log.info(
-            `Monitoring TCP port ${rconHost}:${rconPort} for activity...`,
-          );
-
-          let rconConnected = false;
-          let rconConfigured = false;
-          let portOpen = false;
-
-          // Poll port for up to 5 minutes (300 seconds) - checking every 5 seconds
-          const maxPollAttempts = 60;
-
-          for (let i = 0; i < maxPollAttempts; i++) {
-            // 1. Check if port is open (if not already found)
-            if (!portOpen) {
-              portOpen = await rconService.checkPortOpen(rconHost, rconPort);
-
-              if (!portOpen) {
-                log.debug(
-                  `RCON startup: Port ${rconHost}:${rconPort} not yet open (poll ${i + 1}/${maxPollAttempts})...`,
-                );
-                // Wait 5 seconds before next check
-                await new Promise((r) => setTimeout(r, 5000));
-
-                // Periodically try to configure RCON (Wait for .ini to appear)
-                if (!rconConfigured && i % 3 === 0) {
-                  // Every 15s (3 * 5s)
-                  rconConfigured = await ensureRconConfigured();
-                  if (rconConfigured) {
-                    log.info(
-                      "RCON settings auto-configured in server .ini file during startup wait",
-                    );
-                  }
-                }
-                continue;
-              }
-              log.info(
-                `RCON port ${rconHost}:${rconPort} is now open! Initiating connection...`,
-              );
-            }
-
-            // 2. Port is open, try to connect
-            // Reset connection state before attempt to clear any stalled state
-            if (rconService.forceResetConnectionState) {
-              rconService.forceResetConnectionState();
-            }
-
-            try {
-              // Attempt connection with a 15s timeout
-              const connectPromise = rconService.connect();
-              const timeoutPromise = new Promise((_, reject) =>
-                setTimeout(
-                  () =>
-                    reject(new Error("Connection attempt timed out after 15s")),
-                  15000,
-                ),
-              );
-
-              await Promise.race([connectPromise, timeoutPromise]);
-
-              if (rconService.connected) {
-                log.info("RCON connected successfully after server startup");
-                rconConnected = true;
-                break;
-              } else {
-                log.warn(
-                  `RCON connected to port but authentication/handshake failed. Retrying...`,
-                );
-                // Wait a bit before retry if port is open but auth fails (service might be starting up)
-                await new Promise((r) => setTimeout(r, 5000));
-              }
-            } catch (e) {
-              log.warn(`RCON connection attempt failed: ${e.message}`);
-              await new Promise((r) => setTimeout(r, 5000));
-            }
-          }
-
-          // Log completion status
-          if (rconConnected) {
-            log.info("RCON startup sequence completed - connected");
-            req.app
-              .get("discordBot")
-              ?.sendEventNotification("serverStart", {})
-              .catch((err) =>
-                log.debug(
-                  `Discord serverStart notification failed: ${err.message}`,
-                ),
-              );
-          } else {
-            log.warn(
-              "RCON startup sequence completed - NOT connected (auto-reconnect will keep trying every 30s)",
-            );
-          }
-
-          // Clear the flag when done - now auto-reconnect can take over
-          if (rconService.setServerStarting) {
-            rconService.setServerStarting(false);
-          } else {
-            rconService.serverStarting = false;
-          }
+          await waitForRconAfterStart({ rconService, discordBot: req.app.get("discordBot") });
         } else if (attempts >= maxAttempts) {
           pollCleared = true;
           clearInterval(pollInterval);
@@ -1550,9 +1592,17 @@ router.post("/stop", requirePermission("server.control"), async (req, res) => {
       });
     }
 
+    if (!managed.handled && serverManager.loadConfig) {
+      await serverManager.loadConfig();
+    }
+    const serviceManaged = Boolean(
+      !managed.handled && serverManager.usesManagedServiceLifecycle?.(),
+    );
     const result = managed.handled
       ? { success: true, message: managed.message || "Container stopping" }
-      : await rconService.quit();
+      : serviceManaged
+        ? await serverManager.stopServer(false)
+        : await rconService.quit();
 
     if (!result?.success || result.confirmed === false) {
       return res.status(502).json({
@@ -1562,7 +1612,7 @@ router.post("/stop", requirePermission("server.control"), async (req, res) => {
       });
     }
 
-    if (managed.handled) {
+    if (managed.handled || serviceManaged) {
       // Docker's own stop API blocks until the container actually stops (or
       // it force-kills after its timeout) before ever returning success --
       // unlike RCON quit() below, "success" here already means confirmed,
@@ -1571,7 +1621,12 @@ router.post("/stop", requirePermission("server.control"), async (req, res) => {
       serverManager?.markServerStopped?.();
       const io = req.app.get("io");
       if (io) io.emit("server:status", { running: false });
-      await logServerEventBestEffort("server_stop", "Server stopped via web UI");
+      await logServerEventBestEffort(
+        "server_stop",
+        serviceManaged
+          ? `Server stopped through ${serverManager.lifecycleProvider}`
+          : "Server stopped via web UI",
+      );
       req.app
         .get("discordBot")
         ?.sendEventNotification("serverStop", {})
@@ -2549,22 +2604,40 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
         try {
           ensureWritableDirectory(serverConfigPath);
         } catch (dirError) {
+          // Keep the raw errno in the log even though the operator-facing
+          // text below is friendlier -- someone debugging still needs it.
           log.error(
             `Data folder is not writable: ${zomboidPath} (${dirError.message})`,
           );
+          // Reuses formatWritablePathError -- the SAME container-aware
+          // guidance the pre-download check above already gives, instead of
+          // this "re-check after the download" duplicate growing its own,
+          // Linux-only message that never checked isContainer (found
+          // 2026-08-29, "raw EACCES with no pointer to the fix" hunt: it
+          // told a Docker operator to run a command inside the ephemeral
+          // container that can't fix a host-side bind-mount ownership
+          // mismatch at all). The concrete `sudo install -d` example is
+          // still worth keeping for bare metal specifically -- more
+          // actionable than the shared message's generic chown/chmod
+          // pointer -- so it rides along as an extra param rather than
+          // being lost.
+          const writableError = formatWritablePathError("data", zomboidPath);
+          const bareMetalCommand =
+            writableError.code === ErrorCode.WRITABLE_PATH_DATA_BAREMETAL
+              ? `sudo install -d -m 0755 -o "$(whoami)" -g "$(whoami)" "${zomboidPath}"`
+              : null;
           io.emit("install:complete", {
             success: false,
-            message:
-              `Server files installed, but the data folder is not writable: ${zomboidPath} (${dirError.code || dirError.message}). ` +
-              `Create it with the correct owner before starting the server, e.g. on Linux: ` +
-              `sudo install -d -m 0755 -o "$(whoami)" -g "$(whoami)" "${zomboidPath}", then retry.`,
+            message: bareMetalCommand
+              ? `${writableError.message} For example: ${bareMetalCommand}`
+              : writableError.message,
             installPath,
             serverName,
-            progressCode: ProgressCode.INSTALL_DATA_FOLDER_NOT_WRITABLE,
+            progressCode: writableError.code,
             params: {
-              path: zomboidPath,
+              ...writableError.params,
               reason: dirError.code || dirError.message,
-              command: `sudo install -d -m 0755 -o "$(whoami)" -g "$(whoami)" "${zomboidPath}"`,
+              ...(bareMetalCommand ? { command: bareMetalCommand } : {}),
             },
           });
           activeSteamOperations.delete(normalizedPath);
@@ -2643,9 +2716,13 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
           }
         } catch (iniError) {
           log.warn(`Failed to pre-create INI: ${iniError.message}`);
+          const permissionHint =
+            iniError.code === "EACCES"
+              ? ` ${formatWritablePathError("data", serverConfigPath).message}`
+              : "";
           warnings.push({
             progressCode: ProgressCode.INSTALL_RCON_INI_PRECREATE_FAILED,
-            message: `Could not pre-write ${rconPassword ? "the RCON password" : "the UPnP setting"} into the server config (${sanitizeError(iniError.message)}). This is retried automatically the next time you start the server.`,
+            message: `Could not pre-write ${rconPassword ? "the RCON password" : "the UPnP setting"} into the server config (${sanitizeError(iniError.message)}).${permissionHint} This is retried automatically the next time you start the server.`,
             params: { reason: sanitizeError(iniError.message) },
           });
         }
@@ -2986,13 +3063,23 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
     try {
       ensureWritableDirectory(serverConfigPath);
     } catch (dirError) {
+      // Keep the raw errno in the log even though the operator-facing text
+      // below is friendlier -- someone debugging still needs it. See the
+      // /install route's identical fix above for why this reuses
+      // formatWritablePathError instead of the Linux-only, non-container-
+      // aware message this used to hand-roll.
       log.error(
         `Data folder is not writable: ${zomboidPath} (${dirError.message})`,
       );
+      const writableError = formatWritablePathError("data", zomboidPath);
+      const bareMetalCommand =
+        writableError.code === ErrorCode.WRITABLE_PATH_DATA_BAREMETAL
+          ? `sudo install -d -m 0755 -o "$(whoami)" -g "$(whoami)" "${zomboidPath}"`
+          : null;
       throw new Error(
-        `Server files found, but the data folder is not writable: ${zomboidPath} (${dirError.code || dirError.message}). ` +
-          `Create it with the correct owner before starting the server, e.g. on Linux: ` +
-          `sudo install -d -m 0755 -o "$(whoami)" -g "$(whoami)" "${zomboidPath}", then retry.`,
+        bareMetalCommand
+          ? `${writableError.message} For example: ${bareMetalCommand}`
+          : writableError.message,
       );
     }
 
@@ -3019,9 +3106,13 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
         }
       } catch (iniError) {
         log.warn(`Failed to pre-create INI: ${iniError.message}`);
+        const permissionHint =
+          iniError.code === "EACCES"
+            ? ` ${formatWritablePathError("data", serverConfigPath).message}`
+            : "";
         warnings.push({
           progressCode: ProgressCode.INSTALL_RCON_INI_PRECREATE_FAILED,
-          message: `Could not pre-write the RCON password into the server config (${sanitizeError(iniError.message)}). This is retried automatically the next time you start the server.`,
+          message: `Could not pre-write the RCON password into the server config (${sanitizeError(iniError.message)}).${permissionHint} This is retried automatically the next time you start the server.`,
           params: { reason: sanitizeError(iniError.message) },
         });
       }
@@ -3165,21 +3256,8 @@ router.post("/configure-rcon", requirePermission("server.configure"), async (req
 
       // Update RCONPassword (sanitize to prevent INI injection via newlines)
       const safePassword = sanitizeIniValue(rconPassword);
-      if (content.includes("RCONPassword=")) {
-        content = content.replace(
-          /RCONPassword=.*/g,
-          () => `RCONPassword=${safePassword}`,
-        );
-      } else {
-        content += `\nRCONPassword=${safePassword}`;
-      }
-
-      // Update RCONPort
-      if (content.includes("RCONPort=")) {
-        content = content.replace(/RCONPort=.*/g, () => `RCONPort=${rconPort}`);
-      } else {
-        content += `\nRCONPort=${rconPort}`;
-      }
+      content = setIniKeyLine(content, "RCONPassword", safePassword);
+      content = setIniKeyLine(content, "RCONPort", rconPort);
 
       writeFileAtomic(iniPath, content, { encoding: "utf-8", mode: 0o600 });
     });
@@ -3220,11 +3298,7 @@ export async function applyUpnpToIni(serverConfigPath, serverName, useUpnp) {
     await withFileLock(iniPath, async () => {
       let content = fs.readFileSync(iniPath, "utf-8").replace(/\r\n/g, "\n");
       const upnpValue = useUpnp ? "true" : "false";
-      if (content.includes("UPnP=")) {
-        content = content.replace(/UPnP=.*/g, `UPnP=${upnpValue}`);
-      } else {
-        content += `\nUPnP=${upnpValue}`;
-      }
+      content = setIniKeyLine(content, "UPnP", upnpValue);
       writeFileAtomic(iniPath, content, { encoding: "utf-8", mode: 0o600 });
     });
     return { applied: true };
@@ -3273,22 +3347,9 @@ router.post("/configure-network", requirePermission("server.configure"), async (
     await withFileLock(iniPath, async () => {
       let content = fs.readFileSync(iniPath, "utf-8").replace(/\r\n/g, "\n");
 
-      // Update DefaultPort
-      if (content.includes("DefaultPort=")) {
-        content = content.replace(
-          /DefaultPort=.*/g,
-          `DefaultPort=${serverPort}`,
-        );
-      } else {
-        content += `\nDefaultPort=${serverPort}`;
-      }
-
-      // Update UDPPort (DefaultPort + 1)
-      if (content.includes("UDPPort=")) {
-        content = content.replace(/UDPPort=.*/g, `UDPPort=${serverPort + 1}`);
-      } else {
-        content += `\nUDPPort=${serverPort + 1}`;
-      }
+      // Update DefaultPort, then UDPPort (DefaultPort + 1)
+      content = setIniKeyLine(content, "DefaultPort", serverPort);
+      content = setIniKeyLine(content, "UDPPort", serverPort + 1);
 
       writeFileAtomic(iniPath, content, { encoding: "utf-8", mode: 0o600 });
     });
@@ -3551,16 +3612,6 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
       });
     }
 
-    // Prevent concurrent operations on the same install path
-    const normalizedPath = path.normalize(installPath).toLowerCase();
-    if (hasActiveSteamOperation(normalizedPath)) {
-      return res.status(409).json({
-        error:
-          "A Steam operation is already in progress for this server. Please wait for it to complete.",
-        code: ErrorCode.STEAM_OPERATION_IN_PROGRESS_SERVER,
-      });
-    }
-
     // Auto-download SteamCMD on Linux instead of hard-failing — see
     // ensureSteamCmdLinux.
     // Persist steamcmdPath as the configured setting before resolving an
@@ -3609,6 +3660,28 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
       }
     } catch (error) {
       log.warn(`Could not reset blocked SteamCMD manifest: ${error.message}`);
+    }
+
+    // Prevent concurrent operations on the same install path. Deliberately
+    // placed HERE -- after every await above (saveAndResolveSteamCmdExe,
+    // ensureSteamCmdLinux), not before them -- matching POST /install's
+    // check/claim placement (which does it in this same order, right before
+    // its own activeSteamOperations.set()). This check used to sit BEFORE
+    // saveAndResolveSteamCmdExe's await, which meant two concurrent
+    // steam-update requests for the same installPath could both pass this
+    // check before either claimed the path, then both spawn SteamCMD
+    // against it concurrently (manifest lock contention / interleaved
+    // writes) -- proven via
+    // server/tests/steamUpdateConcurrency.test.js. Nothing between this
+    // check and the claim below is awaited, so there is no gap left for a
+    // second request to slip through.
+    const normalizedPath = path.normalize(installPath).toLowerCase();
+    if (hasActiveSteamOperation(normalizedPath)) {
+      return res.status(409).json({
+        error:
+          "A Steam operation is already in progress for this server. Please wait for it to complete.",
+        code: ErrorCode.STEAM_OPERATION_IN_PROGRESS_SERVER,
+      });
     }
 
     const operation = validateFiles ? "verification" : "update";
@@ -5476,17 +5549,18 @@ router.post("/wipe", requirePermission("server.wipe"), async (req, res) => {
       const io = req.app.get("io");
       backupResult = await backupService.createBackup({ isPreWipe: true, io });
       // 2026-08-26 bug hunt: createBackup can return success:true while
-      // having silently skipped files that vanished mid-archive -- it
-      // surfaces that via skippedFiles rather than deciding policy itself.
-      // This backup is about to become the ONLY copy of whatever wipe is
-      // about to delete -- "mostly complete" is not a safety net, so any
-      // skip is treated exactly like an outright backup failure, same as
-      // the existing backup-or-abort posture below.
+      // having silently skipped files -- a file that vanished mid-archive,
+      // or (since 445c15a5, 2026-08-29) a symbolic link deliberately not
+      // followed -- it surfaces that via skippedFiles rather than deciding
+      // policy itself. This backup is about to become the ONLY copy of
+      // whatever wipe is about to delete -- "mostly complete" is not a
+      // safety net, so any skip is treated exactly like an outright backup
+      // failure, same as the existing backup-or-abort posture below.
       const backupIncomplete =
         backupResult.success && (backupResult.skippedFiles?.length ?? 0) > 0;
       if (!backupResult.success || backupIncomplete) {
         const reason = backupIncomplete
-          ? `it skipped ${backupResult.skippedFiles.length} file(s) that vanished during archiving (${backupResult.skippedFiles.join(", ")}) -- an incomplete pre-wipe backup is not a safety net`
+          ? `it could not include ${backupResult.skippedFiles.length} file(s) (${backupResult.skippedFiles.join(", ")}) -- an incomplete pre-wipe backup is not a safety net`
           : backupResult.message;
         return res.status(500).json({
           error: `Wipe aborted: could not create a backup first (${reason}). Nothing was deleted.`,
@@ -5570,17 +5644,20 @@ router.post("/wipe", requirePermission("server.wipe"), async (req, res) => {
 
       if (targets.includes("players")) {
         let deletedCount = 0;
-        try {
-          const rootEntries = fs.readdirSync(saveDir, { withFileTypes: true });
-          for (const entry of rootEntries) {
-            if (!entry.isDirectory() && PLAYER_ROOT_FILES.test(entry.name)) {
-              log.warn(`WIPE: Deleting player file ${entry.name}`);
-              fs.unlinkSync(path.join(saveDir, entry.name));
-              deletedCount++;
-            }
+        // No inner try/catch here (bug hunt 2026-08-31): a throw must reach
+        // the outer catch below, same as map/leftovers/accounts already do,
+        // so a real unlink failure (e.g. a lingering AV/backup file lock
+        // right after the pre-wipe stop) produces an honest
+        // WIPE_PARTIAL_FAILURE instead of being swallowed into the same
+        // "not found" string a genuinely-empty directory reports -- those
+        // two outcomes must not look identical to the caller.
+        const rootEntries = fs.readdirSync(saveDir, { withFileTypes: true });
+        for (const entry of rootEntries) {
+          if (!entry.isDirectory() && PLAYER_ROOT_FILES.test(entry.name)) {
+            log.warn(`WIPE: Deleting player file ${entry.name}`);
+            fs.unlinkSync(path.join(saveDir, entry.name));
+            deletedCount++;
           }
-        } catch (e) {
-          log.warn(`WIPE: Failed to clean player files: ${e.message}`);
         }
         results.players =
           deletedCount > 0 ? `deleted ${deletedCount} files` : "not found";
@@ -5597,18 +5674,15 @@ router.post("/wipe", requirePermission("server.wipe"), async (req, res) => {
             deletedCount++;
           }
         }
-        // Delete world root files
-        try {
-          const rootEntries = fs.readdirSync(saveDir, { withFileTypes: true });
-          for (const entry of rootEntries) {
-            if (!entry.isDirectory() && WORLD_ROOT_FILES.test(entry.name)) {
-              log.warn(`WIPE: Deleting world file ${entry.name}`);
-              fs.unlinkSync(path.join(saveDir, entry.name));
-              deletedCount++;
-            }
+        // Delete world root files. Same no-inner-catch reasoning as the
+        // players block above.
+        const rootEntries = fs.readdirSync(saveDir, { withFileTypes: true });
+        for (const entry of rootEntries) {
+          if (!entry.isDirectory() && WORLD_ROOT_FILES.test(entry.name)) {
+            log.warn(`WIPE: Deleting world file ${entry.name}`);
+            fs.unlinkSync(path.join(saveDir, entry.name));
+            deletedCount++;
           }
-        } catch (e) {
-          log.warn(`WIPE: Failed to clean world files: ${e.message}`);
         }
         results.world =
           deletedCount > 0 ? `deleted ${deletedCount} items` : "not found";

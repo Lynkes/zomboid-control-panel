@@ -15,6 +15,17 @@ describe('EmptyState', () => {
     expect(screen.getByText('No Players Online')).toBeInTheDocument()
   })
 
+  // bug-hunt-2026-08-31: 8 permission-denied call sites across the app
+  // override `icon` to ShieldAlert but had no matching `type`, so this
+  // eyebrow fell through to the 'noData' default -- "No Data" rendered
+  // directly under an icon whose whole point is "you're not allowed to see
+  // this", the opposite claim. `accessDenied` gives them their own eyebrow.
+  it('renders the accessDenied eyebrow, not the noData default it used to fall through to', () => {
+    render(<EmptyState type="accessDenied" title="You can't manage user accounts" />)
+    expect(screen.getByText('Access Denied')).toBeInTheDocument()
+    expect(screen.queryByText('No Data')).not.toBeInTheDocument()
+  })
+
   it('renders action button when provided', () => {
     const onClick = () => {}
     render(

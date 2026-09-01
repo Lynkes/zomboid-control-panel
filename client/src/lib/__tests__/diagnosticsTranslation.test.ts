@@ -177,7 +177,7 @@ describe('translateDiagnosticCheck', () => {
       variant: 'linux',
     }
     const translated = translateDiagnosticCheck(check)
-    expect(translated.message).toBe('Impossible de localiser jre64/bin/java dans le chemin d\'installation. Le serveur risque de ne pas démarrer sauf si Java système est dans le PATH.')
+    expect(translated.message).toBe("Impossible de localiser jre64/bin/java dans le chemin d'installation. Vérifiez Java avec command -v java ; un service systemd peut utiliser un $PATH différent de votre shell de connexion.")
     expect(translated.hint).toBe('La plupart des installations embarquent un JRE sous jre64/. Relancez SteamCMD s\'il est manquant.')
   })
 

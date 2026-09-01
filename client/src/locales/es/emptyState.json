@@ -9,6 +9,7 @@
     "noSchedule": "Sin tareas programadas",
     "noMods": "Sin mods en seguimiento",
     "noMessages": "Sin mensajes",
-    "empty": "Vacío"
+    "empty": "Vacío",
+    "accessDenied": "Acceso denegado"
   }
 }

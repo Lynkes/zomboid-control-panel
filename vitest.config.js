@@ -35,6 +35,12 @@ import { defineConfig } from "vitest/config";
 // This is a slow-CI-affordance, not a defect mask: it does not touch any test that was failing for
 // a reason other than contention, and per-test overrides in individual test files still take
 // precedence where a narrower value is more appropriate.
+//
+// 2026-08-30, flake-class-fixed-margin-sync: if you re-run the busy-loop reproduction above to
+// verify a similar contention theory, remember this floor routinely runs several agents at once --
+// pegging every core starves all of them, not just your own terminal. One agent already had to kill
+// 14 busy-loop processes mid-investigation after noticing this. Only run it when the floor is idle,
+// and clean up the processes the moment you have your measurement.
 export default defineConfig({
   test: {
     setupFiles: ["./server/tests/vitest.perFileDataDir.setup.mjs"],

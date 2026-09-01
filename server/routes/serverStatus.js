@@ -8,7 +8,7 @@ import { sanitizeError } from "../utils/sanitize.js";
 import { getActiveServer } from "../database/init.js";
 import panelBridge from "../services/panelBridge.js";
 import { composeServerStatus, resolveProvider } from "../utils/serverStatusModel.js";
-import { resolveManagedContainer } from "../services/managedContainer.js";
+import { resolveDockerHostSignal } from "../services/managedContainer.js";
 
 const log = createLogger("API:ServerStatus");
 const router = express.Router();
@@ -28,6 +28,10 @@ router.get("/active/status", async (req, res) => {
     const rconService = req.app.get("rconService");
     const rconConfig = rconService?.getConfig ? rconService.getConfig() : {};
 
+    const provider = resolveProvider(server);
+    const isContainerProvider =
+      provider === "docker-local" || provider === "docker-managed";
+
     // A fresh check, not serverManager.isRunning -- that cached field is
     // forced to a confident `false` by ANY failed process-detection scan,
     // so reading it directly here made this endpoint (which feeds the
@@ -35,9 +39,26 @@ router.get("/active/status", async (req, res) => {
     // check on the exact same host, at the exact same moment. See
     // server/utils/serverStatusModel.js's buildHostSignal for how scanFailed
     // renders as "unknown" instead of a wrong "stopped".
-    const processDetails = typeof serverManager?.getServerProcessDetails === "function"
-      ? await serverManager.getServerProcessDetails()
-      : { running: !!serverManager?.isRunning, scanFailed: false };
+    let processDetails;
+    let dockerContainer = null;
+    if (isContainerProvider) {
+      const dockerClient = req.app.get("dockerClient");
+      // resolveDockerHostSignal is also what the status watchdog
+      // (server/index.js's getObservedServerRunning) calls for these same
+      // two providers -- one implementation so this route's dashboard
+      // badge and the watchdog's push-on-transition emit can never disagree
+      // about what "Docker says running" means for the same server at the
+      // same moment.
+      const dockerSignal = await resolveDockerHostSignal(server, dockerClient);
+      processDetails = dockerSignal;
+      dockerContainer = dockerSignal.scanFailed
+        ? { handled: true, error: "Docker container status unavailable" }
+        : { handled: true, running: dockerSignal.running };
+    } else {
+      processDetails = typeof serverManager?.getServerProcessDetails === "function"
+        ? await serverManager.getServerProcessDetails()
+        : { running: !!serverManager?.isRunning, scanFailed: false };
+    }
 
     // GH#114: PZ in this provider runs as PID 1 of a *different* container,
     // so the local process scan above can never see it -- it's asked for
@@ -46,15 +67,6 @@ router.get("/active/status", async (req, res) => {
     // managed container's own state instead, never the scan. See
     // buildHostSignal in serverStatusModel.js for the fail-closed handling
     // when Docker control is disabled/unavailable or the mapping is broken.
-    const provider = resolveProvider(server);
-    const dockerContainer =
-      provider === "docker-local" || provider === "docker-managed"
-        ? await resolveManagedContainer({
-            serverId: server.id,
-            dockerClient: req.app.get("dockerClient"),
-          })
-        : null;
-
     const status = composeServerStatus({
       server,
       isRunning: !!processDetails.running,

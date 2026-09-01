@@ -105,7 +105,12 @@ describe("POST /save-path", () => {
 
   beforeEach(() => {
     getActiveServer.mockReset();
-    updateServer.mockReset().mockResolvedValue(undefined);
+    // Real database/init.js semantics: updateServer() resolves to the
+    // updated server record on success, null if the id no longer exists.
+    // Defaulting to a truthy stand-in here (not undefined) matches that --
+    // the specific "server vanished mid-request" case below overrides this
+    // per-test with mockResolvedValueOnce(null).
+    updateServer.mockReset().mockResolvedValue({ id: "srv-1" });
     setSetting.mockReset().mockResolvedValue(undefined);
     getSetting.mockReset().mockResolvedValue(null);
     getRoleByName.mockClear();
@@ -213,6 +218,24 @@ describe("POST /save-path", () => {
       expect(res.getBody()).toMatchObject({ ok: true, target: "setting" });
       expect(setSetting).toHaveBeenCalledWith("zomboidDataPath", path.resolve(zomboidDir));
       expect(updateServer).not.toHaveBeenCalled();
+    });
+  });
+
+  // updateServer() returns null (not a thrown error) when the server id it
+  // was asked to update no longer exists -- e.g. the active server profile
+  // was deleted by a concurrent request between this route's getActiveServer()
+  // call and its updateServer() call. Before this fix, that return value was
+  // discarded and the route reported ok:true anyway even though nothing was
+  // written.
+  it("active server vanishes between lookup and write -> 404, not a false ok:true", async () => {
+    getActiveServer.mockResolvedValue({ id: "srv-1", name: "Main" });
+    updateServer.mockResolvedValueOnce(null);
+    const res = await postSavePath({ path: zomboidDir });
+
+    expect(res.getStatusCode()).toBe(404);
+    expect(res.getBody().ok).not.toBe(true);
+    expect(updateServer).toHaveBeenCalledWith("srv-1", {
+      zomboidDataPath: path.resolve(zomboidDir),
     });
   });
 

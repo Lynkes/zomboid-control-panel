@@ -2,6 +2,10 @@
   "permissions": {
     "noManage": "Cleaning up map chunks requires the chunks.manage permission, which this role doesn't have."
   },
+  "permissionDenied": {
+    "title": "You can't view Map Cleanup",
+    "description": "Your account's role doesn't include \"Manage map chunks\". Ask an administrator to grant it if you need access to this page."
+  },
   "pageHeader": {
     "title": "Map Cleanup",
     "description": "Reset damaged or over-looted map areas so the world can regenerate cleanly",
@@ -19,10 +23,14 @@
     "modifiedDaysAgo": "{{count}}d ago",
     "customPathHide": "Hide",
     "customPathShow": "Custom path...",
-    "customPathPlaceholder": "~/Zomboid  or  C:\\Users\\…\\Zomboid",
+    "customPathPlaceholder": "Path to the Zomboid data folder",
+    "customPathPlaceholderWindows": "%USERPROFILE%\\Zomboid or C:\\Users\\…\\Zomboid",
+    "customPathPlaceholderPosix": "$HOME/Zomboid or ~/Zomboid",
     "customPathAria": "Custom server path",
     "load": "Load",
-    "customPathHint": "Point at your Zomboid data folder, a <1>Saves/Multiplayer</1> folder, or a single save directory. <2>~</2> and environment vars (<3>%USERPROFILE%</3>, <4>$HOME</4>) are expanded.",
+    "customPathHint": "Point at your Zomboid data folder, a <1>Saves/Multiplayer</1> folder, or a single save directory.",
+    "customPathHintWindows": "Point at your Zomboid data folder, a <1>Saves/Multiplayer</1> folder, or a single save directory. Windows variables such as <3>%USERPROFILE%</3> are expanded.",
+    "customPathHintPosix": "Point at your Zomboid data folder, a <1>Saves/Multiplayer</1> folder, or a single save directory. <2>~</2>, <4>$HOME</4>, and ${NAME} variables are expanded.",
     "saveAsDefaultTitle": "Make this the panel's default Zomboid data folder so you don't have to re-enter it.",
     "saveAsDefault": "Save as default",
     "saving": "Saving...",
@@ -51,7 +59,8 @@
     "selectionNone": "None",
     "all": "All",
     "clear": "Clear",
-    "invert": "Invert"
+    "invert": "Invert",
+    "selectAllTip": "\"All\" selects every chunk this save has ever generated, not just the ones visible on screen right now. Deleting that selection resets the entire map."
   },
   "deleteButton_one": "Delete {{count}} Chunk",
   "deleteButton_other": "Delete {{count}} Chunks",
@@ -145,6 +154,8 @@
     "pathSavedTitle": "Path Saved",
     "liveVehicleCleanupNoPermissionTitle": "Live Vehicle Cleanup Skipped",
     "liveVehicleCleanupNoPermissionDesc": "Chunks and their vehicle records were deleted. Removing already-loaded vehicles from the live server needs the bridge.command permission, which this role doesn't have -- an admin can grant it, or a stale vehicle will disappear on its own next time the area reloads.",
+    "liveVehicleCleanupTooFragmentedTitle": "Live Vehicle Cleanup Skipped",
+    "liveVehicleCleanupTooFragmentedDesc": "Chunks and their vehicle records were deleted. This selection was too scattered to sync live vehicles for -- a stale vehicle will disappear on its own next time the area reloads.",
     "pathSavedServerDesc": "Saved to the active server config — the panel will use this path next time.",
     "pathSavedPanelDesc": "Saved to panel settings.",
     "pathSaveFailedTitle": "Could Not Save Path",

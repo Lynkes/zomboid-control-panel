@@ -22,6 +22,7 @@
       "STOP_TIMEOUT": "服务器未在 5 分钟内停止。",
       "STEAMCMD_NOT_FOUND": "在 {{path}} 未找到 SteamCMD。",
       "STEAMCMD_EXIT_CODE": "SteamCMD 以代码 {{code}} 退出。",
+      "STEAM_OPERATION_IN_PROGRESS": "{{path}} 已经在进行 Steam 安装或更新，因此已放弃本次自动更新以避免冲突。",
       "UNKNOWN": "自动更新过程中发生了意外错误。"
     }
   },
@@ -34,6 +35,7 @@
     "ariaLabel": "服务器状态",
     "everythingNominal": "一切正常",
     "upPrefix": "已运行 {{uptime}}",
+    "mapTooltip": "地图（来自 PanelBridge）",
     "remoteBadge": "远程",
     "noActiveServer": "没有活动服务器"
   },
@@ -171,6 +173,11 @@
     "applyUpdate": "应用更新",
     "viewUpdate": "查看更新"
   },
+  "updateCheckError": {
+    "label": "无法检查面板更新",
+    "dismissAria": "关闭更新检查提示",
+    "dismissTooltip": "关闭，直到情况发生变化"
+  },
   "connectionError": {
     "label": "连接错误",
     "suffix": "。部分功能可能不可用。",
@@ -220,6 +227,9 @@
     "live": "实时",
     "lastSecondsLive": "最近 {{seconds}} 秒 · 实时",
     "lastMinutesLive": "最近 {{minutes}} 分钟 · 实时",
+    "unconfirmed": "未确认",
+    "lastSecondsUnconfirmed": "最近 {{seconds}} 秒 · 未确认",
+    "lastMinutesUnconfirmed": "最近 {{minutes}} 分钟 · 未确认",
     "placeholderOnline": "遥测数据将在下一个采样周期内显示。",
     "placeholderOffline": "启动服务器以追踪 CPU、内存和玩家指标。"
   },
@@ -246,6 +256,7 @@
   },
   "workItems": {
     "players": "玩家",
+    "zombies": "丧尸",
     "console": "控制台",
     "mods": "模组",
     "schedule": "计划任务",

@@ -83,6 +83,45 @@ describe("redactRconSecretsForWrite", () => {
 
     expect(fs.statSync(filePath).mtimeMs).toBe(mtimeBefore);
   });
+
+  // bughunt-2026-08-31-c (server/utils sweep): the truthy check this used
+  // to be (`if (server.rconPassword)`) treated an operator clearing the
+  // password via PUT /servers/:id -- which persists an explicit "" the
+  // same as any other value -- identically to the field never having been
+  // touched at all. writeServerSecret(), the only thing that ever deletes
+  // the sibling .secret file, was never called, so the stale file survived
+  // and rehydrateRconSecrets() read the OLD password back in on the very
+  // next load. See the round-trip describe block below for the full
+  // restart-survives-a-clear scenario this enables.
+  it("clearing rconPassword to '' deletes the sibling secret file instead of leaving it orphaned", () => {
+    const data = {
+      servers: [{ id: "srv-4", rconPassword: "will-be-cleared" }],
+      settings: {},
+    };
+    redactRconSecretsForWrite(data);
+    const filePath = path.join(tmpDir, "server-secrets", "srv-4.secret");
+    expect(fs.existsSync(filePath)).toBe(true);
+
+    redactRconSecretsForWrite({
+      servers: [{ id: "srv-4", rconPassword: "" }],
+      settings: {},
+    });
+
+    expect(fs.existsSync(filePath)).toBe(false);
+  });
+
+  it("clearing settings.rconPassword (legacy mirror) to '' deletes its secret file too, same bug, same fix", () => {
+    redactRconSecretsForWrite({
+      servers: [],
+      settings: { rconPassword: "will-be-cleared" },
+    });
+    const filePath = path.join(tmpDir, "rconPassword.secret");
+    expect(fs.existsSync(filePath)).toBe(true);
+
+    redactRconSecretsForWrite({ servers: [], settings: { rconPassword: "" } });
+
+    expect(fs.existsSync(filePath)).toBe(false);
+  });
 });
 
 describe("rehydrateRconSecrets", () => {
@@ -156,6 +195,33 @@ describe("redact -> rehydrate round trip (simulates a full restart)", () => {
     const rehydrated = rehydrateRconSecrets(afterRestart);
 
     expect(rehydrated.servers[0].rconPassword).toBe("survives-a-restart");
+  });
+
+  // bughunt-2026-08-31-c: the scenario the two "clearing to ''" tests above
+  // exist to prevent, run end to end the way an operator would actually hit
+  // it -- set a password, restart (persists it), clear it, restart again.
+  // Pre-fix this failed at the last line: rconPassword came back as
+  // "original-password", the exact silent-clear-doesn't-stick defect.
+  it("a cleared password does not come back on the NEXT restart after that", () => {
+    const beforeFirstRestart = {
+      servers: [{ id: "srv-1", rconPassword: "original-password" }],
+      settings: {},
+    };
+    redactRconSecretsForWrite(beforeFirstRestart);
+
+    // Operator clears it via PUT /servers/:id sometime after the first restart.
+    const beforeSecondRestart = {
+      servers: [{ id: "srv-1", rconPassword: "" }],
+      settings: {},
+    };
+    redactRconSecretsForWrite(beforeSecondRestart);
+
+    const afterSecondRestart = rehydrateRconSecrets({
+      servers: [{ id: "srv-1" }],
+      settings: {},
+    });
+
+    expect(afterSecondRestart.servers[0].rconPassword).toBeUndefined();
   });
 });
 

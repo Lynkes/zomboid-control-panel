@@ -80,30 +80,4 @@ export default tseslint.config(
       'local/no-unguarded-capability-menu-item': 'warn',
     },
   },
-  {
-    // Known debt at 2026-08-26, listed explicitly so the count can only go
-    // DOWN: every file with at least one existing raw-error-message toast/
-    // error-state site as of this rule landing, downgraded to a warning here
-    // so the client gate (`npm run lint`, 0 ERRORS) stays green at HEAD
-    // without silencing the rule everywhere. As a file's sites get converted
-    // to getUserErrorMessage(), remove it from this list in the SAME commit
-    // -- if a site is ever missed, removing the file immediately turns it
-    // back into a hard error instead of silently staying clean. Do not add a
-    // file here that wasn't already in this list when the rule landed; a
-    // new file starts under the 'error' severity above like everything else.
-    files: [
-      'src/App.tsx',
-      'src/pages/ChunkCleaner.tsx',
-      'src/pages/Dashboard.tsx',
-      'src/pages/Players.tsx',
-      'src/pages/ServerSetup.tsx',
-      'src/pages/WorldMap.tsx',
-      'src/components/DiscoverySetup.tsx',
-      'src/components/FolderBrowser.tsx',
-      'src/components/mods/ConflictsPanel.tsx',
-    ],
-    rules: {
-      'local/no-raw-error-message': 'warn',
-    },
-  },
 )

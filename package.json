@@ -1,6 +1,6 @@
 {
   "name": "pz-server-manager",
-  "version": "1.2.8",
+  "version": "1.2.10",
   "description": "Project Zomboid Server Manager - Web-based admin panel",
   "main": "server/index.js",
   "type": "module",
@@ -19,7 +19,15 @@
     "test:watch": "vitest server/tests",
     "test:server": "vitest run server/tests",
     "test:client": "cd client && npx vitest run",
-    "lint:server": "eslint server eslint-rules --max-warnings=0"
+    "lint:server": "eslint server eslint-rules --max-warnings=0",
+    "ui:shot-tour": "node scripts/ui-shot-tour.mjs",
+    "check:engine-signatures": "node scripts/check-engine-signatures.mjs",
+    "gen:engine-signatures": "node scripts/gen-engine-signatures.mjs",
+    "check:i18n-staleness": "node scripts/i18n-staleness-check.mjs",
+    "check:bridge-actions": "node scripts/audit-bridge-actions.mjs .",
+    "check:bridge-routes": "node scripts/audit-bridge-routes.mjs .",
+    "check:rcon-commands": "node scripts/audit-rcon-commands.mjs .",
+    "check:i18n": "node scripts/i18n-check.mjs --all"
   },
   "dependencies": {
     "archiver": "^7.0.1",
@@ -54,6 +62,7 @@
     "globals": "^14.0.0",
     "jose": "^6.2.10",
     "nodemon": "^3.1.14",
+    "playwright": "^1.62.1",
     "vitest": "^4.1.11"
   },
   "overrides": {

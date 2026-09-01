@@ -30,6 +30,27 @@ const root = path.resolve(__dirname, "..");
 const enDir = path.join(root, "client/src/locales/en");
 const frDir = path.join(root, "client/src/locales/fr");
 
+// Baseline for --all's suspicious-duplicate findings: 43 of the 44 raw
+// findings as of 2026-08-31 were individually reviewed and are legitimate
+// (see scripts/i18n-duplicates.baseline.json's header for the taxonomy and
+// the triage rule). Keyed by namespace+frValue, same class+method-style
+// stability as scripts/engine-signatures.baseline.json -- a rename or
+// reformat doesn't need a baseline update. Missing baseline file is not a
+// hard error; --all just reports everything as NEW in that case.
+const BASELINE_PATH = path.join(__dirname, "i18n-duplicates.baseline.json");
+let baselineEntries = [];
+if (fs.existsSync(BASELINE_PATH)) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(BASELINE_PATH, "utf8"));
+    baselineEntries = Array.isArray(parsed.entries) ? parsed.entries : [];
+  } catch (err) {
+    console.error(`Malformed baseline at ${path.relative(root, BASELINE_PATH)}: ${err.message}`);
+    process.exit(1);
+  }
+}
+const baselineKey = (ns, value) => `${ns}::${value}`;
+const baselineByKey = new Map(baselineEntries.map((e) => [baselineKey(e.ns, e.value), e]));
+
 function flatten(o, p = "") {
   let out = [];
   for (const k in o) {
@@ -151,9 +172,11 @@ function reportSuspicious(suspicious) {
 
 function checkAllNamespaces() {
   const files = fs.readdirSync(enDir).filter((f) => f.endsWith(".json"));
-  let totalSuspicious = 0;
   let totalIdenticalEn = 0;
   let totalCaseOnlyEn = 0;
+  const allBaselined = [];
+  const allNew = [];
+  const matchedBaselineKeys = new Set();
   for (const f of files) {
     const ns = f.replace(/\.json$/, "");
     const nsData = loadNamespace(ns);
@@ -176,14 +199,46 @@ function checkAllNamespaces() {
         totalCaseOnlyEn++;
       }
     }
-    totalSuspicious += suspicious.length;
-    if (suspicious.length) reportSuspicious(suspicious);
+    for (const s of suspicious) {
+      const key = baselineKey(ns, s.value);
+      const entry = baselineByKey.get(key);
+      if (entry) {
+        matchedBaselineKeys.add(key);
+        allBaselined.push({ s, entry });
+      } else {
+        allNew.push(s);
+      }
+    }
   }
+
+  console.log("");
+  if (allNew.length) {
+    console.log(`${allNew.length} NEW SUSPICIOUS FRENCH DUPLICATE(S) (not in ${path.relative(root, BASELINE_PATH)}):`);
+    reportSuspicious(allNew);
+  }
+  if (allBaselined.length) {
+    console.log(`already-baselined: ${allBaselined.length} duplicate group(s)`);
+  }
+  const unmatched = baselineEntries.filter((e) => !matchedBaselineKeys.has(baselineKey(e.ns, e.value)));
+  if (unmatched.length) {
+    console.log(
+      `NOTE: ${unmatched.length} baseline entr${unmatched.length === 1 ? "y" : "ies"} matched nothing this run ` +
+      `(does not fail the gate -- the duplicate may have been fixed or reworded; safe to delete once confirmed):`,
+    );
+    for (const e of unmatched) console.log(`  [${e.ns}] ${JSON.stringify(e.value)}`);
+  }
+
   console.log("");
   console.log(`Namespaces scanned: ${files.length}`);
   console.log(`Benign duplicate groups, identical EN source: ${totalIdenticalEn}`);
   console.log(`Benign duplicate groups, EN differs only by case/whitespace: ${totalCaseOnlyEn}`);
-  console.log(`Suspicious duplicate groups, EN differs meaningfully: ${totalSuspicious}`);
+  console.log(`Suspicious duplicate groups, EN differs meaningfully: ${allBaselined.length + allNew.length} (${allBaselined.length} baselined, ${allNew.length} new)`);
+
+  if (allNew.length) {
+    console.error(`\nFAIL: ${allNew.length} suspicious French duplicate(s) not accounted for by the baseline.`);
+    process.exit(1);
+  }
+  console.log(`\nPASS: no NEW suspicious French duplicates (${allBaselined.length} previously-reviewed finding(s) accounted for by the baseline).`);
 }
 
 const args = process.argv.slice(2);

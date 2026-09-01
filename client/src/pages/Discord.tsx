@@ -60,6 +60,8 @@ import {
   Lock,
   Trash2,
   Info,
+  WifiOff,
+  X,
 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 
@@ -70,6 +72,14 @@ interface DiscordStatus {
   username?: string;
   error?: string;
   lastStartError?: { kind: string | null; message: string } | null;
+  // Debounced server-side against a routine, self-healing reconnect (a few
+  // seconds) -- true only once the gateway connection has been unhealthy
+  // for a sustained stretch. See services/discordBot.js's getStatus().
+  gatewayIssue?: boolean;
+  // ISO timestamp this specific degraded episode started, or null when
+  // healthy -- used as the dismissal key so dismissing THIS episode doesn't
+  // silence a later, different one.
+  gatewayDegradedSince?: string | null;
 }
 
 interface DiscordConfig {
@@ -226,6 +236,8 @@ function getSetupSteps(t: TFunction) {
   ];
 }
 
+const GATEWAY_ISSUE_DISMISSED_KEY = "pz-discord-gateway-issue-dismissed";
+
 export default function Discord() {
   const { t } = useTranslation("discord");
   const eventLabels = useMemo(() => getEventLabels(t), [t]);
@@ -241,6 +253,21 @@ export default function Discord() {
   const { can } = useAuth();
   const canManageIntegrations = can("integrations.manage");
   const [status, setStatus] = useState<DiscordStatus | null>(null);
+  // Stores the exact gatewayDegradedSince episode key that was dismissed,
+  // not a boolean -- same reasoning as Dashboard.tsx's
+  // PANEL_UPDATE_ERROR_DISMISSED_KEY: a later, DIFFERENT degraded episode
+  // gets a new "since" timestamp and re-surfaces on its own, while
+  // dismissing the current one persists across a reload (localStorage, not
+  // sessionStorage).
+  const [gatewayIssueDismissed, setGatewayIssueDismissed] = useState<
+    string | null
+  >(() => {
+    try {
+      return localStorage.getItem(GATEWAY_ISSUE_DISMISSED_KEY);
+    } catch {
+      return null;
+    }
+  });
   const [config, setConfig] = useState<DiscordConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -745,11 +772,21 @@ export default function Discord() {
                     }`}
                   >
                     {isDone ? (
-                      <Check className="w-4 h-4" />
+                      <Check className="w-4 h-4 shrink-0" />
                     ) : (
-                      <Icon className="w-4 h-4" />
+                      <Icon className="w-4 h-4 shrink-0" />
                     )}
-                    <span className="hidden md:inline">{step.label}</span>
+                    {/* Used to be hidden below `md`, leaving 6 bare icon
+                        buttons on mobile (lightning/briefcase/eye/person+/
+                        hash/play) with no text anywhere to say what step
+                        each one is -- "Intents" and "Server IDs" aren't
+                        guessable from their icons alone. The row already
+                        scrolls (overflow-x-auto on the parent, shrink-0
+                        here) rather than wrapping or truncating, so keeping
+                        the label uses the scroll behavior this stepper was
+                        already built with instead of fighting it (2026-08-31
+                        quality pass). */}
+                    <span className="whitespace-nowrap">{step.label}</span>
                   </button>
                 </DisabledReason>
                 {i < SETUP_STEPS.length - 1 && (
@@ -1577,6 +1614,44 @@ export default function Discord() {
                 </p>
               </div>
             )}
+
+            {/* Gateway connectivity degraded (quiet) -- deliberately NOT the
+                accented-destructive treatment above: the bot is still
+                running, it just hasn't been able to confirm its connection
+                is healthy for a while. Server-side debounce already ruled
+                out a routine, self-healing reconnect (a few seconds) before
+                this ever appears, so unlike status.error this is real
+                information worth a look, not an alarm -- muted icon + text
+                + a dismiss X, same quiet treatment as Dashboard.tsx's
+                update-check-error indicator. */}
+            {status?.gatewayIssue &&
+              status.gatewayDegradedSince &&
+              gatewayIssueDismissed !== status.gatewayDegradedSince && (
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  <WifiOff className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+                  <span className="min-w-0">
+                    {t("management.gatewayIssue.label")}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const since = status.gatewayDegradedSince;
+                      if (!since) return;
+                      try {
+                        localStorage.setItem(GATEWAY_ISSUE_DISMISSED_KEY, since);
+                      } catch {
+                        /* ignore storage failures */
+                      }
+                      setGatewayIssueDismissed(since);
+                    }}
+                    aria-label={t("management.gatewayIssue.dismissAria")}
+                    title={t("management.gatewayIssue.dismissTooltip")}
+                    className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground/60 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              )}
 
             <div className="flex gap-2">
               {status?.running ? (

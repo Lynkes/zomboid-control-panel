@@ -15,6 +15,7 @@
   "tabs": {
     "diagnostics": "Diagnostics",
     "worldMap": "World Map",
+    "bridge": "PanelBridge",
     "performance": "Performance",
     "activity": "Activity",
     "logs": "Logs",
@@ -49,7 +50,7 @@
     "modsResolved": {
       "labelWithCount": "Review {{count}} unresolved",
       "labelGeneric": "Review unresolved",
-      "note": "Fix orphan Workshop items first (below), then re-run diagnostics. Disable manually only if entries truly don’t resolve after downloads finish."
+      "note": "Let Workshop downloads finish, then re-run diagnostics. If an ID still does not resolve, correct or remove it from Mods=."
     },
     "modsOrphanWorkshop": {
       "labelWithCount": "Auto-fix {{count}} Workshop IDs",
@@ -93,6 +94,10 @@
       "label": "Open Server Config",
       "note": "Configure server settings to generate or repair the .ini files."
     },
+    "serverSandboxVars": {
+      "label": "Create SandboxVars.lua",
+      "note": "Writes a fresh sandbox settings file with default values so it exists and is editable. Restart the server to apply."
+    },
     "serverSandboxCorrupt": {
       "label": "Repair SandboxVars.lua",
       "note": "Attempts an automated repair (missing block header/comma). A backup of the broken file is saved first. If the corruption doesn’t match a known pattern, nothing is written."
@@ -122,13 +127,17 @@
       "label": "Reconnect RCON",
       "note": "Tries to reconnect to RCON using the saved password. If it still fails, check that the password in Server Config matches Settings, then restart the server."
     },
+    "modCheckerStopped": {
+      "label": "Start mod checker",
+      "note": "Resumes Steam Workshop update polling using the already-configured settings."
+    },
     "servicesStuck": {
       "label": "Open Settings",
       "note": "Restarting the panel usually clears stuck services."
     },
     "discordBot": {
-      "label": "Open Discord",
-      "note": "Check the bot token and intents in Discord settings."
+      "retryLabel": "Reconnect bot",
+      "note": "Retries the connection using the saved bot token. If it still fails, check the token and intents in Discord settings."
     },
     "bridgeConfigured": {
       "label": "Auto-configure bridge",
@@ -141,6 +150,10 @@
     "dbExistsOrWritable": {
       "label": "Open Settings",
       "note": "Verify the data directory path exists and the panel can write to it."
+    },
+    "dbWritable": {
+      "label": "Clear read-only attribute",
+      "note": "Attempts to clear the read-only file attribute on db.json and re-checks. Won't help with an ownership or permissions (ACL) issue."
     },
     "dbBackup": {
       "label": "Create database backup",
@@ -276,6 +289,14 @@
     "sandboxRepairedTitle": "SandboxVars.lua repaired",
     "sandboxRepairedFallback_one": "Applied {{count}} fix.{{restartHint}}",
     "sandboxRepairedFallback_other": "Applied {{count}} fixes.{{restartHint}}",
+    "sandboxCreatedTitle": "SandboxVars.lua created",
+    "sandboxCreatedFallback": "Default sandbox settings file created.",
+    "dbWritableFixedTitle": "Database file writable",
+    "dbWritableFixedFallback": "Read-only attribute cleared.",
+    "modCheckerStartedTitle": "Mod checker started",
+    "modCheckerStartedFallback": "Workshop update polling resumed.",
+    "discordReconnectedTitle": "Discord bot reconnected",
+    "discordReconnectedFallback": "Bot connection re-established.",
     "noNumericIdsError": "No numeric Mods= entries were provided by diagnostics.",
     "noOrphanWorkshopError": "No orphan Workshop IDs were provided by diagnostics.",
     "checks": {
@@ -368,12 +389,12 @@
           "warn": {
             "linux": {
               "label": "Bundled JRE not found",
-              "message": "Could not locate jre64/bin/{{javaBin}} under the install path. Server may fail to start unless system Java is on PATH.",
+              "message": "Could not locate jre64/bin/{{javaBin}} under the install path. Check system Java with command -v java; a systemd service may have a different $PATH from your login shell.",
               "hint": "Most installs ship a JRE under jre64/. Re-run SteamCMD if missing."
             },
             "windows": {
               "label": "Bundled JRE not found",
-              "message": "Could not locate jre64/bin/{{javaBin}} under the install path. Server may fail to start unless system Java is on PATH.",
+              "message": "Could not locate jre64/bin/{{javaBin}} under the install path. Run where java to check whether system Java is available through %PATH%.",
               "hint": "Re-run SteamCMD to restore the bundled JRE"
             }
           }
@@ -880,11 +901,11 @@
         "resolved": {
           "ok": {
             "label": "Mods= entries all resolve",
-            "message": "{{count}} mod(s) listed, all match an installed Workshop or local mod folder."
+            "message": "{{count}} mod(s) listed, all match an installed Workshop or local mod ID."
           },
           "fail": {
             "label": "Mods= entries do not resolve",
-            "message": "{{count}} of {{total}} Mods= entries don't match any installed mod folder: {{list}}.",
+            "message": "{{count}} of {{total}} Mods= entries don't match any installed Workshop or local mod ID: {{list}}.",
             "hint": "Usually a typo, missing WorkshopItems= ID, or the mod hasn't finished downloading. Fix in Server Config."
           }
         },
@@ -1311,6 +1332,8 @@
     "downloadFailedDesc": "Failed to download logs",
     "downloadFileFailedDesc": "Failed to download {{name}}",
     "downloadArchiveFailedDesc": "Failed to download log archive",
+    "supportBundleReadyTitle": "Support bundle downloaded",
+    "supportBundleReadyDesc": "It contains real logs. Known credential shapes are redacted, but that's not a guarantee — review before sharing outside your team.",
     "logEntryCopiedDesc": "Log entry copied to clipboard."
   },
   "crashesTab": {
@@ -1361,7 +1384,11 @@
   "healthTab": {
     "systemStatusTitle": "System Status",
     "healthy": "Healthy",
+    "checking": "Checking...",
     "issuesDetected": "Issues Detected",
+    "rconOffline": "RCON Disconnected",
+    "gameServerOffline": "Game Server Stopped",
+    "rconAndServerOffline": "RCON Disconnected · Game Server Stopped",
     "lastChecked": "Last checked {{time}}",
     "neverChecked": "Never checked",
     "autoRefreshes": "Auto-refreshes every 30s",
@@ -1390,6 +1417,7 @@
     "platform": "Platform",
     "uptime": "Uptime",
     "memory": "Memory",
+    "unavailable": "Unavailable",
     "ofHeap": "of {{total}} heap",
     "filePathsTitle": "File Paths",
     "filePathsDesc": "Data and log file locations.",
@@ -1410,5 +1438,59 @@
     "pathsUpdatedTitle": "Paths Updated",
     "enterAtLeastOnePath": "Please enter at least one path",
     "updatePathsFailedFallback": "Failed to update paths"
+  },
+  "bridgeTab": {
+    "heading": "PanelBridge mod diagnostics",
+    "headingDesc": "Live status, stats, and self-tests for the in-game mod itself -- separate from the World Map tab's map-specific checks.",
+    "permissionDeniedTitle": "You can't view bridge diagnostics",
+    "permissionDeniedDesc": "Your account's role doesn't include \"PanelBridge diagnostics\". Ask an administrator to grant it if you need access to this tab.",
+    "notConnectedDesc": "The PanelBridge mod isn't connected. Start the PZ server with the mod installed to see live data here.",
+    "notYetProbed": "Not checked yet.",
+    "offlineNoData": "Bridge is offline -- no data to show.",
+    "statsTitle": "Stats",
+    "statsDesc": "Command counts, uptime, detected build, debug mode, and the error log.",
+    "versionLabel": "Mod version",
+    "uptimeLabel": "Uptime",
+    "commandsLabel": "Commands OK / total",
+    "commandsFailedLabel": "Commands failed",
+    "detectedVersionLabel": "Detected build",
+    "detectedVersionCaveat": "Determined from the mod's build-string parse -- its reliable primary detection path, not a fallback. Live weather-feature flags (blizzard/tropical) can't be safely confirmed without actually triggering a real weather event, so they're left out entirely here rather than shown as a possibly-wrong false.",
+    "debugModeLabel": "Debug mode",
+    "debugModeDesc": "Verbose logging on the mod side. Safe to toggle -- affects log volume only.",
+    "debugModeEnabledTitle": "Bridge debug mode enabled",
+    "debugModeDisabledTitle": "Bridge debug mode disabled",
+    "noPermission": "Your role doesn't have \"PanelBridge diagnostics\" permission.",
+    "errorLogLabel_one": "{{count}} recent error",
+    "errorLogLabel_other": "{{count}} recent errors",
+    "noErrorsToClear": "No errors to clear.",
+    "clearErrorsButton": "Clear error log",
+    "clearErrorsConfirmTitle": "Clear the bridge's error log?",
+    "clearErrorsConfirmDesc": "This clears the mod's in-memory error log. It doesn't fix anything -- just resets the count.",
+    "clearErrorsConfirmButton": "Clear",
+    "clearErrorsSuccessTitle": "Error log cleared",
+    "checkApiTitle": "Check API",
+    "checkApiDesc": "Probe whether a specific game object -- and optionally one of its methods -- is available on this build.",
+    "checkApiObjectLabel": "Object",
+    "checkApiMethodLabel": "Method (optional)",
+    "checkApiMethodPlaceholder": "e.g. getTemperature",
+    "checkApiRunButton": "Check",
+    "checkApiAvailable": "Available",
+    "checkApiUnavailable": "Not available",
+    "handlersTitle": "Available handlers",
+    "handlersDesc": "Every command this build of the mod currently registers.",
+    "handlersRunButton": "Load handlers",
+    "handlersSearchPlaceholder": "Filter handlers…",
+    "handlersCount": "{{shown}} / {{total}}",
+    "debugLogTitle": "Debug log",
+    "debugLogDesc": "Recent entries from the mod's own ring-buffer log, newest first.",
+    "debugLogLimitLabel": "Limit",
+    "debugLogLevelLabel": "Min level",
+    "debugLogRunButton": "Fetch log",
+    "debugLogShown": "{{shown}} of {{total}} total entries",
+    "debugLogEmpty": "No entries at this level.",
+    "selfTestTitle": "Run bridge self-test",
+    "selfTestDesc": "Probes a fixed set of engine methods against the first 3 items in the catalog -- a quick read of whether this build still speaks the mod's language. Read-only, no input needed.",
+    "selfTestRunButton": "Run self-test",
+    "selfTestItemColumn": "Item"
   }
 }

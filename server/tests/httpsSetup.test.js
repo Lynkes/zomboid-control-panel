@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import net from "net";
-import { setupHttpsServer } from "../index.js";
+import { setupHttpsServer, isHttpsServerActive } from "../index.js";
 
 // Regression coverage for the HTTPS-boot crash: a bad httpsCertPath/
 // httpsKeyPath/httpsPort saved via Settings used to be able to take the
@@ -114,6 +114,19 @@ describe("setupHttpsServer -- boot must never crash the process", () => {
       });
     });
     expect(server.listening).toBe(false);
+    // bug hunt 2026-08-31-c (under-coverage sweep): the title's own
+    // parenthetical -- "(server nulls itself out)" -- names the module-level
+    // `httpsServer` binding setupHttpsServer() resets on this error path, a
+    // DIFFERENT reference from the `server` object this test already holds
+    // (that local reference's own `.listening` going false above proves the
+    // "fails closed" half, but can never prove the module's own state was
+    // reset -- reassigning a module-level variable doesn't touch a
+    // caller's separately-held reference to the old value). Without this,
+    // a regression that dropped the `httpsServer = null` reassignment
+    // (e.g. leaving the boot-banner's later `if (httpsServer)` check lying
+    // about HTTPS availability after a failed bind) would pass this test
+    // unnoticed.
+    expect(isHttpsServerActive()).toBe(false);
   });
 
   it("an out-of-range httpsPort does NOT crash -- fails closed synchronously", () => {

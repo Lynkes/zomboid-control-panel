@@ -22,6 +22,7 @@ import {
   CheckCircle2,
   XCircle,
   HelpCircle,
+  ShieldAlert,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/PageHeader";
@@ -29,6 +30,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { HelpTip } from "@/components/HelpTip";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -61,12 +63,14 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { chunksApi, serversApi, panelBridgeApi, ApiError } from "@/lib/api";
+import { chunksApi, serversApi, panelBridgeApi, mapApi, ApiError } from "@/lib/api";
+import { buildTileQuery } from "./worldMapTileUrl";
 import { getUserErrorMessage } from "@/lib/errorMessage";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useSocket } from "@/contexts/SocketContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { DisabledReason } from "@/components/DisabledReason";
+import { platformTranslationKey, useRuntimeInfo } from "@/hooks/useRuntimeInfo";
 
 interface SaveInfo {
   name: string;
@@ -183,6 +187,94 @@ function formatSize(bytes: number): string {
   return `${bytes} B`;
 }
 
+// A single bounding box across a non-contiguous chunk selection covers
+// chunks the operator never selected -- handleDelete's live vehicle-removal
+// step used to send exactly one such box (2026-08-31 bug hunt), so a
+// removeVehiclesInArea call for e.g. two chunks nine apart swept every
+// chunk in between too, since PanelBridge.lua's handler takes only
+// {minX,minY,maxX,maxY} with no chunk-list awareness. It accepts one
+// rectangle per call, so decompose the selection into the minimal set of
+// rectangles whose UNION is EXACTLY the selected chunks, then send one
+// call per rectangle instead of one call for the whole extent.
+//
+// Not a general minimal-rectangle-cover solver (that's NP-hard) -- the
+// simple version: per-row contiguous X runs, merged vertically when
+// consecutive rows share an identical run. A single solid rectangular
+// drag-select (the overwhelmingly common case) collapses back to exactly
+// one rectangle, same as before this existed.
+function decomposeIntoRectangles(
+  selectedChunks: Set<string>,
+): Array<{ minX: number; minY: number; maxX: number; maxY: number }> {
+  // `new globalThis.Map`, not `new Map` -- this file imports Lucide's `Map`
+  // icon under that exact name, which shadows the global Map constructor
+  // (same fix WorldMap.tsx already applies for its own player-position map).
+  const rowsMap = new globalThis.Map<number, number[]>();
+  for (const key of selectedChunks) {
+    const [xStr, yStr] = key.split("_");
+    const x = Number(xStr);
+    const y = Number(yStr);
+    const row = rowsMap.get(y);
+    if (row) row.push(x);
+    else rowsMap.set(y, [x]);
+  }
+
+  // Per-row contiguous X runs -> horizontal strips.
+  const strips: Array<{ y: number; xStart: number; xEnd: number }> = [];
+  for (const [y, xsRaw] of rowsMap) {
+    const xs = [...xsRaw].sort((a, b) => a - b);
+    let runStart = xs[0];
+    let prev = xs[0];
+    for (let i = 1; i <= xs.length; i++) {
+      const cur = xs[i];
+      if (cur === prev + 1) {
+        prev = cur;
+        continue;
+      }
+      strips.push({ y, xStart: runStart, xEnd: prev });
+      if (cur !== undefined) {
+        runStart = cur;
+        prev = cur;
+      }
+    }
+  }
+
+  // Merge vertically-adjacent strips that share an identical X range.
+  const byRange = new globalThis.Map<string, number[]>();
+  for (const s of strips) {
+    const k = `${s.xStart}_${s.xEnd}`;
+    const ys = byRange.get(k);
+    if (ys) ys.push(s.y);
+    else byRange.set(k, [s.y]);
+  }
+  const rects: Array<{ minX: number; minY: number; maxX: number; maxY: number }> = [];
+  for (const [k, ysRaw] of byRange) {
+    const [xStart, xEnd] = k.split("_").map(Number);
+    const ys = [...ysRaw].sort((a, b) => a - b);
+    let runStart = ys[0];
+    let prev = ys[0];
+    for (let i = 1; i <= ys.length; i++) {
+      const cur = ys[i];
+      if (cur === prev + 1) {
+        prev = cur;
+        continue;
+      }
+      rects.push({ minX: xStart, minY: runStart, maxX: xEnd, maxY: prev });
+      if (cur !== undefined) {
+        runStart = cur;
+        prev = cur;
+      }
+    }
+  }
+  return rects;
+}
+
+// A selection this fragmented (e.g. Invert Selection on a large save) would
+// mean this many individual bridge round-trips for a step that's already
+// best-effort/cosmetic (see the comment above its call site) -- past this,
+// skip live sync and say so rather than silently issuing a long burst of
+// commands. The authoritative vehicles.db cleanup is unaffected either way.
+const MAX_VEHICLE_REMOVAL_RECTS = 40;
+
 function findFirstRenderableChunkIndex(
   chunks: ChunkInfo[],
   minX: number,
@@ -224,6 +316,7 @@ function findLastRenderableChunkIndex(
 
 export default function ChunkCleaner() {
   const { t, i18n } = useTranslation("chunkCleaner");
+  const runtimeInfo = useRuntimeInfo();
   const { theme } = useTheme();
   const socket = useSocket();
   const { can } = useAuth();
@@ -232,6 +325,21 @@ export default function ChunkCleaner() {
   // both, unlike WorldMap's mixed bridge.command/players.gm_tools/
   // server.world_events split (2026-08-27 bug-hunt capability trace).
   const canManageChunks = can("chunks.manage");
+  // 41fa20a3 gated every chunks.js READ route (saves/suggested-paths/
+  // chunks/stats/browse) behind chunks.manage, previously unpermissioned.
+  // Set from a REAL 403 on fetchSaves' mount-time call, not the client-side
+  // canManageChunks guess above -- same precedent as Mods.tsx/Users.tsx/
+  // RolesPermissions.tsx/OidcSettings.tsx/Debug.tsx (28bfb0c), and for the
+  // same reason their own comments give: a stale/wrong local capability
+  // read would either wrongly hide a page the user CAN use, or (worse)
+  // silently skip surfacing that access was genuinely denied. loadChunks
+  // below still guards on canManageChunks directly, matching this file's
+  // OWN existing savePath/deleteChunks convention (assert unreachable,
+  // don't just rely on the UI never offering the path) -- it can only ever
+  // run after a save is selected, which requires fetchSaves to have
+  // succeeded first, so by the time it could fire, canManageChunks and the
+  // real permission state have already had every chance to agree.
+  const [permissionDenied, setPermissionDenied] = useState(false);
   const [saves, setSaves] = useState<SaveInfo[]>([]);
   const [selectedSave, setSelectedSave] = useState<string>("");
   const [chunks, setChunks] = useState<ChunkInfo[]>([]);
@@ -245,7 +353,16 @@ export default function ChunkCleaner() {
     total: number;
     chunks: number;
   } | null>(null);
-  const [loadingSaves, setLoadingSaves] = useState(false);
+  // Starts true: fetchSaves() always fires from the mount effect below, so
+  // there is never a real moment where we're neither loading nor loaded --
+  // starting this false lied about that window and let saves.length === 0
+  // (the confirmed-empty case) and "haven't fetched yet" render identically
+  // (2026-08-30 visual sweep; same idiom as 3665aa20/da9bb687/a83c425a, but
+  // this one had no honest flag to fall back on even briefly, unlike those
+  // three -- the canvas below reads `false` as "checked and there are none"
+  // from the very first frame, and stays that way for the fetch's entire
+  // duration since the canvas's own condition never consulted this flag).
+  const [loadingSaves, setLoadingSaves] = useState(true);
   const [selectedChunks, setSelectedChunks] = useState<Set<string>>(new Set());
   const { toast } = useToast();
 
@@ -423,6 +540,7 @@ export default function ChunkCleaner() {
       try {
         const pathToUse = pathOverride ?? (customPath || undefined);
         const result = await chunksApi.getSaves(pathToUse);
+        setPermissionDenied(false);
         setSaves(result.saves || []);
         // Backend now always returns a `debug` block; preserve it for the
         // empty state so users can see exactly what was tried.
@@ -435,10 +553,21 @@ export default function ChunkCleaner() {
         }
         return result.saves || [];
       } catch (error) {
+        const apiErr = error instanceof ApiError ? error : null;
+        // 41fa20a3 gated this route behind chunks.manage -- a real 403 here
+        // means the role genuinely lacks access, not a transient/data
+        // problem. Show the dedicated denied state instead of the normal
+        // "couldn't load saves, here's what we tried" empty state (which
+        // would be actively misleading: there's nothing wrong with the
+        // saves folder) and skip the destructive toast + suggested-paths
+        // fallback below, which would just 403 again for the same reason.
+        if (apiErr?.status === 403) {
+          setPermissionDenied(true);
+          return [];
+        }
         // Server attaches the full payload (including the diagnostic `debug`
         // block) to ApiError.data — surface that to the empty-state panel so
         // the user gets the same hints/suggestions as the success path.
-        const apiErr = error instanceof ApiError ? error : null;
         const payload = (apiErr?.data ?? null) as {
           debug?: NonNullable<typeof debugInfo>;
         } | null;
@@ -590,6 +719,16 @@ export default function ChunkCleaner() {
 
   const loadChunks = useCallback(async () => {
     if (!selectedSave) return;
+    // 41fa20a3 gated getChunks/getStats behind chunks.manage too, but
+    // selectedSave can only ever be set after fetchSaves succeeds -- a 403
+    // there returns an empty save list and permissionDenied takes over, so
+    // this is already unreachable without the capability via the fetchSaves
+    // gate above. Deliberately NOT adding a second `if (!canManageChunks)
+    // return` guard here to match: that would duplicate a check the fetch
+    // gate already makes structurally impossible to bypass, and conflicts
+    // with ChunkCleaner.capabilityGating.test.tsx's own (still valid)
+    // scenario of chunks having loaded while canManageChunks is false, which
+    // tests the DELETE action's independent guard (line ~1972) in isolation.
     const thisLoadId = ++loadIdRef.current;
     setLoading(true);
     setScanProgress(null);
@@ -892,6 +1031,28 @@ export default function ChunkCleaner() {
   // shows through either way, which reads as a broken black hole rather
   // than "no imagery for this area".
   const dziCacheRef = useRef<Record<string, HTMLImageElement | null | false>>({});
+  // The resolved B42 build this proxy is currently serving -- named in the
+  // tile URL below (`?v=`) purely as a browser cache key so mapProxy.js can
+  // safely cache tiles long-term instead of the short bounded window it
+  // falls back to without one; see mapProxy.js's
+  // TILE_BROWSER_CACHE_CONTROL_VERSIONED comment. Fetched once on mount,
+  // same one-shot pattern as WorldMap.tsx's mapSourceRef -- this page never
+  // needed b42Dir before, its toptiles requests were unversioned entirely.
+  const b42DirRef = useRef<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    mapApi
+      .resolve()
+      .then((info) => {
+        if (!cancelled) b42DirRef.current = info.b42Dir;
+      })
+      .catch(() => {
+        /* tiles just keep using the shorter unversioned cache window */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const loadDziTile = useCallback((level: number, col: number, row: number) => {
     const key = `dzi_${level}_${col}_${row}`;
     if (key in dziCacheRef.current) return;
@@ -923,7 +1084,7 @@ export default function ChunkCleaner() {
         });
       }
     };
-    img.src = `${B42_DZI_CDN}/${level}/${col}_${row}.webp`;
+    img.src = `${B42_DZI_CDN}/${level}/${col}_${row}.webp${buildTileQuery(0, b42DirRef.current)}`;
   }, []);
 
   // ─── Canvas draw (extracted to callable function for rAF use) ───
@@ -1930,41 +2091,43 @@ export default function ChunkCleaner() {
       // — the authoritative cleanup happens server-side against vehicles.db.
       if (deleteVehicles) {
         const tilesPerChunk = isB42Ref.current ? 8 : 10;
-        let minGX = Infinity,
-          minGY = Infinity,
-          maxGX = -Infinity,
-          maxGY = -Infinity;
-        for (const key of selectedChunks) {
-          const [cx, cy] = key.split("_").map(Number);
-          minGX = Math.min(minGX, cx * tilesPerChunk);
-          minGY = Math.min(minGY, cy * tilesPerChunk);
-          maxGX = Math.max(maxGX, (cx + 1) * tilesPerChunk);
-          maxGY = Math.max(maxGY, (cy + 1) * tilesPerChunk);
-        }
-        try {
-          await panelBridgeApi.sendCommand("removeVehiclesInArea", {
-            minX: minGX,
-            minY: minGY,
-            maxX: maxGX,
-            maxY: maxGY,
+        // One rectangle per call, not one call for the whole selection's
+        // extent -- see decomposeIntoRectangles' own comment for why.
+        const rects = decomposeIntoRectangles(selectedChunks);
+        if (rects.length > MAX_VEHICLE_REMOVAL_RECTS) {
+          toast({
+            title: t("toasts.liveVehicleCleanupTooFragmentedTitle"),
+            description: t("toasts.liveVehicleCleanupTooFragmentedDesc"),
           });
-        } catch (err) {
-          // Bridge unreachable (server stopped, bridge not running) is
-          // benign here — the authoritative vehicles.db cleanup above
-          // already ran server-side, so live removal was only ever a
-          // cosmetic "no ghost car for a second" nicety. A 403 is a
-          // DIFFERENT failure the operator can act on: it means this
-          // role has chunks.manage (or it couldn't have reached this far)
-          // but not bridge.command, so live removal will silently skip
-          // on every future deletion too until an admin grants it or
-          // adds it to the role. Previously both cases hit the same bare
-          // catch and looked identical — 2026-08-27 bug-hunt silent-
-          // swallow-class fix.
-          if (err instanceof ApiError && err.status === 403) {
-            toast({
-              title: t("toasts.liveVehicleCleanupNoPermissionTitle"),
-              description: t("toasts.liveVehicleCleanupNoPermissionDesc"),
-            });
+        } else {
+          for (const rect of rects) {
+            try {
+              await panelBridgeApi.sendCommand("removeVehiclesInArea", {
+                minX: rect.minX * tilesPerChunk,
+                minY: rect.minY * tilesPerChunk,
+                maxX: (rect.maxX + 1) * tilesPerChunk,
+                maxY: (rect.maxY + 1) * tilesPerChunk,
+              });
+            } catch (err) {
+              // Bridge unreachable (server stopped, bridge not running) is
+              // benign here — the authoritative vehicles.db cleanup above
+              // already ran server-side, so live removal was only ever a
+              // cosmetic "no ghost car for a second" nicety. A 403 is a
+              // DIFFERENT failure the operator can act on: it means this
+              // role has chunks.manage (or it couldn't have reached this
+              // far) but not bridge.command -- true for every remaining
+              // rectangle too, so stop issuing more calls instead of
+              // repeating the same failure N times. Previously both cases
+              // hit the same bare catch and looked identical — 2026-08-27
+              // bug-hunt silent-swallow-class fix.
+              if (err instanceof ApiError && err.status === 403) {
+                toast({
+                  title: t("toasts.liveVehicleCleanupNoPermissionTitle"),
+                  description: t("toasts.liveVehicleCleanupNoPermissionDesc"),
+                });
+                break;
+              }
+            }
           }
         }
       }
@@ -2082,6 +2245,14 @@ export default function ChunkCleaner() {
           </p>
         </div>
 
+        {permissionDenied ? (
+          <EmptyState
+            type="accessDenied"
+            icon={<ShieldAlert className="h-14 w-14 text-muted-foreground/40" />}
+            title={t("permissionDenied.title")}
+            description={t("permissionDenied.description")}
+          />
+        ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-5">
           {/* Left Panel - Controls */}
           <div className="space-y-3 order-2 lg:order-1">
@@ -2183,7 +2354,7 @@ export default function ChunkCleaner() {
                       <Input
                         value={customPathInput}
                         onChange={(e) => setCustomPathInput(e.target.value)}
-                        placeholder={t("save.customPathPlaceholder")}
+                        placeholder={t(platformTranslationKey("save.customPathPlaceholder", runtimeInfo?.family))}
                         aria-label={t("save.customPathAria")}
                         className="text-xs h-7"
                         onKeyDown={(e) => {
@@ -2204,7 +2375,7 @@ export default function ChunkCleaner() {
                     </div>
                     <p className="text-[10px] text-muted-foreground/80 leading-snug">
                       <Trans
-                        i18nKey="save.customPathHint"
+                        i18nKey={platformTranslationKey("save.customPathHint", runtimeInfo?.family)}
                         t={t}
                         components={{
                           1: <span className="font-mono" />,
@@ -2513,6 +2684,9 @@ export default function ChunkCleaner() {
                         aria-hidden="true"
                       />
                       {t("tools.selection")}
+                      <HelpTip label={t("tools.selection")}>
+                        {t("tools.selectAllTip")}
+                      </HelpTip>
                     </span>
                     <span
                       className={`text-[11px] font-semibold tabular-nums ${selectedChunks.size > 0 ? "text-destructive" : "text-muted-foreground/70"}`}
@@ -2579,7 +2753,21 @@ export default function ChunkCleaner() {
             <Card className="flex flex-col h-[24rem] min-h-[320px] sm:h-[30rem] lg:h-[36rem]">
               <CardContent className="flex-1 p-2 min-h-0">
                 {!selectedSave ? (
-                  hasSaves ? (
+                  loadingSaves ? (
+                    // Genuinely unknown (still fetching, or hasn't started
+                    // yet) -- must not fall through to the "no saves found"
+                    // branch below, which asserts a confirmed, investigated
+                    // fact. Same spinner treatment the chunks-loading branch
+                    // further down already uses for this same card.
+                    <div className="h-full flex items-center justify-center">
+                      <div className="text-center text-muted-foreground">
+                        <RefreshCw className="w-6 h-6 mx-auto animate-spin" />
+                        <p className="mt-3 text-xs font-medium">
+                          {t("save.placeholderLoading")}
+                        </p>
+                      </div>
+                    </div>
+                  ) : hasSaves ? (
                     <div className="h-full flex items-center justify-center text-muted-foreground">
                       <div className="text-center max-w-xs">
                         <FileBox className="w-10 h-10 mx-auto mb-3 opacity-40" />
@@ -2932,6 +3120,7 @@ export default function ChunkCleaner() {
             </Card>
           </div>
         </div>
+        )}
 
         {/* Help — collapsible */}
         <Collapsible open={showHelp} onOpenChange={setShowHelp}>

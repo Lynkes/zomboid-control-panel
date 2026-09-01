@@ -20,13 +20,18 @@
     "aria": "Canal de chat",
     "server": "Difusión del servidor",
     "admin": "Chat de administración",
-    "general": "Chat general"
+    "general": "Chat general",
+    "tip": "Difusión del servidor muestra un banner que todos los jugadores ven de inmediato. Chat de administración solo es visible para otros administradores — los jugadores nunca lo ven. Chat general publica un mensaje de aspecto normal de \"{{adminLabel}}\" en el chat habitual de todos, fácil de pasar por alto e indistinguible de un jugador real llamado {{adminLabel}}."
+  },
+  "deliveryStatus": {
+    "native": "entrega de chat: nativa",
+    "rconFallback": "entrega de chat: alternativa RCON (API de chat nativa no disponible)"
   },
   "input": {
     "aria": "Mensaje de chat",
-    "placeholderAdmin": "solo administradores — pulsar Intro para enviar…",
-    "placeholderGeneral": "publicar como Administrador — pulsar Intro para enviar…",
-    "placeholderServer": "difundir a todos los jugadores — pulsar Intro para enviar…",
+    "placeholderAdmin": "solo administradores…",
+    "placeholderGeneral": "publicar como Administrador…",
+    "placeholderServer": "difundir a todos los jugadores…",
     "sendButton": "enviar",
     "noPermission": "No tienes permiso para enviar mensajes de chat."
   },

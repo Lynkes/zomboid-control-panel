@@ -69,6 +69,7 @@ class PanelBridge extends EventEmitter {
       lastConsumedResultSeq: 0
     };
     this.outboxStuckState = { seq: null, since: 0, nextCheckAt: 0 };
+    this.inboxResyncNextCheckAt = 0;
     this.lastQueueCleanupAt = 0;
     this.modStatus = null;
     this.previousPlayers = new Set(); // Track previous player list for connect/disconnect detection
@@ -783,6 +784,7 @@ class PanelBridge extends EventEmitter {
    */
   pollResults() {
     this.pollQueueResults();
+    this.tryResyncInboxCommandCursor();
     this.pollLegacyResults();
     this.cleanupResultTracking();
     this.cleanupQueueFilesIfNeeded();
@@ -834,10 +836,162 @@ class PanelBridge extends EventEmitter {
       return false;
     }
 
+    // Forward-only, mirroring tryResyncInboxCommandCursor's identical guard
+    // for the opposite (commands) direction -- see that function's comment
+    // for the concrete incident this class of hazard already caused here.
+    // A stale or racing read of the mod's own state file (SFTP transport
+    // lag, a freshly-regenerated queue-state-lua.json, or a second bridge
+    // process's write) can only ever show a LOWER luaHighWater than the
+    // truth, never a fabricated higher one. Without this guard, rewinding
+    // lastConsumedResultSeq backward makes pollQueueResults() re-walk every
+    // seq between the rewound point and where it actually was -- each one
+    // either already-cleared-but-not-yet-deleted (stalls ~1.5s per file in
+    // the empty-read retry path) or already deleted (stalls resyncStuckMs
+    // per file re-triggering this same check) -- silently stalling every
+    // pending command's response for as long as that backlog takes to
+    // re-drain, while the bridge still reports itself connected.
+    if (luaHighWater < this.queueState.lastConsumedResultSeq) {
+      return false;
+    }
+
     log.warn(`Outbox sequence desync detected, resyncing to mod position (expected seq ${seq}, mod high-water ${luaHighWater})`);
+    // Jumping lastConsumedResultSeq straight to luaHighWater would silently
+    // throw away any result file that DOES physically exist in the gap
+    // being skipped -- and over SFTP, commandTimeoutMs (60000ms) is longer
+    // than resyncStuckMs (20000ms), so a still-pending command's real,
+    // already-written response can be sitting in that gap when this fires.
+    // Recover what's actually there before moving past it: a command whose
+    // result gets skipped this way doesn't hang forever (its own timeout
+    // still fires), but it fails with "no response from mod" when the mod
+    // in fact responded successfully -- a misleading failure, not a
+    // dropped one, but still wrong. A seq with no file in the gap (already
+    // cleaned up, or genuinely never written -- the real desync case this
+    // resync exists to heal) costs one cheap existsSync and is skipped.
+    this.recoverSkippedResults(this.queueState.lastConsumedResultSeq, luaHighWater);
     this.queueState.lastConsumedResultSeq = luaHighWater;
     this.persistQueueState();
     this.outboxStuckState.seq = null;
+    return true;
+  }
+
+  /**
+   * Scans (fromSeqExclusive, toSeqInclusive] for result files that still
+   * physically exist and processes each one exactly like the normal poll
+   * loop would, before tryResyncOutboxCursor jumps the cursor past them.
+   * Bounded to the last retainRecentFiles entries of the gap -- anything
+   * older than the retention window is already outside what
+   * cleanupOutboxFiles guarantees keeping around, so scanning further back
+   * than that cannot recover anything real and would only cost I/O on a
+   * gap that can otherwise be arbitrarily large (e.g. a long-idle server
+   * restarting after weeks).
+   */
+  recoverSkippedResults(fromSeqExclusive, toSeqInclusive) {
+    const scanFrom = (toSeqInclusive - fromSeqExclusive) > this.queue.retainRecentFiles
+      ? (toSeqInclusive - this.queue.retainRecentFiles + 1)
+      : (fromSeqExclusive + 1);
+
+    let recovered = 0;
+    for (let seq = scanFrom; seq <= toSeqInclusive; seq++) {
+      const resultFile = this.getResultFileBySeq(seq);
+      // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
+      if (!resultFile || !fs.existsSync(resultFile)) continue;
+
+      let raw;
+      try {
+        // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
+        raw = fs.readFileSync(resultFile, 'utf-8');
+      } catch (error) {
+        log.debug(`Resync recovery: could not read result seq ${seq}: ${error.message}`);
+        continue;
+      }
+      if (!raw.trim()) continue;
+
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (error) {
+        log.debug(`Resync recovery: could not parse result seq ${seq}: ${error.message}`);
+        continue;
+      }
+
+      const result = parsed && parsed.result ? parsed.result : parsed;
+      if (result) {
+        this.processResult(result);
+        recovered++;
+      }
+
+      try {
+        // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
+        fs.writeFileSync(resultFile, '', { mode: 0o600 });
+      } catch (cleanupErr) {
+        log.debug(`Resync recovery: failed to clear result file seq ${seq}: ${cleanupErr.message}`);
+      }
+    }
+
+    if (recovered > 0) {
+      log.warn(`Resync recovery: recovered ${recovered} result(s) that the missing-file check would otherwise have skipped past`);
+    }
+  }
+
+  /**
+   * Catches this process's nextCommandSeq up to Lua's actual lastCommandSeq
+   * when the mod has processed further than this process ever wrote --
+   * which happens when a DIFFERENT process (another panel instance pointed
+   * at the same bridge folder) wrote some of those commands. Without this,
+   * ensureQueueProtocol()'s own Math.max reconciliation against Lua's state
+   * only ever runs ONCE per process lifetime (gated by queueState.initialized,
+   * checked at bridge start) -- after that, nextCommandSeq lives purely in
+   * memory, incremented one command at a time, with nothing to notice if
+   * Lua's cursor moves past it from elsewhere. Four such processes sharing
+   * one bridge folder is exactly how commandTimeoutMs-length hangs against an
+   * idle server with zero players turned out to be a live queue desync, not
+   * contention (2026-08-30 bridge-queue-timing investigation).
+   *
+   * Mirrors tryResyncOutboxCursor's shape for the opposite (results)
+   * direction, but there's no "stuck waiting on a missing file" signal to
+   * gate on here -- Node writes commands, it doesn't wait for them to be
+   * written -- so this just re-checks on a plain interval instead of a
+   * stuck-then-recheck one. Forward-only: it only ever raises nextCommandSeq,
+   * never lowers it, so it can't undo real in-flight work even if this read
+   * races a moment where Lua's file is stale.
+   */
+  tryResyncInboxCommandCursor() {
+    const now = Date.now();
+    if (now < this.inboxResyncNextCheckAt) {
+      return false;
+    }
+    this.inboxResyncNextCheckAt = now + this.queue.resyncCheckIntervalMs;
+
+    const luaStateFile = this.resolveModFile('queue-state-lua.json');
+    // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
+    if (!luaStateFile || !fs.existsSync(luaStateFile)) {
+      return false;
+    }
+
+    let luaState;
+    try {
+      // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
+      luaState = JSON.parse(fs.readFileSync(luaStateFile, 'utf-8') || '{}');
+    } catch (error) {
+      log.debug(`Could not parse mod queue state during inbox resync check: ${error.message}`);
+      return false;
+    }
+
+    const luaLastCommandSeq = Number(luaState.lastCommandSeq);
+    if (!Number.isFinite(luaLastCommandSeq) || luaLastCommandSeq < 0) {
+      return false;
+    }
+
+    const luaNextExpected = luaLastCommandSeq + 1;
+    if (luaNextExpected <= this.queueState.nextCommandSeq) {
+      // Lua hasn't gotten ahead of what this process expects -- normal case,
+      // nothing to catch up.
+      return false;
+    }
+
+    log.warn(`Command sequence desync detected: mod has processed through ${luaLastCommandSeq} but this process only expected to reach ${this.queueState.nextCommandSeq - 1}; advancing to avoid reusing already-consumed sequence numbers`);
+    this.queueState.nextCommandSeq = luaNextExpected;
+    this.persistQueueState();
     return true;
   }
 
@@ -1126,7 +1280,20 @@ class PanelBridge extends EventEmitter {
         const isChatFallback = pending.action === 'sendToServerChat' || pending.action === 'sendToAdminChat' || pending.action === 'sendToGeneralChat';
         const logLevel = isChatFallback ? 'debug' : 'warn';
         log[logLevel](`PanelBridge result: action=${pending.action} failed: ${result.error || 'unknown'} (${elapsed}ms)`);
-        pending.reject(new Error(result.error || 'Command failed'));
+        // Some handlers return a "soft failure" with a rich diagnostic table
+        // instead of (or in addition to) an error string -- e.g. killPlayer's
+        // not-dead path sets no error at all, only data.message; teleportPlayer's
+        // verify-false path sets both. Previously this whole data table was
+        // dropped here regardless, so a handler could craft the most honest,
+        // diagnostic-rich failure imaginable and the caller would only ever see
+        // "Command failed". Preserve result.error as the message whenever it's
+        // present (unchanged behavior); only fall back to data.message when
+        // there's no error string, and always attach the full data table to
+        // the rejected Error so a caller that wants the diagnostics can get them.
+        const message = result.error || result.data?.message || 'Command failed';
+        const err = new Error(message);
+        err.data = result.data;
+        pending.reject(err);
       }
     }
 
@@ -1260,7 +1427,9 @@ class PanelBridge extends EventEmitter {
    * Track player connect/disconnect events
    */
   trackPlayerActivity(currentPlayers) {
-    // Normalize players: Lua encodes empty arrays as {} (object), so handle both arrays and objects
+    // Normalize players: PanelBridge.lua's own JSON encoder (kind_of()) defaults an empty table to
+    // [] on the wire, not {} -- but handle both shapes defensively anyway, since nothing here
+    // depends on which one actually arrives and a future encoder change shouldn't be able to break this.
     const playerList = Array.isArray(currentPlayers) ? currentPlayers : Object.keys(currentPlayers || {});
     const current = new Set(playerList);
     const previous = this.previousPlayers;

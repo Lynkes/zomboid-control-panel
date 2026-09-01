@@ -28,6 +28,8 @@
   "noResults": "No results",
   "searchAcrossAllCategories": "Search across all categories",
   "recent": "Recent",
+  "clearRecent": "Clear",
+  "clearRecentAria": "Clear recent history",
   "spawnAgainTitle": "Spawn {{name}} again",
   "spawnAgainTitleWithQty": "Spawn {{name}} × {{qty}} again",
   "selected": "Selected",

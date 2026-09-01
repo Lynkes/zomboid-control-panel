@@ -39,6 +39,31 @@ describe("ini helpers", () => {
     expect(result).toContain("PVP=falseRCONPassword=hacked");
     expect(result.split("\n").filter((l) => l.startsWith("RCONPassword"))).toHaveLength(0);
   });
+
+  // bughunt-2026-08-31-b: a hand-edited or raw-editor-saved ini can carry
+  // "Key = value" (spaces around "="), and serverFiles.js's toIni() no
+  // longer silently normalizes that away on save. Neither of these two
+  // functions tolerated it until now -- readIniValues returned nothing for
+  // the key at all, and mergeIniValues's own regex test failed the same
+  // way, so it took the append branch and left a SECOND, unspaced copy of
+  // the key instead of replacing the spaced one. No test in this suite
+  // exercised any whitespace variant before this, which is exactly why the
+  // gap went unnoticed: templateFiles.test.js's own iniContent fixture
+  // above has zero whitespace variance anywhere.
+  const spacedIniContent = "PVP=true\nMaxPlayers = 16\n";
+
+  it("readIniValues reads a key written with spaces around '='", () => {
+    expect(readIniValues(spacedIniContent, ["MaxPlayers"])).toEqual({
+      MaxPlayers: "16",
+    });
+  });
+
+  it("mergeIniValues replaces a spaced key in place instead of appending a duplicate", () => {
+    const result = mergeIniValues(spacedIniContent, { MaxPlayers: "32" });
+    const maxPlayersLines = result.split("\n").filter((l) => l.startsWith("MaxPlayers"));
+    expect(maxPlayersLines).toEqual(["MaxPlayers=32"]);
+    expect(result).not.toContain("MaxPlayers = 16");
+  });
 });
 
 describe("sandbox lua helpers", () => {

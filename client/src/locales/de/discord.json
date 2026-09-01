@@ -207,6 +207,11 @@
       "configured": "Konfiguriert",
       "notSignedIn": "Nicht angemeldet"
     },
+    "gatewayIssue": {
+      "label": "Die Discord-Verbindung ist seit einiger Zeit instabil — Benachrichtigungen und Befehle können sich verzögern, bis sie sich erholt.",
+      "dismissAria": "Verbindungswarnung schließen",
+      "dismissTooltip": "Ausblenden, bis sich das ändert"
+    },
     "commandPermissions": {
       "title": "Befehlsberechtigungen",
       "description": "Legt fest, wer welchen Slash-Command verwenden darf. Jedem Befehl wird eine Berechtigungsstufe zugewiesen.",

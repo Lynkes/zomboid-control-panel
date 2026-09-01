@@ -22,6 +22,7 @@
       "STOP_TIMEOUT": "Sèvè a pa t sispann nan 5 minit.",
       "STEAMCMD_NOT_FOUND": "Pa jwenn SteamCMD nan {{path}}.",
       "STEAMCMD_EXIT_CODE": "SteamCMD fini ak kòd {{code}}.",
+      "STEAM_OPERATION_IN_PROGRESS": "Te gen yon enstalasyon oswa mizajou Steam ki t ap fèt deja pou {{path}}, kidonk mizajou otomatik la te abandone pou evite fè konfli.",
       "UNKNOWN": "Yon erè initil rive pandan mizajou otomatik la."
     }
   },
@@ -34,6 +35,7 @@
     "ariaLabel": "Estati sèvè",
     "everythingNominal": "Tout bagay nòmal",
     "upPrefix": "an fonksyone depi {{uptime}}",
+    "mapTooltip": "Kat (soti nan PanelBridge)",
     "remoteBadge": "aleka",
     "noActiveServer": "Pa gen sèvè aktif"
   },
@@ -171,6 +173,11 @@
     "applyUpdate": "Aplike mizajou",
     "viewUpdate": "Gade mizajou"
   },
+  "updateCheckError": {
+    "label": "Pa kapab tcheke mizajou panèl",
+    "dismissAria": "Kite tonbe avi tcheke mizajou a",
+    "dismissTooltip": "Kite tonbe jiskaske sa chanje"
+  },
   "connectionError": {
     "label": "Erè koneksyon",
     "suffix": ". Gen fonksyon ki ka pa disponib.",
@@ -220,6 +227,9 @@
     "live": "an dirèk",
     "lastSecondsLive": "dènye {{seconds}}s · an dirèk",
     "lastMinutesLive": "dènye {{minutes}} min · an dirèk",
+    "unconfirmed": "pa konfime",
+    "lastSecondsUnconfirmed": "dènye {{seconds}}s · pa konfime",
+    "lastMinutesUnconfirmed": "dènye {{minutes}} min · pa konfime",
     "placeholderOnline": "Telemetri ap parèt nan pwochen sik echantiyonaj la.",
     "placeholderOffline": "Demare sèvè a pou swiv CPU, RAM, ak metrik jwè."
   },
@@ -246,6 +256,7 @@
   },
   "workItems": {
     "players": "Jwè",
+    "zombies": "Zonbi",
     "console": "Konsòl",
     "mods": "Mods",
     "schedule": "Orè",

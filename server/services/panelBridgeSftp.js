@@ -8,8 +8,12 @@ import { ErrorCode } from '../utils/errorCodes.js';
 
 const log = createLogger('Bridge:SFTP');
 
+// A trailing-slash-trim regex on an unbounded string is quadratic (CodeQL
+// js/polynomial-redos #1) -- cap the length before it ever reaches the regex.
+const MAX_REMOTE_PATH_LENGTH = 500;
+
 function safeRemotePath(value) {
-  if (typeof value !== 'string' || !value.startsWith('/') || value.includes('..') || value.includes('\\') || /[\0\r\n]/.test(value)) {
+  if (typeof value !== 'string' || value.length > MAX_REMOTE_PATH_LENGTH || !value.startsWith('/') || value.includes('..') || value.includes('\\') || /[\0\r\n]/.test(value)) {
     throw new Error('Remote bridge path must be an absolute POSIX path without traversal');
   }
   const normalized = value.replace(/\/+$/, '') || '/';
@@ -411,6 +415,76 @@ export class PanelBridgeSftpTransport {
     }
   }
 
+  // Reads the panel's own persisted queue position exactly ONCE, before
+  // uploadInbox() runs, and returns the parsed value for uploadQueueStateNode()
+  // to upload later in the same pass. Capturing it now (rather than
+  // re-reading the file fresh right before upload) is what keeps the
+  // eventually-uploaded claim honest: uploadInbox() is guaranteed to put
+  // every cmd file this snapshot implies onto the remote host in this same
+  // call (they're all already present locally, so its directory scan finds
+  // them), so by the time the snapshot itself is uploaded, nothing it
+  // describes is still missing remotely. A command written LATER in this
+  // same sync tick (after this snapshot but before uploadInbox()'s scan)
+  // just isn't claimed yet -- safe surplus, picked up next pass -- rather
+  // than a false claim the mod could act on. See uploadQueueStateNode()'s
+  // header comment for why a false claim (the OTHER direction) matters.
+  readLocalQueueStateNodeSnapshot() {
+    if (!this.cachePath) return null;
+    const statePath = path.join(this.cachePath, '.queue-state-node.json');
+    try {
+      return JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Uploads the panel's declared queue position to the remote host so
+  // PanelBridge.lua's inbox self-heal (tryResyncInboxCursor, which reads
+  // exactly this file) has something real to read over SFTP -- until now
+  // this file was never uploaded at all, so that read always returned nil
+  // and the whole desync-recovery path was silently inert for every
+  // SFTP-connected bridge (2026-08-30 sftp-bridge-inbox-selfheal-is-nonfunctional).
+  //
+  // Takes the already-parsed snapshot (see readLocalQueueStateNodeSnapshot)
+  // rather than reading the live file itself -- the live file can advance
+  // again while uploadInbox() is still working through its (network-bound,
+  // potentially slow) per-file uploads, and uploading THAT newer value would
+  // let the remote-visible nextCommandSeq claim a command whose file never
+  // actually made it into this same pass's upload loop. Lua's forward-only
+  // guard (2026-08-30) cannot catch that: it protects the cursor from ever
+  // moving BACKWARD, but a premature forward claim is a forward move to a
+  // real, legitimate-looking number that just isn't back by an uploaded file
+  // yet -- and once accepted, the guard makes it PERMANENT, since Lua can
+  // never legitimately rewind to reprocess the skipped command. Uploading the
+  // pre-uploadInbox() snapshot instead of a live re-read is what rules this
+  // out structurally rather than relying on timing.
+  async uploadQueueStateNode(stateSnapshot) {
+    const remotePath = this.remote('.queue-state-node.json');
+    const client = await this.connect();
+    const entryType = await client.exists(remotePath);
+    if (entryType && !isRemoteFile(entryType)) {
+      throw new Error(`Remote queue state path ${remotePath} is occupied by a directory`);
+    }
+    const buffer = Buffer.from(JSON.stringify(stateSnapshot));
+    const temporaryRemotePath = `${remotePath}.${this.transferId}.uploading`;
+    const uploadOnce = async () => {
+      try {
+        await client.put(buffer, temporaryRemotePath);
+        await client.rename(temporaryRemotePath, remotePath);
+      } catch (error) {
+        await client.delete(temporaryRemotePath).catch(() => {});
+        throw error;
+      }
+    };
+    try {
+      await uploadOnce();
+    } catch (error) {
+      if (!isMissingRemotePath(error)) throw error;
+      await this.ensureRemoteDirectories();
+      await uploadOnce();
+    }
+  }
+
   async syncNow(throwOnError = false) {
     if (!this.running || this.syncing) return;
     this.syncing = true;
@@ -422,7 +496,15 @@ export class PanelBridgeSftpTransport {
       }
       // Upload first so a newly queued command never waits behind remote
       // reads. Results are collected in the same pass after the Lua mod ticks.
+      // The queue-state snapshot is captured BEFORE uploadInbox() runs and
+      // uploaded AFTER -- see readLocalQueueStateNodeSnapshot()'s and
+      // uploadQueueStateNode()'s header comments for why that order (not
+      // just their presence) is what keeps the claim honest.
+      const queueStateSnapshot = this.readLocalQueueStateNodeSnapshot();
       await this.uploadInbox();
+      if (queueStateSnapshot) {
+        await this.uploadQueueStateNode(queueStateSnapshot);
+      }
       await this.syncModFile('status.json');
       await this.syncModFile('queue-state-lua.json');
       await this.syncOutbox();

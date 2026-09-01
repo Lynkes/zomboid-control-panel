@@ -4,6 +4,7 @@ import path from "path";
 import fs from "fs";
 import { randomUUID } from "crypto";
 import { getDataPaths } from "../utils/paths.js";
+import { checkAndExitIfOwnershipBlocked } from "../utils/firstRunOwnershipCheck.js";
 import { createLogger } from "../utils/logger.js";
 import { normalizeMemoryGb } from "../utils/memory.js";
 import { parseClampedInteger } from "../utils/queryNumbers.js";
@@ -13,7 +14,62 @@ import {
   deleteServerSecret,
 } from "../utils/serverRconSecrets.js";
 import { redactRconCommandSecrets } from "../utils/rconCommandRedaction.js";
+import { readUiSecretFile, writeUiSecretFile } from "../utils/uiSecretFile.js";
 const log = createLogger("DB");
+
+// ============================================
+// PanelBridge SFTP password — same shape as rconPassword above, not the
+// discordBotToken/steamSessionId shape. rconPassword's rehydrate/redact
+// pair lives in serverRconSecrets.js because it also owns per-server RCON
+// secrets; panelBridgeSftpPassword has no per-server counterpart and no
+// single owning service (it's read directly off getAllSettings() by
+// routes/panelBridge.js, routes/serverFiles.js and index.js alike), so its
+// pair lives here instead of growing an RCON-scoped file to cover an
+// unrelated credential.
+//
+// 2026-08-29: panelBridgeSftpPassword was the one settings-field credential
+// that never got moved out to its own file the way discordBotToken,
+// steamSessionId/steamLoginSecure and rconPassword all were -- db.json's
+// own two backup paths (this file's createBackup() below, and the #122
+// pre-update snapshot in panelUpdateChecker.js) both copy db.json as a raw
+// file, so it was riding along in every one of those in plaintext.
+// ============================================
+
+/**
+ * Run on every load, same as rehydrateRconSecrets() -- not schema-version-
+ * gated, because db.json never carries this value again once a single
+ * write has happened (see redactPanelBridgeSftpPasswordForWrite below), so
+ * it has to be re-attached in memory on every restart, not just once at an
+ * upgrade. Guarded on the value already being absent: if an operator
+ * restores an OLDER db.json that still has the plaintext, this leaves that
+ * restored value alone rather than overwriting it with a stale (or
+ * missing) secret file -- the next flush redacts whatever is actually in
+ * memory, which is the just-restored value.
+ */
+export function rehydratePanelBridgeSftpPassword(data, log) {
+  if (!data.settings) data.settings = {};
+  if (!data.settings.panelBridgeSftpPassword) {
+    const fromFile = readUiSecretFile("panelBridgeSftpPassword", log);
+    if (fromFile) data.settings.panelBridgeSftpPassword = fromFile;
+  }
+  return data;
+}
+
+/**
+ * Called inside flushWrites() alongside redactRconSecretsForWrite() -- see
+ * that function's doc comment for why `data` itself is never mutated, only
+ * the object being serialized. Chained after redactRconSecretsForWrite()
+ * (order between the two doesn't matter, they touch different settings
+ * keys), so this receives an already-cloned object and returns another
+ * clone rather than mutating its input.
+ */
+export function redactPanelBridgeSftpPasswordForWrite(data) {
+  if (!data.settings?.panelBridgeSftpPassword) return data;
+  writeUiSecretFile("panelBridgeSftpPassword", data.settings.panelBridgeSftpPassword);
+  const { panelBridgeSftpPassword: _panelBridgeSftpPassword, ...restSettings } =
+    data.settings;
+  return { ...data, settings: restSettings };
+}
 
 // ============================================
 // Database Configuration
@@ -53,7 +109,29 @@ const backupDir = path.join(dataDir, "backups");
 // itself — see utils/jwtSecret.js, utils/uiSecretFile.js,
 // utils/serverRconSecrets.js.
 for (const dir of [dataDir, backupDir]) {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (!fs.existsSync(dir)) {
+    try {
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    } catch (err) {
+      // Defense-in-depth for the root-first-run trap (2026-08-29): the
+      // preflight in server/utils/firstRunOwnershipCheck.js (imported
+      // first in server/index.js, ahead of this module) is the primary
+      // guard and normally catches this before dataDir/backupDir are even
+      // reached. This second check exists for the narrower case it can't
+      // see coming -- dataDir itself is fine, but a stray root run only
+      // touched backupDir (e.g. an operator who deletes just the backups
+      // folder, then happens to restart once via sudo before switching
+      // back). Same consolidated diagnostic either way, never a raw
+      // uncaught EACCES stack trace with no path/account context.
+      if (
+        (err.code === "EACCES" || err.code === "EPERM") &&
+        checkAndExitIfOwnershipBlocked([dataDir, backupDir])
+      ) {
+        throw err; // unreachable: checkAndExitIfOwnershipBlocked() exits the process
+      }
+      throw err; // not an ownership problem (e.g. disk full) -- preserve prior behavior
+    }
+  }
   try {
     fs.chmodSync(dir, 0o700);
   } catch (_) {
@@ -319,6 +397,20 @@ export async function flushWrites() {
     }
   }
 
+  // Declared outside the try block (rather than `const` inside it, its
+  // original scope) purely so the catch block below can reference the tmp
+  // path a failed rename leaves behind -- same value, same assignment
+  // point, not a behavior change to the write itself. tmpWriteSucceeded
+  // narrows the catch block's cleanup to specifically a failed RENAME (the
+  // diagnosed live leak: a complete, valid tmp file with nowhere to go) --
+  // NOT a failed writeFileSync, which linuxDbFileModes.test.js's own crash
+  // fault-injection deliberately leaves in place as forensic proof its
+  // interception actually engaged (a half-written, invalid-JSON casualty
+  // file). Cleaning up an INTENTIONALLY-preserved half-write would silence
+  // that test's own positive control -- this fix targets the complete-tmp
+  // leak that was actually observed live, not every possible failure.
+  let tmpPath;
+  let tmpWriteSucceeded = false;
   _writePromise = (async () => {
     try {
       // Atomic write: write to temp file first, then rename
@@ -333,13 +425,18 @@ export async function flushWrites() {
       // systemd restart racing the previous process's shutdown), a shared
       // `.tmp` suffix causes the second rename to fail with ENOENT after the
       // first instance consumed it. PID + random suffix isolates them.
-      const tmpPath = `${dbPath}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+      tmpPath = `${dbPath}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
       // rconPassword (per server, plus the legacy settings mirror) is
       // persisted to its own file and stripped from what actually lands on
       // disk here — see utils/serverRconSecrets.js. db.data itself is
       // never mutated by this call, only the object being serialized.
-      const data = JSON.stringify(redactRconSecretsForWrite(db.data), null, 2);
+      const data = JSON.stringify(
+        redactPanelBridgeSftpPasswordForWrite(redactRconSecretsForWrite(db.data)),
+        null,
+        2,
+      );
       fs.writeFileSync(tmpPath, data, { encoding: "utf-8", mode: 0o600 });
+      tmpWriteSucceeded = true;
       try {
         fs.chmodSync(tmpPath, 0o600);
       } catch (_) {
@@ -351,6 +448,25 @@ export async function flushWrites() {
       _circuitFailCount = 0;
       log.debug(`DB flushed (${Math.round(data.length / 1024)}KB)`);
     } catch (err) {
+      // Best-effort cleanup of THIS attempt's own tmp file (same pattern as
+      // writeFileAtomic/cleanupOrphanBackupTemps) -- a failed rename left it
+      // behind, and nothing else will ever clean it up while this process
+      // stays alive: sweepOrphanedTmpFiles() is deliberately dead-pid-only,
+      // so a live process's own retry loop leaking one tmp per failure was
+      // previously unbounded for as long as renames kept failing. Isolated
+      // in its own try/catch that swallows everything, INCLUDING an error
+      // from the unlink itself (e.g. the same contention that just failed
+      // the rename) -- this must never be able to skip or alter anything
+      // below it. A tidied-up temp file is not worth the retry counter, the
+      // backoff, or the circuit breaker that feeds the operator-facing
+      // storage-health banner.
+      if (tmpWriteSucceeded) {
+        try {
+          fs.unlinkSync(tmpPath);
+        } catch {
+          /* best-effort -- may not exist, may be locked by the same contention that failed the rename */
+        }
+      }
       _writeRetries++;
       _lastWriteError = err.message;
       if (_writeRetries >= MAX_WRITE_RETRIES) {
@@ -564,21 +680,58 @@ function startBackupSchedule() {
 // Graceful Shutdown
 // ============================================
 
+// A running process's flushWrites() failure is fine to leave for later: it
+// re-marks _dirty and schedules its own setTimeout retry, and the process
+// will still be alive when that timer fires. A process that is EXITING is
+// not still going to be alive for that timer -- index.js's gracefulShutdown()
+// calls httpServer.close(() => process.exit(0)) on its own, independent
+// SIGTERM/SIGINT listener, unsynchronized with this module's shutdown()
+// below, and with no lingering connections (the normal case on a clean
+// stop) that close() callback can fire before even flushWrites()'s own 1s
+// minimum backoff elapses -- abandoning the scheduled retry and silently
+// dropping whatever config change was still pending. flushForShutdown()
+// exists so a caller that is about to exit can wait out a few real retries
+// instead of relying on a timer that will never get to fire, bounded so a
+// write that can never succeed (e.g. a full disk) turns into "shutdown
+// proceeds anyway after a short, fixed wait", never "shutdown never
+// happens" -- matching this file's own existing tradeoff for a failed
+// write (log and move on, don't hang the process) rather than inventing a
+// new one.
+const SHUTDOWN_FLUSH_MAX_ATTEMPTS = 3;
+const SHUTDOWN_FLUSH_RETRY_DELAY_MS = 200;
+
+export async function flushForShutdown() {
+  if (_writeTimer) {
+    clearTimeout(_writeTimer);
+    _writeTimer = null;
+  }
+  for (let attempt = 1; attempt <= SHUTDOWN_FLUSH_MAX_ATTEMPTS; attempt++) {
+    await flushWrites();
+    if (!_dirty) return true; // nothing pending, or this attempt landed it
+    if (attempt < SHUTDOWN_FLUSH_MAX_ATTEMPTS) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, SHUTDOWN_FLUSH_RETRY_DELAY_MS),
+      );
+    }
+  }
+  // Gave it real, waited-for retries and it's still failing -- give up and
+  // let shutdown proceed. Whatever's pending stays only in memory; the
+  // circuit-breaker/retry state flushWrites() already tracked is unchanged
+  // by any of this, so the storage-health banner still reflects it.
+  return !_dirty;
+}
+
 function registerShutdownHandlers() {
   if (_shutdownRegistered) return;
   _shutdownRegistered = true;
 
   const shutdown = async (signal) => {
     log.info(`${signal} received — flushing writes...`);
-    if (_writeTimer) {
-      clearTimeout(_writeTimer);
-      _writeTimer = null;
-    }
     if (_backupTimer) {
       clearInterval(_backupTimer);
       _backupTimer = null;
     }
-    await flushWrites();
+    await flushForShutdown();
     createBackup("shutdown");
   };
 
@@ -764,6 +917,29 @@ export async function getDb() {
     } catch (err) {
       log.error(`Failed to read database: ${err.message}`);
 
+      // A permission failure is NOT corruption -- it means db.json is still
+      // sitting there, intact, just unreadable by this account (root-
+      // first-run trap, 2026-08-29: dataDir/logsDir themselves can be
+      // fine, pzuser-owned, while db.json specifically was recreated
+      // root-owned by one stray sudo restart -- e.g. renameSync() below
+      // silently self-heals ownership on its NEXT successful write, so a
+      // dataDir-level check alone can look clean while db.json itself is
+      // still blocked). Falling through to "no backup found, starting
+      // fresh" here would silently discard a real, recoverable database
+      // and replace it with empty defaults on the very next flush --
+      // strictly worse than refusing to start. Refuse loudly instead.
+      if (err.code === "EACCES" || err.code === "EPERM") {
+        checkAndExitIfOwnershipBlocked([dataDir, dbPath, backupDir]);
+        // Falls through only if checkAndExitIfOwnershipBlocked() found
+        // every one of those paths genuinely readable/writable by THIS
+        // process (fs.accessSync agrees) -- so db.read()'s EACCES/EPERM
+        // came from something access() itself can't see (a permissions
+        // change mid-flight between the check and the read, an exotic
+        // mandatory-access-control layer, an immutable file attribute).
+        // The existing corruption-recovery path below is still the right
+        // fallback for that case.
+      }
+
       // Attempt recovery from backup. Do NOT snapshot the corrupt file first —
       // that would poison the backup ring (pruneBackups keeps newest 5 and
       // could evict the last known-good backup) AND make getLatestBackup
@@ -811,6 +987,7 @@ export async function getDb() {
     // rconPassword again once a single write has happened, so it has to be
     // re-attached in memory on every restart, not just once at an upgrade.
     db.data = rehydrateRconSecrets(db.data, log);
+    db.data = rehydratePanelBridgeSftpPassword(db.data, log);
 
     // Use the atomic tmp+rename path instead of lowdb's non-atomic
     // adapter.write(). A crash during the startup write would otherwise
@@ -1172,6 +1349,22 @@ export async function clearScheduleHistory() {
   const db = await getDb();
   db.data.schedule_history = [];
   scheduleWrite();
+}
+
+/**
+ * Newest schedule_history entry for a given `command` value (the third
+ * argument to logScheduleExecution above) -- used by backupService.js to
+ * surface whether the LAST scheduled attempt of a given kind succeeded.
+ * getScheduleHistory()'s own taskId filter can't isolate this: the
+ * scheduled backup job and auto-restart both log with taskId=null, so
+ * filtering by taskId alone conflates them. schedule_history is
+ * newest-first (see appendCapped's doc comment above), so the first match
+ * is the most recent.
+ */
+export async function getLatestScheduleExecutionByCommand(command) {
+  const db = await getDb();
+  const history = db.data.schedule_history || [];
+  return history.find((h) => h.command === command) || null;
 }
 
 // ============================================
@@ -1558,6 +1751,9 @@ export function normalizeServerMemory(server) {
     installPath,
     zomboidDataPath,
     isRemote: pathsConfigured ? !pathsExistLocally : server.isRemote || false,
+    lifecycleProvider: ["systemd", "openrc"].includes(server.lifecycleProvider)
+      ? server.lifecycleProvider
+      : "direct",
     minMemory: normalizeMemoryGb(server.minMemory, 4),
     maxMemory: normalizeMemoryGb(server.maxMemory, 8),
   };
@@ -1625,6 +1821,7 @@ export async function createServer(serverConfig) {
     // for an existing server.
     useUpnp: serverConfig.useUpnp !== false,
     isRemote: serverConfig.isRemote || false,
+    lifecycleProvider: "direct",
     startCommand: serverConfig.startCommand || "",
     // 2026-08-26, two real users: this field-by-field literal never named
     // adminPassword, so servers.js's POST / forwarding it correctly made no

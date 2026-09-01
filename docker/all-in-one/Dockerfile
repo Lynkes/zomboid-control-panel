@@ -5,9 +5,17 @@ COPY package.json ./
 COPY client/package.json client/package-lock.json* ./client/
 RUN cd client && npm install --no-audit --prefer-offline --include=optional
 COPY client/ ./client/
+# Same reasoning as the root Dockerfile: the frontend and the backend must be given the SAME
+# build sha, or the build-compatibility gate compares "unknown" against a real sha and blocks
+# the UI. No .git and no git binary exists in either stage.
+ARG PANEL_BUILD_SHA=""
+ENV PANEL_BUILD_SHA=${PANEL_BUILD_SHA}
 RUN cd client && npm run build
 
 FROM cm2network/steamcmd:root
+
+ARG PANEL_BUILD_SHA=""
+ENV PANEL_BUILD_SHA=${PANEL_BUILD_SHA}
 
 USER root
 ENV DEBIAN_FRONTEND=noninteractive

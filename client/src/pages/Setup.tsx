@@ -374,7 +374,7 @@ export default function Setup() {
         <Button
           type="submit"
           className="w-full onboarding-cta"
-          disabled={loading || !setupToken.trim() || !usernameValid || !passwordLongEnough || !passwordsMatch}
+          disabled={loading || !setupToken.trim() || !usernameValid || !passwordLongEnough || !passwordsMatch || !panelPortValid}
         >
           {loading ? (
             <>

@@ -6,9 +6,11 @@ import { requirePermission } from "../services/permissions.js";
 import { getActiveServer } from "../database/init.js";
 import {
   listTemplates,
+  listHiddenBuiltinTemplates,
   getTemplate,
   saveTemplate,
   deleteTemplate,
+  unhideTemplate,
   exportTemplate,
   importTemplate,
   previewTemplate,
@@ -23,6 +25,20 @@ router.get("/", async (req, res) => {
     res.json({ templates: await listTemplates() });
   } catch (error) {
     log.error(`Failed to list templates: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Registered before /:id so the literal segment "hidden" is never captured
+// as a template id. Gated on templates.manage -- same permission as
+// restoring one (POST /:id/unhide below) and deleting one -- an operator
+// who cannot manage templates has no use for the ids of ones that are
+// hidden.
+router.get("/hidden", requirePermission("templates.manage"), async (req, res) => {
+  try {
+    res.json({ templates: await listHiddenBuiltinTemplates() });
+  } catch (error) {
+    log.error(`Failed to list hidden templates: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
   }
 });
@@ -179,6 +195,17 @@ router.delete("/:id", requirePermission("templates.manage"), async (req, res) =>
     res.json(result);
   } catch (error) {
     log.error(`Failed to delete template: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+router.post("/:id/unhide", requirePermission("templates.manage"), async (req, res) => {
+  try {
+    const result = await unhideTemplate(req.params.id);
+    if (!result.success) return res.status(400).json(result);
+    res.json(result);
+  } catch (error) {
+    log.error(`Failed to unhide template: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
   }
 });

@@ -11,6 +11,7 @@ vi.mock("../services/diskMonitor.js", () => ({ getDiskStatusForPath }));
 // gitignored data/ dir, never a real disk anywhere else.
 const { getDataPaths } = await import("../utils/paths.js");
 const { default: router } = await import("../routes/system.js");
+const { buildRuntimeInfo } = await import("../routes/system.js");
 
 const PANEL_DATA_STATUS = {
   path: getDataPaths().dataDir,
@@ -144,5 +145,64 @@ describe("GET /api/system/storage-health", () => {
     expect(response.json).toHaveBeenCalledWith(
       expect.objectContaining({ error: expect.any(String) }),
     );
+  });
+});
+
+describe("GET /api/system/runtime", () => {
+  it("returns concrete runtime paths without assuming shell variables", async () => {
+    const runtime = buildRuntimeInfo({
+      platform: "linux",
+      temporaryDirectory: "/run/user/1000/panel tmp",
+      environment: { INVOCATION_ID: "service-run" },
+      pathSeparator: "/",
+      fileExists: () => false,
+      restartAssessment: {
+        gameServers: "preserved",
+        requiresConfirmation: false,
+        reason: "test",
+      },
+    });
+
+    expect(runtime).toEqual({
+      platform: "linux",
+      family: "posix",
+      pathSeparator: "/",
+      temporaryDirectory: "/run/user/1000/panel tmp",
+      serviceManager: "systemd",
+      restartAssessment: {
+        gameServers: "preserved",
+        requiresConfirmation: false,
+        reason: "test",
+      },
+    });
+    expect(JSON.stringify(runtime)).not.toContain("%TEMP%");
+  });
+
+  it("uses a neutral family and service manager for unknown platforms", () => {
+    expect(
+      buildRuntimeInfo({
+        platform: "mystery-os",
+        temporaryDirectory: "/custom/tmp",
+        environment: {},
+        pathSeparator: "/",
+        fileExists: () => false,
+        restartAssessment: {
+          gameServers: "unknown",
+          requiresConfirmation: true,
+          reason: "test",
+        },
+      }),
+    ).toEqual({
+      platform: "mystery-os",
+      family: "unknown",
+      pathSeparator: "/",
+      temporaryDirectory: "/custom/tmp",
+      serviceManager: "unknown",
+      restartAssessment: {
+        gameServers: "unknown",
+        requiresConfirmation: true,
+        reason: "test",
+      },
+    });
   });
 });

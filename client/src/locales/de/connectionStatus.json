@@ -12,6 +12,7 @@
     "label": "Live-Updates nicht verfügbar",
     "description": "Das Panel selbst funktioniert — Sie sehen diese Seite über eine funktionierende Verbindung. Nur die Live-Update-Verbindung konnte nicht hergestellt werden.",
     "hint": "Die häufigste Ursache ist ein Reverse-Proxy (nginx, Apache, Caddy usw.) vor dem Panel, der WebSocket-Upgrade-Anfragen nicht weiterleitet. Falls das auf Ihre Einrichtung zutrifft, bitten Sie die zuständige Person, zu prüfen, ob die Header Upgrade und Connection: upgrade durchgereicht werden.",
-    "technicalDetail": "Technisches Detail: {{error}}"
+    "technicalDetail": "Technisches Detail: {{error}}",
+    "retry": "Jetzt erneut versuchen"
   }
 }

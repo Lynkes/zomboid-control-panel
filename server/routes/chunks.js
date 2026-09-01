@@ -448,8 +448,20 @@ async function assertKnownSaveRoot(zomboidDataPath) {
   throw error;
 }
 
+// Operator ruling, hunt-wave12 2026-08-30: /saves, /suggested-paths,
+// /chunks/:saveName, /stats/:saveName and /browse below used to sit only
+// behind the global auth middleware, authed but not permissioned, while
+// their mutating siblings (/delete-chunks, /delete-region, /save-path) all
+// require chunks.manage. docker.js's own GET /stats already gates behind
+// docker.manage -- chunks.js was the outlier, not the convention.
+// chunks.manage is the ONLY chunks capability that exists (no read-level
+// chunks.view); gating reads behind it therefore couples "can look at
+// saves" to "can delete them," which is a real, deliberate tradeoff, not
+// an oversight -- a future chunks.view split is a policy call for the
+// operator, not something to invent here.
+//
 // Get list of available saves
-router.get("/saves", async (req, res) => {
+router.get("/saves", requirePermission("chunks.manage"), async (req, res) => {
   try {
     // Support custom path override from query parameter
     const customPath = req.query.customPath
@@ -575,12 +587,22 @@ router.get("/saves", async (req, res) => {
         `[ChunkCleaner] Failed to read saves dir ${savesPath}: ${e.message}`,
       );
       const code = e.code || "EREAD";
-      const hint =
-        code === "EACCES" || code === "EPERM"
-          ? `Panel does not have permission to read this folder. On Linux, check that the panel runs as the same user that owns the Zomboid folder (or fix permissions with chown/chmod).`
-          : `Could not read the saves folder (${code}).`;
+      const permissionDenied = code === "EACCES" || code === "EPERM";
+      const variant = process.platform === "win32"
+        ? "windows"
+        : process.platform === "linux"
+          ? "linux"
+          : "generic";
+      const hint = !permissionDenied
+        ? `Could not read the saves folder (${code}).`
+        : variant === "linux"
+          ? "Panel cannot read this folder. Check ownership and read permissions for the panel service user."
+          : variant === "windows"
+            ? "Panel cannot read this folder. Check that the panel service account has read access to it."
+            : "Panel cannot read this folder. Check the folder permissions for the account running the panel.";
       return res.status(403).json({
         error: hint,
+        variant,
         debug: {
           zomboidDataPath,
           savesPath,
@@ -729,7 +751,7 @@ router.get("/saves", async (req, res) => {
 
 // List common Zomboid path candidates so the UI can present clickable
 // suggestions when the panel can't find a data folder on its own.
-router.get("/suggested-paths", async (req, res) => {
+router.get("/suggested-paths", requirePermission("chunks.manage"), async (req, res) => {
   try {
     // Allow the UI to bust the 30s cache after the user creates/moves a
     // folder (?refresh=1) so suggestions update without a panel restart.
@@ -803,7 +825,15 @@ router.post("/save-path", requirePermission("chunks.manage"), async (req, res) =
     }
 
     if (activeServer?.id) {
-      await updateServer(activeServer.id, { zomboidDataPath: validated });
+      // updateServer() returns null instead of writing anything if this
+      // server id no longer exists by the time this call runs (deleted
+      // concurrently between the getActiveServer() call above and here) --
+      // without checking that, this route reported the path as saved to a
+      // server profile that was no longer there to save it to.
+      const updated = await updateServer(activeServer.id, { zomboidDataPath: validated });
+      if (!updated) {
+        return res.status(404).json({ error: "Active server no longer exists." });
+      }
       log.info(
         `[ChunkCleaner] Saved zomboidDataPath to active server "${activeServer.name}": ${validated}`,
       );
@@ -826,7 +856,7 @@ router.post("/save-path", requirePermission("chunks.manage"), async (req, res) =
 });
 
 // Get chunk data for a specific save
-router.get("/chunks/:saveName", async (req, res) => {
+router.get("/chunks/:saveName", requirePermission("chunks.manage"), async (req, res) => {
   try {
     const { saveName } = req.params;
     const customPath = req.query.customPath
@@ -849,9 +879,25 @@ router.get("/chunks/:saveName", async (req, res) => {
       io.emit("chunkScan:progress", { scanId, scanned, total, chunks: found });
     };
 
-    // Sanitize saveName to prevent path traversal
+    // Sanitize saveName to prevent path traversal. path.basename() alone
+    // catches every payload that contains a separator ("../x", "a/../b") --
+    // the sanitized value stops matching the original and the request is
+    // rejected below. It does NOT catch the two special dot-segments on
+    // their own: path.basename("..") === ".." and path.basename(".") === "."
+    // (both are already "just a basename" by Node's own definition), so
+    // without the explicit check here a saveName of ".." or "." sails
+    // through unchanged and resolves savePath to the PARENT of the saves
+    // directory (or the saves directory itself) instead of a real save --
+    // proven end-to-end (a decoy file placed outside any save gets deleted,
+    // and /stats leaks aggregate sibling-save size) in
+    // linuxChunksSaveNameTraversal.test.js.
     const sanitizedSaveName = path.basename(saveName);
-    if (!sanitizedSaveName || sanitizedSaveName !== saveName) {
+    if (
+      !sanitizedSaveName ||
+      sanitizedSaveName !== saveName ||
+      sanitizedSaveName === "." ||
+      sanitizedSaveName === ".."
+    ) {
       return res.status(400).json({
         error: "Invalid save name",
         code: ErrorCode.CHUNKS_INVALID_SAVE_NAME,
@@ -1259,9 +1305,25 @@ router.post("/delete-chunks", requirePermission("chunks.manage"), async (req, re
       });
     }
 
-    // Sanitize saveName to prevent path traversal
+    // Sanitize saveName to prevent path traversal. path.basename() alone
+    // catches every payload that contains a separator ("../x", "a/../b") --
+    // the sanitized value stops matching the original and the request is
+    // rejected below. It does NOT catch the two special dot-segments on
+    // their own: path.basename("..") === ".." and path.basename(".") === "."
+    // (both are already "just a basename" by Node's own definition), so
+    // without the explicit check here a saveName of ".." or "." sails
+    // through unchanged and resolves savePath to the PARENT of the saves
+    // directory (or the saves directory itself) instead of a real save --
+    // proven end-to-end (a decoy file placed outside any save gets deleted,
+    // and /stats leaks aggregate sibling-save size) in
+    // linuxChunksSaveNameTraversal.test.js.
     const sanitizedSaveName = path.basename(saveName);
-    if (!sanitizedSaveName || sanitizedSaveName !== saveName) {
+    if (
+      !sanitizedSaveName ||
+      sanitizedSaveName !== saveName ||
+      sanitizedSaveName === "." ||
+      sanitizedSaveName === ".."
+    ) {
       return res.status(400).json({
         error: "Invalid save name",
         code: ErrorCode.CHUNKS_INVALID_SAVE_NAME,
@@ -1660,9 +1722,25 @@ router.post("/delete-region", requirePermission("chunks.manage"), async (req, re
       });
     }
 
-    // Sanitize saveName to prevent path traversal
+    // Sanitize saveName to prevent path traversal. path.basename() alone
+    // catches every payload that contains a separator ("../x", "a/../b") --
+    // the sanitized value stops matching the original and the request is
+    // rejected below. It does NOT catch the two special dot-segments on
+    // their own: path.basename("..") === ".." and path.basename(".") === "."
+    // (both are already "just a basename" by Node's own definition), so
+    // without the explicit check here a saveName of ".." or "." sails
+    // through unchanged and resolves savePath to the PARENT of the saves
+    // directory (or the saves directory itself) instead of a real save --
+    // proven end-to-end (a decoy file placed outside any save gets deleted,
+    // and /stats leaks aggregate sibling-save size) in
+    // linuxChunksSaveNameTraversal.test.js.
     const sanitizedSaveName = path.basename(saveName);
-    if (!sanitizedSaveName || sanitizedSaveName !== saveName) {
+    if (
+      !sanitizedSaveName ||
+      sanitizedSaveName !== saveName ||
+      sanitizedSaveName === "." ||
+      sanitizedSaveName === ".."
+    ) {
       return res.status(400).json({
         error: "Invalid save name",
         code: ErrorCode.CHUNKS_INVALID_SAVE_NAME,
@@ -2088,16 +2166,32 @@ router.post("/delete-region", requirePermission("chunks.manage"), async (req, re
 });
 
 // Get save statistics
-router.get("/stats/:saveName", async (req, res) => {
+router.get("/stats/:saveName", requirePermission("chunks.manage"), async (req, res) => {
   try {
     const { saveName } = req.params;
     const customPath = req.query.customPath
       ? String(req.query.customPath)
       : null;
 
-    // Sanitize saveName to prevent path traversal
+    // Sanitize saveName to prevent path traversal. path.basename() alone
+    // catches every payload that contains a separator ("../x", "a/../b") --
+    // the sanitized value stops matching the original and the request is
+    // rejected below. It does NOT catch the two special dot-segments on
+    // their own: path.basename("..") === ".." and path.basename(".") === "."
+    // (both are already "just a basename" by Node's own definition), so
+    // without the explicit check here a saveName of ".." or "." sails
+    // through unchanged and resolves savePath to the PARENT of the saves
+    // directory (or the saves directory itself) instead of a real save --
+    // proven end-to-end (a decoy file placed outside any save gets deleted,
+    // and /stats leaks aggregate sibling-save size) in
+    // linuxChunksSaveNameTraversal.test.js.
     const sanitizedSaveName = path.basename(saveName);
-    if (!sanitizedSaveName || sanitizedSaveName !== saveName) {
+    if (
+      !sanitizedSaveName ||
+      sanitizedSaveName !== saveName ||
+      sanitizedSaveName === "." ||
+      sanitizedSaveName === ".."
+    ) {
       return res.status(400).json({
         error: "Invalid save name",
         code: ErrorCode.CHUNKS_INVALID_SAVE_NAME,
@@ -2593,7 +2687,7 @@ function formatBytes(bytes) {
 // Browse a path — list directories for manual navigation. Confined to the
 // active server's zomboidDataPath so this can't be used to walk the entire
 // host filesystem (it was previously unconfined path.resolve()).
-router.get("/browse", async (req, res) => {
+router.get("/browse", requirePermission("chunks.manage"), async (req, res) => {
   try {
     const browsePath = req.query.path ? String(req.query.path) : null;
     const zomboidDataPath = await getZomboidDataPath();

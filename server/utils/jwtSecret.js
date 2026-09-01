@@ -23,17 +23,53 @@ import path from "path";
 import crypto from "crypto";
 import { getDataPaths } from "./paths.js";
 import { readSecret } from "./secrets.js";
+import { checkAndExitIfOwnershipBlocked } from "./firstRunOwnershipCheck.js";
 
 export function getJwtSecretPath() {
   return path.join(getDataPaths().dataDir, "jwt.secret");
 }
+
+// The auto-generated path never needs a floor -- crypto.randomBytes(64)
+// (512 bits) always clears it by a wide margin. This exists for the
+// OPERATOR-PINNED path only: nothing validated JWT_SECRET/JWT_SECRET_FILE's
+// strength at all, so `JWT_SECRET=x` was silently accepted and every
+// session token on the install would be signed with a one-character HMAC
+// key, brute-forceable in practice (2026-08-29 auth/sessions hunt, flagged
+// low-priority alongside the access-token TTL work). 32 chars (256 bits,
+// matching HS256's own output size -- jsonwebtoken's default algorithm,
+// and the floor most JWT guidance converges on for an HMAC secret) is
+// deliberately a length check, not an entropy one: this can't tell
+// "ymxK9F...(32 random chars)" apart from "aaaaaaaa...(32 a's)", the same
+// honest limitation password-length-only validation always has. It still
+// closes the actual observed gap (no floor at all) without pretending to
+// solve a problem it can't -- there is no reliable way to estimate an
+// operator-supplied secret's real entropy from the string alone.
+const MIN_JWT_SECRET_LENGTH = 32;
 
 // mode is best-effort: on Windows, fs chmod/mode only toggles the
 // read-only attribute, not a real ACL restriction — same documented
 // limitation already called out for dataDir/backupDir in database/init.js,
 // not a new gap introduced here.
 function writeSecretFile(secretPath, value) {
-  fs.writeFileSync(secretPath, value, { encoding: "utf8", mode: 0o600 });
+  try {
+    fs.writeFileSync(secretPath, value, { encoding: "utf8", mode: 0o600 });
+  } catch (err) {
+    // Defense-in-depth for the root-first-run trap (2026-08-29): normally
+    // caught much earlier by the preflight in
+    // server/utils/firstRunOwnershipCheck.js (imported first in
+    // server/index.js) or by database/init.js's own guard. This exists for
+    // the narrower case neither of those sees -- dataDir itself and
+    // db.json are fine, but jwt.secret specifically was deleted and then
+    // recreated by a stray root run (e.g. a one-off `sudo systemctl
+    // restart panel` before switching back to the dedicated account).
+    if (
+      (err.code === "EACCES" || err.code === "EPERM") &&
+      checkAndExitIfOwnershipBlocked([getDataPaths().dataDir, secretPath])
+    ) {
+      throw err; // unreachable: checkAndExitIfOwnershipBlocked() exits the process
+    }
+    throw err; // not an ownership problem -- preserve prior behavior
+  }
   try {
     fs.chmodSync(secretPath, 0o600);
   } catch {
@@ -58,6 +94,14 @@ function writeSecretFile(secretPath, value) {
 export async function loadOrCreateJwtSecret({ legacyValue } = {}) {
   const envSecret = readSecret("JWT_SECRET");
   if (envSecret) {
+    if (envSecret.length < MIN_JWT_SECRET_LENGTH) {
+      throw new Error(
+        `JWT_SECRET (or JWT_SECRET_FILE) is only ${envSecret.length} characters. Refusing to ` +
+          `sign sessions with a weak key -- use at least ${MIN_JWT_SECRET_LENGTH} random ` +
+          "characters (e.g. `openssl rand -hex 32`), or unset it to let the panel generate " +
+          "and manage a strong one automatically.",
+      );
+    }
     return { secret: envSecret, source: "env" };
   }
 

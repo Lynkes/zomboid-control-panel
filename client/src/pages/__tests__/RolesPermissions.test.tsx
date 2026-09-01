@@ -1,7 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import RolesPermissions from '../RolesPermissions'
 import { permissionsApi, usersApi, type CapabilityGroup, type RoleInfo } from '@/lib/api'
+
+// impeccable-2026-08-31: capability rows now carry a HelpTip (Radix Tooltip)
+// for the description text that used to render permanently -- Tooltip
+// throws if it's not inside a TooltipProvider, same requirement every other
+// HelpTip-rendering page's tests already wrap for (see Settings.test.tsx).
+function renderRolesPermissions() {
+  return render(
+    <TooltipProvider>
+      <RolesPermissions />
+    </TooltipProvider>,
+  )
+}
 
 // conv-bugfix2 / god's authorization: two capability toggles on the same
 // role fired before the first one's response re-renders `roles` used to
@@ -57,7 +70,7 @@ describe('RolesPermissions -- concurrent capability toggles on one role', () => 
     // re-renders between the two clicks -- the exact race window.
     updateRole.mockImplementation(() => new Promise(() => {}))
 
-    render(<RolesPermissions />)
+    renderRolesPermissions()
 
     const alphaBox = await screen.findByRole('checkbox', { name: 'Test Role: Alpha Capability' })
     const betaBox = screen.getByRole('checkbox', { name: 'Test Role: Beta Capability' })
@@ -87,7 +100,7 @@ describe('RolesPermissions -- concurrent capability toggles on one role', () => 
       .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
       .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve }))
 
-    render(<RolesPermissions />)
+    renderRolesPermissions()
 
     const alphaBox = await screen.findByRole('checkbox', { name: 'Test Role: Alpha Capability' })
     const betaBox = screen.getByRole('checkbox', { name: 'Test Role: Beta Capability' })

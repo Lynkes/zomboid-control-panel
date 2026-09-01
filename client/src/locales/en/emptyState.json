@@ -9,6 +9,7 @@
     "noSchedule": "No Tasks Armed",
     "noMods": "No Mods Tracked",
     "noMessages": "No Messages",
-    "empty": "Empty"
+    "empty": "Empty",
+    "accessDenied": "Access Denied"
   }
 }

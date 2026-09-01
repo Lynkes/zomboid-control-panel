@@ -79,6 +79,8 @@
     "hostUnreachableDesc": "Starte den Server und überprüfe anschließend RCON-Host, -Port und -Passwort in den Panel-Einstellungen.",
     "authFailedTitle": "Authentifizierung fehlgeschlagen",
     "authFailedDesc": "Der Host ist erreichbar – überprüfe das RCON-Passwort unter Meine Server.",
+    "droppedTitle": "Verbindung getrennt",
+    "droppedDesc": "RCON wurde während der Ausführung eines Befehls getrennt. Host, Port und Passwort wurden gerade als korrekt bestätigt -- wähle oben \"Erneut prüfen\", sobald du glaubst, dass die Verbindung wieder besteht.",
     "outputLabel": "RCON-Ausgabe",
     "entries_one": "{{count}} Eintrag",
     "entries_other": "{{count}} Einträge",
@@ -88,6 +90,8 @@
     "noCommandsTitle": "Noch keine Befehle",
     "noCommandsDesc": "Führe einen RCON-Befehl aus, um die Antwort hier zu sehen.",
     "quickLabel": "schnell",
+    "commandLabel": "befehl",
+    "commandTip": "Befehle werden hier sofort auf dem laufenden Server ausgeführt, ohne Bestätigungsschritt — selbst bei etwas, das den Server stoppt oder einen Spieler entfernt. Wenn Sie nicht sicher sind, was ein Befehl bewirkt, prüfen Sie ihn, bevor Sie ihn ausführen; die meisten lassen sich nicht rückgängig machen.",
     "promptPrefix": "rcon $",
     "placeholder": "Befehl eingeben…",
     "inputAria": "RCON-Befehlseingabe",
@@ -95,7 +99,8 @@
     "run": "ausführen",
     "keyboardHint": "// Enter · ausführen · ↑↓ Verlauf",
     "noResponseFallback": "Keine Antwort",
-    "noPermission": "Ihre Rolle hat keine Berechtigung, RCON-Befehle auszuführen."
+    "noPermission": "Ihre Rolle hat keine Berechtigung, RCON-Befehle auszuführen.",
+    "disconnectedUseRecheck": "RCON ist derzeit nicht erreichbar -- wähle oben \"Erneut prüfen\", bevor du es erneut versuchst."
   },
   "quickCommands": {
     "players": "Spieler",

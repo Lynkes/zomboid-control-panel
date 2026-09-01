@@ -97,7 +97,7 @@
     "debugAria": "Debug-Modus aktivieren",
     "customConfigLocation": "Eigener Konfigurationspfad",
     "customConfigLocationHelp": "Project Zomboid speichert Spielstände, Serverkonfiguration und Protokolle normalerweise neben dem Installationsordner. Setze dies nur, wenn diese Daten tatsächlich woanders liegen — zum Beispiel auf einem separaten Laufwerk oder in einem bind-gemounteten Ordner unter Docker. Zeigt dies auf den falschen Ordner, findet das Panel deine vorhandenen Spielstände, Einstellungen oder Backups nicht.",
-    "customDataPathPlaceholder": "z. B. C:\\Users\\DeinName\\Zomboid oder /home/deinname/Zomboid",
+    "customDataPathPlaceholder": "Path to the Zomboid data folder",
     "useCustomLocation": "Eigenen Pfad verwenden",
     "serverNameLabel": "Servername",
     "serverNamePlaceholder": "myserver",
@@ -118,7 +118,9 @@
     "progressComplete": "Abgeschlossen!",
     "noPermissionInstall": "Die Installation eines Servers erfordert die Berechtigung server.install, über die diese Rolle nicht verfügt.",
     "noPermissionSettings": "Das Speichern dieser Einstellung erfordert die Berechtigung panel.settings, über die diese Rolle nicht verfügt.",
-    "noPermissionControl": "Das Starten des Servers erfordert die Berechtigung server.control, über die diese Rolle nicht verfügt."
+    "noPermissionControl": "Das Starten des Servers erfordert die Berechtigung server.control, über die diese Rolle nicht verfügt.",
+    "customDataPathPlaceholderWindows": "e.g. C:\\Users\\you\\Zomboid or %USERPROFILE%\\Zomboid",
+    "customDataPathPlaceholderPosix": "e.g. /home/you/Zomboid or $HOME/Zomboid"
   },
   "full": {
     "pageTitle": "Neuinstallation",
@@ -134,20 +136,22 @@
       "manualTrigger": "SteamCMD schon vorhanden? Ordner manuell festlegen",
       "manualTitle": "Manuelle Einrichtung",
       "manualStep1": "SteamCMD von Valve herunterladen",
-      "manualStep2": "In einen Ordner entpacken (z. B. <1>C:\\SteamCMD</1> oder <2>~/steamcmd</2>)",
+      "manualStep2": "Extract SteamCMD to a folder on the panel host.",
       "manualStep3": "<1>steamcmd</1> einmal ausführen, damit es sich selbst aktualisieren kann",
       "downloadButton": "SteamCMD herunterladen",
       "manualPathPlaceholder": "Pfad zu deinem vorhandenen SteamCMD-Ordner",
       "savePathButton": "Pfad speichern",
       "readyTitle": "SteamCMD bereit",
-      "changePathButton": "Pfad ändern"
+      "changePathButton": "Pfad ändern",
+      "manualStep2Windows": "Extract to a folder such as <1>C:\\SteamCMD</1>.",
+      "manualStep2Posix": "Extract to a folder such as <1>~/steamcmd</1>."
     },
     "step2": {
       "title": "Serverdetails",
       "description": "Wähle, wo die Dateien installiert werden, und lege die Serveridentität fest.",
       "installFolderLabel": "Installationsordner",
       "useLinuxPath": "Linux-Dienstpfad verwenden",
-      "installFolderPlaceholder": "z. B. C:\\PZServer oder /home/steamuser/pzserver",
+      "installFolderPlaceholder": "Path to the dedicated server folder",
       "installFolderHelp": "SteamCMD lädt hier etwa 3 GB Serverdateien herunter und legt den Ordner automatisch an, falls er noch nicht existiert — das Panel braucht dafür nur Schreibrechte. Das ist getrennt davon, wo Spielstände und Einstellungen gespeichert werden; siehe „Eigener Konfigurationspfad” weiter unten.",
       "linuxNoteTitle": "Linux-Dienstinstallation",
       "linuxNoteBody1": "Wenn das Panel über den mitgelieferten systemd-Dienst läuft, verwende <1>{{path}}</1>. Andere Ordner erfordern eine Änderung der systemd-Berechtigungen.",
@@ -162,7 +166,9 @@
       "buildLabel": "Build: {{buildId}}",
       "customDataLocation": "Eigener Konfigurationspfad",
       "setBadge": "Gesetzt",
-      "customDataHelp": "Lass dieses Feld leer, um einen Datenordner neben dem Installationsordner zu erstellen. Wähle in Docker beim Überschreiben einen bind-gemounteten Ordner."
+      "customDataHelp": "Lass dieses Feld leer, um einen Datenordner neben dem Installationsordner zu erstellen. Wähle in Docker beim Überschreiben einen bind-gemounteten Ordner.",
+      "installFolderPlaceholderWindows": "e.g. C:\\PZServer",
+      "installFolderPlaceholderPosix": "e.g. /home/steamuser/pzserver"
     },
     "step3": {
       "title": "Servereinstellungen",
@@ -196,10 +202,12 @@
       "title": "Serverdateien auswählen",
       "description": "Wähle den vorhandenen Ordner des dedizierten Project Zomboid-Servers.",
       "usingExistingTitle": "Vorhandene Dateien verwenden",
-      "usingExistingDesc": "Der Ordner sollte <1>StartServer64.bat</1> (Windows) oder <2>start-server.sh</2> (Linux) sowie den Ordner <3>java</3> enthalten.",
+      "usingExistingDesc": "Select the existing Project Zomboid dedicated server folder, including its bundled Java runtime.",
       "locationLabel": "Pfad zu den Serverdateien",
       "locationPlaceholder": "Pfad zum Ordner deines vorhandenen dedizierten Servers",
-      "locationHelp": "Ordner, der bereits die Dateien deines dedizierten Project Zomboid-Servers enthält."
+      "locationHelp": "Ordner, der bereits die Dateien deines dedizierten Project Zomboid-Servers enthält.",
+      "usingExistingDescWindows": "The folder should contain <1>StartServer64.bat</1> and the <3>java</3> folder.",
+      "usingExistingDescPosix": "The folder should contain <1>start-server.sh</1> and the <3>java</3> folder."
     },
     "step2": {
       "title": "Server konfigurieren",

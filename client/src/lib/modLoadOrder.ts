@@ -26,24 +26,41 @@ export interface AutoSortResult {
 /**
  * Resolve a declared `require=` entry against a set of mod IDs.
  *
- * An exact ID always wins. Otherwise a mod whose ID is `<required>_<suffix>` or
- * `<required>-<suffix>` satisfies it: that is the convention modders use when
- * they ship a refactor, test or legacy fork of the same mod from one workshop
- * item. When several forks match, the one earliest in the list wins so the
- * result is deterministic.
+ * An exact ID always wins, checked case-sensitively first (the common case,
+ * and the fastest path) then case-insensitively (mod.info `require=` and
+ * the actual mod ID are two independently-typed strings from two different
+ * modders, and PZ itself treats mod IDs case-insensitively at load time --
+ * see the case-sensitivity note below). Otherwise a mod whose ID is
+ * `<required>_<suffix>` or `<required>-<suffix>` satisfies it: that is the
+ * convention modders use when they ship a refactor, test or legacy fork of
+ * the same mod from one workshop item. When several matches exist at the
+ * same tier (case-insensitive exact, or fork), the one earliest in the list
+ * wins so the result is deterministic.
  *
  * Both the load-order sort and the missing-dependency report use this, so the
  * two can never disagree about whether a requirement is met.
+ *
+ * CASE-SENSITIVITY: the exact-match and fork-match tiers must agree on
+ * whether case matters, or a requirement can resolve against a same-mod
+ * fork while failing against the literal same mod under a differently-cased
+ * ID -- backwards, since the exact match is supposed to be the strictest
+ * tier, not the least forgiving one. (Found 2026-08-31: requirement
+ * `footprint` against an installed `Footprint` resolved to null/missing,
+ * while the same requirement against `Footprint_Legacy` resolved fine --
+ * see modLoadOrder.test.ts's case-sensitivity block.)
  */
 export function createRequirementResolver(
   modIds: Iterable<string>,
 ): (requirement: string) => string | null {
   const exact = new Set<string>()
+  const exactByLower = new Map<string, string>()
   const lowerById: Array<[string, string]> = []
   for (const modId of modIds) {
     if (!modId || exact.has(modId)) continue
     exact.add(modId)
-    lowerById.push([modId, modId.toLowerCase()])
+    const lower = modId.toLowerCase()
+    if (!exactByLower.has(lower)) exactByLower.set(lower, modId)
+    lowerById.push([modId, lower])
   }
 
   const cache = new Map<string, string | null>()
@@ -58,10 +75,15 @@ export function createRequirementResolver(
       resolved = needle
     } else {
       const prefix = needle.toLowerCase()
-      for (const [modId, lower] of lowerById) {
-        if (lower.startsWith(prefix + '_') || lower.startsWith(prefix + '-')) {
-          resolved = modId
-          break
+      const caseInsensitiveExact = exactByLower.get(prefix)
+      if (caseInsensitiveExact) {
+        resolved = caseInsensitiveExact
+      } else {
+        for (const [modId, lower] of lowerById) {
+          if (lower.startsWith(prefix + '_') || lower.startsWith(prefix + '-')) {
+            resolved = modId
+            break
+          }
         }
       }
     }

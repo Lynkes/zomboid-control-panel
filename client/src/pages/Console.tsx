@@ -17,27 +17,25 @@ import { useAuth } from '@/contexts/AuthContext'
 import { EmptyState } from '@/components/EmptyState'
 import { PageHeader } from '@/components/PageHeader'
 import { DisabledReason } from '@/components/DisabledReason'
+import { HelpTip } from '@/components/HelpTip'
 import { cn } from '@/lib/utils'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { usePageShortcut } from '@/hooks/useKeyboardShortcuts'
 
-// rconService.execute() routes most connection-loss cases through
-// getUserFriendlyError() (server/services/rcon.js) before they reach the
-// client, rewriting raw ECONNREFUSED/etc into prose -- so a raw-string-only
-// check misses every one of those friendly-error paths and leaves
-// rconConnected stuck at its last (stale) value. Match the friendly
-// strings too so any connection-loss report is recognized.
-const RCON_DISCONNECT_PHRASES = [
-  'Server is not running',
-  'ECONNREFUSED',
-  'Cannot connect to server',
-  'Connection timed out',
-  'Connection was reset',
-  'Could not reconnect after multiple attempts',
-  'Not connected to server',
-]
-function isRconDisconnectError(error: string | undefined): boolean {
-  return !!error && RCON_DISCONNECT_PHRASES.some((phrase) => error.includes(phrase))
+// rconService.execute() (server/services/rcon.js) attaches
+// `code: ErrorCode.RCON_EXECUTE_DISCONNECTED` to its response whenever a
+// failure represents the RCON session having dropped -- check THAT, not
+// the accompanying prose. This used to substring-match a hand-maintained
+// copy of the server's user-facing messages, which silently broke the
+// moment either list was edited without updating the other: 2026-08-30,
+// rcon-disconnect-detection-matches-prose-not-codes -- "Server is not
+// running" was reworded to "Game server is not running." server-side and
+// this file's phrase list was never told, so a real disconnect stopped
+// being detected. A code can't drift out of sync with itself the way two
+// independently-maintained strings can.
+const RCON_EXECUTE_DISCONNECTED_CODE = 'RCON_EXECUTE_DISCONNECTED'
+function isRconDisconnectError(code: string | undefined): boolean {
+  return code === RCON_EXECUTE_DISCONNECTED_CODE
 }
 
 interface CommandEntry {
@@ -250,11 +248,15 @@ export default function Console() {
   const [commandHistoryIndex, setCommandHistoryIndex] = useState(-1)
   const [commandCache, setCommandCache] = useState<string[]>([])
   const [rconConnected, setRconConnected] = useState<boolean | null>(null)
-  // Only meaningful while rconConnected === false -- distinguishes "host
-  // never reachable" from "reachable, but the saved password is wrong" so
-  // the disconnected banner below doesn't tell a stale-password user their
-  // host is unreachable (see 2026-08-26 bug hunt finding 1).
-  const [rconFailureReason, setRconFailureReason] = useState<'unreachable' | 'auth_failed' | null>(null)
+  // Only meaningful while rconConnected === false -- distinguishes three
+  // different reasons the banner below needs different words for:
+  // 'unreachable' (host never reachable), 'auth_failed' (reachable, but the
+  // saved password is wrong -- see 2026-08-26 bug hunt finding 1), and
+  // 'dropped' (a mid-session transport drop detected from a failed command,
+  // not a fresh probe -- host/port/password were just proven correct
+  // seconds ago, so telling this operator to go re-check them is
+  // confidently wrong advice; see 2026-08-31 bug hunt).
+  const [rconFailureReason, setRconFailureReason] = useState<'unreachable' | 'auth_failed' | 'dropped' | null>(null)
   const [testingConnection, setTestingConnection] = useState(false)
   const [announcement, setAnnouncement] = useState('')
   const [selectedChannel, setSelectedChannel] = useState('all')
@@ -552,18 +554,46 @@ export default function Console() {
       const handleRconResponse = (data: RconResponse) => {
         const entry = { ...data, _id: ++liveLogIdRef.current } as RconResponse & { _id: number }
         setLiveLog(prev => [...prev, entry].slice(-100))
-        // If we get a response, RCON is connected
-        setRconConnected(true)
-        setRconFailureReason(null)
+        // This event broadcasts to the whole "rcon-live" room for EVERY
+        // /execute call, including failed/disconnected ones (data.success:
+        // false) -- only a successful response actually proves the
+        // connection is live. Forcing "connected" on any message here could
+        // mask a real drop (someone else's failed command, or this one's
+        // own failure echo) behind a stale "online" banner.
+        if (data.success) {
+          setRconConnected(true)
+          setRconFailureReason(null)
+        }
       }
 
       socket.on('rcon:response', handleRconResponse)
 
+      // 2026-08-31: 'rcon:response' broadcasts into "rcon-live", gated
+      // server-side on rcon.execute (server/index.js) -- the same
+      // capability that already gates every caller of
+      // executeCommand/sendAnnouncement below, and the same one POST
+      // /rcon/history uses for the STORED copy of this content. Moved off
+      // the diagnostics.manage-gated "logs" room App.tsx subscribes to
+      // app-wide, which let any diagnostics.manage holder read every
+      // admin's live console output whether or not they could run commands
+      // themselves -- the exact leak /rcon/history's own capability check
+      // already existed to prevent. Re-emitted on every reconnect, not just
+      // once per mount: room membership is server-side per-connection
+      // state, lost whenever the underlying socket.io connection drops and
+      // re-establishes, even though the client reuses the same Socket
+      // object.
+      const subscribeRcon = () => socket.emit('subscribe:rcon')
+      if (canExecuteRcon) {
+        if (socket.connected) subscribeRcon()
+        socket.on('connect', subscribeRcon)
+      }
+
       return () => {
         socket.off('rcon:response', handleRconResponse)
+        socket.off('connect', subscribeRcon)
       }
     }
-  }, [socket])
+  }, [socket, canExecuteRcon])
 
   useEffect(() => {
     // Auto-scroll to bottom
@@ -588,24 +618,31 @@ export default function Console() {
       // just vanished instead of showing up in the console like a real
       // terminal would). Reconstruct the { success, error } shape from the
       // caught error so failures go through the same handling as successes.
-      let result: { success: boolean; response?: string; error?: string }
+      let result: { success: boolean; response?: string; error?: string; code?: string }
       try {
         result = await rconApi.execute(command)
       } catch (error) {
         result = {
           success: false,
           error: getUserErrorMessage(error, t('toasts.commandFailedFallback')),
+          code: error instanceof ApiError ? error.code : undefined,
         }
       }
 
       // Update connection status based on result. A mid-session drop
       // detected here is a transport-level signal, not the classified
-      // unreachable-vs-auth_failed probe testRconConnection() runs -- reset
-      // to null so the banner falls back to its unreachable copy rather
-      // than showing a stale auth_failed reason from an earlier test.
-      if (isRconDisconnectError(result.error)) {
+      // unreachable-vs-auth_failed probe testRconConnection() runs -- 2026-08-31:
+      // this used to reset to null so the banner fell back to its
+      // unreachable copy rather than showing a stale auth_failed reason from
+      // an earlier test -- sound reasoning, wrong fallback. The connection
+      // just ran a command successfully seconds before it dropped, so
+      // "unreachable, check host/port/password" is confidently wrong advice
+      // for this specific case, not just an absent one. 'dropped' is its own
+      // real reason with its own copy (borrowed from the toast below, which
+      // already has the right words for this exact event).
+      if (isRconDisconnectError(result.code)) {
         setRconConnected(false)
-        setRconFailureReason(null)
+        setRconFailureReason('dropped')
       } else if (result.success) {
         setRconConnected(true)
         setRconFailureReason(null)
@@ -619,16 +656,15 @@ export default function Console() {
         })
       }
 
-      // Add to live log only when socket updates are unavailable to avoid duplicates.
-      if (!socket?.connected) {
-        setLiveLog(prev => [...prev, {
-          command,
-          response: result.response || result.error || t('rcon.noResponseFallback'),
-          success: result.success,
-          timestamp: new Date().toISOString(),
-          _id: ++liveLogIdRef.current,
-        } as RconResponse & { _id: number }].slice(-100))
-      }
+      // No manual live-log push here: the server-side 'rcon:response'
+      // broadcast (handled above) now goes to the "rcon-live" room, gated on
+      // rcon.execute -- the exact capability this function already requires
+      // to reach this point (see the early return above), so every caller
+      // who can get this far is guaranteed to be a room member and receive
+      // the broadcast. A manual push here as well would double the entry,
+      // not fill a gap -- that used to be a real gap, back when the
+      // broadcast went to the diagnostics.manage-gated "logs" room instead,
+      // which a caller could hold rcon.execute without ever joining.
 
       // Add to command cache (limit to 100 entries)
       setCommandCache(prev => [...prev.slice(-99), command])
@@ -702,28 +738,21 @@ export default function Console() {
       // rejecting, so handleResponse() throws before this ever sees
       // result.success === false. Reconstruct it here too, so a failed
       // broadcast still gets logged instead of silently vanishing.
-      let result: { success: boolean; response?: string; error?: string }
+      let result: { success: boolean; response?: string; error?: string; code?: string }
       try {
         result = await rconApi.execute(cmd)
       } catch (error) {
         result = {
           success: false,
           error: getUserErrorMessage(error, t('toasts.broadcastFailedFallback')),
+          code: error instanceof ApiError ? error.code : undefined,
         }
       }
 
-      // Same shape as executeCommand above: add to live log only when socket
-      // updates are unavailable to avoid duplicates -- the server emits its
-      // own 'rcon:response' for every /execute call, broadcasts included.
-      if (!socket?.connected) {
-        setLiveLog(prev => [...prev, {
-          command: cmd,
-          response: result.response || result.error || t('rcon.noResponseFallback'),
-          success: result.success,
-          timestamp: new Date().toISOString(),
-          _id: ++liveLogIdRef.current,
-        } as RconResponse & { _id: number }].slice(-100))
-      }
+      // Same shape as executeCommand above: no manual live-log push here --
+      // the 'rcon:response' broadcast goes to "rcon-live", gated on
+      // rcon.execute, which this function already requires (see the early
+      // return above). A manual push would double the entry.
 
       if (result.success) {
         toast({
@@ -737,7 +766,7 @@ export default function Console() {
         setRconConnected(true)
         setRconFailureReason(null)
       } else {
-        if (isRconDisconnectError(result.error)) {
+        if (isRconDisconnectError(result.code)) {
           setRconConnected(false)
           setRconFailureReason(null)
         }
@@ -749,7 +778,7 @@ export default function Console() {
       }
     } catch (error) {
       const message = getUserErrorMessage(error, t('toasts.broadcastFailedFallback'))
-      if (isRconDisconnectError(message)) {
+      if (isRconDisconnectError(error instanceof ApiError ? error.code : undefined)) {
         setRconConnected(false)
         setRconFailureReason(null)
       }
@@ -1058,7 +1087,9 @@ export default function Console() {
 
           {/* RCON Disconnected Warning -- title/desc branch on WHY the test
               failed (see rconFailureReason above) so a reachable host with a
-              stale password isn't told to go debug its network. */}
+              stale password isn't told to go debug its network, and a
+              mid-session transport drop -- host/port/password just proven
+              correct -- isn't told to go re-check them either. */}
           {hasRconConfig && rconConnected === false && (
             <div
               role="alert"
@@ -1067,10 +1098,14 @@ export default function Console() {
               <WifiOff className="w-4 h-4 shrink-0 text-destructive" />
               <div className="min-w-0">
                 <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-destructive">
-                  {rconFailureReason === 'auth_failed' ? t('rcon.authFailedTitle') : t('rcon.hostUnreachableTitle')}
+                  {rconFailureReason === 'auth_failed' ? t('rcon.authFailedTitle')
+                    : rconFailureReason === 'dropped' ? t('rcon.droppedTitle')
+                      : t('rcon.hostUnreachableTitle')}
                 </p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {rconFailureReason === 'auth_failed' ? t('rcon.authFailedDesc') : t('rcon.hostUnreachableDesc')}
+                  {rconFailureReason === 'auth_failed' ? t('rcon.authFailedDesc')
+                    : rconFailureReason === 'dropped' ? t('rcon.droppedDesc')
+                      : t('rcon.hostUnreachableDesc')}
                 </p>
               </div>
             </div>
@@ -1117,16 +1152,16 @@ export default function Console() {
               ) : (
                 liveLog.map((entry, idx) => (
                   <div key={(entry as RconResponse & { _id?: number })._id ?? `${entry.timestamp}-${idx}`} className="mb-3 font-mono text-sm">
-                    <div className="flex items-center gap-2">
-                      <span className="text-primary">$</span>
-                      <span className="text-foreground/90">{entry.command}</span>
-                      <span className="text-muted-foreground/60 text-[10px] ml-auto tabular-nums font-mono">
+                    <div className="flex items-start gap-2">
+                      <span className="text-primary shrink-0">$</span>
+                      <span className="text-foreground/90 break-all min-w-0 grow">{entry.command}</span>
+                      <span className="text-muted-foreground/60 text-[10px] ml-auto shrink-0 tabular-nums font-mono">
                         {new Date(entry.timestamp).toLocaleTimeString(i18n.language)}
                       </span>
                     </div>
-                    <div className={cn('ml-4 mt-0.5 text-xs border-l-2 pl-2', entry.success ? 'border-primary/30 text-foreground/85' : 'border-destructive/50 text-destructive')}>
+                    <div className={cn('ml-4 mt-0.5 text-xs border-l-2 pl-2 break-words', entry.success ? 'border-primary/30 text-foreground/85' : 'border-destructive/50 text-destructive')}>
                       {entry.response.split('\n').map((line, i) => (
-                        <div key={`line-${i}`}>{line || '\u00A0'}</div>
+                        <div key={`line-${i}`} className="break-words">{line || '\u00A0'}</div>
                       ))}
                     </div>
                   </div>
@@ -1156,6 +1191,10 @@ export default function Console() {
           </div>
 
           {/* Command Input */}
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono text-[9px] uppercase tracking-[0.24em] text-primary/60">{t('rcon.commandLabel')}</span>
+            <HelpTip label={t('rcon.commandLabel')}>{t('rcon.commandTip')}</HelpTip>
+          </div>
           <div className="flex gap-2">
             <div className="flex-1 relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 font-mono text-[11px] uppercase tracking-[0.18em] text-primary/70 pointer-events-none select-none" aria-hidden="true">
@@ -1168,15 +1207,19 @@ export default function Console() {
                 onKeyDown={handleKeyDown}
                 placeholder={t('rcon.placeholder')}
                 className="pl-[5.5rem] font-mono bg-card/70 border-border/55 focus-visible:border-primary/60"
-                disabled={loading || !hasRconConfig || !canExecuteRcon}
+                disabled={loading || !hasRconConfig || rconConnected === false || !canExecuteRcon}
                 maxLength={2000}
                 aria-label={t('rcon.inputAria')}
               />
             </div>
-            <DisabledReason reason={!canExecuteRcon ? t('rcon.noPermission') : null}>
+            <DisabledReason reason={
+              !canExecuteRcon ? t('rcon.noPermission')
+                : rconConnected === false ? t('rcon.disconnectedUseRecheck')
+                  : null
+            }>
               <Button
                 onClick={executeCommand}
-                disabled={loading || !command.trim() || !hasRconConfig || !canExecuteRcon}
+                disabled={loading || !command.trim() || !hasRconConfig || rconConnected === false || !canExecuteRcon}
                 aria-label={t('rcon.executeAria')}
                 className="font-mono text-[11px] uppercase tracking-[0.18em]"
               >
@@ -1330,9 +1373,9 @@ export default function Console() {
                             inputRef.current?.focus()
                           }}
                         >
-                          <div className="flex items-center justify-between">
-                            <code className="text-sm font-mono text-primary truncate">{entry.command}</code>
-                            <span className="text-xs text-muted-foreground">
+                          <div className="flex items-center justify-between gap-2">
+                            <code className="text-sm font-mono text-primary truncate min-w-0 flex-1">{entry.command}</code>
+                            <span className="text-xs text-muted-foreground shrink-0">
                               {new Date(entry.executed_at).toLocaleString(i18n.language)}
                             </span>
                           </div>

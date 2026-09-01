@@ -256,6 +256,13 @@ export const ErrorCode = Object.freeze({
    * filename doesn't have the expected <name>.<timestamp>.bak shape (fewer
    * than 3 dot-separated parts). */
   RESTORE_INVALID_FILENAME: "RESTORE_INVALID_FILENAME",
+  /** server/routes/serverFiles.js -- POST /restore/:filename, the original
+   * filename recovered by stripping the .bak+timestamp suffix is empty, is
+   * exactly "." or "..", or contains a path separator -- e.g. a crafted
+   * "....bak" makes the stripped result exactly "..". Load-bearing for
+   * traversal safety: this is the one value in this handler that is never
+   * re-checked by the .bak-extension guard above it. */
+  RESTORE_INVALID_ORIGINAL_NAME: "RESTORE_INVALID_ORIGINAL_NAME",
   /** server/routes/serverFiles.js -- POST /save-and-reload, no rconService
    * or it isn't connected, so `reloadoptions` can't be sent. */
   SAVE_AND_RELOAD_RCON_NOT_CONNECTED: "SAVE_AND_RELOAD_RCON_NOT_CONNECTED",
@@ -429,6 +436,24 @@ export const ErrorCode = Object.freeze({
    * services/rcon.js). Also emitted by server/routes/config.js -- POST
    * /api/config/test-rcon (added 2026-08-26), same reasoning. */
   RCON_CONNECT_AUTH_FAILED: "RCON_CONNECT_AUTH_FAILED",
+  /** server/services/rcon.js -- RconService.execute(), attached alongside
+   * getUserFriendlyError()'s prose (POST /api/rcon/execute's response body)
+   * whenever the failure represents the RCON session having dropped
+   * (connection refused/reset/timed out, exhausted reconnect attempts, not
+   * connected, or the game server itself not running). Exists so the
+   * client's disconnect detection (client/src/pages/Console.tsx's
+   * isRconDisconnectError) can check THIS instead of substring-matching
+   * the prose, which silently broke once already: 2026-08-30,
+   * rcon-disconnect-detection-matches-prose-not-codes -- "Server is not
+   * running" was reworded to "Game server is not running." and the
+   * client's case-sensitive phrase list missed it, because it was an
+   * independently-maintained copy of the same classification with no way
+   * to notice the two had drifted. One shared code for every disconnect
+   * reason, not one per reason -- the client only ever needs a yes/no
+   * answer, and unlike N maintained phrases a single stable code can't
+   * itself drift out of sync. Deliberately NOT attached to an
+   * authentication failure: a wrong RCON password is not a disconnect. */
+  RCON_EXECUTE_DISCONNECTED: "RCON_EXECUTE_DISCONNECTED",
 
   /** server/routes/backup.js -- POST /api/backup/create, active server is
    * remote (SFTP-managed), so there's no local filesystem to back up. */
@@ -1077,6 +1102,10 @@ export const ErrorCode = Object.freeze({
    * MODS_SERVER_PATH_NOT_CONFIGURED below (which does have one), kept
    * separate. */
   MODS_SERVER_PATH_NOT_CONFIGURED_NOPERIOD: "MODS_SERVER_PATH_NOT_CONFIGURED_NOPERIOD",
+  /** server/routes/mods.js -- POST /start, modChecker.start() returned false. Covers both of its
+   * false cases (workshopAcfPath unset, or set but the file doesn't exist on disk) -- same message,
+   * same fix (configure a valid install path), so one code for both is correct, not a gap. */
+  MODS_START_ACF_PATH_NOT_SET: "MODS_START_ACF_PATH_NOT_SET",
   /** server/routes/mods.js -- POST /collection/test, sessionId/loginSecure not stored. */
   MODS_STEAM_SESSION_COOKIES_NOT_CONFIGURED: "MODS_STEAM_SESSION_COOKIES_NOT_CONFIGURED",
   /** server/routes/mods.js -- POST /toggle-mod-id, `enabled` not a boolean. */
@@ -1724,6 +1753,17 @@ export const ErrorCode = Object.freeze({
   /** server/routes/scheduler.js -- POST /restart-now, the active server is
    * remote (this panel doesn't manage its process). */
   SCHEDULER_RESTART_REMOTE_NOT_SUPPORTED: "SCHEDULER_RESTART_REMOTE_NOT_SUPPORTED",
+  /** server/routes/scheduler.js -- PUT /timezone, `timezone` missing, not a
+   * string, or empty after trimming. */
+  SCHEDULER_TIMEZONE_REQUIRED: "SCHEDULER_TIMEZONE_REQUIRED",
+  /** server/routes/scheduler.js -- PUT /timezone, the given value isn't a
+   * name Intl.DateTimeFormat (and therefore node-cron itself) accepts as a
+   * real IANA zone. Rejected at save time deliberately -- an invalid zone
+   * accepted here would only surface as a node-cron throw the night a
+   * schedule actually tries to fire, per the 2026-08-29 timezone-picker
+   * card's explicit requirement. Carries the rejected value as the `tz`
+   * param so the message can name it. */
+  SCHEDULER_INVALID_TIMEZONE: "SCHEDULER_INVALID_TIMEZONE",
 
   /** server/routes/config.js -- PUT /app-settings, `settings` missing or not
    * an object. */
@@ -1949,6 +1989,23 @@ export const ErrorCode = Object.freeze({
    * behavior change outside this registry pass's scope; flagged, not
    * fixed, here. */
   SIM_TEMPLATE_APPLY_INI_MISSING: "SIM_TEMPLATE_APPLY_INI_MISSING",
+
+  /** server/routes/debug.js -- POST /fix-writability, `target` is missing
+   * or not one of the closed enum values this route supports (currently
+   * just "db"). */
+  WRITABILITY_TARGET_UNSUPPORTED: "WRITABILITY_TARGET_UNSUPPORTED",
+  /** server/routes/debug.js -- POST /fix-writability, the resolved target
+   * file doesn't exist (nothing to chmod). */
+  WRITABILITY_TARGET_MISSING: "WRITABILITY_TARGET_MISSING",
+  /** server/routes/debug.js -- POST /fix-writability, fs.promises.chmod()
+   * itself threw (most commonly EPERM: not owned by the panel's process
+   * user). */
+  WRITABILITY_CHMOD_FAILED: "WRITABILITY_CHMOD_FAILED",
+  /** server/routes/debug.js -- POST /fix-writability, chmod succeeded but
+   * the file is still not writable afterward -- a real ACL/ownership
+   * denial this route can't resolve, not the read-only attribute it's
+   * built to clear. */
+  WRITABILITY_STILL_BLOCKED: "WRITABILITY_STILL_BLOCKED",
 });
 
 /**

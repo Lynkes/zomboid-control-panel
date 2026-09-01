@@ -57,6 +57,12 @@ jobs:
           # works there for remote-administering an amd64 PZ server elsewhere.
           platforms: linux/amd64,linux/arm64
           push: true
+          # Pass the commit sha in: the image has no .git and no git binary, so
+          # server/index.js cannot shell out for it. Without this the backend
+          # reports an unknown build sha, which the frontend/backend
+          # compatibility gate then treats as a mismatch.
+          build-args: |
+            PANEL_BUILD_SHA=${{ github.sha }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

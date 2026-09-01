@@ -69,6 +69,16 @@ const MASTER_SERVERS = [
 const QUERY_TIMEOUT = 10000;
 const SERVER_QUERY_TIMEOUT = 3000;
 
+// Caps how many master-listed servers GET /'s fallback path will actually
+// probe. Each probe is bounded (SERVER_QUERY_TIMEOUT above), but the batch
+// loop that walks them has no overall ceiling of its own -- an unusually
+// large listed count (hunt-wave10, 2026-08-29) could otherwise make a
+// single GET / take minutes. The cap is surfaced in the response
+// (masterDiscovery.truncated) rather than applied silently -- a short
+// server list and "there really are only this many" must stay
+// distinguishable from "we stopped counting".
+const MAX_MASTER_SERVERS_TO_QUERY = 200;
+
 /**
  * Query a single game server for detailed info using A2S_INFO protocol
  */
@@ -128,7 +138,22 @@ export async function queryServerInfo(ip, port, onFailureReason) {
           onFailureReason?.('timeout');
           resolve(null);
         }, SERVER_QUERY_TIMEOUT);
-        socket.send(buildA2SInfoQuery(challenge), port, ip);
+        // No destination args -- this socket is connect()-ed, see below.
+        // send() on a connected UDP socket can throw SYNCHRONOUSLY (e.g.
+        // ERR_SOCKET_BAD_PORT) -- this call is inside a 'message' listener,
+        // so a throw here would escape both this Promise's executor and
+        // the socket's own 'error' handler and become a process-crashing
+        // uncaught exception instead of a resolved query failure. See the
+        // matching try/catch on the initial send() below and
+        // serverFinderSocketSendSyncThrow.test.js for why this matters.
+        try {
+          socket.send(buildA2SInfoQuery(challenge));
+        } catch (err) {
+          clearTimeout(timeout);
+          socket.close();
+          onFailureReason?.('socket-error');
+          resolve(null);
+        }
         return;
       }
       try {
@@ -148,7 +173,38 @@ export async function queryServerInfo(ip, port, onFailureReason) {
     // A2S_INFO query packet. A server may answer with a challenge; the
     // message handler retries once with the challenge appended as required by
     // the protocol.
-    socket.send(buildA2SInfoQuery(), port, ip);
+    //
+    // socket.connect() ties this socket to exactly the queried ip:port for
+    // its whole lifetime -- the kernel then only ever delivers a reply from
+    // that address, the same hardening applied to queryMasterServer()
+    // (hunt-wave10, 2026-08-29). LOWER SEVERITY than that gap was, and
+    // recorded here rather than left implicit: by the time this function
+    // runs, `ip` has already passed either validateQueryIp (GET /query,
+    // GET /ping -- caller-supplied) or the isPrivateIp filter inside
+    // selectMasterServersToQuery (GET /'s master-server fallback), so a
+    // spoofer here must answer FOR a specific address the panel was
+    // already willing to probe, not redirect it to an arbitrary internal
+    // one. Still worth closing: without this, any host that can land a
+    // datagram on this socket's local port can fabricate the entire A2S
+    // reply for a server the operator is actually checking on, not merely
+    // add noise to a list.
+    socket.connect(port, ip, () => {
+      // Same escape hazard as the retry send() above: a synchronous throw
+      // from send() here runs inside connect()'s callback, not this
+      // Promise's own executor, so nothing upstream would ever catch it
+      // without this try/catch -- it would kill the whole server process,
+      // not just this one query. Confirmed for real in
+      // server/routes/serverFinder.js's queryMasterServer() (2026-08-30);
+      // this function has the identical shape and needed the identical fix.
+      try {
+        socket.send(buildA2SInfoQuery());
+      } catch (err) {
+        clearTimeout(timeout);
+        socket.close();
+        onFailureReason?.('socket-error');
+        resolve(null);
+      }
+    });
   });
 }
 
@@ -258,8 +314,18 @@ function parseA2SInfoResponse(buffer) {
 /**
  * Query Steam Master Server for game servers
  */
-async function queryMasterServer(masterHost, masterPort, region = 0xFF, filters = '') {
+export async function queryMasterServer(masterHost, masterPort, region = 0xFF, filters = '') {
   return new Promise((resolve, reject) => {
+    // socket.connect() makes this a CONNECTED UDP socket: the kernel then
+    // only delivers datagrams whose source address:port matches the
+    // resolved master, and send() below no longer names a destination.
+    // Fixes a response-spoofing gap (hunt-wave10, 2026-08-29): the socket
+    // used to be unconnected and would process a reply from ANY sender on
+    // its local port as if it were the master's -- including a
+    // caller-chosen private/loopback address, which then got probed
+    // directly by GET /'s master-server fallback with no isPrivateIp
+    // filter of its own. Proof of both the gap and the fix living in the
+    // same file: server/tests/jimServerFinderMasterSpoof.test.js.
     const socket = dgram.createSocket('udp4');
     const servers = [];
     let lastIp = '0.0.0.0';
@@ -329,10 +395,38 @@ async function queryMasterServer(masterHost, masterPort, region = 0xFF, filters 
       // Filter
       Buffer.from(filterStr).copy(packet, offset);
 
-      socket.send(packet, masterPort, masterHost);
+      // No destination args -- this socket is connect()-ed, see above.
+      //
+      // send() on a connected UDP socket can throw SYNCHRONOUSLY (observed
+      // in production: RangeError [ERR_SOCKET_BAD_PORT], the connected
+      // socket's own remote port having gone bad after connect()'s
+      // callback already fired -- not a caller passing a bad masterPort,
+      // which fails at connect() itself, before this ever runs). sendQuery
+      // is called from two places, both inside async callbacks (the
+      // connect() callback below, and the 'message' handler above for
+      // pagination) -- NEITHER is inside this function's own Promise
+      // executor, so a throw here would reach neither `reject` above nor
+      // the socket's own 'error' listener. Node's default handling of an
+      // uncaught exception is to kill the whole process, not just this
+      // request -- confirmed the hard way, twice, via
+      // scripts/ui-shot-tour.mjs's server-finder capture (2026-08-30).
+      // Catching it here, once, covers both call sites.
+      try {
+        socket.send(packet);
+      } catch (err) {
+        clearTimeout(timeout);
+        socket.close();
+        reject(err);
+      }
     };
 
-    sendQuery();
+    // sendQuery() only runs once the connect() actually resolves (the
+    // 'connect' event / this callback) -- a DNS failure or refused
+    // connect fires the 'error' handler above instead, which already
+    // rejects and cleans up.
+    socket.connect(masterPort, masterHost, () => {
+      sendQuery();
+    });
   });
 }
 
@@ -463,6 +557,64 @@ export function deriveEmptyReason({ source, serversFound, mastersReachable, mast
   return mastersListedCount > 0 ? 'no-servers-responded' : 'no-servers-listed';
 }
 
+// Surfaces two decisions GET /'s master-server fallback makes about which
+// listed servers it actually probes, so neither reads as a plain (and
+// therefore indistinguishable-from-"that's everything") short list:
+//   - privateFiltered: entries refused because isPrivateIp() flagged them
+//     (SSRF guard, hunt-wave10 2026-08-29 -- matches GET /query and
+//     GET /ping's own validateQueryIp() check, now applied here too).
+//   - truncated: the queryable count exceeded MAX_MASTER_SERVERS_TO_QUERY,
+//     so `queried` is a prefix, not the full list.
+// Only meaningful for the master_server path -- undefined otherwise,
+// dropped from the JSON response by JSON.stringify, matching
+// deriveEmptyReason's own convention above.
+export function deriveMasterDiscoveryStats({
+  source,
+  mastersListedCount,
+  mastersPrivateFilteredCount,
+  mastersQueriedCount,
+  mastersTruncated,
+}) {
+  if (source !== 'master_server') return undefined;
+  return {
+    listed: mastersListedCount,
+    privateFiltered: mastersPrivateFilteredCount,
+    queried: mastersQueriedCount,
+    truncated: mastersTruncated,
+  };
+}
+
+// Applies both decisions GET /'s master-server fallback makes about a raw
+// master-listed candidate list before probing any of it: the SSRF filter
+// (isPrivateIp) and the query cap (MAX_MASTER_SERVERS_TO_QUERY). Extracted
+// as its own pure function so the cap can be asserted directly against a
+// large candidate list without a slow live UDP fan-out for every entry --
+// per god's explicit instruction (hunt-wave10, 2026-08-29): "assert the
+// CAP... a fast, exact assertion about the thing you actually changed."
+export function selectMasterServersToQuery(masterServers) {
+  const queryable = masterServers.filter((s) => !isPrivateIp(s.ip));
+  return {
+    toQuery: queryable.slice(0, MAX_MASTER_SERVERS_TO_QUERY),
+    privateFilteredCount: masterServers.length - queryable.length,
+    truncated: queryable.length > MAX_MASTER_SERVERS_TO_QUERY,
+  };
+}
+
+// Surfaces the Steam-API error that triggered the master-server fallback,
+// but ONLY when that fallback ALSO came up empty -- if the fallback found
+// servers, the caller got a working list and the earlier API hiccup isn't
+// worth reporting as if it were still a live problem. Previously this was
+// only log.warn'd, never returned to the caller (hunt-wave11 follow-up,
+// 2026-08-29): "an admin can read the server logs" is the exact reasoning
+// that left three other bugs tonight invisible for months -- a signal that
+// exists only in a log file is a signal nobody sees at the moment they
+// need it. Same convention as deriveEmptyReason/deriveMasterDiscoveryStats
+// above: undefined outside the relevant case, dropped by JSON.stringify.
+export function deriveSteamApiFailureReason({ steamApiError, serversFound }) {
+  if (!steamApiError || serversFound > 0) return undefined;
+  return sanitizeError(steamApiError);
+}
+
 /**
  * Get server list - tries Steam API first, falls back to master server query
  */
@@ -475,6 +627,7 @@ router.get('/', async (req, res) => {
     let apiKeyConfigured = !!steamApiKey;
     const forceRefresh = req.query.refresh === 'true';
     let cached = false;
+    let steamApiError = null;
 
     // Try Steam Web API first (more reliable)
     if (steamApiKey) {
@@ -489,6 +642,7 @@ router.get('/', async (req, res) => {
         log.info(`Found ${servers.length} PZ servers via Steam API`);
       } catch (apiError) {
         log.warn('Steam API failed, trying master server query:', apiError.message);
+        steamApiError = apiError.message;
         source = 'master_server';
       }
     }
@@ -502,6 +656,9 @@ router.get('/', async (req, res) => {
     // came up empty -- the common non-empty case is untouched.
     let mastersReachable = false;
     let mastersListedCount = 0;
+    let mastersPrivateFilteredCount = 0;
+    let mastersQueriedCount = 0;
+    let mastersTruncated = false;
     if (servers.length === 0) {
       source = 'master_server';
       try {
@@ -514,10 +671,22 @@ router.get('/', async (req, res) => {
             mastersReachable = true;
             mastersListedCount += masterServers.length;
 
+            // SSRF guard + visible cap: GET /query and GET /ping both refuse
+            // private/reserved addresses via validateQueryIp() before
+            // probing -- this fallback used to skip that check entirely for
+            // master-listed addresses (hunt-wave10, 2026-08-29). Neither
+            // decision is silent: both counts feed deriveMasterDiscoveryStats
+            // below, into the response.
+            const { toQuery: serversToQuery, privateFilteredCount, truncated } =
+              selectMasterServersToQuery(masterServers);
+            mastersPrivateFilteredCount += privateFilteredCount;
+            if (truncated) mastersTruncated = true;
+            mastersQueriedCount += serversToQuery.length;
+
             // Query each server for details (limit concurrent queries)
             const batchSize = 50;
-            for (let i = 0; i < masterServers.length; i += batchSize) {
-              const batch = masterServers.slice(i, i + batchSize);
+            for (let i = 0; i < serversToQuery.length; i += batchSize) {
+              const batch = serversToQuery.slice(i, i + batchSize);
               const results = await Promise.all(
                 batch.map(s => queryServerInfo(s.ip, s.port))
               );
@@ -542,6 +711,17 @@ router.get('/', async (req, res) => {
       mastersReachable,
       mastersListedCount,
     });
+    const masterDiscovery = deriveMasterDiscoveryStats({
+      source,
+      mastersListedCount,
+      mastersPrivateFilteredCount,
+      mastersQueriedCount,
+      mastersTruncated,
+    });
+    const steamApiFailure = deriveSteamApiFailureReason({
+      steamApiError,
+      serversFound: servers.length,
+    });
 
     // Sort by player count (descending)
     servers.sort((a, b) => (b.players || 0) - (a.players || 0));
@@ -562,6 +742,8 @@ router.get('/', async (req, res) => {
       servers, // Return ALL servers, frontend handles pagination
       apiKeyConfigured,
       emptyReason, // undefined (dropped by JSON.stringify) outside the empty master_server case
+      masterDiscovery, // undefined outside the master_server path -- see deriveMasterDiscoveryStats
+      steamApiFailure, // undefined unless the Steam API threw AND the fallback also came up empty
     });
   } catch (error) {
     log.error('Failed to get server list:', error);

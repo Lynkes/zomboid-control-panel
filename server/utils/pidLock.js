@@ -8,34 +8,46 @@
  *   - db.json.tmp rename ENOENT races (two writers, one shared tmp name)
  *
  * Behaviour:
- *   - acquireLock() reads any existing lock file, checks if that PID is
- *     still alive AND is a panel process, and bails out if so.
- *   - Stale locks (process gone) are silently replaced.
+ *   - acquireLock() reads any existing lock file and bails out if that PID
+ *     is still alive, via the shared isPidAlive() (utils/pidLiveness.js) --
+ *     process.kill(pid, 0), treating any error OTHER than ESRCH ("no such
+ *     process") as "still alive," never as "safe to overwrite." An
+ *     ambiguous signal belongs on the side that fails toward refusing to
+ *     start, not toward proceeding (operator ruling, bughunt-2026-08-31-c):
+ *     a false PROCEED here is the port-conflict / db.json-corruption pair
+ *     this whole file exists to prevent; a false REFUSAL is visible and
+ *     recoverable in one step (delete the lock file, restart). This file
+ *     used to carry its own separate isProcessAlive(), which got that
+ *     direction backwards -- it treated any non-EPERM error as "not alive,"
+ *     i.e. safe to proceed -- and was a THIRD, undeduplicated copy of the
+ *     exact check pidLiveness.js's own header already claimed was
+ *     consolidated to one place. Folding this file onto the shared
+ *     primitive removes that copy AND fixes its direction in the same
+ *     change; the direction fix is the reason to do this now, not a side
+ *     effect of a dedup.
+ *   - "Alive" still does NOT verify the PID is actually a panel process
+ *     (this comment claimed it did, from this file's very first commit;
+ *     the code never did). On a system that reuses PIDs quickly (small
+ *     pid_max, Windows), a panel crash followed by a fast restart can land
+ *     on a PID the OS has already handed to an unrelated process, and this
+ *     would refuse to start believing it's a duplicate instance -- the
+ *     SAME "fail toward refusing to start" direction as above, so this is
+ *     a known, accepted cost of that ruling, not a separate bug. A real
+ *     identity check means reading the target process's argv/image name,
+ *     which has no single cross-platform primitive.
+ *   - Stale locks (process gone, confirmed via ESRCH) are silently replaced.
  *   - releaseLock() removes the file; registered for process exit signals.
  */
 
 import fs from 'fs';
 import path from 'path';
 import { createLogger } from './logger.js';
+import { isPidAlive } from './pidLiveness.js';
 
 const log = createLogger('Lock');
 
 let _lockFilePath = null;
 let _released = false;
-
-function isProcessAlive(pid) {
-  if (!pid || !Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    // Signal 0 = existence check on POSIX; on Windows, kill(pid, 0)
-    // throws EPERM for processes we don't own (still alive) and ESRCH
-    // for missing processes.
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    if (err.code === 'EPERM') return true; // exists, just not ours
-    return false;
-  }
-}
 
 /**
  * Try to acquire the lock. Returns { acquired: true } on success.
@@ -52,7 +64,12 @@ export function acquireLock(dataDir) {
     if (fs.existsSync(lockPath)) {
       const raw = fs.readFileSync(lockPath, 'utf8').trim();
       const existingPid = parseInt(raw, 10);
-      if (Number.isInteger(existingPid) && existingPid !== process.pid && isProcessAlive(existingPid)) {
+      if (
+        Number.isInteger(existingPid) &&
+        existingPid > 0 &&
+        existingPid !== process.pid &&
+        isPidAlive(existingPid)
+      ) {
         return {
           acquired: false,
           reason: `another panel instance is already running (pid ${existingPid})`,

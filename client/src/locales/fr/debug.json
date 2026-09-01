@@ -15,6 +15,7 @@
   "tabs": {
     "diagnostics": "Diagnostics",
     "worldMap": "Carte du monde",
+    "bridge": "PanelBridge",
     "performance": "Performance",
     "activity": "Activité",
     "logs": "Journaux",
@@ -49,7 +50,7 @@
     "modsResolved": {
       "labelWithCount": "Examiner {{count}} non résolus",
       "labelGeneric": "Examiner les non résolus",
-      "note": "Corrigez d'abord les éléments Workshop orphelins (ci-dessous), puis relancez les diagnostics. Ne désactivez manuellement que si des entrées ne se résolvent vraiment pas une fois les téléchargements terminés."
+      "note": "Attendez la fin des téléchargements Workshop, puis relancez les diagnostics. Si un ID ne se résout toujours pas, corrigez-le ou retirez-le de Mods=."
     },
     "modsOrphanWorkshop": {
       "labelWithCount": "Corriger automatiquement {{count}} ID Workshop",
@@ -93,6 +94,10 @@
       "label": "Ouvrir la configuration du serveur",
       "note": "Configurez les paramètres du serveur pour générer ou réparer les fichiers .ini."
     },
+    "serverSandboxVars": {
+      "label": "Créer SandboxVars.lua",
+      "note": "Écrit un nouveau fichier de paramètres sandbox avec des valeurs par défaut afin qu'il existe et soit modifiable. Redémarrez le serveur pour appliquer."
+    },
     "serverSandboxCorrupt": {
       "label": "Réparer SandboxVars.lua",
       "note": "Tente une réparation automatique (en-tête de bloc ou virgule manquante). Une sauvegarde du fichier corrompu est d'abord enregistrée. Si la corruption ne correspond à aucun schéma connu, rien n'est écrit."
@@ -122,13 +127,17 @@
       "label": "Reconnecter RCON",
       "note": "Tente de se reconnecter à RCON avec le mot de passe enregistré. Si ça échoue encore, vérifiez que le mot de passe dans la configuration du serveur correspond aux paramètres, puis redémarrez le serveur."
     },
+    "modCheckerStopped": {
+      "label": "Démarrer le vérificateur de mods",
+      "note": "Reprend le sondage des mises à jour du Workshop Steam avec les paramètres déjà configurés."
+    },
     "servicesStuck": {
       "label": "Ouvrir les paramètres",
       "note": "Redémarrer le panneau débloque généralement les services bloqués."
     },
     "discordBot": {
-      "label": "Ouvrir Discord",
-      "note": "Vérifiez le jeton du bot et les intents dans les paramètres Discord."
+      "retryLabel": "Reconnecter le bot",
+      "note": "Retente la connexion avec le jeton du bot enregistré. Si ça échoue encore, vérifiez le jeton et les intents dans les paramètres Discord."
     },
     "bridgeConfigured": {
       "label": "Configurer automatiquement le bridge",
@@ -141,6 +150,10 @@
     "dbExistsOrWritable": {
       "label": "Ouvrir les paramètres",
       "note": "Vérifiez que le chemin du dossier de données existe et que le panneau peut y écrire."
+    },
+    "dbWritable": {
+      "label": "Effacer l'attribut lecture seule",
+      "note": "Tente d'effacer l'attribut lecture seule sur db.json et revérifie. N'aidera pas en cas de problème de propriété ou de permissions (ACL)."
     },
     "dbBackup": {
       "label": "Créer une sauvegarde de la base de données",
@@ -276,6 +289,14 @@
     "sandboxRepairedTitle": "SandboxVars.lua réparé",
     "sandboxRepairedFallback_one": "{{count}} correction appliquée.{{restartHint}}",
     "sandboxRepairedFallback_other": "{{count}} corrections appliquées.{{restartHint}}",
+    "sandboxCreatedTitle": "SandboxVars.lua créé",
+    "sandboxCreatedFallback": "Fichier de paramètres sandbox par défaut créé.",
+    "dbWritableFixedTitle": "Fichier de base de données accessible en écriture",
+    "dbWritableFixedFallback": "Attribut lecture seule effacé.",
+    "modCheckerStartedTitle": "Vérificateur de mods démarré",
+    "modCheckerStartedFallback": "Sondage des mises à jour du Workshop Steam repris.",
+    "discordReconnectedTitle": "Bot Discord reconnecté",
+    "discordReconnectedFallback": "Connexion du bot rétablie.",
     "noNumericIdsError": "Aucune entrée Mods= numérique n'a été fournie par les diagnostics.",
     "noOrphanWorkshopError": "Aucun ID Workshop orphelin n'a été fourni par les diagnostics.",
     "checks": {
@@ -368,12 +389,12 @@
           "warn": {
             "linux": {
               "label": "JRE embarqué introuvable",
-              "message": "Impossible de localiser jre64/bin/{{javaBin}} dans le chemin d'installation. Le serveur risque de ne pas démarrer sauf si Java système est dans le PATH.",
+              "message": "Impossible de localiser jre64/bin/{{javaBin}} dans le chemin d'installation. Vérifiez Java avec command -v java ; un service systemd peut utiliser un $PATH différent de votre shell de connexion.",
               "hint": "La plupart des installations embarquent un JRE sous jre64/. Relancez SteamCMD s'il est manquant."
             },
             "windows": {
               "label": "JRE embarqué introuvable",
-              "message": "Impossible de localiser jre64/bin/{{javaBin}} dans le chemin d'installation. Le serveur risque de ne pas démarrer sauf si Java système est dans le PATH.",
+              "message": "Impossible de localiser jre64/bin/{{javaBin}} dans le chemin d'installation. Exécutez where java pour vérifier si Java est disponible via %PATH%.",
               "hint": "Relancez SteamCMD pour restaurer le JRE embarqué"
             }
           }
@@ -880,11 +901,11 @@
         "resolved": {
           "ok": {
             "label": "Toutes les entrées Mods= se résolvent",
-            "message": "{{count}} mod(s) listé(s), tous correspondent à un dossier de mod Workshop ou local installé."
+            "message": "{{count}} mod(s) listé(s), tous correspondent à un ID de mod Workshop ou local installé."
           },
           "fail": {
             "label": "Les entrées Mods= ne se résolvent pas",
-            "message": "{{count}} des {{total}} entrées Mods= ne correspondent à aucun dossier de mod installé : {{list}}.",
+            "message": "{{count}} des {{total}} entrées Mods= ne correspondent à aucun ID de mod Workshop ou local installé : {{list}}.",
             "hint": "Généralement une faute de frappe, un ID WorkshopItems= manquant, ou le mod n'a pas fini de se télécharger. Corrigez dans la configuration du serveur."
           }
         },
@@ -1309,6 +1330,8 @@
     "downloadFailedDesc": "Échec du téléchargement des journaux",
     "downloadFileFailedDesc": "Échec du téléchargement de {{name}}",
     "downloadArchiveFailedDesc": "Échec du téléchargement du pack de journaux",
+    "supportBundleReadyTitle": "Pack de support téléchargé",
+    "supportBundleReadyDesc": "Il contient de vrais journaux. Les identifiants aux formes connues sont masqués, mais ce n'est pas une garantie — vérifiez le contenu avant de le partager en dehors de votre équipe.",
     "logEntryCopiedDesc": "Entrée de journal copiée dans le presse-papiers.",
     "logsFetchFailedTitle": "Impossible d'actualiser les journaux",
     "logsFetchFailedDesc": "La liste des journaux n'a pas été mise à jour. Vérifiez la connexion du panneau et réessayez."
@@ -1361,7 +1384,11 @@
   "healthTab": {
     "systemStatusTitle": "État du système",
     "healthy": "En bonne santé",
+    "checking": "Vérification...",
     "issuesDetected": "Problèmes détectés",
+    "rconOffline": "RCON Déconnecté",
+    "gameServerOffline": "Serveur de jeu Arrêté",
+    "rconAndServerOffline": "RCON Déconnecté · Serveur de jeu Arrêté",
     "lastChecked": "Dernière vérification {{time}}",
     "neverChecked": "Jamais vérifié",
     "autoRefreshes": "Actualisation auto toutes les 30 s",
@@ -1390,6 +1417,7 @@
     "platform": "Plateforme",
     "uptime": "Temps de fonctionnement",
     "memory": "Mémoire",
+    "unavailable": "Indisponible",
     "ofHeap": "sur {{total}} de heap",
     "filePathsTitle": "Chemins de fichiers",
     "filePathsDesc": "Emplacements des fichiers de données et de journaux.",
@@ -1410,5 +1438,59 @@
     "pathsUpdatedTitle": "Chemins mis à jour",
     "enterAtLeastOnePath": "Veuillez saisir au moins un chemin",
     "updatePathsFailedFallback": "Échec de la mise à jour des chemins"
+  },
+  "bridgeTab": {
+    "heading": "Diagnostics du mod PanelBridge",
+    "headingDesc": "État en direct, statistiques et autotests du mod lui-même — distinct des vérifications propres à la carte dans l'onglet « Carte du monde ».",
+    "permissionDeniedTitle": "Vous ne pouvez pas consulter les diagnostics PanelBridge",
+    "permissionDeniedDesc": "Le rôle de votre compte n'inclut pas « Diagnostics PanelBridge ». Demandez à un administrateur de vous l'accorder si vous avez besoin d'accéder à cet onglet.",
+    "notConnectedDesc": "Le mod PanelBridge n'est pas connecté. Démarrez le serveur PZ avec le mod installé pour voir des données en direct ici.",
+    "notYetProbed": "Pas encore vérifié.",
+    "offlineNoData": "Le pont est hors ligne — aucune donnée à afficher.",
+    "statsTitle": "Statistiques",
+    "statsDesc": "Nombre de commandes, temps de fonctionnement, build détectée, mode débogage et journal des erreurs.",
+    "versionLabel": "Version du mod",
+    "uptimeLabel": "Temps de fonctionnement",
+    "commandsLabel": "Commandes OK / total",
+    "commandsFailedLabel": "Commandes échouées",
+    "detectedVersionLabel": "Build détectée",
+    "detectedVersionCaveat": "Déterminée à partir de l'analyse de la chaîne de build du mod — sa méthode de détection principale et fiable, pas une solution de repli. Les indicateurs de fonctionnalités météo en direct ne peuvent pas être confirmés sans risque sans déclencher un véritable événement météo, ils sont donc totalement omis ici plutôt qu'affichés comme un « non » potentiellement erroné.",
+    "debugModeLabel": "Mode débogage",
+    "debugModeDesc": "Journalisation détaillée côté mod. Peut être activé sans risque — n'affecte que le volume de journalisation.",
+    "debugModeEnabledTitle": "Mode débogage du pont activé",
+    "debugModeDisabledTitle": "Mode débogage du pont désactivé",
+    "noPermission": "Votre rôle ne dispose pas de la permission « Diagnostics PanelBridge ».",
+    "errorLogLabel_one": "{{count}} erreur récente",
+    "errorLogLabel_other": "{{count}} erreurs récentes",
+    "noErrorsToClear": "Aucune erreur à effacer.",
+    "clearErrorsButton": "Effacer le journal des erreurs",
+    "clearErrorsConfirmTitle": "Effacer le journal des erreurs du pont ?",
+    "clearErrorsConfirmDesc": "Ceci efface le journal des erreurs en mémoire du mod. Cela ne corrige rien — seul le compteur est réinitialisé.",
+    "clearErrorsConfirmButton": "Effacer",
+    "clearErrorsSuccessTitle": "Journal des erreurs effacé",
+    "checkApiTitle": "Vérifier l'API",
+    "checkApiDesc": "Vérifie si un objet de jeu précis — et éventuellement une de ses méthodes — est disponible sur cette build.",
+    "checkApiObjectLabel": "Objet",
+    "checkApiMethodLabel": "Méthode (optionnel)",
+    "checkApiMethodPlaceholder": "ex. getTemperature",
+    "checkApiRunButton": "Vérifier",
+    "checkApiAvailable": "Disponible",
+    "checkApiUnavailable": "Indisponible",
+    "handlersTitle": "Handlers disponibles",
+    "handlersDesc": "Toutes les commandes que cette build du mod enregistre actuellement.",
+    "handlersRunButton": "Charger les handlers",
+    "handlersSearchPlaceholder": "Filtrer les handlers…",
+    "handlersCount": "{{shown}} / {{total}}",
+    "debugLogTitle": "Journal de débogage",
+    "debugLogDesc": "Entrées récentes du journal circulaire propre au mod, les plus récentes en premier.",
+    "debugLogLimitLabel": "Limite",
+    "debugLogLevelLabel": "Niveau min.",
+    "debugLogRunButton": "Récupérer le journal",
+    "debugLogShown": "{{shown}} sur {{total}} entrées au total",
+    "debugLogEmpty": "Aucune entrée à ce niveau.",
+    "selfTestTitle": "Lancer l'autotest du pont",
+    "selfTestDesc": "Teste un ensemble fixe de méthodes du moteur sur les 3 premiers objets du catalogue — un aperçu rapide pour savoir si cette build parle encore le langage du mod. Lecture seule, aucune saisie nécessaire.",
+    "selfTestRunButton": "Lancer l'autotest",
+    "selfTestItemColumn": "Article"
   }
 }

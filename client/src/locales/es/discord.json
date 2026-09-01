@@ -207,6 +207,11 @@
       "configured": "Configurado",
       "notSignedIn": "Sin iniciar sesión"
     },
+    "gatewayIssue": {
+      "label": "La conexión de Discord ha sido inestable durante un tiempo — las alertas y los comandos pueden retrasarse hasta que se recupere.",
+      "dismissAria": "Descartar aviso de conexión",
+      "dismissTooltip": "Descartar hasta que esto cambie"
+    },
     "commandPermissions": {
       "title": "Permisos de comandos",
       "description": "Controlar quién puede usar cada comando de barra. Asignar un nivel de permiso por comando.",

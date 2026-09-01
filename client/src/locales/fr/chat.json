@@ -20,13 +20,18 @@
     "aria": "Canal de chat",
     "server": "Diffusion serveur",
     "admin": "Chat admin",
-    "general": "Chat général"
+    "general": "Chat général",
+    "tip": "Diffusion serveur affiche une bannière que chaque joueur voit immédiatement. Chat admin n'est visible que par les autres admins — les joueurs ne le voient jamais. Chat général publie un message d'apparence normale de la part de \"{{adminLabel}}\" dans le chat habituel de tout le monde, facile à manquer et indiscernable d'un vrai joueur nommé {{adminLabel}}."
+  },
+  "deliveryStatus": {
+    "native": "livraison du chat : native",
+    "rconFallback": "livraison du chat : repli RCON (API de chat native indisponible)"
   },
   "input": {
     "aria": "Message de chat",
-    "placeholderAdmin": "admins uniquement — appuyez sur entrée pour envoyer…",
-    "placeholderGeneral": "publié en tant qu'Admin — appuyez sur entrée pour envoyer…",
-    "placeholderServer": "diffusé à tous les joueurs — appuyez sur entrée pour envoyer…",
+    "placeholderAdmin": "admins uniquement…",
+    "placeholderGeneral": "publié en tant qu'Admin…",
+    "placeholderServer": "diffusé à tous les joueurs…",
     "sendButton": "envoyer",
     "noPermission": "Vous n'avez pas la permission d'envoyer des messages de chat."
   },

@@ -96,6 +96,8 @@ import { RconTestConnection } from '@/components/RconTestConnection'
 import { MountDiscoveryBanner } from '@/components/MountDiscoveryBanner'
 import { DiscoverySetup } from '@/components/DiscoverySetup'
 import { DisabledReason } from '@/components/DisabledReason'
+import { HelpTip } from '@/components/HelpTip'
+import { platformTranslationKey, useRuntimeInfo } from '@/hooks/useRuntimeInfo'
 
 interface DetectedServerConfig {
   dataPath: string
@@ -246,6 +248,7 @@ export function resolveDockerCardHostStatus(
 
 export default function Servers() {
   const { t, i18n } = useTranslation('servers')
+  const runtimeInfo = useRuntimeInfo()
   const confirm = useConfirm()
   const { can } = useAuth()
   // bug-hunt-2026-08-27 (Tier 3 gating sweep): six distinct capabilities
@@ -264,7 +267,14 @@ export default function Servers() {
   // execution today (activate succeeds and the server record changes state,
   // then start/stop 403s), not a clean refusal. Gate on both present.
   const canInlineStartStop = canServersManage && canServerControl
-  const [servers, setServers] = useState<ServerInstance[]>([])
+  // null = we don't yet know (still loading, or the last fetch failed) --
+  // distinct from [] (fetch succeeded and confirmed there really are zero
+  // servers). See fetchServers() below: on failure `servers` is deliberately
+  // left untouched rather than reset to [], so this stays accurate across
+  // background refetches too, not just the first mount.
+  const [servers, setServers] = useState<ServerInstance[] | null>(null)
+  const [fetchError, setFetchError] = useState<string | null>(null)
+  const serversConfirmedEmpty = servers !== null && servers.length === 0
   const [serverStatuses, setServerStatuses] = useState<Record<string, { running: boolean; pid: string | null }>>({})
   const [rconStatuses, setRconStatuses] = useState<Record<string, string>>({})
   const [dockerAvailable, setDockerAvailable] = useState(false)
@@ -283,8 +293,10 @@ export default function Servers() {
   // signal on any non-active card, docker or otherwise.
   const [activeStatus, setActiveStatus] = useState<ComposedServerStatus | null>(null)
   const [loading, setLoading] = useState(true)
+  const [managedLifecycleSupported, setManagedLifecycleSupported] = useState(false)
   const [editingServer, setEditingServer] = useState<ServerInstance | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
+  const [lifecyclePending, setLifecyclePending] = useState(false)
   const [deleteServer, setDeleteServer] = useState<ServerInstance | null>(null)
   const [deleteFiles, setDeleteFiles] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -311,7 +323,7 @@ export default function Servers() {
 
   const tandemConflicts = useMemo(() => {
     if (addMode !== 'local') return []
-    const others = servers.filter(s => !s.isRemote)
+    const others = (servers || []).filter(s => !s.isRemote)
     if (others.length === 0) return []
     const found: Array<{ label: string; detail: string }> = []
     for (const other of others) {
@@ -333,6 +345,26 @@ export default function Servers() {
     }
     return found
   }, [addMode, servers, newServer.serverName, newServer.serverPort, newServer.rconPort, newServer.zomboidDataPath, newServer.installPath, t])
+
+  // Same name+host+port collision handleSaveEdit already blocks Save on
+  // (see its own comment for why -- bug-hunt-2026-08-31, f557c795) --
+  // computed live here too so the two fields that actually collided keep a
+  // persistent invalid marker after the save-time toast fades, instead of
+  // only surfacing at the moment Save is clicked. Derived from current field
+  // values every render, so it clears itself the instant either field no
+  // longer collides -- no separate state to remember to reset.
+  const editDuplicateRemoteConflict = useMemo(() => {
+    if (!editingServer || !editingServer.isRemote) return false
+    const normalizedName = (editingServer.name || '').trim().toLowerCase()
+    const normalizedHost = (editingServer.rconHost || '').trim().toLowerCase()
+    return (servers || []).some(s =>
+      s.id !== editingServer.id &&
+      s.isRemote &&
+      (s.name || s.serverName || '').trim().toLowerCase() === normalizedName &&
+      (s.rconHost || '').trim().toLowerCase() === normalizedHost &&
+      s.rconPort === editingServer.rconPort
+    )
+  }, [editingServer, servers])
 
   // Detection state
   const [detecting, setDetecting] = useState(false)
@@ -376,7 +408,7 @@ export default function Servers() {
   const connectableMounts = discoveredMounts.filter(
     (mount) => mount.dataPath && mount.serverNames.length > 0,
   )
-  const activeServerId = servers.find((server) => server.isActive)?.id ?? null
+  const activeServerId = servers?.find((server) => server.isActive)?.id ?? null
 
   const { toast } = useToast()
   const socket = useContext(SocketContext)
@@ -386,16 +418,22 @@ export default function Servers() {
 
   // Fetch servers
   const fetchServers = useCallback(async () => {
+    setFetchError(null)
     try {
       const data = await serversApi.getAll()
       setServers(data.servers || [])
+      setManagedLifecycleSupported(data.lifecycleCapabilities?.supported === true)
     } catch (error) {
       reportClientError('Failed to fetch servers.', error)
-      toast({ title: t('toasts.error'), description: getUserErrorMessage(error, t('toasts.loadServersFailed')), variant: 'destructive' })
+      // Leave `servers` untouched -- a failed fetch must not read as "you
+      // have no servers" (see the state's own comment above). The alert
+      // below is the single, retry-able error affordance for this page's
+      // load, same shape as Scheduler's fetchError.
+      setFetchError(getUserErrorMessage(error, t('fetchError.fallback')))
     } finally {
       setLoading(false)
     }
-  }, [toast, t])
+  }, [t])
 
   // Per-server running status — scans host processes once and attributes
   // matches to each configured server's install path. Refreshes on a slow
@@ -452,7 +490,7 @@ export default function Servers() {
     if (!canDockerManage) return
     setDockerActionPending(`${action}-${container.id}`)
     try {
-      const server = servers.find((item) => item.dockerContainerName === container.name || item.dockerContainerName === container.id)
+      const server = servers?.find((item) => item.dockerContainerName === container.name || item.dockerContainerName === container.id)
       if (!server) throw new Error('No server profile maps to this container')
       const result = await dockerApi.runAction(server.dockerContainerName || container.id, action, server.id)
       if (!result.success) throw new Error(result.error || `Failed to ${action} container`)
@@ -1098,6 +1136,16 @@ export default function Servers() {
   const handleSaveEdit = async () => {
     if (!editingServer || savingEdit) return
     if (!canServersManage) return
+    const storedLifecycleProvider =
+      servers?.find((server) => server.id === editingServer.id)?.lifecycleProvider || 'direct'
+    if ((editingServer.lifecycleProvider || 'direct') !== storedLifecycleProvider) {
+      toast({
+        title: t('toasts.warningTitle'),
+        description: t('editDialog.lifecycleCompleteFirst'),
+        variant: 'destructive',
+      })
+      return
+    }
 
     // Validate port range
     if (!isValidPort(editingServer.rconPort)) {
@@ -1123,6 +1171,27 @@ export default function Servers() {
       return
     }
 
+    // bug-hunt-2026-08-31: f557c795 added this same check to Add Remote
+    // Server only. server/routes/servers.js has no uniqueness enforcement
+    // of its own (confirmed by god -- grepped the whole file for
+    // duplicate/already-exists/unique, only hits are a required-fields list
+    // and rconFieldsChanged), so editing an existing remote server's
+    // name/host/port to collide with another server reproduces the exact
+    // same two-indistinguishable-cards outcome the Add-path fix exists to
+    // prevent. Excludes the server being edited from its own comparison.
+    // Shares editDuplicateRemoteConflict's own logic (defined above with the
+    // other hooks) rather than re-deriving it here, so the persistent
+    // field-level styling below can never drift from what actually blocks
+    // Save.
+    if (editDuplicateRemoteConflict) {
+      toast({
+        title: t('toasts.error'),
+        description: t('toasts.duplicateRemoteServer', { name: (editingServer.name || '').trim() }),
+        variant: 'destructive',
+      })
+      return
+    }
+
     setSavingEdit(true)
     try {
       const result = await serversApi.update(editingServer.id, editingServer)
@@ -1143,6 +1212,74 @@ export default function Servers() {
       })
     } finally {
       setSavingEdit(false)
+    }
+  }
+
+  const handleDownloadLifecycleTemplate = async (server: ServerInstance) => {
+    const provider = server.lifecycleProvider || 'direct'
+    if (provider === 'direct' || lifecyclePending) return
+    setLifecyclePending(true)
+    try {
+      const template = await serversApi.getLifecycleTemplate(server.id, provider)
+      const blob = new Blob([template.content], { type: 'text/plain;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = template.filename
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      URL.revokeObjectURL(url)
+      toast({
+        title: t('editDialog.lifecycleTemplateReadyTitle'),
+        description: t('editDialog.lifecycleTemplateReadyDesc', { path: template.installPath }),
+      })
+    } catch (error) {
+      toast({
+        title: t('toasts.error'),
+        description: getUserErrorMessage(error, t('editDialog.lifecycleTemplateFailed')),
+        variant: 'destructive',
+      })
+    } finally {
+      setLifecyclePending(false)
+    }
+  }
+
+  const handleActivateLifecycleProvider = async (server: ServerInstance) => {
+    const provider = server.lifecycleProvider || 'direct'
+    const stored = servers?.find((candidate) => candidate.id === server.id)
+    const currentProvider = stored?.lifecycleProvider || 'direct'
+    if (provider === currentProvider || lifecyclePending) return
+
+    const accepted = await confirm({
+      title: t('editDialog.lifecycleConfirmTitle'),
+      description: t('editDialog.lifecycleConfirmDesc', {
+        current: currentProvider,
+        next: provider,
+      }),
+      confirmLabel: t('editDialog.lifecycleActivate'),
+      destructive: false,
+      variant: 'warning',
+    })
+    if (!accepted) return
+
+    setLifecyclePending(true)
+    try {
+      const result = await serversApi.activateLifecycleProvider(server.id, provider)
+      setEditingServer(result.server)
+      await fetchServers()
+      toast({
+        title: t('editDialog.lifecycleActivatedTitle'),
+        description: result.message,
+      })
+    } catch (error) {
+      toast({
+        title: t('toasts.error'),
+        description: getUserErrorMessage(error, t('editDialog.lifecycleActivationFailed')),
+        variant: 'destructive',
+      })
+    } finally {
+      setLifecyclePending(false)
     }
   }
 
@@ -1307,6 +1444,34 @@ export default function Servers() {
       return
     }
 
+    // 2026-08-31 quality-pass finding: Add Remote Server had no duplicate
+    // detection at all -- resubmitting the identical name+host+port (a
+    // double-click, or retrying after a page that looked unresponsive)
+    // silently added another card indistinguishable from the first except
+    // by an Inactive/Selected badge. Scoped to remote servers specifically
+    // (where the finding was observed and where "same name, same host+port"
+    // unambiguously means "the same server, registered twice") -- local
+    // servers already validate against real install paths on the server
+    // side and aren't part of this finding.
+    if (addMode === 'remote') {
+      const normalizedName = newServer.name.trim().toLowerCase()
+      const normalizedHost = newServer.rconHost.trim().toLowerCase()
+      const isDuplicate = (servers || []).some(s =>
+        s.isRemote &&
+        (s.name || s.serverName || '').trim().toLowerCase() === normalizedName &&
+        (s.rconHost || '').trim().toLowerCase() === normalizedHost &&
+        s.rconPort === newServer.rconPort
+      )
+      if (isDuplicate) {
+        toast({
+          title: t('toasts.error'),
+          description: t('toasts.duplicateRemoteServer', { name: newServer.name.trim() }),
+          variant: 'destructive',
+        })
+        return
+      }
+    }
+
     setAddingServer(true)
     try {
       // Local mode with a detected config that has an ini password and no
@@ -1421,8 +1586,21 @@ export default function Servers() {
         }
       />
 
+      {fetchError && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>{t('fetchError.title')}</AlertTitle>
+          <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span className="min-w-0 break-words" dir="auto">{fetchError}</span>
+            <Button variant="outline" size="sm" onClick={fetchServers} className="self-start">
+              <RefreshCw className="mr-2 h-4 w-4" /> {t('fetchError.retry')}
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Discovered mounts — offer a one-click connect when no server profile uses them yet */}
-      {servers.length === 0 && connectableMounts.length > 0 && (
+      {serversConfirmedEmpty && connectableMounts.length > 0 && (
         <div className="space-y-2">
           {connectableMounts.map(mount => (
             <MountDiscoveryBanner
@@ -1434,8 +1612,11 @@ export default function Servers() {
         </div>
       )}
 
-      {/* Server Grid */}
-      {servers.length === 0 ? (
+      {/* Server Grid — a confirmed-empty roster gets the onboarding card; an
+          unknown roster (still loading past the initial spinner, or the last
+          fetch failed) renders neither that nor a stale grid, only the alert
+          above. */}
+      {serversConfirmedEmpty ? (
         <Card className="mission-brief overflow-hidden border-primary/20 bg-card">
           <CardContent className="py-10">
             <div className="mx-auto max-w-4xl space-y-8">
@@ -1510,7 +1691,7 @@ export default function Servers() {
             </div>
           </CardContent>
         </Card>
-      ) : (
+      ) : servers && servers.length > 0 ? (
         <div className="grid gap-4 md:grid-cols-2 stagger-in">
           {servers.map(server => {
             const hasUpdate = updateInfo?.updateAvailable && server.isActive
@@ -1872,18 +2053,21 @@ export default function Servers() {
                     )
                   })()}
                   {server.isRemote && (
-                    <DisabledReason reason={!canServersManage ? t('card.noPermissionManage') : null}>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleConfigureRemoteBridge(server)}
-                        disabled={!canServersManage}
-                        // eslint-disable-next-line local/no-dead-disabled-title -- pure hint describing what the button does; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
-                        title={t('card.configureSftpTitle')}
-                      >
-                        <Link className="w-4 h-4 mr-1.5" /> {t('card.configureSftp')}
-                      </Button>
-                    </DisabledReason>
+                    <div className="flex items-center gap-1">
+                      <DisabledReason reason={!canServersManage ? t('card.noPermissionManage') : null}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleConfigureRemoteBridge(server)}
+                          disabled={!canServersManage}
+                          // eslint-disable-next-line local/no-dead-disabled-title -- pure hint describing what the button does; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
+                          title={t('card.configureSftpTitle')}
+                        >
+                          <Link className="w-4 h-4 mr-1.5" /> {t('card.configureSftp')}
+                        </Button>
+                      </DisabledReason>
+                      <HelpTip label={t('card.configureSftp')}>{t('card.configureSftpTip')}</HelpTip>
+                    </div>
                   )}
                   {hasUpdate && (
                     <Button
@@ -1923,7 +2107,7 @@ export default function Servers() {
             </Card>
           )})}
         </div>
-      )}
+      ) : null}
 
       {/* Add Existing Server Dialog */}
       <Dialog open={showAddDialog} onOpenChange={(open) => !open && resetAddDialog()}>
@@ -1937,7 +2121,7 @@ export default function Servers() {
             </DialogDescription>
           </DialogHeader>
 
-          {addMode === 'local' && servers.some(s => !s.isRemote) && (
+          {addMode === 'local' && !!servers?.some(s => !s.isRemote) && (
             <div className="space-y-1.5 rounded-md border border-border/60 p-3">
               <p className="text-xs font-medium">{t('tandem.sectionTitle')}</p>
               <ul className="space-y-1">
@@ -2201,7 +2385,7 @@ export default function Servers() {
                 <Input
                   value={newServer.installPath}
                   onChange={e => setNewServer({ ...newServer, installPath: e.target.value })}
-                  placeholder={t('localForm.installPathPlaceholder')}
+                  placeholder={t(platformTranslationKey('localForm.installPathPlaceholder', runtimeInfo?.family))}
                   className="font-mono text-sm"
                   maxLength={260}
                 />
@@ -2424,10 +2608,18 @@ export default function Servers() {
                     value={editingServer.name}
                     onChange={e => setEditingServer({ ...editingServer, name: e.target.value })}
                     maxLength={100}
+                    aria-invalid={editDuplicateRemoteConflict}
+                    className={editDuplicateRemoteConflict ? 'border-destructive/70' : ''}
                   />
+                  {editDuplicateRemoteConflict && (
+                    <p className="text-xs text-destructive">{t('editDialog.duplicateRemoteServerHint')}</p>
+                  )}
                 </div>
                 <div className="space-y-2">
-                  <Label>{t('editDialog.serverNameLabel')}</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Label>{t('editDialog.serverNameLabel')}</Label>
+                    <HelpTip label={t('editDialog.serverNameLabel')}>{t('editDialog.serverNameTip')}</HelpTip>
+                  </div>
                   <Input
                     value={editingServer.serverName}
                     onChange={e => setEditingServer({ ...editingServer, serverName: e.target.value })}
@@ -2465,7 +2657,10 @@ export default function Servers() {
               </div>
 
               <div className="space-y-2">
-                <Label>{t('editDialog.dataPathLabel')}</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label>{t('editDialog.dataPathLabel')}</Label>
+                  <HelpTip label={t('editDialog.dataPathLabel')}>{t('editDialog.dataPathTip')}</HelpTip>
+                </div>
                 <Input
                   value={editingServer.zomboidDataPath || ''}
                   onChange={e => setEditingServer({ ...editingServer, zomboidDataPath: e.target.value })}
@@ -2473,6 +2668,70 @@ export default function Servers() {
                   placeholder={t('editDialog.dataPathPlaceholder')}
                 />
               </div>
+
+              {managedLifecycleSupported && !editingServer.dockerContainerName && !editingServer.dockerContainerId && (
+                <div className="space-y-3 rounded-md border border-border/60 p-3">
+                  <div className="space-y-1">
+                    <Label>{t('editDialog.lifecycleProviderLabel')}</Label>
+                    <p className="text-xs text-muted-foreground">
+                      {t('editDialog.lifecycleProviderHint')}
+                    </p>
+                  </div>
+                  <Select
+                    value={editingServer.lifecycleProvider || 'direct'}
+                    onValueChange={(value: 'direct' | 'systemd' | 'openrc') =>
+                      setEditingServer({ ...editingServer, lifecycleProvider: value })
+                    }
+                    disabled={lifecyclePending || !canServersManage}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="direct">{t('editDialog.lifecycleDirect')}</SelectItem>
+                      <SelectItem value="systemd">systemd</SelectItem>
+                      <SelectItem value="openrc">OpenRC</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Alert className="border-warning/40 bg-warning/10">
+                    <AlertCircle className="h-4 w-4 text-warning" />
+                    <AlertDescription>
+                      {t('editDialog.lifecycleMigrationWarning')}
+                    </AlertDescription>
+                  </Alert>
+                  <div className="flex flex-wrap gap-2">
+                    {(editingServer.lifecycleProvider || 'direct') !== 'direct' && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={lifecyclePending || !canServersManage}
+                        onClick={() => handleDownloadLifecycleTemplate(editingServer)}
+                      >
+                        {lifecyclePending ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Download className="mr-2 h-4 w-4" />
+                        )}
+                        {t('editDialog.lifecycleDownloadTemplate')}
+                      </Button>
+                    )}
+                    {(editingServer.lifecycleProvider || 'direct') !==
+                      (servers?.find((server) => server.id === editingServer.id)?.lifecycleProvider || 'direct') && (
+                      <Button
+                        type="button"
+                        variant="warning"
+                        size="sm"
+                        disabled={lifecyclePending || !canServersManage}
+                        onClick={() => handleActivateLifecycleProvider(editingServer)}
+                      >
+                        {lifecyclePending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        {t('editDialog.lifecycleActivate')}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-2">
                 <Label className="flex items-center gap-1.5">
@@ -2490,7 +2749,7 @@ export default function Servers() {
                   value={editingServer.startCommand || ''}
                   onChange={e => setEditingServer({ ...editingServer, startCommand: e.target.value })}
                   className="font-mono text-sm"
-                  placeholder={t('editDialog.customStartCommandPlaceholder')}
+                  placeholder={t(platformTranslationKey('editDialog.customStartCommandPlaceholder', runtimeInfo?.family))}
                   maxLength={1024}
                 />
                 {editingServer.startCommand && /[&|;<>`${}()!\[\]]/.test(editingServer.startCommand) && (
@@ -2528,11 +2787,15 @@ export default function Servers() {
                     value={editingServer.rconHost}
                     onChange={e => setEditingServer({ ...editingServer, rconHost: e.target.value })}
                     placeholder={editingServer.isRemote ? t('editDialog.rconHostPlaceholderRemote') : t('editDialog.rconHostPlaceholderLocal')}
+                    aria-invalid={editDuplicateRemoteConflict}
+                    className={editDuplicateRemoteConflict ? 'border-destructive/70' : ''}
                   />
-                  <p className="text-xs text-muted-foreground">
-                    {editingServer.isRemote
-                      ? t('editDialog.rconHostHintRemote')
-                      : t('editDialog.rconHostHintLocal')}
+                  <p className={editDuplicateRemoteConflict ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
+                    {editDuplicateRemoteConflict
+                      ? t('editDialog.duplicateRemoteServerHint')
+                      : editingServer.isRemote
+                        ? t('editDialog.rconHostHintRemote')
+                        : t('editDialog.rconHostHintLocal')}
                   </p>
                 </div>
                 <div className="space-y-2">

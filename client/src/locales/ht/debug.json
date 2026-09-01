@@ -15,6 +15,7 @@
   "tabs": {
     "diagnostics": "Dyagnostik",
     "worldMap": "Kat Mond lan",
+    "bridge": "PanelBridge",
     "performance": "Pèfòmans",
     "activity": "Aktivite",
     "logs": "Jounal",
@@ -49,7 +50,7 @@
     "modsResolved": {
       "labelWithCount": "Revize {{count}} ki pa rezoud",
       "labelGeneric": "Revize sa ki pa rezoud",
-      "note": "Korije atik Workshop òfelen yo dabò (anba a), epi egzekite dyagnostik yo ankò. Dezaktive manyèlman sèlman si antre yo reyèlman pa rezoud apre telechajman yo fini."
+      "note": "Tann telechajman Workshop yo fini, epi egzekite dyagnostik yo ankò. Si yon ID toujou pa rezoud, korije li oswa retire li nan Mods=."
     },
     "modsOrphanWorkshop": {
       "labelWithCount": "Otokorije {{count}} ID Workshop",
@@ -93,6 +94,10 @@
       "label": "Louvri Konfigirasyon Sèvè",
       "note": "Konfigire paramèt sèvè yo pou jenere oswa repare fichye .ini yo."
     },
+    "serverSandboxVars": {
+      "label": "Kreye SandboxVars.lua",
+      "note": "Ekri yon nouvo fichye paramèt sandbox ak valè pa defo pou li egziste epi li ka modifye. Redemare sèvè a pou aplike l."
+    },
     "serverSandboxCorrupt": {
       "label": "Repare SandboxVars.lua",
       "note": "Eseye yon repara otomatik (antèt blòk oswa vigil ki manke). Yon kopi sovgad fichye kase a sove anvan. Si koripsyon an pa koresponn ak yon modèl konnen, anyen pa ekri."
@@ -122,13 +127,17 @@
       "label": "Rekonekte RCON",
       "note": "Eseye rekonekte ak RCON lè l itilize modpas sove a. Si li kontinye echwe, verifye modpas nan Konfigirasyon Sèvè koresponn ak Paramèt, epi redemare sèvè a."
     },
+    "modCheckerStopped": {
+      "label": "Demare verifikatè mod",
+      "note": "Repran sondaj mizajou Steam Workshop lè l itilize paramèt ki deja konfigire yo."
+    },
     "servicesStuck": {
       "label": "Louvri Paramèt",
       "note": "Redemare panèl la anjeneral netwaye sèvis bloke yo."
     },
     "discordBot": {
-      "label": "Louvri Discord",
-      "note": "Verifye token bot la ak intents yo nan paramèt Discord."
+      "retryLabel": "Rekonekte bot",
+      "note": "Eseye rekonekte lè l itilize token bot ki sove a. Si li kontinye echwe, verifye token an ak intents yo nan paramèt Discord."
     },
     "bridgeConfigured": {
       "label": "Otokonfigire bridge",
@@ -141,6 +150,10 @@
     "dbExistsOrWritable": {
       "label": "Louvri Paramèt",
       "note": "Verifye chemen anyè done a egziste epi panèl la ka ekri ladan."
+    },
+    "dbWritable": {
+      "label": "Retire atribi lekti sèlman",
+      "note": "Eseye retire atribi lekti sèlman sou db.json epi tcheke ankò. Sa p ap ede si se yon pwoblèm pwopriyetè oswa pèmisyon (ACL)."
     },
     "dbBackup": {
       "label": "Kreye kopi sovgad baz done",
@@ -276,6 +289,14 @@
     "sandboxRepairedTitle": "SandboxVars.lua repare",
     "sandboxRepairedFallback_one": "Aplike {{count}} repara.{{restartHint}}",
     "sandboxRepairedFallback_other": "Aplike {{count}} repara.{{restartHint}}",
+    "sandboxCreatedTitle": "SandboxVars.lua kreye",
+    "sandboxCreatedFallback": "Fichye paramèt sandbox pa defo kreye.",
+    "dbWritableFixedTitle": "Fichye baz done a ka ekri ladan",
+    "dbWritableFixedFallback": "Atribi lekti sèlman retire.",
+    "modCheckerStartedTitle": "Verifikatè mod demare",
+    "modCheckerStartedFallback": "Sondaj mizajou Steam Workshop repran.",
+    "discordReconnectedTitle": "Bot Discord rekonekte",
+    "discordReconnectedFallback": "Koneksyon bot la retabli.",
     "noNumericIdsError": "Pa gen antre Mods= nimerik ki te bay pa dyagnostik yo.",
     "noOrphanWorkshopError": "Pa gen ID Workshop òfelen ki te bay pa dyagnostik yo.",
     "checks": {
@@ -368,12 +389,12 @@
           "warn": {
             "linux": {
               "label": "JRE enkli pa jwenn",
-              "message": "Pa t kapab jwenn jre64/bin/{{javaBin}} anba chemen enstalasyon an. Sèvè a ka pa demare sof si Java sistèm nan sou PATH.",
+              "message": "Nou pa jwenn jre64/bin/{{javaBin}} nan chemen enstalasyon an. Verifye Java ak command -v java; yon sèvis systemd ka itilize yon $PATH diferan ak shell koneksyon an.",
               "hint": "Pifò enstalasyon gen yon JRE anba jre64/. Re-egzekite SteamCMD si li manke."
             },
             "windows": {
               "label": "JRE enkli pa jwenn",
-              "message": "Pa t kapab jwenn jre64/bin/{{javaBin}} anba chemen enstalasyon an. Sèvè a ka pa demare sof si Java sistèm nan sou PATH.",
+              "message": "Nou pa jwenn jre64/bin/{{javaBin}} nan chemen enstalasyon an. Egzekite where java pou verifye si Java disponib atravè %PATH%.",
               "hint": "Re-egzekite SteamCMD pou retabli JRE enkli a"
             }
           }
@@ -880,11 +901,11 @@
         "resolved": {
           "ok": {
             "label": "Tout antre Mods= rezoud",
-            "message": "{{count}} mod nan lis, tout koresponn ak yon dosye mod Workshop oswa lokal enstale."
+            "message": "{{count}} mod nan lis, tout koresponn ak yon ID mod Workshop oswa lokal enstale."
           },
           "fail": {
             "label": "Antre Mods= pa rezoud",
-            "message": "{{count}} sou {{total}} antre Mods= pa koresponn ak okenn dosye mod enstale: {{list}}.",
+            "message": "{{count}} sou {{total}} antre Mods= pa koresponn ak okenn ID mod Workshop oswa lokal enstale: {{list}}.",
             "hint": "Anjeneral yon fòt tape, ID WorkshopItems= manke, oswa mod la poko fin telechaje. Korije nan Konfigirasyon Sèvè."
           }
         },
@@ -1311,6 +1332,8 @@
     "downloadFailedDesc": "Pa t kapab telechaje jounal yo",
     "downloadFileFailedDesc": "Pa t kapab telechaje {{name}}",
     "downloadArchiveFailedDesc": "Pa t kapab telechaje achiv jounal la",
+    "supportBundleReadyTitle": "Achiv sipò a telechaje",
+    "supportBundleReadyDesc": "Li gen jounal reyèl ladan. Fòm idantifyan yo konnen yo kache, men sa pa yon garanti — tcheke kontni an anvan ou pataje l deyò ekip ou.",
     "logEntryCopiedDesc": "Antre jounal kopye nan clipboard."
   },
   "crashesTab": {
@@ -1361,7 +1384,11 @@
   "healthTab": {
     "systemStatusTitle": "Estati Sistèm",
     "healthy": "An Bon Sante",
+    "checking": "N ap tcheke...",
     "issuesDetected": "Pwoblèm Detekte",
+    "rconOffline": "RCON Dekonekte",
+    "gameServerOffline": "Sèvè Jwèt Sispann",
+    "rconAndServerOffline": "RCON Dekonekte · Sèvè Jwèt Sispann",
     "lastChecked": "Dènye verifye {{time}}",
     "neverChecked": "Pa janm verifye",
     "autoRefreshes": "Otoaktyalize chak 30s",
@@ -1390,6 +1417,7 @@
     "platform": "Platfòm",
     "uptime": "Tan Aktif",
     "memory": "Memwa",
+    "unavailable": "Pa Disponib",
     "ofHeap": "sou {{total}} heap",
     "filePathsTitle": "Chemen Fichye",
     "filePathsDesc": "Kote fichye done ak jounal yo ye.",
@@ -1410,5 +1438,59 @@
     "pathsUpdatedTitle": "Chemen Mete Ajou",
     "enterAtLeastOnePath": "Tanpri antre omwen yon chemen",
     "updatePathsFailedFallback": "Pa t kapab mete ajou chemen yo"
+  },
+  "bridgeTab": {
+    "heading": "Dyagnostik mod PanelBridge",
+    "headingDesc": "Estati an dirèk, estatistik, ak ototès pou mod la limenm — separe de verifikasyon espesifik kat la nan onglè \"Kat Mond lan\".",
+    "permissionDeniedTitle": "Ou pa ka gade dyagnostik PanelBridge",
+    "permissionDeniedDesc": "Wòl kont ou a pa gen otorizasyon \"Dyagnostik PanelBridge\". Mande yon administratè bay ou aksè sa a si ou bezwen l.",
+    "notConnectedDesc": "Mod PanelBridge a pa konekte. Demare sèvè PZ la ak mod la enstale pou wè done an dirèk isit la.",
+    "notYetProbed": "Poko verifye.",
+    "offlineNoData": "Pon an dekonekte — pa gen done pou montre.",
+    "statsTitle": "Estatistik",
+    "statsDesc": "Kantite kòmand, tan aktivite, build ki detekte, modd debog, ak jounal erè.",
+    "versionLabel": "Vèsyon mod",
+    "uptimeLabel": "Tan aktivite",
+    "commandsLabel": "Kòmand OK / total",
+    "commandsFailedLabel": "Kòmand ki echwe",
+    "detectedVersionLabel": "Build ki detekte",
+    "detectedVersionCaveat": "Detèmine apati analiz chèn build mod la — chemen deteksyon prensipal ki fyab li, se pa yon plan sekou. Endikatè fonksyon metewolojik an dirèk yo pa ka konfime san danje san yo pa deklannche yon vrè evènman metewolojik, kidonk yo pa parèt ditou isit la olye pou yo montre kòm yon \"non\" ki ka pa kòrèk.",
+    "debugModeLabel": "Modd debog",
+    "debugModeDesc": "Jounal detaye sou kote mod la. Ou ka chanje l san danje — sa afekte sèlman kantite jounal la.",
+    "debugModeEnabledTitle": "Modd debog pon an aktive",
+    "debugModeDisabledTitle": "Modd debog pon an dezaktive",
+    "noPermission": "Wòl ou a pa gen otorizasyon \"Dyagnostik PanelBridge\".",
+    "errorLogLabel_one": "{{count}} erè resan",
+    "errorLogLabel_other": "{{count}} erè resan",
+    "noErrorsToClear": "Pa gen erè pou efase.",
+    "clearErrorsButton": "Efase jounal erè",
+    "clearErrorsConfirmTitle": "Efase jounal erè pon an?",
+    "clearErrorsConfirmDesc": "Sa efase jounal erè mod la kenbe nan memwa. Sa pa repare anyen — se sèl konte a ki reset.",
+    "clearErrorsConfirmButton": "Efase",
+    "clearErrorsSuccessTitle": "Jounal erè efase",
+    "checkApiTitle": "Verifye API",
+    "checkApiDesc": "Verifye si yon objè jwèt espesifik — epi opsyonèlman youn nan metòd li yo — disponib sou build sa a.",
+    "checkApiObjectLabel": "Objè",
+    "checkApiMethodLabel": "Metòd (opsyonèl)",
+    "checkApiMethodPlaceholder": "pa egzanp getTemperature",
+    "checkApiRunButton": "Verifye",
+    "checkApiAvailable": "Disponib",
+    "checkApiUnavailable": "Pa disponib",
+    "handlersTitle": "Handler disponib yo",
+    "handlersDesc": "Chak kòmand build mod sa a anrejistre kounye a.",
+    "handlersRunButton": "Chaje handler yo",
+    "handlersSearchPlaceholder": "Filtre handler yo…",
+    "handlersCount": "{{shown}} / {{total}}",
+    "debugLogTitle": "Jounal debog",
+    "debugLogDesc": "Antre resan nan pwòp jounal tanpon sikilè mod la, pi resan yo anvan.",
+    "debugLogLimitLabel": "Limit",
+    "debugLogLevelLabel": "Nivo minimòm",
+    "debugLogRunButton": "Chèche jounal",
+    "debugLogShown": "{{shown}} sou {{total}} antre antou",
+    "debugLogEmpty": "Pa gen antre nan nivo sa a.",
+    "selfTestTitle": "Lanse ototès pon an",
+    "selfTestDesc": "Teste yon seri fiks metòd motè kont premye 3 objè nan katalòg la — yon verifikasyon rapid pou wè si build sa a toujou pale lang mod la. Se sèlman lekti, pa gen enfòmasyon pou antre.",
+    "selfTestRunButton": "Lanse ototès",
+    "selfTestItemColumn": "Atik"
   }
 }

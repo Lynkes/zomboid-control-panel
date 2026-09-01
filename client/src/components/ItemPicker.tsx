@@ -17,7 +17,12 @@ export interface CatalogItem {
   id: string
   name: string
   category: string
-  weight: number
+  // Optional, not a stray gap: PanelBridge.lua only sets this on a
+  // successful getActualWeight() pcall (server/backlog card
+  // api-ts-declares-catalog-weight-mass-seats-non-optional-but-lua-guards-them,
+  // 2026-08-29) -- a genuinely missing weight is a real, expected runtime
+  // shape, not a bug to paper over with a fallback of 0.
+  weight?: number
 }
 
 interface ItemPickerProps {
@@ -358,7 +363,7 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
         {selectedItem ? (
           <span className="flex-1 min-w-0 truncate">
             <span className="font-medium">{selectedItem.name || selectedItem.id}</span>
-            {selectedItem.weight > 0 && (
+            {typeof selectedItem.weight === 'number' && selectedItem.weight > 0 && (
               <span className="text-muted-foreground ml-1.5 text-xs">{fmtWeight(selectedItem.weight)}</span>
             )}
           </span>
@@ -534,7 +539,7 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
                             )}>
                               {item.name || item.id}
                             </span>
-                            {item.weight > 0 && (
+                            {typeof item.weight === 'number' && item.weight > 0 && (
                               <span className="text-[10px] text-muted-foreground/50 tabular-nums shrink-0 px-1.5 py-0.5 rounded bg-muted/50">{fmtWeight(item.weight)}</span>
                             )}
                           </div>

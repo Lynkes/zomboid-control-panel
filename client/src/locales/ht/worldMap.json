@@ -71,7 +71,9 @@
     "panToAriaWithHealth": "Deplase kat la sou {{name}}, sante {{health}}%",
     "loading": "n ap chaje…",
     "noPlayersOnline": "pa gen jwè anliy",
-    "bridgeOffline": "pon òfliy"
+    "bridgeOffline": "pon òfliy",
+    "collapseAria": "Fèmen lis jwè a",
+    "expandAria": "Louvri lis jwè a"
   },
   "hud": {
     "hoverForCoords": "pase sou li pou wè kowòdone"
@@ -83,11 +85,15 @@
     "pos": "pozisyon",
     "floor": "etaj",
     "hp": "hp",
+    "hunger": "grangou",
+    "thirst": "swaf",
+    "fatigue": "fatig",
     "role": "wòl",
     "status": "estati",
     "infected": "enfekte",
     "heal": "Geri",
     "god": "Bondye",
+    "godTip": "Toujou aktive Mòd Bondye pou jwè sa a — li pa yon switch. Dezaktive li nan Jwè yo.",
     "healedTitle": "Geri",
     "healedDesc": "{{username}} geri",
     "godModeEnabled": "Mòd Bondye aktive"
@@ -183,6 +189,7 @@
   "spawnDialog": {
     "title": "Fè Machin Parèt",
     "location": "Pozisyon: {{x}}, {{y}} · Etaj {{z}}",
+    "floorTip": "Machin parèt sèlman nan etaj tè a oswa nan yon sousòl — sa echwe nan nenpòt etaj ki pi wo.",
     "cancel": "Anile",
     "spawn": "Fè parèt"
   },

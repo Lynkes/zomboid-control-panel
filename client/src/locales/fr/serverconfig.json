@@ -31,6 +31,24 @@
     "fileNotFoundTitle": "{{label}} : fichier introuvable",
     "notFoundAria": "Introuvable"
   },
+  "unresolvedReview": {
+    "title": "ID Mods= non résolus",
+    "causeUnknown": "Aucun triage disponible pour cette entrée pour l'instant — relancez les diagnostics.",
+    "causeTypo": "Ressemble à une faute de frappe du mod installé « {{suggestion}} ».",
+    "correctAction": "Utiliser « {{suggestion}} »",
+    "causeStillDownloading": "Un téléchargement Workshop est en cours — attendez qu'il se termine, puis relancez les diagnostics.",
+    "causeWorkshopNotOnDisk": "Listé dans WorkshopItems= mais son contenu n'est pas sur le disque et rien ne le télécharge actuellement. Redémarrez le serveur ou revalidez le téléchargement Workshop, puis relancez les diagnostics.",
+    "rerunDiagnostics": "Relancer les diagnostics",
+    "causeAbsent": "Aucun mod Workshop ou local installé ne correspond à cet ID.",
+    "removeAction": "Retirer de Mods=",
+    "correctedTitle": "Entrée Mods= corrigée",
+    "correctedToast": "« {{modId}} » remplacé par « {{suggestion}} » dans Mods=. Non enregistré — vérifiez et enregistrez ci-dessous.",
+    "removeConfirmTitle": "Retirer de Mods= ?",
+    "removeConfirm": "Retirer « {{modId}} » de Mods= ? Ceci prépare seulement la modification ici — rien n'est écrit sur le disque avant l'enregistrement.",
+    "removeConfirmButton": "Retirer",
+    "removedTitle": "Entrée Mods= retirée",
+    "removedToast": "« {{modId}} » retiré de Mods=. Non enregistré — vérifiez et enregistrez ci-dessous."
+  },
   "tabs": {
     "serverSettings": "Paramètres serveur",
     "sandbox": "Sandbox",
@@ -315,8 +333,6 @@
   "toasts": {
     "error": "Erreur",
     "loadConfigFailed": "Échec du chargement de la configuration du serveur.",
-    "stopServerTitle": "Arrêtez le serveur avant d'enregistrer",
-    "stopServerDesc": "Project Zomboid peut écraser les fichiers de configuration pendant son exécution.",
     "invalidIniTitle": "Paramètres serveur invalides",
     "invalidSandboxTitle": "Valeurs Sandbox invalides",
     "fixSettings": "À corriger : {{settings}}",

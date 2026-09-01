@@ -1,3 +1,12 @@
+// Must be the FIRST import in this file: it refuses to start (with one
+// clear diagnostic) if the root-first-run trap has left dataDir/logsDir
+// unreachable to this account. server/utils/setupToken.js below already
+// transitively imports database/init.js, which has its own unguarded
+// fs.mkdirSync in top-level module code -- ESM evaluates that side effect
+// during import resolution, before any of this file's own statements run,
+// so this check has to be evaluated even earlier than that import. See
+// server/utils/firstRunOwnershipCheck.js's header for the full reasoning.
+import "./utils/firstRunOwnershipCheck.js";
 import express from "express";
 import compression from "compression";
 import cors from "cors";
@@ -37,19 +46,31 @@ import {
   getSetting,
   setSetting,
   flushWrites,
+  flushForShutdown,
   recordPerformanceSnapshot,
   logServerEvent,
 } from "./database/init.js";
 import { RconService } from "./services/rcon.js";
 import { ServerManager } from "./services/serverManager.js";
 import { DockerClient } from "./services/dockerClient.js";
-import { setDockerClient } from "./services/managedContainer.js";
+import { setDockerClient, resolveDockerHostSignal } from "./services/managedContainer.js";
 import { ModChecker } from "./services/modChecker.js";
 import { Scheduler } from "./services/scheduler.js";
 import { DiscordBot } from "./services/discordBot.js";
 import { BackupService } from "./services/backupService.js";
 import { UpdateChecker } from "./services/updateChecker.js";
-import { PanelUpdateChecker } from "./services/panelUpdateChecker.js";
+import {
+  PanelUpdateChecker,
+  createUpdateDataBackup,
+  restorePreUpdateDataBackup,
+} from "./services/panelUpdateChecker.js";
+import {
+  acknowledgeUpdateBundle,
+  applyUpdateBundle,
+  inspectPendingUpdateBundle,
+  PANEL_API_CONTRACT_VERSION as DEFAULT_API_CONTRACT_VERSION,
+  recoverInterruptedUpdateBundle,
+} from "./services/updateBundle.js";
 import { LogTailer } from "./services/logTailer.js";
 import { DiskMonitor } from "./services/diskMonitor.js";
 import authService from "./services/auth.js";
@@ -61,13 +82,16 @@ import { loadOrCreateCerts } from "./utils/certs.js";
 import { sanitizeError, sanitizeErrorParams } from "./utils/sanitize.js";
 import { ErrorCode } from "./utils/errorCodes.js";
 import { getSftpCachePath } from "./services/panelBridgeSftp.js";
+import { resolveInstallDir } from "./services/panelBridgeInstaller.js";
 import {
   getEmbeddedPanelBridgeLua,
   compareModVersions,
   writeLuaAtomic,
 } from "./utils/embeddedLua.js";
 import { isServerObservedRunning } from "./utils/serverStatus.js";
+import { resolveProvider } from "./utils/serverStatusModel.js";
 import { discoverMounts } from "./services/mountDiscovery.js";
+import { shouldAutoOpenBrowser } from "./utils/browserLaunch.js";
 
 // === Supervisor bootstrap ===
 // If the .exe was double-clicked directly (no PANEL_SUPERVISOR_V env var) and
@@ -206,6 +230,17 @@ async function gracefulShutdown(signal) {
       }
     }
 
+    // Flush any pending DB write before closing up. database/init.js's own
+    // SIGTERM/SIGINT listener (registerShutdownHandlers) does this too, but
+    // it's a second, unsynchronized listener on the same signal -- without
+    // this explicit, awaited call here, httpServer.close()'s callback below
+    // (which calls process.exit(0)) could win the race and kill the process
+    // before that other listener's flush -- or its retry after a failed
+    // first attempt -- ever gets to run. flushForShutdown() is bounded
+    // (a few hundred ms worst case), so this cannot turn into a shutdown
+    // that hangs waiting on a write that will never succeed.
+    await flushForShutdown();
+
     // Close HTTP server
     httpServer.close(() => {
       log.info("HTTP server closed");
@@ -289,6 +324,22 @@ let activePanelPort = null;
 
 // HTTPS server — created during startup if certs are available
 let httpsServer = null;
+
+// Whether HTTPS is currently up, per the module-level `httpsServer` binding
+// setupHttpsServer() nulls on any failure (cert error, EADDRINUSE, invalid
+// port) so a later check (the boot-banner URL list, the protocol string
+// used to build the printed panel URL) never reports HTTPS as available
+// after it's actually failed closed. Exported narrowly so a test can
+// observe this specific state transition -- bug hunt 2026-08-31-c
+// (under-coverage sweep): a prior test asserted "does NOT crash" and
+// "fails closed" correctly via the returned server object's own
+// `.listening` property, but had no way to see whether this MODULE-level
+// binding (a separate reference from what setupHttpsServer() returns) was
+// actually reset, despite its own title explicitly claiming "(server nulls
+// itself out)" as part of what it verifies.
+export function isHttpsServerActive() {
+  return httpsServer !== null;
+}
 
 // CORS — restrict to known development and production origins
 // Must be declared before Socket.IO or Express CORS middleware reference it
@@ -669,18 +720,41 @@ const cspClientDistPath =
 // (blocked inline script, no theme flash prevention) rather than the
 // protection silently loosening on exactly the deployments where
 // something is already unusual.
-const inlineScriptCspSource = computeInlineScriptCspHash(
+//
+// `let`, not `const`: the packaged Linux update-apply path swaps
+// client/dist onto disk IN-PROCESS (updateBundle.js's applyUpdateBundle(),
+// called from POST /api/panel/restart below) and then keeps this same
+// process serving requests for a bit before it actually exits — unlike
+// Windows, where an external supervisor does the swap only after this
+// process has already exited. refreshInlineScriptCspHash() re-reads and
+// re-hashes right after that in-process swap so this variable — and the
+// header below, which reads it fresh per request — stops describing the
+// pre-swap script the moment the swap completes, instead of staying stale
+// until the process eventually restarts.
+let inlineScriptCspSource = computeInlineScriptCspHash(
   cspClientDistPath,
   log,
 );
+function refreshInlineScriptCspHash() {
+  inlineScriptCspSource = computeInlineScriptCspHash(cspClientDistPath, log);
+  return inlineScriptCspSource;
+}
 app.use(
   helmet({
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: inlineScriptCspSource
-          ? ["'self'", inlineScriptCspSource]
-          : ["'self'"],
+        // A function element is re-evaluated by helmet on every single
+        // request (see node_modules/helmet's getHeaderValue) rather than
+        // captured once when app.use() ran — required so
+        // refreshInlineScriptCspHash() above actually changes what the next
+        // request receives, instead of only taking effect on next restart.
+        // An empty string contributes nothing to the header (helmet joins
+        // directive entries with a space and browsers ignore the resulting
+        // extra whitespace), which is what "no hash could be computed"
+        // needs — script-src 'self' alone, same as the ternary this
+        // replaced.
+        scriptSrc: ["'self'", () => inlineScriptCspSource || ""],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         // blob: is required by the World Map tile loader: it fetches each
         // tile, converts the response to a Blob and decodes it through
@@ -887,6 +961,7 @@ scheduler.setBackupService(backupService);
 // fire event notifications (scheduledRestart, backupComplete) without
 // needing req.app access.
 scheduler.setDiscordBot(discordBot);
+scheduler.setIo(io);
 backupService.setDiscordBot(discordBot);
 
 // Start RCON auto-reconnect for automatic recovery
@@ -1058,15 +1133,8 @@ async function tryStartPanelBridge(trigger = "unknown") {
   if (autoUpdateEnabled)
     try {
       const activeServer = await getActiveServer();
-      const serverInstallDir =
-        activeServer?.serverPath || activeServer?.installPath;
-      if (serverInstallDir) {
-        const installDir =
-          serverInstallDir.endsWith(".bat") ||
-          serverInstallDir.endsWith(".sh") ||
-          serverInstallDir.endsWith(".exe")
-            ? path.dirname(serverInstallDir)
-            : serverInstallDir;
+      const installDir = resolveInstallDir(activeServer);
+      if (installDir) {
         const destLuaFile = path.join(
           installDir,
           "media",
@@ -1144,7 +1212,10 @@ async function tryStartPanelBridge(trigger = "unknown") {
 // Auto-start PanelBridge when RCON connects (secondary trigger)
 // An async EventEmitter listener that rejects becomes an unhandled rejection,
 // which reaches process.on("unhandledRejection") and kills the panel — so
-// this is wrapped the same way the sibling "disconnected" handler below is.
+// this is wrapped in its own try/catch. The sibling "disconnected" handler
+// below no longer needs the same treatment: it delegates entirely to
+// checkServerStatusNow(), which already catches every error internally and
+// never rejects (2026-08-31 consolidation).
 rconService.on("connected", async () => {
   try {
     log.info("RCON connected - checking PanelBridge...");
@@ -1158,35 +1229,18 @@ rconService.on("connected", async () => {
   }
 });
 
-rconService.on("disconnected", async () => {
-  // When RCON disconnects, check if server actually stopped
-  // This gives faster detection than the 10s watchdog interval
-  setTimeout(async () => {
-    try {
-      const running = await getObservedServerRunning();
-      if (running === null) {
-        log.debug("RCON disconnect status check could not determine process state");
-        return;
-      }
-      if (!running && lastKnownRunning !== false) {
-        lastKnownRunning = false;
-        log.info(
-          "RCON disconnected and server process gone — emitting stopped status",
-        );
-        io.emit("server:status", { running: false });
-        await logServerEvent(
-          "server_stop",
-          "Server process exited (detected after RCON disconnect)",
-        );
-        discordBot
-          .sendEventNotification("serverStop", {})
-          .catch((err) =>
-            log.debug(`Discord serverStop notification failed: ${err.message}`),
-          );
-      }
-    } catch (err) {
-      log.debug(`Post-RCON-disconnect check failed: ${err.message}`);
-    }
+rconService.on("disconnected", () => {
+  // When RCON disconnects, check if server actually stopped. This gives
+  // faster detection than the 10s watchdog interval. Routes through
+  // checkServerStatusNow() (2026-08-31 bug hunt consolidation -- see that
+  // function's own header comment) instead of independently reading,
+  // comparing, mutating and emitting: this handler used to be a second,
+  // independent writer of `lastKnownRunning` that would not have inherited
+  // a future fix made only in checkServerStatusNow(). checkServerStatusNow()
+  // already catches every error internally and never rejects, so this
+  // needs no try/catch of its own, unlike before.
+  setTimeout(() => {
+    checkServerStatusNow("RCON disconnect");
   }, 3000); // wait 3s for process to fully exit
 });
 
@@ -1310,6 +1364,14 @@ app.use("/api/permissions", permissionsRoutes);
 // In exe builds, PANEL_VERSION is injected by esbuild at compile time.
 // In dev mode, fall back to reading package.json.
 let _pkgVersion;
+let _buildSha;
+// These are resolved SEPARATELY on purpose. They used to share one try/catch, which meant a
+// failure resolving the build sha discarded an already-successful package.json read: in a
+// container there is no .git and no git binary, `git rev-parse HEAD` throws, and the panel then
+// reported itself as 0.0.0 even though its version was sitting right there in /app/package.json.
+// That was harmless until the frontend/backend build-compatibility gate started comparing the
+// two, at which point every Docker user got "Frontend and backend versions do not match" and a
+// blocked UI. Never let an unknown sha cost us a known version.
 try {
   _pkgVersion =
     typeof PANEL_VERSION !== "undefined"
@@ -1320,10 +1382,44 @@ try {
 } catch {
   _pkgVersion = "0.0.0";
 }
+try {
+  _buildSha =
+    typeof PANEL_BUILD_SHA !== "undefined"
+      ? PANEL_BUILD_SHA
+      : process.env.PANEL_BUILD_SHA ||
+        execSync("git rev-parse HEAD", { encoding: "utf8" }).trim();
+} catch {
+  _buildSha = "unknown";
+}
+const _apiContractVersion =
+  typeof PANEL_API_CONTRACT_VERSION !== "undefined"
+    ? Number(PANEL_API_CONTRACT_VERSION)
+    : DEFAULT_API_CONTRACT_VERSION;
+const _buildMetadata = {
+  panelVersion: _pkgVersion,
+  buildSha: _buildSha,
+  apiContractVersion: _apiContractVersion,
+};
+
+function updateBundleJournalPath() {
+  return path.join(path.dirname(panelUpdateChecker.getExeBasePath()), "update-bundle.json");
+}
+
+let _pendingUpdateInspection = { pending: false, awaitingStartupAck: false };
+
+function inspectPendingPanelUpdate() {
+  const journalPath = updateBundleJournalPath();
+  return inspectPendingUpdateBundle({
+    journalPath,
+    applyingMarkerPath: path.join(path.dirname(journalPath), ".update-applying"),
+    runningMetadata: _buildMetadata,
+  });
+}
 app.get("/api/health", (req, res) => {
   res.json({
     status: "ok",
     version: _pkgVersion,
+    ..._buildMetadata,
     timestamp: new Date().toISOString(),
   });
 });
@@ -1353,6 +1449,37 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
     checker && typeof checker.getStagedUpdate === "function"
       ? checker.getStagedUpdate()
       : null;
+
+  // Pre-update database snapshot, taken exactly once per restart-and-apply
+  // request, right here -- before EITHER platform's destructive step
+  // (Windows: writing the supervisor marker and exiting so Start.bat can
+  // swap files; Linux: applyUpdateBundle() itself). This used to be taken
+  // at download/stage time (see panelUpdateChecker.js's own comment on why
+  // that became stale once download and apply became two separate,
+  // arbitrarily-far-apart user actions). The path is persisted as a
+  // setting, not just held in the journal or in memory, so it survives
+  // independently of the bundle journal's own lifecycle (deleted on both
+  // successful apply and successful rollback) -- see the acknowledge
+  // handler below, which is the one path that can need it back.
+  if (isPackaged && staged) {
+    try {
+      const dataBackupPath = createUpdateDataBackup(
+        getDataPaths(),
+        staged.version,
+      );
+      if (dataBackupPath) {
+        log.info(`Backed up panel database before update: ${dataBackupPath}`);
+        await setSetting("preUpdateDataBackupPath", dataBackupPath);
+        await flushWrites();
+      }
+    } catch (backupErr) {
+      // A failed pre-update snapshot must not block the update itself --
+      // same posture as every other best-effort backup in this codebase --
+      // but it DOES mean there is no safety net for this specific update,
+      // so this is worth a warning, not a debug line.
+      log.warn(`Could not back up panel database before update: ${backupErr.message}`);
+    }
+  }
 
   // Windows + packaged + staged update → supervisor (Start.bat v2) handoff
   // when available, otherwise legacy spawned-helper.
@@ -1400,44 +1527,14 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
       }
     }
 
-    // Legacy path: spawn a detached cmd helper. Kept for installs that
-    // haven't yet picked up Start.bat v2 (first run after upgrading from
-    // pre-supervisor releases).
-    try {
-      // Commit the apply: write the pending marker FIRST and flush to disk
-      // before we exit. reconcilePendingUpdate() on next boot uses this to
-      // detect success/failure. If the flush is skipped we silently lose the
-      // ability to warn the user that apply failed.
-      if (staged.version) {
-        await setSetting("pendingPanelUpdate", staged.version);
-        await flushWrites();
-      }
-      const { helperPath, logPath } = await checker.spawnWindowsApplyHelper();
-      log.info(
-        `Staged update will be applied by helper: ${helperPath} (log: ${logPath})`,
-      );
-      res.json({
-        success: true,
-        message: "Applying staged update...",
-        applyingUpdate: true,
-      });
-      setTimeout(() => process.exit(0), 500);
-      return;
-    } catch (err) {
-      // 409 Conflict for the specific "already in progress" race so the UI
-      // can show a tailored message instead of a generic 500.
-      if (err.code === "apply_in_progress") {
-        log.warn(
-          "Restart-and-apply request rejected: another apply is in progress",
-        );
-        return res.status(409).json({
-          error: "An update apply is already in progress.",
-          code: "apply_in_progress",
-        });
-      }
-      log.error(`Could not spawn update apply helper: ${err.message}`);
-      return res.status(500).json({ error: sanitizeError(err.message) });
-    }
+    // A detached legacy helper can launch a binary, but cannot safely keep a
+    // matching frontend transaction alive until startup acknowledgement.
+    // Refuse that unsafe path instead of recreating the mixed-version bug.
+    checker.isApplying = false;
+    return res.status(409).json({
+      error:
+        "This update requires the packaged Start.bat supervisor. Stop the panel and launch Start.bat, then apply again.",
+    });
   }
 
   // Linux + packaged + staged update → overwrite in place (safe on Linux), then restart.
@@ -1458,57 +1555,36 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
     }
     checker.isApplying = true;
     try {
-      // NOTE: use the statically-imported `fs` here. A runtime `await
-      // import('fs')` is emitted by esbuild as a native dynamic import that
-      // fails inside the pkg binary with "A dynamic import callback was not
-      // specified", which previously broke Restart-and-Apply on Linux.
-      const fsp = fs.promises;
       if (staged.version) {
         await setSetting("pendingPanelUpdate", staged.version);
         await flushWrites();
       }
-      // Target the canonical binary path (strip any .new/.new2 suffix — if
-      // we were launched from a staged file the running execPath may carry
-      // that suffix). On Linux overwriting the running binary is safe: the
-      // kernel keeps the old inode mapped until this process exits, and the
-      // next spawn picks up the new file.
-      const targetPath =
-        typeof checker.getExeBasePath === "function"
-          ? checker.getExeBasePath()
-          : staged.exePath;
-      // Try atomic rename first. If staged and target are on different
-      // filesystems (e.g. /opt vs /home with a tmpfs in between), rename
-      // throws EXDEV. Fall back to copy+unlink in that case.
+      const appliedBundle = applyUpdateBundle(staged.journalPath);
+      // client/dist was just renamed onto disk by the line above, in this
+      // same still-running process (see the comment on
+      // refreshInlineScriptCspHash's declaration) -- re-hash now so the very
+      // next request, including the res.json() a few lines down, is already
+      // describing the new script instead of the pre-swap one.
+      refreshInlineScriptCspHash();
+      const targetPath = appliedBundle.paths.binary;
       try {
-        await fsp.rename(staged.stagedPath, targetPath);
-      } catch (renameErr) {
-        if (renameErr.code === "EXDEV") {
-          log.warn(
-            `Cross-device rename (EXDEV); falling back to copy+unlink for ${staged.stagedPath} → ${targetPath}`,
-          );
-          await fsp.copyFile(staged.stagedPath, targetPath);
-          try {
-            await fsp.unlink(staged.stagedPath);
-          } catch (unlinkErr) {
-            log.warn(
-              `Could not remove staged source after copy: ${unlinkErr.message}`,
-            );
-          }
-        } else {
-          throw renameErr;
-        }
-      }
-      // chmod is best-effort, but if it fails we MUST verify the file is
-      // still executable — otherwise the respawn below will silently die
-      // with EACCES and leave the user with no panel.
-      try {
-        await fsp.chmod(targetPath, 0o755);
+        await fs.promises.chmod(targetPath, 0o755);
       } catch (chmodErr) {
         log.warn(`Could not chmod new binary: ${chmodErr.message}`);
       }
       try {
-        await fsp.access(targetPath, fs.constants.X_OK);
+        await fs.promises.access(targetPath, fs.constants.X_OK);
       } catch (accessErr) {
+        recoverInterruptedUpdateBundle(
+          staged.journalPath,
+          "binary_not_executable",
+        );
+        // The line above rolled client/dist back to the pre-apply backup --
+        // this request returns 500 below and the process keeps running
+        // (no restart follows on this branch), so the hash must go back to
+        // matching that restored content now, not stay pinned to the new
+        // build's hash this same handler just set a few lines up.
+        refreshInlineScriptCspHash();
         checker.isApplying = false;
         log.error(
           `New binary at ${targetPath} is not executable: ${accessErr.message}`,
@@ -1519,20 +1595,18 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
           ),
         });
       }
-      // Best-effort cleanup of the OTHER staging slot if it exists (e.g.,
-      // a previous .new2 left behind by a long-ago apply). Stale staging
-      // files would otherwise confuse getStagedUpdate() on next boot.
-      try {
-        const otherSlot = `${targetPath}.new2`;
-        if (fs.existsSync(otherSlot) && otherSlot !== staged.stagedPath) {
-          await fsp.unlink(otherSlot);
-        }
-      } catch (cleanErr) {
-        log.debug(`Could not clean other staging slot: ${cleanErr.message}`);
-      }
       linuxRespawnPath = targetPath;
-      log.info(`Linux staged update applied to ${targetPath}; restarting`);
+      log.info(
+        `Linux update bundle applied to ${targetPath}; awaiting startup acknowledgement after restart`,
+      );
     } catch (err) {
+      // updateBundle.js's applyUpdateBundle() rolls its own client/dist
+      // rename back internally before rethrowing on any failure (see its
+      // own try/catch around the phased rename sequence) -- so a swap may
+      // already have happened and been undone by the time control reaches
+      // here. Re-hash unconditionally rather than reasoning about which
+      // specific phase failed; this process is not restarting on this path.
+      refreshInlineScriptCspHash();
       // Release the apply guard so the user can retry after fixing whatever
       // failed (e.g. permission, disk full).
       checker.isApplying = false;
@@ -1592,7 +1666,11 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
     // non-zero so `on-failure`/`always` units respawn us; Docker
     // `restart: unless-stopped`/`always` restart regardless of code, so this is
     // safe there too. Standalone (already self-respawned) exits 0 as normal.
-    process.exit(orchestrated ? 1 : 0);
+    const linuxSupervisor =
+      process.platform === "linux" &&
+      process.env.PANEL_SUPERVISOR_V === "2" &&
+      process.env.PANEL_PRESERVE_GAME_SERVERS === "1";
+    process.exit(linuxSupervisor ? 75 : orchestrated ? 1 : 0);
   }, 1000);
 });
 
@@ -1644,7 +1722,10 @@ app.get("/api/panel/update-apply-log", (req, res) => {
         .status(500)
         .json({ error: "Panel update checker not available" });
     const log = checker.readMostRecentApplyLog();
-    res.json({ log });
+    res.json({
+      log,
+      logPath: path.join(getDataPaths().logsDir, "panel-update-last.log"),
+    });
   } catch (error) {
     res.status(500).json({ error: sanitizeError(error.message) });
   }
@@ -1926,11 +2007,24 @@ io.on("connection", (socket) => {
   });
 
   // Subscribe to logs. Mirrors GET /api/debug/logs (debug.js), which
-  // requires diagnostics.manage -- every route in that file is admin-only
-  // by design. Without this check, moderator (which does not hold
-  // diagnostics.manage) could get the identical live log stream, including
-  // RCON command text, just by connecting a socket instead of calling the
-  // HTTP route.
+  // requires diagnostics.manage -- that route's own gate is what this
+  // socket has to match. Not "every route in debug.js requires it": that
+  // was asserted here once (bughunt-2026-08-31-b, completeness-claims
+  // audit) and was already false the day it was written -- POST
+  // /debug/client-errors is a deliberate, separately-documented
+  // unauthenticated exception (write-only crash-report intake, returns no
+  // data, doesn't undermine this socket's purpose either way). A second
+  // exception added later would make a re-stated "every route but that
+  // one" claim just as stale. Check GET /api/debug/logs's own gate
+  // directly if this ever needs re-verifying, not a count of the file.
+  // Without this check, moderator (which does not hold diagnostics.manage)
+  // could get the identical live log stream just by connecting a socket
+  // instead of calling the HTTP route. RCON command
+  // text used to ride along in this room too (rcon.js's rcon:response
+  // event) -- moved to its own rcon-live room below (2026-08-31 bug hunt),
+  // since that content is gated rcon.execute everywhere else it's exposed
+  // (see /rcon/history's own header comment) and diagnostics.manage is a
+  // different, broader capability that never mentions RCON at all.
   socket.on("subscribe:logs", async () => {
     if (!(await socketHasCapability(socket, "diagnostics.manage"))) return;
     socket.join("logs");
@@ -1944,6 +2038,20 @@ io.on("connection", (socket) => {
   });
   socket.on("unsubscribe:perf", () => {
     socket.leave("perf");
+  });
+
+  // Subscribe to live RCON command/response traffic (rcon.js's
+  // rcon:response event). Mirrors GET /api/rcon/history, which requires
+  // rcon.execute specifically -- not diagnostics.manage, a different and
+  // broader capability -- because that route's own header comment records
+  // a past fix: an ungated history endpoint let any logged-in role read
+  // every admin/technician's past RCON console session and every
+  // whitelist password ever set. The live broadcast of the identical
+  // content class must not reopen that through a narrower-looking but
+  // still-too-broad gate (2026-08-31 bug hunt).
+  socket.on("subscribe:rcon", async () => {
+    if (!(await socketHasCapability(socket, "rcon.execute"))) return;
+    socket.join("rcon-live");
   });
 });
 
@@ -2354,6 +2462,26 @@ export async function getObservedServerRunning() {
     });
   }
 
+  // docker-local/docker-managed: PZ runs as PID 1 of a *different*
+  // container, so the local process scan below can never see it (GH#114,
+  // same reasoning server/routes/serverStatus.js's dashboard badge already
+  // follows). Without this branch the watchdog always saw processRunning
+  // false/scanFailed for these providers and could never detect a
+  // transition -- a Docker container start/stop/crash/external `docker
+  // stop` got NO push, ever, only the client's own 10-15s polling. Reuses
+  // resolveDockerHostSignal so this and the dashboard badge can never
+  // disagree about what "Docker says running" means at the same moment.
+  const provider = resolveProvider(activeServer);
+  if (provider === "docker-local" || provider === "docker-managed") {
+    const dockerSignal = await resolveDockerHostSignal(activeServer, dockerClient);
+    return isServerObservedRunning({
+      processRunning: dockerSignal.running,
+      rconConnected: rconService.connected,
+      bridgeConnected: panelBridge.isModConnected(),
+      processScanFailed: dockerSignal.scanFailed,
+    });
+  }
+
   const processDetails =
     typeof serverManager.getServerProcessDetails === "function"
       ? await serverManager.getServerProcessDetails()
@@ -2388,11 +2516,20 @@ export async function getObservedServerRunning() {
 // correct, from this function's own point of view), saw no change, and
 // said nothing -- it did not fail to notice, it correctly noticed nothing
 // had changed, while a different module had already told every client
-// something false. Routing every "did the running state actually change"
-// decision through this ONE function, and having every caller ask it to
-// re-check rather than assert its own answer, means there is no second copy
-// of `lastKnownRunning` anywhere left to drift out of sync with this one.
-export async function checkServerStatusNow() {
+// something false. That specific bypass -- a route asserting a competing
+// claim without ever touching `lastKnownRunning` -- is closed now: routes
+// ask this function to re-check instead of emitting their own.
+//
+// 2026-08-31 bug hunt (consolidation, carded by Pam's completeness-claims
+// audit and Dwight's own file): the rconService "disconnected" handler
+// below (:1219-1244) used to be a SECOND, independent reader/writer of
+// `lastKnownRunning` -- same comparison shape, same guard, so the two never
+// actually drifted, but a future fix made only here would not have reached
+// it. That handler now calls this function instead (with `detectionReason`
+// identifying itself), so there is genuinely only one place left that reads,
+// compares, mutates and emits this decision -- the property this function's
+// own name has always implied.
+export async function checkServerStatusNow(detectionReason = "watchdog") {
   try {
     const running = await getObservedServerRunning();
     if (running === null) {
@@ -2401,13 +2538,13 @@ export async function checkServerStatusNow() {
     }
     if (lastKnownRunning !== null && running !== lastKnownRunning) {
       log.info(
-        `Status watchdog: server state changed → ${running ? "running" : "stopped"}`,
+        `Server state changed → ${running ? "running" : "stopped"} (detected by ${detectionReason})`,
       );
       io.emit("server:status", { running });
       if (!running) {
         logServerEvent(
           "server_stop",
-          "Server process exited (detected by watchdog)",
+          `Server process exited (detected by ${detectionReason})`,
         );
         discordBot
           .sendEventNotification("serverStop", {})
@@ -2560,6 +2697,18 @@ async function start() {
       panelVersion = "0.0.0";
     }
     logBanner(panelVersion);
+
+    if (typeof process.pkg !== "undefined") {
+      try {
+        _pendingUpdateInspection = inspectPendingPanelUpdate();
+      } catch (error) {
+        log.error(
+          `Update startup validation failed [${error.code || "invalid_bundle"}]: ${error.message}`,
+        );
+        process.exit(76);
+        return;
+      }
+    }
 
     // ── Single-instance lock ──
     // Prevents two panels racing on the same data folder, which causes
@@ -3009,6 +3158,96 @@ async function start() {
           });
         }
         logReady(urls);
+        try {
+          const journalPath = updateBundleJournalPath();
+          if (
+            _pendingUpdateInspection.awaitingStartupAck &&
+            acknowledgeUpdateBundle(journalPath, _buildMetadata, {
+              transactionId: _pendingUpdateInspection.transactionId,
+              expectedMetadata: _pendingUpdateInspection.metadata,
+              applyingMarkerPath: _pendingUpdateInspection.applyingMarkerPath,
+            })
+          ) {
+            log.info("Update bundle startup acknowledged; previous artifacts removed");
+            // Transaction complete -- the pre-update snapshot stays on disk
+            // (it's the operator's, not ours to delete), but the pointer to
+            // it as a "pending restore candidate" is cleared so a LATER,
+            // unrelated incident can never find and restore a stale
+            // snapshot from an update that already succeeded.
+            await setSetting("preUpdateDataBackupPath", null);
+            await flushWrites();
+
+            // Only now -- after the binary/client can no longer be rolled
+            // back -- swap in the staged start.sh/unit/install-script, if
+            // this release staged any (see panelUpdateChecker.js's
+            // stageLinuxLauncherFiles()/activateStagedLinuxLauncherFiles()
+            // for why this can't happen any earlier). process.execPath is
+            // resolved fresh here rather than reusing the module-scoped
+            // `exeDir` at the top of this file -- that one is local to the
+            // Windows-only supervisor-reexec IIFE and is not in scope by
+            // this point. Best-effort: this does not undo the update that
+            // just succeeded either way.
+            if (process.platform !== "win32") {
+              const linuxExeDir = path.dirname(process.execPath);
+              try {
+                const activated =
+                  panelUpdateChecker.activateStagedLinuxLauncherFiles(linuxExeDir);
+                if (activated) {
+                  log.info(
+                    "Linux launcher and service templates updated; re-run install-linux-service.sh --enable to load the new unit.",
+                  );
+                }
+              } catch (activateErr) {
+                log.error(
+                  `Could not update Linux launcher/service templates: ${activateErr.message}. ` +
+                    `Run: sudo ${path.join(linuxExeDir, "install-linux-service.sh")} --enable`,
+                );
+              }
+            }
+          }
+        } catch (error) {
+          log.error(
+            `Update startup handshake failed [${error.code || "startup_handshake_failed"}]: ${error.message}`,
+          );
+          if (error.code === "version_mismatch") {
+            // client/dist was just rolled back to the previous version by
+            // acknowledgeUpdateBundle() (see below) -- this process still
+            // exits a few lines down, but not until after the awaited
+            // restore calls that follow, so re-hash now rather than let a
+            // request that lands in that gap see a header for the version
+            // that just got rolled away.
+            refreshInlineScriptCspHash();
+            // This process already completed its own full startup --
+            // including any database migration -- before reaching this
+            // handshake. acknowledgeUpdateBundle() has already rolled the
+            // BINARY and CLIENT back to the previous version by the time
+            // this catch runs, but it has no concept of a database at all
+            // (updateBundle.js is deliberately decoupled from it) -- a
+            // binary-only rollback here would leave the OLD binary running
+            // against a database this NEW version may have already
+            // migrated. Restore db.json from the pre-update snapshot taken
+            // in POST /api/panel/restart to close that half-rollback gap.
+            try {
+              const backupPath = await getSetting("preUpdateDataBackupPath");
+              if (restorePreUpdateDataBackup(getDataPaths(), backupPath)) {
+                log.warn(
+                  `Restored the pre-update database snapshot after a version-mismatch rollback: ${backupPath}`,
+                );
+              } else {
+                log.error(
+                  "Version-mismatch rollback occurred but no pre-update database snapshot was recorded to restore.",
+                );
+              }
+            } catch (restoreErr) {
+              log.error(
+                `Could not restore the pre-update database snapshot: ${restoreErr.message}`,
+              );
+            }
+          }
+          process.exitCode = 76;
+          setImmediate(() => process.exit(76));
+          return;
+        }
         await logExposureWarningIfNeeded({ needsSetup, boundPort, localIp });
         await logSetupTokenIfNeeded(needsSetup);
 
@@ -3092,7 +3331,7 @@ async function start() {
         }
 
         // Auto-open browser when running as packaged exe
-        if (typeof process.pkg !== "undefined") {
+        if (typeof process.pkg !== "undefined" && shouldAutoOpenBrowser()) {
           const protocol = httpsServer ? "https" : "http";
           const url = `${protocol}://localhost:${httpsServer ? httpsPort : boundPort}`;
 

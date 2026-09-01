@@ -56,6 +56,22 @@
     "desc": "Der Workshop-Ordner enthält neuere Dateien, als das Panel erfasst hat. Führe eine Prüfung aus, um den Status der einzelnen Mods zu aktualisieren.",
     "checkNow": "Jetzt prüfen"
   },
+  "removedFromWorkshop": {
+    "title_one": "{{count}} Mod existiert nicht mehr im Steam Workshop",
+    "title_other": "{{count}} Mods existieren nicht mehr im Steam Workshop",
+    "desc": "Steam hat bestätigt, dass diese Elemente gelöscht oder auf privat gesetzt wurden. Sie werden weiterhin bei Update-Prüfungen fehlschlagen und können den nächsten Serverneustart stören, bis sie entfernt werden.",
+    "removeAria": "{{name}} vom Server entfernen"
+  },
+  "steamApiIssue": {
+    "label": "Der Steam Workshop konnte bei der letzten Prüfung nicht erreicht werden — es werden vorerst nur lokale Dateien verwendet. Wird automatisch erneut versucht.",
+    "dismissAria": "Steam-API-Warnung ausblenden",
+    "dismissTooltip": "Ausblenden bis zur nächsten fehlgeschlagenen Prüfung"
+  },
+  "unknownWorkshopResult": {
+    "label_one": "{{count}} Element erhielt bei dieser Prüfung eine nicht erkannte Antwort von Steam:",
+    "label_other": "{{count}} Elemente erhielten bei dieser Prüfung eine nicht erkannte Antwort von Steam:",
+    "item": "{{id}} (Code {{code}})"
+  },
   "duplicateKeysWarning": {
     "title_one": "\"{{keys}}\" kommt in dieser Konfigurationsdatei mehr als einmal vor",
     "title_other": "{{count}} Einstellungen kommen in dieser Konfigurationsdatei mehr als einmal vor: {{keys}}",

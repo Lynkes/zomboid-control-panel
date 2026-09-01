@@ -27,9 +27,13 @@ import {
   AlertTriangle,
   Droplets,
   Sun,
+  SunMedium,
   Moon,
   Eye,
   Gauge,
+  Telescope,
+  Contrast,
+  Lightbulb,
   RotateCcw,
   Calendar,
   Sunrise,
@@ -43,7 +47,9 @@ import {
   Check,
   X,
   Info,
-  Search
+  Search,
+  Waves,
+  Plane
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -55,11 +61,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { useToast } from '@/components/ui/use-toast'
-import { rconApi, serverApi, playersApi, panelBridgeApi } from '@/lib/api'
+import { rconApi, serverApi, playersApi, panelBridgeApi, ApiError } from '@/lib/api'
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
 import { Link } from 'react-router-dom'
 import { PageHeader } from '@/components/PageHeader'
 import { DisabledReason } from '@/components/DisabledReason'
+import { HelpTip } from '@/components/HelpTip'
 import { cn } from '@/lib/utils'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { useConfirm } from '@/contexts/ConfirmContext'
@@ -127,7 +134,7 @@ function SectionHeader({
   isBridgeOffline?: boolean
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3 select-none">
+    <div className="flex flex-col gap-1.5 border-b border-border/60 px-4 py-3 select-none sm:flex-row sm:items-center sm:justify-between sm:gap-3">
       <span className="flex min-w-0 items-center gap-2">
         {Icon && <Icon className={cn('h-4 w-4 shrink-0', toneText(tone))} />}
         <span className="truncate text-sm font-semibold text-foreground">{label}</span>
@@ -141,7 +148,66 @@ function SectionHeader({
           </span>
         )}
       </span>
-      {action && <div className="flex items-center gap-1.5 shrink-0">{action}</div>}
+      {action && <div className="flex items-center gap-1.5 sm:shrink-0">{action}</div>}
+    </div>
+  )
+}
+
+// A single control that both shows and flips a known on/off game state --
+// replaces the enable/disable- or start/stop-shaped BUTTON PAIRS this page
+// used to have one per concept (operator complaint 2026-08-31: "if i enable
+// snow... the same button should show disable, not have 2 buttons ... valid
+// for all the buttons that there are 2 of them like that"). `state: null`
+// is a REQUIRED third value, not a loading nicety -- it means the real state
+// has not landed yet (or its fetch failed) and the switch renders disabled
+// with neutral styling rather than guessing a position. A Switch's checked
+// position IS the claim "this is definitely on/off right now"; showing one
+// confidently from a `null`/undefined value would be exactly the "faked
+// toggle" the request explicitly ruled out for state that can't be known.
+function StateToggle({
+  icon: Icon,
+  label,
+  state,
+  onLabel,
+  offLabel,
+  pendingLabel,
+  onToggle,
+  disabled,
+  ariaLabel,
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  state: boolean | null
+  onLabel: string
+  offLabel: string
+  pendingLabel: string
+  onToggle: (next: boolean) => void
+  disabled: boolean
+  ariaLabel: string
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-md border border-border/50 bg-muted/15 p-3">
+      <span className="flex items-center gap-1.5 text-xs font-medium text-foreground/85">
+        <Icon className="w-3.5 h-3.5" /> {label}
+      </span>
+      <div className="flex items-center gap-2">
+        <span className={cn(
+          'flex items-center gap-1.5 text-xs font-medium',
+          state ? 'text-emerald-400' : 'text-muted-foreground'
+        )}>
+          <span className={cn(
+            'w-1.5 h-1.5 rounded-full',
+            state === true ? 'bg-emerald-400 animate-pulse' : 'bg-muted-foreground/40'
+          )} />
+          {state === null ? pendingLabel : state ? onLabel : offLabel}
+        </span>
+        <Switch
+          checked={state === true}
+          onCheckedChange={(checked) => onToggle(checked)}
+          disabled={disabled || state === null}
+          aria-label={ariaLabel}
+        />
+      </div>
     </div>
   )
 }
@@ -178,6 +244,8 @@ function getEventSuccessCopy(action: string, t: TFunction) {
     case 'Stop weather':
     case 'Stop All Weather':
       return copy('weatherCleared')
+    case 'Generate Weather Front':
+      return copy('weatherFrontGenerated')
     case 'Enable Snow':
       return copy('snowEnabled')
     case 'Disable Snow':
@@ -206,6 +274,10 @@ function getEventSuccessCopy(action: string, t: TFunction) {
       return copy('powerRestored')
     case 'Restore Water':
       return copy('waterRestored')
+    case 'Shut Off Power':
+      return copy('powerShutDown')
+    case 'Shut Off Water':
+      return copy('waterShutDown')
     case 'Helicopter':
       return copy('helicopterTriggered')
     case 'Gunshot':
@@ -229,6 +301,8 @@ function getEventSuccessCopy(action: string, t: TFunction) {
       return copy('rearHordeSpawned')
     case 'Remove all zombies':
       return copy('zombiesCleared')
+    case 'Clear zombies near player':
+      return copy('zombiesClearedNear')
     case 'Set time speed':
       return copy('timeSpeedUpdated')
     case 'Teleport':
@@ -241,6 +315,12 @@ function getEventSuccessCopy(action: string, t: TFunction) {
       return copy('announcementSent')
     case 'Apply All Climate':
       return copy('climateApplied')
+    case 'Apply All Visual':
+      return copy('visualApplied')
+    case 'Helicopter Event':
+      return copy('helicopterEventTriggered')
+    case 'Stop Helicopter Event':
+      return copy('helicopterEventStopped')
     default:
       return { title: t('successCopy.actionCompleteDefault.title'), description: t('successCopy.actionCompleteDefault.description', { action }) }
   }
@@ -555,12 +635,109 @@ interface BridgeResultDisplayProps {
   players: Player[]
 }
 
+// runEventSequence's own response shape (PanelBridge.lua handlers.runEventSequence),
+// present on BOTH the success branch (failedCount: 0) and the failure branch
+// (failedCount > 0) -- Lua returns the same `data` table either way so a
+// caller can always tell 9-of-10 from 0-of-10 without parsing `results`
+// itself. See server/routes/panelBridge.js's POST /command catch handler for
+// why this can currently be absent on a failed sequence (a separate,
+// server-side gap -- reported, not fixed here, since it's outside this file):
+// when present, render the three real states below; when absent (e.g. an
+// infra-level failure, or the pre-Kevin's-fix bridge mod), fall through to
+// the generic failure card unchanged.
+interface EventSequenceStepResult {
+  index: number
+  kind: string
+  success: boolean
+  data?: unknown
+  error?: string
+}
+interface EventSequenceResultData {
+  message: string
+  executed: number
+  maxSteps: number
+  failedCount: number
+  results: EventSequenceStepResult[]
+}
+function isEventSequenceResultData(data: unknown): data is EventSequenceResultData {
+  if (!data || typeof data !== 'object') return false
+  const d = data as Record<string, unknown>
+  return typeof d.executed === 'number' && typeof d.failedCount === 'number' && Array.isArray(d.results)
+}
+
+function EventSequenceResult({ data, timestamp }: { data: EventSequenceResultData; timestamp: string }) {
+  const { t } = useTranslation('events')
+  const { executed, failedCount, results } = data
+  const allSucceeded = failedCount === 0
+  const allFailed = executed > 0 && failedCount === executed
+  const tone = allSucceeded ? 'success' : allFailed ? 'destructive' : 'warning'
+  const toneClasses = {
+    success: { border: 'border-success/40', bg: 'bg-success/5', text: 'text-success' },
+    warning: { border: 'border-warning/40', bg: 'bg-warning/5', text: 'text-warning' },
+    destructive: { border: 'border-destructive/40', bg: 'bg-destructive/5', text: 'text-destructive' },
+  }[tone]
+  const Icon = allSucceeded ? Check : allFailed ? X : AlertTriangle
+  const title = allSucceeded
+    ? t('resultDisplay.sequenceAllSucceededTitle')
+    : allFailed
+      ? t('resultDisplay.sequenceAllFailedTitle')
+      : t('resultDisplay.sequencePartialTitle', { failed: failedCount, executed })
+  const failedSteps = results.filter((r) => !r.success)
+
+  return (
+    <div className={cn('rounded-lg border p-4 space-y-3', toneClasses.border, toneClasses.bg)}>
+      <div className="flex items-center justify-between">
+        <div className={cn('flex items-center gap-2 text-sm font-medium', toneClasses.text)}>
+          <Icon className="h-4 w-4" />
+          {title}
+        </div>
+        <span className="text-xs text-muted-foreground">{timestamp}</span>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {t('resultDisplay.sequenceExecutedCount', { executed })}
+      </p>
+      {failedSteps.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            {t('resultDisplay.sequenceFailedStepsTitle')}
+          </p>
+          <ul className="space-y-1">
+            {failedSteps.map((step) => (
+              <li key={step.index} className="flex items-start gap-2 rounded-md border border-destructive/20 bg-destructive/5 px-2.5 py-1.5 text-xs">
+                <X className="h-3.5 w-3.5 shrink-0 mt-0.5 text-destructive" />
+                <span className="min-w-0">
+                  <span className="font-mono text-muted-foreground">{t('resultDisplay.sequenceStepIndex', { index: step.index })}</span>{' '}
+                  <span className="font-medium">{step.kind}</span>
+                  {step.error && <span className="text-muted-foreground"> — {step.error}</span>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function BridgeResultDisplay({ result, loading, onInlineAction, players }: BridgeResultDisplayProps) {
   const { t } = useTranslation('events')
   const bridgeOperationTemplates = useMemo(() => getBridgeOperationTemplates(t), [t])
   const [showRaw, setShowRaw] = useState(false)
+  const [safehouseAddSelection, setSafehouseAddSelection] = useState<Record<string, string>>({})
   const { operation, success, data, error, timestamp } = result
   const isLoading = loading !== null
+
+  // Checked before the generic !success gate below: a partial failure is
+  // real information (9 of 10 steps genuinely ran), not just "not success" --
+  // showing the plain red card for it is the exact bug this exists to fix
+  // (green-on-total-failure is worse, but red-on-partial was never right
+  // either, and per-step results being reachable only via raw JSON is what
+  // let both hide). Runs for the success branch too (failedCount: 0 reads as
+  // "all succeeded" here rather than falling through to whatever a generic
+  // success renderer would otherwise show for this operation.
+  if (operation === 'runEventSequence' && isEventSequenceResultData(data)) {
+    return <EventSequenceResult data={data} timestamp={timestamp} />
+  }
 
   if (!success) {
     return (
@@ -595,8 +772,8 @@ function BridgeResultDisplay({ result, loading, onInlineAction, players }: Bridg
           </div>
           <span className="text-xs text-muted-foreground">{timestamp}</span>
         </div>
-        <div className="overflow-x-auto -mx-1">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto -mx-1 pb-1 [mask-image:linear-gradient(to_right,transparent,black_12px,black_calc(100%-12px),transparent)] [-webkit-mask-image:linear-gradient(to_right,transparent,black_12px,black_calc(100%-12px),transparent)]">
+          <table className="w-full min-w-max text-sm">
             <thead>
               <tr className="border-b border-border/60 text-left">
                 <th className="pb-2 pr-3 text-xs font-medium text-muted-foreground">{t('resultDisplay.idHeader')}</th>
@@ -645,6 +822,10 @@ function BridgeResultDisplay({ result, loading, onInlineAction, players }: Bridg
                         <Button size="sm" variant="ghost" className="h-7 px-2 text-xs gap-1" disabled={isLoading}
                           onClick={() => onInlineAction('vehicleSetAlarm', { vehicleId: vid, enabled: !alarmed }, alarmed ? t('resultDisplay.alarmDisabledLabel', { id: vid }) : t('resultDisplay.alarmEnabledLabel', { id: vid }))}>
                           {alarmed ? t('resultDisplay.alarmOffButton') : t('resultDisplay.alarmOnButton')}
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-7 px-2 text-xs gap-1" disabled={isLoading}
+                          onClick={() => onInlineAction('vehicleSetSiren', { vehicleId: vid, enabled: !sirening }, sirening ? t('resultDisplay.sirenDisabledLabel', { id: vid }) : t('resultDisplay.sirenEnabledLabel', { id: vid }))}>
+                          {sirening ? t('resultDisplay.sirenOffButton') : t('resultDisplay.sirenOnButton')}
                         </Button>
                         <Button size="sm" variant="ghost" className="h-7 px-2 text-xs gap-1" disabled={isLoading}
                           onClick={() => onInlineAction('vehicleSetTrunkLocked', { vehicleId: vid, locked: !trunkLocked }, trunkLocked ? t('resultDisplay.trunkUnlockedLabel', { id: vid }) : t('resultDisplay.trunkLockedLabel', { id: vid }))}>
@@ -698,15 +879,34 @@ function BridgeResultDisplay({ result, loading, onInlineAction, players }: Bridg
                       <p className="text-xs text-muted-foreground/70 mt-0.5 truncate">{t('resultDisplay.membersListPrefix', { list: members.map(String).join(', ') })}</p>
                     )}
                   </div>
-                  <div className="flex gap-1 shrink-0">
+                  <div className="flex items-center gap-1 shrink-0">
                     {players.length > 0 && (
-                      <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" disabled={isLoading}
-                        onClick={() => {
-                          const username = players[0]?.name
-                          if (username) onInlineAction('safehouseAddPlayer', { safehouseRef: ref, username }, t('resultDisplay.addedPlayerLabel', { username, title }))
-                        }}>
-                        {t('resultDisplay.addPlayerButton')}
-                      </Button>
+                      <>
+                        <select
+                          aria-label={t('resultDisplay.addPlayerSelectLabel', { title })}
+                          className="h-7 rounded-md border border-input bg-background px-1.5 text-xs"
+                          value={safehouseAddSelection[ref] ?? ''}
+                          disabled={isLoading}
+                          onChange={(e) => {
+                            const value = e.target.value
+                            setSafehouseAddSelection((prev) => ({ ...prev, [ref]: value }))
+                          }}
+                        >
+                          <option value="">{t('resultDisplay.addPlayerSelectPlaceholder')}</option>
+                          {players.map((p) => (
+                            <option key={p.name} value={p.name}>{p.name}</option>
+                          ))}
+                        </select>
+                        <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" disabled={isLoading || !safehouseAddSelection[ref]}
+                          onClick={() => {
+                            const username = safehouseAddSelection[ref]
+                            if (!username) return
+                            onInlineAction('safehouseAddPlayer', { safehouseRef: ref, username }, t('resultDisplay.addedPlayerLabel', { username, title }))
+                            setSafehouseAddSelection((prev) => ({ ...prev, [ref]: '' }))
+                          }}>
+                          {t('resultDisplay.addPlayerButton')}
+                        </Button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -836,6 +1036,7 @@ type EventSectionKey =
   | 'rain'
   | 'severe'
   | 'climate'
+  | 'visual'
   | 'clock'
   | 'timespeed'
   | 'utilities'
@@ -901,6 +1102,7 @@ export default function Events() {
         { id: 'rain' as const, label: t('sections.rain.label'), hint: t('sections.rain.hint'), keywords: t('sections.rain.keywords'), icon: CloudRain, needsBridge: false },
         { id: 'severe' as const, label: t('sections.severe.label'), hint: t('sections.severe.hint'), keywords: t('sections.severe.keywords'), icon: Snowflake, needsBridge: true },
         { id: 'climate' as const, label: t('sections.climate.label'), hint: t('sections.climate.hint'), keywords: t('sections.climate.keywords'), icon: Gauge, needsBridge: true },
+        { id: 'visual' as const, label: t('sections.visual.label'), hint: t('sections.visual.hint'), keywords: t('sections.visual.keywords'), icon: Telescope, needsBridge: true },
       ],
     },
     {
@@ -968,6 +1170,9 @@ export default function Events() {
   const [bridgeLoading, setBridgeLoading] = useState<string | null>(null)
   const [blizzardDuration, setBlizzardDuration] = useState(2)
   const [tropicalDuration, setTropicalDuration] = useState(2)
+  const [weatherFrontStrength, setWeatherFrontStrength] = useState(50)
+  const [weatherFrontType, setWeatherFrontType] = useState('0')
+  const [clearZombiesRadius, setClearZombiesRadius] = useState(50)
 
   // Climate controls
   const [fogIntensity, setFogIntensity] = useState(0)
@@ -979,6 +1184,19 @@ export default function Events() {
   // Real per-float min/max from getClimateFloats, keyed by ClimateFloat id. Populated
   // once the bridge reports them; sliders fall back to the old hardcoded range until then.
   const [climateRanges, setClimateRanges] = useState<Record<number, ClimateFloatRange>>({})
+
+  // Visual controls (hunt-wave12-2026-08-30: setViewDistance/setDayLight/
+  // setNightStrength/setDesaturation/setAmbient each have a dead dedicated
+  // route -- applied the same way climate above is, through
+  // setClimateFloat with these floats' ids (0/2/9/10/11, see
+  // PanelBridge.lua's handlers.getClimateFloats). Read-back verified before
+  // building this: getClimateFloats already reports all five, so these
+  // sliders show real state, not a seeded guess.
+  const [viewDistance, setViewDistance] = useState(0)
+  const [dayLight, setDayLight] = useState(0)
+  const [nightStrength, setNightStrength] = useState(0)
+  const [desaturation, setDesaturation] = useState(0)
+  const [ambient, setAmbient] = useState(0)
 
   // Game time controls
   const [gameHour, setGameHour] = useState(12)
@@ -1026,12 +1244,45 @@ export default function Events() {
     nightsSurvived: number
   } | null>(null)
 
+  // Live weather state -- fields getClimateFloats does not already carry
+  // (isRaining/isSnowing/isThunderStorming, and real windSpeed(kph)/
+  // windAngle(degrees) as distinct from the 0-100% wind-intensity slider
+  // above). The other getWeather fields (temperature, humidity, fog, cloud,
+  // precipitation, dayLight, nightStrength, desaturation, viewDistance,
+  // ambient) are the exact same ClimateFloat values already polled and
+  // shown as sliders, so they are deliberately not duplicated here.
+  const [liveWeather, setLiveWeather] = useState<{
+    isRaining: boolean
+    isSnowing: boolean
+    isThunderStorming: boolean
+    windSpeedKph: number
+    windAngleDeg: number
+  } | null>(null)
+
   const { toast } = useToast()
   const confirm = useConfirm()
 
   const [activeSection, setActiveSection] = useState<EventSectionKey>('rain')
   const [sectionQuery, setSectionQuery] = useState('')
   const [activity, setActivity] = useState<ActivityEntry[]>([])
+  // Below `lg` the sidebar/content grid collapses to one column, so the full
+  // ~18-item nav (plus Recent Actions) renders ABOVE the section you just
+  // picked -- reaching it costs a scroll past everything else on the page,
+  // every time. Desktop's two-column layout never has this problem. Jumping
+  // the content into view on selection is scoped to exactly that narrow
+  // case (2026-08-31 quality pass, operator-approved aesthetic fix) rather
+  // than restructuring the nav itself, which touches far more of the page.
+  const contentRef = useRef<HTMLDivElement>(null)
+  const jumpToContentOnMobile = () => {
+    // jsdom (every existing test on this page) has no matchMedia at all,
+    // unlike WorldMap.tsx's unconditional call to it -- guard rather than
+    // require every Events.tsx test file to stub a global just so an
+    // unrelated nav click doesn't throw.
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
+    if (window.matchMedia('(max-width: 1023px)').matches) {
+      contentRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
 
   const fetchPlayers = useCallback(async () => {
     try {
@@ -1053,6 +1304,14 @@ export default function Events() {
   const markClimateDirty = useCallback(() => {
     climateDirtyUntilRef.current = Date.now() + 2500
   }, [])
+  // Same drag-suppression shape as climateDirtyUntilRef, kept separate (not
+  // folded into "climate") since time speed is fetched in a different poll
+  // branch (timeRes, not floatsRes) and a shared name here would read as
+  // climate state gating an unrelated control.
+  const timeSpeedDirtyUntilRef = useRef(0)
+  const markTimeSpeedDirty = useCallback(() => {
+    timeSpeedDirtyUntilRef.current = Date.now() + 2500
+  }, [])
 
   const checkBridgeStatus = useCallback(async () => {
     try {
@@ -1063,6 +1322,26 @@ export default function Events() {
 
       // If connected, fetch secondary data in parallel
       if (status.modConnected) {
+        // getWeather is deliberately NOT in this Promise.allSettled batch: it
+        // only feeds the small live-conditions strip below, and awaiting it
+        // alongside floatsRes/timeRes/utilitiesRes would let a slow or
+        // failing weather fetch delay the climate sliders those other reads
+        // actually drive. Fired independently so it can only ever add data,
+        // never hold up the rest of this poll tick.
+        panelBridgeApi.getWeather().then((weatherResult) => {
+          if (!mountedRef.current) return
+          if (weatherResult.success && weatherResult.data) {
+            const w = weatherResult.data
+            setLiveWeather({
+              isRaining: Boolean(w.isRaining),
+              isSnowing: Boolean(w.isSnowing),
+              isThunderStorming: Boolean(w.isThunderStorming),
+              windSpeedKph: typeof w.windSpeed === 'number' ? w.windSpeed : 0,
+              windAngleDeg: typeof w.windAngle === 'number' ? w.windAngle : 0,
+            })
+          }
+        }).catch(() => {})
+
         const [floatsRes, timeRes, utilitiesRes] = await Promise.allSettled([
           panelBridgeApi.getClimateFloats(),
           panelBridgeApi.getGameTime(),
@@ -1078,7 +1357,7 @@ export default function Events() {
           // capture it so the sliders below can bind to it instead of a hardcoded range.
           setClimateRanges((prev) => {
             const next = { ...prev }
-            for (const id of [3, 4, 5, 6, 8, 12]) {
+            for (const id of [3, 4, 5, 6, 8, 12, 0, 2, 9, 10, 11]) {
               const f = findFloat(id)
               if (f) next[id] = { min: f.min, max: f.max }
             }
@@ -1093,6 +1372,11 @@ export default function Events() {
             setCloudIntensity(Math.round((findFloat(8)?.value ?? 0) * 100))
             setHumidity(Math.round((findFloat(12)?.value ?? 0.5) * 100))
             setPrecipitationIntensity(Math.round((findFloat(3)?.value ?? 0) * 100))
+            setDesaturation(Math.round((findFloat(0)?.value ?? 0) * 100))
+            setNightStrength(Math.round((findFloat(2)?.value ?? 0) * 100))
+            setAmbient(Math.round((findFloat(9)?.value ?? 0) * 100))
+            setViewDistance(Math.round((findFloat(10)?.value ?? 0) * 100))
+            setDayLight(Math.round((findFloat(11)?.value ?? 0) * 100))
           }
         }
 
@@ -1100,17 +1384,66 @@ export default function Events() {
           setGameHour(Math.floor(timeRes.value.data.hour))
           setGameDay(timeRes.value.data.day)
           setGameMonth(timeRes.value.data.month)
+          // getGameTime's multiplier field reads the same zombie.GameTime
+          // singleton RCON's setTimeSpeed command writes to (confirmed via
+          // the real jar: SetTimeSpeedCommand calls
+          // GameTime.getInstance().setMultiplier(), the exact object/field
+          // this reads) -- a real, authoritative read-back, not a decorative
+          // one. Without this the slider was local-only useState(1), never
+          // reassigned by any fetch, and could show a stale multiplier
+          // after any change made outside the panel (RCON, another admin,
+          // a restart).
+          if (
+            typeof timeRes.value.data.multiplier === 'number' &&
+            Date.now() >= timeSpeedDirtyUntilRef.current
+          ) {
+            setTimeSpeed(timeRes.value.data.multiplier)
+          }
         }
 
         if (utilitiesRes.status === 'fulfilled' && utilitiesRes.value.success && utilitiesRes.value.data) {
           setUtilitiesStatus(utilitiesRes.value.data)
         }
+      } else {
+        // The bridge went offline -- a last-known-good reading here would keep
+        // rendering its old green/red "Online"/"Offline" badge (just dimmed by
+        // the panel's opacity-60) instead of falling back to the neutral
+        // "Pending" state, letting an admin mistake a stale reading for a live
+        // one. Clear it so the UI honestly reflects "we don't currently know."
+        setUtilitiesStatus(null)
       }
     } catch (error) {
       if (mountedRef.current) {
         setBridgeConnected(false)
         setBridgeConnectionSummary(t('toasts.unableToReadBridgeStatus'))
+        setUtilitiesStatus(null)
       }
+    }
+  }, [])
+
+  // Same getWeather() read as checkBridgeStatus's own poll tick above, split
+  // out so a toggle that just changed weather state can reconcile with the
+  // real result immediately after its command resolves, instead of waiting
+  // for the next scheduled 10s poll -- see the snow/rain StateToggles below.
+  // Failure is swallowed the same way checkBridgeStatus's own read already
+  // does: a failed reconcile just leaves whatever value is already showing
+  // (the optimistic flip, on a fresh toggle) until the next poll tries again.
+  const refetchWeather = useCallback(async () => {
+    try {
+      const weatherResult = await panelBridgeApi.getWeather()
+      if (!mountedRef.current) return
+      if (weatherResult.success && weatherResult.data) {
+        const w = weatherResult.data
+        setLiveWeather({
+          isRaining: Boolean(w.isRaining),
+          isSnowing: Boolean(w.isSnowing),
+          isThunderStorming: Boolean(w.isThunderStorming),
+          windSpeedKph: typeof w.windSpeed === 'number' ? w.windSpeed : 0,
+          windAngleDeg: typeof w.windAngle === 'number' ? w.windAngle : 0,
+        })
+      }
+    } catch {
+      // Swallowed -- see comment above.
     }
   }, [])
 
@@ -1266,7 +1599,13 @@ export default function Events() {
   }, [i18n.language])
 
   // Bridge weather commands
-  const handleBridgeAction = useCallback(async (action: string, fn: () => Promise<unknown>) => {
+  // onSettled: same additive, opt-in shape as handleAction's own -- see its
+  // comment. Added so the snow/rain toggles below can reconcile their own
+  // optimistic flip (refetch the real weather on success, revert it on
+  // failure) without every OTHER caller of this shared function (Stop All
+  // Weather, helicopter, sound/chat actions, ...) growing a weather refetch
+  // it has no use for.
+  const handleBridgeAction = useCallback(async (action: string, fn: () => Promise<unknown>, onSettled?: (success: boolean) => void | Promise<void>) => {
     setBridgeLoading(action)
     try {
       await fn()
@@ -1277,6 +1616,7 @@ export default function Events() {
         variant: 'success' as const,
       })
       pushActivity(successCopy.title, true)
+      await onSettled?.(true)
     } catch (error) {
       const message = getUserErrorMessage(error, t('toasts.bridgeCommandFailedFallback'))
       toast({
@@ -1285,6 +1625,7 @@ export default function Events() {
         variant: 'destructive',
       })
       pushActivity(t('toasts.actionFailedTitle', { action }), false)
+      await onSettled?.(false)
     } finally {
       setBridgeLoading(null)
     }
@@ -1305,7 +1646,13 @@ export default function Events() {
   // panelBridgeSpawnHordeFabricatedCount.test.js) resolves to
   // `{ toastOverride }` instead -- runtime-checked here rather than widening
   // `fn`'s type, so every other caller is unaffected.
-  const handleAction = useCallback(async (action: string, fn: () => Promise<unknown>) => {
+  // onSettled is optional and additive -- every existing caller that doesn't
+  // pass one is unaffected. It exists so a caller driving a state-reflecting
+  // toggle (e.g. the rain StateToggle below) can reconcile its own optimistic
+  // UI flip with the real outcome (refetch on success, revert on failure)
+  // without this function needing to know what "the right state" is for
+  // every one of its many callers (teleport, spawn, quick sounds, ...).
+  const handleAction = useCallback(async (action: string, fn: () => Promise<unknown>, onSettled?: (success: boolean) => void | Promise<void>) => {
     setLoading(action)
     try {
       const result = await fn()
@@ -1325,6 +1672,7 @@ export default function Events() {
         })
         pushActivity(successCopy.title, true)
       }
+      await onSettled?.(true)
     } catch (error) {
       const message = getUserErrorMessage(error, t('toasts.commandFailedFallback'))
       toast({
@@ -1333,6 +1681,7 @@ export default function Events() {
         variant: 'destructive',
       })
       pushActivity(t('toasts.actionFailedTitle', { action }), false)
+      await onSettled?.(false)
     } finally {
       setLoading(null)
     }
@@ -1346,7 +1695,6 @@ export default function Events() {
         : await panelBridgeApi.shutOffUtilities(power, water)
       await checkBridgeStatus()
       const successCopy = getEventSuccessCopy(action, t)
-      const notPersisted = result?.persisted === false
       // restoreUtilities/shutOffUtilities already compute the REAL post-
       // action power state via world:isHydroPowerOn() (a genuine read-back,
       // not a hardcoded literal -- see panelBridgeUtilitiesHydroPowerOnReporting
@@ -1358,6 +1706,20 @@ export default function Events() {
       // Water has no equivalent boolean read-back in this response (see
       // PanelBridge.lua's "Water has no Java flag like isHydroPowerOn()"
       // comment) -- only power's outcome can be verified this way.
+      //
+      // 2026-08-30, panelbridge-total-audit-2026-08-30 (Finding C): a
+      // `result?.persisted === false` / `result.persistReason` warning used
+      // to live here, checking whether the SandboxVars write would survive a
+      // server restart. Neither handler has ever set either field -- the
+      // handlers only log "FINAL SandboxVars.*Modifier=..." into an
+      // unstructured debug string array, never a structured persisted
+      // boolean -- so the warning was permanently dead code that implied a
+      // check was happening when it wasn't. Removed rather than left as a
+      // silent no-op; reported to god (in-scope: PanelBridge.lua is off
+      // limits for this fix) that a real implementation needs the Lua
+      // handlers to compare their own already-computed FINAL
+      // SandboxVars.*Modifier value against the intended target and return
+      // that comparison as an actual field.
       const powerMismatch = power && typeof result?.hydroPowerOn === 'boolean' && result.hydroPowerOn !== on
       toast({
         title: powerMismatch ? t('toasts.actionFailedTitle', { action }) : successCopy.title,
@@ -1365,10 +1727,8 @@ export default function Events() {
           ? t('toasts.powerDidNotTakeEffectDesc', {
               state: result.hydroPowerOn ? t('utilities.statusOnline') : t('utilities.statusOffline'),
             })
-          : notPersisted
-            ? t('toasts.notPersistedDesc', { reason: result.persistReason || t('toasts.notPersistedUnknownReason') })
-            : successCopy.description,
-        variant: powerMismatch ? 'destructive' : notPersisted ? 'default' : ('success' as const),
+          : successCopy.description,
+        variant: powerMismatch ? 'destructive' : ('success' as const),
       })
       pushActivity(powerMismatch ? t('toasts.actionFailedTitle', { action }) : successCopy.title, !powerMismatch)
     } catch (error) {
@@ -1462,10 +1822,21 @@ export default function Events() {
   // Clear all zombies from loaded cells
   const removeZombies = () => panelBridgeApi.clearAllZombies()
 
+  // Clear zombies within a radius of one player -- same reversible-but-
+  // affects-someone-else tier as clearAllZombies (zombies respawn over
+  // time), just scoped to one player's fight instead of every loaded cell.
+  const removeZombiesNear = (username: string) => panelBridgeApi.clearZombiesNearPlayer(username, clearZombiesRadius)
+
   // Time commands
-  // Build 42 applies its effective server clock multiplier through RCON. The
-  // PanelBridge GameTime multiplier accepts the value but does not speed up the
-  // dedicated server clock.
+  // CORRECTED 2026-08-30 (panelbridge-audit): this comment used to claim the
+  // PanelBridge GameTime multiplier "does not speed up the dedicated server
+  // clock" -- checked against the real jar rather than trusted, and it's
+  // wrong. SetTimeSpeedCommand.class's own method refs are
+  // GameTime.getInstance() -> GameTime.setMultiplier(), the exact same
+  // singleton and field PanelBridge.lua's getGameTime/getTimeSpeed read via
+  // gt:getMultiplier(). RCON's setTimeSpeed IS the authoritative multiplier,
+  // not a separate, disconnected value -- which is why reading it back
+  // (getGameTime's poll, below) is safe to treat as real state.
   const setGameTimeSpeed = () => executeCommand(`setTimeSpeed ${timeSpeed}`)
 
   // Teleport commands
@@ -1750,12 +2121,26 @@ export default function Events() {
           variant: 'success' as const,
         })
       }
+      // Every other bridge action on this page (handleAction, handleBridgeAction,
+      // runInlineAction) logs to Recent Actions -- this, the general Bridge
+      // Tools "Run Operation" path, was the one gap: it toasted and populated
+      // the results table but never called pushActivity, so the sidebar log
+      // could sit on "No recent actions" in the same frame as a completed,
+      // timestamped operation result (2026-08-31 quality pass).
+      pushActivity(operationLabel, true)
     } catch (error) {
       const message = getUserErrorMessage(error, t('toasts.bridgeOperationFailedFallback'))
+      // A "failed" bridge command can still carry a rich diagnostic table --
+      // e.g. runEventSequence's per-step results/failedCount/executed on a
+      // partial failure -- attached to ApiError.data when the server sends
+      // one. Hardcoding null here (as this used to) discarded it even when
+      // present, leaving BridgeResultDisplay with nothing to build a partial
+      // state from regardless of its own rendering logic.
+      const data = error instanceof ApiError ? (error.data ?? null) : null
       setBridgeResultData({
         operation: bridgeOperation,
         success: false,
-        data: null,
+        data,
         error: message,
         timestamp: formatPanelTimestamp(new Date(), i18n.language),
       })
@@ -1765,6 +2150,7 @@ export default function Events() {
         description: message,
         variant: 'destructive',
       })
+      pushActivity(t('toasts.bridgeOperationFailedTitle'), false)
     } finally {
       setBridgeLoading(null)
     }
@@ -1789,6 +2175,11 @@ export default function Events() {
   const cloudBounds = climateSliderBounds(climateRanges[8], 0, 100, 100)
   const humidityBounds = climateSliderBounds(climateRanges[12], 0, 100, 100)
   const precipitationBounds = climateSliderBounds(climateRanges[3], 0, 100, 100)
+  const desaturationBounds = climateSliderBounds(climateRanges[0], 0, 100, 100)
+  const nightStrengthBounds = climateSliderBounds(climateRanges[2], 0, 100, 100)
+  const ambientBounds = climateSliderBounds(climateRanges[9], 0, 100, 100)
+  const viewDistanceBounds = climateSliderBounds(climateRanges[10], 0, 100, 100)
+  const dayLightBounds = climateSliderBounds(climateRanges[11], 0, 100, 100)
 
   return (
     <div className="mx-auto max-w-[1180px] space-y-5 pb-8 page-transition">
@@ -1912,7 +2303,7 @@ export default function Events() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[250px_minmax(0,1fr)]">
-        <aside className="space-y-3 lg:sticky lg:top-4 lg:self-start">
+        <aside className="min-w-0 space-y-3 lg:sticky lg:top-4 lg:self-start">
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -1920,7 +2311,7 @@ export default function Events() {
               onChange={(e) => setSectionQuery(e.target.value)}
               placeholder={t('sidebar.searchPlaceholder')}
               aria-label={t('sidebar.searchAria')}
-              className="h-9 pl-8 text-sm"
+              className="h-9 min-w-0 pl-8 text-sm"
             />
           </div>
 
@@ -1939,7 +2330,10 @@ export default function Events() {
                       <button
                         key={item.id}
                         type="button"
-                        onClick={() => setActiveSection(item.id)}
+                        onClick={() => {
+                          setActiveSection(item.id)
+                          jumpToContentOnMobile()
+                        }}
                         aria-current={isActive ? 'true' : undefined}
                         className={cn(
                           'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm transition-colors',
@@ -1989,7 +2383,7 @@ export default function Events() {
           </div>
         </aside>
 
-        <div className="space-y-4">
+        <div ref={contentRef} className="min-w-0 space-y-4 scroll-mt-4">
           <div>
             <h2 className="text-base font-semibold text-foreground">{activeMeta.label}</h2>
             <p className="mt-0.5 text-sm text-muted-foreground">{activeMeta.hint}</p>
@@ -2024,16 +2418,52 @@ export default function Events() {
                     <span className="font-mono text-[11px] tabular-nums text-info">{rainIntensity}%</span>
                   </div>
                   <Slider aria-label={t('rain.rainIntensityAria')} value={[rainIntensity]} onValueChange={([val]) => setRainIntensity(val)} min={1} max={100} step={1} />
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" onClick={() => handleAction('Start rain', startRain)} disabled={loading !== null} className="h-9 gap-2 text-xs font-medium">
-                      {loading === 'Start rain' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CloudRain className="w-3.5 h-3.5" />}
-                      {t('rain.startRain')}
-                    </Button>
-                    <Button variant="outline" onClick={() => handleAction('Stop rain', stopRain)} disabled={loading !== null} className="h-9 gap-2 text-xs font-medium">
-                      {loading === 'Stop rain' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CloudOff className="w-3.5 h-3.5" />}
-                      {t('rain.stopRain')}
-                    </Button>
-                  </div>
+                  {bridgeConnected ? (
+                    // PanelBridge is connected, so liveWeather.isRaining is a real
+                    // read of game state -- a genuine toggle. Still fires the RCON
+                    // startRain/stopRain commands this section has always used
+                    // (not panelBridgeApi's), only the on/off decision changed.
+                    <StateToggle
+                      icon={CloudRain}
+                      label={t('rain.rainLabel')}
+                      state={liveWeather ? liveWeather.isRaining : null}
+                      onLabel={t('climate.weatherActive')}
+                      offLabel={t('climate.weatherInactive')}
+                      pendingLabel={t('utilities.statusPending')}
+                      disabled={loading !== null}
+                      ariaLabel={t('rain.rainLabel')}
+                      onToggle={(next) => {
+                        // Optimistic flip -- state we ARE currently showing,
+                        // not a fake one -- then reconcile with the real
+                        // result once the command resolves, rather than
+                        // waiting on the next scheduled poll (was ~5s per
+                        // the operator's own report on Tower).
+                        const previous = liveWeather
+                        setLiveWeather((prev) => (prev ? { ...prev, isRaining: next } : prev))
+                        handleAction(next ? 'Start rain' : 'Stop rain', next ? startRain : stopRain, async (success) => {
+                          if (success) await refetchWeather()
+                          else setLiveWeather(previous)
+                        })
+                      }}
+                    />
+                  ) : (
+                    // PanelBridge is NOT connected -- this section exists specifically
+                    // so RCON rain control still works without the bridge, and there is
+                    // no RCON query for "is it currently raining" to build a real toggle
+                    // from. Two buttons is the honest design here, not a shortcut: state
+                    // is genuinely unknowable over this path, so the request's own rule
+                    // ("do NOT fake a toggle where the state is unknowable") applies.
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="outline" onClick={() => handleAction('Start rain', startRain)} disabled={loading !== null} className="h-9 gap-2 text-xs font-medium">
+                        {loading === 'Start rain' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CloudRain className="w-3.5 h-3.5" />}
+                        {t('rain.startRain')}
+                      </Button>
+                      <Button variant="outline" onClick={() => handleAction('Stop rain', stopRain)} disabled={loading !== null} className="h-9 gap-2 text-xs font-medium">
+                        {loading === 'Stop rain' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CloudOff className="w-3.5 h-3.5" />}
+                        {t('rain.stopRain')}
+                      </Button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-3 pt-4 border-t border-border/40">
@@ -2101,24 +2531,73 @@ export default function Events() {
                 </div>
 
                 <div className="space-y-3 pt-4 border-t border-border/40">
-                  <Label className="text-xs font-medium text-foreground/85 flex items-center gap-1.5">
-                    <Snowflake className="w-3.5 h-3.5 text-info" />
-                    {t('severe.snowToggleLabel')}
-                  </Label>
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" onClick={() => handleBridgeAction('Enable Snow', () => panelBridgeApi.setSnow(true))} disabled={bridgeLoading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium">
-                      {bridgeLoading === 'Enable Snow' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Snowflake className="w-3.5 h-3.5" />}
-                      {t('severe.enableSnow')}
-                    </Button>
-                    <Button variant="outline" onClick={() => handleBridgeAction('Disable Snow', () => panelBridgeApi.setSnow(false))} disabled={bridgeLoading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium">
-                      {bridgeLoading === 'Disable Snow' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CloudRain className="w-3.5 h-3.5" />}
-                      {t('severe.disableSnow')}
-                    </Button>
-                  </div>
+                  <StateToggle
+                    icon={Snowflake}
+                    label={t('severe.snowToggleLabel')}
+                    state={liveWeather ? liveWeather.isSnowing : null}
+                    onLabel={t('climate.weatherActive')}
+                    offLabel={t('climate.weatherInactive')}
+                    pendingLabel={t('utilities.statusPending')}
+                    disabled={bridgeLoading !== null || !bridgeConnected}
+                    ariaLabel={t('severe.snowToggleLabel')}
+                    onToggle={(next) => {
+                      const previous = liveWeather
+                      setLiveWeather((prev) => (prev ? { ...prev, isSnowing: next } : prev))
+                      handleBridgeAction(next ? 'Enable Snow' : 'Disable Snow', () => panelBridgeApi.setSnow(next), async (success) => {
+                        if (success) await refetchWeather()
+                        else setLiveWeather(previous)
+                      })
+                    }}
+                  />
                   <Button variant="outline" onClick={() => handleBridgeAction('Stop All Weather', () => panelBridgeApi.stopWeather())} disabled={bridgeLoading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium text-destructive/85 hover:text-destructive hover:border-destructive/40">
                     {bridgeLoading === 'Stop All Weather' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Cloud className="w-3.5 h-3.5" />}
                     {t('severe.stopAllWeather')}
                   </Button>
+                </div>
+
+                <div className="space-y-3 pt-4 border-t border-border/40">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-medium text-foreground/85 flex items-center gap-1.5">
+                      <Waves className="w-3.5 h-3.5 text-primary" />
+                      {t('severe.frontLabel')}
+                    </Label>
+                    <span className="font-mono text-[11px] tabular-nums text-primary">{weatherFrontStrength}%</span>
+                  </div>
+                  <Slider aria-label={t('severe.frontStrengthAria')} value={[weatherFrontStrength]} onValueChange={([val]) => setWeatherFrontStrength(val)} min={0} max={100} step={5} disabled={!bridgeConnected} />
+                  <Select value={weatherFrontType} onValueChange={setWeatherFrontType} disabled={!bridgeConnected}>
+                    <SelectTrigger aria-label={t('severe.frontTypeAria')} className="h-9 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="0">{t('severe.frontStationary')}</SelectItem>
+                      <SelectItem value="1">{t('severe.frontCold')}</SelectItem>
+                      <SelectItem value="2">{t('severe.frontWarm')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button variant="outline" onClick={() => handleBridgeAction('Generate Weather Front', () => panelBridgeApi.generateWeather(weatherFrontStrength / 100, Number(weatherFrontType)))} disabled={bridgeLoading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium">
+                    {bridgeLoading === 'Generate Weather Front' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Waves className="w-3.5 h-3.5" />}
+                    {t('severe.triggerFront')}
+                  </Button>
+                </div>
+
+                <div className="space-y-3 pt-4 border-t border-border/40">
+                  <div className="flex items-center gap-1.5">
+                    <Label className="text-xs font-medium text-foreground/85 flex items-center gap-1.5">
+                      <Plane className="w-3.5 h-3.5 text-primary" />
+                      {t('severe.helicopterLabel')}
+                    </Label>
+                    <HelpTip label={t('severe.helicopterLabel')}>{t('severe.helicopterTip')}</HelpTip>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" onClick={() => handleBridgeAction('Helicopter Event', () => panelBridgeApi.triggerHelicopterEvent())} disabled={bridgeLoading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium">
+                      {bridgeLoading === 'Helicopter Event' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plane className="w-3.5 h-3.5" />}
+                      {t('severe.triggerHelicopter')}
+                    </Button>
+                    <Button variant="outline" onClick={() => handleBridgeAction('Stop Helicopter Event', () => panelBridgeApi.stopHelicopterEvent())} disabled={bridgeLoading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium text-destructive/85 hover:text-destructive hover:border-destructive/40">
+                      {bridgeLoading === 'Stop Helicopter Event' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
+                      {t('severe.stopHelicopter')}
+                    </Button>
+                  </div>
                 </div>
               </div>
             </TacticalPanel>
@@ -2140,6 +2619,35 @@ export default function Events() {
               ) : undefined}
             />
             <div className="p-4 space-y-4">
+              {bridgeConnected && liveWeather && (
+                <div className="flex flex-wrap items-center gap-2 pb-3 border-b border-border/40 text-[11px]">
+                  <span className="font-medium text-foreground/70">{t('climate.liveConditions')}</span>
+                  {liveWeather.isThunderStorming && (
+                    <Badge variant="outline" className="gap-1 text-amber-400 border-amber-400/40">
+                      <CloudLightning className="w-3 h-3" /> {t('climate.thunderstorm')}
+                    </Badge>
+                  )}
+                  {liveWeather.isSnowing && (
+                    <Badge variant="outline" className="gap-1 text-info border-info/40">
+                      <Snowflake className="w-3 h-3" /> {t('climate.snowing')}
+                    </Badge>
+                  )}
+                  {liveWeather.isRaining && !liveWeather.isSnowing && (
+                    <Badge variant="outline" className="gap-1 text-info border-info/40">
+                      <CloudRain className="w-3 h-3" /> {t('climate.raining')}
+                    </Badge>
+                  )}
+                  {!liveWeather.isRaining && !liveWeather.isSnowing && !liveWeather.isThunderStorming && (
+                    <Badge variant="outline" className="gap-1 text-muted-foreground">
+                      <CloudOff className="w-3 h-3" /> {t('climate.clear')}
+                    </Badge>
+                  )}
+                  <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+                    <Wind className="w-3 h-3" />
+                    {t('climate.windReading', { speed: Math.round(liveWeather.windSpeedKph), angle: Math.round(liveWeather.windAngleDeg) })}
+                  </span>
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-5 gap-y-4">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -2228,18 +2736,123 @@ export default function Events() {
                   {bridgeLoading === 'Apply All Climate' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Gauge className="w-3.5 h-3.5" />}
                   {t('climate.applyAll')}
                 </Button>
+              </div>
+              <StateToggle
+                icon={CloudRain}
+                label={t('climate.rainWithPercent', { percent: Math.max(5, precipitationIntensity) })}
+                state={liveWeather ? liveWeather.isRaining : null}
+                onLabel={t('climate.weatherActive')}
+                offLabel={t('climate.weatherInactive')}
+                pendingLabel={t('utilities.statusPending')}
+                disabled={bridgeLoading !== null || !bridgeConnected}
+                ariaLabel={t('climate.precipitation')}
+                onToggle={(next) => {
+                  const previous = liveWeather
+                  setLiveWeather((prev) => (prev ? { ...prev, isRaining: next } : prev))
+                  handleBridgeAction(
+                    next ? 'Start Rain' : 'Stop Rain',
+                    () => next ? panelBridgeApi.startRain(Math.max(0.05, precipitationIntensity / 100)) : panelBridgeApi.stopRain(),
+                    async (success) => {
+                      if (success) await refetchWeather()
+                      else setLiveWeather(previous)
+                    },
+                  )
+                }}
+              />
+            </div>
+          </TacticalPanel>
+        )}
+
+        {activeSection === 'visual' && (
+          <TacticalPanel tone={bridgeConnected ? 'primary' : 'warning'} className={!bridgeConnected ? 'opacity-60' : ''}>
+            <SectionHeader
+              label={activeMeta.label}
+              sublabel={bridgeConnected ? t('visual.sublabelOnline') : t('visual.sublabelOffline')}
+              icon={Telescope}
+              tone={bridgeConnected ? 'primary' : 'warning'}
+              action={bridgeConnected ? (
+                <Button variant="ghost" size="sm" onClick={() => handleBridgeAction('Reset Climate', async () => { const r = await panelBridgeApi.resetClimateOverrides(); climateDirtyUntilRef.current = 0; return r })} disabled={bridgeLoading !== null} className="h-6 px-2 gap-1 text-xs font-medium">
+                  <RotateCcw className="w-3 h-3" />
+                  {t('visual.reset')}
+                </Button>
+              ) : undefined}
+            />
+            <div className="p-4 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-5 gap-y-4">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-medium text-foreground/85 flex items-center gap-1.5">
+                      <Telescope className="w-3.5 h-3.5 text-primary/80" />
+                      {t('visual.viewDistance')}
+                    </Label>
+                    <span className="font-mono text-[11px] tabular-nums text-primary">{viewDistance}%</span>
+                  </div>
+                  <Slider aria-label={t('visual.viewDistanceAria')} value={[viewDistance]} onValueChange={([val]) => { markClimateDirty(); setViewDistance(val) }} min={viewDistanceBounds.min} max={viewDistanceBounds.max} step={5} disabled={!bridgeConnected} />
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-medium text-foreground/85 flex items-center gap-1.5">
+                      <SunMedium className="w-3.5 h-3.5 text-primary/80" />
+                      {t('visual.dayLight')}
+                    </Label>
+                    <span className="font-mono text-[11px] tabular-nums text-primary">{dayLight}%</span>
+                  </div>
+                  <Slider aria-label={t('visual.dayLightAria')} value={[dayLight]} onValueChange={([val]) => { markClimateDirty(); setDayLight(val) }} min={dayLightBounds.min} max={dayLightBounds.max} step={5} disabled={!bridgeConnected} />
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-medium text-foreground/85 flex items-center gap-1.5">
+                      <Moon className="w-3.5 h-3.5 text-primary/80" />
+                      {t('visual.nightStrength')}
+                    </Label>
+                    <span className="font-mono text-[11px] tabular-nums text-primary">{nightStrength}%</span>
+                  </div>
+                  <Slider aria-label={t('visual.nightStrengthAria')} value={[nightStrength]} onValueChange={([val]) => { markClimateDirty(); setNightStrength(val) }} min={nightStrengthBounds.min} max={nightStrengthBounds.max} step={5} disabled={!bridgeConnected} />
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-medium text-foreground/85 flex items-center gap-1.5">
+                      <Contrast className="w-3.5 h-3.5 text-primary/80" />
+                      {t('visual.desaturation')}
+                    </Label>
+                    <span className="font-mono text-[11px] tabular-nums text-primary">{desaturation}%</span>
+                  </div>
+                  <Slider aria-label={t('visual.desaturationAria')} value={[desaturation]} onValueChange={([val]) => { markClimateDirty(); setDesaturation(val) }} min={desaturationBounds.min} max={desaturationBounds.max} step={5} disabled={!bridgeConnected} />
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-medium text-foreground/85 flex items-center gap-1.5">
+                      <Lightbulb className="w-3.5 h-3.5 text-primary/80" />
+                      {t('visual.ambient')}
+                    </Label>
+                    <span className="font-mono text-[11px] tabular-nums text-primary">{ambient}%</span>
+                  </div>
+                  <Slider aria-label={t('visual.ambientAria')} value={[ambient]} onValueChange={([val]) => { markClimateDirty(); setAmbient(val) }} min={ambientBounds.min} max={ambientBounds.max} step={5} disabled={!bridgeConnected} />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 pt-3 border-t border-border/40">
                 <Button
-                  variant="outline"
-                  onClick={() => handleBridgeAction('Start Rain', () => panelBridgeApi.startRain(Math.max(0.05, precipitationIntensity / 100)))}
+                  onClick={() => handleBridgeAction('Apply All Visual', async () => {
+                    await Promise.all([
+                      panelBridgeApi.setClimateFloat(10, viewDistance / 100),
+                      panelBridgeApi.setClimateFloat(11, dayLight / 100),
+                      panelBridgeApi.setClimateFloat(2, nightStrength / 100),
+                      panelBridgeApi.setClimateFloat(0, desaturation / 100),
+                      panelBridgeApi.setClimateFloat(9, ambient / 100),
+                    ])
+                    // Allow the next poll to re-sync from authoritative game state.
+                    climateDirtyUntilRef.current = 0
+                  })}
                   disabled={bridgeLoading !== null || !bridgeConnected}
-                  // eslint-disable-next-line local/no-dead-disabled-title -- pure hint describing what the action does (precipitation-slider intensity), unrelated to why the button disables (bridge not connected / another action in flight). This is the rule's own canonical "Start Rain" shape-3 example. Triaged 2026-08-27.
-                  title={t('climate.rainTooltip')}
                   className="h-9 gap-2 text-xs font-medium"
                 >
-                  <CloudRain className="w-3.5 h-3.5" /> {t('climate.rainWithPercent', { percent: Math.max(5, precipitationIntensity) })}
-                </Button>
-                <Button variant="outline" onClick={() => handleBridgeAction('Stop Rain', () => panelBridgeApi.stopRain())} disabled={bridgeLoading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium">
-                  <CloudOff className="w-3.5 h-3.5" /> {t('climate.stopRain')}
+                  {bridgeLoading === 'Apply All Visual' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Gauge className="w-3.5 h-3.5" />}
+                  {t('visual.applyAll')}
                 </Button>
               </div>
             </div>
@@ -2321,15 +2934,19 @@ export default function Events() {
                     <Label className="text-xs font-medium text-foreground/85">{t('timespeed.multiplier')}</Label>
                     <span className="font-mono text-[11px] tabular-nums text-primary">{timeSpeed}x</span>
                   </div>
-                  <Slider aria-label={t('timespeed.speedAria')} value={[timeSpeed]} onValueChange={([val]) => setTimeSpeed(val)} min={1} max={100} step={1} />
+                  <Slider aria-label={t('timespeed.speedAria')} value={[timeSpeed]} onValueChange={([val]) => { markTimeSpeedDirty(); setTimeSpeed(val) }} min={1} max={100} step={1} />
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  <Button size="sm" onClick={() => setTimeSpeed(1)} variant={timeSpeed === 1 ? 'secondary' : 'outline'} className="h-8 text-xs font-medium tabular-nums">1×</Button>
-                  <Button size="sm" onClick={() => setTimeSpeed(5)} variant={timeSpeed === 5 ? 'secondary' : 'outline'} className="h-8 text-xs font-medium tabular-nums">5×</Button>
-                  <Button size="sm" onClick={() => setTimeSpeed(10)} variant={timeSpeed === 10 ? 'secondary' : 'outline'} className="h-8 text-xs font-medium tabular-nums">10×</Button>
-                  <Button size="sm" onClick={() => setTimeSpeed(24)} variant={timeSpeed === 24 ? 'secondary' : 'outline'} className="h-8 text-xs font-medium tabular-nums">24×</Button>
+                  <Button size="sm" onClick={() => { markTimeSpeedDirty(); setTimeSpeed(1) }} variant={timeSpeed === 1 ? 'secondary' : 'outline'} className="h-8 text-xs font-medium tabular-nums">1×</Button>
+                  <Button size="sm" onClick={() => { markTimeSpeedDirty(); setTimeSpeed(5) }} variant={timeSpeed === 5 ? 'secondary' : 'outline'} className="h-8 text-xs font-medium tabular-nums">5×</Button>
+                  <Button size="sm" onClick={() => { markTimeSpeedDirty(); setTimeSpeed(10) }} variant={timeSpeed === 10 ? 'secondary' : 'outline'} className="h-8 text-xs font-medium tabular-nums">10×</Button>
+                  <Button size="sm" onClick={() => { markTimeSpeedDirty(); setTimeSpeed(24) }} variant={timeSpeed === 24 ? 'secondary' : 'outline'} className="h-8 text-xs font-medium tabular-nums">24×</Button>
                 </div>
-                <Button variant="outline" onClick={() => handleAction('Set time speed', setGameTimeSpeed)} disabled={loading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium">
+                {/* No explicit variant, matching Apply All Climate/Visual below --
+                    all three are the same shape (apply this card's pending changes
+                    to the live game) and had no reason in the code for one of the
+                    three to be styled differently (2026-08-31 impeccable pass). */}
+                <Button onClick={() => handleAction('Set time speed', setGameTimeSpeed)} disabled={loading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium">
                   {loading === 'Set time speed' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clock className="w-3.5 h-3.5" />}
                   {t('timespeed.applySpeed')}
                 </Button>
@@ -2383,13 +3000,13 @@ export default function Events() {
                       })}
                     </p>
                   )}
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <Button variant="outline" size="sm" disabled={!bridgeConnected || loading !== null} onClick={() => handleUtilities('Restore Power', true, true, false)} className="h-8 text-xs font-medium text-emerald-400/90 hover:text-emerald-400 hover:border-emerald-400/40">
-                      {t('utilities.restore')}
-                    </Button>
-                    <Button variant="outline" size="sm" disabled={!bridgeConnected || loading !== null} onClick={() => handleUtilities('Shut Off Power', false, true, false)} className="h-8 text-xs font-medium text-destructive/90 hover:text-destructive hover:border-destructive/40">
-                      {t('utilities.shutOff')}
-                    </Button>
+                  <div className="flex justify-end">
+                    <Switch
+                      checked={utilitiesStatus?.powerOn === true}
+                      onCheckedChange={(checked) => handleUtilities(checked ? 'Restore Power' : 'Shut Off Power', checked, true, false)}
+                      disabled={!bridgeConnected || loading !== null || utilitiesStatus === null}
+                      aria-label={t('utilities.power')}
+                    />
                   </div>
                 </div>
 
@@ -2419,13 +3036,13 @@ export default function Events() {
                       })}
                     </p>
                   )}
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <Button variant="outline" size="sm" disabled={!bridgeConnected || loading !== null} onClick={() => handleUtilities('Restore Water', true, false, true)} className="h-8 text-xs font-medium text-emerald-400/90 hover:text-emerald-400 hover:border-emerald-400/40">
-                      {t('utilities.restore')}
-                    </Button>
-                    <Button variant="outline" size="sm" disabled={!bridgeConnected || loading !== null} onClick={() => handleUtilities('Shut Off Water', false, false, true)} className="h-8 text-xs font-medium text-destructive/90 hover:text-destructive hover:border-destructive/40">
-                      {t('utilities.shutOff')}
-                    </Button>
+                  <div className="flex justify-end">
+                    <Switch
+                      checked={utilitiesStatus?.waterOn === true}
+                      onCheckedChange={(checked) => handleUtilities(checked ? 'Restore Water' : 'Shut Off Water', checked, false, true)}
+                      disabled={!bridgeConnected || loading !== null || utilitiesStatus === null}
+                      aria-label={t('utilities.water')}
+                    />
                   </div>
                 </div>
               </div>
@@ -2614,6 +3231,36 @@ export default function Events() {
                     {t('horde.spawnBehind', { target: targetAll ? t('horde.random') : selectedPlayer || t('horde.targetFallback') })}
                   </Button>
                 </DisabledReason>
+                <div className="space-y-2 pt-3 border-t border-border/40">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-medium text-foreground/85 flex items-center gap-1.5">
+                      <Skull className="w-3.5 h-3.5 text-warning" /> {t('horde.clearRadius')}
+                    </Label>
+                    <span className="font-mono text-[11px] tabular-nums text-warning">{clearZombiesRadius}</span>
+                  </div>
+                  <Slider aria-label={t('horde.clearRadiusAria')} value={[clearZombiesRadius]} onValueChange={([val]) => setClearZombiesRadius(val)} min={10} max={500} step={10} disabled={!bridgeConnected} />
+                  <DisabledReason reason={players.length === 0 ? t('horde.noPlayersOnlineTitle') : !bridgeConnected ? t('horde.bridgeOfflineTitle') : null}>
+                    <Button variant="outline" onClick={async () => {
+                      // Same reversible-but-affects-someone-else tier as
+                      // "clear all" -- warning, not destructive-red -- scoped
+                      // to one player instead of every loaded cell.
+                      const target = targetAll ? null : selectedPlayer
+                      const label = target ? t('horde.clearNearConfirmDescTargeted', { player: target }) : t('horde.clearNearConfirmDescRandom')
+                      const ok = await confirm({
+                        title: t('horde.clearNearConfirmTitle'),
+                        description: label,
+                        confirmLabel: t('horde.clearNear', { target: target || t('horde.random') }),
+                        variant: 'warning',
+                      })
+                      if (!ok) return
+                      handleAction('Clear zombies near player', () => removeZombiesNear(pickStrikeTarget()))
+                    }} disabled={loading !== null || !bridgeConnected || players.length === 0 || (!targetAll && !selectedPlayer)} className="h-9 gap-2 text-xs font-medium text-warning hover:text-warning hover:border-warning/50 hover:bg-warning/10">
+                      {loading === 'Clear zombies near player' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+                      {t('horde.clearNear', { target: targetAll ? t('horde.random') : selectedPlayer || t('horde.targetFallback') })}
+                    </Button>
+                  </DisabledReason>
+                </div>
+
                 <DisabledReason reason={!bridgeConnected ? t('horde.bridgeOfflineTitle') : null}>
                   <Button variant="outline" onClick={async () => {
                     // Instant, world-wide, and every player on the server feels
@@ -2655,7 +3302,10 @@ export default function Events() {
                   </Select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-medium text-muted-foreground">{t('vehicles.spawnFor')}</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Label className="text-xs font-medium text-muted-foreground">{t('vehicles.spawnFor')}</Label>
+                    <HelpTip label={t('vehicles.spawnFor')}>{t('vehicles.spawnForTip')}</HelpTip>
+                  </div>
                   <div className="flex flex-wrap gap-1.5">
                     {players.length === 0 ? (
                       <p className="font-mono text-[11px] text-muted-foreground/70 italic">{t('vehicles.noPlayersOnline')}</p>
@@ -2724,7 +3374,10 @@ export default function Events() {
                     <Input id="teleport-y" aria-label={t('teleport.yAria')} type="number" placeholder="11000" value={teleportY} onChange={(e) => setTeleportY(e.target.value)} className="h-9 font-mono text-[12px] tabular-nums" />
                   </div>
                   <div className="space-y-1">
-                    <Label htmlFor="teleport-z" className="text-xs font-medium text-muted-foreground">{t('teleport.z')}</Label>
+                    <div className="flex items-center gap-1.5">
+                      <Label htmlFor="teleport-z" className="text-xs font-medium text-muted-foreground">{t('teleport.z')}</Label>
+                      <HelpTip label={t('teleport.z')}>{t('teleport.zTip')}</HelpTip>
+                    </div>
                     <Input id="teleport-z" aria-label={t('teleport.zAria')} type="number" placeholder="0" value={teleportZ} onChange={(e) => setTeleportZ(e.target.value)} className="h-9 font-mono text-[12px] tabular-nums" />
                   </div>
                 </div>

@@ -127,6 +127,19 @@ export async function requireStoppedForLocalConfigMutation(req, res, next) {
 export async function warnRunningForLocalConfigEdit(req, res, next) {
   try {
     const activeServer = await getActiveServer();
+
+    // Same ambiguity as this file's sibling guard above, and the same fix:
+    // a path that is CONFIGURED but does not resolve right now (a
+    // disconnected network mount, a slow-mounting drive, an antivirus lock)
+    // must not be trusted as "remote" just because isRemote self-healed to
+    // true. Unlike the sibling, this function never blocks -- "can't
+    // verify" here means "warn", per this function's own documented policy
+    // above, not "refuse".
+    const { pathsConfigured, pathsExistLocally } = resolveLocalPathReachability(activeServer);
+    if (pathsConfigured && !pathsExistLocally) {
+      req.configEditRestartWarning = true;
+      return next();
+    }
     if (activeServer?.isRemote) return next();
 
     const serverManager = req.app?.get?.("serverManager");

@@ -18,6 +18,7 @@
   },
   "matrix": {
     "capabilityColumnHeader": "Kapasite",
+    "scrollHint": "Woule adwat pou wè tout wòl yo →",
     "seededBadge": "Entegre",
     "memberCount_one": "{{count}} manm",
     "memberCount_other": "{{count}} manm",
@@ -149,7 +150,7 @@
       },
       "wipe": {
         "label": "Efase mond lan nèt",
-        "description": "Efase pou tout tan done kat, jwè oswa mond sovgad — epi, atravè aksyon « vide dosye enstalasyon an », nenpòt lòt dosye sou lame a ki senpleman pase yon verifikasyon fichye make enstalasyon PZ, pa sèlman pwòp dosye sèvè konfigire a."
+        "description": "Efase pou tout tan done kat, jwè oswa mond sovgad — sa gen ladan, atravè aksyon « vide dosye enstalasyon an », yon dosye enstalasyon ki pase yon verifikasyon fichye make enstalasyon PZ EPI ki koresponn ak chemen enstalasyon ki anrejistre pou yon sèvè konfigire."
       },
       "world_events": {
         "label": "Lanse evènman mond",

@@ -56,6 +56,22 @@
     "desc": "创意工坊文件夹中的文件比面板记录的更新。运行一次检查以更新各模组状态。",
     "checkNow": "立即检查"
   },
+  "removedFromWorkshop": {
+    "title_one": "{{count}} 个模组在 Steam 创意工坊中已不存在",
+    "title_other": "{{count}} 个模组在 Steam 创意工坊中已不存在",
+    "desc": "Steam 确认这些项目已被删除或设为私密。在移除之前，它们将持续导致更新检查失败，并可能影响下次服务器重启。",
+    "removeAria": "从服务器移除 {{name}}"
+  },
+  "steamApiIssue": {
+    "label": "上次检查时无法连接 Steam 创意工坊——目前仅使用本地文件。将自动重试。",
+    "dismissAria": "关闭 Steam API 警告",
+    "dismissTooltip": "关闭直到下次检查失败"
+  },
+  "unknownWorkshopResult": {
+    "label_one": "{{count}} 个项目在本次检查中收到 Steam 无法识别的响应：",
+    "label_other": "{{count}} 个项目在本次检查中收到 Steam 无法识别的响应：",
+    "item": "{{id}}（代码 {{code}}）"
+  },
   "duplicateKeysWarning": {
     "title_one": "此配置文件中「{{keys}}」出现了不止一次",
     "title_other": "此配置文件中有 {{count}} 项设置出现了不止一次：{{keys}}",

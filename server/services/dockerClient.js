@@ -12,10 +12,40 @@ const REQUEST_TIMEOUT_MS = 5000;
 // stop. Budget the container's shutdown window plus room for the daemon.
 const LIFECYCLE_GRACE_MS = 30000;
 const DEFAULT_STOP_TIMEOUT_SEC = 10;
+const DEFAULT_LOG_TAIL_LINES = 500;
+// Defense in depth under `tail=`: Docker bounds the request by LINE count,
+// not byte count, so one pathological line (a huge unbroken stack trace, or
+// binary-looking output) could still balloon the response. This is a hard
+// ceiling that only ever engages if that happens.
+const MAX_LOG_RESPONSE_BYTES = 4 * 1024 * 1024;
 
 export function isManagedContainer(container) {
   const labels = container?.Labels || container?.Config?.Labels;
   return labels?.[MANAGED_LABEL] === "true";
+}
+
+/**
+ * A container created WITHOUT an allocated TTY (the normal case for
+ * `docker run -d` / Compose, i.e. every managed container this panel deals
+ * with day to day) has its `/logs` response multiplexed: each frame is an
+ * 8-byte header (1 byte stream type, 3 reserved, 4-byte big-endian payload
+ * length) followed by that many payload bytes. A TTY container's response
+ * has no such framing and is already plain text -- callers must check
+ * `container.Config?.Tty` themselves before deciding whether to call this.
+ * https://docs.docker.com/engine/api/v1.41/#tag/Container/operation/ContainerLogs
+ */
+export function demuxDockerLogStream(buffer) {
+  const parts = [];
+  let offset = 0;
+  while (offset + 8 <= buffer.length) {
+    const size = buffer.readUInt32BE(offset + 4);
+    const start = offset + 8;
+    const end = start + size;
+    if (end > buffer.length) break; // truncated final frame -- stop cleanly, keep what parsed
+    parts.push(buffer.subarray(start, end));
+    offset = end;
+  }
+  return Buffer.concat(parts).toString("utf-8");
 }
 
 function cpuCount(stats) {
@@ -163,6 +193,41 @@ export class DockerClient {
     }
   }
 
+  /**
+   * The container's own stdout/stderr -- what `docker logs <ref>` shows.
+   * Nothing else this panel collects can see this: it is Docker's log
+   * driver output, not a file on disk, so a support bundle built purely
+   * from filesystem scans (this panel's own logs, the game server's own
+   * log files) never contains it, even when it is the one line that
+   * explains a production report (an early-startup crash from the
+   * container's entrypoint script, a JVM that never got far enough to
+   * write its own log file, etc.).
+   *
+   * Same fail-closed contract as runManagedAction()/inspectManagedContainer()
+   * above: only ever returns data for a container this panel is allowed to
+   * manage (zomboid-panel.managed=true), returns null on any failure
+   * (Docker control off, socket unavailable, invalid ref, container not
+   * managed, request error/timeout) rather than throwing -- callers should
+   * treat null as "could not fetch", not as "empty log".
+   */
+  async getContainerLogs(containerId, { tail = DEFAULT_LOG_TAIL_LINES } = {}) {
+    if (!this.available) return null;
+    if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(containerId)) return null;
+    const tailCount = Number.isInteger(tail) && tail > 0 ? tail : DEFAULT_LOG_TAIL_LINES;
+    try {
+      const container = await this.inspectManagedContainer(containerId);
+      if (!container) return null;
+      const raw = await this._requestBuffer(
+        "GET",
+        `/containers/${encodeURIComponent(containerId)}/logs?stdout=true&stderr=true&timestamps=true&tail=${tailCount}`,
+      );
+      return container.Config?.Tty === true ? raw.toString("utf-8") : demuxDockerLogStream(raw);
+    } catch (error) {
+      log.debug(`Docker logs fetch failed for ${containerId}: ${error.message}`);
+      return null;
+    }
+  }
+
   _requestJson(method, requestPath, timeoutMs = REQUEST_TIMEOUT_MS) {
     return new Promise((resolve, reject) => {
       const request = http.request(
@@ -185,6 +250,66 @@ export class DockerClient {
       );
       request.on("timeout", () => request.destroy(new Error("Docker API timed out")));
       request.on("error", reject);
+      request.end();
+    });
+  }
+
+  // Same shape as _requestJson but for a raw (non-JSON) body -- the logs
+  // endpoint's response is either plain text (TTY container) or Docker's
+  // multiplexed stdout/stderr frame format (see demuxDockerLogStream above),
+  // neither of which is JSON. Enforces MAX_LOG_RESPONSE_BYTES itself, on top
+  // of the caller's `tail=` line cap, since `tail=` bounds line count, not
+  // byte count.
+  _requestBuffer(method, requestPath, timeoutMs = REQUEST_TIMEOUT_MS, maxBytes = MAX_LOG_RESPONSE_BYTES) {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const request = http.request(
+        { socketPath: this.socketPath, method, path: requestPath, timeout: timeoutMs },
+        (response) => {
+          if (response.statusCode >= 400) {
+            response.resume();
+            settled = true;
+            reject(new Error(`Docker API returned ${response.statusCode}`));
+            return;
+          }
+          const chunks = [];
+          let total = 0;
+          response.on("data", (chunk) => {
+            if (settled) return;
+            total += chunk.length;
+            if (total > maxBytes) {
+              settled = true;
+              request.destroy();
+              reject(new Error(`Docker API response exceeded ${maxBytes} bytes`));
+              return;
+            }
+            chunks.push(chunk);
+          });
+          response.on("end", () => {
+            if (settled) return;
+            settled = true;
+            resolve(Buffer.concat(chunks));
+          });
+        },
+      );
+      request.on("timeout", () => {
+        if (settled) return;
+        settled = true;
+        // reject() directly rather than relying on the 'error' event
+        // destroy(err) triggers -- that event fires asynchronously, by
+        // which point `settled` is already true, so the error handler's
+        // own guard below silently swallowed it and this promise never
+        // settled at all. destroy() is still called, only for socket
+        // cleanup now, not as the rejection path.
+        const timeoutError = new Error("Docker API timed out");
+        request.destroy(timeoutError);
+        reject(timeoutError);
+      });
+      request.on("error", (error) => {
+        if (settled) return;
+        settled = true;
+        reject(error);
+      });
       request.end();
     });
   }

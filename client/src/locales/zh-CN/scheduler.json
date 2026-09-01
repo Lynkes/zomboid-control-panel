@@ -45,6 +45,7 @@
     "scheduleTypeLabel": "计划类型",
     "tabSimple": "简易构建器",
     "tabAdvanced": "高级（Cron）",
+    "timezoneNotice": "以下时间按面板所在时区运行：{{tz}}",
     "frequencyLabel": "频率",
     "freqHourly": "每小时（第 0 分钟）",
     "freqInterval": "每 X 小时",
@@ -66,6 +67,7 @@
     "cronFormatHint": "格式：分钟 小时 日 月 星期",
     "cronValidExpression": "表达式有效",
     "commandLabel": "命令",
+    "commandTip": "此操作会按照上方的计划无人值守地执行，每次触发时都不会有确认步骤。请选择可以安全自动重复执行的内容——自定义命令不会与任何安全列表进行核对，并且会持续运行，直到你停用或删除此任务。",
     "commandSelectPlaceholder": "选择常用命令…",
     "commandCustomPlaceholder": "或输入自定义命令",
     "bridgeFormatHint": "格式：<1>bridge:&lt;action&gt; {json args}</1> — 例如 <2>bridge:triggerBlizzard {\"durationHours\":2}</2>。参数为可选项，仅允许列表中的操作可通过计划任务运行。",
@@ -180,6 +182,18 @@
     "everyNUnits": "<1>*/n</1> = 每 n 个单位",
     "every2HoursExample": "<1>0 */2 * * *</1> = 每 2 小时",
     "daily6amExample": "<1>0 6 * * *</1> = 每天 6 点"
+  },
+  "timezone": {
+    "title": "计划任务时区",
+    "description": "以下所有计划——你的任务、自动备份和自动重启——都按此时区运行。",
+    "inputLabel": "IANA 时区名称",
+    "noMatches": "没有匹配的时区",
+    "saveButton": "保存",
+    "currentlyEffective": "当前生效：{{tz}}",
+    "savedDesc": "计划现在按 {{tz}} 运行。",
+    "saveFailedFallback": "保存时区失败",
+    "fallbackTitle": "已保存的时区不再有效",
+    "fallbackDesc": "无法使用“{{configured}}”（可能已从时区数据库中移除，或此面板是从另一台机器恢复的）。在此问题解决之前，计划按 {{effective}} 运行。"
   },
   "toasts": {
     "errorTitle": "错误",

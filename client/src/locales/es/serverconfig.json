@@ -31,6 +31,24 @@
     "fileNotFoundTitle": "{{label}}: archivo no encontrado",
     "notFoundAria": "No encontrado"
   },
+  "unresolvedReview": {
+    "title": "IDs de Mods= sin resolver",
+    "causeUnknown": "Aún no hay triaje para esta entrada — vuelve a ejecutar el diagnóstico.",
+    "causeTypo": "Parece un error tipográfico del mod instalado \"{{suggestion}}\".",
+    "correctAction": "Usar \"{{suggestion}}\"",
+    "causeStillDownloading": "Hay una descarga de Workshop en curso — espera a que termine y vuelve a ejecutar el diagnóstico.",
+    "causeWorkshopNotOnDisk": "Aparece en WorkshopItems= pero su contenido no está en el disco y nada lo está descargando ahora. Reinicia el servidor o vuelve a validar la descarga de Workshop, luego vuelve a ejecutar el diagnóstico.",
+    "rerunDiagnostics": "Volver a ejecutar el diagnóstico",
+    "causeAbsent": "Ningún mod instalado de Workshop o local coincide con este ID.",
+    "removeAction": "Eliminar de Mods=",
+    "correctedTitle": "Entrada de Mods= corregida",
+    "correctedToast": "Se reemplazó \"{{modId}}\" por \"{{suggestion}}\" en Mods=. Sin guardar — revisa y guarda abajo.",
+    "removeConfirmTitle": "¿Eliminar de Mods=?",
+    "removeConfirm": "¿Eliminar \"{{modId}}\" de Mods=? Esto solo prepara el cambio aquí — no se escribe nada en el disco hasta que guardes.",
+    "removeConfirmButton": "Eliminar",
+    "removedTitle": "Entrada de Mods= eliminada",
+    "removedToast": "Se eliminó \"{{modId}}\" de Mods=. Sin guardar — revisa y guarda abajo."
+  },
   "tabs": {
     "serverSettings": "Ajustes del servidor",
     "sandbox": "Sandbox",
@@ -315,8 +333,6 @@
   "toasts": {
     "error": "Error",
     "loadConfigFailed": "No se pudo cargar la configuración del servidor.",
-    "stopServerTitle": "Detener el servidor antes de guardar",
-    "stopServerDesc": "Project Zomboid puede sobrescribir los archivos de configuración mientras se está ejecutando.",
     "invalidIniTitle": "Ajustes del servidor no válidos",
     "invalidSandboxTitle": "Valores de Sandbox no válidos",
     "fixSettings": "Corregir: {{settings}}",

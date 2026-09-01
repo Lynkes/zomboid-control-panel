@@ -9,6 +9,7 @@
     "noSchedule": "无已启用的计划任务",
     "noMods": "未跟踪任何模组",
     "noMessages": "无消息",
-    "empty": "空"
+    "empty": "空",
+    "accessDenied": "访问被拒绝"
   }
 }

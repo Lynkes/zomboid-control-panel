@@ -55,6 +55,11 @@
       "hint": "Anular la niebla, el viento, la temperatura, las nubes, la humedad y la precipitación.",
       "keywords": "niebla viento temperatura nubes humedad precipitación clima"
     },
+    "visual": {
+      "label": "Renderizado visual",
+      "hint": "Anular la distancia de visión, la intensidad de la luz diurna, la oscuridad nocturna, la desaturación y la luz ambiental.",
+      "keywords": "distancia de visión luz diurna noche intensidad desaturación luz ambiental visual renderizado"
+    },
     "clock": {
       "label": "Reloj del juego",
       "hint": "Establecer la hora, el día y el mes dentro del juego.",
@@ -129,7 +134,18 @@
     "disableSnow": "desactivar nieve",
     "stopAllWeather": "detener todo el clima",
     "blizzardDurationAria": "Duración de la ventisca",
-    "tropicalDurationAria": "Duración de la tormenta tropical"
+    "tropicalDurationAria": "Duración de la tormenta tropical",
+    "frontLabel": "frente personalizado",
+    "frontStrengthAria": "Intensidad del frente meteorológico",
+    "frontTypeAria": "Tipo de frente meteorológico",
+    "frontStationary": "estacionario",
+    "frontCold": "frente frío",
+    "frontWarm": "frente cálido",
+    "triggerFront": "generar frente",
+    "helicopterLabel": "evento de helicóptero",
+    "helicopterTip": "Atrae a los zombis cercanos hacia el ruido — no es solo ambientación. Puede traer una horda sobre los jugadores cerca de la ruta de vuelo.",
+    "triggerHelicopter": "activar helicóptero",
+    "stopHelicopter": "detener helicóptero"
   },
   "climate": {
     "sublabelOnline": "puente · anulación de administrador",
@@ -150,7 +166,31 @@
     "temperatureAria": "Temperatura",
     "cloudsAria": "Intensidad de las nubes",
     "humidityAria": "Humedad",
-    "precipitationAria": "Intensidad de la precipitación"
+    "precipitationAria": "Intensidad de la precipitación",
+    "liveConditions": "en vivo:",
+    "thunderstorm": "tormenta eléctrica",
+    "snowing": "nevando",
+    "raining": "lloviendo",
+    "clear": "despejado",
+    "windReading": "{{speed}} km/h @ {{angle}}°",
+    "weatherActive": "activo",
+    "weatherInactive": "inactivo"
+  },
+  "visual": {
+    "sublabelOnline": "puente · anulación de administrador",
+    "sublabelOffline": "puente fuera de línea",
+    "reset": "restablecer",
+    "viewDistance": "distancia de visión",
+    "dayLight": "intensidad de luz diurna",
+    "nightStrength": "intensidad nocturna",
+    "desaturation": "desaturación",
+    "ambient": "luz ambiental",
+    "applyAll": "aplicar todo",
+    "viewDistanceAria": "Distancia de visión",
+    "dayLightAria": "Intensidad de luz diurna",
+    "nightStrengthAria": "Intensidad nocturna",
+    "desaturationAria": "Desaturación",
+    "ambientAria": "Luz ambiental"
   },
   "clock": {
     "sublabel": "puente · fecha y hora del mundo",
@@ -246,13 +286,20 @@
     "removeAllConfirmDescription": "Esto elimina al instante todos los zombis en las celdas cargadas, en todo el servidor -- incluidos los que un jugador está combatiendo ahora mismo. Los zombis reaparecen con el tiempo, pero esto termina ese combate de inmediato para quien estuviera en él.",
     "noPlayersOnlineTitle": "No hay jugadores en línea",
     "bridgeOfflineTitle": "Puente fuera de línea",
-    "sizeAria": "Tamaño de la horda"
+    "sizeAria": "Tamaño de la horda",
+    "clearRadius": "radio de despeje",
+    "clearRadiusAria": "Radio de despeje cerca del jugador",
+    "clearNear": "despejar cerca de {{target}}",
+    "clearNearConfirmTitle": "¿Despejar zombis cerca de este jugador?",
+    "clearNearConfirmDescTargeted": "Esto elimina instantáneamente todos los zombis dentro del radio elegido de {{player}} -- incluidos los que esté combatiendo. Los zombis reaparecen con el tiempo, pero esto termina ese encuentro ahora mismo para esa persona.",
+    "clearNearConfirmDescRandom": "Esto elimina instantáneamente todos los zombis dentro del radio elegido de un jugador en línea aleatorio -- incluidos los que esté combatiendo. Los zombis reaparecen con el tiempo, pero esto termina ese encuentro ahora mismo para esa persona."
   },
   "vehicles": {
     "sublabel": "RCON · aparece junto a un jugador",
     "vehicle": "vehículo",
     "selectPlaceholder": "seleccionar vehículo…",
     "spawnFor": "generar para",
+    "spawnForTip": "Solo funciona si el jugador está en la planta baja o en un sótano — falla si está en un piso superior.",
     "noPlayersOnline": "no hay jugadores en línea",
     "selectVehicleFirstTitle": "Seleccionar un vehículo primero",
     "typeAria": "Tipo de vehículo",
@@ -281,6 +328,7 @@
     "x": "x",
     "y": "y",
     "z": "z",
+    "zTip": "El piso del edificio, no una altura — 0 es la planta baja, valores más altos son pisos superiores.",
     "teleportSelf": "teletransportarse",
     "teleportSelfTitle": "Teletransportarse (el administrador debe estar dentro del juego)",
     "teleportTarget": "teletransportar a {{target}}",
@@ -516,11 +564,15 @@
     "repairButton": "Reparar",
     "alarmOnButton": "Activar alarma",
     "alarmOffButton": "Desactivar alarma",
+    "sirenOnButton": "Activar sirena",
+    "sirenOffButton": "Desactivar sirena",
     "lockButton": "Bloquear",
     "unlockButton": "Desbloquear",
     "vehicleRepairedLabel": "Vehículo n.º {{id}} reparado",
     "alarmEnabledLabel": "Alarma activada en el n.º {{id}}",
     "alarmDisabledLabel": "Alarma desactivada en el n.º {{id}}",
+    "sirenEnabledLabel": "Sirena activada en el n.º {{id}}",
+    "sirenDisabledLabel": "Sirena desactivada en el n.º {{id}}",
     "trunkUnlockedLabel": "Maletero desbloqueado en el n.º {{id}}",
     "trunkLockedLabel": "Maletero bloqueado en el n.º {{id}}",
     "noSafehousesTitle": "No se encontraron refugios",
@@ -533,6 +585,8 @@
     "membersCount_other": "{{count}} miembros",
     "membersListPrefix": "Miembros: {{list}}",
     "addPlayerButton": "+ Jugador",
+    "addPlayerSelectLabel": "Jugador para añadir a {{title}}",
+    "addPlayerSelectPlaceholder": "Seleccionar jugador…",
     "addedPlayerLabel": "Se ha añadido a {{username}} en {{title}}",
     "noFactionsTitle": "No se encontraron facciones",
     "noFactionsDesc": "No existen facciones en este servidor.",
@@ -543,7 +597,14 @@
     "emptyResponse": "Respuesta vacía.",
     "infrastructureSnapshotTitle": "Instantánea de infraestructura",
     "hideDetails": "Ocultar detalles",
-    "showDetails": "Mostrar detalles"
+    "showDetails": "Mostrar detalles",
+    "sequenceAllSucceededTitle": "Secuencia de eventos completada",
+    "sequencePartialTitle": "{{failed}} de {{executed}} paso(s) fallaron",
+    "sequenceAllFailedTitle": "Secuencia de eventos fallida",
+    "sequenceExecutedCount_one": "{{executed}} paso ejecutado",
+    "sequenceExecutedCount_other": "{{executed}} pasos ejecutados",
+    "sequenceFailedStepsTitle": "Pasos fallidos",
+    "sequenceStepIndex": "Paso {{index}}"
   },
   "successCopy": {
     "rainStarted": {
@@ -569,6 +630,10 @@
     "weatherCleared": {
       "title": "Clima despejado",
       "description": "Se han eliminado todas las condiciones climáticas forzadas."
+    },
+    "weatherFrontGenerated": {
+      "title": "Frente climático generado",
+      "description": "Un nuevo frente climático ahora se mueve por el servidor."
     },
     "snowEnabled": {
       "title": "Nevada activada",
@@ -626,9 +691,25 @@
       "title": "Agua restaurada",
       "description": "El servicio de agua ya está en línea."
     },
+    "powerShutDown": {
+      "title": "Electricidad cortada",
+      "description": "El servicio eléctrico ha sido cortado."
+    },
+    "waterShutDown": {
+      "title": "Agua cortada",
+      "description": "El servicio de agua ha sido cortado."
+    },
     "helicopterTriggered": {
       "title": "Helicóptero activado",
       "description": "Ahora hay un evento de helicóptero activo."
+    },
+    "helicopterEventTriggered": {
+      "title": "Evento de helicóptero activado",
+      "description": "Ahora hay un evento de helicóptero activo en todo el servidor."
+    },
+    "helicopterEventStopped": {
+      "title": "Evento de helicóptero detenido",
+      "description": "Señal de parada enviada para el evento de helicóptero de todo el servidor."
     },
     "gunshotTriggered": {
       "title": "Disparo activado",
@@ -662,6 +743,10 @@
       "title": "Zombis eliminados",
       "description": "Se han eliminado todos los zombis de las celdas cargadas."
     },
+    "zombiesClearedNear": {
+      "title": "Zombis cercanos eliminados",
+      "description": "Se han eliminado los zombis cerca del objetivo."
+    },
     "timeSpeedUpdated": {
       "title": "Velocidad del tiempo actualizada",
       "description": "Se ha cambiado el multiplicador de tiempo."
@@ -682,6 +767,10 @@
       "title": "Clima aplicado",
       "description": "Se han actualizado todos los parámetros climáticos."
     },
+    "visualApplied": {
+      "title": "Ajustes visuales aplicados",
+      "description": "Se han actualizado todos los parámetros visuales."
+    },
     "actionCompleteDefault": {
       "title": "Acción completada",
       "description": "Se completó correctamente: {{action}}."
@@ -695,8 +784,6 @@
     "commandFailedDesc": "{{message}}. Verificar la configuración del comando e intentarlo de nuevo.",
     "commandFailedFallback": "Comando fallido",
     "bridgeCommandFailedFallback": "Comando del bridge fallido.",
-    "notPersistedDesc": "Aplicado únicamente al mundo en ejecución — SandboxVars.lua no se actualizó ({{reason}}), por lo que un reinicio del servidor deshará este cambio.",
-    "notPersistedUnknownReason": "motivo desconocido",
     "powerDidNotTakeEffectDesc": "El servidor indica que la energía sigue {{state}} — el cambio no surtió efecto.",
     "noPlayersOnlineError": "No hay jugadores en línea",
     "targetPlayerRequiredHorde": "Se requiere un jugador objetivo para generar la horda",

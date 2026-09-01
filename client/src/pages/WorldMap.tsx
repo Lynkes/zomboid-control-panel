@@ -4,6 +4,7 @@ import { useTheme } from '@/contexts/ThemeContext'
 import { useSocket } from '@/contexts/SocketContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { DisabledReason } from '@/components/DisabledReason'
+import { HelpTip } from '@/components/HelpTip'
 import {
   Map as MapIcon,
   Crosshair,
@@ -77,6 +78,8 @@ import { useToast } from '@/components/ui/use-toast'
 import { cn, copyText } from '@/lib/utils'
 import { createInFlightGate } from '@/lib/inFlightGate'
 import { resolveFallbackTile, conservativeRenderedMaxLevel } from './worldMapTileFallback'
+import { buildTileQuery } from './worldMapTileUrl'
+import { mapConfigsEqual } from './worldMapConfigEqual'
 import { bridgeSupportsPlayerStatus } from './worldMapBridgeVersion'
 import { diagnoseTileFailure, tileFailureCopyKeys, type TileFailureDiagnosis } from './worldMapTileFailureDiagnosis'
 
@@ -180,7 +183,7 @@ const AIRDROP_PRESETS = [
 // Map tiles use the browser-direct pzmap.org path when available. The backend
 // proxy remains the fallback for cached tiles and restricted browsers.
 
-interface MapConfig {
+export interface MapConfig {
   tileUrl: string
   tileSize: number
   fullWidth: number
@@ -201,6 +204,7 @@ interface MapConfig {
   defaultScale: number
   label: string
 }
+
 
 const MAP_B42: MapConfig = {
   tileUrl: '/api/map/tiles',
@@ -634,6 +638,7 @@ export default function WorldMap() {
   const canvasColorsRef = useRef<CanvasColors>(resolveCanvasColors())
 
   const [players, setPlayers] = useState<MapPlayer[]>([])
+  const [rosterCollapsed, setRosterCollapsed] = useState(false)
   const [mapCfg, setMapCfg] = useState<MapConfig>(MAP_B42)
   const mapCfgRef = useRef<MapConfig>(MAP_B42)
   const [scale, setScale] = useState(MAP_B42.defaultScale)
@@ -803,17 +808,13 @@ export default function WorldMap() {
       // can only be built once that's known.
       const targetCfg = isB41 ? MAP_B41 : b42ConfigFor(await mapApi.resolve())
       if (cancelledRef.current) return
-      // Compare geometry, not just B41/B42: the initial state is a B42
-      // placeholder, so a label check alone would skip applying the
-      // resolved build's real dimensions.
+      // Compare the WHOLE config, not just B41/B42 or a hand-picked field
+      // list: the initial state is a B42 placeholder, so a label-only check
+      // would skip applying the resolved build's real dimensions -- and a
+      // partial field list re-arms the identical bug for the next field
+      // anyone adds. See mapConfigsEqual's own comment above MapConfig.
       const cur = mapCfgRef.current
-      if (
-        cur.label === targetCfg.label &&
-        cur.tileSize === targetCfg.tileSize &&
-        cur.fullWidth === targetCfg.fullWidth &&
-        cur.isoX0 === targetCfg.isoX0 &&
-        cur.isoY0 === targetCfg.isoY0
-      ) return
+      if (mapConfigsEqual(cur, targetCfg)) return
 
       setMapCfg(targetCfg)
       mapCfgRef.current = targetCfg
@@ -1062,8 +1063,16 @@ export default function WorldMap() {
 
     // Every B42 layer DZI declares JPEG tiles, including upper floors.
     const ext = 'jpg'
-    const proxyFloorParam = f !== 0 ? `?floor=${f}` : ''
-    const proxyUrl = `${mapCfgRef.current.tileUrl}/${level}/${col}_${row}.${ext}${proxyFloorParam}`
+    // `v` names the resolved B42 build this URL was built against -- see
+    // mapProxy.js's TILE_BROWSER_CACHE_CONTROL_VERSIONED comment. Only
+    // meaningful for B42 (B41's upstream directory is a fixed literal, not
+    // dynamically resolved, so there's nothing to version there), and only
+    // once mapSourceRef's one-shot /resolve() has actually completed --
+    // tiles requested before that finishes just miss out on the long-cache
+    // upgrade, same as before this change, never a correctness problem.
+    const isB41 = mapCfgRef.current === MAP_B41
+    const versionDir = !isB41 ? (mapSourceRef.current?.b42Dir ?? null) : null
+    const proxyUrl = `${mapCfgRef.current.tileUrl}/${level}/${col}_${row}.${ext}${buildTileQuery(f, versionDir)}`
 
     // Loads through this server's proxy — the "smart" path that can tell a
     // real 404 (tile genuinely absent — see tileCacheRef's comment above for
@@ -2943,9 +2952,15 @@ export default function WorldMap() {
         )}
 
         {/* Roster panel — top-right */}
-        <div className="absolute top-3 right-3 z-10 w-56">
+        <div className={cn('absolute top-3 right-3 z-10', rosterCollapsed ? 'w-auto' : 'w-56')}>
           <div className="rounded-md border border-border/55 bg-card/85 backdrop-blur-md shadow-lg overflow-hidden">
-            <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 border-b border-border/40 bg-muted/40 font-mono text-[10px] uppercase tracking-[0.22em] text-primary/70">
+            <button
+              type="button"
+              onClick={() => setRosterCollapsed((c) => !c)}
+              aria-expanded={!rosterCollapsed}
+              aria-label={rosterCollapsed ? t('roster.expandAria') : t('roster.collapseAria')}
+              className="flex w-full items-center justify-between gap-2 px-2.5 py-1.5 border-b border-border/40 bg-muted/40 font-mono text-[10px] uppercase tracking-[0.22em] text-primary/70 hover:bg-muted/60 transition-colors"
+            >
               <span className="flex items-center gap-1.5">
                 <span className="text-primary/60">//</span>
                 <span>{t('roster.label')}</span>
@@ -2955,9 +2970,12 @@ export default function WorldMap() {
                   {bridgeConnected ? t('roster.live') : t('roster.offline')}
                 </span>
               </span>
-              <span className="text-foreground tabular-nums font-semibold">{players.length}</span>
-            </div>
-            {players.length > 0 ? (
+              <span className="flex items-center gap-1.5">
+                <span className="text-foreground tabular-nums font-semibold">{players.length}</span>
+                {rosterCollapsed ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronUp className="h-3 w-3 shrink-0" />}
+              </span>
+            </button>
+            {!rosterCollapsed && (players.length > 0 ? (
               <div className="max-h-60 overflow-y-auto">
                 {players.map((p) => (
                   <button
@@ -2996,7 +3014,7 @@ export default function WorldMap() {
                   {loading ? t('roster.loading') : bridgeConnected ? t('roster.noPlayersOnline') : t('roster.bridgeOffline')}
                 </span>
               </div>
-            )}
+            ))}
           </div>
         </div>
 
@@ -3024,9 +3042,12 @@ export default function WorldMap() {
           </div>
         </div>
 
-        {/* Dossier — bottom-right (selected player) */}
+        {/* Dossier — bottom-right (selected player). Raised above the HUD
+            coordinate bar on narrow viewports so the two fixed-position
+            overlays stack instead of colliding; side-by-side once there's
+            room (>= sm). */}
         {selectedPlayer && (
-          <div className="absolute bottom-3 right-3 z-10 w-60">
+          <div className="absolute right-3 z-10 w-60 bottom-14 sm:bottom-3">
             <div className="relative rounded-md border border-border/55 bg-card/90 backdrop-blur-md shadow-lg overflow-hidden">
               <span aria-hidden className="pointer-events-none absolute top-0 left-0 h-2 w-2 border-l-2 border-t-2 border-primary/50" />
               <span aria-hidden className="pointer-events-none absolute top-0 right-0 h-2 w-2 border-r-2 border-t-2 border-primary/50" />
@@ -3087,6 +3108,33 @@ export default function WorldMap() {
                     </div>
                   </div>
                 )}
+                {([
+                  { key: 'hunger', value: selectedPlayer.hunger, label: t('dossier.hunger') },
+                  { key: 'thirst', value: selectedPlayer.thirst, label: t('dossier.thirst') },
+                  { key: 'fatigue', value: selectedPlayer.fatigue, label: t('dossier.fatigue') },
+                ] as const).map(({ key, value, label }) => value === undefined ? null : (
+                  // PZ's stats scale is 0 (fine) to 1 (critical) -- the
+                  // inverse of the health bar above, so severity color
+                  // thresholds are flipped: full/green only near 0.
+                  <div key={key} className="flex justify-between items-center">
+                    <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/70">{label}</span>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-16 h-1.5 rounded-sm bg-muted/60 overflow-hidden ring-1 ring-black/20">
+                        <div
+                          className="h-full transition-all"
+                          style={{
+                            width: `${Math.max(0, Math.min(100, value * 100))}%`,
+                            backgroundColor:
+                              value < 0.5 ? 'hsl(var(--success))'
+                              : value < 0.75 ? 'hsl(var(--warning))'
+                              : 'hsl(var(--destructive))',
+                          }}
+                        />
+                      </div>
+                      <span className="font-mono tabular-nums w-8 text-right">{Math.round(value * 100)}%</span>
+                    </div>
+                  </div>
+                ))}
                 {selectedPlayer.accessLevel && selectedPlayer.accessLevel !== 'none' && selectedPlayer.accessLevel !== 'user' && selectedPlayer.accessLevel !== '' && (
                   <div className="flex justify-between items-baseline">
                     <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/70">{t('dossier.role')}</span>
@@ -3120,31 +3168,34 @@ export default function WorldMap() {
                     <Heart className="w-3 h-3" /> {t('dossier.heal')}
                   </Button>
                 </DisabledReason>
-                <DisabledReason reason={!canGmTools ? t('permissions.noGmToolsBridgeAction') : null} className="flex-1">
-                  <Button
-                    size="sm" variant="ghost" className="h-7 text-xs gap-1 w-full"
-                    disabled={actionLoading !== null || !canGmTools}
-                    onClick={() => {
-                      if (!canGmTools) return
-                      setActionLoading('god-card')
-                      panelBridgeApi.sendCommand('setGodMode', { username: selectedPlayer.username, enabled: true })
-                        .then((response) => {
-                          const state = getBridgeVerifiedState('setGodMode', response?.data)
-                          if (state === 'unverifiable') {
-                            toast({ title: t('dossier.godModeEnabled'), description: t('toasts.bridgeUnverifiedDesc', { action: t('dossier.god') }), variant: 'default' })
-                          } else if (state === 'old-bridge') {
-                            toast({ title: t('dossier.godModeEnabled'), description: t('toasts.bridgeOldBridgeDesc', { action: t('dossier.god') }), variant: 'default' })
-                          } else {
-                            toast({ title: t('dossier.godModeEnabled') })
-                          }
-                        })
-                        .catch(() => toast({ title: t('errorTitle'), variant: 'destructive' }))
-                        .finally(() => setActionLoading(null))
-                    }}
-                  >
-                    <Shield className="w-3 h-3" /> {t('dossier.god')}
-                  </Button>
-                </DisabledReason>
+                <div className="flex-1 flex items-center gap-1 min-w-0">
+                  <DisabledReason reason={!canGmTools ? t('permissions.noGmToolsBridgeAction') : null} className="flex-1 min-w-0">
+                    <Button
+                      size="sm" variant="ghost" className="h-7 text-xs gap-1 w-full"
+                      disabled={actionLoading !== null || !canGmTools}
+                      onClick={() => {
+                        if (!canGmTools) return
+                        setActionLoading('god-card')
+                        panelBridgeApi.sendCommand('setGodMode', { username: selectedPlayer.username, enabled: true })
+                          .then((response) => {
+                            const state = getBridgeVerifiedState('setGodMode', response?.data)
+                            if (state === 'unverifiable') {
+                              toast({ title: t('dossier.godModeEnabled'), description: t('toasts.bridgeUnverifiedDesc', { action: t('dossier.god') }), variant: 'default' })
+                            } else if (state === 'old-bridge') {
+                              toast({ title: t('dossier.godModeEnabled'), description: t('toasts.bridgeOldBridgeDesc', { action: t('dossier.god') }), variant: 'default' })
+                            } else {
+                              toast({ title: t('dossier.godModeEnabled') })
+                            }
+                          })
+                          .catch(() => toast({ title: t('errorTitle'), variant: 'destructive' }))
+                          .finally(() => setActionLoading(null))
+                      }}
+                    >
+                      <Shield className="w-3 h-3" /> {t('dossier.god')}
+                    </Button>
+                  </DisabledReason>
+                  <HelpTip label={t('dossier.god')} className="shrink-0">{t('dossier.godTip')}</HelpTip>
+                </div>
               </div>
             </div>
           </div>
@@ -3618,8 +3669,11 @@ export default function WorldMap() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <div className="text-xs text-muted-foreground font-mono tabular-nums">
-              {t('spawnDialog.location', { x: spawnDialog?.x, y: spawnDialog?.y, z: spawnDialog?.z ?? 0 })}
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground font-mono tabular-nums">
+                {t('spawnDialog.location', { x: spawnDialog?.x, y: spawnDialog?.y, z: spawnDialog?.z ?? 0 })}
+              </span>
+              <HelpTip label={t('spawnDialog.title')}>{t('spawnDialog.floorTip')}</HelpTip>
             </div>
             <VehiclePicker
               value={spawnVehicleId}

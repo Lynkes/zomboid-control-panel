@@ -230,6 +230,49 @@ describe("built-in templates", () => {
     expect(templates.map((template) => template.meta.id)).not.toContain("vanilla-apocalypse");
   });
 
+  // 2026-08-31 bug hunt (templates-builtin-hidden-with-no-restore-path):
+  // deleteTemplate's hide path (above) only ever added an id to the
+  // setting -- nothing ever read the list back out, so a hidden built-in
+  // was invisible everywhere: listTemplates filtered it out, getTemplate
+  // returned null for it, and the operator had no way to even learn its
+  // id, let alone restore it. listHiddenBuiltinTemplates/unhideTemplate are
+  // the other half of the round trip.
+  it("listHiddenBuiltinTemplates returns nothing when nothing is hidden", async () => {
+    const hidden = await templateService.listHiddenBuiltinTemplates();
+    expect(hidden).toEqual([]);
+  });
+
+  it("listHiddenBuiltinTemplates surfaces a hidden built-in's real data, not just its id", async () => {
+    getSetting.mockResolvedValue(["vanilla-apocalypse"]);
+
+    const hidden = await templateService.listHiddenBuiltinTemplates();
+
+    expect(hidden).toHaveLength(1);
+    expect(hidden[0].meta.id).toBe("vanilla-apocalypse");
+    expect(hidden[0].isBuiltin).toBe(true);
+    // Not present in the normal list at the same time.
+    const visible = await templateService.listTemplates();
+    expect(visible.map((t) => t.meta.id)).not.toContain("vanilla-apocalypse");
+  });
+
+  it("unhideTemplate restores a hidden built-in to the normal list", async () => {
+    getSetting.mockResolvedValue(["vanilla-apocalypse", "pvp-raiding"]);
+
+    const result = await templateService.unhideTemplate("vanilla-apocalypse");
+
+    expect(result).toEqual({ success: true });
+    // Only the target id is removed -- the other hidden one stays hidden.
+    expect(setSetting).toHaveBeenCalledWith("hiddenBuiltinTemplateIds", ["pvp-raiding"]);
+  });
+
+  it("unhideTemplate reports an error for an id that isn't actually hidden", async () => {
+    getSetting.mockResolvedValue([]);
+
+    const result = await templateService.unhideTemplate("vanilla-apocalypse");
+
+    expect(result.success).toBe(false);
+  });
+
   it("refuses to save over a built-in template id", async () => {
     const result = await templateService.saveTemplate({
       schemaVersion: TEMPLATE_SCHEMA_VERSION,

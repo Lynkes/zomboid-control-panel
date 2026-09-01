@@ -75,6 +75,65 @@ export async function resolveManagedContainer({
 }
 
 /**
+ * Docker-aware "is the host up" signal for docker-local/docker-managed
+ * providers. Callers must already know the server IS a Docker provider
+ * (see resolveProvider() in server/utils/serverStatusModel.js) -- this
+ * does not check that itself, and a native/systemd/openrc/remote server
+ * passed in here would just fall through to the resolveManagedContainer()
+ * branch and report `scanFailed: true` (no container ref to look up).
+ *
+ * Mirrors the two Docker paths server/routes/serverStatus.js's GET
+ * /active/status route used to inline directly, kept here as the ONE
+ * implementation so that route's dashboard badge and the status watchdog
+ * (server/index.js's checkServerStatusNow) can never drift out of sync on
+ * what "Docker says running" means for the same server at the same
+ * moment. Both paths ultimately call dockerClient.inspectManagedContainer(),
+ * which unconditionally requires the zomboid-panel.managed=true label
+ * itself (see isManagedContainer() above) -- there is no unlabeled-container
+ * path. The two branches differ only in HOW the container ref is found:
+ *  - if the given `server` already carries a usable ref (dockerContainerName
+ *    /dockerContainerId) and dockerClient looks usable, inspect it directly.
+ *  - otherwise fall through to resolveManagedContainer(), which re-resolves
+ *    the server record itself (by id) and produces a more specific error
+ *    when Docker control is off/unavailable or nothing is mapped.
+ *
+ * @returns {Promise<{running: boolean, scanFailed: boolean}>} scanFailed
+ *   true means "could not verify" (Docker control off/unavailable, the
+ *   lookup itself failed, or a mapped container/ref that no longer
+ *   resolves) -- callers must treat that as unknown, never as a confident
+ *   "stopped" (GH#114: PZ runs as PID 1 of a *different* container here,
+ *   so there is no local fallback that could ever safely stand in).
+ */
+export async function resolveDockerHostSignal(
+  server,
+  dockerClient = sharedDockerClient,
+) {
+  const containerRef = server?.dockerContainerName || server?.dockerContainerId;
+  if (
+    containerRef &&
+    dockerClient?.enabled &&
+    dockerClient.available &&
+    typeof dockerClient.inspectManagedContainer === "function"
+  ) {
+    const container = await dockerClient.inspectManagedContainer(containerRef);
+    return container
+      ? { running: container.State?.Running === true, scanFailed: false }
+      : { running: false, scanFailed: true };
+  }
+
+  const managed = await resolveManagedContainer({
+    serverId: server?.id,
+    dockerClient,
+  });
+  if (managed.handled) {
+    return managed.error
+      ? { running: false, scanFailed: true }
+      : { running: managed.running === true, scanFailed: false };
+  }
+  return { running: false, scanFailed: true };
+}
+
+/**
  * @param {"start"|"stop"|"restart"} action
  * @returns {Promise<{handled: boolean, success?: boolean, message?: string, error?: string}>}
  */

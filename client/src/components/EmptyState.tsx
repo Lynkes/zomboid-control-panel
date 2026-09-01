@@ -11,7 +11,8 @@ import {
   CalendarX,
   Package,
   MessageSquareOff,
-  FolderOpen
+  FolderOpen,
+  ShieldAlert
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -27,6 +28,13 @@ const emptyStateIcons = {
   noMods: Package,
   noMessages: MessageSquareOff,
   empty: FolderOpen,
+  // bug-hunt-2026-08-31: every permission-denied call site overrides `icon`
+  // to ShieldAlert but (before this) had no matching `type`, so the eyebrow
+  // fell through to the 'noData' default and read "No Data" above an icon
+  // that says the opposite -- there is data, you're just not allowed to see
+  // it. Added so those 8 sites can name their own state instead of
+  // inheriting one that actively contradicts their icon.
+  accessDenied: ShieldAlert,
 } as const
 
 export type EmptyStateType = keyof typeof emptyStateIcons

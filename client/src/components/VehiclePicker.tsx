@@ -11,8 +11,15 @@ import { useToast } from '@/components/ui/use-toast'
 export interface CatalogVehicle {
   id: string
   name: string
-  mass: number
-  seats: number
+  // Both optional, not a stray gap: PanelBridge.lua only sets these on a
+  // successful pcall -- getSeatNumber() is a known B42 Kahlua thrower, so
+  // getMass()/the seat-count getters can genuinely come back unset (server/
+  // backlog card
+  // api-ts-declares-catalog-weight-mass-seats-non-optional-but-lua-guards-them,
+  // 2026-08-29). A missing value is a real, expected runtime shape, not a
+  // bug to paper over with a fallback of 0.
+  mass?: number
+  seats?: number
 }
 
 interface VehiclePickerProps {
@@ -29,7 +36,7 @@ export function getVehicleType(v: CatalogVehicle): string {
 
   // Trailers: typically 0 seats, or explicit trailer/cart names
   if (/trailer|\bcart\b/.test(raw)) return 'Trailers'
-  if (v.seats === 0 && v.mass > 0) return 'Trailers'
+  if (v.seats === 0 && typeof v.mass === 'number' && v.mass > 0) return 'Trailers'
 
   // Emergency & Military — check BEFORE generic types to catch police/military variants
   // PZ B42 military CUCV series: M1008, M1009, M1010, M1028 etc.
@@ -52,8 +59,8 @@ export function getVehicleType(v: CatalogVehicle): string {
   if (/\bsuv\b|offroad|off.?road|4x4|\bjeep\b|blazer|\bk5|wrangler|bronco|scout/.test(raw)) return 'SUVs & Off-road'
 
   // Mass/seats-based fallback for uncategorized vehicles
-  if (v.mass > 5000) return 'Trucks'
-  if (v.seats >= 7) return 'Vans & Buses'
+  if (typeof v.mass === 'number' && v.mass > 5000) return 'Trucks'
+  if (typeof v.seats === 'number' && v.seats >= 7) return 'Vans & Buses'
 
   return 'Sedans'
 }
@@ -311,7 +318,7 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
         {selectedVehicle ? (
           <span className="flex-1 min-w-0 truncate">
             <span className="font-medium">{selectedVehicle.name || selectedVehicle.id}</span>
-            {selectedVehicle.seats > 0 && (
+            {typeof selectedVehicle.seats === 'number' && selectedVehicle.seats > 0 && (
               <span className="inline-flex items-center gap-0.5 text-muted-foreground ml-2 text-xs">
                 <Users className="w-3 h-3" />
                 {selectedVehicle.seats}
@@ -430,13 +437,13 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
                           )}
                         >
                           <span className="flex-1 min-w-0 truncate font-medium">{formatVehicleName(veh)}</span>
-                          {veh.seats > 0 && (
+                          {typeof veh.seats === 'number' && veh.seats > 0 && (
                             <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground/60 shrink-0 tabular-nums" title={t('seatsTitle', { count: veh.seats })}>
                               <Users className="w-2.5 h-2.5" />
                               {veh.seats}
                             </span>
                           )}
-                          {veh.mass > 0 && (
+                          {typeof veh.mass === 'number' && veh.mass > 0 && (
                             <span className="text-[10px] text-muted-foreground/40 shrink-0 tabular-nums" title={`${veh.mass}kg`}>
                               {(veh.mass / 1000).toFixed(1)}t
                             </span>

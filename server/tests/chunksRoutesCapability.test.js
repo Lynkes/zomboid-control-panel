@@ -1,9 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import { mockGetRoleByName } from "./helpers/mockPermissionsDb.js";
 
-// chunks.js gates three routes on chunks.manage -- /save-path, /delete-chunks
-// and /delete-region -- and until now none of them had a single test. Two of
-// the three delete player world data. Same shape as
+// chunks.js gates eight routes on chunks.manage -- the three mutating routes
+// (/save-path, /delete-chunks, /delete-region) plus, as of the operator
+// ruling in hunt-wave12 (2026-08-30), the five reads (/saves,
+// /suggested-paths, /chunks/:saveName, /stats/:saveName, /browse) that used
+// to sit only behind the global auth middleware, authed but not
+// permissioned. chunks.manage is the only chunks capability that exists --
+// gating reads behind it couples "can look at saves" to "can delete them,"
+// a deliberate, named tradeoff (see the comment above /saves in
+// routes/chunks.js), not an oversight. Same shape as
 // permissionsFailClosed.test.js: call the gate directly and prove both
 // directions. A test that only proved refusal would pass just as well if the
 // gate had been left in place but "chunks.manage" typo'd into something not
@@ -55,9 +61,14 @@ const CHUNKS_MANAGE_ROUTES = [
   ["/save-path", "post"],
   ["/delete-chunks", "post"],
   ["/delete-region", "post"],
+  ["/saves", "get"],
+  ["/suggested-paths", "get"],
+  ["/chunks/:saveName", "get"],
+  ["/stats/:saveName", "get"],
+  ["/browse", "get"],
 ];
 
-describe("chunks.js: /save-path, /delete-chunks and /delete-region all require chunks.manage", () => {
+describe("chunks.js: all eight routes (three mutating, five read) require chunks.manage", () => {
   it.each(CHUNKS_MANAGE_ROUTES)(
     "refuses a moderator (does not hold chunks.manage) on %s %s",
     async (routePath, method) => {

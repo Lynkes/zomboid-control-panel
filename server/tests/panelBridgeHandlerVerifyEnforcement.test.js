@@ -79,16 +79,20 @@ const GETTERS = new Set([
 // listed here (matched-instead-of-verified, and gate-directly-on-a-string-
 // with-no-stored-flag, respectively) -- as of the 2026-08-23 string-contract
 // migration all four now emit a literal `verified` field, so they no longer
-// need an exemption. Left this note rather than silently deleting the
-// history, since "why isn't X allowlisted anymore" is as worth answering as
-// "why is X allowlisted".
+// need an exemption. restoreUtilities/shutOffUtilities used to be listed too
+// (hydroPowerOn reported as unGated diagnostic data) -- the 2026-08-31 bug
+// hunt found `ok` was never actually gated on that read-back despite the
+// exemption's own wording implying it was, fixed both to gate ok on it for
+// real, so they no longer need an exemption either. triggerSwarmEvent and
+// removeVehicle used to be listed too (both PROVISIONAL) -- see the note
+// near the bottom of this table for what changed and the jar evidence.
+// Left this note rather than silently deleting the history, since "why
+// isn't X allowlisted anymore" is as worth answering as "why is X
+// allowlisted".
 const CANNOT_VERIFY_OR_EQUIVALENT = {
   // Verifies via a differently-named but equivalent mechanism.
-  restoreUtilities: 'hydroPowerOn IS the real read-back (world:isHydroPowerOn()), substituted directly for the field it describes -- no separate flag needed for a single-field outcome.',
-  shutOffUtilities: 'Same mechanism as restoreUtilities.',
   healPlayer: 'The one truly unverifiable path (nil bodyDamage) is gated directly to ok=false; RestoreToFullHealth has no cheap read-back the game exposes.',
   vehicleHotwire: 'No single verifiable end-state exists for a multi-step hotwire sequence -- `actions` documents what ran step by step. (Also the site of the earlier undefined-global crash fix, commit 364c56d.)',
-  runEventSequence: 'Orchestrates other handlers and returns THEIR (ok,data,err) results directly -- each sub-step\'s own verification already applies; re-wrapping it here would be redundant.',
   clearZombiesNearPlayer: 'Reports a real removed-count computed via per-zombie pcall success, not a boolean -- equivalent honesty under a differently-shaped field (`removed`).',
   clearAllZombies: 'Same mechanism as clearZombiesNearPlayer; the ForceKillAllZombies branch is pcall-ceiling by nature of being a bulk fire-and-forget API, the manual fallback counts real removals.',
   removeVehiclesInArea: 'Already counts only real per-vehicle invoke-confirmed removals (fixed from this exact defect once before, per its own comment) -- `removed` is the honest count.',
@@ -97,7 +101,7 @@ const CANNOT_VERIFY_OR_EQUIVALENT = {
   airdrop: 'Counts real per-item placement success into `itemCount`/`failed` -- honest count, not a boolean.',
   killPlayer: 'Already gates the returned `ok` itself on isDead() -- the read-back IS the ok value (this file\'s own gold-standard pattern), no separate field needed.',
   setGameTime: 'Already gates on setAndVerify\'s own read-back-vs-expected comparison per field, failing immediately on a real mismatch (this file\'s other gold-standard pattern).',
-  saveWorld: 'Already gates ok directly on the real pcall result of world:saveWorld() -- this IS the original b376b2c fix, no separate flag needed.',
+  saveWorld: 'Already gates ok directly on the real pcall result of the bare saveGame() global (not world:saveWorld(), which does not exist -- fixed 2026-08-30) -- this IS the original b376b2c fix, no separate flag needed.',
 
   // Genuinely no read-back exists -- confirmed against the real B42 jar,
   // not assumed. This is an API LIMIT: the method is real, it just returns
@@ -138,37 +142,71 @@ const CANNOT_VERIFY_OR_EQUIVALENT = {
   sendToServerChat: 'No delivery receipt exists; already falls through to a useRCON routing signal when neither ChatServer nor player:Say worked -- pcall-not-throwing is the ceiling.',
   sendToAdminChat: 'Same ceiling as sendToServerChat.',
   sendToGeneralChat: 'Same ceiling as sendToServerChat.',
-  triggerHelicopterEvent: 'No observable state confirms a helicopter spawned; pcall-not-throwing across multiple fallback methods is the ceiling.',
+  triggerHelicopterEvent: 'No observable state confirms a helicopter spawned; pcall-not-throwing on the single real API (testHelicopter(), zero-arg, void return -- the four prior fallback tiers were all fabricated and removed 2026-08-30) is the ceiling.',
+  stopHelicopterEvent: 'Same ceiling as triggerHelicopterEvent, same reason: no exposed query for helicopter-event state exists anywhere in the confirmed jar, so pcall-not-throwing on the single real API (endHelicopter(), zero-arg, void return, confirmed 2026-08-30 via javap against the real B42 jar) is the ceiling.',
+  triggerLightning: 'Genuinely unverifiable, confirmed via javap -c against the real jar (ThunderStorm.triggerThunderEvent): when GameServer.server is true it only writes to an internal networkThunderEvent struct and transmits a packet -- no ThunderCloud is created synchronously (that only happens client-side on packet receipt), no boolean or count changes, nothing to read back. Same ceiling class as playWorldSound/triggerGunshot -- pcall-not-throwing is the real ceiling. Was PROVISIONAL; now a confirmed, permanent limit, not a follow-up.',
 
-  // PROVISIONAL -- not yet re-audited against the getFinalValue()/
-  // isEnableAdmin() read-back pattern that handlers.getClimateFloats
-  // already uses. vehicles/safehouse/faction all turned out gateable via
-  // an existing-but-unused getter once checked carefully (see commits
-  // 5c7ad09, 428a87a, 6cc240f) -- these climate/weather handlers are
-  // STRONG CANDIDATES for the same fix, not a confirmed ceiling. Tracked
-  // as a known follow-up so this test stays green without hiding the gap.
-  generateWeather: 'PROVISIONAL: not yet re-checked for a real climate read-back (see getClimateFloats\' own getFinalValue()/isEnableAdmin() usage) -- tracked as a follow-up, same pattern as the vehicle-setter fix.',
-  triggerBlizzard: 'PROVISIONAL: same as generateWeather.',
-  triggerTropicalStorm: 'PROVISIONAL: same as generateWeather.',
-  triggerStorm: 'PROVISIONAL: same as generateWeather.',
-  stopWeather: 'PROVISIONAL: same as generateWeather.',
-  setSnow: 'PROVISIONAL: same as generateWeather.',
-  startRain: 'PROVISIONAL: same as generateWeather.',
-  stopRain: 'PROVISIONAL: same as generateWeather.',
-  triggerLightning: 'PROVISIONAL: same as generateWeather.',
-  setDayLight: 'PROVISIONAL: same as generateWeather -- getClimateFloats reads getFinalValue()/isEnableAdmin() for this exact float.',
-  setNightStrength: 'PROVISIONAL: same as setDayLight.',
-  setDesaturation: 'PROVISIONAL: same as setDayLight.',
-  setViewDistance: 'PROVISIONAL: same as setDayLight.',
-  setAmbient: 'PROVISIONAL: same as setDayLight.',
-  setTemperature: 'PROVISIONAL: same as setDayLight.',
-  setWind: 'PROVISIONAL: same as setDayLight.',
-  setFog: 'PROVISIONAL: same as setDayLight.',
-  setClouds: 'PROVISIONAL: same as setDayLight.',
-  setClimateFloat: 'PROVISIONAL: same as setDayLight -- this handler IS the generic climate-float setter the specific ones above wrap.',
-  resetClimateOverrides: 'PROVISIONAL: reports real resetCount/boolsReset in its fallback branch but the resetAdmin() fast path claims success unconditionally -- tracked as a follow-up.',
-  triggerSwarmEvent: 'PROVISIONAL: same fire-and-forget horde APIs spawnHordeNearPlayer\'s fallback branches had (createHordeInAreaTo/createHordeFromTo/CreateSwarm) -- not yet given the verified/spawned-count treatment those got. Tracked as a follow-up.',
-  removeVehicle: 'PROVISIONAL: pcall+invoke-checked at the call-didn\'t-throw ceiling today; the vehicle\'s subsequent absence from getVehiclesList would be a real confirmation but isn\'t wired up -- tracked as a follow-up now that vehicleSetAlarm etc. proved vehicles ARE gateable.',
+  // 2026-08-31 bug hunt: the "PROVISIONAL, not yet re-audited against
+  // getFinalValue()/isEnableAdmin()" climate/weather block that used to
+  // live here (generateWeather, triggerBlizzard/TropicalStorm/Storm,
+  // stopWeather, setSnow, startRain, stopRain, setDayLight,
+  // setNightStrength, setDesaturation, setViewDistance, setAmbient,
+  // setTemperature, setWind, setFog, setClouds, setClimateFloat,
+  // resetClimateOverrides) is now GONE, not because the read-back pattern
+  // didn't apply -- because getFinalValue() turned out to be the WRONG
+  // read-back for most of them. Confirmed via javap -c:
+  // ClimateFloat/ClimateBool.setAdminValue/setEnableAdmin never call the
+  // private calculate() that actually propagates adminValue into
+  // finalValue -- calculate() only runs from ClimateManager's own tick
+  // loop, unreachable (private) or unsafe (the public update() runs the
+  // full per-tick simulation) to call manually from a handler. Reading
+  // getFinalValue() immediately after a write would risk a FALSE NEGATIVE,
+  // not just a false positive -- worse than the ceiling it would replace.
+  // Fixed instead with read-backs that ARE safe and immediate: getAdminValue()
+  // (a trivial field read of exactly what setAdminValue just wrote, after
+  // the real min/max clamp -- catches silent out-of-range clamping,
+  // something pcall-not-throwing never could) for the admin-override-only
+  // floats (temperature/wind/fog/clouds/setClimateFloat), plus
+  // getFinalValue() ONLY where the specific method called is confirmed
+  // (via its own javap -c read) to synchronously call updateOnTick()
+  // itself before returning (transmitServerStartRain/StopRain -- startRain/
+  // stopRain/stopWeather) or to write finalValue directly, bypassing
+  // calculate() entirely (setPrecipitationIsSnow/setDayLightStrength/
+  // setNightStrength/setDesaturation/setAmbient/setViewDistance -- setSnow
+  // and the five direct-setter fallback floats), plus the real boolean
+  // triggerCustomWeatherStage/triggerCustomWeather themselves return
+  // (the four trigger handlers), plus isEnableAdmin() (also a trivial
+  // field read, no staleness) for resetClimateOverrides and the
+  // disable branch of setClimateFloat. All now emit a real `verified`
+  // field. Same pattern as restoreUtilities/shutOffUtilities's own removal
+  // note above -- left here rather than silently deleted, since "why isn't
+  // X allowlisted anymore" is as worth answering as "why is X allowlisted".
+
+  // 2026-08-31, clearing the last two PROVISIONAL entries (verify-
+  // enforcement-provisionals): triggerSwarmEvent and removeVehicle used to be
+  // listed here, both saying "tracked as a follow-up" with no owner.
+  //
+  // triggerSwarmEvent now gets the same VirtualZombieManager-first,
+  // spawned-count treatment spawnHordeNearPlayer's own fix already
+  // established -- confirmed applicable here too via the real jar:
+  // VirtualZombieManager.createRealZombieNow(float,float,float) is a
+  // general-purpose per-zombie spawn, not player-specific, so the same
+  // primary/fallback split applies to an area with no player reference.
+  //
+  // removeVehicle now re-checks findVehicleById() immediately after removal
+  // and gates `verified` on the vehicle's genuine absence. Confirmed SAFE to
+  // do synchronously via javap -c against the real B42 jar, precisely the
+  // check the ClimateFloat false-negative (see the block above) says to run
+  // before trusting a read-back: BaseVehicle.permanentlyRemove() calls
+  // removeFromWorld() directly in the same call stack, and removeFromWorld()
+  // synchronously does IsoWorld.instance.currentCell.vehicles:remove(this) --
+  // a live java.util.Set, not a tick-deferred queue. IsoCell.getVehicles() is
+  // a trivial `return this.vehicles` field read of that EXACT SAME Set. So
+  // unlike getFinalValue() after setAdminValue, there is no propagation delay
+  // between the write and the read-back here -- confirmed, not assumed.
+  //
+  // Both now emit a literal `verified` field, so neither needs an exemption
+  // anymore.
 };
 
 function loadHandlerLineRanges() {

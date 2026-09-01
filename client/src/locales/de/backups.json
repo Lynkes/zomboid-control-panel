@@ -40,7 +40,8 @@
     "off": "Aus",
     "runsSchedule": "Läuft {{schedule}} · behält {{count}}",
     "noScheduled": "Keine geplanten Backups",
-    "toggleAria": "Geplante Backups umschalten"
+    "toggleAria": "Geplante Backups umschalten",
+    "lastScheduledAttemptFailed": "Letzter geplanter Versuch fehlgeschlagen ({{time}}): {{message}}"
   },
   "schedule": {
     "every15Min": "alle 15 Minuten",
@@ -75,6 +76,9 @@
   "mainCard": {
     "title": "Backup-Dateien",
     "savesNotFound": "Spielständeordner nicht gefunden",
+    "noSavesFolderTitle": "Kein Spielständeordner gefunden",
+    "noSavesFolderDesc": "Das Panel konnte für den aktiven Server keinen Saves/Multiplayer-Ordner finden. Richte einen Server ein, falls noch nicht geschehen, oder starte ihn mindestens einmal — der Ordner wird beim ersten Start angelegt.",
+    "noSavesFolderAction": "Server-Einrichtung öffnen",
     "deleteSelected": "Löschen ({{count}})",
     "deleteOlder": "Ältere löschen",
     "emptyTitle": "Kein Sicherheitsnetz",
@@ -112,6 +116,7 @@
     "bulletStopServer": "Stoppe zuerst den Server.",
     "bulletSafetyBackup": "Das Panel erstellt vor der Wiederherstellung ein Sicherheits-Backup.",
     "bulletUndoRequiresRestore": "Um das rückgängig zu machen, musst du dieses Sicherheits-Backup später selbst wiederherstellen — das geschieht nicht automatisch.",
+    "scopeTip": "Beim Wiederherstellen werden nur die Spielstand-Dateien dieser Welt ersetzt — deine Servereinstellungen, Mods und Workshop-Items bleiben unverändert.",
     "cancel": "Abbrechen",
     "confirm": "Dieses Backup wiederherstellen"
   },

@@ -423,18 +423,46 @@ export const PERK_CATALOG = [
 export const PERKS = PERK_CATALOG.map((perk) => perk.id);
 
 
-// Access levels accepted by PZ's setaccesslevel command.
-// Per the official PZ Admin Commands wiki (Build 42.17.0): admin, moderator,
-// overseer, gm, observer, none.
-// 'user' is also exposed because PZ's in-game player list displays "user" as
-// the default role and some server builds accept it as the demote keyword
-// while reporting that "none" is a no-op.
+// Access levels accepted by PZ's setaccesslevel command, which resolves
+// everything except "none" against zombie.characters.Roles's live,
+// DB-backed role table (see zombie.network.GameServer.changeRole()).
+//
+// hunt-wave13-2026-08-30: previously cited "the official PZ Admin Commands
+// wiki (Build 42.17.0)" -- a documentation citation with its own expiry
+// date, and it was wrong in both directions. Replaced with jar evidence:
+// the real setupRole() id literals found in zombie/characters/Roles.class,
+// buildid 24909800 (this could NOT be mapped to a human-readable 42.x.y
+// version string -- whether this build actually IS 42.17.0 is genuinely
+// unknown). Re-derive with scripts/jar-audit's classfile-parser.mjs
+// (parseClass + listMethodRefs against SetAccessLevelCommand.class,
+// GameServer.class, and Roles.class) against a newer jar to re-verify
+// rather than re-trusting a wiki.
+//
+// - 'overseer' REMOVED: Roles.class declares a getDefaultForOverseer()
+//   method, but no "overseer"/"oversee" id literal backs it anywhere in the
+//   class or the wider jar -- the same fingerprint as getDefaultForNewUser(),
+//   which is independently known not to be a real settable level. On a
+//   default server this can only ever produce "Access Level 'overseer'
+//   unknown, list of access level: ..." -- already correctly classified as
+//   a rejection by rcon.js's KNOWN_RCON_REJECTIONS, so this was a UX defect
+//   (a dropdown choice that always fails), not a silent-success lie.
+// - 'priority' ADDED: a real setupRole() id, backing
+//   getDefaultForPriorityUser() (in-game display name "PriorityUser").
+//   Was previously impossible to set from this panel at all -- the
+//   opposite-direction defect from overseer.
+// - 'none' is a SPECIAL CASE: SetAccessLevelCommand checks for the literal
+//   "none" directly in its own bytecode and never reaches the Roles table
+//   for it -- any future validation against Roles/getRoles() would need to
+//   special-case "none" too, or it would incorrectly reject a level the
+//   server actually accepts.
+// - 'admin', 'moderator', 'gm', 'observer', 'user' are all confirmed
+//   setupRole() id literals in Roles.class.
 export const ACCESS_LEVELS = [
   'admin',
   'moderator',
-  'overseer',
   'gm',
   'observer',
+  'priority',
   'user',
   'none'
 ];

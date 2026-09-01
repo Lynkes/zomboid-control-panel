@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Search, RefreshCw, Loader2, X, AlertCircle, SearchX, LayoutGrid,
-  Package, Car, User, Sparkles, Minus, Plus, RotateCw, HelpCircle,
+  Package, Car, User, Sparkles, Minus, Plus, RotateCw, HelpCircle, Trash2,
 } from 'lucide-react'
 import {
   Dialog, DialogContent, DialogTitle, DialogDescription,
@@ -64,6 +64,14 @@ function saveRecent(mode: SpawnMode, entries: RecentEntry[]) {
     localStorage.setItem(RECENT_KEY_PREFIX + mode, JSON.stringify(entries.slice(0, MAX_RECENT)))
   } catch {
     // storage quota / disabled — fine, ephemeral fallback
+  }
+}
+
+function clearRecent(mode: SpawnMode) {
+  try {
+    localStorage.removeItem(RECENT_KEY_PREFIX + mode)
+  } catch {
+    // storage disabled — clearing the in-memory state still hides the rail
   }
 }
 
@@ -368,6 +376,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
       <DialogContent
         className={cn(
           'p-0 gap-0 overflow-hidden border-border/70',
+          'min-w-0',
           'w-[min(1200px,95vw)] max-w-[min(1200px,95vw)]',
           'h-[min(780px,90vh)]',
           'grid grid-rows-[auto_auto_1fr_auto]'
@@ -446,7 +455,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
         </div>
 
         {/* ========== BODY ========== */}
-        <div className="grid grid-cols-[220px_1fr] min-h-0">
+        <div className="grid grid-cols-[220px_1fr] min-h-0 min-w-0">
           {/* ----- Category sidebar ----- */}
           <aside className="border-r border-border/70 bg-card/40 overflow-y-auto overscroll-contain">
             <div className="sticky top-0 z-10 bg-card/80 backdrop-blur-sm px-3 pt-3 pb-1.5 text-[10px] uppercase tracking-[0.2em] font-semibold text-muted-foreground/60">
@@ -582,45 +591,67 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
         </div>
 
         {/* ========== FOOTER / ACTION BAR ========== */}
-        <footer className="border-t border-border/70 bg-card/50 shrink-0">
+        <footer className="min-w-0 border-t border-border/70 bg-card/50 shrink-0">
           {/* Recent rail */}
           {recent.length > 0 && (
-            <div className="flex items-center gap-2 border-b border-border/40 px-4 h-10 overflow-x-auto overscroll-contain">
+            <div
+              role="group"
+              aria-label={t('recent')}
+              className="flex min-w-0 items-center gap-2 border-b border-border/40 px-4 h-10"
+            >
               <span className="text-[10px] uppercase tracking-[0.18em] font-semibold text-muted-foreground/60 shrink-0">
                 {t('recent')}
               </span>
-              <div className="flex items-center gap-1.5 min-w-0">
-                {recent.map(r => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => {
-                      if (isItems) setQty(r.qty)
-                      void handleSpawn(r.id, isItems ? r.qty : undefined)
-                    }}
-                    disabled={spawning || (isItems && !playerName)}
-                    className={cn(
-                      'group flex items-center gap-1.5 h-7 px-2.5 rounded-full border text-[11px] shrink-0',
-                      'border-border/60 bg-background/40 text-foreground/90 hover:bg-primary/10 hover:border-primary/40 hover:text-primary',
-                      'motion-safe:transition-colors duration-100',
-                      'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-background/40 disabled:hover:border-border/60 disabled:hover:text-foreground/90'
-                    )}
-                    // eslint-disable-next-line local/no-dead-disabled-title -- pure hint naming the action ("Spawn X again"); when disabled for the isItems-without-a-player case, the actual reason is already surfaced visibly in this dialog's own hint row below (t('pickPlayerFirst')), so nothing is hidden. Triaged 2026-08-27.
-                    title={isItems ? t('spawnAgainTitleWithQty', { name: r.name, qty: r.qty }) : t('spawnAgainTitle', { name: r.name })}
-                  >
-                    <RotateCw className="w-3 h-3 opacity-50 motion-safe:group-hover:opacity-100 motion-safe:transition-opacity" />
-                    <span className="truncate max-w-[160px]">{r.name}</span>
-                    {isItems && r.qty > 1 && (
-                      <span className="tabular-nums text-muted-foreground/70 group-hover:text-primary/80">× {r.qty}</span>
-                    )}
-                  </button>
-                ))}
+              <div
+                data-slot="recent-history-scroll"
+                className="min-w-0 flex-1 overflow-x-auto overscroll-contain"
+              >
+                <div className="flex w-max items-center gap-1.5 pr-1">
+                  {recent.map(r => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => {
+                        if (isItems) setQty(r.qty)
+                        void handleSpawn(r.id, isItems ? r.qty : undefined)
+                      }}
+                      disabled={spawning || (isItems && !playerName)}
+                      className={cn(
+                        'group flex items-center gap-1.5 h-7 px-2.5 rounded-full border text-[11px] shrink-0',
+                        'border-border/60 bg-background/40 text-foreground/90 hover:bg-primary/10 hover:border-primary/40 hover:text-primary',
+                        'motion-safe:transition-colors duration-100',
+                        'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-background/40 disabled:hover:border-border/60 disabled:hover:text-foreground/90'
+                      )}
+                      // eslint-disable-next-line local/no-dead-disabled-title -- pure hint naming the action ("Spawn X again"); when disabled for the isItems-without-a-player case, the actual reason is already surfaced visibly in this dialog's own hint row below (t('pickPlayerFirst')), so nothing is hidden. Triaged 2026-08-27.
+                      title={isItems ? t('spawnAgainTitleWithQty', { name: r.name, qty: r.qty }) : t('spawnAgainTitle', { name: r.name })}
+                    >
+                      <RotateCw className="w-3 h-3 opacity-50 motion-safe:group-hover:opacity-100 motion-safe:transition-opacity" />
+                      <span className="truncate max-w-[160px]">{r.name}</span>
+                      {isItems && r.qty > 1 && (
+                        <span className="tabular-nums text-muted-foreground/70 group-hover:text-primary/80">× {r.qty}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
               </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setRecent([])
+                  clearRecent(mode)
+                }}
+                className="flex h-7 shrink-0 items-center gap-1 rounded-sm px-2 text-[11px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                aria-label={t('clearRecentAria')}
+                title={t('clearRecentAria')}
+              >
+                <Trash2 className="h-3 w-3" />
+                <span className="hidden sm:inline">{t('clearRecent')}</span>
+              </button>
             </div>
           )}
 
           {/* Action row */}
-          <div className="flex items-center gap-3 px-4 py-3">
+          <div className="flex min-w-0 items-center gap-3 px-4 py-3">
             {/* Selection summary */}
             <div className="flex-1 min-w-0">
               {selectedRow ? (
@@ -783,17 +814,17 @@ function ResultRow({
           )}>
             {name}
           </span>
-          {isItem && row.it.weight > 0 && (
+          {isItem && typeof row.it.weight === 'number' && row.it.weight > 0 && (
             <span className="text-[10px] text-muted-foreground/60 tabular-nums shrink-0 px-1.5 py-0.5 rounded bg-muted/40">
               {fmtWeight(row.it.weight)}
             </span>
           )}
-          {!isItem && row.v.seats > 0 && (
+          {!isItem && typeof row.v.seats === 'number' && row.v.seats > 0 && (
             <span className="text-[10px] text-muted-foreground/60 tabular-nums shrink-0 px-1.5 py-0.5 rounded bg-muted/40">
               {t('seatsTitle', { count: row.v.seats })}
             </span>
           )}
-          {!isItem && row.v.mass > 0 && (
+          {!isItem && typeof row.v.mass === 'number' && row.v.mass > 0 && (
             <span className="text-[10px] text-muted-foreground/50 tabular-nums shrink-0">
               {(row.v.mass / 1000).toFixed(1)}t
             </span>

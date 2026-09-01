@@ -23,6 +23,10 @@ import { sanitizeError } from "../utils/sanitize.js";
 import { describeStartFailure } from "./discordStartFailure.js";
 import { readIniValues } from "../utils/templateFiles.js";
 import { runManagedLifecycle } from "./managedContainer.js";
+import {
+  collectKnownSecretValues,
+  redactKnownSecrets,
+} from "../utils/discordMessageRedaction.js";
 
 // Workaround for undici 8.x + Node.js 22+/24+: undici adds Symbol(sensitiveHeaders)
 // to response header objects, but the WebIDL ByteString converter in undici's
@@ -47,10 +51,33 @@ async function _resolveDiscordBody(body) {
   throw new TypeError("Unable to resolve body.");
 }
 
+// hunt-wave6-2026-08-29 follow-up 1: this is THE boundary every outbound
+// Discord API call passes through -- channel.send(), interaction.reply()/
+// editReply(), slash-command registration, everything -- because it's wired
+// as the REST transport for the Client itself (see the `rest.makeRequest`
+// option in start()) and for every other manually-created REST instance in
+// this file. Redacting known secret VALUES here, rather than inside
+// handleRcon() or any other individual sender, means the guard covers the
+// success branch, the failure branch, and any future sender nobody has
+// written yet -- see utils/discordMessageRedaction.js's header for the full
+// reasoning (exact-value match, not a shape heuristic).
 async function _safeDiscordMakeRequest(url, init) {
+  let body = await _resolveDiscordBody(init.body);
+  if (typeof body === "string" && body) {
+    try {
+      const secrets = await collectKnownSecretValues();
+      body = redactKnownSecrets(body, secrets);
+    } catch (err) {
+      // Never let a secrets lookup failure block a send outright, but never
+      // send the ORIGINAL unredacted body either if redaction couldn't run --
+      // that would silently reopen exactly the leak this exists to close.
+      log.error(`Discord outbound redaction check failed, blocking this send: ${err.message}`);
+      throw err;
+    }
+  }
   const res = await undiciRequest(url, {
     ...init,
-    body: await _resolveDiscordBody(init.body),
+    body,
   });
   return {
     body: res.body,
@@ -130,6 +157,12 @@ const DEFAULT_COMMAND_PERMISSIONS = {
 
 const LIFECYCLE_DEDUPE_WINDOW_MS = 60_000;
 const PLAYER_PRESENCE_INTERVAL_MS = 60_000;
+// How long a gateway reconnect must persist before getStatus() reports it —
+// well above the ~2-3s a real RESUME took in
+// server/tests/linuxDiscordGatewayResilience.test.js, so a routine blip
+// self-heals silently and only a genuinely stuck reconnect (or a permanent
+// shardDisconnect, which never clears on its own) reaches the operator.
+const GATEWAY_DEGRADED_THRESHOLD_MS = 30_000;
 
 export class DiscordBot {
   constructor(rconService, serverManager, scheduler, logTailer = null) {
@@ -163,6 +196,22 @@ export class DiscordBot {
     // Tracked per channel: a chat relay pointed at a deleted channel must not
     // silence server notifications going to a perfectly healthy one.
     this._channelBreakers = new Map(); // channelId -> {failures, openUntil, suppressed}
+
+    // hunt-wave6-2026-08-29 suspect 6: getStatus() used to have no field at
+    // all for gateway health, so a real (self-healing) heartbeat black hole
+    // or a permanent (unrecoverable) shard disconnect both left `running`
+    // reporting true throughout — an operator watching the page saw a
+    // healthy bot while alerting was actually down, the same gap already
+    // fixed for panel update checks. Set on 'shardReconnecting' (any
+    // recoverable close, including a zombie connection @discordjs/ws just
+    // detected) and 'shardDisconnect' (unrecoverable — never coming back on
+    // its own); cleared on 'shardResume' (session preserved) or 'shardReady'
+    // (a fresh IDENTIFY succeeded). getStatus() debounces this against
+    // GATEWAY_DEGRADED_THRESHOLD_MS before surfacing it — a routine RESUME
+    // measured at ~2-3s in server/tests/linuxDiscordGatewayResilience.test.js
+    // must not flip this on every blip, or the signal trains the operator to
+    // ignore it, which is worse than no signal at all.
+    this._gatewayDegradedSince = null;
 
     // Lifecycle dedupe — serverStart/serverStop webhooks can be triggered
     // from several paths (HTTP /start /stop /force-stop, Discord slash
@@ -431,7 +480,13 @@ export class DiscordBot {
   async updateConfig(token, guildId, adminRoleId, channelId, modRoleId) {
     writeUiSecretFile("discordBotToken", token);
     await setSetting("discordGuildId", guildId);
-    await setSetting("discordAdminRoleId", adminRoleId);
+    // adminRoleId normalized the same way modRoleId already is, both here
+    // and below -- without this, this.adminRoleId was stored RAW forever
+    // (never normalized, not even after this same function ran once), so
+    // once an empty adminRoleId had ever been saved, rolesChanged compared
+    // "" !== null on every subsequent unrelated config save and spuriously
+    // re-registered Discord slash commands every time.
+    await setSetting("discordAdminRoleId", adminRoleId || "");
     await setSetting("discordModRoleId", modRoleId || "");
     await setSetting("discordChannelId", channelId || "");
 
@@ -441,7 +496,7 @@ export class DiscordBot {
       this.modRoleId !== (modRoleId || null);
     this.token = token;
     this.guildId = guildId;
-    this.adminRoleId = adminRoleId;
+    this.adminRoleId = adminRoleId || null;
     this.modRoleId = modRoleId || null;
     this.channelId = channelId;
 
@@ -1278,6 +1333,21 @@ export class DiscordBot {
 
     const FAILURE_THRESHOLD = 3;
     const COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+    // @discordjs/rest retries a 429 indefinitely with NO attempt cap: its
+    // runRequest() re-recurses on every 429 response without ever
+    // incrementing the same `retries` counter a non-429 failure uses (that
+    // path IS capped, at options.retries = 3). Confirmed empirically against
+    // a real (mocked) Discord API that returns 429 on every attempt:
+    // channel.send() sat unresolved past 60s with nothing logged, because
+    // the catch block below — and the circuit breaker it drives — is never
+    // reached while the promise never settles. A sustained rate limit is a
+    // real scenario (global rate limit, temporary token flag), and without
+    // this bound it silently wedges every future send the same way, forever
+    // — the exact "reports nothing, reaches nobody" shape this bot exists to
+    // avoid. This does not change discord.js's own retry behavior; it only
+    // stops US from waiting on it past a sane ceiling so the breaker can do
+    // its job. See server/tests/linuxDiscordSendTimeout.test.js.
+    const SEND_TIMEOUT_MS = 30 * 1000;
     const now = Date.now();
     const breaker = this._breakerFor(channelId);
 
@@ -1291,7 +1361,24 @@ export class DiscordBot {
       if (!channel?.isTextBased?.() || typeof channel.send !== "function") {
         throw new Error("Configured channel is not a sendable text channel");
       }
-      await channel.send(message);
+      const sendPromise = channel.send(message);
+      // If the timeout wins the race, the original send is still pending
+      // somewhere inside discord.js's retry loop — swallow whatever it
+      // eventually does so it can't surface as an unhandled rejection long
+      // after we've stopped waiting on it.
+      sendPromise.catch(() => {});
+      await Promise.race([
+        sendPromise,
+        new Promise((_resolve, reject) =>
+          setTimeout(() => {
+            const timeoutError = new Error(
+              `Discord send timed out after ${SEND_TIMEOUT_MS}ms (ETIMEDOUT)`,
+            );
+            timeoutError.code = "ETIMEDOUT";
+            reject(timeoutError);
+          }, SEND_TIMEOUT_MS),
+        ),
+      ]);
       if (breaker.failures > 0 || breaker.suppressed > 0) {
         if (breaker.suppressed > 0) {
           log.info(
@@ -1304,7 +1391,19 @@ export class DiscordBot {
       return true;
     } catch (error) {
       breaker.failures++;
+      // A 5xx is Discord's own outage, not our configuration — classify it
+      // alongside the network-level codes below rather than lumping it in
+      // with "channel deleted / missing perms", which used to give a
+      // transient Discord-side outage the same 30-minute (mis)treatment as
+      // a real config problem, AND logged a misleading "misconfigured"
+      // reason for something an admin can't fix by touching settings.
+      // error.status is set by both of @discordjs/rest's own error classes
+      // (DiscordAPIError, HTTPError) — checking it is exact, unlike sniffing
+      // error.message for a status-shaped substring.
       const transient =
+        (typeof error.status === "number" &&
+          error.status >= 500 &&
+          error.status < 600) ||
         /EAI_AGAIN|ENOTFOUND|ETIMEDOUT|ECONNRESET|ECONNREFUSED|Connect Timeout|fetch failed|UND_ERR/i.test(
           error.message || "",
         );
@@ -1599,6 +1698,25 @@ export class DiscordBot {
       log.error(`client error: ${error.stack || error.message}`);
     });
 
+    // See the _gatewayDegradedSince comment in the constructor for why these
+    // four specifically (not shardError, which fires for transport errors
+    // that don't necessarily change connection state on their own).
+    this.client.on("shardReconnecting", () => {
+      if (!this._gatewayDegradedSince) this._gatewayDegradedSince = Date.now();
+    });
+    this.client.on("shardDisconnect", (event) => {
+      if (!this._gatewayDegradedSince) this._gatewayDegradedSince = Date.now();
+      log.error(
+        `Discord gateway shard disconnected and will not reconnect on its own (code ${event?.code}).`,
+      );
+    });
+    this.client.on("shardResume", () => {
+      this._gatewayDegradedSince = null;
+    });
+    this.client.on("shardReady", () => {
+      this._gatewayDegradedSince = null;
+    });
+
     try {
       // Await the 'clientReady' event so that isRunning === true before start() returns.
       // client.login() resolves when the WebSocket authenticates; 'clientReady' fires after.
@@ -1681,6 +1799,7 @@ export class DiscordBot {
       this._lastLifecycleAt = 0;
       // Reset breaker state too — stale failure counts shouldn't carry over.
       this._channelBreakers.clear();
+      this._gatewayDegradedSince = null;
       this._chatRelayChain = Promise.resolve();
       this._chatRelayPending = 0;
       this._chatRelayDropped = 0;
@@ -1692,6 +1811,15 @@ export class DiscordBot {
   }
 
   getStatus() {
+    // Debounced, not raw: a shardReconnecting-to-shardResume/shardReady
+    // round trip well under this threshold is exactly what a healthy
+    // connection recovering from a normal blip looks like (see suspect 4's
+    // proof) — surfacing that to the operator every time would train them
+    // to ignore the signal, which is worse than not having it.
+    const gatewayIssue = Boolean(
+      this._gatewayDegradedSince &&
+        Date.now() - this._gatewayDegradedSince >= GATEWAY_DEGRADED_THRESHOLD_MS,
+    );
     return {
       running: this.isRunning,
       configured: !!this.token,
@@ -1705,6 +1833,13 @@ export class DiscordBot {
       // succeeds (see the clientReady handler in start()).
       lastStartError: this.lastStartError
         ? { kind: this.lastStartError.kind, message: describeStartFailure(this.lastStartError) }
+        : null,
+      // gatewayDegradedSince is the raw episode-start timestamp (ISO string,
+      // or null when healthy) -- the client uses it as the dismissal key so
+      // dismissing THIS episode doesn't silence a later, different one.
+      gatewayIssue,
+      gatewayDegradedSince: gatewayIssue
+        ? new Date(this._gatewayDegradedSince).toISOString()
         : null,
     };
   }

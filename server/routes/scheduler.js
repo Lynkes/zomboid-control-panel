@@ -19,6 +19,7 @@ import { requiredCapabilityForScheduledCommand } from '../services/scheduler.js'
 import {
   hasUnsupportedCronFieldCount,
   isCronTooFrequent,
+  isValidIanaTimezone,
 } from '../utils/cronValidation.js';
 import { parseBoundedInteger, parseClampedInteger } from '../utils/queryNumbers.js';
 
@@ -137,6 +138,42 @@ router.get('/status', async (req, res) => {
     res.json(status);
   } catch (error) {
     log.error(`Failed to get scheduler status: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Set the install-wide timezone every schedule (user tasks, the backup job,
+// AUTO_RESTART_CRON alike) is interpreted in. Gated by the router-level
+// automation.manage check above -- this is scheduler CONFIGURATION, not an
+// action a scheduled command performs, so no per-command capability layering
+// applies the way it does for POST /tasks etc.
+router.put('/timezone', async (req, res) => {
+  try {
+    const scheduler = req.app.get('scheduler');
+    const timezone = typeof req.body?.timezone === 'string' ? req.body.timezone.trim() : '';
+    log.info(`PUT /timezone: ${timezone}`);
+
+    if (!timezone) {
+      return res.status(400).json({ error: 'A timezone is required', code: ErrorCode.SCHEDULER_TIMEZONE_REQUIRED });
+    }
+
+    // Validated here, not just inside scheduler.setTimezone() -- refused at
+    // save time with a specific error, matching every other field this
+    // router validates before persisting (2026-08-29 timezone-picker card,
+    // requirement 3: an invalid zone accepted here would only surface as a
+    // node-cron throw the night a schedule actually tries to fire).
+    if (!isValidIanaTimezone(timezone)) {
+      return res.status(400).json({
+        error: `"${timezone}" is not a valid timezone name (e.g. "America/New_York", "UTC")`,
+        code: ErrorCode.SCHEDULER_INVALID_TIMEZONE,
+        params: sanitizeErrorParams({ tz: timezone }),
+      });
+    }
+
+    const status = await scheduler.setTimezone(timezone);
+    res.json({ success: true, ...status });
+  } catch (error) {
+    log.error(`Failed to update scheduler timezone: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
   }
 });

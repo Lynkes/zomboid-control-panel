@@ -757,12 +757,66 @@ async function fetchTileWithRetry(url) {
   }
 }
 
-async function serveTile(req, res, url, contentType, relPath) {
+// hunt-wave10-2026-08-29 (suspect 4, REAL): the browser-facing tile URL
+// (/api/map/tiles/:level/:tile, no :dir segment — see the comment on
+// buildDirectTileUrl in WorldMap.tsx) carries no identifier for WHICH
+// resolved B42 build (getB42Dir()) produced the bytes at that URL, but this
+// server-side disk/mem cache IS namespaced by dir (relPath includes it for
+// the b42 routes). A long browser Cache-Control on an un-namespaced URL
+// means: if the resolved build changes (getB42Map() re-resolves at most
+// once per B42_DIR_TTL_MS, and does change over a PZ B42 beta's lifetime),
+// a browser that already cached a tile under the old build keeps serving
+// those bytes for the rest of the max-age window, silently mixed with
+// freshly-fetched new-build tiles for other coordinates -- "the operator's
+// browser keeps showing the old world" for tiles it had already visited.
+// Bounded to the SAME freshness window as /resolve's own Cache-Control
+// (below) rather than the previous 7 days, so a stale tile can never
+// outlive the client's own belief about which build is current by more
+// than an hour -- and a "miss" here is still served instantly from this
+// file's own disk/mem cache (Tier 1/2 above), so shortening this does not
+// reintroduce a real upstream round-trip on the common path.
+//
+// hunt-wave12-2026-08-30 (version-the-tile-url-by-resolved-b42-build): the
+// 1h bound above CAPS staleness, it doesn't eliminate it -- it exists only
+// because the browser-facing URL for /tiles and /toptiles has no component
+// identifying which resolved B42 build (getB42Dir()) produced the bytes.
+// WorldMap.tsx and ChunkCleaner.tsx now append `?v=<resolvedB42Dir>` (see
+// their own comments) once they know the current build, making the URL
+// itself an accurate cache key -- two different builds are two different
+// URLs, so a browser can never serve one build's bytes under a request
+// meant for another. When a request carries that marker, the content is
+// provably stable at that URL forever (a future build gets a new `v`, an
+// old cached entry with a stale `v` simply stops being reachable, never
+// gets revalidated-and-found-wrong), so it's safe to cache indefinitely.
+// The SERVER never reads or validates the actual VALUE of `v` -- it's
+// pure client-side cache-key bookkeeping; this file always resolves and
+// serves whatever getB42Dir() says is current regardless of what a caller
+// passed, so a caller with a stale `v` still gets fresh, correct bytes,
+// just fetched under a URL string that no longer perfectly names them.
+// Requests WITHOUT the marker (an old cached JS bundle from before this
+// change, a direct/manual request, /b41tiles which has no dynamic
+// resolution to version at all) keep the original bounded value -- the
+// safe fallback for anything that hasn't opted into the accurate cache key.
+const TILE_BROWSER_CACHE_CONTROL = "public, max-age=3600";
+const TILE_BROWSER_CACHE_CONTROL_VERSIONED =
+  "public, max-age=604800, immutable";
+
+// True when the request names the resolved build it was built against --
+// see the TILE_BROWSER_CACHE_CONTROL_VERSIONED comment above for why that's
+// enough to trust a long cache lifetime. The VALUE is deliberately never
+// inspected past "present and non-empty": it never reaches a path, a URL,
+// or a log line, so it needs no further validation.
+function requestIsVersioned(req) {
+  const v = Array.isArray(req.query.v) ? req.query.v[0] : req.query.v;
+  return typeof v === "string" && v.length > 0;
+}
+
+async function serveTile(req, res, url, contentType, relPath, cacheControl) {
   // Tier 1: in-memory LRU — fastest, no I/O at all.
   const hot = memCacheGet(relPath);
   if (hot) {
     res.set("Content-Type", hot.contentType);
-    res.set("Cache-Control", "public, max-age=604800"); // 7 days
+    res.set("Cache-Control", cacheControl);
     res.set("X-Tile-Cache", "hit-mem");
     res.send(hot.buffer);
     return;
@@ -774,7 +828,7 @@ async function serveTile(req, res, url, contentType, relPath) {
   if (onDisk) {
     memCachePut(relPath, onDisk, contentType);
     res.set("Content-Type", contentType);
-    res.set("Cache-Control", "public, max-age=604800");
+    res.set("Cache-Control", cacheControl);
     res.set("X-Tile-Cache", "hit-disk");
     res.send(onDisk);
     return;
@@ -805,7 +859,7 @@ async function serveTile(req, res, url, contentType, relPath) {
     memCachePut(relPath, buffer, contentType);
     writeDiskCacheAsync(relPath, buffer);
     res.set("Content-Type", contentType);
-    res.set("Cache-Control", "public, max-age=604800");
+    res.set("Cache-Control", cacheControl);
     res.set("X-Tile-Cache", "miss");
     res.send(buffer);
   } catch (err) {
@@ -908,7 +962,10 @@ router.get("/tiles/:level/:tile", async (req, res) => {
   const url = `${PZ_TILES_ROOT}/${dir}/base/layer${floor}_files/${level}/${tile}`;
   const contentType = "image/jpeg";
   const relPath = path.join("b42", dir, `layer${floor}`, String(level), tile);
-  await serveTile(req, res, url, contentType, relPath);
+  const cacheControl = requestIsVersioned(req)
+    ? TILE_BROWSER_CACHE_CONTROL_VERSIONED
+    : TILE_BROWSER_CACHE_CONTROL;
+  await serveTile(req, res, url, contentType, relPath, cacheControl);
 });
 
 // Proxy B42 top-down DZI tiles (used by ChunkCleaner for overhead map view).
@@ -933,7 +990,10 @@ router.get("/toptiles/:level/:tile", async (req, res) => {
   const upstreamTile = `${parsed[1]}.${format}`;
   const url = `${PZ_TILES_ROOT}/${dir}/base_top/layer0_files/${level}/${upstreamTile}`;
   const relPath = path.join("b42-top", dir, String(level), upstreamTile);
-  await serveTile(req, res, url, TOP_CONTENT_TYPES[format], relPath);
+  const cacheControl = requestIsVersioned(req)
+    ? TILE_BROWSER_CACHE_CONTROL_VERSIONED
+    : TILE_BROWSER_CACHE_CONTROL;
+  await serveTile(req, res, url, TOP_CONTENT_TYPES[format], relPath, cacheControl);
 });
 
 // Proxy B41 DZI tiles from tiles.pzmap.org.
@@ -950,7 +1010,11 @@ router.get("/b41tiles/:level/:tile", async (req, res) => {
 
   const url = `${PZ_TILES_ROOT}/41.78.16/base/layer0_files/${level}/${tile}`;
   const relPath = path.join("b41", String(level), tile);
-  await serveTile(req, res, url, "image/jpeg", relPath);
+  // B41's directory is the hardcoded literal above, never dynamically
+  // resolved -- there's no build-drift staleness risk here to version
+  // against (see the header comment on TILE_BROWSER_CACHE_CONTROL_VERSIONED),
+  // so this route stays on the original bounded value regardless of `v`.
+  await serveTile(req, res, url, "image/jpeg", relPath, TILE_BROWSER_CACHE_CONTROL);
 });
 
 export default router;

@@ -76,6 +76,12 @@ const PINNED_UNTEMPLATED_ACTIONS = [
   "clearZombiesNearPlayer",
   "createFaction",
   "createNoise",
+  // Added 2026-08-29 (pin-literal-sendcommand-strings-against-valid-actions):
+  // debugItemScript is a diagnostics probe reached through its own
+  // permission-gated route (POST /catalog/debug-item-script), not something
+  // an operator-facing world-event template belongs on -- correctly
+  // untemplated, not a gap.
+  "debugItemScript",
   "exportPlayerData",
   "generateWeather",
   "getAllPlayerDetails",
@@ -135,6 +141,7 @@ const PINNED_UNTEMPLATED_ACTIONS = [
   "spawnHordeNearPlayer",
   "spawnVehicleAt",
   "startRain",
+  "stopHelicopterEvent",
   "stopRain",
   "stopWeather",
   "teleportPlayer",

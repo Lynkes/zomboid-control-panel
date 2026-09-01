@@ -79,6 +79,8 @@
     "hostUnreachableDesc": "Demare sèvè a, epi konfime lame, pò, ak modpas RCON nan Paramèt Panèl.",
     "authFailedTitle": "otantifikasyon echwe",
     "authFailedDesc": "Lame a reyachab — konfime modpas RCON nan Sèvè m yo.",
+    "droppedTitle": "koneksyon tonbe",
+    "droppedDesc": "RCON dekonekte pandan l t ap egzekite yon kòmand. Lame a, pò a, ak modpas la fèk konfime kòrèk -- chwazi \"Tcheke ankò\" anwo a depi w kwè koneksyon an tounen.",
     "outputLabel": "rezilta rcon",
     "entries_one": "{{count}} antre",
     "entries_other": "{{count}} antre",
@@ -88,6 +90,8 @@
     "noCommandsTitle": "Poko gen kòmand",
     "noCommandsDesc": "Fè kouri yon kòmand RCON pou wè repons lan isit la.",
     "quickLabel": "rapid",
+    "commandLabel": "kòmand",
+    "commandTip": "Kòmand isit yo egzekite imedyatman sou sèvè k ap fonksyone a, san okenn etap konfimasyon — menm pou yon bagay ki rete sèvè a oswa ki retire yon jwè. Si ou pa sèten sa yon kòmand fè, verifye l anvan ou egzekite l; pifò pa gen fason pou defèt yo.",
     "promptPrefix": "rcon $",
     "placeholder": "tape yon kòmand…",
     "inputAria": "Antre kòmand RCON",
@@ -95,7 +99,8 @@
     "run": "kouri",
     "keyboardHint": "// antre · kouri · ↑↓ istwa",
     "noResponseFallback": "Pa gen repons",
-    "noPermission": "Wòl ou pa gen pèmisyon pou egzekite kòmand RCON."
+    "noPermission": "Wòl ou pa gen pèmisyon pou egzekite kòmand RCON.",
+    "disconnectedUseRecheck": "RCON pa aksesib kounye a -- chwazi \"Tcheke ankò\" anwo a anvan w eseye ankò."
   },
   "quickCommands": {
     "players": "Jwè",

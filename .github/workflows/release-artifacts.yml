@@ -79,11 +79,12 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path release\* -DestinationPath ${{ matrix.archive_file }}
 
-      - name: Package Linux archive
-        if: runner.os == 'Linux'
-        run: |
-          chmod +x release/ZomboidControlPanel release/start.sh
-          tar -czf ${{ matrix.archive_file }} -C release .
+      # Linux packaging is no longer a separate step: build.js itself writes
+      # ZomboidControlPanel-linux.tar.gz with explicit per-entry mode bits as
+      # part of the "Build" step above, so this leg exercises the exact same
+      # packaging code a developer runs locally via `npm run build:exe:linux`
+      # -- one path, not a CI-only recipe a local build can silently diverge
+      # from.
 
       - name: Upload archive
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

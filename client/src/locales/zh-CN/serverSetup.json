@@ -97,7 +97,7 @@
     "debugAria": "启用调试模式",
     "customConfigLocation": "自定义配置位置",
     "customConfigLocationHelp": "Project Zomboid 通常会把存档、服务器配置和日志保存在安装文件夹旁边。只有当这些数据确实存放在别处时才需要设置此项——例如另一块磁盘，或 Docker 中的绑定挂载文件夹。如果指向了错误的文件夹，面板将找不到你现有的存档、设置或备份。",
-    "customDataPathPlaceholder": "例如 C:\\Users\\你的用户名\\Zomboid 或 /home/你的用户名/Zomboid",
+    "customDataPathPlaceholder": "Path to the Zomboid data folder",
     "useCustomLocation": "使用自定义位置",
     "serverNameLabel": "服务器名称",
     "serverNamePlaceholder": "myserver",
@@ -118,7 +118,9 @@
     "progressComplete": "完成！",
     "noPermissionInstall": "安装服务器需要 server.install 权限，而该角色没有此权限。",
     "noPermissionSettings": "保存此设置需要 panel.settings 权限，而该角色没有此权限。",
-    "noPermissionControl": "启动服务器需要 server.control 权限，而该角色没有此权限。"
+    "noPermissionControl": "启动服务器需要 server.control 权限，而该角色没有此权限。",
+    "customDataPathPlaceholderWindows": "e.g. C:\\Users\\you\\Zomboid or %USERPROFILE%\\Zomboid",
+    "customDataPathPlaceholderPosix": "e.g. /home/you/Zomboid or $HOME/Zomboid"
   },
   "full": {
     "pageTitle": "全新安装",
@@ -134,20 +136,22 @@
       "manualTrigger": "已经有 SteamCMD？手动设置文件夹",
       "manualTitle": "手动设置",
       "manualStep1": "从 Valve 下载 SteamCMD",
-      "manualStep2": "解压到一个文件夹（例如 <1>C:\\SteamCMD</1> 或 <2>~/steamcmd</2>）",
+      "manualStep2": "Extract SteamCMD to a folder on the panel host.",
       "manualStep3": "运行一次 <1>steamcmd</1>，使其完成自我更新",
       "downloadButton": "下载 SteamCMD",
       "manualPathPlaceholder": "现有 SteamCMD 文件夹的路径",
       "savePathButton": "保存路径",
       "readyTitle": "SteamCMD 已就绪",
-      "changePathButton": "更改路径"
+      "changePathButton": "更改路径",
+      "manualStep2Windows": "Extract to a folder such as <1>C:\\SteamCMD</1>.",
+      "manualStep2Posix": "Extract to a folder such as <1>~/steamcmd</1>."
     },
     "step2": {
       "title": "服务器详情",
       "description": "选择文件安装位置并设置服务器身份。",
       "installFolderLabel": "安装文件夹",
       "useLinuxPath": "使用 Linux 服务路径",
-      "installFolderPlaceholder": "例如 C:\\PZServer 或 /home/steamuser/pzserver",
+      "installFolderPlaceholder": "Path to the dedicated server folder",
       "installFolderHelp": "SteamCMD 会在此下载约 3 GB 的服务器文件，如果文件夹不存在会自动创建——面板只需要拥有写入权限。这与存档和设置的存放位置是分开的，参见下方的“自定义配置位置”。",
       "linuxNoteTitle": "Linux 服务安装",
       "linuxNoteBody1": "如果面板通过内置的 systemd 服务运行，请使用 <1>{{path}}</1>。使用其他文件夹需要修改 systemd 权限。",
@@ -162,7 +166,9 @@
       "buildLabel": "Build：{{buildId}}",
       "customDataLocation": "自定义配置位置",
       "setBadge": "已设置",
-      "customDataHelp": "留空则在安装文件夹旁创建数据文件夹。在 Docker 中如需自定义，请选择一个绑定挂载的文件夹。"
+      "customDataHelp": "留空则在安装文件夹旁创建数据文件夹。在 Docker 中如需自定义，请选择一个绑定挂载的文件夹。",
+      "installFolderPlaceholderWindows": "e.g. C:\\PZServer",
+      "installFolderPlaceholderPosix": "e.g. /home/steamuser/pzserver"
     },
     "step3": {
       "title": "服务器设置",
@@ -196,10 +202,12 @@
       "title": "选择服务器文件",
       "description": "选择现有的 Project Zomboid 专用服务器文件夹。",
       "usingExistingTitle": "使用现有文件",
-      "usingExistingDesc": "该文件夹应包含 <1>StartServer64.bat</1>（Windows）或 <2>start-server.sh</2>（Linux），以及 <3>java</3> 文件夹。",
+      "usingExistingDesc": "Select the existing Project Zomboid dedicated server folder, including its bundled Java runtime.",
       "locationLabel": "服务器文件位置",
       "locationPlaceholder": "现有专用服务器文件夹的路径",
-      "locationHelp": "已包含 Project Zomboid 专用服务器文件的文件夹。"
+      "locationHelp": "已包含 Project Zomboid 专用服务器文件的文件夹。",
+      "usingExistingDescWindows": "The folder should contain <1>StartServer64.bat</1> and the <3>java</3> folder.",
+      "usingExistingDescPosix": "The folder should contain <1>start-server.sh</1> and the <3>java</3> folder."
     },
     "step2": {
       "title": "配置服务器",

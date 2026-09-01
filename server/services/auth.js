@@ -4,10 +4,50 @@
  *
  * Design:
  * - bcryptjs for password hashing (pure JS, compatible with pkg)
- * - JWT access tokens (short-lived, 24h) + refresh tokens (long-lived, 30d)
+ * - JWT access tokens (short-lived, 15m) + refresh tokens (long-lived, 30d)
  * - Auto-login via refresh token stored in httpOnly cookie
  * - First-run setup creates the admin account
- * - JWT secret is auto-generated per installation and stored in db.json
+ * - JWT secret: JWT_SECRET / JWT_SECRET_FILE env override if set (an
+ *   operator-pinned value, e.g. a Docker/K8s secret mount, or to share one
+ *   key across multiple panel instances behind a load balancer), otherwise
+ *   auto-generated once and persisted at <dataDir>/jwt.secret -- NOT in
+ *   db.json. See utils/jwtSecret.js for why it moved out: db.json is
+ *   copied wholesale by two backup paths (the automatic rotation ring and
+ *   the opt-in "include DB" game-backup zip), so a signing key kept there
+ *   would ride along in both.
+ *
+ * 2026-08-29 (auth/sessions hunt, hunt-wave7): two things in the Design
+ * block above were stale, found in two passes, not one.
+ *
+ * FIRST PASS fixed only the line I was explicitly told about: access
+ * tokens used to be 24h, and this comment already called that
+ * "short-lived" -- it never was. An access token can't be individually
+ * revoked (logout only revokes the refresh SESSION, see logout() below;
+ * authenticateAccessToken() only ever checks tokenGen, which logout
+ * doesn't touch), so 24h was the real size of the "logout doesn't
+ * actually log you out" window. 15m is anchored to two measured, real
+ * properties of this app, not a round number that felt safe: (1)
+ * client/src/lib/api.ts already does transparent, deduped refresh-on-401
+ * (one extra round trip, replayed once, safe even for mutations since the
+ * server rejects the original request first) -- the machinery that makes
+ * a short TTL free was already built and working, so shortening this
+ * completes a design that was three-quarters there rather than trading UX
+ * for security; (2) the client's own busiest legitimate polling interval
+ * observed in this codebase is 5s (ServerConfig.tsx), with most pages in
+ * the 10-30s range -- 15m is roughly two orders of magnitude above every
+ * one of them, so active use essentially never re-triggers a refresh more
+ * than once per TTL window, not once per poll.
+ *
+ * SECOND PASS, after being asked to re-check the rest of the SAME block
+ * rather than trust that fixing the one named line meant it was clean:
+ * the "stored in db.json" line was ALSO stale -- pointed at a location
+ * this service moved away from specifically for a security reason (see
+ * utils/jwtSecret.js: db.json is copied wholesale by two backup paths, so
+ * a signing key kept there would ride along in both), which made it
+ * actively misleading to anyone reasoning about backups/restores, not
+ * merely out of date. A named fix is a searchlight -- it lights one spot
+ * and leaves its neighbors dark unless you deliberately read past the
+ * edge of what was pointed at.
  */
 
 import bcrypt from "bcryptjs";
@@ -85,7 +125,10 @@ const PUBLIC_AUTH_PATHS = new Set([
 export const USER_ROLES = ["admin", "technician", "moderator"];
 
 const BCRYPT_ROUNDS = 12;
-const ACCESS_TOKEN_EXPIRY = "24h";
+// Exported so a test can assert the real value directly rather than
+// decoding a generated token's exp-minus-iat to infer it -- see this
+// file's own top-of-file comment for why 15m, not 24h.
+export const ACCESS_TOKEN_EXPIRY = "15m";
 const REFRESH_TOKEN_EXPIRY = "30d";
 const REFRESH_TOKEN_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_REFRESH_SESSIONS = 5;

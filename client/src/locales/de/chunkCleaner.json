@@ -2,6 +2,10 @@
   "permissions": {
     "noManage": "Das Bereinigen von Karten-Chunks erfordert die Berechtigung chunks.manage, über die diese Rolle nicht verfügt."
   },
+  "permissionDenied": {
+    "title": "Du kannst die Kartenbereinigung nicht einsehen",
+    "description": "Die Rolle deines Kontos enthält nicht das Recht „Kartenchunks verwalten“. Bitte einen Administrator, es zu vergeben, wenn du Zugriff auf diese Seite brauchst."
+  },
   "pageHeader": {
     "title": "Kartenbereinigung",
     "description": "Beschädigte oder übermäßig geplünderte Kartenbereiche unwiderruflich löschen, damit sich die Welt sauber neu generieren kann.",
@@ -19,15 +23,19 @@
     "modifiedDaysAgo": "vor {{count}} Tagen",
     "customPathHide": "Ausblenden",
     "customPathShow": "Eigener Pfad...",
-    "customPathPlaceholder": "~/Zomboid  oder  C:\\Users\\…\\Zomboid",
+    "customPathPlaceholder": "Path to the Zomboid data folder",
     "customPathAria": "Eigener Serverpfad",
     "load": "Laden",
-    "customPathHint": "Zeige auf deinen Zomboid-Datenordner, einen <1>Saves/Multiplayer</1>-Ordner oder ein einzelnes Spielstandverzeichnis. <2>~</2> und Umgebungsvariablen (<3>%USERPROFILE%</3>, <4>$HOME</4>) werden aufgelöst.",
+    "customPathHint": "Point at your Zomboid data folder, a <1>Saves/Multiplayer</1> folder, or a single save directory.",
     "saveAsDefaultTitle": "Legt diesen Ordner als Standard-Zomboid-Datenordner des Panels fest, damit du ihn nicht noch einmal eingeben musst.",
     "saveAsDefault": "Als Standard speichern",
     "saving": "Wird gespeichert...",
     "reset": "Zurücksetzen",
-    "autoDetected": "Dieser Ordner wurde automatisch erkannt. Als Standard speichern?"
+    "autoDetected": "Dieser Ordner wurde automatisch erkannt. Als Standard speichern?",
+    "customPathPlaceholderWindows": "%USERPROFILE%\\Zomboid or C:\\Users\\…\\Zomboid",
+    "customPathPlaceholderPosix": "$HOME/Zomboid or ~/Zomboid",
+    "customPathHintWindows": "Point at your Zomboid data folder, a <1>Saves/Multiplayer</1> folder, or a single save directory. Windows variables such as <3>%USERPROFILE%</3> are expanded.",
+    "customPathHintPosix": "Point at your Zomboid data folder, a <1>Saves/Multiplayer</1> folder, or a single save directory. <2>~</2>, <4>$HOME</4>, and ${NAME} variables are expanded."
   },
   "stats": {
     "worldFootprint": "Speicherbedarf der Welt",
@@ -51,7 +59,8 @@
     "selectionNone": "Keine",
     "all": "Alle",
     "clear": "Leeren",
-    "invert": "Umkehren"
+    "invert": "Umkehren",
+    "selectAllTip": "\"Alle\" wählt jeden Chunk aus, den dieser Spielstand jemals erzeugt hat — nicht nur die gerade sichtbaren. Das Löschen dieser Auswahl setzt die gesamte Karte zurück."
   },
   "deleteButton_one": "{{count}} Chunk unwiderruflich löschen",
   "deleteButton_other": "{{count}} Chunks unwiderruflich löschen",
@@ -145,6 +154,8 @@
     "pathSavedTitle": "Pfad gespeichert",
     "liveVehicleCleanupNoPermissionTitle": "Live-Fahrzeugbereinigung übersprungen",
     "liveVehicleCleanupNoPermissionDesc": "Chunks und ihre Fahrzeugdatensätze wurden gelöscht. Das Entfernen bereits geladener Fahrzeuge vom laufenden Server erfordert die Berechtigung bridge.command, über die diese Rolle nicht verfügt -- ein Administrator kann sie erteilen, oder ein veraltetes Fahrzeug verschwindet von selbst, sobald das Gebiet das nächste Mal neu geladen wird.",
+    "liveVehicleCleanupTooFragmentedTitle": "Live-Fahrzeugbereinigung übersprungen",
+    "liveVehicleCleanupTooFragmentedDesc": "Chunks und ihre Fahrzeugdatensätze wurden gelöscht. Diese Auswahl war zu verstreut, um Fahrzeuge live zu synchronisieren -- ein veraltetes Fahrzeug verschwindet von selbst, sobald das Gebiet das nächste Mal neu geladen wird.",
     "pathSavedServerDesc": "In der aktiven Serverkonfiguration gespeichert — das Panel verwendet diesen Pfad beim nächsten Mal.",
     "pathSavedPanelDesc": "In den Paneleinstellungen gespeichert.",
     "pathSaveFailedTitle": "Pfad konnte nicht gespeichert werden",

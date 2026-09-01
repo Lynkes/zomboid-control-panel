@@ -109,6 +109,35 @@ describe('SpawnBrowser -- items (Give)', () => {
     await renderItems({ playerName: '' })
     expect(screen.getByTitle('Spawn Axe × 3 again')).toBeDisabled()
   })
+
+  it('keeps long Recent history in a bounded scroller and can clear only the item history', async () => {
+    const itemHistory = Array.from({ length: 8 }, (_, index) => ({
+      id: `Base.Item${index}`,
+      name: `Very long recent item name ${index}`,
+      qty: index + 1,
+      at: Date.now() - index,
+    }))
+    const vehicleHistory = [{ id: 'Base.CarNormal', name: 'Générique Berline', qty: 1, at: Date.now() }]
+    localStorage.setItem('pz-spawn-recent-items', JSON.stringify(itemHistory))
+    localStorage.setItem('pz-spawn-recent-vehicles', JSON.stringify(vehicleHistory))
+
+    await renderItems({ playerName: 'Aurélie' })
+
+    expect(screen.getByRole('dialog')).toHaveClass('min-w-0')
+    const recentGroup = screen.getByRole('group', { name: 'Recent' })
+    expect(recentGroup).toHaveClass('min-w-0')
+    expect(recentGroup.querySelector('[data-slot="recent-history-scroll"]')).toHaveClass(
+      'min-w-0',
+      'flex-1',
+      'overflow-x-auto',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear recent history' }))
+
+    expect(screen.queryByRole('group', { name: 'Recent' })).not.toBeInTheDocument()
+    expect(localStorage.getItem('pz-spawn-recent-items')).toBeNull()
+    expect(JSON.parse(localStorage.getItem('pz-spawn-recent-vehicles')!)).toEqual(vehicleHistory)
+  })
 })
 
 describe('SpawnBrowser -- vehicles (Spawn)', () => {
@@ -121,5 +150,18 @@ describe('SpawnBrowser -- vehicles (Spawn)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Spawn' }))
 
     await waitFor(() => expect(onSpawn).toHaveBeenCalledWith('Base.CarNormal', undefined))
+  })
+
+  it('clears the vehicle Recent history from its own storage key', async () => {
+    localStorage.setItem('pz-spawn-recent-vehicles', JSON.stringify([
+      { id: 'Base.CarNormal', name: 'Générique Berline', qty: 1, at: Date.now() },
+    ]))
+    render(<SpawnBrowser mode="vehicles" open onOpenChange={vi.fn()} playerName="" onSpawn={vi.fn()} />)
+    await screen.findByText('Générique Berline')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear recent history' }))
+
+    expect(screen.queryByRole('group', { name: 'Recent' })).not.toBeInTheDocument()
+    expect(localStorage.getItem('pz-spawn-recent-vehicles')).toBeNull()
   })
 })

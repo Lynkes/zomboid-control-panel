@@ -1,5 +1,51 @@
-import { describe, expect, it } from "vitest";
-import { isManagedContainer, lifecycleTimeoutMs, parseContainerStats } from "../services/dockerClient.js";
+import { afterEach, describe, expect, it } from "vitest";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import http from "http";
+import {
+  DockerClient,
+  demuxDockerLogStream,
+  isManagedContainer,
+  lifecycleTimeoutMs,
+  parseContainerStats,
+} from "../services/dockerClient.js";
+
+// Docker's own multiplexed-frame format for a non-TTY container's log
+// stream: 8-byte header (1 byte stream type, 3 reserved, 4-byte big-endian
+// payload length) then that many payload bytes, repeated per chunk written
+// to stdout/stderr.
+function frame(streamType, text) {
+  const payload = Buffer.from(text, "utf-8");
+  const header = Buffer.alloc(8);
+  header.writeUInt8(streamType, 0);
+  header.writeUInt32BE(payload.length, 4);
+  return Buffer.concat([header, payload]);
+}
+
+describe("demuxDockerLogStream", () => {
+  it("strips the 8-byte frame header from each chunk and concatenates the payloads", () => {
+    const buffer = Buffer.concat([
+      frame(1, "line one\n"),
+      frame(2, "line two (stderr)\n"),
+      frame(1, "line three\n"),
+    ]);
+    expect(demuxDockerLogStream(buffer)).toBe("line one\nline two (stderr)\nline three\n");
+  });
+
+  it("stops cleanly on a truncated final frame instead of throwing or reading past the buffer", () => {
+    const complete = frame(1, "complete line\n");
+    const truncated = Buffer.alloc(8);
+    truncated.writeUInt8(1, 0);
+    truncated.writeUInt32BE(9999, 4); // claims a payload that was never appended
+    const buffer = Buffer.concat([complete, truncated]);
+    expect(demuxDockerLogStream(buffer)).toBe("complete line\n");
+  });
+
+  it("returns an empty string for an empty stream", () => {
+    expect(demuxDockerLogStream(Buffer.alloc(0))).toBe("");
+  });
+});
 
 describe("Docker managed-container boundary", () => {
   it("accepts only containers explicitly opted into panel management", () => {
@@ -50,5 +96,150 @@ describe("parseContainerStats", () => {
       diskRead: 3,
       diskWrite: 4,
     });
+  });
+});
+
+// Real Docker Engine API calls over a real Unix domain socket -- a fake
+// daemon standing in for dockerd, not a mock of DockerClient's own HTTP
+// layer, so this exercises the actual request/response code path (including
+// demuxing and the byte cap) rather than assuming it. Unix domain sockets
+// are POSIX; skipped on Windows like every other real-socket/real-fs test
+// in this suite (see linuxDbFileModes.test.js et al.) -- exercised for real
+// via the WSL gate.
+const isWindows = process.platform === "win32";
+const MANAGED_CONTAINER = {
+  Id: "c1",
+  Labels: { "zomboid-panel.managed": "true" },
+  Config: { Labels: { "zomboid-panel.managed": "true" }, Tty: false },
+};
+const MANAGED_TTY_CONTAINER = {
+  Id: "c2",
+  Labels: { "zomboid-panel.managed": "true" },
+  Config: { Labels: { "zomboid-panel.managed": "true" }, Tty: true },
+};
+
+(isWindows ? describe.skip : describe)("DockerClient.getContainerLogs -- against a real fake daemon", () => {
+  let server;
+  let socketPath;
+  let client;
+  let lastLogsRequestUrl;
+  let logsResponseBuffer;
+  let logsResponseStatus;
+
+  function startFakeDaemon() {
+    socketPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "pz-docker-test-")), "docker.sock");
+    server = http.createServer((req, res) => {
+      if (req.url.startsWith("/containers/c1/json")) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(MANAGED_CONTAINER));
+        return;
+      }
+      if (req.url.startsWith("/containers/c2/json")) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(MANAGED_TTY_CONTAINER));
+        return;
+      }
+      if (req.url.startsWith("/containers/unmanaged/json")) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ Id: "unmanaged", Labels: {} }));
+        return;
+      }
+      if (req.url.startsWith("/containers/") && req.url.includes("/logs")) {
+        lastLogsRequestUrl = req.url;
+        res.writeHead(logsResponseStatus || 200);
+        res.end(logsResponseBuffer);
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    return new Promise((resolve) => server.listen(socketPath, resolve));
+  }
+
+  afterEach(async () => {
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(path.dirname(socketPath), { recursive: true, force: true });
+  });
+
+  it("demuxes a non-TTY container's multiplexed stdout/stderr into plain text", async () => {
+    await startFakeDaemon();
+    client = new DockerClient({ socketPath, enabled: true });
+    logsResponseBuffer = Buffer.concat([
+      frame(1, "Server starting...\n"),
+      frame(2, "WARN: something on stderr\n"),
+    ]);
+
+    const logs = await client.getContainerLogs("c1", { tail: 500 });
+
+    expect(logs).toBe("Server starting...\nWARN: something on stderr\n");
+    expect(lastLogsRequestUrl).toContain("tail=500");
+    expect(lastLogsRequestUrl).toContain("stdout=true");
+    expect(lastLogsRequestUrl).toContain("stderr=true");
+  });
+
+  it("passes a TTY container's response through as plain text, unframed", async () => {
+    await startFakeDaemon();
+    client = new DockerClient({ socketPath, enabled: true });
+    logsResponseBuffer = Buffer.from("raw tty output, no framing\n", "utf-8");
+
+    const logs = await client.getContainerLogs("c2");
+
+    expect(logs).toBe("raw tty output, no framing\n");
+  });
+
+  it("fails closed (returns null, does not throw) for a container this panel does not manage", async () => {
+    await startFakeDaemon();
+    client = new DockerClient({ socketPath, enabled: true });
+
+    await expect(client.getContainerLogs("unmanaged")).resolves.toBeNull();
+  });
+
+  it("returns null rather than an unbounded string when the response exceeds the byte cap", async () => {
+    await startFakeDaemon();
+    client = new DockerClient({ socketPath, enabled: true });
+    // One oversized frame -- realistic worst case is a pathological single
+    // log line (e.g. a huge unbroken stack trace), not many small ones.
+    logsResponseBuffer = frame(1, "x".repeat(5 * 1024 * 1024));
+
+    await expect(client.getContainerLogs("c1")).resolves.toBeNull();
+  });
+
+  it("returns null when Docker control is disabled, without contacting the socket", async () => {
+    await startFakeDaemon();
+    client = new DockerClient({ socketPath, enabled: false });
+
+    await expect(client.getContainerLogs("c1")).resolves.toBeNull();
+  });
+
+  // Regression (2026-08-31 services sweep): _requestBuffer's timeout handler
+  // used to set `settled = true` BEFORE calling request.destroy(error) --
+  // destroy() fires its 'error' event asynchronously, by which point the
+  // error handler's own `if (settled) return` guard silently swallowed it,
+  // so the promise never settled at all. A real daemon that accepts the
+  // connection but never writes a response (hung/overloaded dockerd) used
+  // to wedge getContainerLogs forever, with no failure a user could report.
+  // A genuinely non-responding real HTTP server over a real Unix socket --
+  // not a mock of the timeout event -- so this proves Node's actual
+  // destroy(err)-then-error-event ordering is handled, not just an
+  // assumption about it.
+  it("rejects instead of hanging forever when the daemon accepts the connection but never responds", async () => {
+    const hangDir = fs.mkdtempSync(path.join(os.tmpdir(), "pz-docker-hang-test-"));
+    const hangSocketPath = path.join(hangDir, "docker.sock");
+    const hangServer = http.createServer(() => {
+      // Deliberately never call res.write/res.end -- the exact "connection
+      // accepted, then silence" shape that used to make _requestBuffer's
+      // promise never settle.
+    });
+    await new Promise((resolve) => hangServer.listen(hangSocketPath, resolve));
+
+    try {
+      const hangClient = new DockerClient({ socketPath: hangSocketPath, enabled: true });
+      await expect(
+        hangClient._requestBuffer("GET", "/containers/c1/logs", 150),
+      ).rejects.toThrow(/timed out/i);
+    } finally {
+      await new Promise((resolve) => hangServer.close(resolve));
+      fs.rmSync(hangDir, { recursive: true, force: true });
+    }
   });
 });

@@ -31,6 +31,7 @@ import {
   getRoleByName,
 } from "../database/init.js";
 import { sanitizeError, sanitizeErrorParams, SENSITIVE_FIELD_RE } from "../utils/sanitize.js";
+import { ErrorCode } from "../utils/errorCodes.js";
 import { checkSandboxBraceBalance } from "./serverFiles.js";
 import panelBridgeService from "../services/panelBridge.js";
 import authService from "../services/auth.js";
@@ -52,6 +53,19 @@ import {
   inspectZomboidPath,
 } from "../utils/zomboidPaths.js";
 import { requirePermission, listRolesWithMemberCounts } from "../services/permissions.js";
+import { getDockerClient } from "../services/managedContainer.js";
+import {
+  getLifecycleServiceName,
+  isManagedLifecycleProvider,
+} from "../services/linuxServiceLifecycle.js";
+import { redactRconCommandSecrets } from "../utils/rconCommandRedaction.js";
+import {
+  collectKnownSecretValues,
+  redactKnownSecrets,
+} from "../utils/discordMessageRedaction.js";
+import { getSteamApiKey } from "../services/steamApiKey.js";
+import { hasActiveSteamOperation } from "../services/activeSteamOperations.js";
+import { Transform } from "stream";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -325,6 +339,117 @@ function sanitizeForBundle(value, depth = 0) {
     }
   }
   return out;
+}
+
+// ───────────────────────────────────────────────────────────────────────
+// Raw-log redaction (support-bundle-2026-08-30 follow-up, operator ruling):
+// sanitizeForBundle() above only ever runs on structured data this route
+// itself builds, and is a no-op on free text -- it cannot touch a RAW log
+// file's content. The operator's ruling was to redact ALL raw logs in the
+// bundle uniformly (the four pre-existing filesystem categories AND the
+// two container/service-log files added earlier tonight), biased toward
+// false positives, but never at the cost of destroying the exact kind of
+// evidence (a stack trace, a file path) this bundle exists to preserve --
+// see redactRawLogText's own header for the two-layer design and the
+// regression test built from the literal line that motivated this feature.
+// ───────────────────────────────────────────────────────────────────────
+
+// Discord bot tokens are three base64url segments joined by literal dots --
+// a shape distinctive enough that it will not collide with a file path,
+// stack trace, or ordinary log line. This is what lets it catch a ROTATED
+// token that is no longer any server's *current* configured value (and so
+// can't be caught by the known-secret-value scrub below).
+const RAW_LOG_DISCORD_TOKEN_RE =
+  /\b[A-Za-z0-9_-]{23,28}\.[A-Za-z0-9_-]{6,7}\.[A-Za-z0-9_-]{27,40}\b/g;
+
+// The one place this panel ever puts a Steam Web API key on a line that
+// could end up logged: GetServerList's own request URL (serverFinder.js,
+// both call sites), built as `...?key=<key>&filter=...`. Anchored to the
+// query-param shape, not a bare hex/alnum run, so it can't collide with an
+// unrelated identifier that merely happens to be 16-64 characters long.
+const RAW_LOG_STEAM_KEY_QUERY_RE = /([?&]key=)[0-9A-Za-z]{16,64}/g;
+
+/**
+ * Support-bundle-specific superset of discordMessageRedaction.js's own
+ * known-secret list: everything that list already covers (RCON/join
+ * passwords across every server profile, the Discord bot token, the
+ * PanelBridge SFTP password, Steam session cookies) plus the Steam Web API
+ * key, which that module has no reason to know about (a Discord message
+ * could never echo it) but which serverFinder.js does put directly into a
+ * request URL -- see RAW_LOG_STEAM_KEY_QUERY_RE above for why that value is
+ * ALSO covered by shape, in case it's ever rotated out of settings.
+ */
+async function collectBundleKnownSecrets() {
+  const values = new Set(await collectKnownSecretValues().catch(() => []));
+  try {
+    const apiKey = await getSteamApiKey();
+    if (apiKey) values.add(String(apiKey));
+  } catch {
+    /* best-effort, matches collectKnownSecretValues' own precedent */
+  }
+  values.delete("");
+  return [...values];
+}
+
+/**
+ * Applied to every RAW log this bundle includes. Two independent layers,
+ * cheapest/safest first:
+ *
+ *   1. Exact known-secret-value replacement (redactKnownSecrets). Zero
+ *      false positives by construction -- it only ever matches a string
+ *      this panel currently holds as a real credential -- but structurally
+ *      blind to a secret that was never "known" to the panel (a player's
+ *      own whitelist password, chosen through the RCON console and never
+ *      persisted anywhere) or one that's since been rotated out.
+ *   2. A short list of shape-based patterns for exactly the gaps (1) can't
+ *      cover, each verified against real code in THIS repo rather than a
+ *      generic guess: the `adduser "user" "pass"` RCON command shape
+ *      (already precedented -- see rconCommandRedaction.js's own header
+ *      for why a whitelist password can never be a "known" value), a
+ *      Discord bot token's three-segment shape (covers a rotated token),
+ *      and the Steam Web API key query-param shape serverFinder.js builds.
+ *
+ * MUST NOT touch ordinary diagnostic text -- proven by the regression test
+ * built from the exact "Text file busy" .NET stack trace that motivated
+ * tonight's Docker/systemd log capture in the first place. A scrubber that
+ * mangled that line would have destroyed the one piece of evidence that
+ * made the feature useful.
+ */
+function redactRawLogText(text, knownSecrets) {
+  if (typeof text !== "string" || !text) return text;
+  let out = redactKnownSecrets(text, knownSecrets);
+  out = redactRconCommandSecrets(out);
+  out = out.replace(RAW_LOG_DISCORD_TOKEN_RE, "[REDACTED-DISCORD-TOKEN]");
+  out = out.replace(RAW_LOG_STEAM_KEY_QUERY_RE, "$1[REDACTED]");
+  return out;
+}
+
+/**
+ * Wraps a raw log file's read stream so each COMPLETE line is redacted
+ * before it reaches the zip, without ever holding the whole file in
+ * memory -- PZ's own server-console.txt is not rotated and can grow large
+ * over a long uptime, unlike the panel's own winston-rotated combined.log/
+ * error.log (10-25MB, capped). Buffers only the current (possibly partial)
+ * line across chunk boundaries; every secret shape redactRawLogText
+ * matches is expected to appear on a single line.
+ */
+function createRedactingLogStream(knownSecrets) {
+  let carry = "";
+  return new Transform({
+    transform(chunk, _enc, callback) {
+      carry += chunk.toString("utf-8");
+      const lines = carry.split("\n");
+      carry = lines.pop() ?? "";
+      for (const line of lines) {
+        this.push(redactRawLogText(line, knownSecrets) + "\n");
+      }
+      callback();
+    },
+    flush(callback) {
+      if (carry) this.push(redactRawLogText(carry, knownSecrets));
+      callback();
+    },
+  });
 }
 
 async function readPanelVersion() {
@@ -1033,6 +1158,124 @@ async function buildBackupsSummary(req) {
   }
 }
 
+// support-bundle-2026-08-30: a real production report (Discord #bug_report,
+// see hive/agents/god/research/discord-restart-etxtbsy-2026-08-30.md) was
+// only diagnosable because of one decisive line -- a "Text file busy"
+// .NET stack trace from DepotDownloader -- that a user happened to paste
+// by hand from `docker logs`. None of the collectors above would have
+// caught it -- not because every one of them scans the filesystem
+// (bug hunt 2026-08-31: buildProcessSnapshot() is pure process-API,
+// buildBridgeStatus()'s core comes from an in-memory getStatus(), and
+// buildNetworkInterfaces() is an OS call, none of those touch disk --
+// the false claim didn't change the conclusion below, only the reasoning
+// for it) -- but because a container's stdout/stderr is not a file
+// anywhere on disk regardless of source: it is owned by Docker's log
+// driver (or, for a systemd/OpenRC managed lifecycle, by journald or
+// whatever the service supervisor does with it), and none of this
+// bundle's collectors -- file-based, in-memory, or OS-API -- reach it.
+// A bundle generated at the moment of that report would not have
+// contained the line that solved the case.
+//
+// Bounded the same way as every other raw-log collector in this bundle:
+// last N lines, not the full history, so one chatty deployment can't
+// balloon bundle size (DockerClient.getContainerLogs also enforces a hard
+// byte cap independently of the line count, since `tail=` bounds lines,
+// not bytes).
+const SUPPORT_BUNDLE_LOG_TAIL_LINES = 500;
+
+async function buildDockerContainerLogsText(activeServer) {
+  const ref = activeServer?.dockerContainerName || activeServer?.dockerContainerId || null;
+  if (!ref) {
+    return "Docker container logs\n=====================\n\nNo Docker container is mapped to the active server -- skipped.\n";
+  }
+  const dockerClient = getDockerClient();
+  if (!dockerClient?.enabled || !dockerClient.available) {
+    return `Docker container logs\n=====================\n\nContainer "${ref}" is mapped to the active server, but Docker control is disabled or the Docker socket is unavailable on this panel host -- skipped.\n`;
+  }
+  const logs = await dockerClient.getContainerLogs(ref, {
+    tail: SUPPORT_BUNDLE_LOG_TAIL_LINES,
+  });
+  if (logs == null) {
+    return `Docker container logs\n=====================\n\nContainer "${ref}" is mapped to the active server, but its logs could not be fetched (not managed by this panel, or the Docker API call failed) -- skipped.\n`;
+  }
+  if (!logs.trim()) {
+    return `Docker container logs\n=====================\nContainer: ${ref}\n\nFetched successfully -- no stdout/stderr history yet.\n`;
+  }
+  return `Docker container logs\n=====================\nContainer: ${ref}\nLast ${SUPPORT_BUNDLE_LOG_TAIL_LINES} lines, stdout+stderr, timestamps included.\n\n${logs}`;
+}
+
+// Mirrors linuxServiceLifecycle.js's own defaultExecFile() (systemctl/rc-
+// service --user calls need XDG_RUNTIME_DIR set even when the panel process
+// itself was started without a login session) rather than importing it --
+// that function is private to a file this task does not own, and the logic
+// is small and stable enough that duplicating it here is cheaper than
+// widening that file's exported surface for one caller.
+function execLinuxUserCommand(command, args, { timeoutMs = 8000 } = {}) {
+  return new Promise((resolve) => {
+    const uid = typeof process.getuid === "function" ? process.getuid() : null;
+    const env = { ...process.env };
+    if (!env.XDG_RUNTIME_DIR && Number.isInteger(uid)) {
+      env.XDG_RUNTIME_DIR = `/run/user/${uid}`;
+    }
+    execFile(
+      command,
+      args,
+      { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, env },
+      (error, stdout, stderr) => {
+        resolve({
+          code: Number.isInteger(error?.code) ? error.code : error ? 1 : 0,
+          stdout: String(stdout || ""),
+          stderr: String(stderr || error?.message || ""),
+        });
+      },
+    );
+  });
+}
+
+async function buildManagedServiceLogsText(activeServer) {
+  const provider = activeServer?.lifecycleProvider;
+  if (!isManagedLifecycleProvider(provider)) {
+    return "Managed service logs\n=====================\n\nThe active server is not running under a systemd/OpenRC managed lifecycle -- skipped.\n";
+  }
+  if (provider !== "systemd") {
+    // OpenRC's supervise-daemon can be configured to log to a file, syslog,
+    // or nowhere, and the destination is not tracked anywhere in this
+    // panel today -- an honest, reported gap rather than a guessed command
+    // that might silently return nothing (or someone else's logs) on a
+    // real OpenRC host. Verify supervise-daemon's actual log destination
+    // on a real system before adding a path here.
+    return "Managed service logs\n=====================\n\nThe active server runs under OpenRC. This panel does not yet capture OpenRC service output here (supervise-daemon's log destination is not currently tracked) -- known gap, not fetched.\n";
+  }
+  if (process.platform !== "linux") {
+    return "Managed service logs\n=====================\n\nsystemd lifecycle is Linux-only; this panel host is not Linux -- skipped.\n";
+  }
+
+  let serviceName;
+  try {
+    serviceName = getLifecycleServiceName(activeServer);
+  } catch (e) {
+    return `Managed service logs\n=====================\n\nCould not determine the systemd unit name: ${e.message}\n`;
+  }
+  const unit = `${serviceName}.service`;
+  const result = await execLinuxUserCommand("journalctl", [
+    "--user",
+    "-u",
+    unit,
+    "--no-pager",
+    "-n",
+    String(SUPPORT_BUNDLE_LOG_TAIL_LINES),
+  ]);
+  if (result.code !== 0) {
+    return `Managed service logs\n=====================\n\nCould not read the journal for systemd --user unit "${unit}": ${
+      result.stderr.trim() || `journalctl exited ${result.code}`
+    }\n`;
+  }
+  if (!result.stdout.trim()) {
+    return `Managed service logs\n=====================\nUnit: ${unit}\n\nFetched successfully -- the journal has no entries for this unit yet.\n`;
+  }
+  return `Managed service logs\n=====================\nUnit: ${unit} (systemd --user)\nLast ${SUPPORT_BUNDLE_LOG_TAIL_LINES} lines.\n\n${result.stdout}`;
+}
+
 async function buildDiscordBotStatus(req) {
   try {
     const discordBot = req?.app?.get?.("discordBot");
@@ -1080,6 +1323,12 @@ function buildBundleReadme() {
     "  Grep for `ERROR`, `Exception`, `Object tried to call nil`, `Stack trace`.",
     "- `zomboid-install/` — connection/workshop/system logs from the install side.",
     "- `crash-logs/` — Java/JVM crash dumps (`hs_err_pid*.log`) and matching error logs.",
+    "- `docker-container-logs.txt` — last 500 lines of the mapped Docker container's own stdout/stderr (only if the active server is Docker-managed and Docker control is on). This is the ONLY place an early startup crash from a container's own entrypoint script, or a JVM that died before writing its own log file, ever shows up -- none of the filesystem-scanning logs above can see it. Says why it's missing when it is (not mapped, Docker control off, socket unavailable, fetch failed).",
+    "- `managed-service-logs.txt` — last 500 lines from `journalctl --user` for a systemd-managed server (same reasoning as the Docker file, for a systemd `--user` unit instead of a container). OpenRC-managed servers are a known, reported gap here -- supervise-daemon's log destination is not currently tracked by this panel.",
+    "",
+    "**Every raw log above is now scanned for known credential shapes before it's zipped**, uniformly -- `admin-panel/`, `zomboid-server/`, `zomboid-install/`, `crash-logs/`, `docker-container-logs.txt`, and `managed-service-logs.txt` all go through the same scrub, not a subset of them. It catches: RCON/join passwords and the PanelBridge SFTP password (exact match against this panel's own current values), the Discord bot token (exact match, plus a shape check that also catches a token that's since been rotated), and the Steam Web API key (exact match, plus the one query-string shape this panel's own code ever puts it in).",
+    "",
+    "**REDACTION IS NOT A PROMISE OF SAFETY.** These are still real, mostly-unstructured logs written by the panel, the game server, or (for the two files above) a container/service supervisor this panel doesn't control the output of. The scrub above only catches secrets that are exact-known-current-values or match one of a short, verified list of shapes -- it cannot catch every way a credential, a player's real name, an IP address, or anything else sensitive might show up in free text. **Review this bundle yourself before forwarding it to anyone outside your team.** Only the JSON files (`panel-config.json`, `sftp-diagnostics.json`, `environment.txt`, etc.) go through the separate field-based redaction described above, which is a stricter, schema-aware guarantee that the raw-log scrub can't offer.",
     "",
     "## What is NOT in this bundle",
     "",
@@ -1087,17 +1336,19 @@ function buildBundleReadme() {
     "- Full environment variable values (only allow-listed keys show values).",
     "- MAC addresses (network interfaces list IPs only).",
     "- The LowDB file itself (`db.json`) — only sanitized excerpts.",
+    "- A guarantee that the raw logs contain nothing sensitive beyond the credential shapes described above — see the warning in that section.",
     "- Whether a config edit is still waiting on a restart to take effect. The panel computes that live per-request and never stores it — `system-info.json`'s `serverProcess` (was the server running right now) is the closest fact actually available.",
     "- A record of the OIDC \"Test connection\" button's last result, or a live check against the identity provider run while building this bundle — `oidc-status.json` reports configuration only.",
     "- Failed backup attempts as structured data (only successful runs are recorded) — check `admin-panel/error.log` for those.",
     "- Retry/failure counters for config-file (INI/Lua) writes specifically — only db.json's own write health is tracked today.",
+    "- OpenRC service output (`managed-service-logs.txt` reports this explicitly rather than guessing at a log path).",
     "",
     "Generated by ZomboidControlPanel — see https://github.com/fpsacha/zomboid-control-panel",
     "",
   ].join("\n");
 }
 
-async function buildBundleDiagnostics(activeServer, req) {
+async function buildBundleDiagnostics(activeServer, req, knownSecrets) {
   // Run all collectors in parallel — each one is wrapped so a single failure
   // doesn't kill the whole bundle.
   const wrap = async (name, fn) => {
@@ -1142,6 +1393,24 @@ async function buildBundleDiagnostics(activeServer, req) {
       name: "environment.txt",
       content: await buildEnvironmentReport().catch(
         (e) => `# error: ${e.message}\n`,
+      ),
+    },
+    {
+      name: "docker-container-logs.txt",
+      content: redactRawLogText(
+        await buildDockerContainerLogsText(activeServer).catch(
+          (e) => `# error: ${e.message}\n`,
+        ),
+        knownSecrets,
+      ),
+    },
+    {
+      name: "managed-service-logs.txt",
+      content: redactRawLogText(
+        await buildManagedServiceLogsText(activeServer).catch(
+          (e) => `# error: ${e.message}\n`,
+        ),
+        knownSecrets,
       ),
     },
   ];
@@ -1297,6 +1566,8 @@ router.get("/logs/download-zip", requirePermission("diagnostics.manage"), async 
       return res.status(404).json({ error: "No support logs found" });
     }
 
+    const knownSecrets = await collectBundleKnownSecrets().catch(() => []);
+
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const archiveName = `pz-support-bundle-${timestamp}.zip`;
 
@@ -1334,22 +1605,32 @@ router.get("/logs/download-zip", requirePermission("diagnostics.manage"), async 
       `Install Dir: ${sources.installRoot || "n/a"}`,
       `Included Files: ${entries.length}`,
       "",
+      "WARNING: This bundle contains real logs. Known credential shapes",
+      "(RCON/join/SFTP passwords, the Discord bot token, the Steam Web API",
+      "key) are redacted, but that is not a promise of safety -- review the",
+      "contents yourself before sharing this bundle outside your team. See",
+      "README.md for exactly what is and isn't scrubbed.",
+      "",
       "Contents:",
       "- admin-panel: panel combined/error logs",
       "- zomboid-server: server-console and runtime logs",
       "- zomboid-install: install-side connection/workshop/system logs",
       "- crash-logs: matching crash/error dump files",
+      "- docker-container-logs.txt / managed-service-logs.txt: container/service stdout+stderr for a Docker- or systemd-managed server (see README.md)",
     ].join("\n");
 
     archive.append(manifest, { name: "support-bundle-info.txt" });
 
     for (const entry of entries) {
-      archive.file(entry.filePath, { name: entry.archivePath });
+      archive.append(
+        fs.createReadStream(entry.filePath).pipe(createRedactingLogStream(knownSecrets)),
+        { name: entry.archivePath },
+      );
     }
 
     // ── Diagnostic JSON files (best-effort; collectors never throw) ──
     try {
-      const diagnostics = await buildBundleDiagnostics(activeServer, req);
+      const diagnostics = await buildBundleDiagnostics(activeServer, req, knownSecrets);
       for (const f of diagnostics) {
         archive.append(f.content, { name: f.name });
       }
@@ -1573,6 +1854,76 @@ function diagInfo(id, label, message, extras = {}) {
 }
 function diagSkip(id, label, message, extras = {}) {
   return { id, label, status: "skip", message, severity: "info", ...extras };
+}
+
+// Per-ID triage for the mods.resolved check below -- classifies WHY a single
+// Mods= entry doesn't resolve instead of leaving the operator with a bare
+// list. Levenshtein distance, standard DP over two rolling rows (no need to
+// keep the full matrix -- only ever compare against the previous row).
+export function levenshteinDistance(a, b) {
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  let curr = new Array(b.length + 1);
+  for (let i = 1; i <= a.length; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[b.length];
+}
+
+// A near-miss typo of a mod ID that's already resolving (installed via
+// Workshop or local). Threshold scales gently with length so a single
+// character slip in a long ID like RepairAnyClothesSearchModeAPI41 still
+// counts as "near" without a short ID like "Ok" matching half the mod list.
+// A pure case difference is treated as distance 1 regardless of length --
+// PZ mod IDs are case-sensitive on Linux, but a pasted ID that only differs
+// by case is still almost certainly meant to be the same mod.
+export function findNearMissTypo(modId, candidateNames) {
+  let best = null;
+  let bestDistance = Infinity;
+  const threshold = Math.max(2, Math.floor(modId.length * 0.1));
+  for (const candidate of candidateNames) {
+    if (candidate === modId) continue;
+    const distance =
+      candidate.toLowerCase() === modId.toLowerCase()
+        ? 1
+        : levenshteinDistance(modId, candidate);
+    if (distance <= threshold && distance < bestDistance) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+// Classifies each unresolved Mods= entry into exactly one cause. Order
+// matters: a typo match is checked first because it's the most specific,
+// actionable signal -- an entry that's ALSO true (loosely) because a
+// download happens to be running elsewhere shouldn't hide a clean typo fix.
+// "stillDownloading" and "workshopNotOnDisk" are deliberately coarse (whole-
+// batch signals, not per-ID): there is no on-disk data that ties an
+// unresolved mod ID to a specific not-yet-downloaded Workshop item before
+// that item's mod.info actually exists on disk, so this doesn't pretend to
+// know more than it does.
+export function triageUnresolvedMods(
+  unresolvedMods,
+  installedModNames,
+  { steamOperationActive, anyWorkshopMissingFromDisk },
+) {
+  return unresolvedMods.map((modId) => {
+    const suggestion = findNearMissTypo(modId, installedModNames);
+    if (suggestion) return { modId, cause: "typo", suggestion };
+    if (steamOperationActive) return { modId, cause: "stillDownloading" };
+    if (anyWorkshopMissingFromDisk)
+      return { modId, cause: "workshopNotOnDisk" };
+    return { modId, cause: "absent" };
+  });
 }
 
 async function pathExistsAsync(p) {
@@ -2875,12 +3226,12 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
             );
           } else {
             const javaBin = isWin ? "java.exe" : "java";
-            const jreNotFoundMessage = `Could not locate jre64/bin/${javaBin} under the install path. Server may fail to start unless system Java is on PATH.`;
             // hint's content genuinely differs by platform (not just a
             // filled-in value) -- variant, not params, for the hint; two
             // literal-variant branches so the registry test can statically
             // find both, same reasoning as server.installPath above.
             if (isLinux) {
+              const jreNotFoundMessage = `Could not locate jre64/bin/${javaBin} under the install path. Run command -v java to check the service user's PATH.`;
               checks.push(
                 diagWarn(
                   "server.jre",
@@ -2895,6 +3246,7 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
                 ),
               );
             } else {
+              const jreNotFoundMessage = `Could not locate jre64/bin/${javaBin} under the install path. Run where java to check the service account's PATH.`;
               checks.push(
                 diagWarn(
                   "server.jre",
@@ -3280,15 +3632,34 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
               unresolvedMods.length > 5
                 ? `${shown}, +${unresolvedMods.length - 5} more`
                 : shown;
+            // Per-ID triage so the Server Config deep-link can say WHY each
+            // entry failed instead of just listing it -- see
+            // triageUnresolvedMods's own comment above for what each cause
+            // does and doesn't claim to know.
+            const normalizedInstallPathForOp = path
+              .normalize(installPath)
+              .toLowerCase();
+            const steamOperationActive = hasActiveSteamOperation(
+              normalizedInstallPathForOp,
+            );
+            const anyWorkshopMissingFromDisk = ini.WorkshopItems.some(
+              (id) => /^\d{1,15}$/.test(id) && !wsScan.has(id),
+            );
+            const installedModNames = [...wsModNames, ...localScan.mods];
+            const unresolvedTriage = triageUnresolvedMods(
+              unresolvedMods,
+              installedModNames,
+              { steamOperationActive, anyWorkshopMissingFromDisk },
+            );
             checks.push(
               diagFail(
                 "mods.resolved",
                 "Mods= entries do not resolve",
-                `${unresolvedMods.length} of ${ini.Mods.length} Mods= entries don't match any installed mod folder: ${list}.`,
+                `${unresolvedMods.length} of ${ini.Mods.length} Mods= entries don't match any installed Workshop or local mod ID: ${list}.`,
                 {
                   category: "server",
                   hint: "Usually a typo, missing WorkshopItems= ID, or the mod hasn't finished downloading. Fix in Server Config.",
-                  meta: { unresolvedMods },
+                  meta: { unresolvedMods, unresolvedTriage },
                   params: { count: unresolvedMods.length, total: ini.Mods.length, list },
                 },
               ),
@@ -4944,7 +5315,16 @@ router.get("/worldmap", requirePermission("diagnostics.manage"), async (req, res
     // ─── PanelBridge live data ────────────────────────────────────────
     const bridgeStatus = panelBridgeService?.getStatus?.() || null;
     const bridgeRunning = !!bridgeStatus?.isRunning;
-    const modConnected = !!bridgeStatus?.modStatus;
+    // Call the service's own isModConnected() rather than re-deriving it from
+    // bridgeStatus.modStatus -- this route used to check object-existence
+    // (`!!bridgeStatus?.modStatus`), which is true even for the
+    // {alive:false, waiting:true} placeholder handleStatusFailure() creates
+    // on the very first failed poll, so it read "connected" forever once a
+    // status object existed at all, no matter how many polls kept failing.
+    // isModConnected() (`.modStatus?.alive === true`) is already used
+    // correctly in five places in server/index.js; this was the one site
+    // that reimplemented the check instead of calling the helper.
+    const modConnected = panelBridgeService?.isModConnected?.() === true;
     const statusAge = bridgeStatus?.statusFile?.age ?? null;
 
     if (!bridgeStatus || !bridgeStatus.configured) {
@@ -5752,6 +6132,89 @@ router.get("/activity", requirePermission("diagnostics.manage"), async (req, res
   }
 });
 
+// ============================================
+// Diagnostics: one targeted automated fix
+// ============================================
+//
+// POST /api/debug/fix-writability -- clears the read-only attribute on ONE
+// specific, server-resolved file and re-checks writability. `target` is a
+// closed enum, never a client-supplied path: accepting an arbitrary path
+// here would let any caller with diagnostics.manage chmod anything on disk
+// the panel process can reach, which is a far bigger blast radius than the
+// one check this exists to fix.
+//
+// Deliberately narrow to db.json (a single FILE). The logs DIRECTORY fails
+// the same diagnostic (logs.writable) but is NOT in scope here on purpose:
+// chmod on a directory has broader, less predictable effects than one file
+// (Windows' read-only attribute on a directory doesn't even mean what it
+// means on a file, and clearing it can touch how the whole tree is
+// enumerated), and the existing manual hint (check filesystem permissions)
+// is the safer answer there. See getDiagnosticsFixAction's own comment on
+// the "db.writable" case in Debug.tsx for the operator-facing half of this
+// same reasoning.
+//
+// fs.chmod on Windows can only toggle the read-only ATTRIBUTE, not NTFS
+// ACLs -- it fixes the common case (file extracted from a zip, copied from
+// read-only media, etc.) but a genuine ownership/ACL denial will still fail
+// the chmod call itself (usually EPERM) or leave the file unwritable even
+// after chmod succeeds. Both are reported honestly below, not swallowed.
+router.post(
+  "/fix-writability",
+  requirePermission("diagnostics.manage"),
+  async (req, res) => {
+    try {
+      const { target } = req.body || {};
+      if (target !== "db") {
+        return res.status(400).json({
+          error: "Unknown or unsupported writability target",
+          code: ErrorCode.WRITABILITY_TARGET_UNSUPPORTED,
+        });
+      }
+
+      const paths = getDataPaths();
+      const targetPath = paths.dbPath;
+      if (!(await safePathExists(targetPath))) {
+        return res.status(404).json({
+          error: "Database file does not exist",
+          code: ErrorCode.WRITABILITY_TARGET_MISSING,
+        });
+      }
+
+      try {
+        // u+w only -- this file never needs to be group/world-writable, and
+        // a permissive 0o666 would widen access beyond what's needed to fix
+        // the one thing this route is for.
+        await fs.promises.chmod(targetPath, 0o600);
+      } catch (chmodError) {
+        return res.status(400).json({
+          success: false,
+          error: `Could not change file permissions: ${chmodError.message}`,
+          code: ErrorCode.WRITABILITY_CHMOD_FAILED,
+        });
+      }
+
+      if (!(await safePathWritable(targetPath))) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "The file is still not writable after clearing the read-only attribute -- this looks like an ownership or ACL issue, which this automated fix can't resolve.",
+          code: ErrorCode.WRITABILITY_STILL_BLOCKED,
+        });
+      }
+
+      log.info(`Cleared read-only attribute on ${targetPath}`);
+      res.json({
+        success: true,
+        message: "Database file is writable again.",
+        path: targetPath,
+      });
+    } catch (error) {
+      log.error(`Failed to fix writability: ${error.message}`);
+      res.status(500).json({ error: sanitizeError(error.message) });
+    }
+  },
+);
+
 export default router;
 export { logBuffer, getDiskFree };
 // Exported for direct unit testing of the support-bundle collectors --
@@ -5769,6 +6232,16 @@ export {
   buildDbWriteHealth,
   buildBackupsSummary,
   buildDiscordBotStatus,
+  buildDockerContainerLogsText,
+  buildManagedServiceLogsText,
+};
+// Exported for direct unit testing of the support-bundle raw-log redaction
+// (operator ruling, support-bundle-2026-08-30 follow-up) -- see
+// server/tests/supportBundleRedaction.test.js.
+export {
+  redactRawLogText,
+  collectBundleKnownSecrets,
+  createRedactingLogStream,
 };
 // Exported for direct unit testing of the GET /diagnostics thumbnail-
 // resolution check -- see server/tests/thumbnailResolutionCheck.test.js.

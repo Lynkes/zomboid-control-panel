@@ -31,6 +31,24 @@
     "fileNotFoundTitle": "{{label}}：未找到文件",
     "notFoundAria": "未找到"
   },
+  "unresolvedReview": {
+    "title": "未解析的 Mods= ID",
+    "causeUnknown": "此条目暂无分类结果 — 请重新运行诊断。",
+    "causeTypo": "看起来是已安装模组 \"{{suggestion}}\" 的拼写错误。",
+    "correctAction": "使用 \"{{suggestion}}\"",
+    "causeStillDownloading": "Workshop 下载正在进行中 — 请等待完成后重新运行诊断。",
+    "causeWorkshopNotOnDisk": "已列在 WorkshopItems= 中，但其内容不在磁盘上，且当前没有正在下载。请重启服务器或重新验证 Workshop 下载，然后重新运行诊断。",
+    "rerunDiagnostics": "重新运行诊断",
+    "causeAbsent": "没有已安装的 Workshop 或本地模组与此 ID 匹配。",
+    "removeAction": "从 Mods= 中移除",
+    "correctedTitle": "Mods= 条目已更正",
+    "correctedToast": "已将 Mods= 中的 \"{{modId}}\" 替换为 \"{{suggestion}}\"。尚未保存 — 请在下方查看并保存。",
+    "removeConfirmTitle": "从 Mods= 中移除？",
+    "removeConfirm": "从 Mods= 中移除 \"{{modId}}\"？此操作仅在此处暂存更改 — 在您保存之前不会写入磁盘。",
+    "removeConfirmButton": "移除",
+    "removedTitle": "Mods= 条目已移除",
+    "removedToast": "已从 Mods= 中移除 \"{{modId}}\"。尚未保存 — 请在下方查看并保存。"
+  },
   "tabs": {
     "serverSettings": "服务器设置",
     "sandbox": "沙盒",
@@ -315,8 +333,6 @@
   "toasts": {
     "error": "错误",
     "loadConfigFailed": "加载服务器配置失败。",
-    "stopServerTitle": "保存前先停止服务器",
-    "stopServerDesc": "Project Zomboid 在运行时可能会覆盖配置文件。",
     "invalidIniTitle": "服务器设置无效",
     "invalidSandboxTitle": "沙盒数值无效",
     "fixSettings": "修正：{{settings}}",

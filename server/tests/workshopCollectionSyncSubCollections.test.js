@@ -24,7 +24,18 @@ import path from "path";
 //     body into the user-facing `error` string.
 
 const settings = new Map();
-let tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-collectionsync-init-"));
+// initDir kept as its OWN stable constant, separate from the mutable tmpDir
+// below (ENOTEMPTY class, hunt-wave12, 2026-08-29/30): tmpDir gets
+// reassigned by every describe block's beforeEach, but logger.js's winston
+// singleton resolved logsDir from THIS value, once, at the static import a
+// few lines down -- it never re-reads getDataPaths() afterward. No hook in
+// this file ever deletes initDir, which is exactly why it used to leak a
+// real winston logger's files forever (measured on this machine: 36 such
+// directories from this file's prefix, every sampled one containing real
+// combined.log/error.log). See the regression test at the bottom of this
+// file.
+const initDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-collectionsync-init-"));
+let tmpDir = initDir;
 
 vi.mock("../database/init.js", () => ({
   getSetting: async (key) => settings.get(key) ?? null,
@@ -35,6 +46,24 @@ vi.mock("../database/init.js", () => ({
 
 vi.mock("../utils/paths.js", () => ({
   getDataPaths: () => ({ dataDir: tmpDir, logsDir: tmpDir }),
+}));
+
+// ENOTEMPTY class (hunt-wave12, 2026-08-29/30): services/workshopCollectionSync.js
+// imports utils/logger.js, so without this the real winston logger resolved
+// its logsDir from initDir above (captured at the moment of the static
+// import a few lines down) and wrote real log files into it for the
+// lifetime of this file's test run. Never the same directory any per-test
+// afterEach deletes, so never an ENOTEMPTY risk the way
+// modThumbnailResolution.test.js's race was (5d5a9088) -- but a real,
+// separate, measured leak this mock closes. Matches the convention already
+// established elsewhere in this suite.
+vi.mock("../utils/logger.js", () => ({
+  createLogger: () => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  }),
 }));
 
 const {
@@ -131,5 +160,18 @@ describe("addItemToCollection — user-facing error text", () => {
     expect(result.ok).toBe(false);
     expect(result.error).not.toMatch(/success=8/);
     expect(result.error.toLowerCase()).toMatch(/invalid parameter|rejected/);
+  });
+});
+
+// ENOTEMPTY class regression (hunt-wave12, 2026-08-29/30): placed last so
+// every test above has already run. Before the logger.js mock above, this
+// failed -- initDir genuinely contained combined.log/error.log, measured
+// directly on this machine. After it, nothing ever writes into initDir at
+// all, so this stays green rather than decorative.
+describe("ENOTEMPTY class regression: the module-load-time seed directory never receives real logger writes", () => {
+  it("initDir (captured at the static import above, never deleted by any hook) contains no *.log files", () => {
+    expect(
+      fs.readdirSync(initDir).filter((f) => f.endsWith(".log")),
+    ).toEqual([]);
   });
 });

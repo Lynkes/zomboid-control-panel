@@ -19,7 +19,7 @@ import {
 import { VEHICLES, PERKS, PERK_CATALOG, ACCESS_LEVELS } from '../utils/commands.js';
 import { sanitizeError } from '../utils/sanitize.js';
 import bridge from '../services/panelBridge.js';
-import { listWhitelistAccounts } from '../utils/whitelistDb.js';
+import { listWhitelistAccounts, listServerRoleNames } from '../utils/whitelistDb.js';
 import { requirePermission } from '../services/permissions.js';
 import { ErrorCode } from '../utils/errorCodes.js';
 
@@ -308,11 +308,25 @@ router.post('/access-level', requirePermission("players.moderate"), async (req, 
       return res.status(400).json({ error: 'Invalid username format', code: ErrorCode.PLAYERS_INVALID_USERNAME });
     }
 
-    if (!ACCESS_LEVELS.includes(level.toLowerCase())) {
+    // Same source GET /access-levels now offers: validating against the
+    // static ACCESS_LEVELS alone would reject a custom role the dropdown
+    // just offered from the live table -- the exact "dropdown offers a
+    // choice the server-side check disagrees with" shape this card exists
+    // to close, just for custom roles instead of overseer/priority.
+    const activeServer = await getActiveServer();
+    let validLevels = ACCESS_LEVELS;
+    if (activeServer && !activeServer.isRemote) {
+      const roleResult = await listServerRoleNames(activeServer.zomboidDataPath, activeServer.serverName);
+      if (roleResult.available) {
+        validLevels = [...roleResult.roleNames, 'none'];
+      }
+    }
+
+    if (!validLevels.includes(level.toLowerCase())) {
       return res.status(400).json({
-        error: `Invalid access level. Valid: ${ACCESS_LEVELS.join(', ')}`,
+        error: `Invalid access level. Valid: ${validLevels.join(', ')}`,
         code: ErrorCode.PLAYERS_INVALID_ACCESS_LEVEL,
-        params: { validLevels: ACCESS_LEVELS.join(', ') },
+        params: { validLevels: validLevels.join(', ') },
       });
     }
 
@@ -700,9 +714,31 @@ router.get('/perks', requirePermission("players.view"), (req, res) => {
   res.json({ perks: PERKS, catalog: PERK_CATALOG });
 });
 
-// Get access levels
-router.get('/access-levels', requirePermission("players.view"), (req, res) => {
-  res.json({ levels: ACCESS_LEVELS });
+// Get access levels. Sourced from the server's own live role table when
+// available (access-levels-should-come-from-the-server-not-a-hardcoded-array)
+// -- ACCESS_LEVELS is now only the fallback for a remote server, a server
+// that has never started (no db file yet), or a read error, matching the
+// GET /whitelist route's own available/reason fallback shape immediately
+// below. 'none' is never in the role table (it's a SetAccessLevelCommand
+// special case) so it's unconditionally appended here, not sourced from it.
+router.get('/access-levels', requirePermission("players.view"), async (req, res) => {
+  try {
+    const activeServer = await getActiveServer();
+    if (!activeServer || activeServer.isRemote) {
+      return res.json({ levels: ACCESS_LEVELS, available: false });
+    }
+
+    const result = await listServerRoleNames(activeServer.zomboidDataPath, activeServer.serverName);
+    const levels = result.available ? [...result.roleNames, 'none'] : ACCESS_LEVELS;
+    res.json({
+      levels,
+      available: result.available,
+      ...(result.reason ? { reason: result.reason } : {}),
+    });
+  } catch (error) {
+    log.error(`Failed to get access levels: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
 });
 
 // Get banned SteamIDs

@@ -9,6 +9,7 @@
     "noSchedule": "Aucune tâche armée",
     "noMods": "Aucun mod suivi",
     "noMessages": "Aucun message",
-    "empty": "Vide"
+    "empty": "Vide",
+    "accessDenied": "Accès refusé"
   }
 }

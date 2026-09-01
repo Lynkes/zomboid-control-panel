@@ -40,7 +40,8 @@
     "off": "Dezaktive",
     "runsSchedule": "Fonksyone {{schedule}} · kenbe {{count}}",
     "noScheduled": "Pa gen kopi sovgad pwograme",
-    "toggleAria": "Aktive/dezaktive kopi sovgad pwograme"
+    "toggleAria": "Aktive/dezaktive kopi sovgad pwograme",
+    "lastScheduledAttemptFailed": "Dènye tantativ pwograme echwe ({{time}}): {{message}}"
   },
   "schedule": {
     "every15Min": "chak 15 minit",
@@ -79,6 +80,9 @@
   "mainCard": {
     "title": "Fichye Kopi Sovgad",
     "savesNotFound": "Dosye sovgad pa jwenn",
+    "noSavesFolderTitle": "Pa jwenn dosye sovgad",
+    "noSavesFolderDesc": "Panèl la pa t kapab jwenn yon dosye Saves/Multiplayer pou sèvè aktif la. Konfigire yon sèvè si ou poko fè sa, oswa demare l omwen yon fwa — dosye a kreye lè premye demaraj la.",
+    "noSavesFolderAction": "Louvri Konfigirasyon Sèvè",
     "deleteSelected": "Efase ({{count}})",
     "deleteOlder": "Efase Pi Ansyen",
     "emptyTitle": "Pa gen filè sekirite",
@@ -116,6 +120,7 @@
     "bulletStopServer": "Sispann sèvè a anvan.",
     "bulletSafetyBackup": "Panèl la ap kreye yon kopi sovgad sekirite anvan li retabli.",
     "bulletUndoRequiresRestore": "Pou anile sa a pita, w ap bezwen retabli kopi sovgad sekirite a ou menm — sa pa fèt otomatikman.",
+    "scopeTip": "Retablisman an ranplase sèlman fichye sovgad mond sa a — paramèt sèvè ou, mòd yo, ak atik Workshop yo pa afekte.",
     "cancel": "Anile",
     "confirm": "Retabli kopi sovgad sa a"
   },

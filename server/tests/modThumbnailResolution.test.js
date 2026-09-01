@@ -24,6 +24,31 @@ vi.mock("../utils/paths.js", () => ({
   getDataPaths: vi.fn(),
 }));
 
+// 2026-08-29, ENOTEMPTY class fix: this file mocked getDataPaths() to point
+// at its own mkdtemp'd tempRoot without also mocking the logger, so the
+// REAL winston logger (createLogger() is not mocked elsewhere in this file)
+// resolved its logsDir into that same tempRoot and wrote real, asynchronous
+// combined.log/error.log files into it -- confirmed live (a two-line
+// diagnostic listing tempRoot's contents at the end of a test body found
+// them there, before afterEach ever runs). afterEach's fs.rmSync is
+// synchronous and unconditional; a real, un-awaited winston write still in
+// flight when it walks the directory is an ENOTEMPTY waiting to happen
+// under load, independent of whether this specific run ever caught it.
+// Matches the SAME logger-mocking shape already established elsewhere in
+// this suite (see e.g. linuxLaunchExtensionlessCustomCommand.test.js,
+// linuxScanAmbiguousProcessDetection.test.js) -- adopting an existing
+// convention this file simply never had a reason to reach for, not
+// inventing a new one. This test doesn't assert on anything the logger
+// does, so there is nothing to lose by removing the real one.
+vi.mock("../utils/logger.js", () => ({
+  createLogger: () => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  }),
+}));
+
 const STEAM_API_URL =
   "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/";
 const PREVIEW_URL = "https://steamuserimages-a.akamaihd.net/ugc/fake/preview.jpg";
@@ -121,6 +146,15 @@ describe("GET /thumbnail/:workshopId — negative caching", () => {
     const second = await runThumbnailRoute(router, "111");
     expect(second.getHeaders()["Content-Type"]).toBe("image/gif");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Regression proof for the ENOTEMPTY class (2026-08-29): before the
+    // logger.js mock above, a real winston logger wrote combined.log/
+    // error.log into this exact tempRoot -- confirmed live via a one-off
+    // diagnostic. Nothing this route does legitimately produces a *.log
+    // file (the mod-thumbnails cache writes an image, never a log), so
+    // this stays a meaningful, permanent assertion rather than a diagnostic
+    // that gets deleted after proving the point once.
+    expect(fs.readdirSync(tempRoot).filter((f) => f.endsWith(".log"))).toHaveLength(0);
   });
 
   it("retries after the failure TTL expires", async () => {

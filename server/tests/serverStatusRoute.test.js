@@ -9,8 +9,8 @@ vi.mock("../database/init.js", () => ({
 const fakeBridge = { bridgePath: null, isRunning: false, isModConnected: () => false };
 vi.mock("../services/panelBridge.js", () => ({ default: fakeBridge }));
 
-const resolveManagedContainer = vi.fn(async () => ({ handled: false }));
-vi.mock("../services/managedContainer.js", () => ({ resolveManagedContainer }));
+const resolveDockerHostSignal = vi.fn(async () => ({ running: false, scanFailed: true }));
+vi.mock("../services/managedContainer.js", () => ({ resolveDockerHostSignal }));
 
 const { default: router } = await import("../routes/serverStatus.js");
 
@@ -41,8 +41,8 @@ function fakeApp(overrides = {}) {
 describe("GET /api/servers/active/status", () => {
   beforeEach(() => {
     getActiveServer.mockReset();
-    resolveManagedContainer.mockReset();
-    resolveManagedContainer.mockResolvedValue({ handled: false });
+    resolveDockerHostSignal.mockReset();
+    resolveDockerHostSignal.mockResolvedValue({ running: false, scanFailed: true });
     fakeBridge.bridgePath = null;
     fakeBridge.isRunning = false;
     fakeBridge.isModConnected = () => false;
@@ -84,6 +84,75 @@ describe("GET /api/servers/active/status", () => {
         host: expect.objectContaining({ status: "running" }),
         server: expect.objectContaining({ status: "disconnected" }),
         bridge: expect.objectContaining({ status: "offline" }),
+      }),
+    );
+  });
+
+  // The direct-inspect vs. resolveManagedContainer-fallback distinction
+  // (and the inspectManagedContainer call itself) now lives entirely in
+  // resolveDockerHostSignal() -- see server/tests/managedContainer.test.js
+  // for that coverage. This route is only responsible for turning whatever
+  // resolveDockerHostSignal answers into the right host signal, and for
+  // never falling back to the local process scan for a container provider
+  // (GH#114).
+  it("uses Docker container state instead of the host process scan", async () => {
+    getActiveServer.mockResolvedValue({
+      id: "docker-server",
+      dockerContainerName: "pz-container",
+      isRemote: false,
+    });
+    resolveDockerHostSignal.mockResolvedValue({ running: true, scanFailed: false });
+    const processScan = vi.fn(async () => ({ running: false, scanFailed: false }));
+    const response = createResponse();
+
+    await getStatusHandler()(
+      {
+        app: fakeApp({
+          serverManager: { getServerProcessDetails: processScan },
+        }),
+      },
+      response,
+    );
+
+    expect(resolveDockerHostSignal).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "docker-server", dockerContainerName: "pz-container" }),
+      undefined,
+    );
+    expect(processScan).not.toHaveBeenCalled();
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "docker-local",
+        host: expect.objectContaining({
+          status: "running",
+          label: "Container",
+        }),
+      }),
+    );
+  });
+
+  it("reports an unverifiable Docker state as unknown instead of stopped", async () => {
+    getActiveServer.mockResolvedValue({
+      id: "docker-server",
+      dockerContainerName: "missing-container",
+      isRemote: false,
+    });
+    resolveDockerHostSignal.mockResolvedValue({ running: false, scanFailed: true });
+    const processScan = vi.fn(async () => ({ running: false, scanFailed: false }));
+    const response = createResponse();
+
+    await getStatusHandler()(
+      {
+        app: fakeApp({
+          serverManager: { getServerProcessDetails: processScan },
+        }),
+      },
+      response,
+    );
+
+    expect(processScan).not.toHaveBeenCalled();
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: expect.objectContaining({ status: "unknown" }),
       }),
     );
   });
@@ -138,65 +207,15 @@ describe("GET /api/servers/active/status", () => {
   // PANEL_DOCKER_CONTROL_ENABLED=true, dockerContainerName set). The local
   // process scan can never see a process outside this container and
   // correctly returns running: false -- the bug was reading that scan for
-  // the badge instead of the managed container's own state.
-  it("reports a mapped container as running from the Docker lookup, not the local process scan", async () => {
-    getActiveServer.mockResolvedValue({ id: 1, dockerContainerName: "pz-server" });
-    resolveManagedContainer.mockResolvedValue({
-      handled: true,
-      ref: "pz-server",
-      running: true,
-    });
-    const response = createResponse();
-
-    await getStatusHandler()(
-      {
-        app: fakeApp({
-          serverManager: {
-            getServerProcessDetails: async () => ({ running: false, scanFailed: false }),
-          },
-        }),
-      },
-      response,
-    );
-
-    expect(resolveManagedContainer).toHaveBeenCalledWith(
-      expect.objectContaining({ serverId: 1 }),
-    );
-    expect(response.json).toHaveBeenCalledWith(
-      expect.objectContaining({
-        provider: "docker-local",
-        host: { status: "running", label: "Container", detail: null },
-      }),
-    );
-  });
-
   // WATCH FOR in GH#114: a profile with dockerContainerName set on a host
   // where Docker control is disabled or the socket is absent must degrade to
   // unknown, not crash and not silently fall back to the local process scan
-  // (which would just reintroduce the same bug).
-  it("reports a mapped container as unknown, not stopped, when Docker control is disabled", async () => {
-    getActiveServer.mockResolvedValue({ id: 1, dockerContainerName: "pz-server" });
-    resolveManagedContainer.mockResolvedValue({ handled: false });
-    const response = createResponse();
-
-    await getStatusHandler()(
-      {
-        app: fakeApp({
-          serverManager: {
-            getServerProcessDetails: async () => ({ running: false, scanFailed: false }),
-          },
-        }),
-      },
-      response,
-    );
-
-    expect(response.json).toHaveBeenCalledWith(
-      expect.objectContaining({
-        provider: "docker-local",
-        host: expect.objectContaining({ status: "unknown" }),
-      }),
-    );
-  });
+  // (which would just reintroduce the same bug). Covered above for both
+  // outcomes ("uses Docker container state..." / "reports an unverifiable
+  // Docker state..."); resolveDockerHostSignal() itself (server/tests/
+  // managedContainer.test.js) is what's actually responsible for degrading
+  // to scanFailed:true when Docker control is disabled or the mapped
+  // container isn't found, not this route.
 
   it("does not attempt a Docker lookup for a native server", async () => {
     getActiveServer.mockResolvedValue({ id: 1, isRemote: false });
@@ -204,7 +223,7 @@ describe("GET /api/servers/active/status", () => {
 
     await getStatusHandler()({ app: fakeApp() }, response);
 
-    expect(resolveManagedContainer).not.toHaveBeenCalled();
+    expect(resolveDockerHostSignal).not.toHaveBeenCalled();
   });
 
   it("returns 500 with a sanitized error when the database lookup throws", async () => {

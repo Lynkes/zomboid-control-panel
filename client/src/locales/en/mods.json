@@ -56,6 +56,22 @@
     "desc": "The Workshop folder shows newer files than the panel has on record. Run a check to update the per-mod state.",
     "checkNow": "Check Now"
   },
+  "removedFromWorkshop": {
+    "title_one": "{{count}} mod no longer exists on the Steam Workshop",
+    "title_other": "{{count}} mods no longer exist on the Steam Workshop",
+    "desc": "Steam confirmed these items were deleted or made private. They will keep failing update checks and can break the next server restart until removed.",
+    "removeAria": "Remove {{name}} from the server"
+  },
+  "steamApiIssue": {
+    "label": "Steam Workshop couldn't be reached on the last check — using local files only for now. Will retry automatically.",
+    "dismissAria": "Dismiss Steam API warning",
+    "dismissTooltip": "Dismiss until the next failed check"
+  },
+  "unknownWorkshopResult": {
+    "label_one": "{{count}} item got an unrecognized response from Steam this check:",
+    "label_other": "{{count}} items got an unrecognized response from Steam this check:",
+    "item": "{{id}} (code {{code}})"
+  },
   "duplicateKeysWarning": {
     "title_one": "\"{{keys}}\" appears more than once in this configuration file",
     "title_other": "{{count}} settings appear more than once in this configuration file: {{keys}}",

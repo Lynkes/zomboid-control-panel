@@ -157,4 +157,35 @@ describe("ensureRconConfigured() -- INI path resolution", () => {
     // The legacy file must be left completely untouched.
     expect(fs.readFileSync(legacyIni, "utf-8")).toBe("FromLegacyPath=true\n");
   });
+
+  // 2026-08-31: ensureRconConfigured() used to check/rewrite RCONPassword=
+  // and RCONPort= with unanchored content.includes()/content.replace(), which
+  // match that substring anywhere in the file -- including inside an
+  // operator's own free-text ServerWelcomeMessage. A test asserting only
+  // "RCONPassword updated" passes on the old code too; the free-text line
+  // has to stay untouched and unduplicated for this to actually prove the fix.
+  it("a ServerWelcomeMessage containing the literal text 'RCONPassword=' is left untouched, not rewritten as a second credential line", async () => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-rcon-"));
+    const zomboidDataPath = path.join(root, "Zomboid");
+    const serverDir = path.join(zomboidDataPath, "Server");
+    fs.mkdirSync(serverDir, { recursive: true });
+    const iniPath = path.join(serverDir, "servertest.ini");
+    const welcomeLine =
+      'ServerWelcomeMessage="Ask an admin, never share RCONPassword=hunter2 with anyone."';
+    fs.writeFileSync(
+      iniPath,
+      `PVP=false\n${welcomeLine}\nRCONPassword=old\nRCONPort=27015\n`,
+      "utf-8",
+    );
+
+    getActiveServer.mockResolvedValue(baseServer({ zomboidDataPath }));
+
+    const result = await ensureRconConfigured();
+    expect(result).toBe(true);
+
+    const content = fs.readFileSync(iniPath, "utf-8");
+    expect(content).toContain(welcomeLine);
+    expect(content).toContain("RCONPassword=secret123");
+    expect(content.match(/^RCONPassword=/gm)).toHaveLength(1);
+  });
 });

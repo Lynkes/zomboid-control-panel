@@ -66,11 +66,19 @@ function loadFixture() {
 const fixture = loadFixture();
 const allStrings = fixture ? Object.values(fixture.classes).flat() : [];
 
-// The known, resolved denominator: 69 classes (every zombie/commands/
-// serverCommands/*.class plus the GameServer.class dispatcher) as of the
-// 2026-08-27 extraction. If this changes, a PZ patch added/removed command
-// classes -- investigate before updating it, don't just bump it to match.
-const EXPECTED_CLASS_COUNT = 69;
+// The known, resolved denominator: 72 classes (every zombie/commands/
+// serverCommands/*.class, the GameServer.class dispatcher, plus
+// BanSystem.class and ServerWorldDatabase.class + its LogonResult inner
+// class) as of the 2026-08-29 (hunt-wave11) extraction, same build
+// (24909800) as the prior 2026-08-27/69-class extraction -- this jump from
+// 69 is a DELIBERATE scope widening (banuser/unbanuser/adduser/
+// removeuserfromwhitelist's own command classes carry no rejection text of
+// their own; it lives in these two classes, see
+// docs/qa/kevin-b42-jar-audits.md's "Pass 4"), NOT a PZ patch artifact. If
+// this changes again, a PZ patch added/removed command classes -- or the
+// scope changed again -- investigate before updating it, don't just bump it
+// to match.
+const EXPECTED_CLASS_COUNT = 72;
 
 describe("KNOWN_RCON_REJECTIONS vs the real PZ server jar (drift gate)", () => {
   it("the fixture exists, is valid JSON, and has a non-empty classes map", () => {

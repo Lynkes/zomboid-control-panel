@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue, memo } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
+import { useSearchParams, Link } from 'react-router-dom'
 import { copyText, cn } from '@/lib/utils'
 import {
   Settings,
@@ -734,17 +735,60 @@ export function SectionHeader({
   )
 }
 
+const SERVER_CONFIG_TABS = new Set(['ini', 'sandbox', 'spawnpoints', 'spawnregions', 'modsettings'])
+
+// Closed enum matching server/routes/debug.js's triageUnresolvedMods -- an
+// unrecognized cause (an older diagnostics fetch predating this, or a value
+// this build doesn't know yet) is dropped rather than trusted, same
+// defensive stance Debug.tsx takes reading the same querystring value.
+export type UnresolvedModCause = 'typo' | 'stillDownloading' | 'workshopNotOnDisk' | 'absent'
+const UNRESOLVED_MOD_CAUSES = new Set<UnresolvedModCause>(['typo', 'stillDownloading', 'workshopNotOnDisk', 'absent'])
+
+export function resolveServerConfigDeepLink(searchParams: URLSearchParams) {
+  const requestedTab = searchParams.get('tab')
+  const unresolved = searchParams.getAll('unresolved')
+    .map((modId) => modId.trim().slice(0, 120))
+    .filter(Boolean)
+    .slice(0, 20)
+  const unresolvedIds = new Set(unresolved)
+  // One `modId|cause|suggestion` entry per triaged ID (Debug.tsx's own
+  // transport, see getDiagnosticsFixAction's mods.resolved case) -- only
+  // trust an entry whose modId is actually in `unresolved` above, so a
+  // hand-edited URL can't attach an arbitrary cause to an ID the diagnostics
+  // check never flagged.
+  // `Map` above 20 lines up is lucide-react's icon component, not the
+  // built-in collection -- globalThis.Map dodges that shadowing.
+  const unresolvedTriage = new globalThis.Map<string, { cause: UnresolvedModCause; suggestion?: string }>()
+  for (const raw of searchParams.getAll('unresolvedCause').slice(0, 20)) {
+    const [modId, cause, suggestion] = raw.split('|')
+    if (!modId || !unresolvedIds.has(modId)) continue
+    if (!UNRESOLVED_MOD_CAUSES.has(cause as UnresolvedModCause)) continue
+    unresolvedTriage.set(modId, {
+      cause: cause as UnresolvedModCause,
+      ...(suggestion ? { suggestion: suggestion.trim().slice(0, 120) } : {}),
+    })
+  }
+  return {
+    tab: requestedTab && SERVER_CONFIG_TABS.has(requestedTab) ? requestedTab : 'ini',
+    search: (searchParams.get('search') || '').trim().slice(0, 100),
+    unresolved,
+    unresolvedTriage,
+  }
+}
+
 export default function ServerConfig() {
   const { t, i18n } = useTranslation('serverconfig')
+  const [searchParams] = useSearchParams()
+  const initialDeepLink = resolveServerConfigDeepLink(searchParams)
   // List separator is a language property, not something a joined list of
   // translated setting labels can be assumed to want a Latin ", " for --
   // zh-CN enumerates nouns with the ideographic comma instead.
   const listSep = i18n.language === 'zh-CN' ? '、' : ', '
-  const [activeTab, setActiveTab] = useState('ini')
+  const [activeTab, setActiveTab] = useState(initialDeepLink.tab)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [serverRunning, setServerRunning] = useState<boolean | null>(null)
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchQuery, setSearchQuery] = useState(initialDeepLink.search)
   // Defer the search value so each keystroke doesn't re-filter the full schema
   // synchronously — keeps the input snappy on slower machines.
   const deferredSearchQuery = useDeferredValue(searchQuery)
@@ -752,6 +796,7 @@ export default function ServerConfig() {
   // Filter mode: 'all' = every schema setting, 'modified' = differs from the PZ default,
   // 'nondefault' = local edits not yet saved.
   const [filterMode, setFilterMode] = useState<FilterMode>(() => {
+    if (initialDeepLink.search) return 'all'
     try {
       const stored = localStorage.getItem('serverconfig-filter-mode')
       // Before this migration, "nondefault" represented settings changed from PZ defaults.
@@ -944,6 +989,16 @@ export default function ServerConfig() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Active server context, read independently of the (possibly-failed) paths
+  // load below -- server/routes/serverFiles.js's getServerConfigPath() falls
+  // through a remote server with no SFTP transport configured to the same
+  // ServerNotConfiguredError a genuinely-unconfigured panel throws, so the
+  // wire error code alone can't tell "no active server" apart from "active
+  // server is remote and isn't set up for config editing". Same
+  // isRemote-flag-fetched-independently pattern as Backups.tsx.
+  const [activeServerRemote, setActiveServerRemote] = useState(false)
+  const [activeServerName, setActiveServerName] = useState<string | null>(null)
+
   // File browser state (for image path fields)
   const [fileBrowserOpen, setFileBrowserOpen] = useState(false)
   const [fileBrowserKey, setFileBrowserKey] = useState('')  // which INI key we're picking a file for
@@ -983,6 +1038,10 @@ export default function ServerConfig() {
 
   const loadData = async () => {
     setLoading(true)
+    const active = await serversApi.getResolvedActive().catch(() => ({ server: null }))
+    const isRemote = !!active.server?.isRemote
+    setActiveServerRemote(isRemote)
+    setActiveServerName(active.server?.name || active.server?.serverName || null)
     try {
       // Load paths info first
       const paths = await serverFilesApi.getPaths()
@@ -1015,12 +1074,33 @@ export default function ServerConfig() {
       setLoadError(null)
     } catch (error) {
       reportClientError('Failed to load config.', error)
-      setLoadError(getUserErrorMessage(error, t('toasts.loadConfigFailed')))
-      toast({
-        title: t('toasts.error'),
-        description: getUserErrorMessage(error, t('toasts.loadConfigFailed')),
-        variant: 'destructive'
-      })
+      // getServerConfigPath() (server/routes/serverFiles.js) throws the same
+      // "no active server" error for a genuinely-unconfigured panel AND for
+      // a remote server with no SFTP transport set up -- the wire code can't
+      // be trusted to tell those apart here. When we independently know the
+      // active server IS set and IS remote, say that instead of repeating
+      // the server's misleading "no active server" text: reuse the exact
+      // copy errors.json already ships for this condition everywhere else
+      // remote config access is gated (server/routes/serverFiles.js's own
+      // second-stage SFTP-transport gate), rather than inventing new copy.
+      const message = isRemote
+        ? i18n.t('REMOTE_CONFIG_NOT_CONFIGURED', { ns: 'errors' })
+        : getUserErrorMessage(error, t('toasts.loadConfigFailed'))
+      setLoadError(message)
+      // The remote case renders as a persistent warning banner below (no
+      // Retry button -- this is a setup step, not a failure), deliberately
+      // not the destructive framing a toast titled "Error" would give it.
+      // Firing that toast anyway said the opposite of what the banner right
+      // under it says, and duplicated the same sentence a second time on
+      // screen for a standing fact that isn't going away on its own, unlike
+      // a genuine one-off fetch failure below, which still gets the toast.
+      if (!isRemote) {
+        toast({
+          title: t('toasts.error'),
+          description: message,
+          variant: 'destructive'
+        })
+      }
     } finally {
       setLoading(false)
     }
@@ -1856,6 +1936,42 @@ export default function ServerConfig() {
     setIniSettings(prev => ({ ...prev, [key]: value }))
   }, [])
 
+  // Unresolved Mods= triage actions (mods-unresolved-2026-08-31) -- both
+  // stage an edit into the SAME unsaved iniSettings state as manually typing
+  // in the field below would; nothing reaches disk until the operator hits
+  // Save, same as every other edit on this page. That's what makes these
+  // safe to offer without the bulk-disable the mods.resolved check's own
+  // comment (Debug.tsx) deliberately avoids.
+  const applyUnresolvedModCorrection = useCallback((modId: string, suggestion: string) => {
+    setIniSettings(prev => {
+      const tokens = (prev.Mods || '').split(';').map(v => v.trim()).filter(Boolean)
+      const next = tokens.map(v => (v === modId ? suggestion : v))
+      return { ...prev, Mods: next.join(';') }
+    })
+    toast({
+      title: t('unresolvedReview.correctedTitle'),
+      description: t('unresolvedReview.correctedToast', { modId, suggestion }),
+    })
+  }, [toast, t])
+
+  const removeUnresolvedModEntry = useCallback(async (modId: string) => {
+    const ok = await confirm({
+      title: t('unresolvedReview.removeConfirmTitle'),
+      description: t('unresolvedReview.removeConfirm', { modId }),
+      confirmLabel: t('unresolvedReview.removeConfirmButton'),
+      destructive: true,
+    })
+    if (!ok) return
+    setIniSettings(prev => {
+      const tokens = (prev.Mods || '').split(';').map(v => v.trim()).filter(Boolean)
+      return { ...prev, Mods: tokens.filter(v => v !== modId).join(';') }
+    })
+    toast({
+      title: t('unresolvedReview.removedTitle'),
+      description: t('unresolvedReview.removedToast', { modId }),
+    })
+  }, [confirm, toast, t])
+
   const updateSandboxValue = useCallback((setting: SandboxSetting, value: SandboxScalar) => {
     setSandboxData(prev => {
       if (!prev) return prev
@@ -2007,16 +2123,32 @@ export default function ServerConfig() {
   return (
     <div className="space-y-4 page-transition pb-24">
       {loadError && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>{t('loadErrorTitle')}</AlertTitle>
-          <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <span className="min-w-0 break-words" dir="auto" title={loadError}>{loadError}</span>
-            <Button variant="outline" size="sm" onClick={loadData} className="self-start">
-              <RefreshCw className="mr-2 h-4 w-4" /> {t('retry')}
-            </Button>
-          </AlertDescription>
-        </Alert>
+        activeServerRemote ? (
+          // Remote-with-no-SFTP-transport isn't a failure to retry -- it's a
+          // configuration step the operator hasn't done yet (same class as
+          // Backups.tsx's/ChunkCleaner's own remote-server alerts), so this
+          // uses their warning styling instead of a destructive one, and
+          // drops the Retry button: retrying can't turn a remote server into
+          // a local one, or add SFTP details on its own.
+          <Alert className="border-warning/40 bg-warning/10">
+            <AlertTriangle className="h-4 w-4 text-warning" />
+            <AlertTitle>{t('loadErrorTitle')}</AlertTitle>
+            <AlertDescription className="min-w-0 break-words" dir="auto" title={loadError}>
+              {loadError}
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>{t('loadErrorTitle')}</AlertTitle>
+            <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <span className="min-w-0 break-words" dir="auto" title={loadError}>{loadError}</span>
+              <Button variant="outline" size="sm" onClick={loadData} className="self-start">
+                <RefreshCw className="mr-2 h-4 w-4" /> {t('retry')}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )
       )}
 
       {/* Duplicate-key warning: a setting appears more than once as its own
@@ -2095,6 +2227,13 @@ export default function ServerConfig() {
                   {pathsInfo.configPath}
                 </span>
               </div>
+            ) : activeServerName ? (
+              // pathsInfo is null here because the load failed -- but a
+              // remote-without-SFTP-transport failure (see loadData) still
+              // means a real server is active, just not this one, so say so
+              // instead of "No server selected", which the sidebar right
+              // next to this strip already contradicts.
+              <span className="text-sm font-semibold text-foreground">{activeServerName}</span>
             ) : (
               <span className="text-xs text-muted-foreground/60">{t('activeServerStrip.noServerSelected')}</span>
             )}
@@ -2144,8 +2283,16 @@ export default function ServerConfig() {
       }}>
         <TabsList className="flex h-auto flex-wrap gap-1 bg-muted/30 border border-border/50 p-1 rounded-md w-full">
           {([
-            { value: 'ini', label: t('tabs.serverSettings'), icon: Settings, dirty: hasIniChanges, count: changedIniCount, missing: !pathsInfo?.exists.ini },
-            { value: 'sandbox', label: t('tabs.sandbox'), icon: FileText, dirty: hasSandboxChanges, count: changedSandboxCount, missing: !pathsInfo?.exists.sandbox },
+            // pathsInfo is null both for a genuinely-unconfigured panel (where
+            // "missing" is correct -- there is no file) and for a remote
+            // server with no SFTP transport set up (loadData, ~line 1050),
+            // where nothing is actually confirmed missing, only unreachable.
+            // The banner above already explains the real reason for the
+            // remote case with its own copy -- don't also claim these two
+            // specific files are missing, which the sidebar's REMOTE badge
+            // two rows up already contradicts.
+            { value: 'ini', label: t('tabs.serverSettings'), icon: Settings, dirty: hasIniChanges, count: changedIniCount, missing: !activeServerRemote && !pathsInfo?.exists.ini },
+            { value: 'sandbox', label: t('tabs.sandbox'), icon: FileText, dirty: hasSandboxChanges, count: changedSandboxCount, missing: !activeServerRemote && !pathsInfo?.exists.sandbox },
             { value: 'spawnpoints', label: t('tabs.spawnPoints'), icon: MapPin, dirty: false, count: 0, missing: false },
             { value: 'spawnregions', label: t('tabs.spawnRegions'), icon: Map, dirty: false, count: 0, missing: false },
             { value: 'modsettings', label: t('tabs.modSettings'), icon: Puzzle, dirty: false, count: modifiedModSettingsCount, missing: false },
@@ -2171,6 +2318,62 @@ export default function ServerConfig() {
             </TabsTrigger>
           ))}
         </TabsList>
+        {activeTab === 'ini' && initialDeepLink.unresolved.length > 0 && (
+          <Alert className="mt-3 border-warning/40 bg-warning/10">
+            <AlertTriangle className="h-4 w-4 text-warning" />
+            <AlertTitle className="text-warning">{t('unresolvedReview.title')}</AlertTitle>
+            <AlertDescription className="mt-2 space-y-3">
+              {initialDeepLink.unresolved.map((modId) => {
+                const triage = initialDeepLink.unresolvedTriage.get(modId)
+                // Chip + action button share one line (both short, never wrap
+                // badly); the explanation is its own line below so a long
+                // sentence (workshopNotOnDisk especially) can wrap freely
+                // without dragging the button out of line with the chip.
+                return (
+                  <div key={modId}>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <code className="rounded border border-warning/30 bg-background/50 px-1.5 py-0.5 text-xs text-foreground">
+                        {modId}
+                      </code>
+                      {triage?.cause === 'typo' && triage.suggestion && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-6 px-2 text-xs"
+                          onClick={() => applyUnresolvedModCorrection(modId, triage.suggestion as string)}
+                        >
+                          {t('unresolvedReview.correctAction', { suggestion: triage.suggestion })}
+                        </Button>
+                      )}
+                      {(triage?.cause === 'stillDownloading' || triage?.cause === 'workshopNotOnDisk') && (
+                        <Button asChild size="sm" variant="ghost" className="h-6 px-2 text-xs">
+                          <Link to="/debug">{t('unresolvedReview.rerunDiagnostics')}</Link>
+                        </Button>
+                      )}
+                      {triage?.cause === 'absent' && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-6 px-2 text-xs text-destructive border-destructive/40 hover:bg-destructive/10"
+                          onClick={() => removeUnresolvedModEntry(modId)}
+                        >
+                          {t('unresolvedReview.removeAction')}
+                        </Button>
+                      )}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {!triage && t('unresolvedReview.causeUnknown')}
+                      {triage?.cause === 'typo' && triage.suggestion && t('unresolvedReview.causeTypo', { suggestion: triage.suggestion })}
+                      {triage?.cause === 'stillDownloading' && t('unresolvedReview.causeStillDownloading')}
+                      {triage?.cause === 'workshopNotOnDisk' && t('unresolvedReview.causeWorkshopNotOnDisk')}
+                      {triage?.cause === 'absent' && t('unresolvedReview.causeAbsent')}
+                    </p>
+                  </div>
+                )
+              })}
+            </AlertDescription>
+          </Alert>
+        )}
         {serverMayBeRunning && ['ini', 'sandbox', 'spawnpoints', 'spawnregions'].includes(activeTab) && (
           <Alert className="mt-3 border-primary/30 bg-primary/5">
             <Info className="h-4 w-4 text-primary" />
@@ -2411,7 +2614,7 @@ export default function ServerConfig() {
                     <div className="grid gap-0 md:grid-cols-[252px_minmax(0,1fr)]">
                       <nav
                         aria-label={t('categoriesNav.iniAria')}
-                        className="-mx-2 flex gap-0.5 overflow-x-auto px-2 pb-2 md:mx-0 md:flex-col md:overflow-x-visible md:overflow-y-auto md:border-r md:border-border/50 md:pb-0 md:pr-3 md:pt-1 md:max-h-[calc(100vh-420px)] md:min-h-[360px]"
+                        className="-mx-2 flex flex-col gap-0.5 px-2 pb-2 md:mx-0 md:border-r md:border-border/50 md:pb-0 md:pr-3 md:pt-1 md:max-h-[calc(100vh-420px)] md:min-h-[360px] md:overflow-y-auto"
                       >
                         <div className="hidden md:flex items-center justify-between px-3 pb-1">
                           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
@@ -2439,7 +2642,7 @@ export default function ServerConfig() {
                           const isCollapsed = !!collapsedGroups[groupKey]
                           const groupModCount = cats.reduce((acc, c) => acc + (iniModifiedByCategory[c.id] || 0), 0)
                           return (
-                            <div key={group.id} className={gIdx > 0 ? 'mt-2 md:mt-3' : ''}>
+                            <div key={group.id} className={`shrink-0 md:shrink ${gIdx > 0 ? 'mt-2 md:mt-3' : ''}`}>
                               <button
                                 type="button"
                                 onClick={() => toggleGroup(groupKey)}
@@ -2817,7 +3020,7 @@ export default function ServerConfig() {
                     <div className="grid gap-0 md:grid-cols-[252px_minmax(0,1fr)]">
                       <nav
                         aria-label={t('categoriesNav.sandboxAria')}
-                        className="-mx-2 flex gap-0.5 overflow-x-auto px-2 pb-2 md:mx-0 md:flex-col md:overflow-x-visible md:overflow-y-auto md:border-r md:border-border/50 md:pb-0 md:pr-3 md:pt-1 md:max-h-[calc(100vh-420px)] md:min-h-[360px]"
+                        className="-mx-2 flex flex-col gap-0.5 px-2 pb-2 md:mx-0 md:border-r md:border-border/50 md:pb-0 md:pr-3 md:pt-1 md:max-h-[calc(100vh-420px)] md:min-h-[360px] md:overflow-y-auto"
                       >
                         <div className="hidden md:flex items-center justify-between px-3 pb-1">
                           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
@@ -2844,7 +3047,7 @@ export default function ServerConfig() {
                           const isCollapsed = !!collapsedGroups[groupKey]
                           const groupModCount = cats.reduce((acc, c) => acc + (sandboxModifiedByCategory[c.id] || 0), 0)
                           return (
-                            <div key={group.id} className={gIdx > 0 ? 'mt-2 md:mt-3' : ''}>
+                            <div key={group.id} className={`shrink-0 md:shrink ${gIdx > 0 ? 'mt-2 md:mt-3' : ''}`}>
                               <button
                                 type="button"
                                 onClick={() => toggleGroup(groupKey)}

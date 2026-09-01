@@ -40,7 +40,11 @@ export function resolveSourcePath() {
 // The server's install directory, resolved the same way serverManager does:
 // prefer serverPath, fall back to installPath, and if that names a launch
 // script (.bat/.sh/.exe) rather than a directory, use its parent folder.
-function resolveInstallDir(server) {
+// Exported so index.js's and routes/panelBridge.js's own auto-update/
+// auto-install code paths can share this one implementation instead of
+// each reimplementing the extension check without the lowercasing below
+// (bughunt-2026-08-31-c, launcher-extension-case-sensitivity).
+export function resolveInstallDir(server) {
   let dir = server?.serverPath || server?.installPath;
   if (!dir) return null;
   const lower = dir.toLowerCase();
@@ -74,25 +78,40 @@ export function canAutoInstall(server) {
   return Boolean(resolveSourcePath());
 }
 
-function readVersion(filePath) {
+function extractVersion(content) {
+  return (content.match(VERSION_REGEX) || [])[1] || null;
+}
+
+function readContent(filePath) {
   try {
-    const content = fs.readFileSync(filePath, 'utf8');
-    return (content.match(VERSION_REGEX) || [])[1] || null;
+    return fs.readFileSync(filePath, 'utf8');
   } catch (error) {
-    log.debug(`Could not read version from ${filePath}: ${error.message}`);
+    log.debug(`Could not read ${filePath}: ${error.message}`);
     return null;
   }
 }
 
+function readVersion(filePath) {
+  const content = readContent(filePath);
+  return content ? extractVersion(content) : null;
+}
+
+// needsUpdate is decided by comparing file CONTENT, not the hand-maintained
+// VERSION label inside it. Three consecutive real bridge fixes (2026-08-31,
+// operator-fix-the-three, json.decode/runEventSequence/stopWeather) shipped
+// without a version bump, so a VERSION-only comparison silently reported
+// "up to date" while the fixes never reached any server this gates. VERSION
+// is kept only as a human-readable label on the returned status.
 export function checkBridgeInstalled(server) {
   const sourcePath = resolveSourcePath();
   const targetPath = resolveTargetPath(server);
   const installed = Boolean(targetPath && fs.existsSync(targetPath));
-  const sourceVersion = sourcePath ? readVersion(sourcePath) : null;
-  const targetVersion = installed ? readVersion(targetPath) : null;
+  const sourceContent = sourcePath ? readContent(sourcePath) : null;
+  const targetContent = installed ? readContent(targetPath) : null;
+  const targetVersion = targetContent ? extractVersion(targetContent) : null;
   const needsUpdate = Boolean(
-    installed && sourceVersion &&
-    (!targetVersion || compareModVersions(sourceVersion, targetVersion) > 0),
+    installed && sourceContent !== null &&
+    (targetContent === null || targetContent !== sourceContent),
   );
 
   return { installed, version: targetVersion, needsUpdate, sourcePath, targetPath };
@@ -124,12 +143,26 @@ export function installBridge(server) {
 
   try {
     const sourceContent = fs.readFileSync(sourcePath, 'utf8');
-    const sourceVersion = readVersion(sourcePath);
+    const sourceVersion = extractVersion(sourceContent);
     if (!sourceVersion) {
       return { success: false, error: 'PanelBridge source has no readable version.' };
     }
     if (fs.existsSync(targetPath)) {
-      const targetVersion = readVersion(targetPath);
+      const targetContent = fs.readFileSync(targetPath, 'utf8');
+      // Fast path: byte-identical already, regardless of what VERSION says.
+      // A same-version-different-content install (the exact shape that let
+      // three unbumped fixes go undelivered) still needs to fall through to
+      // the write below -- only true content equality short-circuits here.
+      if (targetContent === sourceContent) {
+        return {
+          success: true,
+          targetPath,
+          version: sourceVersion,
+          updated: false,
+          message: `Existing PanelBridge v${sourceVersion} already matches the bundled version; left unchanged.`,
+        };
+      }
+      const targetVersion = extractVersion(targetContent);
       if (targetVersion && compareModVersions(targetVersion, sourceVersion) > 0) {
         return {
           success: true,
@@ -146,6 +179,27 @@ export function installBridge(server) {
     const version = readVersion(targetPath);
     if (installedContent !== sourceContent || version !== sourceVersion) {
       return { success: false, error: 'PanelBridge verification failed after install.' };
+    }
+    // Verifies the file the way the GAME will see it, not just the way the
+    // panel's own (trivially-successful, same-process) read just did.
+    // writeLuaAtomic() now enforces 0644 unconditionally, so this should
+    // never actually fire -- it exists as a visible signal in case some
+    // future change to that guarantee (or an unusual filesystem) silently
+    // breaks it, rather than the mod just never loading with nothing in
+    // the log to explain why (2026-08-29 Linux PanelBridge hunt).
+    if (process.platform !== 'win32') {
+      try {
+        const { mode } = fs.statSync(targetPath);
+        if ((mode & 0o004) === 0) {
+          log.warn(
+            `PanelBridge installed at ${targetPath}, but it is not world-readable ` +
+              `(mode ${(mode & 0o777).toString(8)}). If the PZ server runs as a ` +
+              'different user than the panel, it will not be able to load this mod.',
+          );
+        }
+      } catch {
+        /* best-effort */
+      }
     }
     log.info(`PanelBridge installed at ${targetPath} (v${version || 'unknown'})`);
     return { success: true, targetPath, version, updated: true };

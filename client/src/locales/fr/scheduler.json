@@ -45,6 +45,7 @@
     "scheduleTypeLabel": "Type de planification",
     "tabSimple": "Assistant simple",
     "tabAdvanced": "Avancé (Cron)",
+    "timezoneNotice": "Les horaires ci-dessous s'appliquent dans le fuseau horaire du panneau : {{tz}}",
     "frequencyLabel": "Fréquence",
     "freqHourly": "Toutes les heures (à la minute 0)",
     "freqInterval": "Toutes les X heures",
@@ -66,6 +67,7 @@
     "cronFormatHint": "Format : minute heure jour mois jour de la semaine",
     "cronValidExpression": "Expression valide",
     "commandLabel": "Commande",
+    "commandTip": "Ceci s'exécute sans surveillance selon le planning ci-dessus, sans confirmation à chaque déclenchement. Choisissez quelque chose de sûr à répéter automatiquement — une commande personnalisée n'est vérifiée par rapport à aucune liste sûre, et elle continuera de s'exécuter tant que vous ne désactivez pas ou ne supprimez pas cette tâche.",
     "commandSelectPlaceholder": "Sélectionner une commande courante...",
     "commandCustomPlaceholder": "Ou saisissez une commande personnalisée",
     "bridgeFormatHint": "Format : <1>bridge:&lt;action&gt; {json args}</1> — ex. : <2>bridge:triggerBlizzard {\"durationHours\":2}</2>. Les arguments sont facultatifs. Seules les actions autorisées s'exécutent via le planificateur.",
@@ -180,6 +182,18 @@
     "everyNUnits": "<1>*/n</1> = toutes les n unités",
     "every2HoursExample": "<1>0 */2 * * *</1> = toutes les 2 heures",
     "daily6amExample": "<1>0 6 * * *</1> = chaque jour à 6 h"
+  },
+  "timezone": {
+    "title": "Fuseau horaire du planificateur",
+    "description": "Toutes les planifications ci-dessous -- vos tâches, la sauvegarde automatique et le redémarrage automatique -- s'exécutent dans ce fuseau horaire.",
+    "inputLabel": "Nom de fuseau horaire IANA",
+    "noMatches": "Aucun fuseau horaire correspondant",
+    "saveButton": "Enregistrer",
+    "currentlyEffective": "Actuellement en vigueur : {{tz}}",
+    "savedDesc": "Les planifications s'exécutent maintenant dans {{tz}}.",
+    "saveFailedFallback": "Échec de l'enregistrement du fuseau horaire",
+    "fallbackTitle": "Le fuseau horaire enregistré n'est plus valide",
+    "fallbackDesc": "« {{configured}} » n'a pas pu être utilisé (il a peut-être été retiré de la base de données des fuseaux horaires, ou ce panneau a été restauré depuis une autre machine). Les planifications s'exécutent dans {{effective}} jusqu'à ce que ce soit corrigé."
   },
   "toasts": {
     "errorTitle": "Erreur",

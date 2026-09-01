@@ -40,7 +40,8 @@
     "off": "关闭",
     "runsSchedule": "{{schedule}}运行 · 保留 {{count}} 份",
     "noScheduled": "没有计划备份",
-    "toggleAria": "切换计划备份"
+    "toggleAria": "切换计划备份",
+    "lastScheduledAttemptFailed": "上次计划任务失败（{{time}}）：{{message}}"
   },
   "schedule": {
     "every15Min": "每 15 分钟",
@@ -75,6 +76,9 @@
   "mainCard": {
     "title": "备份文件",
     "savesNotFound": "未找到存档文件夹",
+    "noSavesFolderTitle": "未找到存档文件夹",
+    "noSavesFolderDesc": "面板未能为当前活动服务器找到 Saves/Multiplayer 文件夹。如果尚未设置服务器，请先设置；如果已设置，请至少启动一次——该文件夹会在首次启动时创建。",
+    "noSavesFolderAction": "打开服务器设置",
     "deleteSelected": "删除（{{count}}）",
     "deleteOlder": "删除较旧备份",
     "emptyTitle": "没有安全保障",
@@ -112,6 +116,7 @@
     "bulletStopServer": "请先停止服务器。",
     "bulletSafetyBackup": "面板会在恢复前创建一份安全备份。",
     "bulletUndoRequiresRestore": "之后要撤销此操作，需要您自己手动恢复该安全备份——这不会自动完成。",
+    "scopeTip": "还原只会替换这个世界的存档文件——服务器设置、模组和创意工坊内容不受影响。",
     "cancel": "取消",
     "confirm": "恢复此备份"
   },

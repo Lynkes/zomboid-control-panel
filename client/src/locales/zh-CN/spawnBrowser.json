@@ -28,6 +28,8 @@
   "noResults": "无结果",
   "searchAcrossAllCategories": "搜索所有分类",
   "recent": "最近",
+  "clearRecent": "清除",
+  "clearRecentAria": "清除最近记录",
   "spawnAgainTitle": "再次生成 {{name}}",
   "spawnAgainTitleWithQty": "再次生成 {{name}} × {{qty}}",
   "selected": "已选择",

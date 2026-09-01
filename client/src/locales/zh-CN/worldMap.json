@@ -71,7 +71,9 @@
     "panToAriaWithHealth": "平移至 {{name}}，生命值 {{health}}%",
     "loading": "加载中……",
     "noPlayersOnline": "没有玩家在线",
-    "bridgeOffline": "桥接离线"
+    "bridgeOffline": "桥接离线",
+    "collapseAria": "收起花名册",
+    "expandAria": "展开花名册"
   },
   "hud": {
     "hoverForCoords": "悬停查看坐标"
@@ -83,11 +85,15 @@
     "pos": "坐标",
     "floor": "楼层",
     "hp": "生命值",
+    "hunger": "饥饿",
+    "thirst": "口渴",
+    "fatigue": "疲劳",
     "role": "角色",
     "status": "状态",
     "infected": "感染",
     "heal": "治疗",
     "god": "无敌",
+    "godTip": "始终为该玩家开启无敌模式——不是切换开关。请改到「玩家」页面关闭它。",
     "healedTitle": "已治疗",
     "healedDesc": "{{username}} 已被治疗",
     "godModeEnabled": "已启用无敌模式"
@@ -183,6 +189,7 @@
   "spawnDialog": {
     "title": "生成载具",
     "location": "位置：{{x}}, {{y}} · 楼层 {{z}}",
+    "floorTip": "车辆只能在地面层或地下室生成——高于地面的任何楼层都会生成失败。",
     "cancel": "取消",
     "spawn": "生成"
   },

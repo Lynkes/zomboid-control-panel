@@ -40,7 +40,8 @@
     "off": "Désactivée",
     "runsSchedule": "S'exécute {{schedule}} · conserve {{count}}",
     "noScheduled": "Aucune sauvegarde planifiée",
-    "toggleAria": "Activer/désactiver les sauvegardes planifiées"
+    "toggleAria": "Activer/désactiver les sauvegardes planifiées",
+    "lastScheduledAttemptFailed": "Dernière tentative planifiée échouée ({{time}}) : {{message}}"
   },
   "schedule": {
     "every15Min": "toutes les 15 minutes",
@@ -75,6 +76,9 @@
   "mainCard": {
     "title": "Fichiers de sauvegarde",
     "savesNotFound": "Dossier de sauvegardes de jeu introuvable",
+    "noSavesFolderTitle": "Dossier de sauvegardes de jeu introuvable",
+    "noSavesFolderDesc": "Le panneau n'a pas trouvé de dossier Saves/Multiplayer pour le serveur actif. Configurez un serveur si ce n'est pas déjà fait, ou démarrez-le au moins une fois — le dossier est créé au premier lancement.",
+    "noSavesFolderAction": "Ouvrir la configuration du serveur",
     "deleteSelected": "Supprimer ({{count}})",
     "deleteOlder": "Supprimer les anciennes",
     "emptyTitle": "Aucun filet de sécurité",
@@ -112,6 +116,7 @@
     "bulletStopServer": "Arrêtez d'abord le serveur.",
     "bulletSafetyBackup": "Le panneau créera une sauvegarde de sécurité avant de restaurer.",
     "bulletUndoRequiresRestore": "Pour annuler cela plus tard, il faudra restaurer cette sauvegarde de sécurité vous-même — cela ne se fait pas automatiquement.",
+    "scopeTip": "La restauration remplace uniquement les fichiers de sauvegarde de ce monde — les paramètres du serveur, les mods et les objets Workshop restent inchangés.",
     "cancel": "Annuler",
     "confirm": "Restaurer cette sauvegarde"
   },

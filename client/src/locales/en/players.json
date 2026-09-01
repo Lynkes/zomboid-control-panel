@@ -30,6 +30,7 @@
     "peakToday": "Peak Today",
     "roster": "Roster",
     "rosterCaption": "seen",
+    "rosterTip": "Players you've connected with before, now offline. Someone online right now isn't counted here until they disconnect — that's why this can read 0 while a player card is live above it.",
     "bannedLabel": "Banned SteamIDs",
     "bannedManage": "manage",
     "bannedAria": "View {{count}} banned SteamIDs"
@@ -51,6 +52,7 @@
     "searchAria": "Search players",
     "onlineEmptyTitle": "No players online",
     "onlineEmptyDesc": "Players appear here when they connect.",
+    "rosterHealthTooltip": "Health: {{health}}%",
     "seePreviouslySeen_one": "See {{count}} previously seen player",
     "seePreviouslySeen_other": "See {{count}} previously seen players",
     "reviewBanned_one": "Review {{count}} banned SteamID",
@@ -123,10 +125,36 @@
     "noTargetDesc": "Pick a player from the roster to view their dossier, or type a username under <1>› Manual target</1>."
   },
   "tabs": {
+    "vitals": "Vitals",
     "moderation": "Moderation",
     "spawn": "Spawn",
     "powers": "Powers",
     "notesLog": "Notes & Log"
+  },
+  "vitals": {
+    "noTarget": "Select a player to see their live status.",
+    "offline": "This player is offline.",
+    "bridgeRequired": "PanelBridge is not connected.",
+    "loading": "Loading live status…",
+    "unavailable": "Live status is unavailable for this player.",
+    "loadError": "Failed to load live status.",
+    "infected": "Infected",
+    "bleeding": "Bleeding",
+    "asleep": "Asleep",
+    "sneaking": "Sneaking",
+    "running": "Running",
+    "health": "HP",
+    "hunger": "Hunger",
+    "thirst": "Thirst",
+    "fatigue": "Fatigue",
+    "endurance": "Endurance",
+    "stress": "Stress",
+    "boredom": "Boredom",
+    "unhappiness": "Unhappiness",
+    "pain": "Pain",
+    "wetness": "Wetness",
+    "otherStatsLabel": "Other stats",
+    "otherStatsTip": "Shown as raw numbers, not a bar like the vitals above: PanelBridge sends these values, but which of them use a 0-1 scale versus 0-100 hasn't been confirmed against the game itself for every one of them. A colored bar would have to guess the scale, and a confidently wrong severity is worse than no severity at all."
   },
   "actionTiles": {
     "kickDesc": "Boot player with reason",
@@ -134,7 +162,7 @@
     "accessLevelLabel": "Access Level",
     "accessLevelDesc": "Admin · Mod · User",
     "teleportLabel": "Teleport",
-    "teleportDesc": "B42 MP · may not sync",
+    "teleportDesc": "Build 42 multiplayer · may not sync",
     "voiceBanLabel": "Voice Ban",
     "voiceBanTooltip": "Mute or unmute a player from in-game voice chat. They stay connected, but can't talk in proximity voice.",
     "steamIdBanLabel": "SteamID Ban",
@@ -159,6 +187,7 @@
     "reasonLabel": "Reason (optional)",
     "reasonPlaceholder": "Enter reason...",
     "banIpLabel": "Also ban IP address",
+    "banIpTip": "Also blocks the IP, not just the account — can affect others on the same network, and this panel has no way to review or lift IP bans separately.",
     "cancel": "Cancel",
     "continue": "Continue to Ban"
   },
@@ -186,6 +215,7 @@
     "xLabel": "X",
     "yLabel": "Y",
     "zLabel": "Z",
+    "zTip": "The building floor, not a height — 0 is ground level, higher is an upper floor.",
     "submit": "Teleport"
   },
   "secondaryOpsHeader": "standalone ops",
@@ -264,8 +294,17 @@
     "healLabel": "Heal",
     "healDesc": "Restore full health & stats",
     "healButton": "Heal",
+    "killLabel": "Kill",
+    "killDesc": "Permanently ends the character",
+    "killTip": "Also turns off God Mode first, even if the kill itself fails — it isn't turned back on automatically.",
+    "killButton": "Kill",
+    "killConfirmTitle": "Kill {{player}}?",
+    "killConfirmDesc": "This immediately ends {{player}}'s character. On a permadeath server there is no undo, no respawn as the same character, and no restore. Type their username below to confirm you mean to do this to them.",
+    "killConfirmButton": "Kill player",
+    "killConfirmTypeLabel": "Type {{player}} to confirm",
     "on": "ON",
     "off": "OFF",
+    "unknown": "UNKNOWN",
     "enable": "Enable",
     "disable": "Disable",
     "bridgeRequiredTooltip": "Requires PanelBridge to be connected"
@@ -361,7 +400,8 @@
     "disableInvisible": "Disable invisible",
     "enableNoclip": "Enable noclip",
     "disableNoclip": "Disable noclip",
-    "healPlayer": "Heal player"
+    "healPlayer": "Heal player",
+    "killPlayer": "Kill player"
   },
   "toasts": {
     "successTitle": "Success",

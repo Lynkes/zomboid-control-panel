@@ -14,7 +14,19 @@ vi.mock("../database/init.js", () => ({
   getServer: (...args) => getServer(...args),
 }));
 
+// A pass-through spy, not a stub: wraps the REAL createBackupIfChanged so
+// every other test in this file keeps taking real backups and checking
+// real files on disk (unchanged) -- only wrapped so a call count can be
+// asserted where the claim under test is specifically "backs up nothing"
+// (bug hunt 2026-08-31-c, under-coverage sweep). Does not touch
+// services/scheduler.js.
+vi.mock("../utils/configBackup.js", async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, createBackupIfChanged: vi.fn(actual.createBackupIfChanged) };
+});
+
 const { Scheduler } = await import("../services/scheduler.js");
+const { createBackupIfChanged } = await import("../utils/configBackup.js");
 
 // 2026-08-27, operator directive ("make sure backups works") relayed by god,
 // safety-net follow-up: confirmed (by grep, not guesswork) that
@@ -41,6 +53,7 @@ describe("Scheduler._backupConfigBeforeRestart()", () => {
     if (root) fs.rmSync(root, { recursive: true, force: true });
     getServer.mockReset();
     getActiveServer.mockReset();
+    createBackupIfChanged.mockClear();
   });
 
   function makeScheduler() {
@@ -163,6 +176,10 @@ describe("Scheduler._backupConfigBeforeRestart()", () => {
 
     const scheduler = makeScheduler();
     await expect(scheduler._backupConfigBeforeRestart(5)).resolves.toEqual(server);
+    // bug hunt 2026-08-31-c (under-coverage sweep): "backs up nothing" is a
+    // claim about whether a backup was ATTEMPTED, not just what the method
+    // returned -- the resolved-value check above says nothing about that.
+    expect(createBackupIfChanged).not.toHaveBeenCalled();
   });
 
   it("a database failure while resolving the server never throws out of the restart flow, and returns null", async () => {

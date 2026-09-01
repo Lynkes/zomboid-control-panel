@@ -93,6 +93,8 @@ import { SocketContext } from "@/contexts/SocketContext";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { DisabledReason } from "@/components/DisabledReason";
+import { BridgeStatusBadge } from "@/components/BridgeStatusBadge";
+import { NumberInput } from "@/components/NumberInput";
 import { cn, copyText } from "@/lib/utils";
 import {
   apiFetch,
@@ -103,6 +105,7 @@ import {
   rconApi,
   backupApi,
   serverFilesApi,
+  discordApi,
 } from "@/lib/api";
 
 interface LogEntry {
@@ -264,6 +267,7 @@ type TimeFormat = "relative" | "time" | "datetime";
 type DiagnosticsFixAction = {
   label: string;
   automated: boolean;
+  manualRoute?: string;
   /** Present only when the user must confirm before this automated fix runs.
    *  destructive is required (not optional) inside this object on purpose:
    *  requiresConfirm/confirmMessage/destructive used to be three independent
@@ -316,6 +320,48 @@ function getDiagMetaStringList(check: DiagCheck, key: string): string[] {
   );
 }
 
+// mods.resolved's per-ID triage (server/routes/debug.js's triageUnresolvedMods) --
+// the causes this reads are a closed enum matching the server's own switch;
+// an unrecognized cause is dropped rather than trusted, same defensive stance
+// as every other server-controlled value this file renders.
+const UNRESOLVED_MOD_CAUSES = new Set([
+  "typo",
+  "stillDownloading",
+  "workshopNotOnDisk",
+  "absent",
+]);
+
+interface UnresolvedModTriageEntry {
+  modId: string;
+  cause: "typo" | "stillDownloading" | "workshopNotOnDisk" | "absent";
+  suggestion?: string;
+}
+
+function getDiagMetaTriageList(
+  check: DiagCheck,
+  key: string,
+): UnresolvedModTriageEntry[] {
+  const raw = check.meta?.[key];
+  if (!Array.isArray(raw)) return [];
+  const out: UnresolvedModTriageEntry[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const modId = (item as Record<string, unknown>).modId;
+    const cause = (item as Record<string, unknown>).cause;
+    const suggestion = (item as Record<string, unknown>).suggestion;
+    if (typeof modId !== "string" || !modId.trim()) continue;
+    if (typeof cause !== "string" || !UNRESOLVED_MOD_CAUSES.has(cause)) continue;
+    out.push({
+      modId,
+      cause: cause as UnresolvedModTriageEntry["cause"],
+      ...(typeof suggestion === "string" && suggestion
+        ? { suggestion }
+        : {}),
+    });
+  }
+  return out;
+}
+
 // MUST be called with the RAW check straight from the API response, never
 // the output of translateDiagnosticCheck() -- `note` below falls back to
 // the literal `check.hint` verbatim, which should stay the server's own
@@ -362,16 +408,29 @@ export function getDiagnosticsFixAction(
       // pending" or "Mods= / WorkshopItems= drift" — not typos. Running
       // the orphanWorkshop fix first usually resolves many of these.
       const count = getDiagMetaStringList(check, "unresolvedMods").length;
+      const reviewParams = new URLSearchParams({ tab: "ini", search: "Mods" });
+      for (const modId of getDiagMetaStringList(check, "unresolvedMods")) {
+        reviewParams.append("unresolved", modId);
+      }
+      // Ride the same querystring transport as `unresolved` above -- one
+      // `modId|cause|suggestion` entry per triaged ID (suggestion left empty
+      // when the cause doesn't have one). Server Config parses and validates
+      // this itself; an untriaged or newly-added ID (this diagnostics fetch
+      // predates the fix, or the server truly had nothing to say) just
+      // renders with no cause, same as before this existed.
+      for (const entry of getDiagMetaTriageList(check, "unresolvedTriage")) {
+        reviewParams.append(
+          "unresolvedCause",
+          `${entry.modId}|${entry.cause}|${entry.suggestion || ""}`,
+        );
+      }
       return {
         label:
           count > 0
             ? t("fixActions.modsResolved.labelWithCount", { count })
             : t("fixActions.modsResolved.labelGeneric"),
         automated: false,
-        openServerConfig: true,
-        links: [
-          { to: "/mods?review=unresolved", label: L("openDependencyReview") },
-        ],
+        manualRoute: `/server-config?${reviewParams.toString()}`,
         note: t("fixActions.modsResolved.note"),
       };
     }
@@ -424,7 +483,7 @@ export function getDiagnosticsFixAction(
       return {
         label: t("fixActions.modsWorkshopCrash.label"),
         automated: false,
-        openMods: true,
+        manualRoute: "/mods",
         note: t("fixActions.modsWorkshopCrash.note"),
       };
 
@@ -441,17 +500,19 @@ export function getDiagnosticsFixAction(
       return {
         label: t("fixActions.serverActiveOrInstallPath.label"),
         automated: false,
-        links: [
-          { to: "/servers", label: L("openServers") },
-          { to: "/server-finder", label: L("autoDetect") },
-        ],
+        // manualRoute makes the primary button itself navigate to /servers
+        // instead of popping a toast that just repeats the note below --
+        // don't also list "Open Servers" in links, or the row shows two
+        // identically-labelled buttons where only one of them does anything.
+        manualRoute: "/servers",
+        links: [{ to: "/server-finder", label: L("autoDetect") }],
         note: t("fixActions.serverActiveOrInstallPath.note"),
       };
     case "server.zomboidData":
       return {
         label: t("fixActions.serverZomboidData.label"),
         automated: false,
-        links: [{ to: "/settings", label: L("openSettings") }],
+        manualRoute: "/settings",
         note: t("fixActions.serverZomboidData.note"),
       };
     case "server.startScript":
@@ -460,16 +521,36 @@ export function getDiagnosticsFixAction(
       return {
         label: t("fixActions.serverStartScriptOrJre.label"),
         automated: false,
-        links: [{ to: "/server-finder", label: L("openServerFinder") }],
+        manualRoute: "/server-finder",
         note: t("fixActions.serverStartScriptOrJre.note"),
       };
     case "server.ini":
-    case "server.sandboxVars":
+      // server.ini's own possible failures cover far more than "file
+      // missing" (invalid keys, malformed values, wrong types for a given
+      // sandbox option) -- there's no single safe rewrite that resolves an
+      // unknown subset of them without risking clobbering a value the
+      // operator set on purpose. Stays manual; Server Config is where a
+      // human reviews and fixes the specific key that's wrong.
       return {
         label: t("fixActions.serverIniOrSandboxVars.label"),
         automated: false,
-        openServerConfig: true,
+        manualRoute: "/server-config",
         note: t("fixActions.serverIniOrSandboxVars.note"),
+      };
+    case "server.sandboxVars":
+      // Unlike server.ini above, this check only ever warns for ONE
+      // condition: the file doesn't exist yet (see server/routes/debug.js's
+      // own comment above this check -- server.sandboxCorrupt, a different
+      // id, covers a malformed EXISTING file). Nothing to lose by writing a
+      // fresh one: PUT /server-files/sandbox already creates-if-missing,
+      // and an empty sandbox object produces the same VERSION-only file PZ
+      // falls back to anyway when the file is absent -- this just makes
+      // that fallback state a real, editable file instead of an implicit
+      // one, exactly what the manual hint already told the operator to do.
+      return {
+        label: t("fixActions.serverSandboxVars.label"),
+        automated: true,
+        note: t("fixActions.serverSandboxVars.note"),
       };
     case "server.sandboxCorrupt":
       return {
@@ -481,7 +562,7 @@ export function getDiagnosticsFixAction(
       return {
         label: t("fixActions.serverRconPassword.label"),
         automated: false,
-        openServerConfig: true,
+        manualRoute: "/server-config",
         links: [{ to: "/settings", label: L("openSettings") }],
         note: t("fixActions.serverRconPassword.note"),
       };
@@ -489,14 +570,14 @@ export function getDiagnosticsFixAction(
       return {
         label: t("fixActions.serverBridgeMod.label"),
         automated: false,
-        links: [{ to: "/server-finder", label: L("openServerFinder") }],
+        manualRoute: "/server-finder",
         note: t("fixActions.serverBridgeMod.note"),
       };
     case "server.configDrift":
       return {
         label: t("fixActions.serverConfigDrift.label"),
         automated: false,
-        openServerConfig: true,
+        manualRoute: "/server-config",
         note: t("fixActions.serverConfigDrift.note"),
       };
     case "server.staleLocks":
@@ -529,18 +610,44 @@ export function getDiagnosticsFixAction(
         note: t("fixActions.rconConnected.note"),
       };
     case "modChecker":
+      // Only warns when workshopAcfPath IS set (see the check's own
+      // if/else in server/routes/debug.js) but the checker still isn't
+      // running -- the exact condition POST /mods/start's own 400 case
+      // guards against is the ACF path being unset, so this call can't hit
+      // that failure here. A plain retry, not a reconfiguration.
+      return {
+        label: t("fixActions.modCheckerStopped.label"),
+        automated: true,
+        note: t("fixActions.modCheckerStopped.note"),
+      };
     case "scheduler":
     case "services.error":
+      // scheduler warns when the SERVICE SINGLETON itself is null/never
+      // initialized (unlike modChecker above, where the object exists and
+      // just isn't polling) -- there's no service-level "start" to retry
+      // when there's no live instance to call it on. Only a full panel
+      // restart re-runs that initialization, and this page has no
+      // self-restart action to invoke it with. services.error is the
+      // generic "the checker for this whole category threw" catch-all --
+      // by definition not a specific, safely-repeatable action.
       return {
         label: t("fixActions.servicesStuck.label"),
         automated: false,
-        links: [{ to: "/settings", label: L("openSettings") }],
+        manualRoute: "/settings",
         note: t("fixActions.servicesStuck.note"),
       };
     case "discord.bot":
+      // Only ever fails (this branch) when a token IS already configured
+      // but the bot isn't connected (see the check's own if/else) -- a
+      // plain retry with the saved token, not a request to generate or
+      // change credentials. Covers the common "never started after a
+      // config save" and "transient network blip" cases for free; a
+      // genuinely bad token just fails again with the same descriptive
+      // error POST /discord/start already returns, and the Open Discord
+      // link stays as the escape hatch for that case.
       return {
-        label: t("fixActions.discordBot.label"),
-        automated: false,
+        label: t("fixActions.discordBot.retryLabel"),
+        automated: true,
         links: [{ to: "/discord", label: L("openDiscord") }],
         note: t("fixActions.discordBot.note"),
       };
@@ -559,18 +666,39 @@ export function getDiagnosticsFixAction(
       return {
         label: t("fixActions.bridgeWritableOrHeartbeat.label"),
         automated: false,
-        links: [{ to: "/server-finder", label: L("openServerFinder") }],
+        manualRoute: "/server-finder",
         note: t("fixActions.bridgeWritableOrHeartbeat.note"),
       };
 
     // ─── Database / storage ────────────────────────────────────────────────
     case "db.exists":
-    case "db.writable":
+      // Deliberately NOT automated, and deliberately not "just touch an
+      // empty db.json" even though that would silence the check: a missing
+      // file this critical is exactly as likely to mean "the real data
+      // volume isn't mounted" or "dataDir points somewhere wrong" as
+      // "genuine first run" -- and silently creating a blank one in either
+      // of the first two cases would start writing fresh settings into the
+      // wrong place while looking like a fix. A human needs to know WHY
+      // it's missing before anything writes there again.
       return {
         label: t("fixActions.dbExistsOrWritable.label"),
         automated: false,
-        links: [{ to: "/settings", label: L("openSettings") }],
+        manualRoute: "/settings",
         note: t("fixActions.dbExistsOrWritable.note"),
+      };
+    case "db.writable":
+      // Unlike db.exists above, the file is confirmed to exist here --
+      // "not writable" on Windows is most commonly the read-only file
+      // ATTRIBUTE (picked up from a zip extract or a copy off read-only
+      // media), which fs.chmod can safely clear. See
+      // POST /api/debug/fix-writability's own comment in
+      // server/routes/debug.js for the full safety reasoning (closed
+      // target enum, file-only, honest failure on a real ACL/ownership
+      // issue chmod can't fix).
+      return {
+        label: t("fixActions.dbWritable.label"),
+        automated: true,
+        note: t("fixActions.dbWritable.note"),
       };
     case "db.backup":
       return {
@@ -583,24 +711,25 @@ export function getDiagnosticsFixAction(
       return {
         label: t("fixActions.logsWritable.label"),
         automated: false,
-        links: [{ to: "/settings", label: L("openSettings") }],
+        manualRoute: "/settings",
         note: t("fixActions.logsWritable.note"),
       };
     case "disk.free":
       return {
         label: t("fixActions.diskFree.label"),
         automated: false,
-        links: [
-          { to: "/backups", label: L("openBackups") },
-          { to: "/chunks", label: L("openChunkCleaner") },
-        ],
+        // label is "Open Backups" -- manualRoute makes the primary button
+        // itself go there instead of toasting, so only the distinct second
+        // link (Chunk Cleaner) needs to stay in the links row.
+        manualRoute: "/backups",
+        links: [{ to: "/chunks", label: L("openChunkCleaner") }],
         note: t("fixActions.diskFree.note"),
       };
     case "storage.saveSize":
       return {
         label: t("fixActions.storageSaveSize.label"),
         automated: false,
-        links: [{ to: "/chunks", label: L("openChunkCleaner") }],
+        manualRoute: "/chunks",
         note: t("fixActions.storageSaveSize.note"),
       };
 
@@ -610,7 +739,7 @@ export function getDiagnosticsFixAction(
       return {
         label: t("fixActions.runtimeHeapOrHostMem.label"),
         automated: false,
-        links: [{ to: "/settings", label: L("openSettings") }],
+        manualRoute: "/settings",
         note: t("fixActions.runtimeHeapOrHostMem.note"),
       };
     case "runtime.timeSkew":
@@ -626,14 +755,14 @@ export function getDiagnosticsFixAction(
       return {
         label: t("fixActions.updatePanelOrError.label"),
         automated: false,
-        links: [{ to: "/settings", label: L("openSettings") }],
+        manualRoute: "/settings",
         note: t("fixActions.updatePanelOrError.note"),
       };
     case "update.mods":
       return {
         label: t("fixActions.updateMods.label"),
         automated: false,
-        openMods: true,
+        manualRoute: "/mods",
         note: t("fixActions.updateMods.note"),
       };
     case "update.steamApi":
@@ -641,6 +770,57 @@ export function getDiagnosticsFixAction(
         label: t("fixActions.updateSteamApi.label"),
         automated: false,
         note: t("fixActions.updateSteamApi.note"),
+      };
+
+    // ─── Explicitly manual, no case-specific action possible ──────────────
+    // These 6 ids used to fall through to the generic `default` case below
+    // with no comment anywhere explaining why -- correct behavior (a
+    // fallback note built from the server's own hint text), but silent
+    // about it. Giving each its own case changes nothing about what the
+    // operator sees; it's here so the next person auditing this switch
+    // doesn't have to re-derive "why doesn't this have a real fix" from
+    // scratch, per god's ask.
+    case "mods.thumbnailResolution":
+      // Steam CDN reachability for a specific Workshop item's thumbnail
+      // image -- server/routes/debug.js's own hint already names the real
+      // causes (item deleted/private/region-locked, or this host can't
+      // reach Steam's image CDN at all) and both self-resolve: the mod
+      // checker retries every 5 minutes with no restart needed. There is
+      // no local action that fixes an external CDN or a delisted Workshop
+      // item.
+      return {
+        label: t("fixActions.fallback.label"),
+        automated: false,
+        note: check.hint || t("fixActions.fallback.noteFallback"),
+      };
+    case "rcon.commandRejections":
+      // A forensic summary of commands the GAME rejected, not something
+      // the panel did wrong -- buildRconCommandRejectionsCheck's own
+      // RCON_REJECTION_REASON_HINTS already explain the four known
+      // rejection shapes (unknown command, wrong arguments, insufficient
+      // in-game rights, in-game-only command) inline in the check's own
+      // hint text. Nothing to click; the message itself is the fix.
+      return {
+        label: t("fixActions.fallback.label"),
+        automated: false,
+        note: check.hint || t("fixActions.fallback.noteFallback"),
+      };
+    case "bridge.error":
+    case "runtime.error":
+    case "server.error":
+    case "storage.error":
+      // The *.error ids are each category's own try/catch surfacing "the
+      // check itself threw," not a failing condition in the thing being
+      // checked -- an exception while probing the bridge/runtime/server/
+      // storage state, not a bridge/runtime/server/storage problem with a
+      // known remedy. The message already carries the real exception text
+      // (see each category's own catch block in server/routes/debug.js);
+      // there's no single action that could be "the fix" for an arbitrary
+      // caught error.
+      return {
+        label: t("fixActions.fallback.label"),
+        automated: false,
+        note: check.hint || t("fixActions.fallback.noteFallback"),
       };
 
     default: {
@@ -681,18 +861,22 @@ export function getDiagnosticsFixAction(
 }
 
 // Each automated fix POSTs to its own route, and those routes are gated by
-// SEVEN DIFFERENT capabilities, not one page-level concern -- read directly
+// TEN DIFFERENT capabilities, not one page-level concern -- read directly
 // from server/routes/*.js rather than assumed from the page's own admin-only
 // read endpoints:
 //   mods.numericInMods / mods.orphanWorkshop / mods.maps / mods.duplicates
 //     -> mods.manage (mods.js's router.use, whole router)
+//   modChecker -> mods.manage (mods.js POST /start, same router)
 //   server.process -> server.control (server.js POST /start)
 //   rcon.connected -> rcon.execute (rcon.js POST /connect)
 //   db.backup -> backups.manage (backup.js POST /create)
-//   server.staleLocks -> diagnostics.manage (debug.js POST /clear-stale-locks)
+//   server.staleLocks / db.writable -> diagnostics.manage
+//     (debug.js POST /clear-stale-locks and POST /fix-writability)
 //   bridge.configured / worldmap.bridge.configured -> bridge.setup
 //     (panelBridge.js POST /auto-configure)
-//   server.sandboxCorrupt -> serverfiles.manage (serverFiles.js's router.use)
+//   server.sandboxCorrupt / server.sandboxVars -> serverfiles.manage
+//     (serverFiles.js's router.use, POST /sandbox/repair and PUT /sandbox)
+//   discord.bot -> integrations.manage (discord.js's router.use, POST /start)
 // server.recentCrash makes no API call at all (it only switches tabs), so it
 // needs no capability. Every other check.id is either non-automated (manual
 // fix: a toast or a navigation, never an API call) or falls to the `default`
@@ -704,6 +888,7 @@ export function getRequiredCapabilityForCheck(checkId: string): string | null {
     case "mods.orphanWorkshop":
     case "mods.maps":
     case "mods.duplicates":
+    case "modChecker":
       return "mods.manage";
     case "server.process":
       return "server.control";
@@ -712,12 +897,16 @@ export function getRequiredCapabilityForCheck(checkId: string): string | null {
     case "db.backup":
       return "backups.manage";
     case "server.staleLocks":
+    case "db.writable":
       return "diagnostics.manage";
     case "bridge.configured":
     case "worldmap.bridge.configured":
       return "bridge.setup";
     case "server.sandboxCorrupt":
+    case "server.sandboxVars":
       return "serverfiles.manage";
+    case "discord.bot":
+      return "integrations.manage";
     default:
       return null;
   }
@@ -727,10 +916,64 @@ const DebugPerformanceCharts = lazy(
   () => import("@/components/DebugPerformanceCharts"),
 );
 
+export type HealthHeadlineTone = "checking" | "healthy" | "servicesDown" | "issues";
+
+export interface HealthHeadline {
+  tone: HealthHeadlineTone;
+  title: string;
+}
+
+// healthStatus.status only ever means "did GET /debug/health's own
+// collection complete without throwing" -- server/routes/debug.js hardcodes
+// status: "ok" in its success branch regardless of what services.rcon/
+// services.server report, and that distinction is real (two server route
+// tests assert on it; overloading this field would break them). So "ok"
+// staying "ok" while RCON/the game server are down is not a server bug --
+// but the Health tab's headline and its Services card render from the SAME
+// payload object, and a UI that draws a green verdict from one field of it
+// while showing red services from two other fields of it two inches below
+// is contradicting itself from its own data. That's the bug, and it's a
+// render-side one: derive the headline from healthStatus.services too, not
+// just .status, so it can never disagree with the card underneath it -- and
+// name which service is down rather than a vague "Degraded", so the
+// headline still answers "what do I do next" and not just "something's up".
+export function getHealthHeadline(
+  healthStatus: HealthStatus | null,
+  t: TFunction,
+): HealthHeadline {
+  if (!healthStatus) {
+    return { tone: "checking", title: t("healthTab.checking") };
+  }
+  if (healthStatus.status !== "ok") {
+    return { tone: "issues", title: t("healthTab.issuesDetected") };
+  }
+  const rconDown = !healthStatus.services.rcon.connected;
+  const serverDown = !healthStatus.services.server.running;
+  if (rconDown && serverDown) {
+    return { tone: "servicesDown", title: t("healthTab.rconAndServerOffline") };
+  }
+  if (rconDown) {
+    return { tone: "servicesDown", title: t("healthTab.rconOffline") };
+  }
+  if (serverDown) {
+    return { tone: "servicesDown", title: t("healthTab.gameServerOffline") };
+  }
+  return { tone: "healthy", title: t("healthTab.healthy") };
+}
+
 export default function Debug() {
   const { t, i18n } = useTranslation("debug");
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
+  // True once fetchSystemInfo() has settled with no usable data (a failed
+  // request, or a 200 whose body is missing memoryUsage) -- distinct from
+  // "haven't fetched yet", which is what a bare systemInfo === null
+  // otherwise means. Every field below fell back to a plain "-" for BOTH
+  // cases, so a genuine, standing failure looked identical to the brief
+  // instant before the mount-time fetch resolves (2026-08-30 visual sweep):
+  // unlike this page's health/diagnostics fetches, this one had no error
+  // state at all to tell the two apart.
+  const [systemInfoFailed, setSystemInfoFailed] = useState(false);
   const [healthStatus, setHealthStatus] = useState<HealthStatus | null>(null);
   const [logFiles, setLogFiles] = useState<LogFile[]>([]);
   const [downloadingLogArchive, setDownloadingLogArchive] = useState(false);
@@ -836,6 +1079,34 @@ export default function Debug() {
   >("food");
   const [armedAction, setArmedAction] = useState<string | null>(null);
   const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Bridge tab — the 7 PanelBridge debug/diagnostics handlers
+  // (getStats/checkAPI/getAvailableHandlers/getDebugLog/setDebugMode/
+  // clearErrors/debugItemScript). Read probes reuse the same
+  // probeResults/probeLoading/runProbe machinery the World Map tab already
+  // has (each gets its own id); only the two mutating actions
+  // (setDebugMode, clearErrors) reuse actionLoading/runAction. Connectivity
+  // is its own lightweight poll rather than the World Map tab's heavier
+  // /api/debug/worldmap aggregation -- this tab only needs "is the bridge
+  // service up and is the mod connected", not tile/save diagnostics.
+  const [bridgeDiagConnected, setBridgeDiagConnected] = useState(false);
+  // Whether the file-level bridge connection can actually send commands
+  // right now (getConnectionDiagnostics() server-side) -- narrower than
+  // bridgeDiagConnected's mod-alive flag, used only to keep the badge from
+  // saying "connected" while the Stats card says the connection is
+  // unhealthy. See the reconciliation comment in checkBridgeDiagStatus.
+  const [bridgeDiagHealthy, setBridgeDiagHealthy] = useState(false);
+  const [bridgeDiagRunning, setBridgeDiagRunning] = useState(false);
+  const [bridgeDiagStatusLoading, setBridgeDiagStatusLoading] = useState(true);
+  const [bridgeDiagPermissionDenied, setBridgeDiagPermissionDenied] =
+    useState(false);
+  const [checkApiObject, setCheckApiObject] = useState("ClimateManager");
+  const [checkApiMethod, setCheckApiMethod] = useState("");
+  const [handlerSearchQuery, setHandlerSearchQuery] = useState("");
+  const [debugLogLimit, setDebugLogLimit] = useState(50);
+  const [debugLogMinLevel, setDebugLogMinLevel] = useState<
+    "DEBUG" | "INFO" | "WARN" | "ERROR"
+  >("DEBUG");
   // Generation counters so a slower response to an earlier filter selection
   // (activitySource / perfRange) can't land after a newer one and overwrite
   // it with stale data -- both are dropdowns a user can click through
@@ -907,10 +1178,13 @@ export default function Debug() {
       const data = await res.json();
       if (data?.memoryUsage) {
         setSystemInfo(data);
+        setSystemInfoFailed(false);
       } else {
         setSystemInfo(null);
+        setSystemInfoFailed(true);
       }
     } catch (error) {
+      setSystemInfoFailed(true);
       reportClientError("Failed to fetch system info.", error);
     }
   };
@@ -1003,8 +1277,8 @@ export default function Debug() {
       });
       try {
         if (!action.automated) {
-          if (check.id === "mods.resolved") {
-            window.location.assign("/mods?review=unresolved");
+          if (action.manualRoute) {
+            window.location.assign(action.manualRoute);
             return;
           }
           toast({
@@ -1252,6 +1526,86 @@ export default function Debug() {
                     })),
             });
           }
+        } else if (check.id === "server.sandboxVars") {
+          // PUT /server-files/sandbox creates the file when it doesn't
+          // exist yet (see the check's own guard in getDiagnosticsFixAction
+          // above) -- an empty-per-section sandbox object produces the same
+          // VERSION-only content PZ falls back to implicitly, just written
+          // out as a real, editable file. Always responds non-2xx on
+          // failure, so this never sees result.success === false.
+          const result = await serverFilesApi.saveSandbox({
+            VERSION: 4,
+            settings: {},
+            ZombieLore: {},
+            ZombieConfig: {},
+            MultiplierConfig: {},
+            Map: {},
+            Basement: {},
+          });
+          toast({
+            title: t("diagnostics.sandboxCreatedTitle"),
+            description:
+              (result.message || t("diagnostics.sandboxCreatedFallback")) +
+              restartHint,
+          });
+        } else if (check.id === "db.writable") {
+          // POST /api/debug/fix-writability always responds non-2xx on
+          // failure (chmod itself failed, or the file is still unwritable
+          // after chmod succeeds -- see that route's own comment in
+          // server/routes/debug.js), so this never sees a false success.
+          const res = await authFetch("/api/debug/fix-writability", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ target: "db" }),
+          });
+          const data = (await res.json().catch(() => null)) as {
+            success?: boolean;
+            message?: string;
+            error?: string;
+            code?: string;
+          } | null;
+          if (!res.ok || data?.success === false) {
+            // authFetch bypasses lib/api.ts's handleResponse(), same
+            // reasoning as server.staleLocks above -- reconstruct an
+            // ApiError so the surrounding catch's getUserErrorMessage()
+            // sees the real server message and code, not just a status.
+            throw new ApiError(
+              data?.error || `HTTP ${res.status}`,
+              { status: res.status, code: data?.code },
+            );
+          }
+          toast({
+            title: t("diagnostics.dbWritableFixedTitle"),
+            description:
+              data?.message || t("diagnostics.dbWritableFixedFallback"),
+          });
+        } else if (check.id === "modChecker") {
+          // /mods/start always responds non-2xx on failure, so
+          // handleResponse() throws into this handler's surrounding catch
+          // -- this never sees a false success.
+          const result = (await modsApi.start()) as {
+            success?: boolean;
+            message?: string;
+          };
+          toast({
+            title: t("diagnostics.modCheckerStartedTitle"),
+            description:
+              result?.message || t("diagnostics.modCheckerStartedFallback"),
+          });
+        } else if (check.id === "discord.bot") {
+          // /discord/start always responds non-2xx on failure (including a
+          // still-bad token -- describeStartFailure() supplies the real
+          // reason), so handleResponse() throws into this handler's
+          // surrounding catch -- this never sees a false success.
+          const result = (await discordApi.start()) as {
+            success?: boolean;
+            message?: string;
+          };
+          toast({
+            title: t("diagnostics.discordReconnectedTitle"),
+            description:
+              result?.message || t("diagnostics.discordReconnectedFallback"),
+          });
         }
 
         await fetchDiagnostics();
@@ -1570,6 +1924,189 @@ export default function Debug() {
     [toast, t],
   );
 
+  // Bridge tab -- shared fetch wrapper for all 7 debug/diagnostics routes.
+  // authFetch doesn't throw on a non-2xx the way apiGet/apiPost do (see
+  // fetchWorldMapDiag above), so every call site needs the same ok-check +
+  // body-read; centralized here rather than repeated per handler. A 403
+  // specifically flips bridgeDiagPermissionDenied so the whole tab can show
+  // one permission-denied state instead of five separate error banners --
+  // same reasoning as diagnosticsPermissionDenied above, scoped to
+  // bridge.diagnostics rather than the page-wide capability.
+  const bridgeDiagFetch = useCallback(
+    async (path: string, options?: RequestInit) => {
+      const res = await authFetch(path, options);
+      if (res.status === 403) {
+        setBridgeDiagPermissionDenied(true);
+        throw new Error(await parseDownloadError(res, "HTTP 403"));
+      }
+      if (!res.ok) {
+        throw new Error(await parseDownloadError(res, `HTTP ${res.status}`));
+      }
+      setBridgeDiagPermissionDenied(false);
+      return res.json();
+    },
+    [authFetch],
+  );
+
+  const checkBridgeDiagStatus = useCallback(async () => {
+    setBridgeDiagStatusLoading(true);
+    try {
+      const res = await authFetch("/api/panel-bridge/status");
+      if (!res.ok) throw new Error(await parseDownloadError(res, `HTTP ${res.status}`));
+      const data = await res.json();
+      setBridgeDiagRunning(data?.isRunning === true);
+      setBridgeDiagConnected(data?.modConnected === true);
+      // modConnected alone can lag: the mod is still marked "alive" for a
+      // few failed polls after the file-level connection has already gone
+      // bad. data.connection is the same source the Stats card's
+      // "unhealthy" error reads (getConnectionDiagnostics() server-side) --
+      // fold it into the BADGE specifically so it never claims "connected"
+      // while the card underneath it says otherwise. Left bridgeDiagConnected
+      // itself alone: it also gates the auto-probe effect and every probe
+      // button's disabled state, which is existing, tested behavior this
+      // finding never called into question.
+      setBridgeDiagHealthy(data?.connection?.canSendCommands === true);
+    } catch (error) {
+      reportClientError("Failed to check bridge status for the Bridge tab.", error);
+      setBridgeDiagRunning(false);
+      setBridgeDiagHealthy(false);
+      setBridgeDiagConnected(false);
+    } finally {
+      setBridgeDiagStatusLoading(false);
+    }
+  }, [authFetch]);
+
+  const probeBridgeStats = useCallback(
+    () =>
+      runProbe(
+        "bridgeStats",
+        () => bridgeDiagFetch("/api/panel-bridge/debug/stats"),
+        (r: unknown) => {
+          const data = (r as { data?: unknown })?.data;
+          return { count: null, sample: data ?? null };
+        },
+      ),
+    [runProbe, bridgeDiagFetch],
+  );
+
+  const probeCheckApi = useCallback(
+    () =>
+      runProbe(
+        "checkApi",
+        () => {
+          const params = new URLSearchParams({ object: checkApiObject });
+          if (checkApiMethod.trim()) params.set("method", checkApiMethod.trim());
+          return bridgeDiagFetch(`/api/panel-bridge/debug/api?${params.toString()}`);
+        },
+        (r: unknown) => {
+          const data = (r as { data?: unknown })?.data;
+          return { count: null, sample: data ?? null };
+        },
+      ),
+    [runProbe, bridgeDiagFetch, checkApiObject, checkApiMethod],
+  );
+
+  const probeAvailableHandlers = useCallback(
+    () =>
+      runProbe(
+        "availableHandlers",
+        () => bridgeDiagFetch("/api/panel-bridge/debug/handlers"),
+        (r: unknown) => {
+          const data = (r as {
+            data?: { handlers?: string[]; count?: number; version?: string };
+          })?.data;
+          return {
+            count: Array.isArray(data?.handlers) ? data.handlers.length : null,
+            sample: data ?? null,
+          };
+        },
+      ),
+    [runProbe, bridgeDiagFetch],
+  );
+
+  const probeDebugLog = useCallback(
+    () =>
+      runProbe(
+        "debugLog",
+        () => {
+          const params = new URLSearchParams({
+            limit: String(debugLogLimit),
+            level: debugLogMinLevel,
+          });
+          return bridgeDiagFetch(`/api/panel-bridge/debug/log?${params.toString()}`);
+        },
+        (r: unknown) => {
+          const data = (r as {
+            data?: { entries?: unknown[]; totalEntries?: number };
+          })?.data;
+          return {
+            count: Array.isArray(data?.entries) ? data.entries.length : null,
+            sample: data ?? null,
+          };
+        },
+      ),
+    [runProbe, bridgeDiagFetch, debugLogLimit, debugLogMinLevel],
+  );
+
+  // debugItemScript -- a fixed, zero-argument self-test (probes 9 known
+  // method names against the first 3 catalog items; there is nothing for an
+  // operator to configure, see the handler's own PanelBridge.lua source).
+  // Modeled as a probe rather than a mutating action since it changes
+  // nothing server- or game-side -- purely a read/report.
+  const probeSelfTest = useCallback(
+    () =>
+      runProbe(
+        "selfTest",
+        () => bridgeDiagFetch("/api/panel-bridge/catalog/debug-item-script", { method: "POST" }),
+        (r: unknown) => {
+          const data = (r as { data?: { probes?: unknown[] } })?.data;
+          const probes = Array.isArray(data?.probes) ? data.probes : [];
+          return { count: probes.length, sample: probes };
+        },
+      ),
+    [runProbe, bridgeDiagFetch],
+  );
+
+  const toggleBridgeDebugMode = useCallback(
+    (nextEnabled: boolean) =>
+      runAction(
+        "bridgeDebugMode",
+        async () => {
+          await bridgeDiagFetch("/api/panel-bridge/debug/mode", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ enabled: nextEnabled }),
+          });
+          await probeBridgeStats();
+        },
+        nextEnabled
+          ? t("bridgeTab.debugModeEnabledTitle")
+          : t("bridgeTab.debugModeDisabledTitle"),
+      ),
+    [runAction, bridgeDiagFetch, probeBridgeStats, t],
+  );
+
+  const clearBridgeErrors = useCallback(async () => {
+    const ok = await confirm({
+      title: t("bridgeTab.clearErrorsConfirmTitle"),
+      description: t("bridgeTab.clearErrorsConfirmDesc"),
+      confirmLabel: t("bridgeTab.clearErrorsConfirmButton"),
+      destructive: true,
+    });
+    if (!ok) return;
+    await runAction(
+      "bridgeClearErrors",
+      async () => {
+        const res = await bridgeDiagFetch("/api/panel-bridge/debug/clear-errors", {
+          method: "POST",
+        });
+        await probeBridgeStats();
+        return res;
+      },
+      t("bridgeTab.clearErrorsSuccessTitle"),
+    );
+  }, [confirm, t, runAction, bridgeDiagFetch, probeBridgeStats]);
+
   // Fetch log files list
   const fetchLogFiles = async () => {
     try {
@@ -1755,6 +2292,32 @@ export default function Debug() {
     }, 30000);
     return () => clearInterval(interval);
   }, [activeTab, fetchWorldMapDiag]);
+
+  // Bridge tab — connectivity poll on entry + every 15s while visible.
+  // getStats auto-refreshes alongside it (it's the "is anything wrong right
+  // now" summary view); checkAPI/getAvailableHandlers/getDebugLog/the
+  // self-test stay manual (button-triggered) since they take operator input
+  // or return a larger payload not worth fetching on every poll tick.
+  useEffect(() => {
+    if (activeTab !== "bridge") return;
+    checkBridgeDiagStatus();
+    const interval = setInterval(() => {
+      if (document.visibilityState === "hidden") return;
+      checkBridgeDiagStatus();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [activeTab, checkBridgeDiagStatus]);
+
+  useEffect(() => {
+    if (activeTab !== "bridge") return;
+    if (!bridgeDiagConnected) return;
+    probeBridgeStats();
+    const interval = setInterval(() => {
+      if (document.visibilityState === "hidden") return;
+      probeBridgeStats();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [activeTab, bridgeDiagConnected, probeBridgeStats]);
 
   // Auto-probe live players once when tab opens so test actions have a target.
   useEffect(() => {
@@ -1992,6 +2555,15 @@ export default function Debug() {
       document.body.appendChild(a);
       a.click();
       a.remove();
+
+      // Redaction (server/routes/debug.js) is a best-effort scrub for known
+      // credential shapes, not a promise the bundle is safe to hand to
+      // anyone -- surfaced here, at the moment the file actually lands, per
+      // the operator's ruling that the warning matters as much as the scrub.
+      toast({
+        title: t("logsTab.supportBundleReadyTitle"),
+        description: t("logsTab.supportBundleReadyDesc"),
+      });
     } catch (error) {
       toast({
         title: t("logsTab.downloadFailedTitle"),
@@ -2373,6 +2945,7 @@ export default function Debug() {
 
       {diagnosticsPermissionDenied ? (
         <EmptyState
+          type="accessDenied"
           icon={<ShieldAlert className="h-14 w-14 text-muted-foreground/40" />}
           title={t("permissionDenied.title")}
           description={t("permissionDenied.description")}
@@ -2391,9 +2964,32 @@ export default function Debug() {
             • History  — what happened
             • System   — what this panel itself is made of
         */}
-        <TabsList className="flex h-auto flex-wrap items-center gap-1 rounded-lg border border-border/60 bg-gradient-to-b from-muted/50 to-muted/25 p-1.5 w-full shadow-inner">
+        {/* flex-nowrap + overflow-x-auto rather than flex-wrap: at 9 tabs,
+            wrapping strands the last one ("Environment") alone on its own
+            row on desktop. shrink-0 on every trigger and divider keeps the
+            strip scrolling instead of squeezing icons/labels to fit. Unlike
+            Settings' version of this same fix, there's no lg: breakpoint
+            where this page switches to a vertical sidebar -- the strip stays
+            horizontal (and can still overflow) at every width, so the scroll
+            cue below is never lg:hidden.
+            justify-start overrides TabsList's base: centering an overflowing
+            row overflows symmetrically on both sides, and scrollLeft can't
+            go negative, so whatever hangs off the left edge (including the
+            default-active first tab) is permanently unreachable.
+            DELIBERATELY KEPT even though the base TabsList now ships its own
+            overflow-safe .justify-safe-center (justify-content: safe center,
+            with a plain `center` fallback line for browsers that don't
+            understand the `safe` keyword) -- `safe` support is not
+            universal, and on a browser without it the base's fallback IS
+            plain center, which reproduces the original shipped bug. This is
+            the one page known to overflow, so this override is unconditional
+            protection independent of browser support, not leftover
+            redundancy from a workaround. Do not delete it as "the base
+            handles this now" -- it doesn't, for every browser. */}
+        <div className="relative">
+        <TabsList className="flex h-auto flex-nowrap items-center justify-start gap-1 overflow-x-auto rounded-lg border border-border/60 bg-gradient-to-b from-muted/50 to-muted/25 p-1.5 w-full shadow-inner">
           {/* Zone: Now */}
-          <TabsTrigger value="diagnostics" className="gap-2">
+          <TabsTrigger value="diagnostics" className="gap-2 shrink-0">
             <CheckCircle className="w-4 h-4" />
             {t("tabs.diagnostics")}
             {diagnostics &&
@@ -2409,7 +3005,7 @@ export default function Debug() {
                 </Badge>
               )}
           </TabsTrigger>
-          <TabsTrigger value="worldmap" className="gap-2">
+          <TabsTrigger value="worldmap" className="gap-2 shrink-0">
             <MapIcon className="w-4 h-4" />
             {t("tabs.worldMap")}
             {worldMapDiag &&
@@ -2425,7 +3021,11 @@ export default function Debug() {
                 </Badge>
               )}
           </TabsTrigger>
-          <TabsTrigger value="performance" className="gap-2">
+          <TabsTrigger value="bridge" className="gap-2 shrink-0">
+            <Bug className="w-4 h-4" />
+            {t("tabs.bridge")}
+          </TabsTrigger>
+          <TabsTrigger value="performance" className="gap-2 shrink-0">
             <TrendingUp className="w-4 h-4" />
             {t("tabs.performance")}
           </TabsTrigger>
@@ -2433,19 +3033,19 @@ export default function Debug() {
           {/* Zone divider: Now → History */}
           <span
             aria-hidden
-            className="mx-1 h-5 w-px self-center bg-border/60"
+            className="mx-1 h-5 w-px shrink-0 self-center bg-border/60"
           />
 
           {/* Zone: History */}
-          <TabsTrigger value="activity" className="gap-2">
+          <TabsTrigger value="activity" className="gap-2 shrink-0">
             <Zap className="w-4 h-4" />
             {t("tabs.activity")}
           </TabsTrigger>
-          <TabsTrigger value="logs" className="gap-2">
+          <TabsTrigger value="logs" className="gap-2 shrink-0">
             <Terminal className="w-4 h-4" />
             {t("tabs.logs")}
           </TabsTrigger>
-          <TabsTrigger value="crashes" className="gap-2">
+          <TabsTrigger value="crashes" className="gap-2 shrink-0">
             <AlertCircle className="w-4 h-4" />
             {t("tabs.crashes")}
             {crashLogs.length > 0 && (
@@ -2458,19 +3058,29 @@ export default function Debug() {
           {/* Zone divider: History → System */}
           <span
             aria-hidden
-            className="mx-1 h-5 w-px self-center bg-border/60"
+            className="mx-1 h-5 w-px shrink-0 self-center bg-border/60"
           />
 
           {/* Zone: System (panel self-introspection) */}
-          <TabsTrigger value="health" className="gap-2">
+          <TabsTrigger value="health" className="gap-2 shrink-0">
             <Activity className="w-4 h-4" />
             {t("tabs.health")}
           </TabsTrigger>
-          <TabsTrigger value="system" className="gap-2">
+          <TabsTrigger value="system" className="gap-2 shrink-0">
             <Database className="w-4 h-4" />
             {t("tabs.system")}
           </TabsTrigger>
         </TabsList>
+        {/* Static scroll-continuation cue -- not scroll-position-tracked, just
+            a constant "there's more this way" edge. Same pattern as
+            Settings.tsx's sub-tab strip and RolesPermissions.tsx's matrix. */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 right-0 flex w-10 items-center justify-end rounded-r-lg bg-gradient-to-l from-muted to-transparent pr-1.5"
+        >
+          <ChevronRight className="h-4 w-4 text-muted-foreground/80" />
+        </div>
+        </div>
 
         {/* Diagnostics Tab — Smart health checks with green/amber/red */}
         <TabsContent value="diagnostics" className="space-y-4">
@@ -3827,7 +4437,7 @@ export default function Debug() {
                                       {t("worldMapTab.airdropMedicalOption")}
                                     </SelectItem>
                                     <SelectItem value="military">
-                                      Military
+                                      {t("worldMapTab.airdropMilitaryOption")}
                                     </SelectItem>
                                     <SelectItem value="weapons">
                                       {t("worldMapTab.airdropWeaponsOption")}
@@ -4230,7 +4840,7 @@ export default function Debug() {
                       </SelectItem>
                     </SelectContent>
                   </Select>
-                  <div className="relative">
+                  <div className="relative w-full sm:w-auto">
                     <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                     <Input
                       placeholder={t("activityTab.searchPlaceholder")}
@@ -4242,7 +4852,7 @@ export default function Debug() {
                           e.currentTarget.blur();
                         }
                       }}
-                      className="w-[200px] h-8 pl-7 pr-7"
+                      className="w-full sm:w-[200px] h-8 pl-7 pr-7"
                       maxLength={200}
                       aria-label={t("activityTab.searchAria")}
                     />
@@ -4520,7 +5130,7 @@ export default function Debug() {
                               </span>
                             )}
                             <span
-                              className="text-muted-foreground truncate flex-1"
+                              className="text-muted-foreground truncate min-w-0 flex-1"
                               title={entry.detail}
                             >
                               {entry.detail.length > 120
@@ -4939,7 +5549,7 @@ export default function Debug() {
                       return (
                         <div
                           key={log.id}
-                          className="group flex cursor-pointer items-start gap-2 rounded px-2 py-1 hover:bg-muted/35"
+                          className="group flex flex-wrap sm:flex-nowrap cursor-pointer items-start gap-x-2 gap-y-1 rounded px-2 py-1 hover:bg-muted/35"
                           onClick={() =>
                             isLongMessage && toggleLogExpanded(log.id)
                           }
@@ -4970,20 +5580,20 @@ export default function Debug() {
                               {log.source}
                             </Badge>
                           )}
-                          <span
-                            className={`${getLevelColor(log.level)} break-all`}
-                          >
-                            {displayMessage}
-                          </span>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               copyLogEntry(log);
                             }}
-                            className="ml-auto shrink-0 rounded p-1 opacity-0 transition-opacity hover:bg-muted/50 group-hover:opacity-100"
+                            className="sm:order-last ml-auto shrink-0 rounded p-1 opacity-0 transition-opacity hover:bg-muted/50 group-hover:opacity-100"
                           >
                             <Copy className="w-3 h-3 text-muted-foreground" />
                           </button>
+                          <span
+                            className={`${getLevelColor(log.level)} break-words min-w-0 grow basis-full sm:basis-0`}
+                          >
+                            {displayMessage}
+                          </span>
                         </div>
                       );
                     })
@@ -5157,7 +5767,7 @@ export default function Debug() {
                     description={t("crashesTab.noCrashLogsDesc")}
                   />
                 ) : (
-                  <ScrollArea className="h-[calc(100vh-360px)] min-h-[300px]">
+                  <ScrollArea className="max-h-[45vh] lg:h-[calc(100vh-360px)] lg:max-h-none min-h-[160px] lg:min-h-[300px]">
                     <div className="space-y-2 pr-2">
                       {[...crashLogs]
                         .sort(
@@ -5282,15 +5892,15 @@ export default function Debug() {
               </CardHeader>
               <CardContent>
                 {!selectedCrashLog ? (
-                  <div className="h-[calc(100vh-360px)] min-h-[300px] flex items-center justify-center text-muted-foreground">
-                    {t("crashesTab.selectToView")}
+                  <div className="max-h-[45vh] lg:h-[calc(100vh-360px)] lg:max-h-none min-h-[160px] lg:min-h-[300px] flex items-center justify-center">
+                    <EmptyState type="noFile" title={t("crashesTab.selectToView")} compact />
                   </div>
                 ) : loadingCrashLog ? (
-                  <div className="h-[calc(100vh-360px)] min-h-[300px] flex items-center justify-center">
+                  <div className="max-h-[45vh] lg:h-[calc(100vh-360px)] lg:max-h-none min-h-[160px] lg:min-h-[300px] flex items-center justify-center">
                     <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
                   </div>
                 ) : (
-                  <ScrollArea className="h-[calc(100vh-360px)] min-h-[300px]">
+                  <ScrollArea className="max-h-[45vh] lg:h-[calc(100vh-360px)] lg:max-h-none min-h-[160px] lg:min-h-[300px]">
                     <pre className="text-xs font-mono whitespace-pre-wrap break-all p-2 bg-muted/30 rounded">
                       {crashLogContent}
                     </pre>
@@ -5326,7 +5936,7 @@ export default function Debug() {
                 onValueChange={(v) => setPerfRange(v as "1h" | "6h" | "24h")}
               >
                 <SelectTrigger
-                  className="w-[110px] h-8"
+                  className="w-[132px] h-8"
                   aria-label={t("performanceTab.timeRangeAria")}
                 >
                   <Clock className="w-3.5 h-3.5 mr-1" />
@@ -5623,7 +6233,9 @@ export default function Debug() {
               </CardContent>
             </Card>
           )}
-          {healthError && !healthStatus ? null : (
+          {healthError && !healthStatus ? null : (() => {
+          const headline = getHealthHeadline(healthStatus, t);
+          return (
           <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Overall Status */}
@@ -5637,23 +6249,38 @@ export default function Debug() {
               <CardContent>
                 <div className="flex items-center gap-4">
                   <div
-                    className={`w-16 h-16 rounded-full flex items-center justify-center ${
-                      healthStatus?.status === "ok"
-                        ? "bg-primary/10"
-                        : "bg-destructive/10"
-                    }`}
+                    className={cn(
+                      "w-16 h-16 rounded-full flex items-center justify-center",
+                      headline.tone === "checking" && "bg-muted",
+                      headline.tone === "healthy" && "bg-primary/10",
+                      headline.tone === "servicesDown" && "bg-warning/10",
+                      headline.tone === "issues" && "bg-destructive/10",
+                    )}
                   >
-                    {healthStatus?.status === "ok" ? (
+                    {headline.tone === "checking" ? (
+                      <Loader2 className="w-8 h-8 text-muted-foreground animate-spin" />
+                    ) : headline.tone === "healthy" ? (
                       <CheckCircle className="w-8 h-8 text-primary" />
+                    ) : headline.tone === "servicesDown" ? (
+                      <AlertTriangle className="w-8 h-8 text-warning" />
                     ) : (
                       <AlertCircle className="w-8 h-8 text-destructive" />
                     )}
                   </div>
                   <div>
                     <p className="text-2xl font-bold">
-                      {healthStatus?.status === "ok"
-                        ? t("healthTab.healthy")
-                        : t("healthTab.issuesDetected")}
+                      {/* getHealthHeadline() derives this from BOTH
+                          healthStatus.status and healthStatus.services --
+                          never just .status. See its own comment: .status
+                          "ok" only means the collection itself succeeded,
+                          not that the services it collected data about are
+                          up, and this headline sits directly above a
+                          Services card rendering those same services. A
+                          green verdict here while that card shows RCON/the
+                          game server down would be this page contradicting
+                          itself from its own data (2026-08-31 impeccable
+                          pass, finding #1). */}
+                      {headline.title}
                     </p>
                     <p className="text-sm text-muted-foreground">
                       {healthStatus?.timestamp ? (
@@ -5912,7 +6539,8 @@ export default function Debug() {
             </CardContent>
           </Card>
           </>
-          )}
+          );
+          })()}
         </TabsContent>
 
         {/* System Tab */}
@@ -5925,7 +6553,7 @@ export default function Debug() {
               </CardHeader>
               <CardContent>
                 <span className="text-2xl font-bold">
-                  {systemInfo?.nodeVersion || "-"}
+                  {systemInfo?.nodeVersion || (systemInfoFailed ? t("systemTab.unavailable") : "-")}
                 </span>
               </CardContent>
             </Card>
@@ -5936,7 +6564,7 @@ export default function Debug() {
               </CardHeader>
               <CardContent>
                 <span className="text-2xl font-bold">
-                  {systemInfo?.platform || "-"}
+                  {systemInfo?.platform || (systemInfoFailed ? t("systemTab.unavailable") : "-")}
                 </span>
               </CardContent>
             </Card>
@@ -5947,7 +6575,7 @@ export default function Debug() {
               </CardHeader>
               <CardContent>
                 <span className="text-2xl font-bold">
-                  {systemInfo ? formatUptime(systemInfo.uptime) : "-"}
+                  {systemInfo ? formatUptime(systemInfo.uptime) : systemInfoFailed ? t("systemTab.unavailable") : "-"}
                 </span>
               </CardContent>
             </Card>
@@ -5960,13 +6588,13 @@ export default function Debug() {
                 <span className="text-2xl font-bold">
                   {systemInfo?.memoryUsage
                     ? formatMemory(systemInfo.memoryUsage.heapUsed)
-                    : "-"}
+                    : systemInfoFailed ? t("systemTab.unavailable") : "-"}
                 </span>
                 <p className="text-xs text-muted-foreground mt-1">
                   {t("systemTab.ofHeap", {
                     total: systemInfo?.memoryUsage
                       ? formatMemory(systemInfo.memoryUsage.heapTotal)
-                      : "-",
+                      : systemInfoFailed ? t("systemTab.unavailable") : "-",
                   })}
                 </p>
               </CardContent>
@@ -6078,80 +6706,749 @@ export default function Debug() {
                 </div>
               ) : (
                 <div className="space-y-3 font-mono text-sm">
-                  <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                    <span className="text-muted-foreground w-32 shrink-0">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 p-3 rounded-lg bg-muted/50">
+                    <span className="text-muted-foreground sm:w-32 sm:shrink-0">
                       {t("systemTab.databaseLabel")}
                     </span>
-                    <span className="break-all flex-1">
-                      {systemInfo?.dbPath || "-"}
-                    </span>
-                    {systemInfo?.dbPath && (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 w-7 p-0 shrink-0"
-                            aria-label={t("systemTab.copyDbPathAria")}
-                            onClick={async () => {
-                              const ok = await copyText(systemInfo.dbPath);
-                              toast({
-                                title: ok ? t("common.copied") : t("common.copyFailed"),
-                                description: ok
-                                  ? systemInfo.dbPath
-                                  : t("crashesTab.couldNotAccessClipboard"),
-                                variant: ok
-                                  ? ("success" as const)
-                                  : "destructive",
-                              });
-                            }}
-                          >
-                            <Copy className="w-3.5 h-3.5" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{t("systemTab.copyPathTooltip")}</TooltipContent>
-                      </Tooltip>
-                    )}
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <span className="break-all min-w-0 flex-1">
+                        {systemInfo?.dbPath || (systemInfoFailed ? t("systemTab.unavailable") : "-")}
+                      </span>
+                      {systemInfo?.dbPath && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0 shrink-0"
+                              aria-label={t("systemTab.copyDbPathAria")}
+                              onClick={async () => {
+                                const ok = await copyText(systemInfo.dbPath);
+                                toast({
+                                  title: ok ? t("common.copied") : t("common.copyFailed"),
+                                  description: ok
+                                    ? systemInfo.dbPath
+                                    : t("crashesTab.couldNotAccessClipboard"),
+                                  variant: ok
+                                    ? ("success" as const)
+                                    : "destructive",
+                                });
+                              }}
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>{t("systemTab.copyPathTooltip")}</TooltipContent>
+                        </Tooltip>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                    <span className="text-muted-foreground w-32 shrink-0">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 p-3 rounded-lg bg-muted/50">
+                    <span className="text-muted-foreground sm:w-32 sm:shrink-0">
                       {t("systemTab.logsFolderLabel")}
                     </span>
-                    <span className="break-all flex-1">
-                      {systemInfo?.logsPath || "-"}
-                    </span>
-                    {systemInfo?.logsPath && (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 w-7 p-0 shrink-0"
-                            aria-label={t("systemTab.copyLogsPathAria")}
-                            onClick={async () => {
-                              const ok = await copyText(systemInfo.logsPath);
-                              toast({
-                                title: ok ? t("common.copied") : t("common.copyFailed"),
-                                description: ok
-                                  ? systemInfo.logsPath
-                                  : t("crashesTab.couldNotAccessClipboard"),
-                                variant: ok
-                                  ? ("success" as const)
-                                  : "destructive",
-                              });
-                            }}
-                          >
-                            <Copy className="w-3.5 h-3.5" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{t("systemTab.copyPathTooltip")}</TooltipContent>
-                      </Tooltip>
-                    )}
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <span className="break-all min-w-0 flex-1">
+                        {systemInfo?.logsPath || (systemInfoFailed ? t("systemTab.unavailable") : "-")}
+                      </span>
+                      {systemInfo?.logsPath && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0 shrink-0"
+                              aria-label={t("systemTab.copyLogsPathAria")}
+                              onClick={async () => {
+                                const ok = await copyText(systemInfo.logsPath);
+                                toast({
+                                  title: ok ? t("common.copied") : t("common.copyFailed"),
+                                  description: ok
+                                    ? systemInfo.logsPath
+                                    : t("crashesTab.couldNotAccessClipboard"),
+                                  variant: ok
+                                    ? ("success" as const)
+                                    : "destructive",
+                                });
+                              }}
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>{t("systemTab.copyPathTooltip")}</TooltipContent>
+                        </Tooltip>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Bridge Tab — the 7 PanelBridge debug/diagnostics handlers
+            (getStats/checkAPI/getAvailableHandlers/getDebugLog/
+            setDebugMode/clearErrors/debugItemScript). Gated on
+            bridge.diagnostics specifically -- narrower than whatever
+            permission gates this whole page, so a role with page access
+            can still lack this tab's data (see bridgeDiagFetch above). */}
+        <TabsContent value="bridge" className="space-y-4">
+          {bridgeDiagPermissionDenied ? (
+            <EmptyState
+              type="accessDenied"
+              icon={<ShieldAlert className="h-14 w-14 text-muted-foreground/40" />}
+              title={t("bridgeTab.permissionDeniedTitle")}
+              description={t("bridgeTab.permissionDeniedDesc")}
+            />
+          ) : (
+            <>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div>
+                  <h3 className="text-sm font-medium">{t("bridgeTab.heading")}</h3>
+                  <p className="text-xs text-muted-foreground">
+                    {t("bridgeTab.headingDesc")}
+                  </p>
+                </div>
+                <BridgeStatusBadge
+                  connected={bridgeDiagConnected && bridgeDiagHealthy}
+                  running={bridgeDiagRunning}
+                  loading={bridgeDiagStatusLoading}
+                  interactive={false}
+                />
+              </div>
+
+              {!bridgeDiagStatusLoading && !bridgeDiagConnected && (
+                <div className="p-2.5 rounded-md border border-warning/40 bg-warning/5 text-xs flex items-start gap-2">
+                  <WifiOff className="w-3.5 h-3.5 text-warning shrink-0 mt-0.5" />
+                  <div>{t("bridgeTab.notConnectedDesc")}</div>
+                </div>
+              )}
+
+              {/* Stats + debug mode + error log */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <Activity className="w-4 h-4 text-primary" />
+                        {t("bridgeTab.statsTitle")}
+                      </CardTitle>
+                      <CardDescription>{t("bridgeTab.statsDesc")}</CardDescription>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={probeBridgeStats}
+                      disabled={!bridgeDiagConnected || probeLoading === "bridgeStats"}
+                      className="shrink-0"
+                    >
+                      {probeLoading === "bridgeStats" ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      )}
+                      <span className="ml-1.5">{t("common.refresh")}</span>
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {!bridgeDiagConnected ? (
+                    <div className="text-sm text-muted-foreground">
+                      {t("bridgeTab.offlineNoData")}
+                    </div>
+                  ) : !probeResults["bridgeStats"] ? (
+                    <div className="text-sm text-muted-foreground">
+                      {t("bridgeTab.notYetProbed")}
+                    </div>
+                  ) : !probeResults["bridgeStats"].ok ? (
+                    <div className="p-2.5 rounded-md border border-destructive/40 bg-destructive/10 text-sm flex items-start gap-2">
+                      <AlertCircle className="w-3.5 h-3.5 text-destructive shrink-0 mt-0.5" />
+                      <div className="text-destructive">
+                        {probeResults["bridgeStats"].error}
+                      </div>
+                    </div>
+                  ) : (
+                    (() => {
+                      const stats = probeResults["bridgeStats"].sample as {
+                        version?: string;
+                        uptime?: number;
+                        commandsProcessed?: number;
+                        commandsSucceeded?: number;
+                        commandsFailed?: number;
+                        debugMode?: boolean;
+                        lastError?: { timestamp?: number; message?: string } | null;
+                        recentErrors?: Array<{ timestamp?: number; message?: string }>;
+                        detectedVersion?: {
+                          build?: string;
+                          isB42?: boolean;
+                          isB41?: boolean;
+                        };
+                      };
+                      const uptimeSec = Math.max(0, Math.round(stats.uptime ?? 0));
+                      const h = Math.floor(uptimeSec / 3600);
+                      const m = Math.floor((uptimeSec % 3600) / 60);
+                      const s = uptimeSec % 60;
+                      const uptimeLabel = h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`;
+                      const errCount = stats.recentErrors?.length ?? 0;
+                      return (
+                        <>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
+                            <div className="p-2 rounded border bg-card">
+                              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                {t("bridgeTab.versionLabel")}
+                              </div>
+                              <div className="font-medium font-mono">
+                                {stats.version ?? t("common.notAvailable")}
+                              </div>
+                            </div>
+                            <div className="p-2 rounded border bg-card">
+                              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                {t("bridgeTab.uptimeLabel")}
+                              </div>
+                              <div className="font-medium">{uptimeLabel}</div>
+                            </div>
+                            <div className="p-2 rounded border bg-card">
+                              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                {t("bridgeTab.commandsLabel")}
+                              </div>
+                              <div className="font-medium">
+                                {stats.commandsSucceeded ?? 0} / {stats.commandsProcessed ?? 0}
+                              </div>
+                            </div>
+                            <div
+                              className={cn(
+                                "p-2 rounded border",
+                                (stats.commandsFailed ?? 0) > 0
+                                  ? "border-warning/40 bg-warning/5"
+                                  : "bg-card",
+                              )}
+                            >
+                              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                {t("bridgeTab.commandsFailedLabel")}
+                              </div>
+                              <div className="font-medium">{stats.commandsFailed ?? 0}</div>
+                            </div>
+                          </div>
+
+                          {stats.detectedVersion && (
+                            <div className="p-2 rounded border bg-card text-sm">
+                              <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
+                                {t("bridgeTab.detectedVersionLabel")}
+                              </div>
+                              <div className="font-mono">
+                                {stats.detectedVersion.build ?? t("common.notAvailable")}
+                                {" · "}
+                                {stats.detectedVersion.isB42
+                                  ? "B42"
+                                  : stats.detectedVersion.isB41
+                                    ? "B41"
+                                    : t("common.notAvailable")}
+                              </div>
+                              <div className="text-[11px] text-muted-foreground mt-1">
+                                {t("bridgeTab.detectedVersionCaveat")}
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="flex items-center justify-between gap-2 p-2 rounded border bg-card">
+                            <div>
+                              <div className="text-sm font-medium">
+                                {t("bridgeTab.debugModeLabel")}
+                              </div>
+                              <div className="text-[11px] text-muted-foreground">
+                                {t("bridgeTab.debugModeDesc")}
+                              </div>
+                            </div>
+                            <DisabledReason
+                              reason={
+                                !can("bridge.diagnostics")
+                                  ? t("bridgeTab.noPermission")
+                                  : null
+                              }
+                            >
+                              <Switch
+                                checked={stats.debugMode === true}
+                                disabled={
+                                  !can("bridge.diagnostics") ||
+                                  actionLoading === "bridgeDebugMode"
+                                }
+                                onCheckedChange={(checked) =>
+                                  toggleBridgeDebugMode(checked)
+                                }
+                              />
+                            </DisabledReason>
+                          </div>
+
+                          <div className="p-2 rounded border bg-card">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-sm font-medium">
+                                {t("bridgeTab.errorLogLabel", { count: errCount })}
+                              </div>
+                              <DisabledReason
+                                reason={
+                                  !can("bridge.diagnostics")
+                                    ? t("bridgeTab.noPermission")
+                                    : errCount === 0
+                                      ? t("bridgeTab.noErrorsToClear")
+                                      : null
+                                }
+                              >
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={clearBridgeErrors}
+                                  disabled={
+                                    !can("bridge.diagnostics") ||
+                                    errCount === 0 ||
+                                    actionLoading === "bridgeClearErrors"
+                                  }
+                                >
+                                  {actionLoading === "bridgeClearErrors" ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  )}
+                                  <span className="ml-1.5">
+                                    {t("bridgeTab.clearErrorsButton")}
+                                  </span>
+                                </Button>
+                              </DisabledReason>
+                            </div>
+                            {stats.lastError?.message && (
+                              <div className="text-[11px] text-destructive mt-1.5 font-mono break-all">
+                                {stats.lastError.message}
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      );
+                    })()
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* checkAPI */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Search className="w-4 h-4 text-primary" />
+                    {t("bridgeTab.checkApiTitle")}
+                  </CardTitle>
+                  <CardDescription>{t("bridgeTab.checkApiDesc")}</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-end gap-2 flex-wrap">
+                    <div className="space-y-1">
+                      <Label className="text-xs">{t("bridgeTab.checkApiObjectLabel")}</Label>
+                      <Select value={checkApiObject} onValueChange={setCheckApiObject}>
+                        <SelectTrigger className="h-8 w-44 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="ClimateManager">ClimateManager</SelectItem>
+                          <SelectItem value="GameTime">GameTime</SelectItem>
+                          <SelectItem value="World">World</SelectItem>
+                          <SelectItem value="ChatServer">ChatServer</SelectItem>
+                          <SelectItem value="SandboxOptions">SandboxOptions</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1 flex-1 min-w-[10rem]">
+                      <Label className="text-xs">{t("bridgeTab.checkApiMethodLabel")}</Label>
+                      <Input
+                        className="h-8 text-xs font-mono"
+                        placeholder={t("bridgeTab.checkApiMethodPlaceholder")}
+                        value={checkApiMethod}
+                        onChange={(e) => setCheckApiMethod(e.target.value)}
+                      />
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={probeCheckApi}
+                      disabled={!bridgeDiagConnected || probeLoading === "checkApi"}
+                    >
+                      {probeLoading === "checkApi" ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <PlayCircle className="w-3.5 h-3.5" />
+                      )}
+                      <span className="ml-1.5">{t("bridgeTab.checkApiRunButton")}</span>
+                    </Button>
+                  </div>
+
+                  {probeResults["checkApi"] &&
+                    (!probeResults["checkApi"].ok ? (
+                      <div className="text-sm text-destructive">
+                        {probeResults["checkApi"].error}
+                      </div>
+                    ) : (
+                      (() => {
+                        const r = probeResults["checkApi"].sample as {
+                          object?: string;
+                          available?: boolean;
+                          type?: string;
+                          method?: string;
+                          methodAvailable?: boolean;
+                          methods?: string[];
+                          methodsError?: string;
+                        };
+                        return (
+                          <div className="p-2.5 rounded border bg-card text-sm space-y-1.5">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge variant={r.available ? "outline" : "destructive"}>
+                                {r.available
+                                  ? t("bridgeTab.checkApiAvailable")
+                                  : t("bridgeTab.checkApiUnavailable")}
+                              </Badge>
+                              {r.method && (
+                                <Badge
+                                  variant={r.methodAvailable ? "outline" : "destructive"}
+                                  className="font-mono"
+                                >
+                                  {r.method}: {r.methodAvailable ? "✓" : "✗"}
+                                </Badge>
+                              )}
+                            </div>
+                            {r.methods && r.methods.length > 0 && (
+                              <div className="flex flex-wrap gap-1 pt-1">
+                                {r.methods.map((m) => (
+                                  <Badge
+                                    key={m}
+                                    variant="outline"
+                                    className="text-[10px] font-mono"
+                                  >
+                                    {m}
+                                  </Badge>
+                                ))}
+                              </div>
+                            )}
+                            {r.methodsError && (
+                              <div className="text-[11px] text-muted-foreground">
+                                {r.methodsError}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()
+                    ))}
+                </CardContent>
+              </Card>
+
+              {/* getAvailableHandlers */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <Terminal className="w-4 h-4 text-primary" />
+                        {t("bridgeTab.handlersTitle")}
+                      </CardTitle>
+                      <CardDescription>{t("bridgeTab.handlersDesc")}</CardDescription>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={probeAvailableHandlers}
+                      disabled={!bridgeDiagConnected || probeLoading === "availableHandlers"}
+                      className="shrink-0"
+                    >
+                      {probeLoading === "availableHandlers" ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      )}
+                      <span className="ml-1.5">{t("bridgeTab.handlersRunButton")}</span>
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {!probeResults["availableHandlers"] ? (
+                    <div className="text-sm text-muted-foreground">
+                      {t("bridgeTab.notYetProbed")}
+                    </div>
+                  ) : !probeResults["availableHandlers"].ok ? (
+                    <div className="text-sm text-destructive">
+                      {probeResults["availableHandlers"].error}
+                    </div>
+                  ) : (
+                    (() => {
+                      const data = probeResults["availableHandlers"].sample as {
+                        handlers?: string[];
+                        count?: number;
+                      };
+                      const all = data.handlers ?? [];
+                      const q = handlerSearchQuery.trim().toLowerCase();
+                      const filtered = q
+                        ? all.filter((h) => h.toLowerCase().includes(q))
+                        : all;
+                      return (
+                        <>
+                          <div className="flex items-center gap-2">
+                            <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                            <Input
+                              className="h-8 text-xs"
+                              placeholder={t("bridgeTab.handlersSearchPlaceholder")}
+                              value={handlerSearchQuery}
+                              onChange={(e) => setHandlerSearchQuery(e.target.value)}
+                            />
+                            <span className="text-[11px] text-muted-foreground shrink-0">
+                              {t("bridgeTab.handlersCount", {
+                                shown: filtered.length,
+                                total: data.count ?? all.length,
+                              })}
+                            </span>
+                          </div>
+                          <ScrollArea className="h-48 rounded border bg-card p-2">
+                            <div className="flex flex-wrap gap-1">
+                              {filtered.map((h) => (
+                                <Badge
+                                  key={h}
+                                  variant="outline"
+                                  className="text-[10px] font-mono"
+                                >
+                                  {h}
+                                </Badge>
+                              ))}
+                            </div>
+                          </ScrollArea>
+                        </>
+                      );
+                    })()
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* getDebugLog */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <FileText className="w-4 h-4 text-primary" />
+                    {t("bridgeTab.debugLogTitle")}
+                  </CardTitle>
+                  <CardDescription>{t("bridgeTab.debugLogDesc")}</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-end gap-2 flex-wrap">
+                    <div className="space-y-1">
+                      <Label className="text-xs">{t("bridgeTab.debugLogLimitLabel")}</Label>
+                      <NumberInput
+                        className="h-8 w-24 text-xs"
+                        value={debugLogLimit}
+                        min={1}
+                        max={200}
+                        clamp={(v) => Math.min(200, Math.max(1, Math.round(v)))}
+                        onChange={(v) => setDebugLogLimit(Number.isFinite(v) ? v : 50)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">{t("bridgeTab.debugLogLevelLabel")}</Label>
+                      <Select
+                        value={debugLogMinLevel}
+                        onValueChange={(v) =>
+                          setDebugLogMinLevel(v as typeof debugLogMinLevel)
+                        }
+                      >
+                        <SelectTrigger className="h-8 w-32 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="DEBUG">{t("common.levelDebug")}</SelectItem>
+                          <SelectItem value="INFO">{t("common.levelInfo")}</SelectItem>
+                          <SelectItem value="WARN">{t("common.levelWarn")}</SelectItem>
+                          <SelectItem value="ERROR">{t("common.levelError")}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={probeDebugLog}
+                      disabled={!bridgeDiagConnected || probeLoading === "debugLog"}
+                    >
+                      {probeLoading === "debugLog" ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <PlayCircle className="w-3.5 h-3.5" />
+                      )}
+                      <span className="ml-1.5">{t("bridgeTab.debugLogRunButton")}</span>
+                    </Button>
+                  </div>
+
+                  {probeResults["debugLog"] &&
+                    (!probeResults["debugLog"].ok ? (
+                      <div className="text-sm text-destructive">
+                        {probeResults["debugLog"].error}
+                      </div>
+                    ) : (
+                      (() => {
+                        const data = probeResults["debugLog"].sample as {
+                          entries?: Array<{
+                            timestamp?: number;
+                            level?: string;
+                            message?: string;
+                          }>;
+                          totalEntries?: number;
+                        };
+                        const entries = data.entries ?? [];
+                        return (
+                          <>
+                            <div className="text-[11px] text-muted-foreground">
+                              {t("bridgeTab.debugLogShown", {
+                                shown: entries.length,
+                                total: data.totalEntries ?? entries.length,
+                              })}
+                            </div>
+                            <ScrollArea className="h-64 rounded border bg-card">
+                              <div className="divide-y divide-border/40">
+                                {entries.length === 0 ? (
+                                  <div className="p-3 text-sm text-muted-foreground">
+                                    {t("bridgeTab.debugLogEmpty")}
+                                  </div>
+                                ) : (
+                                  entries
+                                    .slice()
+                                    .reverse()
+                                    .map((logEntry, i) => (
+                                      <div
+                                        key={i}
+                                        className="p-2 text-xs font-mono flex items-start gap-2"
+                                      >
+                                        <Badge
+                                          variant={
+                                            logEntry.level === "ERROR"
+                                              ? "destructive"
+                                              : "outline"
+                                          }
+                                          className="text-[9px] shrink-0"
+                                        >
+                                          {logEntry.level}
+                                        </Badge>
+                                        <span className="text-muted-foreground shrink-0">
+                                          {logEntry.timestamp
+                                            ? new Date(logEntry.timestamp).toLocaleTimeString()
+                                            : ""}
+                                        </span>
+                                        <span className="break-all">{logEntry.message}</span>
+                                      </div>
+                                    ))
+                                )}
+                              </div>
+                            </ScrollArea>
+                          </>
+                        );
+                      })()
+                    ))}
+                </CardContent>
+              </Card>
+
+              {/* debugItemScript -- fixed, zero-argument self-test */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <ShieldAlert className="w-4 h-4 text-primary" />
+                        {t("bridgeTab.selfTestTitle")}
+                      </CardTitle>
+                      <CardDescription>{t("bridgeTab.selfTestDesc")}</CardDescription>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={probeSelfTest}
+                      disabled={!bridgeDiagConnected || probeLoading === "selfTest"}
+                      className="shrink-0"
+                    >
+                      {probeLoading === "selfTest" ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <PlayCircle className="w-3.5 h-3.5" />
+                      )}
+                      <span className="ml-1.5">{t("bridgeTab.selfTestRunButton")}</span>
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {!probeResults["selfTest"] ? (
+                    <div className="text-sm text-muted-foreground">
+                      {t("bridgeTab.notYetProbed")}
+                    </div>
+                  ) : !probeResults["selfTest"].ok ? (
+                    <div className="text-sm text-destructive">
+                      {probeResults["selfTest"].error}
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b">
+                            <th className="text-left p-1.5 font-medium">
+                              {t("bridgeTab.selfTestItemColumn")}
+                            </th>
+                            {[
+                              "getTypeString",
+                              "getType",
+                              "getCategory",
+                              "getDisplayCategory",
+                              "getBodyLocation",
+                              "getSubCategory",
+                              "getCategories",
+                              "getTypeToItem",
+                              "getScriptObjectType",
+                            ].map((m) => (
+                              <th
+                                key={m}
+                                className="text-left p-1.5 font-mono font-medium whitespace-nowrap"
+                              >
+                                {m}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(
+                            probeResults["selfTest"].sample as Array<
+                              Record<string, string>
+                            >
+                          ).map((probe, i) => (
+                            <tr key={i} className="border-b border-border/30">
+                              <td className="p-1.5 font-mono">{probe.id}</td>
+                              {[
+                                "getTypeString",
+                                "getType",
+                                "getCategory",
+                                "getDisplayCategory",
+                                "getBodyLocation",
+                                "getSubCategory",
+                                "getCategories",
+                                "getTypeToItem",
+                                "getScriptObjectType",
+                              ].map((m) => (
+                                <td
+                                  key={m}
+                                  className={cn(
+                                    "p-1.5 font-mono whitespace-nowrap",
+                                    probe[m] === "nil"
+                                      ? "text-muted-foreground"
+                                      : probe[m]?.startsWith("ERROR")
+                                        ? "text-destructive"
+                                        : "text-primary",
+                                  )}
+                                >
+                                  {probe[m]}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </>
+          )}
         </TabsContent>
       </Tabs>
       )}

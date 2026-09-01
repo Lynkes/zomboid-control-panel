@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import i18n from '@/i18n'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import ServerFinder from '../ServerFinder'
 
 // bug-hunt-2026-08-27: fetchServers() called the raw apiFetch() primitive
@@ -23,9 +24,11 @@ afterEach(() => {
 
 function renderServerFinder() {
   return render(
-    <MemoryRouter>
-      <ServerFinder />
-    </MemoryRouter>,
+    <TooltipProvider>
+      <MemoryRouter>
+        <ServerFinder />
+      </MemoryRouter>
+    </TooltipProvider>,
   )
 }
 

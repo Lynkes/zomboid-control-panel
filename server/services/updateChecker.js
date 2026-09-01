@@ -6,6 +6,11 @@ const log = createLogger("Updates");
 import { getSetting, setSetting, getActiveServer } from "../database/init.js";
 import { resolveManagedContainer } from "./managedContainer.js";
 import { sanitizeError } from "../utils/sanitize.js";
+import {
+  hasActiveSteamOperation,
+  getActiveSteamOperations,
+  clearActiveSteamOperation,
+} from "./activeSteamOperations.js";
 
 export function parseAutoUpdateWarningMinutes(value) {
   if (value === null || value === undefined) return 15;
@@ -172,9 +177,13 @@ export class UpdateChecker {
   }
 
   /**
-   * Get latest build info from Steam for a specific branch
+   * Get latest build info from Steam for a specific branch. `installPath`
+   * is optional (defensive, matching serverManager.js's own
+   * `if (installPathForSteamCheck)` shape for the same check) -- every
+   * real caller (checkForUpdates()) always has it, since it already
+   * bails out earlier when serverPath is unset.
    */
-  async getLatestBuildInfo(steamcmdPath, branch = "public") {
+  async getLatestBuildInfo(steamcmdPath, branch = "public", installPath = null) {
     let steamcmdExe;
     if (process.platform === "win32") {
       steamcmdExe = path.join(steamcmdPath, "steamcmd.exe");
@@ -224,68 +233,106 @@ export class UpdateChecker {
       throw new Error("SteamCMD not found");
     }
 
-    return new Promise((resolve, reject) => {
-      const args = [
-        "+login",
-        "anonymous",
-        "+app_info_update",
-        "1",
-        "+app_info_print",
-        "380870",
-        "+quit",
-      ];
-
-      // On Linux, set LD_LIBRARY_PATH for SteamCMD's 32-bit libraries
-      const spawnOpts = { cwd: steamcmdPath };
-      if (process.platform !== "win32") {
-        const ldPaths = [
-          path.join(steamcmdPath, "linux32"),
-          path.join(steamcmdPath, "linux64"),
-          steamcmdPath,
-          "/usr/lib64",
-          process.env.LD_LIBRARY_PATH || "",
-        ]
-          .filter(Boolean)
-          .join(":");
-        spawnOpts.env = { ...process.env, LD_LIBRARY_PATH: ldPaths };
-        log.debug(
-          `SteamCMD spawn: exe=${steamcmdExe}, LD_LIBRARY_PATH=${ldPaths}`,
+    // Guard against racing a manual POST /install or POST /steam-update
+    // (routes/server.js), or the automatic update job's own real
+    // +app_update spawn below in runAutoUpdate() -- this query doesn't
+    // touch +force_install_dir, but it shares SteamCMD's own session/cache
+    // state under steamcmdPath with whichever of those IS writing, and two
+    // concurrent SteamCMD invocations against that shared state is exactly
+    // the class of bug activeSteamOperations.js exists to prevent (hunt-
+    // wave6, 2026-08-29 -- this and runAutoUpdate's spawn were the two
+    // remaining SteamCMD call sites that ran without going through it at
+    // all). No await between the check and the claim below -- a gap there
+    // is how two requests slip past each other and both spawn (see
+    // routes/server.js's own comment on steamUpdateConcurrency.test.js).
+    // Plain Error, no ErrorCode: matches this function's own sibling
+    // throws immediately above ("SteamCMD not found") rather than being
+    // the one throw in this function that departs from their shape.
+    let normalizedInstallPath = null;
+    if (installPath) {
+      normalizedInstallPath = path.normalize(installPath).toLowerCase();
+      if (hasActiveSteamOperation(normalizedInstallPath)) {
+        throw new Error(
+          "A Steam install or update is already in progress for this server's install directory. Skipping this version check until it finishes.",
         );
       }
-
-      const steamcmd = spawn(steamcmdExe, args, spawnOpts);
-
-      let output = "";
-      const timeout = setTimeout(() => {
-        steamcmd.kill();
-        reject(new Error("SteamCMD timeout"));
-      }, 60000); // 60 second timeout
-
-      steamcmd.stdout.on("data", (data) => {
-        output += data.toString();
+      getActiveSteamOperations().set(normalizedInstallPath, {
+        type: "version-check",
+        startTime: Date.now(),
+        lastOutputAt: Date.now(),
       });
+    }
 
-      steamcmd.stderr.on("data", (data) => {
-        output += data.toString();
-      });
+    try {
+      return await new Promise((resolve, reject) => {
+        const args = [
+          "+login",
+          "anonymous",
+          "+app_info_update",
+          "1",
+          "+app_info_print",
+          "380870",
+          "+quit",
+        ];
 
-      steamcmd.on("close", (code) => {
-        clearTimeout(timeout);
-
-        if (code !== 0) {
-          return reject(new Error(`SteamCMD exited with code ${code}`));
+        // On Linux, set LD_LIBRARY_PATH for SteamCMD's 32-bit libraries
+        const spawnOpts = { cwd: steamcmdPath };
+        if (process.platform !== "win32") {
+          const ldPaths = [
+            path.join(steamcmdPath, "linux32"),
+            path.join(steamcmdPath, "linux64"),
+            steamcmdPath,
+            "/usr/lib64",
+            process.env.LD_LIBRARY_PATH || "",
+          ]
+            .filter(Boolean)
+            .join(":");
+          spawnOpts.env = { ...process.env, LD_LIBRARY_PATH: ldPaths };
+          log.debug(
+            `SteamCMD spawn: exe=${steamcmdExe}, LD_LIBRARY_PATH=${ldPaths}`,
+          );
         }
 
-        // Parse the branch info
-        const branchInfo = this.parseBranchFromOutput(output, branch);
-        resolve(branchInfo);
-      });
+        const steamcmd = spawn(steamcmdExe, args, spawnOpts);
 
-      steamcmd.on("error", (err) => {
-        clearTimeout(timeout);
-        reject(err);
+        let output = "";
+        const timeout = setTimeout(() => {
+          steamcmd.kill();
+          reject(new Error("SteamCMD timeout"));
+        }, 60000); // 60 second timeout
+
+        steamcmd.stdout.on("data", (data) => {
+          output += data.toString();
+        });
+
+        steamcmd.stderr.on("data", (data) => {
+          output += data.toString();
+        });
+
+        steamcmd.on("close", (code) => {
+          clearTimeout(timeout);
+
+          if (code !== 0) {
+            return reject(new Error(`SteamCMD exited with code ${code}`));
+          }
+
+          // Parse the branch info
+          const branchInfo = this.parseBranchFromOutput(output, branch);
+          resolve(branchInfo);
+        });
+
+        steamcmd.on("error", (err) => {
+          clearTimeout(timeout);
+          reject(err);
+        });
       });
-    });
+    } finally {
+      // Release as soon as this query is actually done, success or
+      // failure or timeout -- a thrown error above (including the refusal
+      // itself, which never reaches here since it throws before the
+      // claim) must never leave a permanent claim.
+      if (normalizedInstallPath) clearActiveSteamOperation(normalizedInstallPath);
+    }
   }
 
   /**
@@ -381,6 +428,7 @@ export class UpdateChecker {
       const latest = await this.getLatestBuildInfo(
         steamcmdPath,
         installed.branch,
+        serverPath,
       );
       if (!latest || !latest.buildId) {
         log.debug("UpdateChecker: Could not get latest build info from Steam");
@@ -489,6 +537,12 @@ export class UpdateChecker {
 
   async runAutoUpdate(updateInfo) {
     let shouldRestart = false;
+    // Set right before the SteamCMD spawn below claims activeSteamOperations
+    // for this path; the outer finally() releases it defensively too (a
+    // no-op if the inner try/finally around the spawn already did) so a
+    // thrown error can never leave a permanent claim, per the same
+    // requirement as every other guarded spawn site.
+    let normalizedInstallPath = null;
     // Tracks how far the job got, recorded on failure alongside a stable
     // reason key -- see the class doc comment on _recordAutoUpdateResult()
     // for why phase (not a per-reason serverUp guess) is the source of
@@ -566,11 +620,65 @@ export class UpdateChecker {
       if (!fs.existsSync(steamcmdExe)) fail("STEAMCMD_NOT_FOUND", `SteamCMD not found at ${steamcmdExe}`, { path: sanitizeError(steamcmdExe) });
       const branch = ["public", "stable"].includes(updateInfo.installed.branch) ? [] : ["-beta", updateInfo.installed.branch];
       const loginArgs = await getSteamLoginArgs();
-      const code = await new Promise((resolve, reject) => {
-        const child = spawn(steamcmdExe, ["+force_install_dir", activeServer.installPath, ...loginArgs, "+app_update", "380870", ...branch, "validate", "+quit"], { cwd: steamcmdPath });
-        child.once("error", reject);
-        child.once("close", resolve);
+
+      // Guard against racing a manual POST /install or POST /steam-update
+      // (routes/server.js) writing into the SAME install directory -- this
+      // unattended job is the other remaining SteamCMD call site that ran
+      // without going through activeSteamOperations.js at all (hunt-wave6,
+      // 2026-08-29, the direct continuation of the startServer() guard in
+      // serverManager.js). No await between the check and the claim below,
+      // same discipline as routes/server.js's own check (see its comment
+      // on steamUpdateConcurrency.test.js) -- a gap there is exactly how
+      // two SteamCMD processes end up racing the same install path.
+      //
+      // This is the unattended case the card cares about most: a manual
+      // operation refusing is fine (a human sees the message and retries),
+      // but this one must not silently skip. It doesn't invent a new
+      // "deferred" mechanism -- it reuses this function's OWN existing
+      // fail()/_recordAutoUpdateResult() pattern, the exact same one every
+      // other pre-flight refusal in this function already uses (RCON not
+      // connected, world save failed, SteamCMD missing, ...), so this
+      // refusal is visible the same way theirs already are: persisted via
+      // getStatus().lastAutoUpdateResult for any page to read cold, and
+      // emitted live via server:autoUpdateComplete.
+      // A candidate, not yet assigned to the outer normalizedInstallPath --
+      // that variable is what BOTH finally blocks release, so it must only
+      // become non-null once we have actually claimed the path ourselves.
+      // Assigning it before the check (and before fail() can throw) would
+      // make a blocked refusal here clear the OTHER operation's claim out
+      // from under it in the outer finally below, exactly backwards from
+      // what "release in a finally-equivalent" is supposed to guarantee.
+      const candidateInstallPath = path.normalize(activeServer.installPath).toLowerCase();
+      if (hasActiveSteamOperation(candidateInstallPath)) {
+        fail(
+          "STEAM_OPERATION_IN_PROGRESS",
+          "A Steam install or update is already in progress for this server's install directory, so this automatic update was abandoned rather than race it. Retry manually from Server > Update once the other Steam operation finishes.",
+          { path: sanitizeError(candidateInstallPath) },
+        );
+      }
+      getActiveSteamOperations().set(candidateInstallPath, {
+        type: "auto-update",
+        startTime: Date.now(),
+        lastOutputAt: Date.now(),
       });
+      normalizedInstallPath = candidateInstallPath;
+
+      let code;
+      try {
+        code = await new Promise((resolve, reject) => {
+          const child = spawn(steamcmdExe, ["+force_install_dir", activeServer.installPath, ...loginArgs, "+app_update", "380870", ...branch, "validate", "+quit"], { cwd: steamcmdPath });
+          child.once("error", reject);
+          child.once("close", resolve);
+        });
+      } finally {
+        // Released as soon as SteamCMD itself is done, not tied to the
+        // OUTER finally below -- that one also covers the (possibly slow)
+        // restart-the-server step that follows, which has nothing to do
+        // with whether SteamCMD is still touching the install directory
+        // and shouldn't hold a manual /install or /steam-update queued
+        // any longer than necessary.
+        clearActiveSteamOperation(normalizedInstallPath);
+      }
       if (code !== 0) fail("STEAMCMD_EXIT_CODE", `SteamCMD exited with code ${code}`, { code });
       this.io.emit("server:autoUpdateComplete", { success: true });
       await this._recordAutoUpdateResult({
@@ -596,6 +704,13 @@ export class UpdateChecker {
       throw error;
     } finally {
       this.autoUpdateRunning = false;
+      // Defensive, idempotent second release (the inner try/finally around
+      // the SteamCMD spawn above already releases this in the normal
+      // case) -- clearActiveSteamOperation() is a safe no-op if it's
+      // already gone. Guarantees a thrown error can never leave a
+      // permanent claim even if a future edit adds code between the claim
+      // and that inner try without noticing it needs to stay inside it.
+      if (normalizedInstallPath) clearActiveSteamOperation(normalizedInstallPath);
       // shouldRestart alone is not enough: it is set true the moment the
       // server is found running AT THE START, before anything has
       // attempted to stop it. Every failure in the "before-stop" phase

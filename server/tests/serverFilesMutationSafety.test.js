@@ -301,6 +301,25 @@ describe("local config mutation safety", () => {
       expect(next).toHaveBeenCalledOnce();
       expect(request.configEditRestartWarning).toBeUndefined();
     });
+
+    // Regression (2026-08-31 services sweep): this function's sibling,
+    // requireStoppedForLocalConfigMutation, was hardened so a CONFIGURED but
+    // currently-unreachable local path (network mount dropped, slow drive,
+    // AV lock) isn't trusted as isRemote:true just because it self-healed
+    // that way -- this guard never got the same treatment, so the exact
+    // same ambiguous state silently skipped the warning check entirely.
+    it("warns (does not treat as remote) when a configured local path is currently unreachable", async () => {
+      getActiveServer.mockResolvedValue({ isRemote: true, installPath: "/nonexistent/pz-server" });
+      const response = createResponse();
+      const next = vi.fn();
+      const request = createRequest("PUT", "/ini", true);
+
+      await warnRunningForLocalConfigEdit(request, response, next);
+
+      expect(next).toHaveBeenCalledOnce();
+      expect(response.status).not.toHaveBeenCalled();
+      expect(request.configEditRestartWarning).toBe(true);
+    });
   });
 });
 

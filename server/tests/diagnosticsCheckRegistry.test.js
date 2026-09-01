@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import {
+  levenshteinDistance,
+  findNearMissTypo,
+  triageUnresolvedMods,
+} from "../routes/debug.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_DIR = path.join(__dirname, "..");
@@ -351,5 +356,93 @@ describe("diagnostics check locale registry (self-enforcing, mirrors errorCodeRe
     const frOnly = [...fr.withVariant.keys()].filter((key) => !en.withVariant.has(key));
     expect(enOnly, `in en only: ${enOnly.join(", ")}`).toEqual([]);
     expect(frOnly, `in fr only: ${frOnly.join(", ")}`).toEqual([]);
+  });
+});
+
+// mods.resolved per-ID triage (mods-unresolved-2026-08-31): classifies WHY
+// each unresolved Mods= entry failed instead of leaving the operator with a
+// bare list. Mirrors the sibling mods.orphanWorkshop triage's own test
+// coverage expectations -- one case per cause, plus the ordering rule that a
+// typo match wins even when a Steam operation happens to be active too.
+describe("triageUnresolvedMods (mods.resolved per-ID triage)", () => {
+  describe("levenshteinDistance", () => {
+    it("is 0 for identical strings and the length for one empty string", () => {
+      expect(levenshteinDistance("abc", "abc")).toBe(0);
+      expect(levenshteinDistance("", "abc")).toBe(3);
+      expect(levenshteinDistance("abc", "")).toBe(3);
+    });
+    it("counts a single substitution as distance 1", () => {
+      expect(levenshteinDistance("Footprint", "Footprant")).toBe(1);
+    });
+  });
+
+  describe("findNearMissTypo", () => {
+    it("finds a one-character typo of an installed mod ID", () => {
+      expect(findNearMissTypo("Footprnt", ["Footprint", "OtherMod"])).toBe(
+        "Footprint",
+      );
+    });
+    it("treats a pure case difference as a match", () => {
+      expect(
+        findNearMissTypo("quartermaster", ["Quartermaster", "OtherMod"]),
+      ).toBe("Quartermaster");
+    });
+    it("does not match an installed ID that's merely similar-length but unrelated", () => {
+      expect(findNearMissTypo("Quartermaster", ["Footprint"])).toBeNull();
+    });
+    it("scales its threshold with ID length so a single slip in a long ID still counts as near", () => {
+      expect(
+        findNearMissTypo("RepairAnyClothesSearchModeAPI42", [
+          "RepairAnyClothesSearchModeAPI41",
+        ]),
+      ).toBe("RepairAnyClothesSearchModeAPI41");
+    });
+    it("returns null when the ID isn't close to anything installed", () => {
+      expect(findNearMissTypo("TotallyUnrelatedModId", ["Footprint"])).toBeNull();
+    });
+  });
+
+  describe("triageUnresolvedMods", () => {
+    it("classifies a near-miss typo even while a Steam operation is active (typo wins)", () => {
+      const result = triageUnresolvedMods(
+        ["Footprnt"],
+        ["Footprint"],
+        { steamOperationActive: true, anyWorkshopMissingFromDisk: true },
+      );
+      expect(result).toEqual([
+        { modId: "Footprnt", cause: "typo", suggestion: "Footprint" },
+      ]);
+    });
+    it("classifies stillDownloading when a Steam operation is active and there's no typo match", () => {
+      const result = triageUnresolvedMods(
+        ["Quartermaster"],
+        ["SomeOtherMod"],
+        { steamOperationActive: true, anyWorkshopMissingFromDisk: false },
+      );
+      expect(result).toEqual([
+        { modId: "Quartermaster", cause: "stillDownloading" },
+      ]);
+    });
+    it("classifies workshopNotOnDisk when nothing is downloading but a WorkshopItems= folder is missing", () => {
+      const result = triageUnresolvedMods(
+        ["RepairAnyClothesSearchModeAPI41"],
+        ["SomeOtherMod"],
+        { steamOperationActive: false, anyWorkshopMissingFromDisk: true },
+      );
+      expect(result).toEqual([
+        {
+          modId: "RepairAnyClothesSearchModeAPI41",
+          cause: "workshopNotOnDisk",
+        },
+      ]);
+    });
+    it("classifies absent when there's no typo, no active download, and nothing missing from disk", () => {
+      const result = triageUnresolvedMods(
+        ["TotallyMadeUpModId"],
+        ["SomeOtherMod"],
+        { steamOperationActive: false, anyWorkshopMissingFromDisk: false },
+      );
+      expect(result).toEqual([{ modId: "TotallyMadeUpModId", cause: "absent" }]);
+    });
   });
 });

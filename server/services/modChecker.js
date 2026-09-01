@@ -196,6 +196,17 @@ export class ModChecker extends EventEmitter {
     this.modNameCache = new Map(); // WorkshopID -> { name, timestamp }
     this.checkInProgress = false; // Prevent concurrent update checks
     this.lastSteamTimestamps = new Map(); // Cache Steam API results between checks
+    // workshopId -> { resultCode, reason } for the most recent fetchSteamTimestamps()
+    // call, for every id Steam answered with a NON-1 result (item.result !== 1).
+    // Populated alongside lastSteamTimestamps so a caller can tell "Steam
+    // confirmed this item is gone" (reason: "removed", Steam EResult 9 --
+    // FileNotFound, the documented code for a deleted/private workshop item)
+    // apart from "this batch got no answer at all" (absent from BOTH maps --
+    // a network failure, timeout, or rate-limit; see steamApiHealthy).
+    // Anything else non-1 is recorded with reason: "unknown" and its raw
+    // code preserved rather than silently dropped, so the denominator of
+    // codes this class recognizes stays honest as Steam's API evolves.
+    this.lastUnavailableWorkshopIds = new Map();
 
     // Startup grace period — skip auto-restart triggers for the first N seconds after start()
     this.startupGraceMs = 120000; // 2 minutes grace period after start()
@@ -281,6 +292,14 @@ export class ModChecker extends EventEmitter {
                 `Mod update handling failed: ${handled?.error || handled?.message || "unknown error"}`,
               );
             }
+            // Without this, checkForUpdates()'s markProcessed dedup check
+            // always sees undefined here (a block-bodied async function
+            // resolves undefined unless it explicitly returns), so a
+            // successful immediate restart was never recorded as processed
+            // and the same update could retrigger another restart on the
+            // next check cycle. routes/config.js's bulk-save path already
+            // gets this right with an implicit-return arrow.
+            return handled;
           };
           log.info("Auto-restart on mod update restored from settings");
         }
@@ -1092,7 +1111,14 @@ export class ModChecker extends EventEmitter {
   // Uses ISteamRemoteStorage/GetPublishedFileDetails (no API key required)
   async fetchSteamTimestamps(workshopIds) {
     const result = new Map(); // workshopId -> { time_updated, title }
-    if (!workshopIds.length) return result;
+    // workshopId -> { resultCode, reason }, for every id Steam answered with
+    // a non-1 result this call. See the field's own comment on the
+    // constructor for what "reason" values mean and why this exists.
+    const unavailable = new Map();
+    if (!workshopIds.length) {
+      this.lastUnavailableWorkshopIds = unavailable;
+      return result;
+    }
 
     // Steam API accepts batches — process in chunks of 100
     const BATCH = 100;
@@ -1151,7 +1177,8 @@ export class ModChecker extends EventEmitter {
         const data = await res.json();
         const items = data?.response?.publishedfiledetails || [];
         for (const item of items) {
-          if (item.result === 1 && item.publishedfileid) {
+          if (!item.publishedfileid) continue;
+          if (item.result === 1) {
             result.set(item.publishedfileid, {
               time_updated: item.time_updated || 0,
               title: item.title || null,
@@ -1159,6 +1186,20 @@ export class ModChecker extends EventEmitter {
               creator_app_id: item.creator_app_id || 0,
               preview_url:
                 typeof item.preview_url === "string" ? item.preview_url : null,
+            });
+          } else {
+            // Steam answered FOR this specific item -- this is not a batch-
+            // level failure (that path never reaches here at all; see !res.ok
+            // and the catch block below, neither of which touch `unavailable`).
+            // EResult 9 (k_EResultFileNotFound) is Steam's documented code
+            // for a deleted or made-private workshop item -- the one case
+            // this class currently distinguishes by name. Any other non-1
+            // code is still recorded (not silently dropped), tagged
+            // "unknown" with its raw code kept, rather than assumed to mean
+            // the same thing as 9.
+            unavailable.set(item.publishedfileid, {
+              resultCode: item.result,
+              reason: item.result === 9 ? "removed" : "unknown",
             });
           }
         }
@@ -1177,6 +1218,16 @@ export class ModChecker extends EventEmitter {
     if (result.size > 0 && result.size < workshopIds.length) {
       log.debug(
         `Steam API returned data for ${result.size}/${workshopIds.length} mods (partial)`,
+      );
+    }
+
+    this.lastUnavailableWorkshopIds = unavailable;
+    const removedIds = [...unavailable.entries()]
+      .filter(([, info]) => info.reason === "removed")
+      .map(([id]) => id);
+    if (removedIds.length > 0) {
+      log.warn(
+        `Steam confirms ${removedIds.length} workshop item(s) no longer exist (removed or made private): ${removedIds.join(", ")}`,
       );
     }
 
@@ -1277,10 +1328,18 @@ export class ModChecker extends EventEmitter {
       }
 
       // Empty result with nothing queried isn't a failure -- there was
-      // nothing to ask Steam about. Empty result with IDs queried means the
-      // API call itself failed (see fetchSteamTimestamps): every batch
-      // network-errored, timed out, or got rate-limited.
-      this.steamApiHealthy = steamData.size > 0 || workshopIds.length === 0;
+      // nothing to ask Steam about. Empty result with IDs queried AND no
+      // confirmed-unavailable answers either means the API call itself
+      // failed (see fetchSteamTimestamps): every batch network-errored,
+      // timed out, or got rate-limited. A non-empty lastUnavailableWorkshopIds
+      // means Steam DID answer -- just that every queried item happened to
+      // come back non-1 (e.g. everything tracked got removed upstream at
+      // once) -- which is a real answer, not an outage, and must not be
+      // conflated with one.
+      this.steamApiHealthy =
+        steamData.size > 0 ||
+        this.lastUnavailableWorkshopIds.size > 0 ||
+        workshopIds.length === 0;
       this.lastSteamApiFailureAt = this.steamApiHealthy
         ? this.lastSteamApiFailureAt
         : new Date();
@@ -1694,6 +1753,25 @@ export class ModChecker extends EventEmitter {
       lastSteamApiFailureAt: this.lastSteamApiFailureAt
         ? this.lastSteamApiFailureAt.toISOString()
         : null,
+      // Workshop IDs Steam has explicitly confirmed no longer exist (EResult
+      // 9 -- FileNotFound; see fetchSteamTimestamps), distinct from an id
+      // that's merely absent because the last check never queried it or the
+      // API call failed outright. Empty whenever nothing has been confirmed
+      // removed as of the last check.
+      removedWorkshopIds: [...this.lastUnavailableWorkshopIds.entries()]
+        .filter(([, info]) => info.reason === "removed")
+        .map(([id]) => id),
+      // Workshop IDs Steam answered with a non-1, non-9 result -- neither
+      // confirmed working nor confirmed removed. Deliberately not folded
+      // into either of the other two categories: a surface that shows a
+      // healthy indicator plus a removed-mods list implies those are the
+      // only two outcomes, so an id stuck here would otherwise read as
+      // fine by omission rather than as unclassified. Keeps the raw
+      // resultCode rather than just the id -- "unknown" isn't answerable
+      // from a support ticket, "result code 15" is.
+      unknownWorkshopIds: [...this.lastUnavailableWorkshopIds.entries()]
+        .filter(([, info]) => info.reason === "unknown")
+        .map(([id, info]) => ({ id, resultCode: info.resultCode })),
       autoRestartEnabled: this.autoRestartEnabled,
       // Restart options
       restartWarningMinutes: this.restartWarningMinutes,

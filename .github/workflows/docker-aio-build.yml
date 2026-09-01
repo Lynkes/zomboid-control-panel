@@ -95,6 +95,8 @@ jobs:
         with:
           context: .
           file: docker/all-in-one/Dockerfile
+          build-args: |
+            PANEL_BUILD_SHA=${{ github.sha }}
           platforms: linux/amd64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.panel-meta.outputs.tags }}

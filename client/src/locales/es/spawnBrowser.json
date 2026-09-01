@@ -28,6 +28,8 @@
   "noResults": "Sin resultados",
   "searchAcrossAllCategories": "Buscar en todas las categorías",
   "recent": "Reciente",
+  "clearRecent": "Borrar",
+  "clearRecentAria": "Borrar historial reciente",
   "spawnAgainTitle": "Generar {{name}} de nuevo",
   "spawnAgainTitleWithQty": "Generar {{name}} × {{qty}} de nuevo",
   "selected": "Seleccionado",

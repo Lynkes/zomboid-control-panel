@@ -16,6 +16,15 @@ import { loadPanelBridge } from './helpers/panelBridgeLua.js';
 // risk: "applySettings can re-roll the modifier" / "so it can't be
 // overwritten"), the response still claimed the requested state regardless
 // of what actually happened.
+//
+// 2026-08-31 follow-up (bug hunt): that first fix made the `hydroPowerOn`
+// DATA field honest, but left `ok` itself hardcoded true regardless of what
+// hydroPowerOn actually says -- the two "must NOT claim power is on/off"
+// tests below originally still asserted `ok: true` in exactly the scenario
+// their own titles say shouldn't be claimed, because nothing gated ok on
+// the read-back this file had already computed two lines above it. Fixed
+// to gate ok on hydroPowerOn (when power was actually requested); these
+// tests now assert what their titles always said they should.
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LUA_PATH = path.join(
@@ -64,10 +73,12 @@ describe('PanelBridge.lua handlers.restoreUtilities/shutOffUtilities -- hydroPow
     const bridge = loadPanelBridge(LUA_PATH, stubsWithHydroBehavior(false));
     const result = bridge.callHandler('restoreUtilities', { power: true, water: false });
 
-    expect(result.ok).toBe(true);
-    // Before the fix this field was a hardcoded `true`, regardless of the
-    // real world:isHydroPowerOn() state computed two lines above it.
+    // Before the follow-up fix, ok was hardcoded true here regardless of
+    // hydroPowerOn -- the exact claim this test's own title says must not
+    // happen.
+    expect(result.ok).toBe(false);
     expect(result.data.hydroPowerOn).toBe(false);
+    expect(result.err).toMatch(/did not take effect/);
   });
 
   it('shutOffUtilities reports the real (successful) state when setHydroPowerOn actually sticks', () => {
@@ -84,9 +95,11 @@ describe('PanelBridge.lua handlers.restoreUtilities/shutOffUtilities -- hydroPow
     bridge.run('FakeWorld.hydroOn = true');
     const result = bridge.callHandler('shutOffUtilities', { power: true, water: false });
 
-    expect(result.ok).toBe(true);
-    // Before the fix this field was a hardcoded `false`, regardless of the
-    // real world:isHydroPowerOn() state computed two lines above it.
+    // Before the follow-up fix, ok was hardcoded true here regardless of
+    // hydroPowerOn -- the exact claim this test's own title says must not
+    // happen.
+    expect(result.ok).toBe(false);
     expect(result.data.hydroPowerOn).toBe(true);
+    expect(result.err).toMatch(/did not take effect/);
   });
 });

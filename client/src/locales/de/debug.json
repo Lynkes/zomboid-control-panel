@@ -15,6 +15,7 @@
   "tabs": {
     "diagnostics": "Diagnose",
     "worldMap": "Weltkarte",
+    "bridge": "PanelBridge",
     "performance": "Leistung",
     "activity": "Aktivität",
     "logs": "Protokolle",
@@ -49,7 +50,7 @@
     "modsResolved": {
       "labelWithCount": "{{count}} Ungelöste überprüfen",
       "labelGeneric": "Ungelöste überprüfen",
-      "note": "Behebe zuerst verwaiste Workshop-Elemente (unten), führe dann die Diagnose erneut aus. Deaktiviere Einträge nur manuell, wenn sie nach Abschluss der Downloads wirklich nicht aufgelöst werden."
+      "note": "Warte, bis die Workshop-Downloads abgeschlossen sind, und führe die Diagnose erneut aus. Wenn eine ID weiterhin nicht aufgelöst wird, korrigiere oder entferne sie aus Mods=."
     },
     "modsOrphanWorkshop": {
       "labelWithCount": "{{count}} Workshop-IDs automatisch beheben",
@@ -93,6 +94,10 @@
       "label": "Serverkonfiguration öffnen",
       "note": "Konfiguriere die Servereinstellungen, um die .ini-Dateien zu erzeugen oder zu reparieren."
     },
+    "serverSandboxVars": {
+      "label": "SandboxVars.lua erstellen",
+      "note": "Schreibt eine neue Sandbox-Einstellungsdatei mit Standardwerten, damit sie existiert und bearbeitbar ist. Starte den Server neu, um sie anzuwenden."
+    },
     "serverSandboxCorrupt": {
       "label": "SandboxVars.lua reparieren",
       "note": "Versucht eine automatische Reparatur (fehlender Blockkopf/fehlendes Komma). Zuerst wird ein Backup der beschädigten Datei gespeichert. Entspricht die Beschädigung keinem bekannten Muster, wird nichts geschrieben."
@@ -122,13 +127,17 @@
       "label": "RCON erneut verbinden",
       "note": "Versucht, sich mit dem gespeicherten Passwort erneut mit RCON zu verbinden. Schlägt dies weiterhin fehl, überprüfe, ob das Passwort in der Serverkonfiguration mit den Einstellungen übereinstimmt, und starte den Server neu."
     },
+    "modCheckerStopped": {
+      "label": "Mod-Prüfung starten",
+      "note": "Nimmt die Steam-Workshop-Update-Abfrage mit den bereits konfigurierten Einstellungen wieder auf."
+    },
     "servicesStuck": {
       "label": "Einstellungen öffnen",
       "note": "Ein Neustart des Panels behebt meist hängende Dienste."
     },
     "discordBot": {
-      "label": "Discord öffnen",
-      "note": "Überprüfe das Bot-Token und die Intents in den Discord-Einstellungen."
+      "retryLabel": "Bot erneut verbinden",
+      "note": "Versucht die Verbindung erneut mit dem gespeicherten Bot-Token. Schlägt dies weiterhin fehl, überprüfe das Token und die Intents in den Discord-Einstellungen."
     },
     "bridgeConfigured": {
       "label": "Brücke automatisch konfigurieren",
@@ -141,6 +150,10 @@
     "dbExistsOrWritable": {
       "label": "Einstellungen öffnen",
       "note": "Überprüfe, ob der Datenverzeichnispfad existiert und das Panel darauf schreiben kann."
+    },
+    "dbWritable": {
+      "label": "Schreibschutz aufheben",
+      "note": "Versucht, das Nur-Lesen-Attribut von db.json aufzuheben, und prüft erneut. Hilft nicht bei einem Besitz- oder Berechtigungsproblem (ACL)."
     },
     "dbBackup": {
       "label": "Datenbank-Backup erstellen",
@@ -276,6 +289,14 @@
     "sandboxRepairedTitle": "SandboxVars.lua repariert",
     "sandboxRepairedFallback_one": "{{count}} Korrektur angewendet.{{restartHint}}",
     "sandboxRepairedFallback_other": "{{count}} Korrekturen angewendet.{{restartHint}}",
+    "sandboxCreatedTitle": "SandboxVars.lua erstellt",
+    "sandboxCreatedFallback": "Standard-Sandbox-Einstellungsdatei erstellt.",
+    "dbWritableFixedTitle": "Datenbankdatei beschreibbar",
+    "dbWritableFixedFallback": "Nur-Lesen-Attribut aufgehoben.",
+    "modCheckerStartedTitle": "Mod-Prüfung gestartet",
+    "modCheckerStartedFallback": "Steam-Workshop-Update-Abfrage wieder aufgenommen.",
+    "discordReconnectedTitle": "Discord-Bot erneut verbunden",
+    "discordReconnectedFallback": "Bot-Verbindung wiederhergestellt.",
     "noNumericIdsError": "Die Diagnose hat keine numerischen Mods=-Einträge geliefert.",
     "noOrphanWorkshopError": "Die Diagnose hat keine verwaisten Workshop-IDs geliefert.",
     "checks": {
@@ -368,12 +389,12 @@
           "warn": {
             "linux": {
               "label": "Gebündelte JRE nicht gefunden",
-              "message": "jre64/bin/{{javaBin}} konnte im Installationspfad nicht gefunden werden. Der Server startet möglicherweise nicht, sofern kein System-Java im PATH vorhanden ist.",
+              "message": "jre64/bin/{{javaBin}} wurde im Installationspfad nicht gefunden. Prüfe System-Java mit command -v java; ein systemd-Dienst kann einen anderen $PATH als deine Anmeldeshell verwenden.",
               "hint": "Die meisten Installationen enthalten eine JRE unter jre64/. Bei Fehlen SteamCMD erneut ausführen."
             },
             "windows": {
               "label": "Gebündelte JRE nicht gefunden",
-              "message": "jre64/bin/{{javaBin}} konnte im Installationspfad nicht gefunden werden. Der Server startet möglicherweise nicht, sofern kein System-Java im PATH vorhanden ist.",
+              "message": "jre64/bin/{{javaBin}} wurde im Installationspfad nicht gefunden. Führe where java aus, um zu prüfen, ob System-Java über %PATH% verfügbar ist.",
               "hint": "SteamCMD erneut ausführen, um die gebündelte JRE wiederherzustellen."
             }
           }
@@ -880,11 +901,11 @@
         "resolved": {
           "ok": {
             "label": "Alle Mods=-Einträge aufgelöst",
-            "message": "{{count}} Mod(s) aufgeführt, alle stimmen mit einem installierten Workshop- oder lokalen Mod-Ordner überein."
+            "message": "{{count}} Mod(s) aufgeführt, alle stimmen mit einer installierten Workshop- oder lokalen Mod-ID überein."
           },
           "fail": {
             "label": "Mods=-Einträge nicht aufgelöst",
-            "message": "{{count}} von {{total}} Mods=-Einträgen stimmen mit keinem installierten Mod-Ordner überein: {{list}}.",
+            "message": "{{count}} von {{total}} Mods=-Einträgen stimmen mit keiner installierten Workshop- oder lokalen Mod-ID überein: {{list}}.",
             "hint": "Meist ein Tippfehler, eine fehlende WorkshopItems=-ID, oder die Mod ist noch nicht vollständig heruntergeladen. Behebe dies in der Serverkonfiguration."
           }
         },
@@ -1309,6 +1330,8 @@
     "downloadFailedDesc": "Protokolle konnten nicht heruntergeladen werden.",
     "downloadFileFailedDesc": "Herunterladen von {{name}} fehlgeschlagen",
     "downloadArchiveFailedDesc": "Herunterladen des Protokollarchivs fehlgeschlagen",
+    "supportBundleReadyTitle": "Support-Paket heruntergeladen",
+    "supportBundleReadyDesc": "Es enthält echte Protokolle. Bekannte Zugangsdaten-Formen werden geschwärzt, das ist aber keine Garantie — vor der Weitergabe außerhalb des Teams bitte prüfen.",
     "logEntryCopiedDesc": "Protokolleintrag in die Zwischenablage kopiert.",
     "logsFetchFailedTitle": "Logs konnten nicht aktualisiert werden",
     "logsFetchFailedDesc": "Die Log-Liste wurde nicht aktualisiert. Prüfe die Verbindung des Panels und versuche es erneut."
@@ -1361,7 +1384,11 @@
   "healthTab": {
     "systemStatusTitle": "Systemstatus",
     "healthy": "Gesund",
+    "checking": "Wird geprüft...",
     "issuesDetected": "Probleme erkannt",
+    "rconOffline": "RCON Getrennt",
+    "gameServerOffline": "Spielserver Gestoppt",
+    "rconAndServerOffline": "RCON Getrennt · Spielserver Gestoppt",
     "lastChecked": "Zuletzt geprüft: {{time}}",
     "neverChecked": "Nie geprüft",
     "autoRefreshes": "Automatische Aktualisierung alle 30 s",
@@ -1390,6 +1417,7 @@
     "platform": "Plattform",
     "uptime": "Uptime",
     "memory": "Speicher",
+    "unavailable": "Nicht verfügbar",
     "ofHeap": "von {{total}} Heap",
     "filePathsTitle": "Dateipfade",
     "filePathsDesc": "Speicherorte für Daten- und Protokolldateien.",
@@ -1410,5 +1438,59 @@
     "pathsUpdatedTitle": "Pfade aktualisiert",
     "enterAtLeastOnePath": "Gib mindestens einen Pfad ein",
     "updatePathsFailedFallback": "Aktualisieren der Pfade fehlgeschlagen"
+  },
+  "bridgeTab": {
+    "heading": "PanelBridge-Mod-Diagnose",
+    "headingDesc": "Live-Status, Statistiken und Selbsttests für die Mod selbst — getrennt von den kartenspezifischen Prüfungen im Tab „Weltkarte“.",
+    "permissionDeniedTitle": "Du kannst keine PanelBridge-Diagnose einsehen",
+    "permissionDeniedDesc": "Die Rolle deines Kontos enthält nicht das Recht „PanelBridge-Diagnose“. Bitte einen Administrator, es zu vergeben, wenn du Zugriff auf diesen Tab brauchst.",
+    "notConnectedDesc": "Die PanelBridge-Mod ist nicht verbunden. Starte den PZ-Server mit installierter Mod, um hier Live-Daten zu sehen.",
+    "notYetProbed": "Noch nicht geprüft.",
+    "offlineNoData": "Brücke ist offline — keine Daten verfügbar.",
+    "statsTitle": "Statistiken",
+    "statsDesc": "Befehlszähler, Laufzeit, erkannter Build, Debug-Modus und Fehlerprotokoll.",
+    "versionLabel": "Mod-Version",
+    "uptimeLabel": "Laufzeit",
+    "commandsLabel": "Befehle OK / gesamt",
+    "commandsFailedLabel": "Fehlgeschlagene Befehle",
+    "detectedVersionLabel": "Erkannter Build",
+    "detectedVersionCaveat": "Ermittelt aus dem Build-String-Parsing der Mod — ihrem zuverlässigen primären Erkennungsweg, kein Ausweichmechanismus. Live-Wetterfunktions-Flags lassen sich nicht gefahrlos bestätigen, ohne tatsächlich ein echtes Wetterereignis auszulösen, daher werden sie hier ganz weggelassen statt als möglicherweise falsches „Nein“ angezeigt.",
+    "debugModeLabel": "Debug-Modus",
+    "debugModeDesc": "Ausführliche Protokollierung auf Mod-Seite. Gefahrlos umschaltbar — betrifft nur die Protokollmenge.",
+    "debugModeEnabledTitle": "Bridge-Debug-Modus aktiviert",
+    "debugModeDisabledTitle": "Bridge-Debug-Modus deaktiviert",
+    "noPermission": "Deine Rolle hat nicht das Recht „PanelBridge-Diagnose“.",
+    "errorLogLabel_one": "{{count}} aktueller Fehler",
+    "errorLogLabel_other": "{{count}} aktuelle Fehler",
+    "noErrorsToClear": "Keine Fehler zum Löschen.",
+    "clearErrorsButton": "Fehlerprotokoll löschen",
+    "clearErrorsConfirmTitle": "Fehlerprotokoll der Brücke löschen?",
+    "clearErrorsConfirmDesc": "Dies löscht das interne Fehlerprotokoll der Mod. Es behebt nichts — nur der Zähler wird zurückgesetzt.",
+    "clearErrorsConfirmButton": "Löschen",
+    "clearErrorsSuccessTitle": "Fehlerprotokoll gelöscht",
+    "checkApiTitle": "API prüfen",
+    "checkApiDesc": "Prüft, ob ein bestimmtes Spielobjekt — und optional eine seiner Methoden — auf diesem Build verfügbar ist.",
+    "checkApiObjectLabel": "Objekt",
+    "checkApiMethodLabel": "Methode (optional)",
+    "checkApiMethodPlaceholder": "z. B. getTemperature",
+    "checkApiRunButton": "Prüfen",
+    "checkApiAvailable": "Verfügbar",
+    "checkApiUnavailable": "Nicht verfügbar",
+    "handlersTitle": "Verfügbare Handler",
+    "handlersDesc": "Jeder Befehl, den diese Mod-Version derzeit registriert.",
+    "handlersRunButton": "Handler laden",
+    "handlersSearchPlaceholder": "Handler filtern…",
+    "handlersCount": "{{shown}} / {{total}}",
+    "debugLogTitle": "Debug-Protokoll",
+    "debugLogDesc": "Aktuelle Einträge aus dem eigenen Ringpuffer-Protokoll der Mod, neueste zuerst.",
+    "debugLogLimitLabel": "Limit",
+    "debugLogLevelLabel": "Min. Stufe",
+    "debugLogRunButton": "Protokoll abrufen",
+    "debugLogShown": "{{shown}} von {{total}} Einträgen insgesamt",
+    "debugLogEmpty": "Keine Einträge auf dieser Stufe.",
+    "selfTestTitle": "Bridge-Selbsttest ausführen",
+    "selfTestDesc": "Prüft eine feste Auswahl von Engine-Methoden anhand der ersten 3 Objekte im Katalog — ein schneller Test, ob dieser Build noch die Sprache der Mod spricht. Nur lesend, keine Eingabe nötig.",
+    "selfTestRunButton": "Selbsttest ausführen",
+    "selfTestItemColumn": "Item"
   }
 }

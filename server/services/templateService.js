@@ -130,6 +130,32 @@ export async function deleteTemplate(id) {
     : { success: false, error: "Template not found", code: ErrorCode.SIM_TEMPLATE_NOT_FOUND };
 }
 
+// deleteTemplate above never deletes a built-in's data -- it only adds the
+// id to hiddenBuiltinTemplateIds (see that function). This is the other
+// half: previously nothing ever read that list back out, so a hidden
+// built-in was invisible everywhere (listTemplates filters it out,
+// getTemplate returns null for it) with no way for an operator to even
+// learn its id, let alone restore it. Deliberately returns ONLY the hidden
+// ones, not the full catalog with a flag on every entry -- the one caller
+// (the Templates page's "hidden" section) only ever needs this list.
+export async function listHiddenBuiltinTemplates() {
+  const hiddenBuiltinIds = await getHiddenBuiltinTemplateIds();
+  if (hiddenBuiltinIds.size === 0) return [];
+  return loadBuiltinTemplates().filter((template) =>
+    hiddenBuiltinIds.has(template.meta.id),
+  );
+}
+
+export async function unhideTemplate(id) {
+  const hiddenBuiltinIds = await getHiddenBuiltinTemplateIds();
+  if (!hiddenBuiltinIds.has(id)) {
+    return { success: false, error: "Template not found", code: ErrorCode.SIM_TEMPLATE_NOT_FOUND };
+  }
+  hiddenBuiltinIds.delete(id);
+  await setSetting(HIDDEN_BUILTIN_TEMPLATES_SETTING, [...hiddenBuiltinIds]);
+  return { success: true };
+}
+
 export async function exportTemplate(id) {
   const template = await getTemplate(id);
   if (!template) {

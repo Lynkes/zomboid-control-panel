@@ -207,6 +207,11 @@
       "configured": "已配置",
       "notSignedIn": "未登录"
     },
+    "gatewayIssue": {
+      "label": "Discord 连接已不稳定一段时间——在恢复之前，提醒和命令可能会延迟。",
+      "dismissAria": "关闭连接警告",
+      "dismissTooltip": "关闭，直到情况发生变化"
+    },
     "commandPermissions": {
       "title": "命令权限",
       "description": "控制谁可以使用每条斜杠命令。为每条命令分配一个权限等级。",

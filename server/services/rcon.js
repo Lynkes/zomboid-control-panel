@@ -12,6 +12,62 @@ import { SourceRconClient } from "../utils/sourceRcon.js";
 import { readSecret } from "../utils/secrets.js";
 import { parseBoundedInteger } from "../utils/queryNumbers.js";
 import { redactRconCommandSecrets } from "../utils/rconCommandRedaction.js";
+import { ErrorCode } from "../utils/errorCodes.js";
+
+// Ordered classification of the technical error messages execute()'s catch
+// block sees, feeding BOTH getUserFriendlyError()'s user-facing prose and
+// the RCON_EXECUTE_DISCONNECTED code attached alongside it -- one shared
+// source of truth, not two independently-maintained lists. Before this,
+// the client (client/src/pages/Console.tsx's RCON_DISCONNECT_PHRASES) kept
+// its OWN copy of these same six outcomes as substrings to match against
+// the prose below, and a 2026-08-30 audit found it had already silently
+// drifted: "Server is not running" was reworded to "Game server is not
+// running." here without the client's phrase list ever being told, so a
+// real disconnect stopped being detected. A code can't drift the same way
+// prose can -- see RCON_EXECUTE_DISCONNECTED's own comment in
+// server/utils/errorCodes.js. `disconnect: false` on the authentication
+// branch is deliberate, not an oversight: a wrong RCON password is not a
+// dropped connection, and must never be reported as one.
+const RCON_ERROR_CLASSIFICATIONS = [
+  {
+    test: (msg) => msg.includes("ECONNREFUSED"),
+    message:
+      "Cannot connect to server. Is the game server running with RCON enabled?",
+    disconnect: true,
+  },
+  {
+    test: (msg) => msg.includes("ETIMEDOUT") || msg.includes("timed out"),
+    message:
+      "Connection timed out. Server may be unresponsive or firewall is blocking.",
+    disconnect: true,
+  },
+  {
+    test: (msg) => msg.includes("ECONNRESET") || msg.includes("EPIPE"),
+    message: "Connection was reset. Server may have restarted or crashed.",
+    disconnect: true,
+  },
+  {
+    test: (msg) => msg.includes("authentication") || msg.includes("password"),
+    message: "Authentication failed. Check RCON password in server settings.",
+    disconnect: false,
+  },
+  {
+    test: (msg) => msg.includes("Max reconnection attempts"),
+    message:
+      "Could not reconnect after multiple attempts. Server may be offline.",
+    disconnect: true,
+  },
+  {
+    test: (msg) => msg.includes("not connected"),
+    message: "Not connected to server. Please check if server is running.",
+    disconnect: true,
+  },
+  {
+    test: (msg) => msg.includes("Server is not running"),
+    message: "Game server is not running.",
+    disconnect: true,
+  },
+];
 
 // Common accented Latin letters (French in particular -- this panel ships an
 // FR locale) transliterated to their closest plain-ASCII equivalent, for
@@ -135,25 +191,208 @@ export async function testRconConnection({ host, port, password, timeoutMs = RCO
 // commands' real success text enumerated with confidence, which static
 // bytecode reading can't give, and would fail closed on every command
 // whose success text isn't in it.
+//
+// 2026-08-29, players.js moderation/GM-tools hunt: every pattern here MUST
+// be anchored to a position a player's own (attacker-controlled) in-game
+// name cannot reach. classifyRconResponse() below runs an UNANCHORED
+// .test() against the whole response, and PZ's SUCCESS messages for these
+// same commands interpolate the target player's name -- kickuser's success
+// is `User <name> kicked.`, setaccesslevel's is `<name> granted <level>
+// access level on <server>`. A player who names themselves text containing
+// a rejection fragment (e.g. "Not enough rights") would have their own
+// SUCCESSFUL kick misclassified as a failure the instant that fragment
+// appeared anywhere in the response -- including inside their own name.
+// The three pre-existing non-anchored patterns below had this exact defect
+// in shipped code; confirmed each one's PZ source is a bare, non-
+// interpolated literal (no player name can ever appear inside "Wrong
+// arguments!" or "Not enough rights" themselves), so anchoring them to the
+// full trimmed string is a strict tightening, not a behavior change for
+// any genuine rejection. Every new pattern added below is anchored the
+// same way: full-string where the PZ text has no interpolation at all, or
+// bounded by fixed text immediately before/after the interpolated portion
+// where it does (e.g. `Invalid username "<name>"` is bounded by the
+// literal quote+prefix before the name and the literal closing quote
+// after it -- a success response's own fixed text can never coincidentally
+// reproduce both boundaries regardless of what the name in between is).
+//
+// Sourced from server/__fixtures__/pzRconRejectionStrings.json (a
+// decompiled catalog of the actual PZ B42 server jar's command classes,
+// confirmed verbatim -- not guessed) except where noted otherwise.
 export const KNOWN_RCON_REJECTIONS = [
   {
     pattern: /^\s*Unknown command\b/i,
     describe: (text) => `${text}. This command is not available on this server build.`,
   },
   {
-    pattern: /Wrong arguments!?/i,
+    // GodModePlayerCommand.class / InvisiblePlayerCommand.class: bare,
+    // non-interpolated literal.
+    pattern: /^\s*Wrong arguments!?\s*$/i,
     describe: () =>
       "Wrong arguments. This command's syntax may have changed on this server build.",
   },
   {
-    pattern: /Not enough rights/i,
+    // NoClipCommand.class: bare, non-interpolated literal.
+    pattern: /^\s*Not enough rights\.?\s*$/i,
     describe: () =>
       "Not enough rights. The RCON account's role does not have permission to run this command.",
   },
   {
-    pattern: /can be executed only from the game/i,
+    // ReleaseSafehouseCommand.class, per this array's original citation --
+    // not reachable from any command players.js currently exposes. Exact
+    // full text/interpolation not present in the checked-in fixture (only
+    // the class name citation above is available); end-anchored as the
+    // best available tightening without a confirmed complete template.
+    pattern: /can be executed only from the game\.?\s*$/i,
     describe: (text) => `${text}. This command can only be run from in-game, not over RCON.`,
   },
+  {
+    // KickUserCommand.class: target not currently connected. Success for
+    // this same command is "User <name> kicked." -- the fixed suffix here
+    // (" doesn't exist.") can never be produced by a genuine success
+    // response regardless of what the interpolated name contains.
+    pattern: /^User .+ doesn't exist\.\s*$/i,
+    describe: () =>
+      "User doesn't exist. They may have disconnected, or the name may be misspelled.",
+  },
+  {
+    // KickUserCommand.class: target holds the CantBeKickedByUser
+    // capability (e.g. another admin). Bare, non-interpolated literal.
+    pattern: /^\s*This user can't be kicked\.\s*$/i,
+    describe: () => "This user can't be kicked (protected account).",
+  },
+  {
+    // Shared across AddItemCommand, AddXPCommand, TeleportCommand,
+    // TeleportPlayerCommand, AddVehicleCommand, VoiceBanCommand -- all
+    // resolve their target via GameServer.getPlayerByUserNameForCommand,
+    // which prints this exact, non-interpolated literal when the name
+    // doesn't match a currently connected player.
+    pattern: /^\s*No such user\s*$/i,
+    describe: () => "No such user. They must be currently connected for this command.",
+  },
+  {
+    // setaccesslevel (GameServer.changeRole): bad username argument.
+    // Bounded by the fixed `Invalid username "` prefix and the closing
+    // `"` immediately after the name, both literal PZ text -- setaccesslevel's
+    // own success message ("<name> granted...") never produces this shape.
+    pattern: /^Invalid username ".*"\s*$/i,
+    describe: (text) => `${text}. That username was not recognized.`,
+  },
+  {
+    // setaccesslevel: bad access-level argument. The interpolated value
+    // here is the admin-typed level string, already validated client-side
+    // against ACCESS_LEVELS before reaching RCON -- not player-controlled.
+    pattern: /^Access Level '.+' unknown, list of access level:/i,
+    describe: (text) => `${text}. That access level is not recognized on this server build.`,
+  },
+  {
+    // setaccesslevel: RCON-connected admin's OWN role lacks the rights to
+    // grant this level (a role-hierarchy check, distinct from the
+    // RCON-account-level "Not enough rights" above). Bare, non-interpolated
+    // literal.
+    pattern: /^You do not have sufficient rights to set this access level\.\s*$/i,
+    describe: () => "You do not have sufficient rights to set this access level.",
+  },
+  {
+    // setaccesslevel: target has no whitelist/server account at all.
+    // Bounded the same way as "Invalid username" above.
+    pattern: /^User ".*" is not in the whitelist nor the server, use \/adduser first\s*$/i,
+    describe: (text) => `${text}.`,
+  },
+  // 2026-08-29, hunt-wave11 (Kevin's Pass 4, docs/qa/kevin-b42-jar-audits.md):
+  // banuser / unbanuser / adduser / removeuserfromwhitelist each delegate
+  // their entire result string to zombie/network/BanSystem or
+  // zombie/network/ServerWorldDatabase -- their own command classes carry no
+  // rejection text at all, which is why these four still reported a genuine
+  // failure as a success even after the anchoring fix above. Same anchoring
+  // discipline as every entry above: full-string where the PZ text has no
+  // interpolation, bounded by fixed text immediately before/after the
+  // interpolated portion where it does. Confidence tiers below are Kevin's
+  // own (constant-pool string presence, not bytecode-traced return values --
+  // a literal being in the class is not proof of which exact call site
+  // returns it) -- the tier reflects certainty about WHICH COMMAND triggers
+  // a string, not whether the string itself is real or the anchoring below
+  // is safe: every pattern here is anchored the same strict way regardless
+  // of tier.
+  {
+    // HIGH -- BanSystem.class (BanUser): target holds the CantBeBannedByUser
+    // capability. Bare, non-interpolated literal, same shape as
+    // KickUserCommand's "This user can't be kicked." above. Applies to
+    // banuser.
+    pattern: /^\s*This user can't be banned\.\s*$/i,
+    describe: () => "This user can't be banned (protected account).",
+  },
+  {
+    // HIGH -- BanSystem.class (BanUserByIP, the -ip flag path): the target
+    // IP is a Steam Relay shared address, so there's no real IP to ban.
+    // Interpolated value is an IP the RCON-connected ADMIN typed as an
+    // argument, not the target player's chosen name -- not
+    // attacker-controlled the way a display name is, but anchored the same
+    // strict way regardless. Applies to banuser -ip.
+    pattern: /^Cannot ban IP .+ \(Steam Relay shared address\)\. Use bansteamid or banuser instead\.\s*$/i,
+    describe: (text) => `${text}`,
+  },
+  {
+    // HIGH -- BanSystem.class (BanUserByIP): same Steam-Relay case, but the
+    // player's real IP genuinely isn't available at all. Bounded by the
+    // literal quotes around the interpolated player name, same shape as
+    // "Invalid username" above -- a success response's own fixed text can
+    // never reproduce both boundaries. Applies to banuser -ip.
+    pattern: /^Cannot ban IP for player '.+' \(Steam Relay, real IP unavailable\)\. Use bansteamid or banuser without -ip\.\s*$/i,
+    describe: (text) => `${text}`,
+  },
+  {
+    // HIGH -- ServerWorldDatabase.class (addUser): target username is
+    // already whitelisted. Bare, non-interpolated literal. Applies to
+    // adduser.
+    pattern: /^\s*A user with this name already exists\.?\s*$/i,
+    describe: () => "A user with this name already exists.",
+  },
+  {
+    // MEDIUM -- ServerWorldDatabase.class: target isn't whitelisted at all.
+    // DELIBERATELY KEPT SEPARATE from the setaccesslevel pattern above
+    // ("...is not in the whitelist NOR THE SERVER, use /adduser first",
+    // confirmed still verbatim in GameServer.class) -- this is a shorter,
+    // differently-worded literal from a different class. Do not broaden
+    // one pattern to cover both; that is the exact direction that
+    // reintroduces the false positives the anchoring fix above eliminated.
+    // Bounded by the literal quotes around the interpolated name, same
+    // shape as "Invalid username" above. Most plausibly applies to
+    // unbanuser / removeuserfromwhitelist against a name that was never
+    // whitelisted (attribution inferred from context, not bytecode-traced
+    // -- the string and its anchoring are still fully verified).
+    pattern: /^User ".*" is not in the whitelist, use \/adduser first\s*$/i,
+    describe: (text) => `${text}.`,
+  },
+  {
+    // MEDIUM -- ServerWorldDatabase.class: target username not found.
+    // Distinct from both "User <name> doesn't exist." (KickUserCommand,
+    // requires the trailing period + different wording) and "No such user"
+    // (GameServer.getPlayerByUserNameForCommand, a different literal
+    // entirely) -- a genuinely separate rejection shape. Bounded by the
+    // fixed "User " prefix and " not found" suffix. Attribution to a
+    // specific command inferred, not bytecode-traced.
+    pattern: /^User .+ not found\s*$/i,
+    describe: () => "User not found.",
+  },
+  {
+    // MEDIUM -- BanSystem.class (BanUser): a second, redundant capability
+    // check inside BanUser itself, on top of whatever the RCON
+    // @RequiredCapability annotation already gates -- Kevin's own framing:
+    // "worth having as a backstop pattern even if it's not expected to
+    // normally fire." Bare, non-interpolated literal -- no anchoring risk
+    // regardless of the backstop framing. Applies to banuser/unbanuser.
+    pattern: /^\s*You don't have capability to ban\/unban users\.\s*$/i,
+    describe: () => "You don't have capability to ban/unban users.",
+  },
+  // NOT added, named as the residual rather than left implicit: BanSystem.class
+  // also carries "Connection not found" and "Player not found" -- Kevin's
+  // Pass 4 rated these LOW confidence ("plausible RCON-reply shape but could
+  // equally be internal-console-only text", not bytecode-traced to a
+  // ban/unban call site at all). Two rejection shapes for
+  // banuser/unbanuser/adduser/removeuserfromwhitelist remain genuinely
+  // unrecognized after this fix -- inventing an attribution for either would
+  // be worse than leaving them out (same standard Pam's original commit
+  // held to for these same four commands).
 ];
 
 export class RconService extends EventEmitter {
@@ -970,7 +1209,14 @@ export class RconService extends EventEmitter {
         const connectResult = await this.connect();
         // If connect returns false, server is not running
         if (connectResult === false) {
-          return { success: false, error: "Server is not running" };
+          // Raw literal, not routed through getUserFriendlyError() -- kept
+          // exactly as-is (quit()'s own comparison below depends on this
+          // exact string), with the code attached directly here instead.
+          return {
+            success: false,
+            error: "Server is not running",
+            code: ErrorCode.RCON_EXECUTE_DISCONNECTED,
+          };
         }
       }
 
@@ -1095,11 +1341,24 @@ export class RconService extends EventEmitter {
               response: response || "Command executed successfully",
             };
           } else {
-            // Reconnect returned false or didn't connect
+            // Reconnect returned false or didn't connect -- an ordinary,
+            // unambiguous disconnect (the server is genuinely offline, not
+            // an unexpected error), same shape as the connectResult===false
+            // branch above, so the code is attached directly here rather
+            // than routed through getRconDisconnectCode(), which classifies
+            // an error MESSAGE and there isn't one on this path -- reconnect()
+            // resolved without throwing. Without this, Console.tsx's
+            // isRconDisconnectError() never fires for this branch and the
+            // "connection dropped" banner silently never appears for the
+            // most ordinary case it exists to cover.
             if (!skipLog) {
               logCommand(command, "Connection failed", false);
             }
-            return { success: false, error: "RCON reconnection failed" };
+            return {
+              success: false,
+              error: "RCON reconnection failed",
+              code: ErrorCode.RCON_EXECUTE_DISCONNECTED,
+            };
           }
         } catch (reconnectError) {
           const reconnectMsg = this.getUserFriendlyError(
@@ -1108,7 +1367,11 @@ export class RconService extends EventEmitter {
           if (!skipLog) {
             logCommand(command, reconnectMsg, false);
           }
-          return { success: false, error: reconnectMsg };
+          return {
+            success: false,
+            error: reconnectMsg,
+            code: this.getRconDisconnectCode(reconnectError.message),
+          };
         }
       }
 
@@ -1116,37 +1379,31 @@ export class RconService extends EventEmitter {
       if (!skipLog) {
         logCommand(command, friendlyError, false);
       }
-      return { success: false, error: friendlyError };
+      return {
+        success: false,
+        error: friendlyError,
+        code: this.getRconDisconnectCode(errorMsg),
+      };
     }
   }
 
   // Convert technical errors to user-friendly messages
   getUserFriendlyError(errorMsg) {
     if (!errorMsg) return "Unknown error occurred";
+    const match = RCON_ERROR_CLASSIFICATIONS.find((c) => c.test(errorMsg));
+    return match ? match.message : errorMsg;
+  }
 
-    if (errorMsg.includes("ECONNREFUSED")) {
-      return "Cannot connect to server. Is the game server running with RCON enabled?";
-    }
-    if (errorMsg.includes("ETIMEDOUT") || errorMsg.includes("timed out")) {
-      return "Connection timed out. Server may be unresponsive or firewall is blocking.";
-    }
-    if (errorMsg.includes("ECONNRESET") || errorMsg.includes("EPIPE")) {
-      return "Connection was reset. Server may have restarted or crashed.";
-    }
-    if (errorMsg.includes("authentication") || errorMsg.includes("password")) {
-      return "Authentication failed. Check RCON password in server settings.";
-    }
-    if (errorMsg.includes("Max reconnection attempts")) {
-      return "Could not reconnect after multiple attempts. Server may be offline.";
-    }
-    if (errorMsg.includes("not connected")) {
-      return "Not connected to server. Please check if server is running.";
-    }
-    if (errorMsg.includes("Server is not running")) {
-      return "Game server is not running.";
-    }
-
-    return errorMsg;
+  // The code counterpart to getUserFriendlyError() above, classified from
+  // the exact same table so the two can never disagree about which
+  // outcomes are a disconnect. Returns null for a non-disconnect failure
+  // (including an unrecognized error and the authentication-failure
+  // branch) -- callers attach this alongside the prose from
+  // getUserFriendlyError(), not instead of it.
+  getRconDisconnectCode(errorMsg) {
+    if (!errorMsg) return null;
+    const match = RCON_ERROR_CLASSIFICATIONS.find((c) => c.test(errorMsg));
+    return match?.disconnect ? ErrorCode.RCON_EXECUTE_DISCONNECTED : null;
   }
 
   // Sanitize input for RCON commands to prevent injection

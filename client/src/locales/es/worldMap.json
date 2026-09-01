@@ -71,7 +71,9 @@
     "panToAriaWithHealth": "Desplazar a {{name}}, salud {{health}}%",
     "loading": "cargando…",
     "noPlayersOnline": "no hay jugadores en línea",
-    "bridgeOffline": "PanelBridge sin conexión"
+    "bridgeOffline": "PanelBridge sin conexión",
+    "collapseAria": "Contraer lista",
+    "expandAria": "Expandir lista"
   },
   "hud": {
     "hoverForCoords": "pasar el cursor para ver coordenadas"
@@ -83,11 +85,15 @@
     "pos": "pos",
     "floor": "planta",
     "hp": "hp",
+    "hunger": "hambre",
+    "thirst": "sed",
+    "fatigue": "fatiga",
     "role": "rol",
     "status": "estado",
     "infected": "infectado",
     "heal": "Curar",
     "god": "Dios",
+    "godTip": "Siempre activa el Modo Dios para este jugador — no alterna. Desactívalo desde Jugadores.",
     "healedTitle": "Curado",
     "healedDesc": "{{username}} curado",
     "godModeEnabled": "Modo Dios activado"
@@ -183,6 +189,7 @@
   "spawnDialog": {
     "title": "Generar vehículo",
     "location": "Ubicación: {{x}}, {{y}} · Planta {{z}}",
+    "floorTip": "Los vehículos solo aparecen en la planta baja o en un sótano — esto falla en cualquier piso superior.",
     "cancel": "Cancelar",
     "spawn": "Generar"
   },

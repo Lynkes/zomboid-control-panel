@@ -18,6 +18,7 @@
   },
   "matrix": {
     "capabilityColumnHeader": "Capacidad",
+    "scrollHint": "Desliza a la derecha para ver todos los roles →",
     "seededBadge": "Predefinido",
     "memberCount_one": "{{count}} miembro",
     "memberCount_other": "{{count}} miembros",
@@ -149,7 +150,7 @@
       },
       "wipe": {
         "label": "Borrar por completo el mundo",
-        "description": "Eliminar de forma irreversible datos del mapa, de jugadores o de la partida guardada del mundo — y, mediante la acción «vaciar carpeta de instalación», cualquier otro directorio del host que simplemente supere una comprobación de archivo marcador de instalación de PZ, no solo la carpeta propia del servidor configurado."
+        "description": "Eliminar de forma irreversible datos del mapa, de jugadores o de la partida guardada del mundo — incluida, mediante la acción «vaciar carpeta de instalación», una carpeta de instalación que supere una comprobación de archivo marcador de instalación de PZ Y coincida con la ruta de instalación registrada de un servidor configurado."
       },
       "world_events": {
         "label": "Ejecutar eventos del mundo",

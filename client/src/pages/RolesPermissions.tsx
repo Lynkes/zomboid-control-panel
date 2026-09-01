@@ -513,6 +513,7 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
 
       {permissionDenied ? (
         <EmptyState
+          type="accessDenied"
           icon={<ShieldAlert className="h-14 w-14 text-muted-foreground/40" />}
           title={t('permissionDenied.title')}
           description={t('permissionDenied.description')}
@@ -528,6 +529,11 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
         <>
           <Card>
             <CardContent className="p-0">
+              {roles.length > 1 && (
+                <p className="border-b border-border/60 bg-muted/20 px-3 py-1.5 text-xs text-muted-foreground sm:hidden">
+                  {t('matrix.scrollHint')}
+                </p>
+              )}
               <div className="max-h-[70vh] overflow-auto">
                 <table className="w-full min-w-[720px] border-collapse text-sm">
                   <thead>
@@ -621,9 +627,17 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
                         </tr>
                         {!collapsed && group.capabilities.map((cap) => (
                           <tr key={cap.key} className="border-b border-border/30 last:border-0 hover:bg-muted/10">
-                            <td className="sticky left-0 z-10 bg-card px-3 py-2 align-top">
+                            <td className="sticky left-0 z-10 bg-card px-3 py-2 align-middle">
                               <div className="flex items-center gap-1.5">
                                 <span className="font-medium text-foreground">{capabilityLabel(cap)}</span>
+                                {/* impeccable-2026-08-31: this used to be a permanently-visible
+                                    paragraph under the label -- 3-6 lines per row, the reason the
+                                    matrix ran to 3555px on first load. The name already carries the
+                                    headline risk signal ("Wipe the world"); the paragraph is
+                                    decision-time elaboration, which is exactly what HelpTip is for.
+                                    Same information, on demand instead of permanent -- "dense by
+                                    default, help on demand," not information removed. */}
+                                <HelpTip label={capabilityLabel(cap)}>{capabilityDescription(cap)}</HelpTip>
                                 {RECOVERY_CAPABILITY_KEYS.has(cap.key) && (
                                   <span title={t('matrix.recoveryCapabilityHint')}>
                                     <Lock
@@ -633,7 +647,6 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
                                   </span>
                                 )}
                               </div>
-                              <div className="text-xs text-muted-foreground">{capabilityDescription(cap)}</div>
                             </td>
                             {roles.map((role) => {
                               const cellKey = `${role.id}:${cap.key}`
@@ -673,6 +686,7 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
               {usersDenied ? (
                 <EmptyState
                   compact
+                  type="accessDenied"
                   icon={<ShieldAlert className="h-10 w-10 text-muted-foreground/40" />}
                   title={t('userAssignment.permissionDenied.title')}
                   description={t('userAssignment.permissionDenied.description')}

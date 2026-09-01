@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { serverApi } from '@/lib/api'
+import { getUserErrorMessage } from '@/lib/errorMessage'
 
 interface DirEntry {
   name: string
@@ -45,7 +46,7 @@ export function FolderBrowser({ open, onOpenChange, onSelect, initialPath, title
       setParentPath(data.parentPath)
       setPathInput(data.currentPath || '')
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('failedToRead'))
+      setError(getUserErrorMessage(e, t('failedToRead')))
       setEntries([])
     } finally {
       setLoading(false)

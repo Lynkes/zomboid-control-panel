@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// Field lists below (assertKeys allow-lists, required checks) are a hand-rolled mirror of
+// docs/modernization/templates/RESULTS.schema.json and PERF.schema.json. Nothing enforces
+// the two stay in sync -- if either schema file changes, update this validator to match.
 import fs from "node:fs";
 import path from "node:path";
 

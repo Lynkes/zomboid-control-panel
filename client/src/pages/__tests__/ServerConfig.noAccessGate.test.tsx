@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import ServerConfig from '../ServerConfig'
-import { serverFilesApi } from '@/lib/api'
+import { serverFilesApi, serversApi } from '@/lib/api'
 
 // bug-hunt-2026-08-27: proving the client-capability-gating pattern (the
 // same can() idiom Settings.tsx already uses to hide whole tabs) on a
@@ -31,6 +31,11 @@ vi.mock('@/contexts/AuthContext', () => ({
 }))
 
 const getPaths = vi.spyOn(serverFilesApi, 'getPaths')
+// ServerConfig.tsx's loadData() also resolves the active server independently
+// (2026-08-31 remote-server-messaging fix) -- stub it so this test's real
+// point (the capability gate) doesn't pay for three real, unmocked
+// fetchWithRetry attempts against a server that isn't running.
+vi.spyOn(serversApi, 'getResolvedActive').mockResolvedValue({ server: null })
 
 afterEach(() => {
   cleanup()

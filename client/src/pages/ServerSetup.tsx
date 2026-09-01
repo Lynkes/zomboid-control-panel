@@ -27,7 +27,8 @@ import {
   ArrowRight,
   AlertTriangle,
 } from "lucide-react";
-import { configApi, serverApi, serversApi, debugApi, apiFetch } from "@/lib/api";
+import { configApi, serverApi, serversApi, debugApi } from "@/lib/api";
+import { platformTranslationKey, useRuntimeInfo } from "@/hooks/useRuntimeInfo";
 import { HelpTip } from "@/components/HelpTip";
 import { NumberInput } from "@/components/NumberInput";
 import { DisabledReason } from "@/components/DisabledReason";
@@ -236,6 +237,7 @@ export function installationErrorGuidance(
 }
 
 export default function ServerSetup() {
+  const runtimeInfo = useRuntimeInfo();
   const { t } = useTranslation("serverSetup");
   const [setupMode, setSetupMode] = useState<SetupMode>("select");
   const [currentStep, setCurrentStep] = useState(1);
@@ -281,7 +283,7 @@ export default function ServerSetup() {
   const [detectingRam, setDetectingRam] = useState(false);
   // Drives installationErrorGuidance's Linux-only remediation suffix --
   // null until resolved, so we never show wrong-platform advice on a guess.
-  const [serverPlatform, setServerPlatform] = useState<string | null>(null);
+  const serverPlatform = runtimeInfo?.platform ?? null;
 
   // Installation state
   const [installing, setInstalling] = useState(false);
@@ -433,27 +435,6 @@ export default function ServerSetup() {
     setResumeMarker(marker);
   }, []);
 
-  // Learn the panel host's actual OS on mount, so a Windows/macOS
-  // installation failure never gets told to edit a systemd unit.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await apiFetch("/debug/system");
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!cancelled && typeof data?.platform === "string") {
-          setServerPlatform(data.platform);
-        }
-      } catch {
-        // Silent fail - guidance falls back to the plain message
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   // Load saved settings
   useEffect(() => {
     const loadSettings = async () => {
@@ -600,135 +581,143 @@ export default function ServerSetup() {
       params?: Record<string, string | number>;
       warnings?: Array<{ progressCode?: string; message: string; params?: Record<string, string | number> }>;
     }) => {
-      setInstalling(false);
       // The socket connection (and this handler) is the ONLY place that ever
       // learns the true outcome -- clear the in-flight marker on both success
       // and failure, not just success, so a reload after this point has
       // nothing stale left to warn about.
       clearInstallInFlightMarker();
       const displayMessage = getInstallProgressMessage(data, data.message);
-      if (data.success) {
-        setLogs((prev) => [
-          ...prev,
-          { type: "success", message: displayMessage, timestamp: new Date() },
-          // The game files installed -- that's success:true and stays true --
-          // but a self-healing step (RCON .ini pre-create, startup script)
-          // may still have failed underneath it (#6, 2026-08-26 install-
-          // failure hunt). Surfaced here rather than silently dropped: the
-          // operator sees exactly what didn't get written and that it's
-          // retried automatically, instead of either a false "everything is
-          // ready" or a false "the install failed".
-          ...(data.warnings ?? []).map((w) => ({
-            type: 'warning' as const,
-            message: getInstallProgressMessage({ progressCode: w.progressCode, params: w.params }, w.message),
-            timestamp: new Date(),
-          })),
-        ]);
-
-        const s = formStateRef.current;
-        let createResult: Awaited<ReturnType<typeof serversApi.create>>;
-        try {
-          // Use data from server response which has computed paths
-          createResult = await serversApi.create({
-            name: data.serverName || s.serverName,
-            serverName: data.serverName || s.serverName,
-            installPath: data.installPath || s.installPath,
-            zomboidDataPath: data.zomboidDataPath || null,
-            serverConfigPath: data.serverConfigPath || null,
-            branch: data.branch,
-            rconHost: "127.0.0.1",
-            rconPort: data.rconPort || s.rconPort,
-            rconPassword: data.rconPassword || s.rconPassword,
-            adminPassword: s.adminPassword,
-            serverPort: data.serverPort || s.serverPort,
-            minMemory: (data.minMemory || s.minMemory) * 1024,
-            maxMemory: (data.maxMemory || s.maxMemory) * 1024,
-            useNoSteam: s.useNoSteam,
-            useDebug: s.useDebug,
-            useUpnp: s.useUpnp,
-          });
+      try {
+        if (data.success) {
           setLogs((prev) => [
             ...prev,
-            {
-              type: "success",
-              message: t("toasts.serverRegisteredLog"),
+            { type: "success", message: displayMessage, timestamp: new Date() },
+            // The game files installed -- that's success:true and stays true --
+            // but a self-healing step (RCON .ini pre-create, startup script)
+            // may still have failed underneath it (#6, 2026-08-26 install-
+            // failure hunt). Surfaced here rather than silently dropped: the
+            // operator sees exactly what didn't get written and that it's
+            // retried automatically, instead of either a false "everything is
+            // ready" or a false "the install failed".
+            ...(data.warnings ?? []).map((w) => ({
+              type: 'warning' as const,
+              message: getInstallProgressMessage({ progressCode: w.progressCode, params: w.params }, w.message),
               timestamp: new Date(),
-            },
+            })),
           ]);
-        } catch (error) {
-          reportClientError("Failed to create server entry.", error);
-          setLogs((prev) => [
-            ...prev,
-            {
-              type: "error",
-              message: t("toasts.registerFailedLog"),
-              timestamp: new Date(),
-            },
-          ]);
-          toast({
-            title: t("toasts.registerFailedTitle"),
-            description: t("toasts.registerFailedDesc"),
-            variant: "destructive",
-          });
-          return;
-        }
 
-        // Activate the newly created server so "Start Server Now" starts this
-        // one. This is a SEPARATE try/catch from the create() above: the
-        // server entry above already exists at this point, so a failure here
-        // must never be reported as "failed to create server entry" (#2 in
-        // the 2026-08-26 install-failure hunt) -- that told a user the whole
-        // registration failed when only the auto-activate step had. Also
-        // deliberately skip setInstallComplete(true)/the success toast on
-        // this path: "Start Server Now" below assumes the server it just
-        // installed is the active one, and offering that shortcut here would
-        // aim it at whatever was active before (or nothing).
-        if (createResult.server?.id) {
+          const s = formStateRef.current;
+          let createResult: Awaited<ReturnType<typeof serversApi.create>>;
           try {
-            await serversApi.activate(createResult.server.id);
+            // Use data from server response which has computed paths
+            createResult = await serversApi.create({
+              name: data.serverName || s.serverName,
+              serverName: data.serverName || s.serverName,
+              installPath: data.installPath || s.installPath,
+              zomboidDataPath: data.zomboidDataPath || null,
+              serverConfigPath: data.serverConfigPath || null,
+              branch: data.branch,
+              rconHost: "127.0.0.1",
+              rconPort: data.rconPort || s.rconPort,
+              rconPassword: data.rconPassword || s.rconPassword,
+              adminPassword: s.adminPassword,
+              serverPort: data.serverPort || s.serverPort,
+              minMemory: (data.minMemory || s.minMemory) * 1024,
+              maxMemory: (data.maxMemory || s.maxMemory) * 1024,
+              useNoSteam: s.useNoSteam,
+              useDebug: s.useDebug,
+              useUpnp: s.useUpnp,
+            });
             setLogs((prev) => [
               ...prev,
               {
                 type: "success",
-                message: t("toasts.activeServerSwitchedLog"),
+                message: t("toasts.serverRegisteredLog"),
                 timestamp: new Date(),
               },
             ]);
           } catch (error) {
-            reportClientError("Failed to activate newly created server.", error);
+            reportClientError("Failed to create server entry.", error);
             setLogs((prev) => [
               ...prev,
               {
                 type: "error",
-                message: t("toasts.activateFailedLog"),
+                message: t("toasts.registerFailedLog"),
                 timestamp: new Date(),
               },
             ]);
             toast({
-              title: t("toasts.activateFailedTitle"),
-              description: t("toasts.activateFailedDesc"),
+              title: t("toasts.registerFailedTitle"),
+              description: t("toasts.registerFailedDesc"),
               variant: "destructive",
             });
             return;
           }
-        }
 
-        setInstallComplete(true);
-        toast({
-          title: t("toasts.serverInstalledTitle"),
-          description: t("toasts.serverInstalledDesc"),
-        });
-      } else {
-        setInstallComplete(false);
-        setLogs((prev) => [
-          ...prev,
-          { type: "error", message: displayMessage, timestamp: new Date() },
-        ]);
-        toast({
-          title: t("toasts.installationFailedTitle"),
-          description: displayMessage,
-          variant: "destructive",
-        });
+          // Activate the newly created server so "Start Server Now" starts this
+          // one. This is a SEPARATE try/catch from the create() above: the
+          // server entry above already exists at this point, so a failure here
+          // must never be reported as "failed to create server entry" (#2 in
+          // the 2026-08-26 install-failure hunt) -- that told a user the whole
+          // registration failed when only the auto-activate step had. Also
+          // deliberately skip setInstallComplete(true)/the success toast on
+          // this path: "Start Server Now" below assumes the server it just
+          // installed is the active one, and offering that shortcut here would
+          // aim it at whatever was active before (or nothing).
+          if (createResult.server?.id) {
+            try {
+              await serversApi.activate(createResult.server.id);
+              setLogs((prev) => [
+                ...prev,
+                {
+                  type: "success",
+                  message: t("toasts.activeServerSwitchedLog"),
+                  timestamp: new Date(),
+                },
+              ]);
+            } catch (error) {
+              reportClientError("Failed to activate newly created server.", error);
+              setLogs((prev) => [
+                ...prev,
+                {
+                  type: "error",
+                  message: t("toasts.activateFailedLog"),
+                  timestamp: new Date(),
+                },
+              ]);
+              toast({
+                title: t("toasts.activateFailedTitle"),
+                description: t("toasts.activateFailedDesc"),
+                variant: "destructive",
+              });
+              return;
+            }
+          }
+
+          setInstallComplete(true);
+          toast({
+            title: t("toasts.serverInstalledTitle"),
+            description: t("toasts.serverInstalledDesc"),
+          });
+        } else {
+          setInstallComplete(false);
+          setLogs((prev) => [
+            ...prev,
+            { type: "error", message: displayMessage, timestamp: new Date() },
+          ]);
+          toast({
+            title: t("toasts.installationFailedTitle"),
+            description: displayMessage,
+            variant: "destructive",
+          });
+        }
+      } finally {
+        // Only clear once the full outcome (including the create()/activate()
+        // awaits above on the success path) has settled -- clearing this
+        // eagerly re-enabled the Install button while server registration was
+        // still in flight, letting a second click wipe the in-flight logs and
+        // fire a second real SteamCMD install underneath the first.
+        setInstalling(false);
       }
     };
 
@@ -796,10 +785,7 @@ export default function ServerSetup() {
       setDownloadingSteamCmd(false);
       toast({
         title: t("toasts.downloadFailedTitle"),
-        description:
-          error instanceof Error
-            ? error.message
-            : t("toasts.downloadFailedFallback"),
+        description: getUserErrorMessage(error, t("toasts.downloadFailedFallback")),
         variant: "destructive",
       });
     }
@@ -1044,10 +1030,7 @@ export default function ServerSetup() {
         });
       }
     } catch (error) {
-      const msg =
-        error instanceof Error
-          ? error.message
-          : t("toasts.unexpectedSetupError");
+      const msg = getUserErrorMessage(error, t("toasts.unexpectedSetupError"));
       addLog("error", msg);
       toast({
         title: t("toasts.setupFailedTitle"),
@@ -1094,8 +1077,7 @@ export default function ServerSetup() {
     } catch (error) {
       toast({
         title: t("toasts.startFailedTitle"),
-        description:
-          error instanceof Error ? error.message : t("common.unknownError"),
+        description: getUserErrorMessage(error, t("common.unknownError")),
         variant: "destructive",
       });
     } finally {
@@ -1479,7 +1461,7 @@ export default function ServerSetup() {
                     <ol className="list-decimal list-inside space-y-1 text-muted-foreground mt-2">
                       <li>{t("full.step1.manualStep1")}</li>
                       <li>
-                        <Trans i18nKey="full.step1.manualStep2" t={t} components={{ 1: <code className="bg-muted px-1 rounded" />, 2: <code className="bg-muted px-1 rounded" /> }} />
+                        <Trans i18nKey={platformTranslationKey("full.step1.manualStep2", runtimeInfo?.family)} t={t} components={{ 1: <code className="bg-muted px-1 rounded" /> }} />
                       </li>
                       <li>
                         <Trans i18nKey="full.step1.manualStep3" t={t} components={{ 1: <code className="bg-muted px-1 rounded" /> }} />
@@ -1591,7 +1573,7 @@ export default function ServerSetup() {
             <Input
               value={installPath}
               onChange={(e) => setInstallPath(e.target.value)}
-              placeholder={t("full.step2.installFolderPlaceholder")}
+              placeholder={t(platformTranslationKey("full.step2.installFolderPlaceholder", runtimeInfo?.family))}
               className="font-mono flex-1"
               maxLength={260}
             />
@@ -1735,7 +1717,7 @@ export default function ServerSetup() {
                       <Input
                         value={zomboidDataPath}
                         onChange={(e) => setZomboidDataPath(e.target.value)}
-                        placeholder={t("common.customDataPathPlaceholder")}
+                        placeholder={t(platformTranslationKey("common.customDataPathPlaceholder", runtimeInfo?.family))}
                         className="font-mono flex-1"
                         maxLength={260}
                       />
@@ -1997,13 +1979,13 @@ export default function ServerSetup() {
                 />
               </div>
               <Slider
-                value={[Math.min(Number.isFinite(maxMemory) ? maxMemory : 1, 64)]}
+                value={[Math.min(Number.isFinite(maxMemory) ? maxMemory : 1, 128)]}
                 onValueChange={([val]) => {
                   setMaxMemory(val);
                   if (val < minMemory) setMinMemory(val);
                 }}
                 min={2}
-                max={64}
+                max={128}
                 step={1}
                 aria-label={t("common.maxRamSliderAria", { value: maxMemory })}
               />
@@ -2309,7 +2291,7 @@ export default function ServerSetup() {
               <p className="font-medium">{t("quick.step1.usingExistingTitle")}</p>
               <p className="text-sm text-muted-foreground">
                 <Trans
-                  i18nKey="quick.step1.usingExistingDesc"
+                  i18nKey={platformTranslationKey("quick.step1.usingExistingDesc", runtimeInfo?.family)}
                   t={t}
                   components={{
                     1: <code className="bg-muted px-1 rounded" />,
@@ -2610,13 +2592,13 @@ export default function ServerSetup() {
                   />
                 </div>
                 <Slider
-                  value={[Math.min(Number.isFinite(maxMemory) ? maxMemory : 1, 64)]}
+                  value={[Math.min(Number.isFinite(maxMemory) ? maxMemory : 1, 128)]}
                   onValueChange={([val]) => {
                     setMaxMemory(val);
                     if (val < minMemory) setMinMemory(val);
                   }}
                   min={2}
-                  max={64}
+                  max={128}
                   step={1}
                   aria-label={t("common.maxRamSliderAria", { value: maxMemory })}
                 />
@@ -2651,7 +2633,7 @@ export default function ServerSetup() {
                     <Input
                       value={zomboidDataPath}
                       onChange={(e) => setZomboidDataPath(e.target.value)}
-                      placeholder={t("common.customDataPathPlaceholder")}
+                      placeholder={t(platformTranslationKey("common.customDataPathPlaceholder", runtimeInfo?.family))}
                       className="font-mono flex-1"
                       maxLength={260}
                     />

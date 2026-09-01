@@ -59,6 +59,24 @@ export class LogTailer extends EventEmitter {
 
   // Where to start reading a newly discovered file. A file born after we
   // started watching is a fresh session, so every byte in it is unseen.
+  //
+  // 2026-08-29 (Linux gate flake investigation, second suspect): `born` and
+  // `this.watchStartedAt` come from two different clocks -- the filesystem's
+  // birthtime and the JS process's Date.now() -- which measured up to ~20ms
+  // apart from each other on the same real event on this platform (WSL2),
+  // in either direction, not just jitter around zero. Harmless at the scale
+  // this actually runs at in production: a real prior session's log predates
+  // a fresh watch by however long that session's own downtime was (seconds
+  // at an absolute minimum, since PZ itself takes real time to boot before
+  // it can write anything), which swamps a ~20ms clock disagreement.
+  // Do NOT compare `born` against a Date.now()-derived value at a
+  // deliberately tight timescale (a test, a synthetic benchmark) without
+  // accounting for this -- it will look racy even though production never
+  // operates in the regime where it matters. A prior version of the test
+  // covering this constructed the tailer (capturing watchStartedAt) BEFORE
+  // creating the "already existing" file it was supposed to represent,
+  // which is backwards from how this is ever true in production and is
+  // exactly the tight regime where the clock skew becomes visible.
   startOffsetFor(filePath, firstDiscovery) {
     try {
         const stats = fs.statSync(filePath);
@@ -144,7 +162,36 @@ export class LogTailer extends EventEmitter {
     }
   }
 
-  // Find the most recently modified *_chat.txt in the Logs/ directory
+  // Find the most recently modified *_chat.txt in the Logs/ directory.
+  //
+  // 2026-08-29 (Linux gate flake investigation): two files sharing the exact
+  // same mtimeMs is real, not theoretical -- confirmed on real ext4 with
+  // fs.utimesSync forcing a tie, which is a realistic stand-in for PZ
+  // touching an outgoing session's log and a new session's log within the
+  // same filesystem timestamp tick at a restart boundary. When mtime ties,
+  // `b.mtime - a.mtime` is 0 for that pair, and the sort falls back to
+  // Array.prototype.sort's stability, i.e. whichever order fs.readdirSync
+  // happened to return -- an OS/filesystem implementation detail this code
+  // never decided and cannot rely on, confirmed to pick the OLDER file in
+  // that reproduction. Silently: no error, nothing in the UI, chat/admin
+  // view just stops updating -- the tailer keeps reading the ended session's
+  // file forever, since nothing ever notices the swap should have happened.
+  //
+  // Tiebreak is birthtimeMs, not filename: PZ's real log-naming format
+  // could not be verified against actual game source in this environment
+  // (no PZ install/jar available to check), so a filename-based tiebreak
+  // would be relying on an assumption this investigation could not confirm
+  // is lexicographically sane. birthtimeMs is something this file already
+  // trusts (see startOffsetFor above) and needs no format assumption: it
+  // directly answers "which of these two files came into existence more
+  // recently", which for two different PZ sessions' log files reflects a
+  // real gap (however long that session ran), even on the rarer occasions
+  // their mtimes coincide. Confirmed by reproduction: birthtimeMs alone can
+  // ALSO tie for two files created microseconds apart with no real elapsed
+  // time between them (this platform's timestamp resolution is coarser than
+  // that), but does not tie once even a small (tens-of-ms) real gap
+  // separates the two files' creation -- which is what distinguishes two
+  // genuinely different PZ sessions' logs in practice.
   findLatestChatLog() {
     if (!this.logsDir) return;
     try {
@@ -152,11 +199,14 @@ export class LogTailer extends EventEmitter {
             .filter(f => f.endsWith('_chat.txt'))
             .map(f => {
                 const full = path.join(this.logsDir, f);
-                try { return { path: full, mtime: fs.statSync(full).mtimeMs }; }
+                try {
+                    const stats = fs.statSync(full);
+                    return { path: full, mtime: stats.mtimeMs, birthtime: stats.birthtimeMs };
+                }
                 catch { return null; }
             })
             .filter(Boolean)
-            .sort((a, b) => b.mtime - a.mtime);
+            .sort((a, b) => (b.mtime - a.mtime) || (b.birthtime - a.birthtime));
 
         if (files.length > 0) {
             const latest = files[0].path;
@@ -174,7 +224,9 @@ export class LogTailer extends EventEmitter {
   }
 
   // Find the most recently modified *_user.txt in the Logs/ directory
-  // (PZ records player join/leave/death events here).
+  // (PZ records player join/leave/death events here). Same mtime-tie
+  // tiebreak as findLatestChatLog above -- see its comment for why
+  // birthtimeMs, not filename order.
   findLatestUserLog() {
     if (!this.logsDir) return;
     try {
@@ -182,11 +234,14 @@ export class LogTailer extends EventEmitter {
             .filter(f => f.endsWith('_user.txt'))
             .map(f => {
                 const full = path.join(this.logsDir, f);
-                try { return { path: full, mtime: fs.statSync(full).mtimeMs }; }
+                try {
+                    const stats = fs.statSync(full);
+                    return { path: full, mtime: stats.mtimeMs, birthtime: stats.birthtimeMs };
+                }
                 catch { return null; }
             })
             .filter(Boolean)
-            .sort((a, b) => b.mtime - a.mtime);
+            .sort((a, b) => (b.mtime - a.mtime) || (b.birthtime - a.birthtime));
 
         if (files.length > 0) {
             const latest = files[0].path;

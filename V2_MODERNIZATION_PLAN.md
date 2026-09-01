@@ -1626,6 +1626,7 @@ try {
         } until ($status.StatusCode -eq 200)
 
         node .\scripts\modernization\measure-baseline.mjs `
+                --work-package FND-001 `
                 --base-url http://127.0.0.1:31955 `
                 --route auth-status=/api/auth/status `
                 --samples 50 `

@@ -1204,8 +1204,16 @@ export function ConflictsPanel({
                     busyRef.current = true
                     setDepAdding(prev => [...prev, key]);
                     try {
-                      await modsApi.addMissingDep(workshopId, modId);
-                      setDepAddResults(prev => ({ ...prev, [key]: 'added' as const }));
+                      const result = await modsApi.addMissingDep(workshopId, modId);
+                      // modId, not the request having resolved without
+                      // throwing, is the per-item success signal (see
+                      // server/routes/mods.js's own comment) -- a
+                      // steam-sourced row's modId starts null, and if the
+                      // server's best-effort description scrape still can't
+                      // resolve one, the workshop item is now subscribed but
+                      // not enabled. That must not read as fixed here any
+                      // more than it does in handleFixAll below.
+                      setDepAddResults(prev => ({ ...prev, [key]: result.modId !== null ? 'added' as const : 'error' as const }));
                     } catch {
                       setDepAddResults(prev => ({ ...prev, [key]: 'error' as const }));
                     } finally {
@@ -1278,12 +1286,32 @@ export function ConflictsPanel({
                     busyRef.current = true
                     setFixingAllDeps(true)
                     try {
-                      await modsApi.addAllResolvedDeps(
+                      const response = await modsApi.addAllResolvedDeps(
                         addableRows.map(r => ({ workshopId: r.depWorkshopId!, modId: r.depModId || undefined }))
                       )
-                      for (const r of addableRows) {
-                        setDepAddResults(prev => ({ ...prev, [r.key]: 'added' as const }))
-                      }
+                      // The aggregate wsAdded/modIdsAdded counts (and the
+                      // request having resolved without throwing at all)
+                      // can't tell us WHICH row, if any, only got its
+                      // workshop ID subscribed without a real Mod ID ever
+                      // resolving -- that row is left subscribed but never
+                      // loads, the exact conflict this panel exists to
+                      // catch, so it must not turn green here. Match each
+                      // requested row back to its own results[] entry by
+                      // workshopId and gate on THAT entry's modId, not on
+                      // the batch call having succeeded overall (see
+                      // server/routes/mods.js's own comment on why modId,
+                      // not wsAdded, is the per-item signal).
+                      const resultByWorkshopId = new Map(
+                        (response.results || []).map(r => [r.workshopId, r])
+                      )
+                      setDepAddResults(prev => {
+                        const next = { ...prev }
+                        for (const r of addableRows) {
+                          const result = r.depWorkshopId ? resultByWorkshopId.get(r.depWorkshopId) : undefined
+                          next[r.key] = result && result.modId !== null ? 'added' as const : 'error' as const
+                        }
+                        return next
+                      })
                     } catch (err) {
                       reportClientError('Failed to add all dependencies.', err)
                       for (const r of addableRows) {

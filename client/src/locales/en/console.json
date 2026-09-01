@@ -79,6 +79,8 @@
     "hostUnreachableDesc": "Start the server, then confirm RCON host, port, and password in Panel Settings.",
     "authFailedTitle": "authentication failed",
     "authFailedDesc": "The host is reachable — confirm the RCON password on My Servers.",
+    "droppedTitle": "connection dropped",
+    "droppedDesc": "RCON disconnected while running a command. Host, port, and password were just confirmed correct -- select Recheck above once you believe it's back.",
     "outputLabel": "rcon output",
     "entries_one": "{{count}} entry",
     "entries_other": "{{count}} entries",
@@ -88,6 +90,8 @@
     "noCommandsTitle": "No commands yet",
     "noCommandsDesc": "Run an RCON command to see the response here.",
     "quickLabel": "quick",
+    "commandLabel": "command",
+    "commandTip": "Commands here run immediately against the live server, with no confirmation step -- even for something that stops the server or removes a player. If you're not sure what a command does, check it before running it; most have no undo.",
     "promptPrefix": "rcon $",
     "placeholder": "type a command…",
     "inputAria": "RCON command input",
@@ -95,7 +99,8 @@
     "run": "run",
     "keyboardHint": "// enter · run · ↑↓ history",
     "noResponseFallback": "No response",
-    "noPermission": "Your role doesn't have permission to run RCON commands."
+    "noPermission": "Your role doesn't have permission to run RCON commands.",
+    "disconnectedUseRecheck": "RCON is currently unreachable -- select Recheck above before trying again."
   },
   "quickCommands": {
     "players": "Players",

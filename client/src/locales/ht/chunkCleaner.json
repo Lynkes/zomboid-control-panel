@@ -2,6 +2,10 @@
   "permissions": {
     "noManage": "Pou ou netwaye chunk mapa yo, ou bezwen pèmisyon chunks.manage, e wòl sa a pa genyen li."
   },
+  "permissionDenied": {
+    "title": "Ou pa ka gade Netwayaj Kat la",
+    "description": "Wòl kont ou a pa gen \"Jere chunk kat\". Mande yon administratè bay ou aksè sa a si ou bezwen l."
+  },
   "pageHeader": {
     "title": "Netwayaj Kat la",
     "description": "Reyinisyalize zòn kat domaje oswa twò piyaje pou mond lan ka regenere san pwoblèm",
@@ -19,15 +23,19 @@
     "modifiedDaysAgo": "{{count}}j pase",
     "customPathHide": "Kache",
     "customPathShow": "Chemen pèsonalize...",
-    "customPathPlaceholder": "~/Zomboid  oswa  C:\\Users\\…\\Zomboid",
+    "customPathPlaceholder": "Path to the Zomboid data folder",
     "customPathAria": "Chemen sèvè pèsonalize",
     "load": "Chaje",
-    "customPathHint": "Vize dosye done Zomboid ou a, yon dosye <1>Saves/Multiplayer</1>, oswa yon sèl anyè sovgad. <2>~</2> ak varyab anviwònman (<3>%USERPROFILE%</3>, <4>$HOME</4>) yo elaji.",
+    "customPathHint": "Point at your Zomboid data folder, a <1>Saves/Multiplayer</1> folder, or a single save directory.",
     "saveAsDefaultTitle": "Fè dosye sa a vin dosye done Zomboid pa defo panèl la pou ou pa gen pou antre li ankò.",
     "saveAsDefault": "Sove kòm defo",
     "saving": "Ap sove...",
     "reset": "Reyinisyalize",
-    "autoDetected": "Dosye sa a detekte otomatikman. Sove li kòm defo?"
+    "autoDetected": "Dosye sa a detekte otomatikman. Sove li kòm defo?",
+    "customPathPlaceholderWindows": "%USERPROFILE%\\Zomboid or C:\\Users\\…\\Zomboid",
+    "customPathPlaceholderPosix": "$HOME/Zomboid or ~/Zomboid",
+    "customPathHintWindows": "Point at your Zomboid data folder, a <1>Saves/Multiplayer</1> folder, or a single save directory. Windows variables such as <3>%USERPROFILE%</3> are expanded.",
+    "customPathHintPosix": "Point at your Zomboid data folder, a <1>Saves/Multiplayer</1> folder, or a single save directory. <2>~</2>, <4>$HOME</4>, and ${NAME} variables are expanded."
   },
   "stats": {
     "worldFootprint": "Anprent mond lan",
@@ -51,7 +59,8 @@
     "selectionNone": "Okenn",
     "all": "Tout",
     "clear": "Efase",
-    "invert": "Envèse"
+    "invert": "Envèse",
+    "selectAllTip": "\"Tout\" seleksyone chak chunk sovgard sa a te janm jenere, pa sèlman sa ou wè sou ekran an kounye a. Efase seleksyon sa a reyajiste tout kat la."
   },
   "deleteButton_one": "Efase {{count}} Chunk",
   "deleteButton_other": "Efase {{count}} Chunk",
@@ -145,6 +154,8 @@
     "pathSavedTitle": "Chemen Sove",
     "liveVehicleCleanupNoPermissionTitle": "Netwayaj Veyikil An Dirèk Pa Fèt",
     "liveVehicleCleanupNoPermissionDesc": "Chunk yo ak done veyikil yo efase. Pou retire veyikil ki deja chaje sou sèvè a an dirèk, ou bezwen pèmisyon bridge.command, e wòl sa a pa genyen li -- yon admin ka bay li, oswa yon vye veyikil ap disparèt pou kont li lè zòn nan reload ankò.",
+    "liveVehicleCleanupTooFragmentedTitle": "Netwayaj Veyikil An Dirèk Pa Fèt",
+    "liveVehicleCleanupTooFragmentedDesc": "Chunk yo ak done veyikil yo efase. Seleksyon sa a te twò gaye pou senkronize veyikil an dirèk -- yon vye veyikil ap disparèt pou kont li lè zòn nan reload ankò.",
     "pathSavedServerDesc": "Sove nan konfigirasyon sèvè aktif la — panèl la ap itilize chemen sa a pwochen fwa.",
     "pathSavedPanelDesc": "Sove nan paramèt panèl la.",
     "pathSaveFailedTitle": "Pa T Kapab Sove Chemen",

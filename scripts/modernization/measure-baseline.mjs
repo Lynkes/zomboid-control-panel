@@ -5,7 +5,7 @@ import { performance } from "node:perf_hooks";
 import { execFileSync } from "node:child_process";
 
 function usage() {
-  console.error("usage: node scripts/modernization/measure-baseline.mjs --base-url http://127.0.0.1:3001 --route name=/api/auth/status [--route name=/api/server/status] [--samples 50] [--warmup 5] --out <file>");
+  console.error("usage: node scripts/modernization/measure-baseline.mjs --work-package FND-001 --base-url http://127.0.0.1:3001 --route name=/api/auth/status [--route name=/api/server/status] [--samples 50] [--warmup 5] --out <file>");
   process.exit(2);
 }
 
@@ -19,11 +19,13 @@ for (let index = 0; index < args.length; index += 1) {
   else if (key === "--samples") options.samples = Number(value);
   else if (key === "--warmup") options.warmup = Number(value);
   else if (key === "--out") options.out = value;
+  else if (key === "--work-package") options.workPackage = value;
   else usage();
   index += 1;
 }
 
 if (!options.baseUrl || !options.out || options.routes.length === 0) usage();
+if (!/^[A-Z][A-Z0-9]*-[0-9]{3}$/.test(options.workPackage || "")) usage();
 if (!Number.isInteger(options.samples) || options.samples < 1 || options.samples > 1000) usage();
 if (!Number.isInteger(options.warmup) || options.warmup < 0 || options.warmup > 100) usage();
 
@@ -70,7 +72,7 @@ const measurements = [];
 for (const route of routes) measurements.push(await measure(route));
 
 const output = {
-  work_package: "FND-001",
+  work_package: options.workPackage,
   git_sha: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
   captured_at: new Date().toISOString(),
   environment: `${process.platform}-${process.arch}; ${options.baseUrl}`,

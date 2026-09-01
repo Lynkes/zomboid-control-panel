@@ -85,6 +85,45 @@ function setupStub(dir, exitCodes, sleepMsList) {
   );
 }
 
+function setupPendingUpdate(dir) {
+  const stagedBinaryPath = path.join(dir, "ZomboidControlPanel.exe.new");
+  fs.copyFileSync(stubExePath, stagedBinaryPath);
+
+  const liveClientPath = path.join(dir, "client", "dist");
+  const stagedClientPath = path.join(dir, "client", "dist.new-test");
+  fs.mkdirSync(liveClientPath, { recursive: true });
+  fs.mkdirSync(stagedClientPath, { recursive: true });
+  fs.writeFileSync(path.join(liveClientPath, "index.html"), "old-client");
+  fs.writeFileSync(path.join(stagedClientPath, "index.html"), "new-client");
+  fs.writeFileSync(
+    path.join(dir, "update-bundle.json"),
+    JSON.stringify({ paths: { stagedClient: stagedClientPath } }),
+  );
+  fs.writeFileSync(path.join(dir, ".update-pending"), "pending");
+}
+
+function denyDelete(targetPath) {
+  execFileSync("icacls.exe", [targetPath, "/deny", "*S-1-1-0:(D)"], {
+    stdio: "ignore",
+  });
+}
+
+function allowDelete(targetPath) {
+  if (!fs.existsSync(targetPath)) return;
+  execFileSync("icacls.exe", [targetPath, "/remove:d", "*S-1-1-0"], {
+    stdio: "ignore",
+  });
+}
+
+async function waitForCondition(check, timeoutMs, description) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (check()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for ${description}`);
+}
+
 // Async, not spawnSync -- spawnSync's own timeout only SIGTERMs the direct
 // cmd.exe child. On Windows that child's own children (powershell.exe doing
 // a timestamp lookup or Start-Sleep, or the panel .exe itself mid-launch)
@@ -221,6 +260,7 @@ describe.skipIf(!!skipReason)(
         ["-nologo", "-optimize", "-out:" + stubExePath, srcPath],
         { stdio: "pipe" },
       );
+
     }, 90000);
 
     afterAll(() => {
@@ -507,6 +547,99 @@ describe.skipIf(!!skipReason)(
         expect(log).not.toMatch(/Gave up/);
       },
       110000,
+    );
+
+    it(
+      "rolls back instead of launching when the pending marker cannot become the applying marker",
+      async () => {
+        const dir = freshScenarioDir("marker-move-failure");
+        await writeStartBatInto(dir);
+        setupStub(dir, [0], [0]);
+        setupPendingUpdate(dir);
+
+        const markerPath = path.join(dir, ".update-pending");
+        denyDelete(markerPath);
+        const supervisor = runSupervisor(
+          dir,
+          {
+            PANEL_SUPERVISOR_BACKOFF_SECONDS: "0",
+            PANEL_SUPERVISOR_MAX_CRASHES: "1",
+          },
+          120000,
+        );
+        let result;
+        try {
+          await waitForCondition(
+            () =>
+              /could not move pending marker/i.test(readSupervisorLog(dir)),
+            30000,
+            "the supervisor to report the marker transition failure",
+          );
+        } finally {
+          allowDelete(markerPath);
+          result = await supervisor;
+        }
+
+        expect(result.status).toBe(0);
+        expect(countLaunches(result.stdout)).toBeGreaterThanOrEqual(1);
+        const log = readSupervisorLog(dir);
+        expect(log).toMatch(/could not move pending marker/i);
+        expect(log).not.toMatch(/bundle activated; waiting/i);
+        expect(fs.existsSync(path.join(dir, "ZomboidControlPanel.exe"))).toBe(true);
+        expect(
+          fs.readFileSync(path.join(dir, "client", "dist", "index.html"), "utf8"),
+        ).toBe("old-client");
+      },
+      135000,
+    );
+
+    it(
+      "retains the journal and reports an incomplete rollback when a backup cannot be restored",
+      async () => {
+        const dir = freshScenarioDir("denied-backup-restore");
+        await writeStartBatInto(dir);
+        setupStub(dir, [7, 0], [5000, 0]);
+        setupPendingUpdate(dir);
+
+        const backupPath = path.join(
+          dir,
+          "ZomboidControlPanel.exe.bundle-previous",
+        );
+        const supervisor = runSupervisor(
+          dir,
+          { PANEL_SUPERVISOR_BACKOFF_SECONDS: "0" },
+          120000,
+        );
+        let permissionApplied = false;
+        let setupError;
+        let result;
+        try {
+          await waitForCondition(
+            () => fs.existsSync(backupPath),
+            30000,
+            "the binary backup to be created",
+          );
+          denyDelete(backupPath);
+          permissionApplied = true;
+        } catch (error) {
+          setupError = error;
+        } finally {
+          result = await supervisor;
+          allowDelete(backupPath);
+        }
+
+        if (setupError) throw setupError;
+        expect(permissionApplied).toBe(true);
+        expect(result.status).toBe(1);
+        expect(fs.existsSync(path.join(dir, "update-bundle.json"))).toBe(true);
+        expect(fs.existsSync(path.join(dir, ".update-applying"))).toBe(true);
+        expect(fs.existsSync(backupPath)).toBe(true);
+        const log = readSupervisorLog(dir);
+        expect(log).toMatch(/binary restore failed/i);
+        expect(log).toMatch(/rollback incomplete; journal retained/i);
+        expect(log).not.toMatch(/rollback complete/i);
+      },
+      135000,
     );
 
     it(

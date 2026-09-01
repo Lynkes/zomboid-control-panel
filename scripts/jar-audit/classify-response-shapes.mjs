@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // Attempts to classify each RCON command server/services/rcon.js sends as
 // INFORMATIVE (the RCON reply carries real content -- a list, a dump) or
-// LIKELY_ACK (the reply is empty or a short one-line confirmation), using
-// only what is reliably readable from the class file WITHOUT decoding
+// NO_LOOP_EVIDENCE (this script found no positive signal either way -- that
+// includes genuine bare-ack commands like save/quit AND any informative
+// command that builds its reply without iterating a java.util collection),
+// using only what is reliably readable from the class file WITHOUT decoding
 // bytecode instructions (see README.md -- that is a materially bigger
 // undertaking this script deliberately does not attempt).
 //
@@ -12,8 +14,20 @@
 // single-purpose command class that talks to one of these is very likely
 // looping over a collection to build its reply -- every command already
 // hand-verified tonight as informative (players, showoptions, stats) shows
-// exactly this pattern, and none of the hand-verified bare-ack commands
-// (save, quit, kickuser, ...) do.
+// exactly this pattern.
+//
+// This is the ONLY decision signal -- there used to be a second one (a raw
+// constant-pool string count, verdict AMBIGUOUS/LIKELY_ACK split at
+// stringCount>=4) that this comment did not even describe. It was removed
+// 2026-08-31 after running against the real jar showed it was dead: every
+// one of the 44 real command classes scores stringCount>=11 (class names,
+// exception constructors and permission-check messages alone clear that),
+// so the LIKELY_ACK branch never fired -- 0 of 44. Worse, the number did not
+// even correlate with the thing it was proxying for: kickuser, a hand-
+// verified bare-ack command, scored stringCount=25, higher than 3 of the 4
+// hand-verified INFORMATIVE commands (13, 14, 18 vs. players' 18). stringCount
+// is still printed per-line as raw context for a human reader, but no longer
+// drives the verdict.
 //
 // This is NOT proof of what the method actually returns -- a class could
 // reference Iterator for validation logic that never reaches the reply, or
@@ -84,7 +98,11 @@ const RCON_COMMAND_CLASSES = {
   log: "LogCommand",
   stats: "StatisticsCommand",
   removezombies: "RemoveZombiesCommand",
-  releasesafehouse: "ReleaseSafehouseCommand",
+  // releasesafehouse deliberately NOT listed: rcon.js's releaseSafehouse()
+  // throws before ever calling execute() -- the real B42 server refuses this
+  // command from any RCON/console caller unconditionally (see rcon.js's own
+  // comment there), so the panel never actually transmits it. Including it
+  // here would classify a command this panel doesn't send.
 };
 
 const ENUMERATION_OWNERS = new Set([
@@ -124,7 +142,7 @@ for (const [command, className] of Object.entries(RCON_COMMAND_CLASSES)) {
     return true;
   }).length;
 
-  const verdict = loopEvidence ? "INFORMATIVE" : stringCount >= 4 ? "AMBIGUOUS" : "LIKELY_ACK";
+  const verdict = loopEvidence ? "INFORMATIVE" : "NO_LOOP_EVIDENCE";
   results.push({ command, className, loopEvidence, stringCount, verdict });
 }
 

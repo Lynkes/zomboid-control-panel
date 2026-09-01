@@ -20,13 +20,18 @@
     "aria": "聊天频道",
     "server": "服务器广播",
     "admin": "管理员聊天",
-    "general": "公共聊天"
+    "general": "公共聊天",
+    "tip": "服务器广播会立刻向所有玩家显示一条横幅消息。管理员聊天只有其他管理员能看到——玩家永远看不到。公共聊天会以「{{adminLabel}}」的名义发一条看起来很普通的消息，混在所有人的日常聊天里，很容易被忽略，也无法和一个真名叫 {{adminLabel}} 的玩家区分开。"
+  },
+  "deliveryStatus": {
+    "native": "聊天投递方式：原生",
+    "rconFallback": "聊天投递方式：RCON 备用（原生聊天接口不可用）"
   },
   "input": {
     "aria": "聊天消息",
-    "placeholderAdmin": "仅管理员可见——按回车发送…",
-    "placeholderGeneral": "以管理员身份发布——按回车发送…",
-    "placeholderServer": "广播给所有玩家——按回车发送…",
+    "placeholderAdmin": "仅管理员可见…",
+    "placeholderGeneral": "以管理员身份发布…",
+    "placeholderServer": "广播给所有玩家…",
     "sendButton": "发送",
     "noPermission": "您没有权限发送聊天消息。"
   },

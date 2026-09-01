@@ -312,7 +312,14 @@ describe("POST /test-connection", () => {
     );
     const payload = res.json.mock.calls[0][0];
     expect(payload.success).toBe(true);
-    expect(settingsStore.get("oidcIssuerUrl")).toBeUndefined();
+    // bug hunt 2026-08-31-c (under-coverage sweep): the title claims nothing
+    // is persisted at all, but this used to check only one specific key
+    // (oidcIssuerUrl) out of the five persistable OIDC settings fields --
+    // undercutting the actual promise the title makes. settingsStore is the
+    // mocked setSetting() sink for every key this route could theoretically
+    // write; asserting it stayed empty proves setSetting() was never called
+    // at all, not just that one field happened to be untouched.
+    expect(settingsStore.size).toBe(0);
   });
 
   it("fails against an unreachable issuer, with a reason rather than a thrown 500", async () => {

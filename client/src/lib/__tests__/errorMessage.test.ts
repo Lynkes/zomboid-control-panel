@@ -253,8 +253,19 @@ describe('getUserErrorMessage — generic wrapper for an uncoded 5xx', () => {
 
   it('wraps a 500 with no registered code translation, preserving the raw detail', () => {
     const error = new ApiError('EACCES: permission denied, open [path]', { status: 500, code: 'HTTP_500' })
+    // bug-hunt-2026-08-31: the raw detail doesn't end in terminal
+    // punctuation, so wrapUncodedServerError appends a period before
+    // interpolating -- without it this read as one run-on sentence with no
+    // boundary ("...open [path] Ce n'était pas attendu...").
     expect(getUserErrorMessage(error, 'fallback')).toBe(
-      "EACCES: permission denied, open [path] Ce n'était pas attendu — si cela persiste, téléchargez un pack de support afin qu'il puisse être examiné.",
+      "EACCES: permission denied, open [path]. Ce n'était pas attendu — si cela persiste, téléchargez un pack de support afin qu'il puisse être examiné.",
+    )
+  })
+
+  it('does not double the punctuation when the raw detail already ends in a sentence terminator', () => {
+    const error = new ApiError('Request failed.', { status: 500, code: 'HTTP_500' })
+    expect(getUserErrorMessage(error, 'fallback')).toBe(
+      "Request failed. Ce n'était pas attendu — si cela persiste, téléchargez un pack de support afin qu'il puisse être examiné.",
     )
   })
 
@@ -277,7 +288,7 @@ describe('getUserErrorMessage — generic wrapper for an uncoded 5xx', () => {
     void i18n.changeLanguage('en')
     const error = new ApiError('ECONNREFUSED', { status: 500, code: 'HTTP_500' })
     expect(getUserErrorMessage(error, 'fallback')).toBe(
-      "ECONNREFUSED This wasn't expected — if it keeps happening, download a support bundle so it can be investigated.",
+      "ECONNREFUSED. This wasn't expected — if it keeps happening, download a support bundle so it can be investigated.",
     )
   })
 })

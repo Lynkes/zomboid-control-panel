@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ErrorCode } from "../utils/errorCodes.js";
+
 vi.mock("../database/init.js", () => ({
   getActiveServer: vi.fn(async () => null),
   getSetting: vi.fn(async () => null),
@@ -43,9 +45,13 @@ describe("POST /mods/start", () => {
 
     expect(start).toHaveBeenCalledOnce();
     expect(response.status).toHaveBeenCalledWith(400);
+    // Every sibling 400 in this file (interval, auto-restart, ...) carries a
+    // `code` alongside its message; this one didn't -- verified live that it
+    // was still missing before this test was updated.
     expect(response.json).toHaveBeenCalledWith({
       success: false,
       error: expect.stringMatching(/could not start/i),
+      code: ErrorCode.MODS_START_ACF_PATH_NOT_SET,
     });
   });
 

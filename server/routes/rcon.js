@@ -82,12 +82,18 @@ router.post('/execute', requirePermission('rcon.execute'), async (req, res) => {
 
     // Emit to connected clients. Redact both fields before broadcasting --
     // this is the FULL, untruncated command reaching every socket in the
-    // "logs" room, unlike the 100-char log.info above, and command_history
-    // (database/init.js's logCommand) already redacts both command and
-    // response for the identical reason: `response` is defense-in-depth in
-    // case a verbose RCON reply ever echoes the command it's replying to.
+    // "rcon-live" room, unlike the 100-char log.info above, and
+    // command_history (database/init.js's logCommand) already redacts both
+    // command and response for the identical reason: `response` is
+    // defense-in-depth in case a verbose RCON reply ever echoes the command
+    // it's replying to. Targets "rcon-live" (gated rcon.execute in
+    // index.js), not "logs" (gated the broader diagnostics.manage) -- moved
+    // 2026-08-31 bug hunt: this is the same class of content /rcon/history
+    // deliberately gates on rcon.execute alone, per this file's own header
+    // comment above, and the live broadcast must not reopen that through a
+    // different, broader capability.
     const io = req.app.get('io');
-    if (io) io.to('logs').emit('rcon:response', {
+    if (io) io.to('rcon-live').emit('rcon:response', {
       command: redactRconCommandSecrets(command),
       response: redactRconCommandSecrets(result.response || result.error),
       success: result.success,

@@ -20,13 +20,18 @@
     "aria": "Chat channel",
     "server": "Server broadcast",
     "admin": "Admin chat",
-    "general": "General chat"
+    "general": "General chat",
+    "tip": "Server broadcast shows a banner every player sees immediately. Admin chat is visible only to other admins — players never see it. General chat posts a normal-looking message from \"{{adminLabel}}\" into everyone's regular chat, easy to miss and indistinguishable from a real player named {{adminLabel}}."
+  },
+  "deliveryStatus": {
+    "native": "chat delivery: native",
+    "rconFallback": "chat delivery: RCON fallback (native chat API unavailable)"
   },
   "input": {
     "aria": "Chat message",
-    "placeholderAdmin": "admins only — press enter to send…",
-    "placeholderGeneral": "post as Admin — press enter to send…",
-    "placeholderServer": "broadcast to all players — press enter to send…",
+    "placeholderAdmin": "admins only…",
+    "placeholderGeneral": "post as Admin…",
+    "placeholderServer": "broadcast to all players…",
     "sendButton": "send",
     "noPermission": "You don't have permission to send chat messages."
   },

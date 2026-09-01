@@ -31,8 +31,12 @@ export function getIniKeyLabel(key: string): string {
   return setting ? getIniSettingLabel(setting) : humanizeTemplateKey(key);
 }
 
-export function getSandboxKeyLabel(key: string): string {
-  const setting = getSandboxSetting(key);
+export function getSandboxKeyLabel(key: string, section?: string): string {
+  // section disambiguates the handful of keys PZ reuses across two
+  // unrelated SandboxVars.lua tables (Farming, Strength) -- see
+  // getSandboxSetting's own comment. Callers with a diff row's own
+  // `section` field (TemplateDiffList) should always pass it.
+  const setting = getSandboxSetting(key, section);
   return setting ? getSandboxSettingLabel(setting) : humanizeTemplateKey(key);
 }
 

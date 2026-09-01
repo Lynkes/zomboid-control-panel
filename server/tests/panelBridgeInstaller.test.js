@@ -6,6 +6,7 @@ import {
   canAutoInstall,
   checkBridgeInstalled,
   installBridge,
+  resolveInstallDir,
   resolveSourcePath,
 } from '../services/panelBridgeInstaller.js';
 
@@ -106,6 +107,26 @@ describe('checkBridgeInstalled', () => {
     expect(status.installed).toBe(true);
     expect(status.needsUpdate).toBe(true);
   });
+
+  // 2026-08-31, operator-fix-the-three: three consecutive real bridge fixes
+  // shipped without a VERSION bump. A VERSION-only comparison reports "up
+  // to date" here even though the installed content is stale -- the exact
+  // gap that let those fixes go undelivered to every server this function
+  // gates.
+  it('flags an update when content differs but VERSION is unchanged', () => {
+    const sourceContent = fs.readFileSync(resolveSourcePath(), 'utf8');
+    const sourceVersion = sourceContent.match(/VERSION\s*=\s*"([^"]+)"/)[1];
+    const targetDir = path.join(tmpDir, 'media', 'lua', 'server');
+    fs.mkdirSync(targetDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(targetDir, 'PanelBridge.lua'),
+      `-- stale body, same version label\nlocal VERSION = "${sourceVersion}"\n`,
+    );
+
+    const status = checkBridgeInstalled(localServer());
+    expect(status.installed).toBe(true);
+    expect(status.needsUpdate).toBe(true);
+  });
 });
 
 describe('installBridge', () => {
@@ -151,5 +172,70 @@ describe('installBridge', () => {
     expect(result.success).toBe(true);
     expect(result.updated).toBe(false);
     expect(fs.readFileSync(targetPath, 'utf8')).toContain('99.0.0');
+  });
+
+  // 2026-08-31, operator-fix-the-three: same VERSION label as the bundled
+  // source, but stale content underneath (a real fix that never bumped the
+  // version) -- must still be overwritten with the bundled content.
+  it('overwrites a stale install whose VERSION matches the bundled source', () => {
+    const sourceContent = fs.readFileSync(resolveSourcePath(), 'utf8');
+    const sourceVersion = sourceContent.match(/VERSION\s*=\s*"([^"]+)"/)[1];
+    const targetDir = path.join(tmpDir, 'media', 'lua', 'server');
+    fs.mkdirSync(targetDir, { recursive: true });
+    const targetPath = path.join(targetDir, 'PanelBridge.lua');
+    fs.writeFileSync(
+      targetPath,
+      `-- stale body, same version label\nlocal VERSION = "${sourceVersion}"\n`,
+    );
+
+    const result = installBridge(localServer());
+
+    expect(result.success).toBe(true);
+    expect(result.updated).toBe(true);
+    expect(fs.readFileSync(targetPath, 'utf8')).toBe(sourceContent);
+  });
+
+  // Content-identical installs (the common case: nothing changed since the
+  // last install) must remain a true no-op, not an unconditional rewrite.
+  it('leaves a byte-identical install untouched and reports updated: false', () => {
+    installBridge(localServer());
+    const result = installBridge(localServer());
+
+    expect(result.success).toBe(true);
+    expect(result.updated).toBe(false);
+  });
+});
+
+// bughunt-2026-08-31-c, launcher-extension-case-sensitivity: index.js's
+// PanelBridge auto-update and routes/panelBridge.js's mod auto-install both
+// used to reimplement this same launcher-extension check inline, without the
+// lowercasing below -- a launcher saved as e.g. "Launch.BAT" resolved its
+// install dir as the literal launcher file's own (nonexistent as a
+// directory) path instead of its parent folder, silently breaking both
+// features for any launcher whose extension wasn't already lowercase. Both
+// call sites now share this one implementation instead of each carrying
+// their own copy.
+describe('resolveInstallDir', () => {
+  it('is case-insensitive for the launch-script extension (.BAT/.Sh/.EXE)', () => {
+    for (const ext of ['.bat', '.BAT', '.Bat', '.sh', '.SH', '.Sh', '.exe', '.EXE', '.Exe']) {
+      const scriptPath = path.join(tmpDir, `Launch${ext}`);
+      expect(resolveInstallDir({ installPath: scriptPath })).toBe(tmpDir);
+    }
+  });
+
+  it('returns a directory-shaped installPath unchanged', () => {
+    expect(resolveInstallDir({ installPath: tmpDir })).toBe(tmpDir);
+  });
+
+  it('prefers serverPath over installPath, same as resolveLaunchMode', () => {
+    const scriptPath = path.join(tmpDir, 'custom.SH');
+    expect(
+      resolveInstallDir({ installPath: tmpDir, serverPath: scriptPath }),
+    ).toBe(tmpDir);
+  });
+
+  it('returns null when neither field is set', () => {
+    expect(resolveInstallDir({})).toBeNull();
+    expect(resolveInstallDir(null)).toBeNull();
   });
 });

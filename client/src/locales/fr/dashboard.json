@@ -22,6 +22,7 @@
       "STOP_TIMEOUT": "Le serveur ne s'est pas arrêté dans les 5 minutes.",
       "STEAMCMD_NOT_FOUND": "SteamCMD est introuvable à {{path}}.",
       "STEAMCMD_EXIT_CODE": "SteamCMD s'est terminé avec le code {{code}}.",
+      "STEAM_OPERATION_IN_PROGRESS": "Une installation ou mise à jour Steam était déjà en cours pour {{path}} ; la mise à jour automatique a donc été abandonnée pour éviter tout conflit.",
       "UNKNOWN": "Une erreur inattendue s'est produite pendant la mise à jour automatique."
     }
   },
@@ -34,6 +35,7 @@
     "ariaLabel": "État du serveur",
     "everythingNominal": "Tout est nominal",
     "upPrefix": "actif depuis {{uptime}}",
+    "mapTooltip": "Carte (via PanelBridge)",
     "remoteBadge": "distant",
     "noActiveServer": "Aucun serveur actif"
   },
@@ -171,6 +173,11 @@
     "applyUpdate": "Appliquer la mise à jour",
     "viewUpdate": "Voir la mise à jour"
   },
+  "updateCheckError": {
+    "label": "Impossible de vérifier les mises à jour du panneau",
+    "dismissAria": "Ignorer l'avis de vérification de mise à jour",
+    "dismissTooltip": "Ignorer jusqu'à ce que cela change"
+  },
   "connectionError": {
     "label": "Erreur de connexion",
     "suffix": ". Certaines fonctionnalités peuvent être indisponibles.",
@@ -220,6 +227,9 @@
     "live": "en direct",
     "lastSecondsLive": "dernières {{seconds}}s · en direct",
     "lastMinutesLive": "dernières {{minutes}} min · en direct",
+    "unconfirmed": "non confirmé",
+    "lastSecondsUnconfirmed": "dernières {{seconds}}s · non confirmé",
+    "lastMinutesUnconfirmed": "dernières {{minutes}} min · non confirmé",
     "placeholderOnline": "La télémétrie apparaîtra au prochain cycle d'échantillonnage.",
     "placeholderOffline": "Démarrez le serveur pour suivre le CPU, la RAM et les statistiques des joueurs."
   },
@@ -246,6 +256,7 @@
   },
   "workItems": {
     "players": "Joueurs",
+    "zombies": "Zombies",
     "console": "Console",
     "mods": "Mods",
     "schedule": "Planification",

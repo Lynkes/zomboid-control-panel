@@ -1,4 +1,5 @@
 import esbuild from "esbuild";
+import archiver from "archiver";
 import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
@@ -7,6 +8,45 @@ import { pathToFileURL } from "url";
 
 const distDir = "./dist-exe";
 const releaseDir = "./release";
+const linuxArchivePath = "./ZomboidControlPanel-linux.tar.gz";
+
+// Files in the Linux release tree that must carry the executable bit. NTFS
+// has no POSIX exec bit, so a Windows host's own fs.chmodSync()/writeFileSync
+// mode option is a real no-op here -- whatever ad hoc tool later turns
+// release/ into a .tar.gz would have to guess, and every one we tried
+// guessed differently (bsdtar strips all exec bits; MSYS tar restores them
+// by file-extension heuristic, missing the extensionless binary; a DrvFs
+// mount over-grants everything). Packaging in-process with explicit
+// per-entry modes removes the guess entirely, on any host.
+const LINUX_ARCHIVE_EXECUTABLE_NAMES = new Set([
+  "ZomboidControlPanel",
+  "start.sh",
+  "install-linux-service.sh",
+]);
+
+function createLinuxReleaseArchive(sourceDir, archivePath) {
+  return new Promise((resolve, reject) => {
+    const output = fs.createWriteStream(archivePath);
+    const archive = archiver("tar", { gzip: true });
+
+    output.on("close", resolve);
+    archive.on("error", reject);
+    archive.pipe(output);
+
+    archive.directory(sourceDir, false, (entry) => {
+      if (entry.stats.isDirectory()) {
+        entry.mode = 0o755;
+      } else {
+        entry.mode = LINUX_ARCHIVE_EXECUTABLE_NAMES.has(path.basename(entry.name))
+          ? 0o755
+          : 0o644;
+      }
+      return entry;
+    });
+
+    archive.finalize();
+  });
+}
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -154,6 +194,7 @@ needs internet).
 - Start.bat                - Windows launch script
 - start.sh                 - Linux launch script
 - zomboid-panel.service    - systemd unit file (Linux) — see docs/install/linux.md, in this folder
+- install-linux-service.sh - explicit systemd installer; run with --enable to start the service
 - docker-compose.install.yml - Docker Compose installer (published panel image)
 - docs/install/            - Install guides for every platform (see Where To Go Next, above)
 - client/dist/             - Web interface (required, must stay alongside binary)
@@ -214,13 +255,12 @@ export function generateStartBat() {
   //      ZomboidControlPanel.exe-dir\.update-pending  (a small JSON marker)
   //      and exits with code 75.
   //   3. This .bat sees exit 75 OR sees .update-pending and performs the
-  //      apply: back up the running .exe -> rename newest .new/.new2 to .exe
-  //      -> delete the marker -> relaunch.
+  //      apply: back up the running .exe and client/dist, activate both staged
+  //      artifacts, and retain both backups until the new listener acknowledges.
   //   4. All apply events are logged to logs\supervisor.log for diagnostics.
   //
-  // Picks the launch target by mtime among .exe / .exe.new / .exe.new2 so a
-  // freshly-staged file always wins on the very first launch (before any
-  // apply has run), keeping the original one-shot install behavior intact.
+  // A staged binary is never selected by mtime alone. It is launched only
+  // after the matching frontend has been activated by the journaled apply.
   //
   // Crash-loop protection: any exit code other than 0 (clean shutdown) or 75
   // (update requested), with no update marker present, is treated as a crash
@@ -240,7 +280,12 @@ cd /d "%~dp0"
 set "PANEL_SUPERVISOR_V=2"
 set "INSTALL_DIR=%~dp0"
 set "MARKER=%INSTALL_DIR%.update-pending"
+set "APPLYING=%INSTALL_DIR%.update-applying"
+set "JOURNAL=%INSTALL_DIR%update-bundle.json"
 set "BASE_EXE=ZomboidControlPanel.exe"
+set "BIN_BACKUP=ZomboidControlPanel.exe.bundle-previous"
+set "CLIENT_LIVE=%INSTALL_DIR%client\\dist"
+set "CLIENT_BACKUP=%INSTALL_DIR%client\\dist.previous"
 set "LOG_DIR=%INSTALL_DIR%logs"
 set "LOG_FILE=%LOG_DIR%\\supervisor.log"
 
@@ -264,18 +309,14 @@ echo.
   rem === If an update is pending, apply it before launching. ===
   if exist "%MARKER%" call :apply_update
 
-  rem === Pick the binary to launch. Newest of .exe / .exe.new / .exe.new2. ===
-  rem === A fresh install only ever has the plain .exe -- build.js copies   ===
-  rem === the packaged binary straight to ZomboidControlPanel.exe, and the  ===
-  rem === release zip is that folder as-is, so there is no .new on first    ===
-  rem === run. .new/.new2 only appear later, staged in place by an update.  ===
-  set "TARGET="
-  for /f "usebackq delims=" %%F in (\`powershell -NoProfile -Command "Get-ChildItem -LiteralPath '.' -File | Where-Object { $_.Name -match '^ZomboidControlPanel\\.exe(\\.new2?)?$' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty Name"\`) do set "TARGET=%%F"
+  rem === A staged binary must never launch by mtime alone: its matching    ===
+  rem === frontend is still inactive until the journaled apply transaction. ===
+  set "TARGET=%BASE_EXE%"
 
-  if not defined TARGET (
+  if not exist "%INSTALL_DIR%!TARGET!" (
     call :stamp "ERROR no ZomboidControlPanel binary found"
     echo ERROR: No ZomboidControlPanel binary found in this folder.
-    echo Expected one of: ZomboidControlPanel.exe, .exe.new, .exe.new2
+    echo Expected: ZomboidControlPanel.exe
     pause
     exit /b 1
   )
@@ -288,6 +329,12 @@ echo.
   "%INSTALL_DIR%!TARGET!"
   set "EXITCODE=!ERRORLEVEL!"
   call :stamp "Panel exited with code !EXITCODE!"
+
+  if exist "%APPLYING%" (
+    call :stamp "Apply: startup handshake failed; rolling back bundle [startup_handshake_failed]"
+    call :rollback_update
+    goto run_loop
+  )
 
   rem Exit code 75 = panel requested restart-for-update.
   if "!EXITCODE!"=="75" (
@@ -372,53 +419,166 @@ echo.
 
 
 rem ============================================================
-rem :apply_update  — rename staged binary into place.
-rem  - Picks newest of .exe.new / .exe.new2 as the source.
-rem  - Backs up current .exe to .exe.bak-yyyyMMdd-HHmmss.
-rem  - Renames staged -> .exe.
-rem  - Keeps the 3 most recent .bak-* files, deletes older.
+rem :apply_update  — activate the journaled frontend/backend bundle.
+rem  - Picks newest of .exe.new / .exe.new2 as the binary source.
+rem  - Backs up current .exe and client\\dist under fixed transaction names.
+rem  - Keeps both backups until the new backend acknowledges listener startup.
 rem ============================================================
 :apply_update
   call :stamp "Apply: marker present, beginning swap"
+
+  if not exist "%JOURNAL%" (
+    call :stamp "Apply: update-bundle.json missing [version_mismatch]"
+    del /f /q "%MARKER%" >nul 2>&1
+    goto :eof
+  )
 
   set "STAGED_NAME="
   for /f "usebackq delims=" %%F in (\`powershell -NoProfile -Command "Get-ChildItem -LiteralPath '.' -File | Where-Object { $_.Name -match '^ZomboidControlPanel\\.exe\\.new2?$' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty Name"\`) do set "STAGED_NAME=%%F"
 
   if not defined STAGED_NAME (
-    call :stamp "Apply: no .new/.new2 staged file found; clearing marker"
+    call :stamp "Apply: staged binary missing or quarantined [av_quarantine]"
     del /f /q "%MARKER%" >nul 2>&1
     goto :eof
   )
 
+  set "STAGED_CLIENT="
+  for /f "usebackq delims=" %%F in (\`powershell -NoProfile -Command "$j=Get-Content -LiteralPath $env:JOURNAL -Raw | ConvertFrom-Json; $j.paths.stagedClient"\`) do set "STAGED_CLIENT=%%F"
+  if not defined STAGED_CLIENT (
+    call :stamp "Apply: staged frontend path missing from journal [version_mismatch]"
+    goto :eof
+  )
+  if not exist "!STAGED_CLIENT!\\index.html" (
+    call :stamp "Apply: staged frontend missing index.html [frontend_swap_failed]"
+    goto :eof
+  )
+
+  if exist "%BIN_BACKUP%" del /f /q "%BIN_BACKUP%" >nul 2>&1
+  if exist "%CLIENT_BACKUP%" rmdir /s /q "%CLIENT_BACKUP%" >nul 2>&1
+
   if not exist "%BASE_EXE%" goto :do_rename
 
-  rem Build a timestamp suffix for the backup file.
-  for /f "usebackq delims=" %%T in (\`powershell -NoProfile -Command "Get-Date -Format 'yyyyMMdd-HHmmss'"\`) do set "TS=%%T"
-  set "BACKUP=%BASE_EXE%.bak-!TS!"
-  call :stamp "Apply: backing up %BASE_EXE% to !BACKUP!"
-  ren "%BASE_EXE%" "!BACKUP!" >nul 2>&1
+  call :stamp "Apply: backing up %BASE_EXE% to %BIN_BACKUP%"
+  ren "%BASE_EXE%" "%BIN_BACKUP%" >nul 2>&1
   if errorlevel 1 (
-    call :stamp "Apply: ERROR could not back up running .exe ^(still locked?^); aborting swap"
+    call :stamp "Apply: could not back up running executable [binary_swap_failed]"
     echo ERROR: could not rename %BASE_EXE% — is the panel still running?
-    pause
     goto :eof
   )
 
 :do_rename
-  call :stamp "Apply: renaming !STAGED_NAME! to %BASE_EXE%"
-  ren "!STAGED_NAME!" "%BASE_EXE%" >nul 2>&1
+  if exist "%CLIENT_LIVE%" (
+    move "%CLIENT_LIVE%" "%CLIENT_BACKUP%" >nul 2>&1
+    if errorlevel 1 (
+      call :stamp "Apply: could not back up live frontend [frontend_swap_failed]"
+      call :rollback_update
+      goto :eof
+    )
+  )
+  move "!STAGED_CLIENT!" "%CLIENT_LIVE%" >nul 2>&1
   if errorlevel 1 (
-    call :stamp "Apply: ERROR rename of staged file failed"
-    echo ERROR: could not rename !STAGED_NAME! to %BASE_EXE%.
-    pause
+    call :stamp "Apply: could not activate staged frontend [frontend_swap_failed]"
+    call :rollback_update
     goto :eof
   )
 
-  del /f /q "%MARKER%" >nul 2>&1
-  call :stamp "Apply: success — update applied"
+  call :stamp "Apply: renaming !STAGED_NAME! to %BASE_EXE%"
+  ren "!STAGED_NAME!" "%BASE_EXE%" >nul 2>&1
+  if errorlevel 1 (
+    call :stamp "Apply: executable activation failed [binary_swap_failed]"
+    echo ERROR: could not rename !STAGED_NAME! to %BASE_EXE%.
+    call :rollback_update
+    goto :eof
+  )
 
-  rem Prune .bak-* keeping the 3 most recent.
-  powershell -NoProfile -Command "Get-ChildItem -LiteralPath '.' -File -Filter 'ZomboidControlPanel.exe.bak-*' | Sort-Object LastWriteTime -Descending | Select-Object -Skip 3 | Remove-Item -Force -ErrorAction SilentlyContinue" >nul 2>&1
+  move /y "%MARKER%" "%APPLYING%" >nul 2>&1
+  if errorlevel 1 (
+    call :stamp "Apply: could not move pending marker to applying state [bundle_apply_failed]"
+    call :rollback_update
+    goto :eof
+  )
+  if not exist "%APPLYING%" (
+    call :stamp "Apply: applying marker missing after state transition [bundle_apply_failed]"
+    call :rollback_update
+    goto :eof
+  )
+  call :stamp "Apply: bundle activated; waiting for backend startup acknowledgement"
+goto :eof
+
+
+:rollback_update
+  call :stamp "Apply: restoring previous frontend and backend"
+  set "ROLLBACK_FAILED=0"
+  set "BINARY_RESTORE_OK=1"
+  if not exist "%BIN_BACKUP%" (
+    call :stamp "Apply: binary restore failed; backup is missing [rollback_failed]"
+    set "BINARY_RESTORE_OK=0"
+  ) else (
+    if exist "%BASE_EXE%" (
+      del /f /q "%BASE_EXE%" >nul 2>&1
+      if exist "%BASE_EXE%" (
+        call :stamp "Apply: binary restore failed; active executable could not be removed [rollback_failed]"
+        set "BINARY_RESTORE_OK=0"
+      )
+    )
+    if "!BINARY_RESTORE_OK!"=="1" (
+      ren "%BIN_BACKUP%" "%BASE_EXE%" >nul 2>&1
+      if errorlevel 1 (
+        call :stamp "Apply: binary restore failed; backup could not be activated [rollback_failed]"
+        set "BINARY_RESTORE_OK=0"
+      )
+    )
+    if not exist "%BASE_EXE%" set "BINARY_RESTORE_OK=0"
+    if exist "%BIN_BACKUP%" set "BINARY_RESTORE_OK=0"
+  )
+  if "!BINARY_RESTORE_OK!"=="0" set "ROLLBACK_FAILED=1"
+
+  set "CLIENT_RESTORE_OK=1"
+  if not exist "%CLIENT_BACKUP%" (
+    call :stamp "Apply: frontend restore failed; backup is missing [rollback_failed]"
+    set "CLIENT_RESTORE_OK=0"
+  ) else (
+    if exist "%CLIENT_LIVE%" (
+      rmdir /s /q "%CLIENT_LIVE%" >nul 2>&1
+      if exist "%CLIENT_LIVE%" (
+        call :stamp "Apply: frontend restore failed; active frontend could not be removed [rollback_failed]"
+        set "CLIENT_RESTORE_OK=0"
+      )
+    )
+    if "!CLIENT_RESTORE_OK!"=="1" (
+      move "%CLIENT_BACKUP%" "%CLIENT_LIVE%" >nul 2>&1
+      if errorlevel 1 (
+        call :stamp "Apply: frontend restore failed; backup could not be activated [rollback_failed]"
+        set "CLIENT_RESTORE_OK=0"
+      )
+    )
+    if not exist "%CLIENT_LIVE%" set "CLIENT_RESTORE_OK=0"
+    if exist "%CLIENT_BACKUP%" set "CLIENT_RESTORE_OK=0"
+  )
+  if "!CLIENT_RESTORE_OK!"=="0" set "ROLLBACK_FAILED=1"
+
+  if "!ROLLBACK_FAILED!"=="1" (
+    call :stamp "Apply: rollback incomplete; journal retained for recovery [rollback_failed]"
+    echo ERROR: update rollback was incomplete. Recovery files were retained.
+    goto :eof
+  )
+
+  del /f /q "%MARKER%" "%APPLYING%" >nul 2>&1
+  if exist "%MARKER%" (
+    call :stamp "Apply: rollback cleanup incomplete; pending marker remains, journal retained [rollback_failed]"
+    goto :eof
+  )
+  if exist "%APPLYING%" (
+    call :stamp "Apply: rollback cleanup incomplete; applying marker remains, journal retained [rollback_failed]"
+    goto :eof
+  )
+
+  del /f /q "%JOURNAL%" >nul 2>&1
+  if exist "%JOURNAL%" (
+    call :stamp "Apply: rollback restored artifacts but could not remove journal [rollback_failed]"
+    goto :eof
+  )
+  call :stamp "Apply: rollback complete"
 goto :eof
 
 
@@ -432,15 +592,42 @@ goto :eof
 
 export function generateStartSh() {
   return `#!/bin/bash
-# Zomboid Control Panel — Linux launcher
+# Zomboid Control Panel — Linux supervisor
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
+
+export PANEL_SUPERVISOR_V=2
+export PANEL_PRESERVE_GAME_SERVERS=1
+
+PANEL_PID=""
+STOPPING=0
+CRASH_COUNT=0
+MAX_RAPID_CRASHES="\${PANEL_SUPERVISOR_MAX_CRASHES:-5}"
+BACKOFF_SECONDS="\${PANEL_SUPERVISOR_BACKOFF_SECONDS:-2}"
+
+stop_panel() {
+  STOPPING=1
+  if [ -n "$PANEL_PID" ] && kill -0 "$PANEL_PID" 2>/dev/null; then
+    # The panel has its own session. Its detached Project Zomboid process has
+    # another process group, so this signal cannot stop the game server.
+    kill -TERM -- "-$PANEL_PID" 2>/dev/null || kill -TERM "$PANEL_PID" 2>/dev/null || true
+  fi
+}
+
+trap 'stop_panel TERM' TERM
+trap 'stop_panel INT' INT
 
 echo "Starting Zomboid Control Panel..."
 echo ""
 
 if [ ! -f "./ZomboidControlPanel" ]; then
   echo "ERROR: ./ZomboidControlPanel was not found in this folder."
+  exit 1
+fi
+
+if ! command -v setsid >/dev/null 2>&1; then
+  echo "ERROR: setsid is required to isolate panel restarts from Project Zomboid."
+  echo "Install the util-linux package and try again."
   exit 1
 fi
 
@@ -462,13 +649,66 @@ if [ "$(id -u)" = "0" ]; then
   echo "WARNING: Running as root is not recommended. Consider creating a dedicated user."
 fi
 
-./ZomboidControlPanel
+while true; do
+  if [ "$STOPPING" = "1" ]; then
+    exit 0
+  fi
+
+  PANEL_STARTED_AT=$(date +%s)
+  setsid ./ZomboidControlPanel &
+  PANEL_PID=$!
+  wait "$PANEL_PID"
+  EXIT_CODE=$?
+  PANEL_PID=""
+  PANEL_RUNTIME=$(($(date +%s) - PANEL_STARTED_AT))
+
+  if [ "$STOPPING" = "1" ]; then
+    exit 0
+  fi
+
+  # A clean exit is an operator-requested stop. Exit code 75 is the explicit
+  # updater hand-off; non-zero exits are restarted with a bounded backoff.
+  if [ "$EXIT_CODE" = "0" ]; then
+    exit 0
+  fi
+
+  if [ "$EXIT_CODE" = "75" ]; then
+    CRASH_COUNT=0
+    echo "Panel requested a supervised restart."
+    continue
+  fi
+
+  if [ "$PANEL_RUNTIME" -ge 30 ]; then
+    CRASH_COUNT=0
+  fi
+  CRASH_COUNT=$((CRASH_COUNT + 1))
+  if [ "$CRASH_COUNT" -gt "$MAX_RAPID_CRASHES" ]; then
+    echo "ERROR: Panel exited $CRASH_COUNT times; giving up (last exit $EXIT_CODE)."
+    exit "$EXIT_CODE"
+  fi
+
+  echo "Panel exited with code $EXIT_CODE; restarting in $BACKOFF_SECONDS second(s)..."
+  sleep "$BACKOFF_SECONDS" &
+  SLEEP_PID=$!
+  wait "$SLEEP_PID" || true
+done
 `;
 }
 
 async function main() {
   const args = process.argv.slice(2);
   const targets = resolveTargets(args);
+  const rootPkg = JSON.parse(fs.readFileSync("./package.json", "utf-8"));
+  const panelVersion = rootPkg.version || "0.0.0";
+  let buildSha = process.env.GITHUB_SHA || process.env.PANEL_BUILD_SHA || "";
+  if (!buildSha) {
+    try {
+      buildSha = execSync("git rev-parse HEAD", { encoding: "utf8" }).trim();
+    } catch {
+      buildSha = "unknown";
+    }
+  }
+  const apiContractVersion = 1;
 
   await cleanDir(distDir);
   if (!fs.existsSync(distDir)) {
@@ -482,7 +722,15 @@ async function main() {
 
   console.log("Building client...");
   try {
-    execSync("npm run build", { cwd: "./client", stdio: "inherit" });
+    execSync("npm run build", {
+      cwd: "./client",
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        PANEL_BUILD_SHA: buildSha,
+        PANEL_API_CONTRACT_VERSION: String(apiContractVersion),
+      },
+    });
     console.log("Client built successfully");
   } catch (error) {
     console.error("Client build failed:", error.message);
@@ -491,9 +739,8 @@ async function main() {
 
   console.log("Building server bundle...");
 
-  const rootPkg = JSON.parse(fs.readFileSync("./package.json", "utf-8"));
-  const panelVersion = rootPkg.version || "0.0.0";
   console.log(`Version: ${panelVersion}`);
+  console.log(`Build SHA: ${buildSha}`);
 
   // Read PanelBridge.lua and inline it as a base64 define so it lives INSIDE
   // server.cjs (and therefore inside the pkg binary). pkg's `assets` glob was
@@ -531,6 +778,8 @@ async function main() {
     define: {
       "import.meta.url": "import_meta_url",
       PANEL_VERSION: JSON.stringify(panelVersion),
+      PANEL_BUILD_SHA: JSON.stringify(buildSha),
+      PANEL_API_CONTRACT_VERSION: JSON.stringify(apiContractVersion),
       PANEL_BRIDGE_LUA_B64: JSON.stringify(panelBridgeLuaB64),
     },
     banner: {
@@ -761,6 +1010,13 @@ Recommended safe-upgrade commands:
       "./release/zomboid-panel.service",
     );
   }
+  if (fs.existsSync("./install-linux-service.sh")) {
+    fs.copyFileSync(
+      "./install-linux-service.sh",
+      "./release/install-linux-service.sh",
+    );
+    fs.chmodSync("./release/install-linux-service.sh", 0o755);
+  }
 
   if (fs.existsSync("./docker-compose.install.yml")) {
     fs.copyFileSync(
@@ -795,6 +1051,8 @@ Recommended safe-upgrade commands:
     JSON.stringify(
       {
         version: panelVersion,
+        buildSha,
+        apiContractVersion,
         builtAt: new Date().toISOString(),
         hostPlatform: process.platform,
         targets,
@@ -827,10 +1085,19 @@ Recommended safe-upgrade commands:
   if (fs.existsSync("./release/zomboid-panel.service")) {
     console.log("  - zomboid-panel.service");
   }
+  if (fs.existsSync("./release/install-linux-service.sh")) {
+    console.log("  - install-linux-service.sh");
+  }
   if (fs.existsSync("./release/docker-compose.install.yml")) {
     console.log("  - docker-compose.install.yml");
   }
   console.log("  - README.txt");
+
+  if (targets.includes("linux")) {
+    console.log("Packaging Linux release archive...");
+    await createLinuxReleaseArchive(releaseDir, linuxArchivePath);
+    console.log(`Wrote ${linuxArchivePath}`);
+  }
 }
 
 const isMainModule =

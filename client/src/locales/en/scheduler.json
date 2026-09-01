@@ -45,6 +45,7 @@
     "scheduleTypeLabel": "Schedule Type",
     "tabSimple": "Simple Builder",
     "tabAdvanced": "Advanced (Cron)",
+    "timezoneNotice": "Times below run in the panel's timezone: {{tz}}",
     "frequencyLabel": "Frequency",
     "freqHourly": "Every Hour (at minute 0)",
     "freqInterval": "Every X Hours",
@@ -66,6 +67,7 @@
     "cronFormatHint": "Format: minute hour day month weekday",
     "cronValidExpression": "Valid expression",
     "commandLabel": "Command",
+    "commandTip": "This runs unattended on the schedule above, with no confirmation each time it fires. Pick something safe to repeat automatically -- a custom command isn't checked against a safe list, and it keeps running until you disable or delete this task.",
     "commandSelectPlaceholder": "Select common command...",
     "commandCustomPlaceholder": "Or enter custom command",
     "bridgeFormatHint": "Format: <1>bridge:&lt;action&gt; {json args}</1> — e.g. <2>bridge:triggerBlizzard {\"durationHours\":2}</2>. Args are optional. Only allow-listed actions run via the scheduler.",
@@ -180,6 +182,18 @@
     "everyNUnits": "<1>*/n</1> = every n units",
     "every2HoursExample": "<1>0 */2 * * *</1> = every 2 hours",
     "daily6amExample": "<1>0 6 * * *</1> = daily at 6 AM"
+  },
+  "timezone": {
+    "title": "Scheduler Timezone",
+    "description": "Every schedule below -- your tasks, the automatic backup, and auto-restart -- runs in this timezone.",
+    "inputLabel": "IANA timezone name",
+    "noMatches": "No matching timezone",
+    "saveButton": "Save",
+    "currentlyEffective": "Currently in effect: {{tz}}",
+    "savedDesc": "Schedules now run in {{tz}}.",
+    "saveFailedFallback": "Failed to save the timezone",
+    "fallbackTitle": "Saved timezone is no longer valid",
+    "fallbackDesc": "\"{{configured}}\" could not be used (it may have been removed from the timezone database, or this panel was restored from a different machine). Schedules are running in {{effective}} until this is fixed."
   },
   "toasts": {
     "errorTitle": "Error",

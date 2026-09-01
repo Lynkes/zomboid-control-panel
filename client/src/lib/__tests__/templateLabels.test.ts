@@ -28,6 +28,26 @@ describe('getIniKeyLabel / getSandboxKeyLabel', () => {
   it('falls back to a humanized key for unknown settings', () => {
     expect(getSandboxKeyLabel('SomeBrandNewSetting')).toBe('Some Brand New Setting')
   })
+
+  // bug-hunt-2026-08-31: PZ's own SandboxVars.lua genuinely reuses the same
+  // key across two unrelated tables -- 'Farming' is both settings.Farming
+  // (a 1-5 Agriculture-skill-growth select) and MultiplierConfig.Farming (a
+  // 0.001-1000 XP multiplier). Without `section`, getSandboxKeyLabel('Farming')
+  // always resolved to whichever entry happened to come first in
+  // SANDBOX_SCHEMA -- TemplateDiffList.tsx (the "review before applying"
+  // template preview) would show the WRONG label on one of the two rows for
+  // any template touching both. This is the regression test: passing the
+  // diff row's own `section` must resolve each to its real, distinct
+  // setting rather than colliding on the bare key.
+  it('disambiguates a key PZ reuses across two unrelated sandbox tables using `section`', () => {
+    expect(getSandboxKeyLabel('Farming', 'settings')).toBe('Agriculture Multiplier')
+    expect(getSandboxKeyLabel('Farming', 'MultiplierConfig')).toBe('Farming XP')
+    expect(getSandboxKeyLabel('Farming', 'settings')).not.toBe(getSandboxKeyLabel('Farming', 'MultiplierConfig'))
+  })
+
+  it('without a section, falls back to the first schema match (documents the pre-fix ambiguity, not a new guarantee)', () => {
+    expect(getSandboxKeyLabel('Farming')).toBe('Agriculture Multiplier')
+  })
 })
 
 describe('formatDifficultyLabel', () => {

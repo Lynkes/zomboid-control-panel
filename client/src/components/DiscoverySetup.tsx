@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { getUserErrorMessage } from '@/lib/errorMessage'
 import { Loader2, AlertCircle } from 'lucide-react'
 import {
   Dialog,
@@ -73,7 +74,7 @@ export function DiscoverySetup({ open, onOpenChange, mount, onCreated }: Discove
       toast({ title: t('toastServerAdded') })
       onOpenChange(false)
     } catch (error) {
-      setCreateError(error instanceof Error ? error.message : t('failedToCreate'))
+      setCreateError(getUserErrorMessage(error, t('failedToCreate')))
     } finally {
       setCreating(false)
     }

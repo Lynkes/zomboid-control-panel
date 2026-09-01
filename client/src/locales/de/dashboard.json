@@ -22,6 +22,7 @@
       "STOP_TIMEOUT": "Der Server hat innerhalb von 5 Minuten nicht gestoppt.",
       "STEAMCMD_NOT_FOUND": "SteamCMD wurde unter {{path}} nicht gefunden.",
       "STEAMCMD_EXIT_CODE": "SteamCMD wurde mit Code {{code}} beendet.",
+      "STEAM_OPERATION_IN_PROGRESS": "Für {{path}} lief bereits eine Steam-Installation oder ein Update, daher wurde das automatische Update abgebrochen, um eine Kollision zu vermeiden.",
       "UNKNOWN": "Beim automatischen Update ist ein unerwarteter Fehler aufgetreten."
     }
   },
@@ -34,6 +35,7 @@
     "ariaLabel": "Serverstatus",
     "everythingNominal": "Alles normal",
     "upPrefix": "seit {{uptime}}",
+    "mapTooltip": "Karte (von PanelBridge)",
     "remoteBadge": "Remote",
     "noActiveServer": "Kein aktiver Server"
   },
@@ -171,6 +173,11 @@
     "applyUpdate": "Update anwenden",
     "viewUpdate": "Update anzeigen"
   },
+  "updateCheckError": {
+    "label": "Panel-Updates können nicht geprüft werden",
+    "dismissAria": "Update-Prüfungshinweis ausblenden",
+    "dismissTooltip": "Ausblenden, bis sich das ändert"
+  },
   "connectionError": {
     "label": "Verbindungsfehler",
     "suffix": ". Einige Funktionen sind möglicherweise nicht verfügbar.",
@@ -220,6 +227,9 @@
     "live": "live",
     "lastSecondsLive": "letzte {{seconds}} s · live",
     "lastMinutesLive": "letzte {{minutes}} Min. · live",
+    "unconfirmed": "unbestätigt",
+    "lastSecondsUnconfirmed": "letzte {{seconds}} s · unbestätigt",
+    "lastMinutesUnconfirmed": "letzte {{minutes}} Min. · unbestätigt",
     "placeholderOnline": "Telemetriedaten erscheinen im nächsten Messzyklus.",
     "placeholderOffline": "Starte den Server, um CPU-, RAM- und Spielermetriken zu verfolgen."
   },
@@ -246,6 +256,7 @@
   },
   "workItems": {
     "players": "Spieler",
+    "zombies": "Zombies",
     "console": "Konsole",
     "mods": "Mods",
     "schedule": "Zeitplan",

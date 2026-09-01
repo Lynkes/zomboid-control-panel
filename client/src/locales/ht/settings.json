@@ -79,7 +79,12 @@
     "appearanceTitle": "Aparans",
     "appearanceDesc": "Tèm panèl la ak style vizyèl.",
     "themeLabel": "Tèm",
-    "themeDesc": "Chwazi ant aparans siviv brital la oswa yon tèm klè pwòp."
+    "themeDesc": "Chwazi ant aparans siviv brital la oswa yon tèm klè pwòp.",
+    "confirmRestartTitle": "Restart the panel?",
+    "restartGameServerPreserved": "Lansè yo detekte a izole redemaraj panèl yo. Sèvè Project Zomboid k ap kouri yo ap rete anliy.",
+    "restartGameServerRisk": "Enstalasyon sa a pa itilize lansè Linux ki pwoteje a. Redemare panèl la ka sispann pwosesis sèvè Project Zomboid k ap kouri yo.",
+    "restartGameServerUnknown": "Panèl la pa t kapab detèmine si sèvè Project Zomboid k ap kouri yo ap siviv redemaraj sa a.",
+    "confirmRestartRisk": "Mwen konprann sèvè jwèt k ap kouri yo ka sispann."
   },
 
   "access": {
@@ -155,7 +160,7 @@
     "avExclusionHint": "Ajoute dosye sa a nan eksklizyon antivirus ou epi eseye ankò:",
     "windowsDefenderLabel": "Windows Defender:",
     "renameLocked": "yon lòt pwosesis (OneDrive, antivirus, oswa yon obsèvatè fichye) te kenbe fichye exe a bloke. Mete OneDrive an pòz oswa fèmen fenèt explorer ki pwente sou dosye a, epi eseye ankò.",
-    "permissionDenied": "aksè refize pou ekri nan dosye panèl la. Relanse panèl la kòm Administratè oswa deplase l soti nan Program Files.",
+    "permissionDenied": "aksè refize pou ekri nan dosye panèl la. Verifye pèmisyon kont k ap fè panèl la mache a.",
     "helperBlocked": "eskript asistans mizajou a te bloke pou l fonksyone (Windows Defender ASR, AppLocker, oswa Group Policy). Fichye pare a toujou sou disk la.",
     "helperBlockedRecoveryLabel": "Rekiperasyon:",
     "helperBlockedRecovery": "fèmen panèl sa a epi doub-klike sou <code>Start.bat</code> nan:",
@@ -181,7 +186,7 @@
     "confirmApplyIntro": "Panèl la ap fèmen imedyatman. Yon pwosesis asistans ap ranplase fichye egzekitab la epi relanse l nan kèk segonn.",
     "confirmApplyVersionSuffix": " Ou apral enstale v{{version}}.",
     "confirmBeforeContinuing": "Tanpri konfime anvan w kontinye:",
-    "helperLogHint": "Si nouvo vèsyon an pa tounen anliy nan yon minit, tcheke jounal asistans lan nan <code>%TEMP%</code>(<code>zomboid-panel-update-*.log</code>) epi relanse panèl la manyèlman.",
+    "helperLogHint": "Si nouvo vèsyon an pa retounen anliy nan yon minit, verifye jounal mizajou a nan <code>{{path}}</code> epi relanse panèl la manyèlman.",
     "restartAndApply": "Redemare epi aplike",
     "applyingDownloadedToast": "N ap aplike mizajou telechaje a. Panèl la ap redemare...",
     "viewReleaseNotes": "Gade Nòt Vèsyon",
@@ -192,7 +197,16 @@
     "footerDownloadThenRestart": "Telechaje mizajou a, epi redemare pou aplike l.",
     "footerNoUpdate": "Pa gen mizajou ki pare pou enstale.",
     "footerDockerHandled": "Kontwolè lame ki konfigire a jere mizajou Docker yo.",
-    "footerAutoUpdateDevMode": "Mizajou otomatik fonksyone sèlman nan vèsyon anpakte. Nan mòd devlopman, mete ajou soti nan git."
+    "footerAutoUpdateDevMode": "Mizajou otomatik fonksyone sèlman nan vèsyon anpakte. Nan mòd devlopman, mete ajou soti nan git. W ap fonksyone nan Docker san kontwolè mizajou konfigire? Mete ajou ak docker compose pull && docker compose up -d.",
+    "permissionDeniedWindows": "aksè refize pou ekri nan dosye panèl la. Relanse panèl la kòm Administratè oswa deplase l soti nan Program Files.",
+    "permissionDeniedPosix": "aksè refize pou ekri nan dosye panèl la. Verifye pwopriyetè a ak pèmisyon ekriti pou itilizatè sèvis panèl la.",
+    "helperLogHintWindows": "Si nouvo vèsyon an pa retounen anliy nan yon minit, verifye <code>{{path}}</code>. Ansyen helper yo ka gen jounal tou anba <code>%TEMP%</code>.",
+    "helperLogHintPosix": "Si nouvo vèsyon an pa retounen anliy nan yon minit, verifye <code>{{path}}</code>. Pou enstalasyon systemd, verifye tou <code>journalctl -u zomboid-panel</code>.",
+    "logPathUnavailable": "dosye jounal panèl la",
+    "gameServerPreserved": "Lansè yo detekte a ap redemare sèlman panèl la. Sèvè jwèt k ap kouri yo ap rete anliy.",
+    "gameServerRisk": "Atansyon: sèvis Linux sa a pa itilize lansè ki pwoteje a. Aplike mizajou a ka sispann sèvè jwèt k ap kouri yo.",
+    "gameServerUnknown": "Panèl la pa t kapab detèmine si sèvè jwèt k ap kouri yo ap siviv redemaraj mizajou a.",
+    "confirmGameServerRisk": "Mwen konprann sèvè jwèt k ap kouri yo ka sispann."
   },
 
   "https": {
@@ -220,7 +234,13 @@
     "reverseProxyTitle": "Nòt Proxy Envès",
     "reverseProxyDesc": "Si Nginx, Caddy, oswa Cloudflare Tunnel ap jere TLS, kite HTTPS panèl la dezaktive epi fè proxy sou HTTP lokal.",
     "restartRequiredTitle": "Redemaraj Obligatwa",
-    "restartRequiredDesc": "Chanjman HTTPS mande yon redemaraj. Sove anvan, epi redemare soti nan Paramèt Panèl."
+    "restartRequiredDesc": "Chanjman HTTPS mande yon redemaraj. Sove anvan, epi redemare soti nan Paramèt Panèl.",
+    "certPathPlaceholder": "Path to the certificate PEM file",
+    "certPathPlaceholderWindows": "Example: C:\\certs\\panel.fullchain.pem",
+    "certPathPlaceholderPosix": "Example: /etc/zomboid-panel/panel.fullchain.pem",
+    "keyPathPlaceholder": "Path to the private key PEM file",
+    "keyPathPlaceholderWindows": "Example: C:\\certs\\panel.privkey.pem",
+    "keyPathPlaceholderPosix": "Example: /etc/zomboid-panel/panel.privkey.pem"
   },
 
   "connection": {
@@ -417,6 +437,7 @@
     "existingBackupsTitle": "Kopi Sovgad ki Egziste",
     "emptyTitle": "Poko gen kopi sovgad",
     "emptyDescription": "Klike sou \"Fè Kopi Sovgad Kounye a\" pou kreye youn.",
+    "emptyDescriptionSavesNotFound": "\"Fè Kopi Sovgad Kounye a\" dezaktive paske dosye sovgad la pa jwenn. Tcheke chemen done Zomboid sèvè aktif la nan paj Sèvè a, epi louvri tab sa a ankò.",
     "loadFailedTitle": "Pa t kapab chaje kopi sovgad yo",
     "loadFailedDescription": "Sa a pa nesesèman yon lis vid — demann lis kopi sovgad la echwe. Louvri paj sa a ankò pou eseye ankò.",
     "statusLoadFailed": "Pa t kapab tcheke si kopi sovgad pwograme yo aktive — bouton sa a dezaktive jistan li chaje. Louvri paj sa a ankò pou eseye ankò.",
@@ -511,6 +532,7 @@
     "installedVersionLabel": "Vèsyon enstale",
     "latestAvailableLabel": "Dènye disponib",
     "updateAvailableBadge": "Mizajou disponib",
+    "upToDateBadge": "Ajou",
     "notCheckedYet": "Poko tcheke",
     "description": "Yon panèl jesyon sou entènèt pou sèvè dedye Project Zomboid. Genyen RCON, jesyon jwè, deteksyon mizajou mod, redemaraj pwograme, kopi sovgad mond, entegrasyon Discord, ak mod Lua PanelBridge pou aksyon nan mond lan.",
     "supportTitle": "Ou renmen panèl la?",
@@ -544,6 +566,7 @@
     "autoSyncNeedsCookies": "Senkwonizasyon otomatik bezwen cookies sesyon Steam anba a pou vrèman voye chanjman yo.",
     "autoSyncNeedsCollectionId": "Mete yon ID Koleksyon anvan — pa gen anyen pou senkwonize avè l poko.",
     "cookiesLabel": "Cookies Sesyon Steam",
+    "cookiesNeedCollectionId": "Antre yon ID Koleksyon anwo pou konfigire cookies sesyon Steam yo.",
     "configured": "Konfigire",
     "notConfigured": "Pa konfigire",
     "show": "Montre",
@@ -581,6 +604,7 @@
     "testConnection": "Teste koneksyon",
     "testConnectionTitleNeedsCookies": "Ajoute cookies sesyon Steam anvan",
     "testConnectionTitleReady": "Verifye koleksyon an lizib ak cookies sa yo",
+    "readOnlyTestNote": "Tès lekti sèlman; aksè ekriti ap verifye lè yon atik chanje.",
     "checkDrift": "Tcheke diferans",
     "enterCollectionId": "Antre yon ID Koleksyon pou kòmanse.",
     "readingCollection": "N ap li koleksyon an…",

@@ -10,6 +10,15 @@ import { loadPanelBridge } from './helpers/panelBridgeLua.js';
 // harness's HONEST LIMIT note in helpers/panelBridgeLua.js: these fakes
 // encode our belief about getSandboxOptions/getWorld's shape, not a verified
 // PZ truth.
+//
+// UPDATED 2026-08-30 (total-audit batch 1, item 2, Kevin's jar-verified
+// spec): world:saveWorld() does not exist anywhere in the jar -- the real
+// save call is saveGame(), a bare global (same LuaManager$GlobalObject
+// binding tier as getWorld()/getCell()), zero args, void return. The old
+// `world.saveWorld` field-existence guard this handler used was always
+// false regardless of world's real state, so this whole persistence path
+// could never actually run before -- these stubs now model the REAL API
+// (a bare saveGame() global) instead of the belief that broke it.
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LUA_PATH = path.join(
@@ -40,18 +49,18 @@ function FakeSandbox:getOptionByIndex(i) if i == 0 then return FakeOption end re
 getSandboxOptions = function() return setmetatable({}, FakeSandbox) end
 
 FakeWorld = {}
-FakeWorld.__index = FakeWorld
-FakeWorld.shouldFail = false
-function FakeWorld:saveWorld()
-  if FakeWorld.shouldFail then error("disk full (fake)") end
+getWorld = function() return FakeWorld end
+
+FakeSaveGameShouldFail = false
+saveGame = function()
+  if FakeSaveGameShouldFail then error("disk full (fake)") end
 end
-getWorld = function() return setmetatable({}, FakeWorld) end
 `;
 
 describe('PanelBridge.lua handlers.setSandboxOption -- world save persistence (b376b2c)', () => {
-  it('reports persisted=true and no saveError when world:saveWorld() succeeds', () => {
+  it('reports persisted=true and no saveError when saveGame() succeeds', () => {
     const bridge = loadPanelBridge(LUA_PATH, STUBS);
-    bridge.run('FakeWorld.shouldFail = false');
+    bridge.run('FakeSaveGameShouldFail = false');
 
     const result = bridge.callHandler('setSandboxOption', { name: 'ZombieCount', value: '8' });
 
@@ -60,9 +69,9 @@ describe('PanelBridge.lua handlers.setSandboxOption -- world save persistence (b
     expect(result.data.saveError == null).toBe(true);
   });
 
-  it('reports persisted=false with the real failure reason when world:saveWorld() throws -- must NOT report silent success', () => {
+  it('reports persisted=false with the real failure reason when saveGame() throws -- must NOT report silent success', () => {
     const bridge = loadPanelBridge(LUA_PATH, STUBS);
-    bridge.run('FakeWorld.shouldFail = true');
+    bridge.run('FakeSaveGameShouldFail = true');
 
     const result = bridge.callHandler('setSandboxOption', { name: 'ZombieCount', value: '9' });
 

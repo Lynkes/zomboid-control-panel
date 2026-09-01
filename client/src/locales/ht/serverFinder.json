@@ -3,7 +3,8 @@
     "title": "Navige Sèvè Piblik yo",
     "description": "Chèche nan lis piblik sèvè Project Zomboid yo epi kopye yon adrès sèvè pou antre rapid",
     "refreshList": "Aktyalize Lis la",
-    "reloadFromSteam": "Rechaje soti nan Steam"
+    "reloadFromSteam": "Rechaje soti nan Steam",
+    "reloadFromSteamTip": "\"Aktyalize Lis la\" montre rezilta ki soti nan pwòp cache panèl la, ki ka gen jiska yon minit. \"Rechaje soti nan Steam\" toujou mande Steam dirèkteman — itilize l si ou fèk chanje yon bagay sou pwòp sèvè ou epi ou poko wè chanjman an."
   },
   "apiKeyWarning": {
     "title": "Kle API Steam Manke",

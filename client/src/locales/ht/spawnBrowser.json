@@ -28,6 +28,8 @@
   "noResults": "Pa gen rezilta",
   "searchAcrossAllCategories": "Chèche nan tout kategori",
   "recent": "Resan",
+  "clearRecent": "Efase",
+  "clearRecentAria": "Efase istwa resan",
   "spawnAgainTitle": "Fè {{name}} parèt ankò",
   "spawnAgainTitleWithQty": "Fè {{name}} × {{qty}} parèt ankò",
   "selected": "Chwazi",

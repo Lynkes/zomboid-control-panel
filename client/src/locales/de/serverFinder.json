@@ -3,7 +3,8 @@
     "title": "Öffentliche Server durchsuchen",
     "description": "Durchsuche die öffentliche Serverliste von Project Zomboid und kopiere eine Serveradresse, um schnell beizutreten.",
     "refreshList": "Liste aktualisieren",
-    "reloadFromSteam": "Von Steam neu laden"
+    "reloadFromSteam": "Von Steam neu laden",
+    "reloadFromSteamTip": "„Liste aktualisieren“ zeigt Ergebnisse aus dem eigenen Cache des Panels, die bis zu eine Minute alt sein können. „Von Steam neu laden“ fragt immer direkt bei Steam nach — nutze das, wenn du gerade etwas an deinem eigenen Server geändert hast und es noch nicht angezeigt wird."
   },
   "apiKeyWarning": {
     "title": "Steam-API-Schlüssel fehlt",

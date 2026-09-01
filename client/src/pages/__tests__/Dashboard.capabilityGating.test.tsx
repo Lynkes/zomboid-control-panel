@@ -72,7 +72,11 @@ vi.mock('@/lib/api', async () => {
     },
     panelBridgeApi: { ...actual.panelBridgeApi, getStatus: vi.fn() },
     backupApi: { ...actual.backupApi, getStatus: vi.fn() },
-    configApi: { ...actual.configApi, getAppSettings: vi.fn() },
+    configApi: {
+      ...actual.configApi,
+      getAppSettings: vi.fn(),
+      updateAppSettings: vi.fn(),
+    },
     debugApi: { ...actual.debugApi, getPerformanceHistory: vi.fn() },
     panelUpdateApi: { ...actual.panelUpdateApi, getStatus: vi.fn() },
     modsApi: { ...actual.modsApi, getStatus: vi.fn() },
@@ -97,6 +101,7 @@ const getActivityLogs = vi.mocked(playersApi.getActivityLogs)
 const getBridgeStatus = vi.mocked(panelBridgeApi.getStatus)
 const getBackupStatus = vi.mocked(backupApi.getStatus)
 const getAppSettings = vi.mocked(configApi.getAppSettings)
+const updateAppSettings = vi.mocked(configApi.updateAppSettings)
 const getPerformanceHistory = vi.mocked(debugApi.getPerformanceHistory)
 const getPanelUpdateStatus = vi.mocked(panelUpdateApi.getStatus)
 const getModsStatus = vi.mocked(modsApi.getStatus)
@@ -158,6 +163,36 @@ function renderDashboard() {
   )
 }
 
+describe('Dashboard.tsx: Auto-start sends a boolean setting', () => {
+  it('sends both checked states as JSON booleans, not strings', async () => {
+    await setUpCommon()
+    const offline = makeServer()
+    getResolvedActive.mockResolvedValue({ server: offline })
+    getStatus.mockResolvedValue({
+      running: false, startTime: null, uptime: 0, serverPath: 'C:/servers/ashenwood',
+      serverPathConfigured: true, rcon: { host: '', port: 0, connected: false },
+    } as Awaited<ReturnType<typeof serverApi.getStatus>>)
+    updateAppSettings.mockResolvedValue({ success: true })
+
+    renderDashboard()
+
+    await screen.findAllByRole('button', { name: 'Start' })
+    const checkbox = document.getElementById('autoStartServer')
+    expect(checkbox).toBeInTheDocument()
+    fireEvent.click(checkbox!)
+
+    await waitFor(() => {
+      expect(updateAppSettings).toHaveBeenCalledWith({ autoStartServer: true })
+    }, { timeout: 500 })
+
+    fireEvent.click(checkbox!)
+
+    await waitFor(() => {
+      expect(updateAppSettings).toHaveBeenLastCalledWith({ autoStartServer: false })
+    }, { timeout: 500 })
+  })
+})
+
 async function openMoreActionsMenu() {
   // Radix's DropdownMenuTrigger opens on pointerdown, not click (same
   // family of quirk as Tabs switching on mousedown -- see
@@ -186,7 +221,7 @@ describe('Dashboard.tsx: Start is gated on server.control at BOTH of its entry p
     getResolvedActive.mockResolvedValue({ server: offline })
     getStatus.mockResolvedValue({
       running: false, startTime: null, uptime: 0, serverPath: 'C:/servers/ashenwood',
-      configured: true, rcon: { host: '', port: 0, connected: false },
+      serverPathConfigured: true, rcon: { host: '', port: 0, connected: false },
     } as Awaited<ReturnType<typeof serverApi.getStatus>>)
 
     renderDashboard()
@@ -209,7 +244,7 @@ describe('Dashboard.tsx: Start is gated on server.control at BOTH of its entry p
     getResolvedActive.mockResolvedValue({ server: offline })
     getStatus.mockResolvedValue({
       running: false, startTime: null, uptime: 0, serverPath: 'C:/servers/ashenwood',
-      configured: true, rcon: { host: '', port: 0, connected: false },
+      serverPathConfigured: true, rcon: { host: '', port: 0, connected: false },
     } as Awaited<ReturnType<typeof serverApi.getStatus>>)
 
     renderDashboard()
@@ -229,7 +264,7 @@ describe('Dashboard.tsx: Stop/Force Stop/Restart/Save share server.control, gate
     getResolvedActive.mockResolvedValue({ server: online })
     getStatus.mockResolvedValue({
       running: true, startTime: '2026-08-27T00:00:00.000Z', uptime: 120, serverPath: 'C:/servers/ashenwood',
-      configured: true, rcon: { host: '127.0.0.1', port: 27015, connected: true },
+      serverPathConfigured: true, rcon: { host: '127.0.0.1', port: 27015, connected: true },
     } as Awaited<ReturnType<typeof serverApi.getStatus>>)
   }
 
@@ -334,7 +369,7 @@ describe('Dashboard.tsx: Wipe is gated on server.wipe, independently of server.c
     getResolvedActive.mockResolvedValue({ server: online })
     getStatus.mockResolvedValue({
       running: true, startTime: '2026-08-27T00:00:00.000Z', uptime: 120, serverPath: 'C:/servers/ashenwood',
-      configured: true, rcon: { host: '127.0.0.1', port: 27015, connected: true },
+      serverPathConfigured: true, rcon: { host: '127.0.0.1', port: 27015, connected: true },
     } as Awaited<ReturnType<typeof serverApi.getStatus>>)
   }
 
@@ -376,7 +411,7 @@ describe('Dashboard.tsx: Wipe is gated on server.wipe, independently of server.c
     getResolvedActive.mockResolvedValue({ server: offline })
     getStatus.mockResolvedValue({
       running: false, startTime: null, uptime: 0, serverPath: 'C:/servers/ashenwood',
-      configured: true, rcon: { host: '', port: 0, connected: false },
+      serverPathConfigured: true, rcon: { host: '', port: 0, connected: false },
     } as Awaited<ReturnType<typeof serverApi.getStatus>>)
 
     renderDashboard()
@@ -402,7 +437,7 @@ describe('Dashboard.tsx: Wipe is gated on server.wipe, independently of server.c
     getResolvedActive.mockResolvedValue({ server: offline })
     getStatus.mockResolvedValue({
       running: false, startTime: null, uptime: 0, serverPath: 'C:/servers/ashenwood',
-      configured: true, rcon: { host: '', port: 0, connected: false },
+      serverPathConfigured: true, rcon: { host: '', port: 0, connected: false },
     } as Awaited<ReturnType<typeof serverApi.getStatus>>)
     wipePreview.mockResolvedValue({ totalFiles: 5, totalSize: 1024, preview: {} })
     wipe.mockResolvedValue({ success: true, backupCreated: false, backupName: null })
@@ -447,7 +482,7 @@ describe('Dashboard.tsx: Wipe is gated on server.wipe, independently of server.c
     getResolvedActive.mockResolvedValue({ server: offline })
     getStatus.mockResolvedValue({
       running: false, startTime: null, uptime: 0, serverPath: 'C:/servers/ashenwood',
-      configured: true, rcon: { host: '', port: 0, connected: false },
+      serverPathConfigured: true, rcon: { host: '', port: 0, connected: false },
     } as Awaited<ReturnType<typeof serverApi.getStatus>>)
 
     renderDashboard()
@@ -469,7 +504,7 @@ describe('Dashboard.tsx: Wipe is gated on server.wipe, independently of server.c
     getResolvedActive.mockResolvedValue({ server: offline })
     getStatus.mockResolvedValue({
       running: false, startTime: null, uptime: 0, serverPath: 'C:/servers/ashenwood',
-      configured: true, rcon: { host: '', port: 0, connected: false },
+      serverPathConfigured: true, rcon: { host: '', port: 0, connected: false },
     } as Awaited<ReturnType<typeof serverApi.getStatus>>)
     wipePreview.mockResolvedValue({ totalFiles: 5, totalSize: 1024, preview: {} })
     wipe.mockResolvedValue({ success: true, backupCreated: false, backupName: null })

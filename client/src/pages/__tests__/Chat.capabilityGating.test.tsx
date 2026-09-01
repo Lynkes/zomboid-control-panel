@@ -116,6 +116,7 @@ vi.mock('@/lib/api', async () => {
       sendToServerChat: vi.fn(),
       sendToAdminChat: vi.fn(),
       sendToGeneralChat: vi.fn(),
+      getChatInfo: vi.fn(),
     },
   }
 })
@@ -126,6 +127,7 @@ const updateAppSettings = vi.mocked(configApi.updateAppSettings)
 const sendToServerChat = vi.mocked(panelBridgeApi.sendToServerChat)
 const sendToAdminChat = vi.mocked(panelBridgeApi.sendToAdminChat)
 const sendToGeneralChat = vi.mocked(panelBridgeApi.sendToGeneralChat)
+const getChatInfo = vi.mocked(panelBridgeApi.getChatInfo)
 
 afterEach(() => {
   cleanup()
@@ -145,6 +147,7 @@ function renderChat() {
 async function setUp() {
   getPlayers.mockResolvedValue({ players: [] } as Awaited<ReturnType<typeof playersApi.getPlayers>>)
   getAppSettings.mockResolvedValue({ chatPresets: ['Test preset'] } as unknown as Awaited<ReturnType<typeof configApi.getAppSettings>>)
+  getChatInfo.mockResolvedValue({ success: false } as Awaited<ReturnType<typeof panelBridgeApi.getChatInfo>>)
 }
 
 describe("Chat.tsx: sending on the 'server' channel (default) gates on server.world_events", () => {
@@ -317,5 +320,67 @@ describe('Chat.tsx: quick-broadcast preset management gates on panel.settings', 
     fireEvent.click(screen.getByLabelText('Add preset'))
 
     await waitFor(() => expect(updateAppSettings).toHaveBeenCalledWith({ chatPresets: ['Test preset', 'A new preset'] }))
+  })
+})
+
+// wired-no-ui-2026-08-30: getChatInfo (GET /panel-bridge/chat/info) had a
+// live, gated route and Lua handler but zero client callers. Its two live
+// fields (chatServerAvailable/rconFallback, logical opposites of the same
+// fact) tell the operator whether sendToServerChat/sendToAdminChat/
+// sendToGeneralChat above are actually reaching the game's native
+// ChatServer API or silently degrading to player:Say/RCON -- never
+// observable before this. Its third field (availableChats, a hardcoded
+// description list) is API documentation, not live state, and was
+// deliberately not surfaced -- same reasoning as the /commands route in the
+// 65-action UI-reachability audit.
+describe('Chat.tsx: chat delivery-method status (getChatInfo)', () => {
+  it('shows nothing before the fetch resolves and nothing if it fails -- no seeded default', async () => {
+    mockCan = () => true
+    await setUp()
+    getChatInfo.mockResolvedValue({ success: false } as Awaited<ReturnType<typeof panelBridgeApi.getChatInfo>>)
+
+    renderChat()
+
+    await screen.findByRole('textbox', { name: 'Chat message' })
+    expect(screen.queryByText('chat delivery: native')).not.toBeInTheDocument()
+    expect(screen.queryByText(/chat delivery: RCON fallback/)).not.toBeInTheDocument()
+  })
+
+  it('shows "native" when the native ChatServer API is available', async () => {
+    mockCan = () => true
+    await setUp()
+    getChatInfo.mockResolvedValue({
+      success: true,
+      data: { chatServerAvailable: true, rconFallback: false },
+    } as Awaited<ReturnType<typeof panelBridgeApi.getChatInfo>>)
+
+    renderChat()
+
+    await waitFor(() => expect(screen.getByText('chat delivery: native')).toBeInTheDocument())
+    expect(screen.queryByText(/RCON fallback/)).not.toBeInTheDocument()
+  })
+
+  it('shows the RCON fallback warning when the native ChatServer API is not available', async () => {
+    mockCan = () => true
+    await setUp()
+    getChatInfo.mockResolvedValue({
+      success: true,
+      data: { chatServerAvailable: false, rconFallback: true },
+    } as Awaited<ReturnType<typeof panelBridgeApi.getChatInfo>>)
+
+    renderChat()
+
+    await waitFor(() => expect(screen.getByText(/chat delivery: RCON fallback/)).toBeInTheDocument())
+    expect(screen.queryByText('chat delivery: native')).not.toBeInTheDocument()
+  })
+
+  it('is not fetched at all when the role lacks server.world_events', async () => {
+    mockCan = (capability) => capability !== 'server.world_events'
+    await setUp()
+
+    renderChat()
+
+    await screen.findByRole('textbox', { name: 'Chat message' })
+    expect(getChatInfo).not.toHaveBeenCalled()
   })
 })

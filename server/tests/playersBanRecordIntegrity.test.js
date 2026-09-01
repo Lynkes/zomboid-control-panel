@@ -135,6 +135,16 @@ describe("players routes: persistent records only written on RCON success", () =
 
       expect(removeSteamIdBan).not.toHaveBeenCalled();
       expect(logPlayerAction).not.toHaveBeenCalled();
+      // bug hunt 2026-08-31-c (under-coverage sweep): the title's own second
+      // clause -- "the panel must not claim someone is unbanned" -- is a
+      // claim about the HTTP response, which nothing above checks. Same
+      // shape as the /banid failure test above, and the same reason:
+      // proving the record is not written is meaningless if the caller
+      // can't also see that nothing happened.
+      expect(response.json).toHaveBeenCalledWith({
+        success: false,
+        error: "Server is not running",
+      });
     });
   });
 

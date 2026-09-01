@@ -18,6 +18,8 @@ import { PageSkeleton } from './components/PageSkeleton'
 import { ScrollToTop } from './components/ScrollToTop'
 import { isDemoMode } from './lib/demo'
 import { getUserErrorMessage } from './lib/errorMessage'
+import { createSocketAuthProvider } from './lib/socketAuth'
+import { registerReconnectRecovery } from './lib/socketRecovery'
 
 type RouteLoaderMeta = {
   title: string
@@ -414,6 +416,11 @@ function AppContent() {
 
     let cancelled = false
     let createdSocket: Socket | null = null
+    // Set only while a reconnect_failed recovery is pending (see below);
+    // cleared on a successful connect so a recovery reached some other way
+    // (the manual Retry button) doesn't leave a stale visibilitychange/
+    // online listener registered for the rest of the session.
+    let disposeRecovery: (() => void) | null = null
 
     const setupSocket = async () => {
       const { io } = await import('socket.io-client')
@@ -428,17 +435,13 @@ function AppContent() {
         autoConnect: false,
       })
       createdSocket = newSocket
-
-      const applySocketAuth = () => {
-        const token = getToken()
-        newSocket.auth = token ? { token } : {}
-      }
-
-      applySocketAuth()
+      newSocket.auth = createSocketAuthProvider(getToken)
       newSocket.connect()
 
       // Connection established
       newSocket.on('connect', () => {
+        disposeRecovery?.()
+        disposeRecovery = null
         setConnectionStatus(prev => {
           // Show toast only on reconnect, not initial connect
           if (prev.reconnecting || prev.reconnectAttempt > 0) {
@@ -489,7 +492,6 @@ function AppContent() {
 
       // Reconnection events
       newSocket.io.on('reconnect_attempt', (attempt) => {
-        applySocketAuth()
         setConnectionStatus(prev => ({
           ...prev,
           reconnecting: true,
@@ -497,6 +499,25 @@ function AppContent() {
         }))
       })
 
+      // socket.io's own reconnectionAttempts (10, with backoff) is left
+      // alone -- that part already works. The defect was that giving up
+      // was PERMANENT: once reconnect_failed fires, socket.io itself never
+      // tries again, and the operator's only way back was F5.
+      //
+      // Three real events can mean "it's worth trying again now" -- all
+      // event-driven, none a timer:
+      //   1. the tab was hidden and just became visible again (the operator
+      //      wasn't watching; a background tab can still exhaust all 10
+      //      attempts while nobody's looking)
+      //   2. the browser's network just came back (the actual trigger for
+      //      a transient blip)
+      //   3. the operator is looking straight at a dead connection with the
+      //      tab visible and network fine the whole time -- neither (1) nor
+      //      (2) can ever fire for them, so ConnectionStatus.tsx's Retry
+      //      button is their only path back
+      // All three call newSocket.connect() and nothing else -- the auth
+      // function above is what actually does the refresh-if-needed work,
+      // so there is exactly one implementation behind all three triggers.
       newSocket.io.on('reconnect_failed', () => {
         setConnectionStatus({
           connected: false,
@@ -506,9 +527,12 @@ function AppContent() {
         })
         toast({
           title: 'Connection Lost',
-          description: 'Unable to reconnect to server. Please refresh the page.',
+          description: 'Unable to reconnect automatically. Reconnecting once this tab is visible or your network is back — or use Retry in the connection status indicator.',
           variant: 'destructive',
         })
+
+        disposeRecovery?.() // replace, don't stack, if this fires more than once in a session
+        disposeRecovery = registerReconnectRecovery(() => newSocket.connect())
       })
 
       setSocket(newSocket)
@@ -518,6 +542,7 @@ function AppContent() {
 
     return () => {
       cancelled = true
+      disposeRecovery?.()
       createdSocket?.close()
     }
   }, [toast, handleReconnectSuccess, isLoading, isAuthenticated, authEnabled, needsSetup, getToken, demoMode])

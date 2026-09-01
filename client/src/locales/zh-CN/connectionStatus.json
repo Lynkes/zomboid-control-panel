@@ -12,6 +12,7 @@
     "label": "实时更新不可用",
     "description": "面板本身运行正常——您正通过一个可用的连接查看此页面，只是实时更新连接未能建立。",
     "hint": "最常见的原因是面板前面的反向代理（如 nginx、Apache、Caddy 等）没有转发 WebSocket 升级请求。如果符合您的部署情况，请让代理管理员确认已转发 Upgrade 和 Connection: upgrade 请求头。",
-    "technicalDetail": "技术细节：{{error}}"
+    "technicalDetail": "技术细节：{{error}}",
+    "retry": "立即重试"
   }
 }

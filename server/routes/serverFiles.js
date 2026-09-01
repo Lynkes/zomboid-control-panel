@@ -80,6 +80,24 @@ export class ServerNotConfiguredError extends Error {
   }
 }
 
+// Thrown by getServerConfigPath() when the active server IS configured but
+// is remote and its SFTP transport isn't — distinct from ServerNotConfiguredError
+// (no server at all). Without this, getServerConfigPath() fell through to the
+// local-path fallbacks below (which don't apply to a remote server) and ended
+// up throwing ServerNotConfiguredError for a server that plainly IS configured,
+// which is what the 404 SERVER_NOT_CONFIGURED response actually said. The
+// second router.use() below already has the correct REMOTE_CONFIG_NOT_CONFIGURED
+// handling for this exact case; it just never ran, because this function's own
+// fallthrough answered first.
+export class RemoteConfigNotConfiguredError extends Error {
+  constructor() {
+    super(
+      "This server is remote. Add its SFTP details and the remote Server folder under Settings > PanelBridge to edit its configuration from here.",
+    );
+    this.code = ErrorCode.REMOTE_CONFIG_NOT_CONFIGURED;
+  }
+}
+
 // These read or write the panel host's own filesystem, so an SFTP mirror of
 // the remote Server/ folder cannot stand in for them.
 const LOCAL_ONLY_PATHS = new Set(["/browse-files", "/image-preview"]);
@@ -107,6 +125,9 @@ router.use(async (req, res, next) => {
   } catch (err) {
     if (err instanceof ServerNotConfiguredError) {
       return res.status(404).json({ error: err.message, code: err.code });
+    }
+    if (err instanceof RemoteConfigNotConfiguredError) {
+      return res.status(400).json({ error: err.message, code: err.code });
     }
     return next(err);
   }
@@ -356,6 +377,16 @@ export async function getServerConfigPath() {
     return path.join(settings.zomboidDataPath, "Server");
   }
 
+  // A remote server with no usable path anywhere (SFTP transport unresolved
+  // above, and no local/legacy path fallback either) is a DIFFERENT
+  // situation from no server at all — it IS configured, just not reachable
+  // yet. Previously this fell all the way through to ServerNotConfiguredError
+  // below, which made the router's dedicated REMOTE_CONFIG_NOT_CONFIGURED
+  // gate further down unreachable for exactly the case it exists to catch.
+  if (activeServer?.isRemote) {
+    throw new RemoteConfigNotConfiguredError();
+  }
+
   // Nothing configured anywhere — no active server row and no legacy
   // settings fallback either. Do NOT default to ~/Zomboid/Server: that is
   // the vanilla path Project Zomboid itself uses, so on a machine that
@@ -548,6 +579,20 @@ export function reconcileMaskedIniLines(incomingContent, liveContent) {
 export function toIni(obj, originalContent = "") {
   // Preserve comments and order from original
   if (originalContent) {
+    // Unconditionally joining with "\n" below used to silently convert an
+    // entire CRLF-written file to LF on every structured save, even one
+    // that changes a single field -- confirmed empirically (2026-08-29,
+    // config-editing hunt). mods.js's own INI writers never have this
+    // problem: they patch one line in place via regex-replace on the raw
+    // string, so every OTHER line's original terminator survives by
+    // construction. This file's split-then-rejoin approach needs to
+    // preserve that terminator explicitly instead. PZ's own line reader is
+    // very likely tolerant of either style, so this was probably cosmetic
+    // for the engine itself -- but it's still a needless, avoidable
+    // difference from the file's own prior state on every save, and the
+    // asymmetry with mods.js's sibling writer on the SAME file is exactly
+    // the shape worth closing rather than leaving to chance.
+    const lineEnding = originalContent.includes("\r\n") ? "\r\n" : "\n";
     const lines = originalContent.split(/\r?\n/);
     const result = [];
     const written = new Set();
@@ -565,7 +610,22 @@ export function toIni(obj, originalContent = "") {
         if (key in obj) {
           // Strip newlines from values to prevent INI injection
           const safeValue = String(obj[key]).replace(/[\r\n]/g, "");
-          result.push(`${key}=${safeValue}`);
+          // Rewrite only the value token, keeping the line's own leading
+          // indentation, key spelling, and whitespace around "=" exactly as
+          // written -- the submitted settings object always contains every
+          // key GET returned (the client resends the whole thing on every
+          // save), so this branch runs for every unchanged line too. A
+          // hardcoded "key=value" rebuild here silently strips any spacing
+          // an operator's hand-edited file had (e.g. "PVP = true") the first
+          // time ANY field is saved from the structured editor -- same shape
+          // as the CRLF bug (573f63fd), one level down.
+          const lineEqIndex = line.indexOf("=");
+          const afterEq = line.slice(lineEqIndex + 1);
+          const valueMatch = afterEq.match(/^(\s*)([\s\S]*?)(\s*)$/);
+          const [, leadingWs, , trailingWs] = valueMatch;
+          result.push(
+            `${line.slice(0, lineEqIndex + 1)}${leadingWs}${safeValue}${trailingWs}`,
+          );
           written.add(key);
         } else {
           result.push(line);
@@ -590,7 +650,7 @@ export function toIni(obj, originalContent = "") {
       }
     }
 
-    return result.join("\n");
+    return result.join(lineEnding);
   }
 
   // Generate from scratch
@@ -969,6 +1029,44 @@ export function applySandboxChanges(originalContent, changes) {
   }
 
   return content;
+}
+
+// The 6 top-level shapes applySandboxChanges()/createSandboxVars() actually
+// know how to write. Music and Debug are parsed by parseSandboxVars() (read
+// path) but neither writer touches them, so they're deliberately excluded
+// here too -- checking them would report every Music/Debug key as
+// "unpersisted" even though no write was ever attempted for them.
+const SANDBOX_WRITABLE_SECTIONS = [
+  "settings",
+  "ZombieLore",
+  "ZombieConfig",
+  "MultiplierConfig",
+  "Map",
+  "Basement",
+];
+
+// modifySandboxValue() (used by applySandboxChanges for an existing file)
+// silently returns its input unchanged when a submitted key's regex finds no
+// matching line to update -- key not present in this file, lives in a block
+// modifySandboxValue doesn't know about, unusual formatting, etc. Compares
+// `submitted` (the request body's `sandbox` object) against `persisted` (the
+// freshly re-parsed on-disk content, via parseSandboxVars) and returns the
+// list of keys that were requested but did not actually change, formatted as
+// "key" for top-level settings or "Section.key" for a nested block.
+export function findUnpersistedSandboxKeys(submitted, persisted) {
+  const unpersistedKeys = [];
+  for (const section of SANDBOX_WRITABLE_SECTIONS) {
+    const submittedSection = submitted[section];
+    if (!submittedSection || typeof submittedSection !== "object") continue;
+    const persistedSection =
+      section === "settings" ? persisted.settings : persisted[section];
+    for (const [key, value] of Object.entries(submittedSection)) {
+      if ((persistedSection || {})[key] !== value) {
+        unpersistedKeys.push(section === "settings" ? key : `${section}.${key}`);
+      }
+    }
+  }
+  return unpersistedKeys;
 }
 
 function createSandboxVars(sandbox) {
@@ -1458,6 +1556,7 @@ router.put("/sandbox", async (req, res) => {
     // values so the editor works before the game's first boot.
     let fileExists;
     let backupWarning = null;
+    let unpersistedKeys = [];
     await withFileLock(filePath, async () => {
       fileExists = fs.existsSync(filePath);
       const newContent = fileExists
@@ -1469,14 +1568,27 @@ router.put("/sandbox", async (req, res) => {
         );
       }
       writeFileAtomic(filePath, newContent, "utf-8");
+
+      // Without this read-back, a key modifySandboxValue() couldn't find a
+      // line for was silently dropped and this route still reported success
+      // (this route's own PUT /ini sibling already verifies its writes this
+      // way; this route did not).
+      const persisted = parseSandboxVars(fs.readFileSync(filePath, "utf-8"));
+      unpersistedKeys = findUnpersistedSandboxKeys(sandbox, persisted);
     });
 
+    if (unpersistedKeys.length > 0) {
+      log.warn(
+        `SandboxVars keys did not persist (no matching entry found to update): ${unpersistedKeys.join(", ")}`,
+      );
+    }
     log.info(`${fileExists ? "Saved" : "Created"} SandboxVars file`);
     res.json({
       success: true,
       created: !fileExists,
       message: fileExists ? "Sandbox settings saved" : "SandboxVars file created",
       path: filePath,
+      ...(unpersistedKeys.length > 0 ? { unpersistedKeys } : {}),
       ...(backupWarning ? { backupWarning } : {}),
       ...(req.configEditRestartWarning ? { restartRequired: true } : {}),
     });
@@ -2122,6 +2234,29 @@ router.post("/restore/:filename", async (req, res) => {
     const bakIndex = filename.lastIndexOf(".bak");
     const timestampStart = filename.lastIndexOf(".", bakIndex - 1);
     const originalName = filename.substring(0, timestampStart);
+
+    // originalName is a SUBSTRING of filename, never independently
+    // re-validated -- unlike filename itself (protected by the .bak-only
+    // check above, which incidentally also rejects bare "." and ".."
+    // since neither ends in ".bak"). A crafted name like "....bak" makes
+    // the lastIndexOf/substring math above land on originalName === "..".
+    // Explicit, not incidental: this must hold regardless of whether
+    // fs.copyFile below happens to refuse a directory target on a given
+    // platform. path.basename() would leave "." and ".." unchanged (same
+    // caveat as chunks.js's saveName sanitization), so check for those
+    // and any separator explicitly rather than re-deriving via basename.
+    if (
+      !originalName ||
+      originalName === "." ||
+      originalName === ".." ||
+      originalName.includes("/") ||
+      originalName.includes("\\")
+    ) {
+      return res.status(400).json({
+        error: "Invalid backup filename",
+        code: ErrorCode.RESTORE_INVALID_ORIGINAL_NAME,
+      });
+    }
 
     const targetPath = path.join(configPath, originalName);
 

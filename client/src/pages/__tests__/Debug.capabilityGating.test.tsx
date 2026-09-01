@@ -464,3 +464,82 @@ describe('Debug.tsx: a 403 from the diagnostics fetch replaces the whole page, n
     expect(screen.queryByText(/can't view debug diagnostics/i)).not.toBeInTheDocument()
   })
 })
+
+// kevin-2026-08-30 (god's follow-up on af4c0c10, the PanelBridge tab): its
+// data is gated on bridge.diagnostics specifically -- narrower than
+// whatever gates this page as a whole (diagnostics.manage, tested above).
+// A role can hold diagnostics.manage (sees the page, the suite above stays
+// green) but lack bridge.diagnostics (must still not see this ONE tab's
+// data). Same reasoning as the page-wide 403 suite: react to the server's
+// real 403 from a bridge.diagnostics-gated route (bridgeDiagFetch), not a
+// client-side can() guess -- the tab's own scoped permission-denied state
+// replaces its cards, the rest of the page (and the other tabs) are
+// unaffected.
+describe('Debug.tsx: the PanelBridge tab gates its own data on bridge.diagnostics, separate from the page-wide gate', () => {
+  it('shows the tab-scoped permission-denied state and never renders the Stats card when a bridge.diagnostics route returns 403', async () => {
+    mockCan = () => true
+    mockedApiFetch.mockImplementation(async (endpoint: string) => {
+      if (endpoint.startsWith('/debug/diagnostics')) return jsonResponse(diagnosticsFixture)
+      if (endpoint.startsWith('/panel-bridge/status')) {
+        return jsonResponse({ isRunning: true, modConnected: true })
+      }
+      if (endpoint.startsWith('/panel-bridge/debug/stats')) {
+        return jsonResponse({ error: 'Insufficient permissions', code: 'PERMISSION_DENIED' }, false, 403)
+      }
+      return jsonResponse({})
+    })
+
+    renderDebug()
+
+    // jsdom's fireEvent.click does not move focus the way a real click
+    // does, and Radix Tabs' default activationMode="automatic" selects a
+    // tab on FOCUS, not on click -- a bare fireEvent.click here leaves the
+    // tab permanently unselected (confirmed empirically: aria-selected
+    // stayed "false" without the explicit .focus() call). Same shape as
+    // the Radix Select workaround documented in
+    // Chat.capabilityGating.test.tsx, different root cause.
+    const tab = await screen.findByRole('tab', { name: /panelbridge/i })
+    tab.focus()
+    fireEvent.click(tab)
+
+    expect(await screen.findByText(/can't view bridge diagnostics/i)).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /^stats$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /refresh/i })).not.toBeInTheDocument()
+  })
+
+  it('renders the real Stats card (not the permission-denied state) when the bridge.diagnostics routes succeed', async () => {
+    mockCan = () => true
+    mockedApiFetch.mockImplementation(async (endpoint: string) => {
+      if (endpoint.startsWith('/debug/diagnostics')) return jsonResponse(diagnosticsFixture)
+      if (endpoint.startsWith('/panel-bridge/status')) {
+        return jsonResponse({ isRunning: true, modConnected: true, connection: { canSendCommands: true } })
+      }
+      if (endpoint.startsWith('/panel-bridge/debug/stats')) {
+        return jsonResponse({
+          success: true,
+          data: {
+            version: '1.7.40',
+            uptime: 120,
+            commandsProcessed: 10,
+            commandsSucceeded: 9,
+            commandsFailed: 1,
+            debugMode: false,
+            lastError: null,
+            recentErrors: [],
+            detectedVersion: { build: '42.13.1', isB42: true, isB41: false, features: {} },
+          },
+        })
+      }
+      return jsonResponse({})
+    })
+
+    renderDebug()
+
+    const tab = await screen.findByRole('tab', { name: /panelbridge/i })
+    tab.focus()
+    fireEvent.click(tab)
+
+    expect(await screen.findByText('1.7.40')).toBeInTheDocument()
+    expect(screen.queryByText(/can't view bridge diagnostics/i)).not.toBeInTheDocument()
+  })
+})

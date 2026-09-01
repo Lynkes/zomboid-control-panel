@@ -9,6 +9,7 @@
     "noSchedule": "Keine geplanten Aufgaben",
     "noMods": "Keine Mods erfasst",
     "noMessages": "Keine Nachrichten",
-    "empty": "Leer"
+    "empty": "Leer",
+    "accessDenied": "Zugriff verweigert"
   }
 }

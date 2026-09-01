@@ -2,6 +2,10 @@
   "permissions": {
     "noManage": "清理地图区块需要 chunks.manage 权限，而该角色没有此权限。"
   },
+  "permissionDenied": {
+    "title": "无法查看地图清理",
+    "description": "当前账户的角色未包含「管理地图区块」权限。如需访问此页面，请联系管理员为该账户授予此权限。"
+  },
   "pageHeader": {
     "title": "地图清理",
     "description": "重置受损或过度搜刮的地图区域，使世界能够重新干净地生成",
@@ -19,15 +23,19 @@
     "modifiedDaysAgo": "{{count}} 天前",
     "customPathHide": "隐藏",
     "customPathShow": "自定义路径……",
-    "customPathPlaceholder": "~/Zomboid  或  C:\\Users\\…\\Zomboid",
+    "customPathPlaceholder": "Path to the Zomboid data folder",
     "customPathAria": "自定义服务器路径",
     "load": "加载",
-    "customPathHint": "指向您的 Zomboid 数据文件夹、<1>Saves/Multiplayer</1> 文件夹，或单个存档目录。<2>~</2> 及环境变量（<3>%USERPROFILE%</3>、<4>$HOME</4>）会被展开。",
+    "customPathHint": "Point at your Zomboid data folder, a <1>Saves/Multiplayer</1> folder, or a single save directory.",
     "saveAsDefaultTitle": "将此设为面板的默认 Zomboid 数据文件夹，以后无需重新输入。",
     "saveAsDefault": "设为默认",
     "saving": "正在保存……",
     "reset": "重置",
-    "autoDetected": "已自动检测到此文件夹。是否将其设为默认？"
+    "autoDetected": "已自动检测到此文件夹。是否将其设为默认？",
+    "customPathPlaceholderWindows": "%USERPROFILE%\\Zomboid or C:\\Users\\…\\Zomboid",
+    "customPathPlaceholderPosix": "$HOME/Zomboid or ~/Zomboid",
+    "customPathHintWindows": "Point at your Zomboid data folder, a <1>Saves/Multiplayer</1> folder, or a single save directory. Windows variables such as <3>%USERPROFILE%</3> are expanded.",
+    "customPathHintPosix": "Point at your Zomboid data folder, a <1>Saves/Multiplayer</1> folder, or a single save directory. <2>~</2>, <4>$HOME</4>, and ${NAME} variables are expanded."
   },
   "stats": {
     "worldFootprint": "世界占用空间",
@@ -51,7 +59,8 @@
     "selectionNone": "无",
     "all": "全部",
     "clear": "清空",
-    "invert": "反选"
+    "invert": "反选",
+    "selectAllTip": "\"全部\"会选中这个存档曾经生成过的每一个区块，而不仅仅是当前屏幕上可见的区块。删除该选择会重置整张地图。"
   },
   "deleteButton_one": "删除 {{count}} 个区块",
   "deleteButton_other": "删除 {{count}} 个区块",
@@ -145,6 +154,8 @@
     "pathSavedTitle": "路径已保存",
     "liveVehicleCleanupNoPermissionTitle": "跳过了实时载具清理",
     "liveVehicleCleanupNoPermissionDesc": "区块及其载具记录已删除。从正在运行的服务器中移除已加载的载具需要 bridge.command 权限，而该角色没有此权限——管理员可以授予该权限，或者过时的载具会在该区域下次重新加载时自行消失。",
+    "liveVehicleCleanupTooFragmentedTitle": "跳过了实时载具清理",
+    "liveVehicleCleanupTooFragmentedDesc": "区块及其载具记录已删除。此选择过于分散，无法实时同步载具——过时的载具会在该区域下次重新加载时自行消失。",
     "pathSavedServerDesc": "已保存到当前服务器配置——面板下次将使用此路径。",
     "pathSavedPanelDesc": "已保存到面板设置。",
     "pathSaveFailedTitle": "无法保存路径",

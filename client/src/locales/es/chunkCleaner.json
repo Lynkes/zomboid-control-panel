@@ -2,6 +2,10 @@
   "permissions": {
     "noManage": "Limpiar los chunks del mapa requiere el permiso chunks.manage, del cual este rol no dispone."
   },
+  "permissionDenied": {
+    "title": "No puedes ver la Limpieza del mapa",
+    "description": "El rol de tu cuenta no incluye \"Administrar chunks del mapa\". Pide a un administrador que lo conceda si necesitas acceso a esta página."
+  },
   "pageHeader": {
     "title": "Limpieza del mapa",
     "description": "Restablecer áreas del mapa dañadas o sobreexplotadas para que el mundo pueda regenerarse limpiamente",
@@ -19,15 +23,19 @@
     "modifiedDaysAgo": "hace {{count}} d",
     "customPathHide": "Ocultar",
     "customPathShow": "Ruta personalizada...",
-    "customPathPlaceholder": "~/Zomboid  o  C:\\Users\\…\\Zomboid",
+    "customPathPlaceholder": "Path to the Zomboid data folder",
     "customPathAria": "Ruta de servidor personalizada",
     "load": "Cargar",
-    "customPathHint": "Apuntar a la carpeta de datos de Zomboid, a una carpeta <1>Saves/Multiplayer</1>, o a un único directorio de partida guardada. <2>~</2> y las variables de entorno (<3>%USERPROFILE%</3>, <4>$HOME</4>) se expanden.",
+    "customPathHint": "Point at your Zomboid data folder, a <1>Saves/Multiplayer</1> folder, or a single save directory.",
     "saveAsDefaultTitle": "Convertir esta en la carpeta de datos de Zomboid predeterminada del panel para no tener que volver a introducirla.",
     "saveAsDefault": "Guardar como predeterminada",
     "saving": "Guardando...",
     "reset": "Restablecer",
-    "autoDetected": "Se detectó esta carpeta automáticamente. ¿Guardarla como predeterminada?"
+    "autoDetected": "Se detectó esta carpeta automáticamente. ¿Guardarla como predeterminada?",
+    "customPathPlaceholderWindows": "%USERPROFILE%\\Zomboid or C:\\Users\\…\\Zomboid",
+    "customPathPlaceholderPosix": "$HOME/Zomboid or ~/Zomboid",
+    "customPathHintWindows": "Point at your Zomboid data folder, a <1>Saves/Multiplayer</1> folder, or a single save directory. Windows variables such as <3>%USERPROFILE%</3> are expanded.",
+    "customPathHintPosix": "Point at your Zomboid data folder, a <1>Saves/Multiplayer</1> folder, or a single save directory. <2>~</2>, <4>$HOME</4>, and ${NAME} variables are expanded."
   },
   "stats": {
     "worldFootprint": "Huella del mundo",
@@ -51,7 +59,8 @@
     "selectionNone": "Ninguna",
     "all": "Todos",
     "clear": "Limpiar",
-    "invert": "Invertir"
+    "invert": "Invertir",
+    "selectAllTip": "\"Todos\" selecciona cada chunk que esta partida ha generado alguna vez, no solo los visibles en pantalla ahora mismo. Eliminar esa selección reinicia el mapa completo."
   },
   "deleteButton_one": "Eliminar {{count}} chunk",
   "deleteButton_other": "Eliminar {{count}} chunks",
@@ -145,6 +154,8 @@
     "pathSavedTitle": "Ruta guardada",
     "liveVehicleCleanupNoPermissionTitle": "Limpieza de vehículos en vivo omitida",
     "liveVehicleCleanupNoPermissionDesc": "Los chunks y sus registros de vehículos se eliminaron. Quitar vehículos ya cargados del servidor en vivo requiere el permiso bridge.command, del cual este rol no dispone -- un administrador puede concederlo, o el vehículo obsoleto desaparecerá por sí solo la próxima vez que se recargue la zona.",
+    "liveVehicleCleanupTooFragmentedTitle": "Limpieza de vehículos en vivo omitida",
+    "liveVehicleCleanupTooFragmentedDesc": "Los chunks y sus registros de vehículos se eliminaron. Esta selección estaba demasiado dispersa para sincronizar vehículos en vivo -- el vehículo obsoleto desaparecerá por sí solo la próxima vez que se recargue la zona.",
     "pathSavedServerDesc": "Guardada en la configuración del servidor activo — el panel usará esta ruta la próxima vez.",
     "pathSavedPanelDesc": "Guardada en los ajustes del panel.",
     "pathSaveFailedTitle": "No se pudo guardar la ruta",

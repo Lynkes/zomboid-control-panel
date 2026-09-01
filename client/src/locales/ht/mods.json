@@ -56,6 +56,22 @@
     "desc": "Dosye Workshop la montre fichye ki pi nouvo pase sa panèl la genyen nan achiv li. Fè yon tchekaj pou mete estati chak mod ajou.",
     "checkNow": "Tcheke Kounye a"
   },
+  "removedFromWorkshop": {
+    "title_one": "{{count}} mod pa egziste ankò sou Steam Workshop",
+    "title_other": "{{count}} mod pa egziste ankò sou Steam Workshop",
+    "desc": "Steam konfime atik sa yo te efase oswa mete an prive. Yo ap kontinye echwe nan tcheke mizajou yo epi yo ka kraze pwochen demaraj sèvè a jiskaske yo retire yo.",
+    "removeAria": "Retire {{name}} nan sèvè a"
+  },
+  "steamApiIssue": {
+    "label": "Nou pa t kapab kontakte Steam Workshop nan dènye tcheke a — n ap itilize sèlman fichye lokal pou kounye a. L ap eseye ankò otomatikman.",
+    "dismissAria": "Ekate avètisman API Steam la",
+    "dismissTooltip": "Ekate jiska pwochen tcheke ki echwe"
+  },
+  "unknownWorkshopResult": {
+    "label_one": "{{count}} atik resevwa yon repons Steam pa rekonèt nan tchèk sa a:",
+    "label_other": "{{count}} atik resevwa yon repons Steam pa rekonèt nan tchèk sa a:",
+    "item": "{{id}} (kòd {{code}})"
+  },
   "duplicateKeysWarning": {
     "title_one": "\"{{keys}}\" parèt plis pase yon fwa nan fichye konfigirasyon sa a",
     "title_other": "{{count}} paramèt parèt plis pase yon fwa nan fichye konfigirasyon sa a: {{keys}}",

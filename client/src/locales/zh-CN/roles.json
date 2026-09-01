@@ -18,6 +18,7 @@
   },
   "matrix": {
     "capabilityColumnHeader": "权限项",
+    "scrollHint": "向右滑动查看所有角色 →",
     "seededBadge": "内置",
     "memberCount_one": "{{count}} 位成员",
     "memberCount_other": "{{count}} 位成员",
@@ -149,7 +150,7 @@
       },
       "wipe": {
         "label": "清除世界",
-        "description": "不可逆地删除地图、玩家或世界存档数据——此外，通过“清空安装目录”操作，还可删除主机上任何仅仅通过 PZ 安装标记文件检测的其他目录，而不仅限于已配置服务器自身的目录。"
+        "description": "不可逆地删除地图、玩家或世界存档数据——包括通过“清空安装目录”操作删除的安装目录，该目录须同时通过 PZ 安装标记文件检测，并与某个已配置服务器记录的安装路径相匹配。"
       },
       "world_events": {
         "label": "触发世界事件",

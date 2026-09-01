@@ -22,6 +22,7 @@
       "STOP_TIMEOUT": "The server did not stop within 5 minutes.",
       "STEAMCMD_NOT_FOUND": "SteamCMD was not found at {{path}}.",
       "STEAMCMD_EXIT_CODE": "SteamCMD exited with code {{code}}.",
+      "STEAM_OPERATION_IN_PROGRESS": "A Steam install or update was already in progress for {{path}}, so the automatic update was abandoned to avoid racing it.",
       "UNKNOWN": "An unexpected error occurred during the automatic update."
     }
   },
@@ -34,6 +35,7 @@
     "ariaLabel": "Server status",
     "everythingNominal": "Everything nominal",
     "upPrefix": "up {{uptime}}",
+    "mapTooltip": "Map (from PanelBridge)",
     "remoteBadge": "remote",
     "noActiveServer": "No active server"
   },
@@ -171,6 +173,11 @@
     "applyUpdate": "Apply update",
     "viewUpdate": "View update"
   },
+  "updateCheckError": {
+    "label": "Can't check for panel updates",
+    "dismissAria": "Dismiss update check notice",
+    "dismissTooltip": "Dismiss until this changes"
+  },
   "connectionError": {
     "label": "Connection error",
     "suffix": ". Some features may be unavailable.",
@@ -220,6 +227,9 @@
     "live": "live",
     "lastSecondsLive": "last {{seconds}}s · live",
     "lastMinutesLive": "last {{minutes}} min · live",
+    "unconfirmed": "unconfirmed",
+    "lastSecondsUnconfirmed": "last {{seconds}}s · unconfirmed",
+    "lastMinutesUnconfirmed": "last {{minutes}} min · unconfirmed",
     "placeholderOnline": "Telemetry will appear within the next sample cycle.",
     "placeholderOffline": "Start the server to track CPU, RAM, and player metrics."
   },
@@ -246,6 +256,7 @@
   },
   "workItems": {
     "players": "Players",
+    "zombies": "Zombies",
     "console": "Console",
     "mods": "Mods",
     "schedule": "Schedule",

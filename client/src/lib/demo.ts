@@ -449,10 +449,29 @@ export function installDemoFetchShim(): void {
       return jsonResponse({ needsSetup: false, authEnabled: false })
     }
     if (path === '/api/health') {
-      return jsonResponse({ version: `${(typeof __PANEL_VERSION__ !== 'undefined' ? __PANEL_VERSION__ : '0.0.0')}-demo` })
+      return jsonResponse({
+        version: `${(typeof __PANEL_VERSION__ !== 'undefined' ? __PANEL_VERSION__ : '0.0.0')}-demo`,
+        panelVersion: typeof __PANEL_VERSION__ !== 'undefined' ? __PANEL_VERSION__ : '0.0.0',
+        buildSha: typeof __PANEL_BUILD_SHA__ !== 'undefined' ? __PANEL_BUILD_SHA__ : 'unknown',
+        apiContractVersion: typeof __PANEL_API_CONTRACT_VERSION__ !== 'undefined' ? __PANEL_API_CONTRACT_VERSION__ : 1,
+      })
     }
     if (path === '/api/system/storage-health') {
       return jsonResponse(demoStorageHealth())
+    }
+    if (path === '/api/system/runtime') {
+      return jsonResponse({
+        platform: 'linux',
+        family: 'posix',
+        pathSeparator: '/',
+        temporaryDirectory: '/tmp',
+        serviceManager: 'none',
+        restartAssessment: {
+          gameServers: 'preserved',
+          requiresConfirmation: false,
+          reason: 'detached-linux-process',
+        },
+      })
     }
     if (path === '/api/server/status') {
       return jsonResponse(demoServerStatus())

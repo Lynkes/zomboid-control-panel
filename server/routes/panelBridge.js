@@ -34,6 +34,7 @@ import {
   canAutoInstall,
   checkBridgeInstalled,
   installBridge,
+  resolveInstallDir,
 } from "../services/panelBridgeInstaller.js";
 import { createLogger } from "../utils/logger.js";
 import {
@@ -193,6 +194,7 @@ export const VALID_ACTIONS = new Set([
   "getTimeSpeed",
   "setTimeSpeed",
   "triggerHelicopterEvent",
+  "stopHelicopterEvent",
   "triggerSwarmEvent",
   "runEventSequence",
   "getInfrastructureSnapshot",
@@ -208,6 +210,14 @@ export const VALID_ACTIONS = new Set([
   "clearErrors",
   "getItemCatalog",
   "getVehicleCatalog",
+  // Was missing entirely (2026-08-29, pin-literal-sendcommand-strings-
+  // against-valid-actions): POST /catalog/debug-item-script has called
+  // bridge.sendCommand("debugItemScript", {}) directly since that route was
+  // added, and the Lua side (PanelBridge.lua's handlers.debugItemScript)
+  // genuinely implements it -- this was never a runtime bug, only a gap in
+  // this allowlist, unlike every other dedicated-route action, which all
+  // have a matching VALID_ACTIONS entry.
+  "debugItemScript",
 ]);
 
 // POST /command is gated bridge.command alone -- deliberately, as the
@@ -245,6 +255,18 @@ export const VALID_ACTIONS = new Set([
 // unrelated 641-line UI-overhaul release commit, with no comment anywhere in
 // that diff acknowledging the capability implication.
 //
+// hunt-wave12-2026-08-30 UI-reachability audit, extending the above: THIS
+// FILE also has its own dedicated /players/:username/godmode and
+// /players/:username/invisible routes (below), separate from players.js's
+// /godmode and /invisible -- the original 2026-08-27 comment named only the
+// players.js pair and didn't mention this file has a second, independent
+// implementation. Checked both: players.js's /godmode, /invisible AND this
+// file's /players/:username/godmode, /players/:username/invisible are ALL
+// dead (playersApi.setGodMode/setInvisible, the client wrappers for the
+// players.js pair, are never called either). The only live path for
+// setGodMode/setInvisible is this route's own bridge.command passthrough,
+// same as healPlayer.
+//
 // The two buckets below use DIFFERENT gating shapes, not the same one:
 //  - The moderation four have no dedicated route of their own, so the
 //    capability named here is ADDITIONAL, on top of this route's own
@@ -270,6 +292,47 @@ export const BRIDGE_ACTION_CAPABILITY = {
   setInvisible: "players.gm_tools",
   setNoclip: "players.gm_tools",
   healPlayer: "players.gm_tools",
+  // ADDITIONAL semantics (bridge.command AND bridge.diagnostics), not
+  // GM_TOOLS_ONLY_ACTIONS replacement semantics -- unlike the GM four,
+  // there's no described legitimate automation role that needs this
+  // specific debug/diagnostic probe without also holding bridge.command;
+  // its own dedicated route (POST /catalog/debug-item-script) already gates
+  // on bridge.diagnostics alone, but adding debugItemScript to VALID_ACTIONS
+  // (this same commit) makes it newly reachable through the generic
+  // passthrough too -- without this entry, ANY role holding only
+  // bridge.command (e.g. a GM/world-event automation role) would gain this
+  // debug action for free, the exact bypass class e728248 closed for the
+  // moderation four.
+  debugItemScript: "bridge.diagnostics",
+  // 2026-08-31 bug hunt: these eight are the SAME actions the 2026-08-27
+  // ranked-bug #5 ruling (see the big comment above the route matrix,
+  // "operator ruling on ranked-bug #5") moved off server.world_events onto
+  // players.endanger_or_impersonate for their own dedicated routes
+  // (/sound/near-player, /sound/gunshot, /sound/alarm, /sound/noise,
+  // /zombies/spawn-near, /zombies/spawn-behind, /chat/admin,
+  // /chat/general) -- but this generic passthrough was never updated to
+  // match, so a role holding only bridge.command (a legitimate GM/
+  // world-event-automation grant, per this file's own header comment) could
+  // reach targeted zombie-spawning, targeted sound effects, and chat
+  // impersonation-as-server/admin through POST /command with no
+  // endanger_or_impersonate check at all -- the exact bypass class e728248
+  // closed for the moderation four, just not extended here. REPLACEMENT
+  // semantics (see ENDANGER_OR_IMPERSONATE_ONLY_ACTIONS below), not
+  // ADDITIONAL like the moderation four or debugItemScript: unlike
+  // debugItemScript (ADDITIONAL because "there's no described legitimate
+  // automation role that needs this probe without also holding
+  // bridge.command"), a role holding ONLY players.endanger_or_impersonate
+  // already reaches all eight through their dedicated routes today --
+  // requiring bridge.command here too would newly block that role from this
+  // passthrough for actions it's otherwise fully entitled to.
+  playSoundNearPlayer: "players.endanger_or_impersonate",
+  triggerGunshot: "players.endanger_or_impersonate",
+  triggerAlarmSound: "players.endanger_or_impersonate",
+  createNoise: "players.endanger_or_impersonate",
+  spawnHordeNearPlayer: "players.endanger_or_impersonate",
+  spawnHordeBehindPlayer: "players.endanger_or_impersonate",
+  sendToAdminChat: "players.endanger_or_impersonate",
+  sendToGeneralChat: "players.endanger_or_impersonate",
 };
 
 // The subset of BRIDGE_ACTION_CAPABILITY that uses REPLACEMENT semantics
@@ -284,19 +347,39 @@ export const GM_TOOLS_ONLY_ACTIONS = new Set([
   "healPlayer",
 ]);
 
+// Same REPLACEMENT-semantics bucket as GM_TOOLS_ONLY_ACTIONS above, for the
+// eight players.endanger_or_impersonate actions (2026-08-31 bug hunt) --
+// see BRIDGE_ACTION_CAPABILITY's own comment on those eight entries for why
+// this is REPLACEMENT (matching their dedicated routes, which require
+// players.endanger_or_impersonate alone) rather than ADDITIONAL.
+export const ENDANGER_OR_IMPERSONATE_ONLY_ACTIONS = new Set([
+  "playSoundNearPlayer",
+  "triggerGunshot",
+  "triggerAlarmSound",
+  "createNoise",
+  "spawnHordeNearPlayer",
+  "spawnHordeBehindPlayer",
+  "sendToAdminChat",
+  "sendToGeneralChat",
+]);
+
 // POST /command's own gate can't be a flat requirePermission("bridge.command")
-// the way every other bridge.setup route above is: GM_TOOLS_ONLY_ACTIONS
-// must be reachable WITHOUT bridge.command, decided per-request by the
-// action in the body, which requirePermission()'s capability argument
-// (fixed at route-registration time) has no way to see. This still enforces
-// authentication (401) exactly like requirePermission does; it only skips
-// the bridge.command capability check when the action is one of the four
-// GM tools, leaving BRIDGE_ACTION_CAPABILITY's own inline check further
-// down in the handler as their sole gate.
+// the way every other bridge.setup route above is: GM_TOOLS_ONLY_ACTIONS and
+// ENDANGER_OR_IMPERSONATE_ONLY_ACTIONS must each be reachable WITHOUT
+// bridge.command, decided per-request by the action in the body, which
+// requirePermission()'s capability argument (fixed at route-registration
+// time) has no way to see. This still enforces authentication (401) exactly
+// like requirePermission does; it only skips the bridge.command capability
+// check when the action is in one of those two REPLACEMENT-semantics sets,
+// leaving BRIDGE_ACTION_CAPABILITY's own inline check further down in the
+// handler as their sole gate.
 const requireBridgeCommand = requirePermission("bridge.command");
 function requireBridgeCommandUnlessGmToolsOnly(req, res, next) {
   const { action } = req.body || {};
-  if (typeof action === "string" && GM_TOOLS_ONLY_ACTIONS.has(action)) {
+  if (
+    typeof action === "string" &&
+    (GM_TOOLS_ONLY_ACTIONS.has(action) || ENDANGER_OR_IMPERSONATE_ONLY_ACTIONS.has(action))
+  ) {
     return next();
   }
   return requireBridgeCommand(req, res, next);
@@ -592,16 +675,8 @@ router.post("/auto-configure", requirePermission("bridge.setup"), async (req, re
     let modInstalled = false;
     let modUpdated = false;
     try {
-      const serverInstallDir =
-        targetServer.serverPath || targetServer.installPath;
-      if (serverInstallDir) {
-        const installDir =
-          serverInstallDir.endsWith(".bat") ||
-          serverInstallDir.endsWith(".sh") ||
-          serverInstallDir.endsWith(".exe")
-            ? path.dirname(serverInstallDir)
-            : serverInstallDir;
-
+      const installDir = resolveInstallDir(targetServer);
+      if (installDir) {
         const destLuaFile = path.join(
           installDir,
           "media",
@@ -920,6 +995,9 @@ router.post("/configure", requirePermission("bridge.setup"), async (req, res) =>
     const bridgePath = bridge.configure(zomboidSavePath);
     // Also start the bridge automatically after configuring
     bridge.start();
+    // Persist so index.js's findPanelBridgePath() restore (settings.panelBridge.bridgePath)
+    // finds this again after a panel restart instead of falling through to auto-detect.
+    await setSetting("panelBridge", { bridgePath });
     res.json({
       success: true,
       message: "Bridge configured and started",
@@ -972,6 +1050,11 @@ router.post("/configure-direct", requirePermission("bridge.setup"), async (req, 
     }
     const configuredPath = bridge.configure(resolved, true);
     bridge.start();
+    // Persist so index.js's findPanelBridgePath() restore (settings.panelBridge.bridgePath)
+    // finds this again after a panel restart -- this route is the manual escape hatch for
+    // when auto-detect can't find the bridge on its own, so it's the one case that can't
+    // self-heal without this.
+    await setSetting("panelBridge", { bridgePath: configuredPath });
     res.json({
       success: true,
       message: "Bridge configured with manual path and started",
@@ -1278,10 +1361,11 @@ router.get("/ping", async (req, res) => {
 // real work today: roles are data now, an operator can create a custom
 // role and grant it bridge.command deliberately, and this is exactly what
 // stops that role also getting the unrestricted passthrough by accident.
-// EXCEPT for GM_TOOLS_ONLY_ACTIONS (see requireBridgeCommandUnlessGmToolsOnly
-// and BRIDGE_ACTION_CAPABILITY's own comment above) — those four skip this
-// gate entirely and are enforced solely by the inline players.gm_tools
-// check further down in this handler.
+// EXCEPT for GM_TOOLS_ONLY_ACTIONS and ENDANGER_OR_IMPERSONATE_ONLY_ACTIONS
+// (see requireBridgeCommandUnlessGmToolsOnly and BRIDGE_ACTION_CAPABILITY's
+// own comment above) — those twelve skip this gate entirely and are
+// enforced solely by their inline single-capability check further down in
+// this handler.
 router.post("/command", requireBridgeCommandUnlessGmToolsOnly, async (req, res) => {
   const activeServer = await getActiveServer();
   if (activeServer?.isRemote && !bridge.isSftpRunning() && !bridge.isRunning) {
@@ -1324,15 +1408,19 @@ router.post("/command", requireBridgeCommandUnlessGmToolsOnly, async (req, res) 
   // gating shapes here: the four moderation actions need players.moderate
   // ADDITIONALLY, on top of the bridge.command gate already enforced by
   // requireBridgeCommandUnlessGmToolsOnly above. The GM four
-  // (GM_TOOLS_ONLY_ACTIONS) never went through that gate at all for this
-  // request -- players.gm_tools here is their ONLY gate, not an addition.
+  // (GM_TOOLS_ONLY_ACTIONS) and the eight endanger_or_impersonate actions
+  // (ENDANGER_OR_IMPERSONATE_ONLY_ACTIONS) never went through that gate at
+  // all for this request -- their one mapped capability here is their ONLY
+  // gate, not an addition.
   const requiredCapability = BRIDGE_ACTION_CAPABILITY[action];
   if (requiredCapability) {
     const role = req.user ? await getRoleByName(req.user.role) : null;
     const capabilities = Array.isArray(role?.capabilities) ? role.capabilities : [];
     if (!capabilities.includes(requiredCapability)) {
+      const isReplacementSemantics =
+        GM_TOOLS_ONLY_ACTIONS.has(action) || ENDANGER_OR_IMPERSONATE_ONLY_ACTIONS.has(action);
       return res.status(403).json({
-        error: GM_TOOLS_ONLY_ACTIONS.has(action)
+        error: isReplacementSemantics
           ? `"${action}" requires ${requiredCapability}.`
           : `"${action}" also requires ${requiredCapability}.`,
         code: ErrorCode.PANELBRIDGE_ACTION_CAPABILITY_REQUIRED,
@@ -1500,8 +1588,41 @@ router.post("/command", requireBridgeCommandUnlessGmToolsOnly, async (req, res) 
       () => {},
     );
 
+    // 2026-08-31 bug hunt: services/panelBridge.js's processResult() attaches
+    // a rich soft-failure diagnostic table to err.data specifically so "a
+    // caller that wants the diagnostics can get them" (see that function's
+    // own comment) -- but every branch below built its response from
+    // error.message alone, discarding it at this boundary. Conditional: a
+    // genuine transport failure (bridge not configured/running, a timeout)
+    // never sets .data, so those responses are byte-identical to before.
+    //
+    // Spread directly into the body, NOT nested under a `data` key: the
+    // client's ApiError.data (client/src/lib/api.ts's buildResponseError)
+    // is the ENTIRE parsed response body, so a top-level field here is what
+    // reaches `error.data.<field>` -- e.g. getRecoveryUrl() already reads
+    // error.data.fixUrl straight off the body on other routes. Nesting an
+    // extra `data:` key here would have put the diagnostic table at
+    // error.data.data instead, one level deeper than every existing and
+    // planned consumer expects (Events.tsx's BridgeResultDisplay reads
+    // error.data directly and feeds it straight to
+    // isEventSequenceResultData(), which checks top-level `executed`/
+    // `failedCount`/`results`). error/category are spread LAST so they
+    // cannot be clobbered by a same-named field in the diagnostic table.
+    //
+    // Checked the consumer before shipping this (client/src/lib/
+    // errorMessage.ts): neither getUserErrorMessage() nor getRecoveryUrl()
+    // read anything from this specific table (no `params`, no `fixUrl`
+    // key), so no user-visible error TEXT changes for any existing caller --
+    // only Events.tsx's BridgeResultDisplay path, which already reads
+    // error.data defensively (?? null) and was simply getting null every
+    // time until now.
+    const diagnosticFields =
+      error?.data && typeof error.data === "object" ? error.data : {};
+
     if (/timeout/i.test(message)) {
-      return res.status(504).json({ error: message, category: "timeout" });
+      return res
+        .status(504)
+        .json({ ...diagnosticFields, error: message, category: "timeout" });
     }
     if (
       /not configured|not running|unhealthy|not responding|stale|missing/i.test(
@@ -1510,13 +1631,17 @@ router.post("/command", requireBridgeCommandUnlessGmToolsOnly, async (req, res) 
     ) {
       return res
         .status(503)
-        .json({ error: message, category: "bridge-unavailable" });
+        .json({ ...diagnosticFields, error: message, category: "bridge-unavailable" });
     }
     if (/invalid|required/i.test(message)) {
-      return res.status(400).json({ error: message, category: "validation" });
+      return res
+        .status(400)
+        .json({ ...diagnosticFields, error: message, category: "validation" });
     }
 
-    return res.status(500).json({ error: message, category: "unknown" });
+    return res
+      .status(500)
+      .json({ ...diagnosticFields, error: message, category: "unknown" });
   }
 });
 
@@ -1903,7 +2028,17 @@ router.post("/climate/reset", requirePermission("server.world_events"), async (r
   }
 });
 
-// Individual climate shortcuts
+// Individual climate shortcuts (setTemperature/setWind/setFog/setClouds).
+// hunt-wave12-2026-08-30 UI-reachability audit: all four are dead routes --
+// nothing in client/src calls any of them. The feature is not missing:
+// Events.tsx's climate panel (temperature/wind/fog/clouds/humidity/
+// precipitation sliders) applies through the generic setClimateFloat
+// action instead, with hardcoded float ids (temperature=4, wind=6, fog=5,
+// clouds=8; humidity=12 and precipitation=3 have no single-purpose route
+// at all) -- these single-purpose routes were superseded and never wired
+// or removed. Documented rather than deleted per the operator's own
+// standard for this class of shadowed route (see healPlayer/setGodMode/
+// setInvisible below, and getSandboxOptions/saveWorld further down).
 router.post("/climate/temperature", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
@@ -1934,6 +2069,7 @@ router.post("/climate/temperature", requirePermission("server.world_events"), as
   }
 });
 
+// Dead route, live path setClimateFloat(6, ...) -- see comment above /climate/temperature.
 router.post("/climate/wind", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
@@ -1964,6 +2100,7 @@ router.post("/climate/wind", requirePermission("server.world_events"), async (re
   }
 });
 
+// Dead route, live path setClimateFloat(5, ...) -- see comment above /climate/temperature.
 router.post("/climate/fog", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
@@ -1994,6 +2131,7 @@ router.post("/climate/fog", requirePermission("server.world_events"), async (req
   }
 });
 
+// Dead route, live path setClimateFloat(8, ...) -- see comment above /climate/temperature.
 router.post("/climate/clouds", requirePermission("server.world_events"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
@@ -2125,6 +2263,14 @@ router.get("/world/stats", requirePermission("server.world_events"), async (req,
 
 // Save world. admin+technician, matching /api/server/save -- an operational
 // action, not player-facing GM authority.
+// hunt-wave12-2026-08-30 UI-reachability audit: this dedicated route itself
+// is dead -- nothing in client/src calls POST /panel-bridge/world/save
+// directly. Two separate live paths exist instead: Scheduler.tsx's
+// schedulable 'bridge:saveWorld' preset (still this same action, via the
+// /panel-bridge/command passthrough, not this route); and Dashboard.tsx's
+// "Save world" button, which goes through serverApi.save (server.js's own
+// /servers/:id/save-world, over RCON) -- a completely different code path
+// for a similarly-named but independent feature, not a shadow of this one.
 router.post("/world/save", requirePermission("server.control"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
@@ -2236,7 +2382,18 @@ router.post("/players/:username/teleport", requirePermission("players.gm_tools")
     const result = await bridge.teleportPlayer(req.params.username, x, y, z);
     res.json(result);
   } catch (error) {
+    // Same drop as POST /command's catch (2026-08-31 bug hunt, see its own
+    // comment) -- teleportPlayer's verify-false soft failure attaches
+    // verifyPosition/newPosition to err.data via processResult(), and this
+    // dedicated route (a live path: client/src/lib/api.ts's
+    // teleportPlayerBridge) discarded it same as the generic passthrough
+    // did. Spread first, error/code last, so they can't be clobbered by a
+    // same-named field in the diagnostic table -- see POST /command's
+    // catch for why this is a flat spread, not nested under a `data` key.
+    const diagnosticFields =
+      error?.data && typeof error.data === "object" ? error.data : {};
     res.status(500).json({
+      ...diagnosticFields,
       error: "Teleport failed",
       code: ErrorCode.PANELBRIDGE_TELEPORT_FAILED,
     });
@@ -2274,6 +2431,10 @@ router.post("/message", requirePermission("server.world_events"), async (req, re
 });
 
 // Sandbox options (read-only)
+// hunt-wave12-2026-08-30 UI-reachability audit: dead route -- nothing in
+// client/src calls GET /panel-bridge/sandbox. ServerConfig.tsx reads
+// sandbox options through the passthrough action getAllSandboxOptions
+// instead (a different, broader action, not this route's getSandboxOptions).
 router.get("/sandbox", requirePermission("players.gm_tools"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
@@ -3598,6 +3759,10 @@ router.post("/character/import", requirePermission("players.gm_tools"), async (r
 // ============================================
 
 // Give item to player
+// hunt-wave12-2026-08-30 UI-reachability audit: dead route -- nothing in
+// client/src calls it. Players.tsx's "Give items" flow (SpawnBrowser
+// dialog) calls playersApi.addItem instead -- a different API family
+// entirely (players.js's own route, not this file's giveItem action).
 router.post("/players/:username/give-item", requirePermission("players.gm_tools"), async (req, res) => {
   if (!bridge.isRunning) {
     return res.status(400).json({
@@ -3641,6 +3806,8 @@ router.post("/players/:username/give-item", requirePermission("players.gm_tools"
 });
 
 // Heal player
+// Dead route, live path is the bridge.command passthrough -- see the
+// 2026-08-27/2026-08-30 comment above BRIDGE_ACTION_CAPABILITY.
 router.post("/players/:username/heal", requirePermission("players.gm_tools"), async (req, res) => {
   if (!bridge.isRunning) {
     return res.status(400).json({
@@ -3682,11 +3849,24 @@ router.post("/players/:username/kill", requirePermission("players.gm_tools"), as
     const result = await bridge.sendCommand("killPlayer", { username });
     res.json(result);
   } catch (error) {
-    res.status(500).json({ error: sanitizeError(error.message) });
+    // Same drop as POST /command's catch (2026-08-31 bug hunt, see its own
+    // comment) -- killPlayer's not-dead soft failure attaches its own
+    // diagnostic data to err.data via processResult(), and this dedicated
+    // route (a live path: client/src/lib/api.ts's killPlayer) discarded it
+    // same as the generic passthrough did. Spread first, error last, so it
+    // can't be clobbered by a same-named field in the diagnostic table.
+    const diagnosticFields =
+      error?.data && typeof error.data === "object" ? error.data : {};
+    res
+      .status(500)
+      .json({ ...diagnosticFields, error: sanitizeError(error.message) });
   }
 });
 
 // Set god mode for player
+// Dead route (as is players.js's own /godmode), live path is the
+// bridge.command passthrough -- see the 2026-08-27/2026-08-30 comment
+// above BRIDGE_ACTION_CAPABILITY.
 router.post("/players/:username/godmode", requirePermission("players.gm_tools"), async (req, res) => {
   if (!bridge.isRunning) {
     return res.status(400).json({
@@ -3717,6 +3897,9 @@ router.post("/players/:username/godmode", requirePermission("players.gm_tools"),
 });
 
 // Set invisible for player
+// Dead route (as is players.js's own /invisible), live path is the
+// bridge.command passthrough -- see the 2026-08-27/2026-08-30 comment
+// above BRIDGE_ACTION_CAPABILITY.
 router.post("/players/:username/invisible", requirePermission("players.gm_tools"), async (req, res) => {
   if (!bridge.isRunning) {
     return res.status(400).json({
@@ -4167,7 +4350,14 @@ router.post("/chat/alert", requirePermission("server.world_events"), async (req,
         message,
         alert: true,
       });
-      if (result?.success) return res.json(result);
+      // 2026-08-30, panelbridge-total-audit-2026-08-30 (Finding B): chat/admin
+      // and chat/general both check data.method !== "player:Say" here to
+      // detect the alert API silently degrading to plain overhead-text
+      // delivery, and fall back to RCON when it does. This route lacked that
+      // check -- a degraded alert used to return as a bare success, with no
+      // alert/banner styling at all, while the caller saw the same response
+      // shape as a real delivered alert.
+      if (result?.success && result?.data?.method !== "player:Say") return res.json(result);
     }
 
     const rconResult = await trySendViaRcon(req, message);

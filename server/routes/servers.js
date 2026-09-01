@@ -22,6 +22,7 @@ import {
   setSetting,
 } from "../database/init.js";
 import { isRemoteConfigConfigured } from "../services/remoteConfigFiles.js";
+import { normalizeUserPath, inspectZomboidPath } from "../utils/zomboidPaths.js";
 import { requirePermission } from "../services/permissions.js";
 import {
   canAutoInstall,
@@ -35,7 +36,17 @@ import {
 } from "../utils/queryNumbers.js";
 import { normalizeMemoryGb } from "../utils/memory.js";
 import { GAME_PORT_MAX, applyUpnpToIni } from "./server.js";
-import { resolveLaunchMode } from "../services/serverManager.js";
+import {
+  resolveLaunchMode,
+  ServerManager,
+} from "../services/serverManager.js";
+import {
+  buildLifecycleTemplate,
+  createLinuxServiceLifecycle,
+  getLinuxLifecycleCapabilities,
+  isManagedLifecycleProvider,
+  LIFECYCLE_PROVIDERS,
+} from "../services/linuxServiceLifecycle.js";
 
 const router = express.Router();
 const RCON_HOST_REGEX = /^[a-zA-Z0-9.-]{1,255}$/;
@@ -594,7 +605,10 @@ router.get("/", async (req, res) => {
       ...server,
       remoteConfigConfigured: computeRemoteConfigConfigured(server, settings),
     }));
-    res.json({ servers: sanitizeServerResponseList(withRemoteConfig) });
+    res.json({
+      servers: sanitizeServerResponseList(withRemoteConfig),
+      lifecycleCapabilities: getLinuxLifecycleCapabilities(),
+    });
   } catch (error) {
     log.error(`Failed to get servers: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -634,7 +648,35 @@ router.get("/status", async (req, res) => {
         .replace(/\\/g, "/")
         .trim();
 
-    const statuses = servers.map((server) => {
+    const statuses = await Promise.all(servers.map(async (server) => {
+      if (isManagedLifecycleProvider(server.lifecycleProvider)) {
+        try {
+          const status = await createLinuxServiceLifecycle(
+            server,
+            server.lifecycleProvider,
+          ).status();
+          return {
+            id: server.id,
+            name: server.name,
+            running: status.running,
+            pid: null,
+            isActive: server.id === activeId,
+            provider: server.lifecycleProvider,
+            stateUnknown: Boolean(status.scanFailed),
+          };
+        } catch (error) {
+          return {
+            id: server.id,
+            name: server.name,
+            running: false,
+            pid: null,
+            isActive: server.id === activeId,
+            provider: server.lifecycleProvider,
+            stateUnknown: true,
+            error: sanitizeError(error.message),
+          };
+        }
+      }
       const installPathNorm = norm(server.installPath);
       let running = false;
       let pid;
@@ -660,8 +702,9 @@ router.get("/status", async (req, res) => {
         running,
         pid: pid || null,
         isActive: server.id === activeId,
+        provider: "direct",
       };
-    });
+    }));
 
     res.json({
       servers: statuses,
@@ -755,6 +798,160 @@ router.get("/:id", async (req, res) => {
     res.status(500).json({ error: sanitizeError(error.message) });
   }
 });
+
+// Generate a provider-specific user-service file for the panel account to
+// install.
+// The panel deliberately returns the file as data and never writes to /etc or
+// invokes sudo itself.
+router.get(
+  "/:id/lifecycle-template",
+  requirePermission("servers.manage"),
+  async (req, res) => {
+    try {
+      const serverId = parseServerId(req.params.id);
+      if (serverId === null) {
+        return res.status(400).json({ error: "Invalid server ID" });
+      }
+      const provider = String(req.query?.provider || "").trim();
+      if (!isManagedLifecycleProvider(provider)) {
+        return res.status(400).json({
+          error: "provider must be systemd or openrc",
+        });
+      }
+      const server = await getServer(serverId);
+      if (!server) {
+        return res.status(404).json({ error: "Server not found" });
+      }
+      if (server.isRemote || server.dockerContainerName || server.dockerContainerId) {
+        return res.status(409).json({
+          error:
+            "Managed Linux services are available only for local, non-container server profiles",
+        });
+      }
+      const capabilities = getLinuxLifecycleCapabilities();
+      if (!capabilities.supported) {
+        return res.status(409).json({
+          error: capabilities.containerized
+            ? "Container installations must keep their existing lifecycle model"
+            : "Managed service lifecycles are supported only on Linux",
+        });
+      }
+      const template = buildLifecycleTemplate(server, provider, {
+        serviceUser: req.query?.serviceUser,
+      });
+      res.json({
+        ...template,
+        warning:
+          "Review and install this file for the panel service account. The panel will not modify the filesystem or run sudo.",
+      });
+    } catch (error) {
+      log.error(`Failed to generate lifecycle template: ${error.message}`);
+      res.status(400).json({ error: sanitizeError(error.message) });
+    }
+  },
+);
+
+// Switching lifecycle ownership is intentionally a separate, confirmed
+// operation instead of a generic profile update. This makes migration opt-in
+// and gives the backend a chance to reject running or conflicting services.
+router.post(
+  "/:id/lifecycle-provider",
+  requirePermission("servers.manage"),
+  async (req, res) => {
+    try {
+      const serverId = parseServerId(req.params.id);
+      if (serverId === null) {
+        return res.status(400).json({ error: "Invalid server ID" });
+      }
+      const provider = String(req.body?.provider || "").trim();
+      if (!LIFECYCLE_PROVIDERS.includes(provider)) {
+        return res.status(400).json({
+          error: "provider must be direct, systemd, or openrc",
+        });
+      }
+      if (req.body?.confirm !== true) {
+        return res.status(400).json({
+          error: "Explicit lifecycle migration confirmation is required",
+        });
+      }
+
+      const server = await getServer(serverId);
+      if (!server) {
+        return res.status(404).json({ error: "Server not found" });
+      }
+      const currentProvider = server.lifecycleProvider || "direct";
+      if (provider === currentProvider) {
+        return res.json({
+          server: sanitizeServerResponse(server),
+          message: `${provider} lifecycle is already active`,
+        });
+      }
+      if (server.isRemote || server.dockerContainerName || server.dockerContainerId) {
+        return res.status(409).json({
+          error:
+            "Remote and container-managed profiles must keep their existing lifecycle model",
+        });
+      }
+
+      if (isManagedLifecycleProvider(provider)) {
+        const lifecycle = createLinuxServiceLifecycle(server, provider);
+        const preflight = await lifecycle.preflightActivation();
+        if (!preflight.ready) {
+          return res.status(409).json({
+            error: sanitizeError(preflight.error),
+            conflict: Boolean(preflight.conflict),
+            running: Boolean(preflight.running),
+          });
+        }
+
+        // While the database still says direct, use the native scanner to
+        // prove there is no process to adopt silently.
+        const directManager = new ServerManager();
+        await directManager.reloadConfig(serverId);
+        const directStatus = await directManager.getServerProcessDetails();
+        if (directStatus.scanFailed) {
+          return res.status(503).json({
+            error:
+              "Could not confirm that the directly managed server is stopped",
+          });
+        }
+        if (directStatus.running) {
+          return res.status(409).json({
+            error:
+              "Stop the directly managed server before activating a service provider. Running processes are never adopted automatically.",
+            running: true,
+          });
+        }
+      } else {
+        const lifecycle = createLinuxServiceLifecycle(server, currentProvider);
+        const currentStatus = await lifecycle.status();
+        if (currentStatus.scanFailed || currentStatus.running) {
+          return res.status(currentStatus.running ? 409 : 503).json({
+            error: currentStatus.running
+              ? "Stop the managed service before switching back to direct lifecycle"
+              : "Could not confirm that the managed service is stopped",
+            running: Boolean(currentStatus.running),
+          });
+        }
+      }
+
+      const updated = await updateServer(serverId, {
+        lifecycleProvider: provider,
+      });
+      const sharedManager = req.app.get("serverManager");
+      if (updated?.isActive && sharedManager?.reloadConfig) {
+        await sharedManager.reloadConfig();
+      }
+      res.json({
+        server: sanitizeServerResponse(updated),
+        message: `Lifecycle provider changed to ${provider}`,
+      });
+    } catch (error) {
+      log.error(`Failed to change lifecycle provider: ${error.message}`);
+      res.status(400).json({ error: sanitizeError(error.message) });
+    }
+  },
+);
 
 // Create a new server
 router.post("/", requirePermission("servers.manage"), async (req, res) => {
@@ -991,7 +1188,6 @@ const ALLOWED_SERVER_UPDATE_FIELDS = [
   "useUpnp",
   "isRemote",
   "startCommand",
-  "description",
   "adminPassword",
   // startBat/batFile used to be allowed here too. Re-confirmed dead
   // (2026-08-27, custom-launcher-as-a-real-supported-mode-not-an-accident):
@@ -1001,6 +1197,19 @@ const ALLOWED_SERVER_UPDATE_FIELDS = [
   // file" is a serverPath/installPath ending in .bat/.sh/.exe (see
   // resolveLaunchMode()), and keeping these next to that would have been a
   // third, unused mechanism sitting beside the two real ones.
+  //
+  // "description" removed the same way (2026-08-29): grepped for
+  // `.description` on a server-shaped object across server/ and client/src/
+  // -- every hit was mod metadata, Steam branch metadata, a toast's
+  // `description` field, or an i18n key literally named `description`, none
+  // of it this record's own field. updateServer() persists whatever lands in
+  // `updates` via `{...db.data.servers[index], ...updates}` -- a spread, not
+  // a field-by-field write -- so the value WAS being written to db.json on
+  // every update that included it, just never read back by anything. A
+  // request that still sends "description" after this change has it
+  // silently filtered out here (same as any other field never on this
+  // list) -- not a 400, just ignored, matching how startBat/batFile already
+  // behave.
 ];
 
 export function parseServerId(value) {
@@ -1081,6 +1290,60 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
         if (!check.valid) {
           return res.status(400).json({ error: check.error });
         }
+      }
+    }
+
+    // HARDEN (2026-08-29, savepath-needs-existence-validation-at-set-time):
+    // this route wrote zomboidDataPath straight through with zero validation
+    // -- a wrong-but-structurally-valid path (nonexistent, or a real
+    // directory that just isn't a Zomboid data folder) saved here while the
+    // server is stopped passes silently. POST /wipe (server.js) later joins
+    // this stored path with "Saves/Multiplayer/<serverName>" and only checks
+    // fs.existsSync on THAT joined result -- if the wrong path happens to
+    // have a matching subtree underneath (another real Zomboid install on
+    // the same host, a leftover from a same-named server), a destructive
+    // wipe silently targets the wrong data. chunks.js's own POST /save-path
+    // already enforces existence + directory + inspectZomboidPath() for this
+    // EXACT same field (same updateServer() call, same DB column) -- this
+    // brings the second, unguarded setter up to the same bar rather than
+    // leaving it as a second path to the same risk. Remote servers are
+    // exempt: their data path lives on a different host, so a local fs
+    // check would always incorrectly fail -- same exemption installPath
+    // already gets at server-creation time (see !isRemote above in POST /).
+    if (updates.zomboidDataPath !== undefined && updates.zomboidDataPath !== "") {
+      const effectiveIsRemote =
+        updates.isRemote !== undefined
+          ? updates.isRemote
+          : Boolean((await getServer(serverId))?.isRemote);
+      if (!effectiveIsRemote) {
+        const normalized = normalizeUserPath(updates.zomboidDataPath);
+        const resolved = normalized ? path.resolve(normalized) : null;
+        if (!resolved || !fs.existsSync(resolved)) {
+          return res.status(400).json({
+            error: `Zomboid data path does not exist: ${resolved || updates.zomboidDataPath}. Check for typos and verify the panel has read access to this folder.`,
+          });
+        }
+        let isDir = false;
+        try {
+          isDir = fs.statSync(resolved).isDirectory();
+        } catch {
+          isDir = false;
+        }
+        if (!isDir) {
+          return res.status(400).json({
+            error: `Zomboid data path is not a directory: ${resolved}`,
+          });
+        }
+        const verdict = inspectZomboidPath(resolved);
+        if (!verdict.ok) {
+          return res.status(400).json({
+            error:
+              verdict.reason === "install-folder"
+                ? "This folder looks like a Project Zomboid server install, not a user data folder. Point at the Zomboid user data folder instead."
+                : "This doesn't look like a Project Zomboid data folder (no Saves/Multiplayer directory or save files found there).",
+          });
+        }
+        updates.zomboidDataPath = resolved;
       }
     }
 
@@ -1392,7 +1655,7 @@ router.post("/:id/activate", requirePermission("servers.manage"), async (req, re
 
     // Emit to clients that active server changed
     if (io) {
-      io.emit("activeServerChanged", { server });
+      io.emit("activeServerChanged", { server: sanitizeServerResponse(server) });
     }
 
     log.info(`Activated server: ${server.name} (ID: ${server.id})`);

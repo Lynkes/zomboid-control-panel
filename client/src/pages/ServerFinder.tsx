@@ -32,6 +32,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { EmptyState } from '@/components/EmptyState'
+import { HelpTip } from '@/components/HelpTip'
 import {
   Select,
   SelectContent,
@@ -473,6 +474,7 @@ export default function ServerFinder() {
               <RefreshCw className="h-4 w-4 mr-2" />
               {t('pageHeader.reloadFromSteam')}
             </Button>
+            <HelpTip label={t('pageHeader.reloadFromSteam')}>{t('pageHeader.reloadFromSteamTip')}</HelpTip>
           </>
         }
       />

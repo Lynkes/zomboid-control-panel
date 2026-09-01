@@ -11,6 +11,10 @@ function fallbackCheck(overrides: Partial<{
   status: 'ok' | 'warn' | 'fail' | 'info' | 'skip'
   category: string
   hint: string
+  meta: {
+    unresolvedMods?: string[]
+    unresolvedTriage?: Array<{ modId: string; cause: string; suggestion?: string }>
+  }
 }>) {
   return {
     id: 'some.unregistered.check',
@@ -24,6 +28,135 @@ function fallbackCheck(overrides: Partial<{
 }
 
 describe('getDiagnosticsFixAction fallback branch (uncovered check ids)', () => {
+  it('routes unresolved Mods= entries to the exact editable Server Config field', () => {
+    const action = getDiagnosticsFixAction(
+      fallbackCheck({
+        id: 'mods.resolved',
+        hint: 'Fix in server.ini.',
+        meta: { unresolvedMods: ['ArcadiaQOLSafehouse_B42'] },
+      }),
+      t,
+    )
+    expect(action).toMatchObject({
+      automated: false,
+      manualRoute: '/server-config?tab=ini&search=Mods&unresolved=ArcadiaQOLSafehouse_B42',
+    })
+    expect(action?.openServerConfig).toBeUndefined()
+    expect(action?.links).toBeUndefined()
+  })
+
+  // mods-unresolved-2026-08-31: the per-ID triage rides the same querystring
+  // transport as `unresolved` -- one `unresolvedCause=modId|cause|suggestion`
+  // entry per triaged ID, so Server Config's banner can say WHY without a
+  // second network round trip.
+  it('carries the server-computed per-ID triage into the deep-link querystring', () => {
+    const action = getDiagnosticsFixAction(
+      fallbackCheck({
+        id: 'mods.resolved',
+        hint: 'Fix in server.ini.',
+        meta: {
+          unresolvedMods: ['Footprnt', 'Quartermaster'],
+          unresolvedTriage: [
+            { modId: 'Footprnt', cause: 'typo', suggestion: 'Footprint' },
+            { modId: 'Quartermaster', cause: 'stillDownloading' },
+          ],
+        },
+      }),
+      t,
+    )
+    expect(action?.manualRoute).toBe(
+      '/server-config?tab=ini&search=Mods&unresolved=Footprnt&unresolved=Quartermaster'
+        + '&unresolvedCause=Footprnt%7Ctypo%7CFootprint&unresolvedCause=Quartermaster%7CstillDownloading%7C',
+    )
+  })
+
+  it('drops an unrecognized triage cause instead of forwarding it verbatim', () => {
+    const action = getDiagnosticsFixAction(
+      fallbackCheck({
+        id: 'mods.resolved',
+        hint: 'Fix in server.ini.',
+        meta: {
+          unresolvedMods: ['SomeMod'],
+          unresolvedTriage: [{ modId: 'SomeMod', cause: 'somethingNewTheServerAdded' }],
+        },
+      }),
+      t,
+    )
+    expect(action?.manualRoute).toBe('/server-config?tab=ini&search=Mods&unresolved=SomeMod')
+  })
+
+  // impeccable-critique-2026-08-31, finding #2: the primary button's own
+  // `label` used to duplicate `links[0]`'s label ("Open Servers" appeared
+  // twice), and only the links button actually navigated -- the primary one
+  // just popped a toast repeating the note. manualRoute makes the primary
+  // button itself the real navigation, so the duplicate link is dropped.
+  it.each(['server.active', 'server.installPath'])(
+    '%s navigates via its own manualRoute instead of a redundant duplicate "Open Servers" link',
+    (id) => {
+      const action = getDiagnosticsFixAction(fallbackCheck({ id, category: 'server' }), t)
+      expect(action?.manualRoute).toBe('/servers')
+      expect(action?.links).toEqual([{ to: '/server-finder', label: 'fixActions.links.autoDetect' }])
+    },
+  )
+
+  // impeccable-critique-2026-08-31, finding #2 turned out to be systemic, not
+  // a one-off: reshooting debug:bridge for the fix above surfaced the exact
+  // same shape on "Start script not found" / "Bundled JRE not found" (both
+  // showing "Open Server Finder" twice) -- a fresh grep of every manual
+  // (automated: false) case found the SAME `label` duplicates the (only, or
+  // first) `links`/`openServerConfig`/`openMods` entry's own rendered text
+  // in 16 more check-id groups. Every one gets the identical treatment:
+  // promote the duplicated destination to manualRoute so the primary button
+  // itself navigates, and drop only the link/flag that duplicated it --
+  // a genuinely distinct secondary link (e.g. server.rconPassword's
+  // Settings link, disk.free's Chunk Cleaner link) stays.
+  const manualRouteFixes: Array<{
+    ids: string[]
+    manualRoute: string
+    links?: Array<{ to: string; label: string }>
+    openServerConfig?: boolean
+    openMods?: boolean
+  }> = [
+    { ids: ['mods.workshopCrash'], manualRoute: '/mods' },
+    { ids: ['server.zomboidData'], manualRoute: '/settings' },
+    { ids: ['server.startScript', 'server.jre', 'server.jreWorks'], manualRoute: '/server-finder' },
+    { ids: ['server.ini'], manualRoute: '/server-config' },
+    {
+      ids: ['server.rconPassword'],
+      manualRoute: '/server-config',
+      links: [{ to: '/settings', label: 'fixActions.links.openSettings' }],
+    },
+    { ids: ['server.bridgeMod'], manualRoute: '/server-finder' },
+    { ids: ['server.configDrift'], manualRoute: '/server-config' },
+    { ids: ['scheduler', 'services.error'], manualRoute: '/settings' },
+    { ids: ['bridge.writable', 'bridge.heartbeat'], manualRoute: '/server-finder' },
+    { ids: ['db.exists'], manualRoute: '/settings' },
+    { ids: ['logs.writable'], manualRoute: '/settings' },
+    {
+      ids: ['disk.free'],
+      manualRoute: '/backups',
+      links: [{ to: '/chunks', label: 'fixActions.links.openChunkCleaner' }],
+    },
+    { ids: ['storage.saveSize'], manualRoute: '/chunks' },
+    { ids: ['runtime.heap', 'runtime.hostMem'], manualRoute: '/settings' },
+    { ids: ['update.panel', 'updates.error'], manualRoute: '/settings' },
+    { ids: ['update.mods'], manualRoute: '/mods' },
+  ]
+
+  for (const fix of manualRouteFixes) {
+    it.each(fix.ids)(
+      `%s navigates via manualRoute "${fix.manualRoute}" with no leftover duplicate link/flag`,
+      (id) => {
+        const action = getDiagnosticsFixAction(fallbackCheck({ id, category: 'server' }), t)
+        expect(action?.automated).toBe(false)
+        expect(action?.manualRoute).toBe(fix.manualRoute)
+        expect(action?.links).toEqual(fix.links)
+        expect(action?.openServerConfig).toBeUndefined()
+        expect(action?.openMods).toBeUndefined()
+      },
+    )
+  }
+
   it('opens server config when the hint contains the literal server.ini token', () => {
     const action = getDiagnosticsFixAction(
       fallbackCheck({ hint: 'Edit server.ini to fix this.' }),

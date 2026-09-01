@@ -207,6 +207,11 @@
       "sendTest": "Send Test",
       "sendingTest": "Sending..."
     },
+    "gatewayIssue": {
+      "label": "Discord connection has been unstable for a while — alerts and commands may be delayed until it recovers.",
+      "dismissAria": "Dismiss connection warning",
+      "dismissTooltip": "Dismiss until this changes"
+    },
     "commandPermissions": {
       "title": "Command Permissions",
       "description": "Control who can use each slash command. Assign a permission tier per command.",

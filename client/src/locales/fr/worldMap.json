@@ -71,7 +71,9 @@
     "panToAriaWithHealth": "Se centrer sur {{name}}, santé {{health}} %",
     "loading": "chargement…",
     "noPlayersOnline": "aucun joueur en ligne",
-    "bridgeOffline": "bridge hors ligne"
+    "bridgeOffline": "bridge hors ligne",
+    "collapseAria": "Réduire l'effectif",
+    "expandAria": "Développer l'effectif"
   },
   "hud": {
     "hoverForCoords": "survolez pour les coordonnées"
@@ -83,11 +85,15 @@
     "pos": "pos",
     "floor": "étage",
     "hp": "hp",
+    "hunger": "faim",
+    "thirst": "soif",
+    "fatigue": "fatigue",
     "role": "rôle",
     "status": "statut",
     "infected": "infecté",
     "heal": "Soigner",
     "god": "Dieu",
+    "godTip": "Active toujours le Mode Dieu pour ce joueur — ce n'est pas un bouton bascule. Désactivez-le depuis Joueurs.",
     "healedTitle": "Soigné",
     "healedDesc": "{{username}} soigné",
     "godModeEnabled": "Mode Dieu activé"
@@ -165,7 +171,7 @@
     "qtySuffix": " × {{count}}",
     "multiItemDesc": "{{count}} objets ({{total}} au total) à {{coords}}",
     "itemPackageFallback": "Colis de {{count}} objets",
-    "dropFailedTitle": "Échec du largage",
+    "dropFailedTitle": "Échec du largage personnalisé",
     "teleportedTitle": "Joueur téléporté",
     "teleportedDesc": "{{username}} → {{x}}, {{y}}",
     "teleportErrorTitle": "Erreur de téléportation",
@@ -183,6 +189,7 @@
   "spawnDialog": {
     "title": "Générer un véhicule",
     "location": "Position : {{x}}, {{y}} · Étage {{z}}",
+    "floorTip": "Les véhicules n'apparaissent qu'au rez-de-chaussée ou au sous-sol — cela échoue à tout étage supérieur.",
     "cancel": "Annuler",
     "spawn": "Générer"
   },

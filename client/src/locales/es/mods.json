@@ -56,6 +56,22 @@
     "desc": "La carpeta de Workshop muestra archivos más recientes que los registrados por el panel. Ejecutar una comprobación para actualizar el estado de cada mod.",
     "checkNow": "Comprobar ahora"
   },
+  "removedFromWorkshop": {
+    "title_one": "{{count}} mod ya no existe en el Workshop de Steam",
+    "title_other": "{{count}} mods ya no existen en el Workshop de Steam",
+    "desc": "Steam confirmó que estos elementos fueron eliminados o puestos en privado. Seguirán fallando en las comprobaciones de actualización y pueden interrumpir el próximo reinicio del servidor hasta que se eliminen.",
+    "removeAria": "Eliminar {{name}} del servidor"
+  },
+  "steamApiIssue": {
+    "label": "No se pudo contactar con el Workshop de Steam en la última comprobación — usando solo archivos locales por ahora. Se reintentará automáticamente.",
+    "dismissAria": "Descartar aviso de la API de Steam",
+    "dismissTooltip": "Descartar hasta la próxima comprobación fallida"
+  },
+  "unknownWorkshopResult": {
+    "label_one": "{{count}} elemento recibió una respuesta no reconocida de Steam en esta comprobación:",
+    "label_other": "{{count}} elementos recibieron una respuesta no reconocida de Steam en esta comprobación:",
+    "item": "{{id}} (código {{code}})"
+  },
   "duplicateKeysWarning": {
     "title_one": "\"{{keys}}\" aparece más de una vez en este archivo de configuración",
     "title_other": "{{count}} ajustes aparecen más de una vez en este archivo de configuración: {{keys}}",

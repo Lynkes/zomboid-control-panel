@@ -54,7 +54,7 @@ interface TemplateDiffListProps {
 export function TemplateDiffList({ diff, mods }: TemplateDiffListProps) {
   const { t } = useTranslation('templateDiffList')
   const sandboxRows: DiffRow[] = diff.sandboxVars.map((c) => ({
-    label: getSandboxKeyLabel(c.key),
+    label: getSandboxKeyLabel(c.key, c.section),
     sub: c.section,
     from: c.from,
     to: c.to,

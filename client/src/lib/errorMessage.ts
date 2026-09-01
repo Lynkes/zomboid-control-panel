@@ -81,9 +81,27 @@ function getRegisteredTranslation(code: string, params: TranslationParams | unde
 const GENERIC_SERVER_ERROR_KEY = 'UNEXPECTED_SERVER_ERROR'
 const GENERIC_SERVER_ERROR_STATUS_FLOOR = 500
 
+// bug-hunt-2026-08-31: UNEXPECTED_SERVER_ERROR's template (all 6 locales) is
+// `"{{detail}} <boilerplate sentence>"` -- {{detail}} is an arbitrary
+// upstream string (an exception message, a driver error, plain status
+// text) that this function has no control over, and most raw messages
+// don't end in terminal punctuation. Spliced in unmodified, that reads as
+// one run-on sentence with no boundary: "Internal server error This wasn't
+// expected...". Fixing it in the six templates instead of here was
+// considered and rejected: a template can't know whether `detail` already
+// ends in punctuation, so a hard-coded period after {{detail}} fixes the
+// common case and breaks the other one (a message that already ends in
+// '.', '!', or '?' would render "Something failed. . This wasn't
+// expected..."). Only the interpolation site can see what it's about to
+// splice, so the normalization belongs here, once, rather than duplicated
+// (and risking drift) across five languages someone editing this file may
+// not read.
+const SENTENCE_TERMINATOR_RE = /[.!?]["')\]]*$/
+
 function wrapUncodedServerError(status: number | undefined, message: string): string | null {
   if (typeof status !== 'number' || status < GENERIC_SERVER_ERROR_STATUS_FLOOR) return null
-  return resolveRegisteredTranslation('errors', GENERIC_SERVER_ERROR_KEY, { detail: message })
+  const detail = SENTENCE_TERMINATOR_RE.test(message) ? message : `${message}.`
+  return resolveRegisteredTranslation('errors', GENERIC_SERVER_ERROR_KEY, { detail })
 }
 
 export function getUserErrorMessage(error: unknown, fallback: string): string {

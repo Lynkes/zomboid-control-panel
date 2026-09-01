@@ -31,6 +31,24 @@
     "fileNotFoundTitle": "{{label}}: file not found",
     "notFoundAria": "Not found"
   },
+  "unresolvedReview": {
+    "title": "Unresolved Mods= IDs",
+    "causeUnknown": "No triage available for this entry yet — re-run diagnostics.",
+    "causeTypo": "Looks like a typo of the installed mod \"{{suggestion}}\".",
+    "correctAction": "Use \"{{suggestion}}\"",
+    "causeStillDownloading": "A Workshop download is in progress — wait for it to finish, then re-run diagnostics.",
+    "causeWorkshopNotOnDisk": "Listed in WorkshopItems= but its content isn't on disk and nothing is downloading it right now. Restart the server or re-validate the Workshop download, then re-run diagnostics.",
+    "rerunDiagnostics": "Re-run diagnostics",
+    "causeAbsent": "No installed Workshop or local mod matches this ID.",
+    "removeAction": "Remove from Mods=",
+    "correctedTitle": "Mods= entry corrected",
+    "correctedToast": "Replaced \"{{modId}}\" with \"{{suggestion}}\" in Mods=. Unsaved — review and save below.",
+    "removeConfirmTitle": "Remove from Mods=?",
+    "removeConfirm": "Remove \"{{modId}}\" from Mods=? This only stages the change here — nothing is written to disk until you save.",
+    "removeConfirmButton": "Remove",
+    "removedTitle": "Mods= entry removed",
+    "removedToast": "Removed \"{{modId}}\" from Mods=. Unsaved — review and save below."
+  },
   "tabs": {
     "serverSettings": "Server Settings",
     "sandbox": "Sandbox",
@@ -320,8 +338,6 @@
   "toasts": {
     "error": "Error",
     "loadConfigFailed": "Failed to load server config.",
-    "stopServerTitle": "Stop the server before saving",
-    "stopServerDesc": "Project Zomboid can overwrite configuration files while it is running.",
     "invalidIniTitle": "Invalid server settings",
     "invalidSandboxTitle": "Invalid Sandbox values",
     "fixSettings": "Fix: {{settings}}",

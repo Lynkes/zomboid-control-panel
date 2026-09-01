@@ -59,6 +59,23 @@ export function getWhitelistDatabasePath(zomboidDataPath, serverName) {
   return path.join(zomboidDataPath, "db", `${serverName}.db`);
 }
 
+// Roles.getRoles() (see zombie.network.GameServer.changeRole()) is a live,
+// DB-backed table, not the fixed ROLE_NAMES defaults above -- an admin can
+// rename/add/remove roles at runtime via the in-game role editor. Shared by
+// listWhitelistAccounts (resolving a whitelist row's role id to a name) and
+// listServerRoleNames (enumerating the access levels this server actually
+// has) so both read the exact same table the exact same way.
+function loadRoleMap(db) {
+  const roles = new Map(ROLE_NAMES);
+  const roleResult = db.exec("SELECT id, name FROM role");
+  for (const [id, name] of roleResult[0]?.values || []) {
+    if (Number.isInteger(Number(id)) && typeof name === "string") {
+      roles.set(Number(id), name);
+    }
+  }
+  return roles;
+}
+
 export async function listWhitelistAccounts(zomboidDataPath, serverName) {
   const dbPath = getWhitelistDatabasePath(zomboidDataPath, serverName);
   if (!dbPath) {
@@ -74,13 +91,7 @@ export async function listWhitelistAccounts(zomboidDataPath, serverName) {
     try {
       const accounts = [];
       const allowedSteamIds = [];
-      const roles = new Map(ROLE_NAMES);
-      const roleResult = db.exec("SELECT id, name FROM role");
-      for (const [id, name] of roleResult[0]?.values || []) {
-        if (Number.isInteger(Number(id)) && typeof name === "string") {
-          roles.set(Number(id), name);
-        }
-      }
+      const roles = loadRoleMap(db);
 
       const statement = db.prepare(
         "SELECT id, username, lastConnection, role, authType, steamid, ownerid, displayName FROM whitelist WHERE world = ? OR world = '' OR world IS NULL ORDER BY lower(COALESCE(username, '')), id",
@@ -121,5 +132,39 @@ export async function listWhitelistAccounts(zomboidDataPath, serverName) {
   } catch (error) {
     log.warn(`Could not read whitelist database ${dbPath}: ${error.message}`);
     return { available: false, accounts: [], reason: "Whitelist database could not be read" };
+  }
+}
+
+// The server's real access levels, per access-levels-should-come-from-the-
+// server-not-a-hardcoded-array: Roles.getRoles() is a live, DB-backed table
+// (this same [role] table, read via getWhitelistDatabasePath -- the name is
+// whitelist-specific, the path it resolves is not), not a fixed list, so a
+// hardcoded array is wrong in principle even when it happens to be correct
+// today. 'none' is deliberately NOT added here -- it is a SetAccessLevelCommand
+// special case that never reaches this table (confirmed absent from both a
+// real jar read and ROLE_NAMES's own defaults), so callers that need it as a
+// selectable level must add it themselves, same as this file already
+// requires no other 'none' handling anywhere else in its role-table reads.
+export async function listServerRoleNames(zomboidDataPath, serverName) {
+  const dbPath = getWhitelistDatabasePath(zomboidDataPath, serverName);
+  if (!dbPath) {
+    return { available: false, roleNames: [], reason: "Invalid server database path" };
+  }
+  if (!fs.existsSync(dbPath)) {
+    return { available: false, roleNames: [], reason: "Server database not found" };
+  }
+
+  try {
+    const SQL = await getSql();
+    const db = new SQL.Database(await fs.promises.readFile(dbPath));
+    try {
+      const roles = loadRoleMap(db);
+      return { available: true, roleNames: [...roles.values()] };
+    } finally {
+      db.close();
+    }
+  } catch (error) {
+    log.warn(`Could not read role table from ${dbPath}: ${error.message}`);
+    return { available: false, roleNames: [], reason: "Server database could not be read" };
   }
 }

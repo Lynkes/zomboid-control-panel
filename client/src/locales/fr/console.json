@@ -79,6 +79,8 @@
     "hostUnreachableDesc": "Démarrez le serveur, puis vérifiez l'hôte, le port et le mot de passe RCON dans Paramètres du panneau.",
     "authFailedTitle": "échec de l'authentification",
     "authFailedDesc": "L'hôte est joignable — vérifiez le mot de passe RCON dans Mes serveurs.",
+    "droppedTitle": "connexion interrompue",
+    "droppedDesc": "RCON s'est déconnecté pendant l'exécution d'une commande. L'hôte, le port et le mot de passe viennent d'être confirmés corrects -- sélectionnez « Revérifier » ci-dessus dès que vous pensez que la connexion est rétablie.",
     "outputLabel": "sortie rcon",
     "entries_one": "{{count}} entrée",
     "entries_other": "{{count}} entrées",
@@ -88,6 +90,8 @@
     "noCommandsTitle": "Aucune commande pour l'instant",
     "noCommandsDesc": "Exécutez une commande RCON pour voir la réponse ici.",
     "quickLabel": "rapide",
+    "commandLabel": "commande",
+    "commandTip": "Les commandes ici s'exécutent immédiatement sur le serveur en direct, sans étape de confirmation — même pour quelque chose qui arrête le serveur ou expulse un joueur. Si vous n'êtes pas sûr de ce que fait une commande, vérifiez-la avant de l'exécuter ; la plupart sont irréversibles.",
     "promptPrefix": "rcon $",
     "placeholder": "saisir une commande…",
     "inputAria": "Champ de commande RCON",
@@ -95,7 +99,8 @@
     "run": "exécuter",
     "keyboardHint": "// entrée · exécuter · ↑↓ historique",
     "noResponseFallback": "Aucune réponse",
-    "noPermission": "Votre rôle n'a pas la permission d'exécuter des commandes RCON."
+    "noPermission": "Votre rôle n'a pas la permission d'exécuter des commandes RCON.",
+    "disconnectedUseRecheck": "RCON est actuellement inaccessible -- sélectionnez « Revérifier » ci-dessus avant de réessayer."
   },
   "quickCommands": {
     "players": "Joueurs",

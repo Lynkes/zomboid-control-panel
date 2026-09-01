@@ -20,6 +20,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { NumberInput } from '@/components/NumberInput'
 import { Label } from '@/components/ui/label'
+import { HelpTip } from '@/components/HelpTip'
 import { Switch } from '@/components/ui/switch'
 import {
   Select,
@@ -80,6 +81,15 @@ export default function Backups() {
   // State
   const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null)
   const [backups, setBackups] = useState<ServerBackupArchive[]>([])
+  // Set once fetchBackups() itself has settled (success or failure), distinct
+  // from the shared `loading` flag below which only clears once ALL THREE of
+  // refreshAll()'s concurrent fetches finish. Without this, `backups.length
+  // === 0` is ambiguous between "confirmed empty" and "not fetched yet" --
+  // exactly the gap that let the main card show an infinite spinner even
+  // after backupStatus (a DIFFERENT one of those three fetches) had already
+  // resolved to a definitive "no saves folder" answer visible in the header
+  // above it (2026-08-30 visual sweep).
+  const [backupsLoaded, setBackupsLoaded] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [creatingBackup, setCreatingBackup] = useState(false)
@@ -152,6 +162,8 @@ export default function Backups() {
       })
     } catch (error) {
       setLoadError(getUserErrorMessage(error, t('toasts.loadBackupsFailed')))
+    } finally {
+      setBackupsLoaded(true)
     }
   }, [t])
 
@@ -231,6 +243,15 @@ export default function Backups() {
     // assert the action is unreachable, don't just make the control look
     // disabled (Angela's Console.tsx Enter-key bypass finding).
     if (!canManageBackups) return
+    // A PRIOR backup's 'complete'/'error' socket handler (or this
+    // function's own catch block, below) may have scheduled an auto-clear
+    // timeout that hasn't fired yet -- e.g. a second click within its 2-3s
+    // window. Without this, that leftover timer wipes THIS backup's live
+    // progress out from under it partway through, well before it's done.
+    if (progressTimeoutRef.current) {
+      clearTimeout(progressTimeoutRef.current)
+      progressTimeoutRef.current = null
+    }
     setCreatingBackup(true)
     setBackupProgress({ phase: 'preparing', percent: 0, message: t('progress.startingFallback') })
     try {
@@ -513,6 +534,15 @@ export default function Backups() {
     return date.toLocaleDateString(i18n.language) + ' ' + date.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })
   }
 
+  // "Auto-Backup: On" alone can't tell an operator the scheduler is actually
+  // succeeding -- lastBackup only updates on a SUCCESSFUL run, so a run of
+  // failures (bad cron, unreachable backupsPath, disk full) leaves this
+  // card looking identical to a healthy one. Surface the newest scheduled
+  // attempt specifically when it failed.
+  const lastScheduledAttemptFailed = Boolean(
+    backupStatus?.enabled && backupStatus?.lastScheduledBackupAttempt && !backupStatus.lastScheduledBackupAttempt.success
+  )
+
   // Translate the small set of cron presets we expose into a human label.
   // Falls back to the raw cron string for anything custom so the user
   // still gets meaningful information without us shipping a full parser.
@@ -694,24 +724,38 @@ export default function Backups() {
             <div
               className={cn(
                 'grid place-items-center w-10 h-10 rounded-md border shrink-0',
-                backupStatus?.enabled
+                lastScheduledAttemptFailed
+                  ? 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                  : backupStatus?.enabled
                   ? 'border-primary/30 bg-primary/[0.06] text-primary'
                   : 'border-border/55 bg-muted/30 text-muted-foreground'
               )}
               aria-hidden="true"
             >
-              <Clock className="w-4 h-4" />
+              {lastScheduledAttemptFailed ? <AlertTriangle className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t('statusCards.autoBackup')}</p>
               <p className={cn('text-sm font-semibold leading-tight mt-0.5 truncate', backupStatus?.enabled ? 'text-foreground' : 'text-muted-foreground')}>
                 {backupStatus?.enabled ? t('statusCards.on') : t('statusCards.off')}
               </p>
-              <p className="text-[11px] text-muted-foreground/80 truncate" title={backupStatus?.schedule || ''}>
-                {backupStatus?.enabled
-                  ? t('statusCards.runsSchedule', { schedule: describeSchedule(backupStatus?.schedule), count: backupStatus?.maxBackups ?? '?' })
-                  : t('statusCards.noScheduled')}
-              </p>
+              {lastScheduledAttemptFailed ? (
+                <p
+                  className="text-[11px] text-amber-600 dark:text-amber-400 truncate"
+                  title={backupStatus?.lastScheduledBackupAttempt?.message || ''}
+                >
+                  {t('statusCards.lastScheduledAttemptFailed', {
+                    time: formatDate(backupStatus!.lastScheduledBackupAttempt!.executedAt),
+                    message: backupStatus?.lastScheduledBackupAttempt?.message || '',
+                  })}
+                </p>
+              ) : (
+                <p className="text-[11px] text-muted-foreground/80 truncate" title={backupStatus?.schedule || ''}>
+                  {backupStatus?.enabled
+                    ? t('statusCards.runsSchedule', { schedule: describeSchedule(backupStatus?.schedule), count: backupStatus?.maxBackups ?? '?' })
+                    : t('statusCards.noScheduled')}
+                </p>
+              )}
             </div>
             <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : null}>
               <Switch
@@ -897,7 +941,23 @@ export default function Backups() {
           </div>
         </CardHeader>
         <CardContent>
-          {loading ? (
+          {backupStatus && !backupStatus.savesExists && backupsLoaded && backups.length === 0 ? (
+            // Known, actionable answer as soon as BOTH fetches it actually
+            // depends on have resolved -- doesn't wait on the unrelated,
+            // slower-or-not fetchHistory() call the generic `loading` flag
+            // below is also gated on. Matches the informative "what was
+            // tried, how to fix it, an action" pattern Chunks and Mods
+            // already use for this identical no-saves-folder condition,
+            // rather than inventing a fourth one (2026-08-30 visual sweep:
+            // this card used to show an infinite spinner here even after
+            // the header above had already resolved to the same fact).
+            <EmptyState
+              type="empty"
+              title={t('mainCard.noSavesFolderTitle')}
+              description={t('mainCard.noSavesFolderDesc')}
+              action={{ label: t('mainCard.noSavesFolderAction'), to: '/server-setup' }}
+            />
+          ) : loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
             </div>
@@ -1111,6 +1171,7 @@ export default function Backups() {
             <AlertDialogTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangle className="w-5 h-5" />
               {t('restoreDialog.title')}
+              <HelpTip label={t('restoreDialog.title')}>{t('restoreDialog.scopeTip')}</HelpTip>
             </AlertDialogTitle>
             <AlertDialogDescription className="space-y-2">
               <p>

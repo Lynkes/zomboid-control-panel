@@ -7,7 +7,7 @@ import { usePageShortcut } from '../hooks/useKeyboardShortcuts'
 import {
   Play, Square, RotateCcw, Save, Server, Wifi, Loader2, AlertTriangle, RefreshCw, AlertCircle,
   LogIn, LogOut, Activity, Archive, Skull, Sword, ShieldAlert, Copy, Gamepad2, Globe, FolderOpen,
-  X, MoreHorizontal, Zap, Trash2, Download, Sparkles, CalendarClock, Monitor, ScrollText,
+  X, MoreHorizontal, Zap, Trash2, Download, Sparkles, CalendarClock, Monitor, ScrollText, CloudOff,
 } from 'lucide-react'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { useToast } from '@/components/ui/use-toast'
@@ -24,7 +24,7 @@ import {
   panelUpdateApi, modsApi, schedulerApi, ServerInstance, PanelUpdateStatus, ComposedServerStatus,
 } from '@/lib/api'
 import { formatUptime } from '@/lib/utils'
-import { resolveClientProvider } from '@/lib/serverStatus'
+import { resolveClientProvider, deriveDashboardStatus } from '@/lib/serverStatus'
 import { useSocket } from '@/contexts/SocketContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -52,10 +52,26 @@ interface BridgeStatus {
 }
 interface ServerStatus {
   running: boolean
+  // See server/services/serverManager.js's getServerStatus() comment: true
+  // when the OS process scan itself failed (AV interference, WMI timeout,
+  // ps/pgrep unavailable), distinct from a confirmed stop. deriveDashboardStatus
+  // (lib/serverStatus.ts) reads this to avoid treating a scan hiccup as a
+  // confident "server is down."
+  scanFailed?: boolean
   startTime: string | null
   uptime: number
   serverPath: string
-  configured: boolean
+  // Renamed from `configured` server-side (2026-08-31): this has only ever
+  // meant "does the local process-launch path have a directory to run in"
+  // (server/services/serverManager.js's startServer() guard), not "is this
+  // server profile complete". A remote server's launch happens on a
+  // different host and correctly never sets serverPath, so under the old
+  // name it read as permanently unconfigured everywhere this field was
+  // read without already special-casing isRemote -- see the three call
+  // sites below, all still gated on !activeServer?.isRemote for exactly
+  // that reason. The value was already right for what it actually gates;
+  // only the name over-promised.
+  serverPathConfigured: boolean
   publicIp?: string
   localIp?: string
   port?: number
@@ -71,6 +87,15 @@ interface PerformancePoint {
 
 const DashboardPerformanceCharts = lazy(() => import('@/components/DashboardPerformanceCharts'))
 const DASHBOARD_ONBOARDING_DISMISSED_KEY = 'pz-dashboard-onboarding-dismissed-v1'
+// Stores the exact lastError STRING that was dismissed, not a boolean --
+// so dismissing "cannot reach GitHub" (the common air-gapped-install case)
+// does not also silence a completely different failure that shows up later
+// (e.g. after the machine gets network access and a real bug surfaces). If
+// panelUpdate.lastError ever changes to different text, the stored value
+// no longer matches and the indicator reappears. localStorage (not the
+// sessionStorage the update-available banner above uses) because "never
+// see this again" needs to survive closing the browser, not just a reload.
+const PANEL_UPDATE_ERROR_DISMISSED_KEY = 'pz-panel-update-error-dismissed'
 
 /* -------------------------------------------------------------------------- */
 /*  Small helpers                                                             */
@@ -221,6 +246,17 @@ export default function Dashboard() {
   const [composedStatus, setComposedStatus] = useState<ComposedServerStatus | null>(null)
   const [players, setPlayers] = useState<Player[]>([])
   const [bridgeStatus, setBridgeStatus] = useState<BridgeStatus | null>(null)
+  // hunt-wave12-2026-08-30: getZombieCount and getWorldStats were both
+  // confirmed working by Kevin's engine-side audit but had no caller
+  // anywhere in the client -- nothing on the Dashboard showed a zombie or
+  // survivor count from any source. Checked first (per the same
+  // precondition as the visual controls, 1c6ea6cc): neither value arrives
+  // via any existing poll or the panelBridge:modStatus socket push (that
+  // push only carries alive/version/serverName/playerCount), so this is a
+  // genuine new poll, not five fields nobody was reading out of one that
+  // already ran.
+  const [zombieCount, setZombieCount] = useState<number | null>(null)
+  const [worldMap, setWorldMap] = useState<string | null>(null)
   const [playerActivity, setPlayerActivity] = useState<PlayerActivity[]>([])
   const [performanceHistory, setPerformanceHistory] = useState<PerformancePoint[]>([])
   const [loading, setLoading] = useState<string | null>(null)
@@ -238,6 +274,9 @@ export default function Dashboard() {
   const [panelUpdate, setPanelUpdate] = useState<PanelUpdateStatus | null>(null)
   const [panelUpdateDismissedVersion, setPanelUpdateDismissedVersion] = useState<string | null>(() => {
     try { return sessionStorage.getItem('panel-update-banner-dismissed') } catch { return null }
+  })
+  const [panelUpdateErrorDismissed, setPanelUpdateErrorDismissed] = useState<string | null>(() => {
+    try { return localStorage.getItem(PANEL_UPDATE_ERROR_DISMISSED_KEY) } catch { return null }
   })
   const [maintenance, setMaintenance] = useState<{
     lastBackup: { name: string; size: number; created: string } | null
@@ -378,6 +417,25 @@ export default function Dashboard() {
   const fetchBridgeStatus = useCallback(async () => {
     try { setBridgeStatus(await panelBridgeApi.getStatus()) } catch { setBridgeStatus(null) }
   }, [])
+  // Uses two distinct getters rather than one: getZombieCount is the
+  // purpose-built number for the tile below; getWorldStats' only
+  // non-duplicate field is the map name, shown next to the server name in
+  // the header. Neither result is seeded with a plausible-looking default
+  // on failure -- null means "unknown", not "0".
+  const fetchWorldZombieStats = useCallback(async () => {
+    const [zc, ws] = await Promise.allSettled([
+      panelBridgeApi.getZombieCount(),
+      panelBridgeApi.getWorldStats(),
+    ])
+    setZombieCount(
+      zc.status === 'fulfilled' && zc.value?.success && typeof zc.value.data?.zombieCount === 'number'
+        ? zc.value.data.zombieCount
+        : null,
+    )
+    setWorldMap(
+      ws.status === 'fulfilled' && ws.value?.success && ws.value.data?.map ? ws.value.data.map : null,
+    )
+  }, [])
   const fetchPlayerActivity = useCallback(async () => {
     try { const d = await playersApi.getActivityLogs(undefined, 15); if (d.logs) setPlayerActivity(d.logs.slice(0, 12)) }
     catch { setPlayerActivity([]) }
@@ -449,14 +507,14 @@ export default function Dashboard() {
   const handleAutoStartChange = async (checked: boolean) => {
     setAutoStartServer(checked)
     try {
-      await configApi.updateAppSettings({ autoStartServer: String(checked) })
+      await configApi.updateAppSettings({ autoStartServer: checked })
       toast({
         title: checked ? t('toasts.autoStartEnabledTitle') : t('toasts.autoStartDisabledTitle'),
         description: checked ? t('toasts.autoStartEnabledDesc') : t('toasts.autoStartDisabledDesc'),
       })
     } catch (error) {
       setAutoStartServer(!checked)
-      toast({ title: t('toasts.errorTitle'), description: error instanceof Error ? error.message : t('toasts.autoStartSaveFailed'), variant: 'destructive' })
+      toast({ title: t('toasts.errorTitle'), description: getUserErrorMessage(error, t('toasts.autoStartSaveFailed')), variant: 'destructive' })
     }
   }
 
@@ -510,7 +568,19 @@ export default function Dashboard() {
     const onStatus = (data: Partial<ServerStatus>) => {
       setStatus(prev => {
         if (prev) return { ...prev, ...data }
-        if ('running' in data && 'configured' in data) return data as ServerStatus
+        // Every real server:status emit (server/index.js, routes/server.js,
+        // services/scheduler.js) sends only { running } -- never enough
+        // fields to safely stand in for a full ServerStatus (rcon/startTime/
+        // uptime/serverPath/serverPathConfigured all missing). Before prev
+        // exists there is nothing to merge onto, so an early push here is
+        // dropped; fetchStatus()'s REST call populates the first real
+        // snapshot instead. (This used to check for a `configured` field
+        // that would have made a full-snapshot payload acceptable, but no
+        // server:status emission has ever sent one, under either that name
+        // or its 2026-08-31 rename to serverPathConfigured -- removed
+        // rather than "fixed" to the new name, since accepting a partial
+        // payload here would cast it to ServerStatus and crash the first
+        // render that reads e.g. status.rcon.connected.)
         return prev
       })
       setLastUpdated(new Date())
@@ -544,6 +614,24 @@ export default function Dashboard() {
       socket.off('panelBridge:modStatus', onBridgeMod)
     }
   }, [socket, fetchStatus, fetchComposedStatus, fetchPlayers, fetchBridgeStatus, fetchActiveServer])
+
+  // Zombie count changes continuously while the server runs -- unlike
+  // bridgeStatus (pushed live over the socket), nothing pushes this, so it
+  // needs its own poll. Same cadence and visibility-pause as Events.tsx's
+  // own bridge-data poll. Only runs while the mod is actually connected --
+  // an offline bridge would just 400 every 10s for nothing.
+  useEffect(() => {
+    if (!bridgeStatus?.modConnected) {
+      setZombieCount(null)
+      setWorldMap(null)
+      return
+    }
+    fetchWorldZombieStats()
+    const interval = setInterval(() => {
+      if (document.visibilityState !== 'hidden') fetchWorldZombieStats()
+    }, 10000)
+    return () => clearInterval(interval)
+  }, [bridgeStatus?.modConnected, fetchWorldZombieStats])
 
   useEffect(() => {
     if (initialLoading || showPerformanceCharts) return
@@ -759,16 +847,12 @@ export default function Dashboard() {
   // remote-SFTP from everything else; it was never a "this process is local
   // to this container" proxy, which is what this check actually needs.
   const provider = composedStatus?.provider ?? resolveClientProvider(activeServer)
-  const localProcessStatus = provider === 'native' && typeof status?.running === 'boolean'
-    ? status.running
-    : null
-  const hostRunning = hasServer && (localProcessStatus ?? (composedStatus ? composedStatus.host.status === 'running' : !!status?.running))
-  const rconConnected = composedStatus
-    ? composedStatus.server.status === 'connected'
-    : Boolean(status?.rcon?.connected)
-  const bridgeActive = composedStatus?.bridge.status === 'active'
-  const hostUnknown = composedStatus ? ['unknown', 'not-applicable'].includes(composedStatus.host.status) : false
-  const online = hasServer && (localProcessStatus ?? (composedStatus ? hostRunning || rconConnected || bridgeActive : !!status?.running))
+  const { hostRunning, rconConnected, hostUnknown, online } = deriveDashboardStatus({
+    hasServer,
+    provider,
+    status,
+    composedStatus,
+  })
   const modsPending = maintenance.modUpdatesAvailable > 0
   const staleLink = !lastUpdated || Date.now() - lastUpdated.getTime() > 60_000
 
@@ -799,7 +883,19 @@ export default function Dashboard() {
 
   /* One verdict at a time, highest severity wins. Calm states say nothing at all. */
   const verdict: Verdict = (() => {
-    if (!hasServer || (status && !status.configured)) {
+    // status.serverPathConfigured (server-side rename of `configured`, see
+    // the ServerStatus interface above) means "the local process-launch
+    // path has a directory to run in" -- correctly, structurally false for
+    // every remote server, since a remote server's launch happens on a
+    // different host and never sets serverPath (installPath isn't required
+    // for isRemote:true in server/routes/servers.js's create validation).
+    // This verdict used to read that as "remote == unconfigured" before the
+    // rename made the narrower meaning explicit (2026-08-31 visual sweep:
+    // "NOT CONFIGURED" sitting under a named, addressed, REMOTE-badged
+    // server). Same family as Layout.tsx's servers-as-[] fix (3665aa20): a
+    // signal that cannot represent one real case was trusted for all cases
+    // instead of being scoped to the ones it actually describes.
+    if (!hasServer || (status && !status.serverPathConfigured && !activeServer?.isRemote)) {
       return {
         level: 'warning',
         headline: t('verdict.noServerConfigured'),
@@ -931,6 +1027,11 @@ export default function Dashboard() {
       tone: !online ? 'bad' : players.length > 0 ? 'good' : 'default',
     },
     {
+      to: '/events', icon: Skull, label: t('workItems.zombies'),
+      state: bridgeStatus?.modConnected ? (zombieCount !== null ? String(zombieCount) : t('connLine.pending')) : t('liveActivity.offline'),
+      tone: !bridgeStatus?.modConnected ? 'default' : zombieCount !== null ? 'good' : 'default',
+    },
+    {
       to: '/console', icon: Wifi, label: t('workItems.console'),
       state: status?.rcon?.connected ? t('workItems.rconReady') : t('workItems.rconOffline'),
       tone: status?.rcon?.connected ? 'good' : 'warning',
@@ -957,6 +1058,20 @@ export default function Dashboard() {
     },
     { to: '/server-config', icon: Server, label: t('workItems.config') },
   ]
+
+  // WORK_STATE_TONE (DashboardVerdict.tsx) already colors each row by
+  // severity, but color alone doesn't pull a 'bad' row up past several
+  // calm ones above it in a 7-row list -- the operator has to read every
+  // row to find it. Sorting by severity (stable, so same-tone rows keep
+  // their original relative order) puts what needs attention where the
+  // operator's own "actionable items on top" ask actually lands: the top
+  // of the list, not just a different color partway down it.
+  const WORK_ITEM_SEVERITY: Record<'bad' | 'warning' | 'default' | 'good', number> = {
+    bad: 0, warning: 1, default: 2, good: 3,
+  }
+  const sortedWorkItems = [...workItems].sort(
+    (a, b) => WORK_ITEM_SEVERITY[a.tone ?? 'default'] - WORK_ITEM_SEVERITY[b.tone ?? 'default'],
+  )
 
   /* ====================================================================== */
   /*  RENDER                                                                  */
@@ -1005,6 +1120,15 @@ export default function Dashboard() {
             {online && status && status.uptime > 0 && (
               <span className="hidden font-mono text-[11px] tabular-nums text-muted-foreground/60 sm:inline">
                 {t('header.upPrefix', { uptime: formatUptime(status.uptime) })}
+              </span>
+            )}
+            {/* Map name -- from getWorldStats, the only field it reports that
+                getZombieCount doesn't already cover. Bridge-sourced, so it's
+                unknown (hidden) rather than guessed until the bridge poll
+                actually reports one. */}
+            {worldMap && (
+              <span className="hidden font-mono text-[11px] text-muted-foreground/60 sm:inline" title={t('header.mapTooltip')}>
+                {worldMap}
               </span>
             )}
             {activeServer?.isRemote && (
@@ -1103,7 +1227,7 @@ export default function Dashboard() {
                     // inventing a third tier.
                     variant: 'warning',
                   })}
-                  disabled={loading !== null || !hostRunning || !canControlServer}
+                  disabled={loading !== null || !online || !canControlServer}
                   variant="ghost"
                   size="sm"
                   className="h-8 gap-1.5 rounded-md border border-red-500/30 px-2.5 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-300 disabled:border-border/50 disabled:text-muted-foreground"
@@ -1121,7 +1245,7 @@ export default function Dashboard() {
                     action: serverApi.forceStop,
                     variant: 'destructive',
                   })}
-                  disabled={loading !== null || !hostRunning || activeServer?.isRemote || !canControlServer}
+                  disabled={loading !== null || !online || activeServer?.isRemote || !canControlServer}
                   variant="ghost"
                   size="sm"
                   className="h-8 gap-1.5 rounded-md border border-red-500/30 px-2.5 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-300 disabled:border-border/50 disabled:text-muted-foreground"
@@ -1140,7 +1264,7 @@ export default function Dashboard() {
                     action: () => serverApi.restart(5),
                     variant: 'warning',
                   })}
-                  disabled={loading !== null || !hostRunning || activeServer?.isRemote || !canControlServer}
+                  disabled={loading !== null || !online || activeServer?.isRemote || !canControlServer}
                   variant="ghost"
                   size="sm"
                   className="h-8 gap-1.5 rounded-md border border-amber-500/30 px-2.5 text-xs text-amber-400 hover:bg-amber-500/10 hover:text-amber-300 disabled:border-border/50 disabled:text-muted-foreground"
@@ -1222,7 +1346,7 @@ export default function Dashboard() {
                       variant: 'destructive',
                     })
                   }}
-                  disabled={!hasServer || !hostRunning || loading !== null || activeServer?.isRemote || !canControlServer}
+                  disabled={!hasServer || !online || loading !== null || activeServer?.isRemote || !canControlServer}
                   className="text-destructive focus:text-destructive"
                 >
                   <Zap className="mr-2 h-4 w-4" /> {t('actions.restartNow')}
@@ -1334,6 +1458,40 @@ export default function Dashboard() {
         )
       })()}
 
+      {/* ─── Update check failing (quiet) ───────────────────────────────────
+          Deliberately NOT the accented-banner treatment used above and below:
+          the panel is working fine, it just cannot tell whether a newer
+          version exists. That is information, not an alarm, so no border,
+          no fill, no accent bar -- just muted icon + text + a dismiss X. */}
+      {(() => {
+        if (!panelUpdate || panelUpdate.updateAvailable) return null
+        if (!panelUpdate.lastError) return null
+        if (panelUpdateErrorDismissed === panelUpdate.lastError) return null
+        const dismiss = () => {
+          const err = panelUpdate.lastError
+          if (!err) return
+          try { localStorage.setItem(PANEL_UPDATE_ERROR_DISMISSED_KEY, err) } catch { /* ignore storage failures */ }
+          setPanelUpdateErrorDismissed(err)
+        }
+        return (
+          <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 px-1 text-xs text-muted-foreground">
+            <CloudOff className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+            <Link to="/settings?tab=updates" className="min-w-0 truncate underline-offset-2 hover:text-foreground hover:underline" title={panelUpdate.lastError}>
+              {t('updateCheckError.label')}
+            </Link>
+            <button
+              type="button"
+              onClick={dismiss}
+              aria-label={t('updateCheckError.dismissAria')}
+              title={t('updateCheckError.dismissTooltip')}
+              className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground/60 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        )
+      })()}
+
       {/* ─── Error banner ────────────────────────────────────────────────── */}
       {fetchError && (
         <div
@@ -1356,7 +1514,11 @@ export default function Dashboard() {
       )}
 
       {/* ─── Not configured ──────────────────────────────────────────────── */}
-      {status && !status.configured && (
+      {/* !activeServer?.isRemote: see the verdict's own comment above -- a
+          remote server's serverPathConfigured is always false by
+          construction (no local launch path), not a real "unconfigured"
+          signal. */}
+      {status && !status.serverPathConfigured && !activeServer?.isRemote && (
         <Link
           to="/server-setup"
           className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-warning/40 bg-warning/[0.04] py-2 pl-3 pr-2 shadow-[inset_2px_0_0_hsl(var(--warning))] transition-colors hover:bg-warning/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
@@ -1447,9 +1609,18 @@ export default function Dashboard() {
             {playerActivity.length === 0 ? (
               <div className="flex items-center px-3 py-3">
                 <p className="text-xs text-muted-foreground/75">
+                  {/* Third consumer of the same status.serverPathConfigured
+                      signal gated at :869/:1477 -- same !activeServer?.isRemote
+                      fix, or an offline remote server with no recent
+                      activity would still read "not configured" here after
+                      the verdict and banner above it were already
+                      corrected (2026-08-31, caught in review: a fix that
+                      covers only the consumers a screenshot showed leaves
+                      the others disagreeing with the ones that got fixed,
+                      which reads worse than being uniformly wrong). */}
                   {online
                     ? t('liveActivity.emptyOnline')
-                    : status?.configured
+                    : status?.serverPathConfigured || activeServer?.isRemote
                       ? t('liveActivity.emptyConfiguredNotRunning')
                       : t('liveActivity.emptyNotConfigured')}
                 </p>
@@ -1484,6 +1655,24 @@ export default function Dashboard() {
               <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60">
                 {(() => {
                   if (performanceHistory.length === 0) return online ? t('telemetry.sampling') : t('telemetry.standby')
+                  // This history comes from the server's own persisted log
+                  // (debugApi.getPerformanceHistory), independent of the
+                  // verdict's own online/hostUnknown check above -- recent
+                  // samples can survive even while that check can't confirm
+                  // the server right now. Calling a stale-relative-to-that-
+                  // check reading "live" said the opposite of the verdict
+                  // headline sitting right above it on the same page.
+                  if (!online) {
+                    if (performanceHistory.length < 2) return t('telemetry.unconfirmed')
+                    const first = performanceHistory[0].timestamp
+                    const last = performanceHistory[performanceHistory.length - 1].timestamp
+                    if (first && last) {
+                      const spanSec = (new Date(last).getTime() - new Date(first).getTime()) / 1000
+                      if (spanSec < 120) return t('telemetry.lastSecondsUnconfirmed', { seconds: Math.round(spanSec) })
+                      return t('telemetry.lastMinutesUnconfirmed', { minutes: Math.round(spanSec / 60) })
+                    }
+                    return t('telemetry.unconfirmed')
+                  }
                   if (performanceHistory.length < 2) return t('telemetry.live')
                   const first = performanceHistory[0].timestamp
                   const last = performanceHistory[performanceHistory.length - 1].timestamp
@@ -1533,7 +1722,7 @@ export default function Dashboard() {
 
           {/* DESTINATIONS — each one carries its own live state */}
           <section>
-            <WorkList items={workItems} />
+            <WorkList items={sortedWorkItems} />
             <div className="mt-2 border-t border-border/25 px-1 pt-1">
               <ConnLine
                 label={t('connLine.rcon')}
@@ -1781,7 +1970,7 @@ export default function Dashboard() {
                     const res = await serverApi.wipePreview(targets)
                     setWipePreview(res)
                   } catch (e: unknown) {
-                    toast({ title: t('wipeDialog.previewFailedTitle'), description: e instanceof Error ? e.message : t('wipeDialog.previewFailedFallback'), variant: 'destructive' })
+                    toast({ title: t('wipeDialog.previewFailedTitle'), description: getUserErrorMessage(e, t('wipeDialog.previewFailedFallback')), variant: 'destructive' })
                   } finally { setWipeLoading(false) }
                 }}
               >
@@ -1807,7 +1996,7 @@ export default function Dashboard() {
                     })
                     setWipeDialog(false); setWipePreview(null)
                   } catch (e: unknown) {
-                    toast({ title: t('wipeDialog.wipeFailedTitle'), description: e instanceof Error ? e.message : t('wipeDialog.wipeFailedFallback'), variant: 'destructive' })
+                    toast({ title: t('wipeDialog.wipeFailedTitle'), description: getUserErrorMessage(e, t('wipeDialog.wipeFailedFallback')), variant: 'destructive' })
                   } finally { setWipeLoading(false); setWipeBackupProgress(null) }
                 }}
               >

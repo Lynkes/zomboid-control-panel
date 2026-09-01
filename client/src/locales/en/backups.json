@@ -40,7 +40,8 @@
     "off": "Off",
     "runsSchedule": "Runs {{schedule}} · keep {{count}}",
     "noScheduled": "No scheduled backups",
-    "toggleAria": "Toggle scheduled backups"
+    "toggleAria": "Toggle scheduled backups",
+    "lastScheduledAttemptFailed": "Last scheduled attempt failed ({{time}}): {{message}}"
   },
   "schedule": {
     "every15Min": "every 15 minutes",
@@ -79,6 +80,9 @@
   "mainCard": {
     "title": "Backup Files",
     "savesNotFound": "Saves folder not found",
+    "noSavesFolderTitle": "No saves folder found",
+    "noSavesFolderDesc": "The panel couldn't find a Saves/Multiplayer folder for the active server. Set up a server if you haven't yet, or start it at least once — the folder is created on first launch.",
+    "noSavesFolderAction": "Open Server Setup",
     "deleteSelected": "Delete ({{count}})",
     "deleteOlder": "Delete Older",
     "emptyTitle": "No safety net",
@@ -116,6 +120,7 @@
     "bulletStopServer": "Stop the server first.",
     "bulletSafetyBackup": "The panel will create a safety backup before restoring.",
     "bulletUndoRequiresRestore": "Undoing this later means restoring that safety backup yourself — it won't happen automatically.",
+    "scopeTip": "Restoring only replaces this world's save files — your server settings, mods, and workshop items are untouched.",
     "cancel": "Cancel",
     "confirm": "Restore this backup"
   },

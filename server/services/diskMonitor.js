@@ -110,6 +110,15 @@ export class DiskMonitor {
 
   _emitIfChanged(status) {
     if (!this.io) return;
+    if (!status.ok) {
+      // Can't verify disk health right now (unreachable mount, permission
+      // error, no path configured) -- neither claim recovery nor overwrite
+      // the last known alert state. Preserving _wasWarning/_wasCritical
+      // means a critical banner stays up through an unreadable stretch
+      // instead of silently reporting normal, and the correct transition
+      // still fires once a trustworthy reading comes back.
+      return;
+    }
     if (status.critical && !this._wasCritical) {
       this.io.emit("disk:critical", status);
     } else if (status.warning && !status.critical && !this._wasWarning) {

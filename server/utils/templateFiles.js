@@ -34,21 +34,47 @@ function coerceSandboxValue(raw) {
 
 // ---- server.ini ----------------------------------------------------------
 
+// [ \t]* tolerance around both the key and "=" matches the convention
+// routes/mods.js settled on 2026-08-27 for its own Mods=/WorkshopItems=/
+// Map= writers: a bare `^key=` regex does not match a hand-edited or
+// raw-editor-saved "Key = value" line (serverFiles.js's toIni() no longer
+// auto-normalizes spacing away on save, see that file's own history), so a
+// perfectly real, existing line was invisible to this reader. That matters
+// beyond a missed read here -- server/utils/discordMessageRedaction.js's
+// readServerJoinPassword() calls this to collect the values
+// redactKnownSecrets() scrubs from every Discord-bound message; a spaced
+// `Password = ...` line meant the join password silently never entered
+// that set, so an RCON response echoing it would have posted to Discord in
+// plaintext, defeating the one thing that module exists to prevent. The
+// two Lua/SandboxVars siblings below (readSandboxValue/applySandboxValue)
+// already tolerated this; only the ini side hadn't been brought in line.
 export function readIniValues(content, keys) {
   const values = {};
   for (const key of keys) {
-    const match = content.match(new RegExp(`^${escapeRegExp(key)}=(.*)$`, "m"));
+    const match = content.match(new RegExp(`^[ \\t]*${escapeRegExp(key)}[ \\t]*=(.*)$`, "m"));
     if (match) values[key] = match[1].trim();
   }
   return values;
 }
 
-/** Replace or append each key=value pair. Creates the file content if empty. */
+/**
+ * Replace or append each key=value pair. Creates the file content if empty.
+ *
+ * Same [ \t]* tolerance as readIniValues above, and for the same reason on
+ * the write side: the old bare `^key=` regex didn't match a spaced
+ * "Key = value" line either, so `regex.test(result)` came back false and
+ * the else-branch APPENDED a second, unspaced copy of the key instead of
+ * replacing the first -- the exact duplicate-key defect routes/mods.js's
+ * 2026-08-27 comment describes, reproduced here independently. The
+ * replacement line is written back unspaced (`key=value`, no surrounding
+ * whitespace), the same normalize-on-write behavior mods.js's own fix uses,
+ * not a preserve-the-original-formatting rewrite.
+ */
 export function mergeIniValues(content, updates) {
   let result = content || "";
   for (const [key, value] of Object.entries(updates)) {
     if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) continue;
-    const regex = new RegExp(`^${escapeRegExp(key)}=.*$`, "m");
+    const regex = new RegExp(`^[ \\t]*${escapeRegExp(key)}[ \\t]*=.*$`, "m");
     const safeValue = String(value).replace(/[\r\n]/g, "");
     if (regex.test(result)) {
       result = result.replace(regex, `${key}=${safeValue}`);

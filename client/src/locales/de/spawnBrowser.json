@@ -28,6 +28,8 @@
   "noResults": "Keine Ergebnisse",
   "searchAcrossAllCategories": "Alle Kategorien durchsuchen",
   "recent": "Zuletzt",
+  "clearRecent": "Leeren",
+  "clearRecentAria": "Verlauf der zuletzt verwendeten Einträge leeren",
   "spawnAgainTitle": "{{name}} erneut spawnen",
   "spawnAgainTitleWithQty": "{{name}} × {{qty}} erneut spawnen",
   "selected": "Ausgewählt",

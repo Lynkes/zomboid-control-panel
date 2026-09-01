@@ -40,7 +40,8 @@
     "off": "Desactivado",
     "runsSchedule": "Se ejecuta {{schedule}} · conservar {{count}}",
     "noScheduled": "No hay copias de seguridad programadas",
-    "toggleAria": "Alternar copias de seguridad programadas"
+    "toggleAria": "Alternar copias de seguridad programadas",
+    "lastScheduledAttemptFailed": "El último intento programado falló ({{time}}): {{message}}"
   },
   "schedule": {
     "every15Min": "cada 15 minutos",
@@ -75,6 +76,9 @@
   "mainCard": {
     "title": "Archivos de copias de seguridad",
     "savesNotFound": "No se encontró la carpeta de partidas guardadas",
+    "noSavesFolderTitle": "No se encontró la carpeta de partidas guardadas",
+    "noSavesFolderDesc": "El panel no pudo encontrar una carpeta Saves/Multiplayer para el servidor activo. Configura un servidor si aún no lo has hecho, o inícialo al menos una vez — la carpeta se crea en el primer inicio.",
+    "noSavesFolderAction": "Abrir configuración del servidor",
     "deleteSelected": "Eliminar ({{count}})",
     "deleteOlder": "Eliminar antiguas",
     "emptyTitle": "Sin red de seguridad",
@@ -112,6 +116,7 @@
     "bulletStopServer": "Detener el servidor primero.",
     "bulletSafetyBackup": "El panel creará una copia de seguridad de emergencia antes de restaurar.",
     "bulletUndoRequiresRestore": "Para deshacer esto más tarde, tendrás que restaurar tú mismo esa copia de seguridad — no ocurre automáticamente.",
+    "scopeTip": "Restaurar solo reemplaza los archivos de guardado de este mundo — la configuración del servidor, los mods y los objetos de Workshop no se ven afectados.",
     "cancel": "Cancelar",
     "confirm": "Restaurar esta copia de seguridad"
   },

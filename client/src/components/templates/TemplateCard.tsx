@@ -29,7 +29,7 @@ export function TemplateCard({ template, onPreview, onExport, onDelete, canManag
             {template.isBuiltin ? t('builtin') : t('custom')}
           </Badge>
         </div>
-        <CardDescription className="line-clamp-3">{template.meta.description}</CardDescription>
+        <CardDescription className="line-clamp-3 min-w-0">{template.meta.description}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-3">
         <div className="flex flex-wrap gap-1.5">

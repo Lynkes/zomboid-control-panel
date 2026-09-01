@@ -47,8 +47,119 @@ jobs:
       - name: Lint
         run: npm run lint:server
 
+      # vitest-worker-teardown-flake-exits-1: vitest 4.1.11 has a known,
+      # currently-open upstream race in its birpc worker-teardown path
+      # (vitest-dev/vitest#8649 fixed the "fetch"-pending variant in the
+      # v4 pool rewrite; this is the same class of bug for a different
+      # pending RPC call -- "onUserConsoleLog" -- and there is no newer
+      # 4.x release that fixes it; 4.1.11 is current stable). Symptom:
+      # `EnvironmentTeardownError: [vitest-worker]: Closing rpc while
+      # "onUserConsoleLog" was pending`, vitest counts it under Errors
+      # and exits 1 even when every test passed -- a red CI run with no
+      # FAIL line anywhere in the report, roughly 1 in 4 locally.
+      # Retry exactly once, and only when the failure has this exact
+      # shape (no "Failed Tests" heading, i.e. zero real test failures,
+      # AND the known error signature present) -- a real test failure
+      # still fails the job immediately with no retry, since "Failed
+      # Tests" would be present and this condition is false.
       - name: Tests
-        run: npm run test:server
+        run: |
+          if npm run test:server 2>&1 | tee /tmp/server-test-output.log; then
+            exit 0
+          fi
+          if grep -q 'EnvironmentTeardownError' /tmp/server-test-output.log && \
+             ! grep -q 'Failed Tests' /tmp/server-test-output.log; then
+            echo "::warning::vitest-worker-teardown-flake-exits-1 (known upstream race, 0 real test failures) -- retrying once"
+            npm run test:server
+          else
+            exit 1
+          fi
+
+  # Deliberately a SEPARATE job from `server`, not a step tacked onto it: this check must never be
+  # able to red-gate lint/tests/tsc, and a job boundary is the only thing GitHub Actions actually
+  # enforces that with -- steps within one job all report under that job's single status, so a
+  # crash/timeout/wrong-verdict here could otherwise read as "Server (lint + tests)" failing. This
+  # job's only dependency is the repo checkout; it does not run npm install for the full
+  # client+server tree.
+  #
+  # No JDK here, and none needed: validates PanelBridge.lua's engine calls against the COMMITTED
+  # scripts/engine-signatures.manifest.json (a real jar-derived record of what methods actually
+  # exist on each Java class -- see scripts/gen-engine-signatures.mjs). Regenerating that manifest
+  # needs a local JDK and the actual game server jar, neither of which a GitHub-hosted runner has or
+  # ever will -- that is a local-only step, done before committing the refreshed manifest, never part
+  # of this job. FAILS only on a method the manifest confirms is definitively absent from a resolved
+  # receiver's class -- see scripts/check-engine-signatures.mjs's header for the full PASS/FAIL
+  # contract and its reported-coverage output.
+  engine-signatures:
+    name: Engine signature check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Engine signature check
+        run: node scripts/check-engine-signatures.mjs
+
+  # wire-up-the-unrun-checkers (2026-08-31 bug hunt): these three had NO
+  # caller anywhere in the repo before this job -- not an npm script, not
+  # CI, not docs. A checker nobody runs can rot indefinitely because
+  # nothing ever contradicts it: this is very likely why coverage collapsed
+  # silently in exactly these scripts and not in engine-signatures (the one
+  # already wired). Same job-isolation reasoning as engine-signatures above
+  # -- pure fs.readFileSync + regex, no npm install, no dependency on the
+  # server/client jobs' heavier setup, and its own job so a failure here
+  # reads unambiguously as one of these checks, not "Server" or "Client".
+  #
+  # All three FAIL the build on a real mismatch (confirmed zero mismatches
+  # on the tree this job was added against, per the wiring dispatch's own
+  # "confirm green first" requirement) -- verified by injecting a real
+  # mismatch into a throwaway scratch copy of each and confirming exit 1,
+  # not just assumed from reading the exit() call.
+  #
+  # audit-rcon-commands.mjs is the deliberately incomplete one: its full
+  # check needs a supported-commands file from a live PZ server's RCON
+  # `help` response, which no CI runner can obtain. Run here with only the
+  # repo root argument, it prints the panel-side denominator (every literal
+  # RCON command the panel can send) and fails only if that count is
+  # implausibly small -- i.e. this step verifies the CHECKER'S OWN
+  # extraction still works, not that every command it finds is one the
+  # server actually supports. See the script's own header for the honest
+  # ceiling; do not read a green tick here as "the panel's RCON usage is
+  # fully verified against a live server."
+  # i18n French duplicate-value check, added once its findings had a reviewed
+  # baseline: scripts/i18n-duplicates.baseline.json (2026-08-31) covers 43
+  # previously-reviewed legitimate duplicates across 7 named categories (see
+  # that file's header for the taxonomy and the one-sentence triage rule) --
+  # a 44th finding that was a real mistranslation was fixed, not baselined,
+  # before this step was added. --all fails only on a NEW suspicious
+  # duplicate not already in the baseline; a baselined one never reddens the
+  # build. Break-verified before wiring: a synthetic duplicate injected into
+  # a scratch copy produced exit 1 under "NEW SUSPICIOUS FRENCH DUPLICATE(S)",
+  # restoring the file returned it to exit 0.
+  scripts-checkers:
+    name: Scripts checkers (bridge actions/routes, RCON commands, i18n duplicates)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Bridge actions audit (Events.tsx/api.ts -> Lua handlers)
+        run: node scripts/audit-bridge-actions.mjs .
+
+      - name: Bridge routes audit (panelBridge.js routes -> Lua handlers)
+        run: node scripts/audit-bridge-routes.mjs .
+
+      - name: RCON commands (panel-side denominator only -- see step comment above)
+        run: node scripts/audit-rcon-commands.mjs .
+
+      - name: i18n French duplicate-value check (against the reviewed baseline)
+        run: node scripts/i18n-check.mjs --all
 
   client:
     name: Client (lint + types + tests)
@@ -81,3 +192,40 @@ jobs:
       - name: Tests
         working-directory: client
         run: npx vitest run
+
+  windows-packaged-updater:
+    name: Windows packaged updater
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install server dependencies
+        run: npm install --no-audit --prefer-offline --include=optional
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm install --no-audit --prefer-offline --include=optional
+
+      - name: Exercise bundle transaction and generated supervisor
+        run: npx vitest run server/tests/panelUpdateBundle.test.js server/tests/supervisor-restart.test.js
+
+      - name: Build packaged Windows executable
+        run: node build.js --windows
+
+      - name: Verify packaged updater artifacts
+        shell: pwsh
+        run: |
+          if (-not (Test-Path release\ZomboidControlPanel.exe)) { throw "Packaged executable is missing" }
+          if (-not (Test-Path release\Start.bat)) { throw "Generated supervisor is missing" }
+          $buildInfo = Get-Content release\client\dist\build-info.json -Raw | ConvertFrom-Json
+          $manifest = Get-Content release\release-manifest.json -Raw | ConvertFrom-Json
+          if ($buildInfo.panelVersion -ne $manifest.version) { throw "Frontend/backend version mismatch" }
+          if ($buildInfo.buildSha -ne $manifest.buildSha) { throw "Frontend/backend build SHA mismatch" }
+          if ($buildInfo.apiContractVersion -ne $manifest.apiContractVersion) { throw "Frontend/backend API contract mismatch" }

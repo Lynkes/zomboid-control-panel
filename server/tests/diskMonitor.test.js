@@ -153,9 +153,10 @@ describe("DiskMonitor", () => {
     return new DiskMonitor(io, { resolvePath, getStatus });
   }
 
-  const okStatus = { path: "/save", totalBytes: 100, freeBytes: 50, usedPercent: 50, warning: false, critical: false };
-  const warnStatus = { path: "/save", totalBytes: 100, freeBytes: 8, usedPercent: 92, warning: true, critical: false };
-  const critStatus = { path: "/save", totalBytes: 100, freeBytes: 2, usedPercent: 98, warning: true, critical: true };
+  const okStatus = { path: "/save", totalBytes: 100, freeBytes: 50, usedPercent: 50, warning: false, critical: false, ok: true };
+  const warnStatus = { path: "/save", totalBytes: 100, freeBytes: 8, usedPercent: 92, warning: true, critical: false, ok: true };
+  const critStatus = { path: "/save", totalBytes: 100, freeBytes: 2, usedPercent: 98, warning: true, critical: true, ok: true };
+  const unreachableStatus = { path: "/save", totalBytes: 0, freeBytes: 0, usedPercent: 0, warning: false, critical: false, ok: false };
 
   it("caches the last computed status on getDiskStatus()", async () => {
     const monitor = makeMonitor([okStatus]);
@@ -183,6 +184,26 @@ describe("DiskMonitor", () => {
 
   it("emits disk:normal on recovery from warning/critical", async () => {
     const monitor = makeMonitor([critStatus, okStatus]);
+    await monitor.checkNow();
+    await monitor.checkNow();
+    expect(io.emit).toHaveBeenCalledWith("disk:normal", okStatus);
+  });
+
+  it("does not report disk:normal when a critical disk becomes unreachable", async () => {
+    // Regression: an unreadable stat (mount dropped, disk filled to an I/O
+    // error, permissions changed) used to be structurally indistinguishable
+    // from a genuinely healthy disk to this method, so the critical banner
+    // silently cleared exactly when the disk situation was most dangerous.
+    const monitor = makeMonitor([critStatus, unreachableStatus]);
+    await monitor.checkNow();
+    await monitor.checkNow();
+    expect(io.emit).not.toHaveBeenCalledWith("disk:normal", expect.anything());
+    expect(io.emit).not.toHaveBeenCalledWith("disk:warning", expect.anything());
+  });
+
+  it("still reports disk:normal on genuine recovery after an unreachable stretch", async () => {
+    const monitor = makeMonitor([critStatus, unreachableStatus, okStatus]);
+    await monitor.checkNow();
     await monitor.checkNow();
     await monitor.checkNow();
     expect(io.emit).toHaveBeenCalledWith("disk:normal", okStatus);

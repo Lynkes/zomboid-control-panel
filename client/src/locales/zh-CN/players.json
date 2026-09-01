@@ -30,6 +30,7 @@
     "peakToday": "今日峰值",
     "roster": "名册",
     "rosterCaption": "曾出现",
+    "rosterTip": "以前连接过、目前离线的玩家。当前在线的玩家在断开连接前不计入此数字——这就是为什么上方明明有一张在线玩家卡片，这里却可能显示为 0。",
     "bannedLabel": "已封禁 SteamID",
     "bannedManage": "管理",
     "bannedAria": "查看 {{count}} 个已封禁的 SteamID"
@@ -51,6 +52,7 @@
     "searchAria": "搜索玩家",
     "onlineEmptyTitle": "暂无在线玩家",
     "onlineEmptyDesc": "玩家连接后将显示在此处。",
+    "rosterHealthTooltip": "生命值：{{health}}%",
     "seePreviouslySeen_one": "查看 {{count}} 名此前出现过的玩家",
     "seePreviouslySeen_other": "查看 {{count}} 名此前出现过的玩家",
     "reviewBanned_one": "查看 {{count}} 个已封禁的 SteamID",
@@ -123,10 +125,36 @@
     "noTargetDesc": "从名册中选择一名玩家以查看其档案，或在<1>› 手动目标</1>下输入用户名。"
   },
   "tabs": {
+    "vitals": "生命体征",
     "moderation": "管理操作",
     "spawn": "生成",
     "powers": "特殊能力",
     "notesLog": "备注与日志"
+  },
+  "vitals": {
+    "noTarget": "选择一名玩家以查看其实时状态。",
+    "offline": "该玩家当前离线。",
+    "bridgeRequired": "PanelBridge 未连接。",
+    "loading": "正在加载实时状态…",
+    "unavailable": "无法获取该玩家的实时状态。",
+    "loadError": "加载实时状态失败。",
+    "infected": "已感染",
+    "bleeding": "流血",
+    "asleep": "睡眠中",
+    "sneaking": "潜行中",
+    "running": "奔跑中",
+    "health": "生命值",
+    "hunger": "饥饿",
+    "thirst": "口渴",
+    "fatigue": "疲劳",
+    "endurance": "耐力",
+    "stress": "压力",
+    "boredom": "无聊",
+    "unhappiness": "不快",
+    "pain": "疼痛",
+    "wetness": "湿度",
+    "otherStatsLabel": "其他数值",
+    "otherStatsTip": "以原始数字显示，而不是像上面的生命体征那样用进度条：PanelBridge 会发送这些数值，但尚未逐一对照游戏本体确认每项使用的是 0-1 还是 0-100 的量表。彩色进度条必须先猜测量表才能显示，而一个自信却错误的严重程度指示，比完全不显示更糟。"
   },
   "actionTiles": {
     "kickDesc": "附带原因踢出玩家",
@@ -134,7 +162,7 @@
     "accessLevelLabel": "权限等级",
     "accessLevelDesc": "管理员 · 协管员 · 用户",
     "teleportLabel": "传送",
-    "teleportDesc": "B42 多人模式 · 可能不同步",
+    "teleportDesc": "Build 42 多人模式 · 可能不同步",
     "voiceBanLabel": "语音封禁",
     "voiceBanTooltip": "静音或取消静音玩家的游戏内语音。玩家仍保持连接，但无法在近距离语音中说话。",
     "steamIdBanLabel": "SteamID 封禁",
@@ -159,6 +187,7 @@
     "reasonLabel": "原因（可选）",
     "reasonPlaceholder": "输入原因…",
     "banIpLabel": "同时封禁 IP 地址",
+    "banIpTip": "还会封禁该 IP 地址，而不仅是账号——可能影响同一网络下的其他人，且本面板没有单独查看或解除 IP 封禁的入口。",
     "cancel": "取消",
     "continue": "继续封禁"
   },
@@ -186,6 +215,7 @@
     "xLabel": "X",
     "yLabel": "Y",
     "zLabel": "Z",
+    "zTip": "楼层，不是高度——0 表示地面层，数值越大表示楼层越高。",
     "submit": "传送"
   },
   "secondaryOpsHeader": "其他操作",
@@ -264,8 +294,17 @@
     "healLabel": "治疗",
     "healDesc": "恢复全部生命值与状态",
     "healButton": "治疗",
+    "killLabel": "击杀",
+    "killDesc": "永久结束该角色",
+    "killTip": "还会先关闭无敌模式，即使击杀本身失败——它不会自动重新开启。",
+    "killButton": "击杀",
+    "killConfirmTitle": "击杀 {{player}}?",
+    "killConfirmDesc": "此操作会立即结束 {{player}} 的角色。在永久死亡服务器上,没有撤销、没有以同一角色重生、也没有恢复。请在下方输入其用户名以确认你确实要这样对待该玩家。",
+    "killConfirmButton": "击杀玩家",
+    "killConfirmTypeLabel": "输入 {{player}} 以确认",
     "on": "开",
     "off": "关",
+    "unknown": "未知",
     "enable": "启用",
     "disable": "禁用",
     "bridgeRequiredTooltip": "需要先连接 PanelBridge"
@@ -361,7 +400,8 @@
     "disableInvisible": "关闭隐身",
     "enableNoclip": "启用穿墙",
     "disableNoclip": "关闭穿墙",
-    "healPlayer": "治疗玩家"
+    "healPlayer": "治疗玩家",
+    "killPlayer": "击杀玩家"
   },
   "toasts": {
     "successTitle": "成功",

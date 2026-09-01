@@ -3,7 +3,8 @@
     "title": "Browse Public Servers",
     "description": "Search the public Project Zomboid server list and copy a server address to join quickly",
     "refreshList": "Refresh List",
-    "reloadFromSteam": "Reload from Steam"
+    "reloadFromSteam": "Reload from Steam",
+    "reloadFromSteamTip": "Refresh List re-shows results from the panel's own cache, which can be up to a minute old. Reload from Steam always asks Steam directly — use it if you just changed something on your own server and don't see it reflected yet."
   },
   "apiKeyWarning": {
     "title": "Steam API Key Missing",

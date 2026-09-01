@@ -136,8 +136,12 @@ describe('Events -- a utilities action that silently does not take effect is rep
     renderEvents()
     await openUtilitiesSection()
 
-    const shutOffButtons = await screen.findAllByRole('button', { name: /shut off/i })
-    shutOffButtons[0].click() // power row renders first
+    // The utilities Power/Water controls are now a single state-reflecting
+    // Switch each (2026-08-31, paired-buttons operator request), not a
+    // Restore/Shut Off button pair -- both mock powerOn/waterOn true in
+    // beforeEach, so the switches render checked; clicking flips them off.
+    const switches = await screen.findAllByRole('switch', { name: /power|water/i })
+    switches[0].click() // power row renders first
 
     await waitFor(() => expect(shutOffUtilities).toHaveBeenCalledWith(true, false))
     await waitFor(() => {
@@ -160,8 +164,8 @@ describe('Events -- a utilities action that silently does not take effect is rep
     renderEvents()
     await openUtilitiesSection()
 
-    const shutOffButtons = await screen.findAllByRole('button', { name: /shut off/i })
-    shutOffButtons[0].click()
+    const switches = await screen.findAllByRole('switch', { name: /power|water/i })
+    switches[0].click()
 
     await waitFor(() => expect(shutOffUtilities).toHaveBeenCalledWith(true, false))
     await waitFor(() => {
@@ -184,8 +188,8 @@ describe('Events -- a utilities action that silently does not take effect is rep
     renderEvents()
     await openUtilitiesSection()
 
-    const shutOffButtons = await screen.findAllByRole('button', { name: /shut off/i })
-    shutOffButtons[1].click() // water row renders second
+    const switches = await screen.findAllByRole('switch', { name: /power|water/i })
+    switches[1].click() // water row renders second
 
     await waitFor(() => expect(shutOffUtilities).toHaveBeenCalledWith(false, true))
     await waitFor(() => {

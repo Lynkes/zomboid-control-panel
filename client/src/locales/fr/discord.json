@@ -207,6 +207,11 @@
       "configured": "Configuré",
       "notSignedIn": "Non connecté"
     },
+    "gatewayIssue": {
+      "label": "La connexion Discord est instable depuis un moment — les alertes et les commandes peuvent être retardées jusqu'à son rétablissement.",
+      "dismissAria": "Ignorer l'avertissement de connexion",
+      "dismissTooltip": "Ignorer jusqu'à ce que cela change"
+    },
     "commandPermissions": {
       "title": "Permissions des commandes",
       "description": "Contrôlez qui peut utiliser chaque commande slash. Attribuez un niveau de permission par commande.",

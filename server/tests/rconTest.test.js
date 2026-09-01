@@ -218,21 +218,32 @@ describe('RCON route malformed request handling', () => {
 });
 
 // 2026-08-27 bug hunt: POST /execute broadcasts its command AND response to
-// the "logs" socket room via rcon:response, and separately logs the command
-// via log.info -- both were the raw, unredacted string. logCommand()
+// a socket room via rcon:response, and separately logs the command via
+// log.info -- both were the raw, unredacted string. logCommand()
 // (database/init.js) already redacts an adduser password before persisting
 // to command_history for exactly this reason (see rconCommandRedaction.js);
 // these two sites were never brought in line, so `adduser "Bob" "hunter2"`
-// still reached every diagnostics.manage-holding socket, and every log
-// line, in cleartext. Wire-level coverage: calls the real handler and
-// asserts on what actually got emitted/logged, not on source text.
+// still reached every subscribed socket, and every log line, in cleartext.
+// Wire-level coverage: calls the real handler and asserts on what actually
+// got emitted/logged, not on source text.
+//
+// 2026-08-31 bug hunt: the broadcast target moved from "logs" (gated
+// diagnostics.manage in index.js) to "rcon-live" (gated rcon.execute) --
+// the same content class GET /api/rcon/history has always gated rcon.execute
+// alone, per this file's own header comment above. diagnostics.manage is a
+// different, broader capability a custom "diagnostics-only observer" role
+// could plausibly hold without rcon.execute, per that capability's own
+// catalogue description (never mentions RCON). Tests below assert the room
+// name explicitly, and one proves "logs" no longer receives it at all --
+// a retarget bug is invisible to a test that only checks the event fired
+// somewhere.
 describe('RCON /execute -- redacts secrets before they leave the route', () => {
   function createIoMock() {
     const emitted = [];
     return {
       emitted,
-      to: () => ({
-        emit: (event, payload) => emitted.push({ event, payload }),
+      to: (room) => ({
+        emit: (event, payload) => emitted.push({ room, event, payload }),
       }),
     };
   }
@@ -281,5 +292,28 @@ describe('RCON /execute -- redacts secrets before they leave the route', () => {
     const broadcast = io.emitted.find((e) => e.event === 'rcon:response');
     expect(broadcast.payload.command).toBe('players');
     expect(broadcast.payload.response).toBe('players: Bob');
+  });
+
+  it('broadcasts rcon:response into the "rcon-live" room, not "logs" -- rcon.execute is the gate, not the broader diagnostics.manage', async () => {
+    const res = createResponse();
+    const io = createIoMock();
+    const rconService = {
+      execute: vi.fn(async () => ({ success: true, response: 'players: Bob' })),
+    };
+
+    await getHandler('/execute')(
+      {
+        body: { command: 'players' },
+        app: { get: (key) => (key === 'rconService' ? rconService : io) },
+      },
+      res,
+    );
+
+    const broadcast = io.emitted.find((e) => e.event === 'rcon:response');
+    expect(broadcast.room).toBe('rcon-live');
+    // The control that makes the above meaningful: a fix that broadcast to
+    // BOTH rooms would still pass a test that only checks "rcon-live" was
+    // used somewhere -- confirm "logs" gets nothing at all from this route.
+    expect(io.emitted.some((e) => e.room === 'logs')).toBe(false);
   });
 });

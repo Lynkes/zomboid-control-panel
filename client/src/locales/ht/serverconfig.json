@@ -31,6 +31,24 @@
     "fileNotFoundTitle": "{{label}}: fichye pa jwenn",
     "notFoundAria": "Pa jwenn"
   },
+  "unresolvedReview": {
+    "title": "ID Mods= ki pa rezoud",
+    "causeUnknown": "Poko gen triyaj pou antre sa a — egzekite dyagnostik yo ankò.",
+    "causeTypo": "Sanble se yon fot ortograf mod ki enstale a \"{{suggestion}}\".",
+    "correctAction": "Itilize \"{{suggestion}}\"",
+    "causeStillDownloading": "Gen yon telechajman Workshop k ap fèt kounye a — tann li fini, epi egzekite dyagnostik yo ankò.",
+    "causeWorkshopNotOnDisk": "Li nan lis WorkshopItems= men kontni li a pa sou disk la e anyen p ap telechaje l kounye a. Redemare sèvè a oswa revalide telechajman Workshop la, epi egzekite dyagnostik yo ankò.",
+    "rerunDiagnostics": "Egzekite dyagnostik yo ankò",
+    "causeAbsent": "Pa gen okenn mod Workshop oswa lokal ki enstale ki matche ak ID sa a.",
+    "removeAction": "Retire nan Mods=",
+    "correctedTitle": "Antre Mods= korije",
+    "correctedToast": "Ranplase \"{{modId}}\" ak \"{{suggestion}}\" nan Mods=. Pa anrejistre — verifye epi anrejistre anba a.",
+    "removeConfirmTitle": "Retire nan Mods=?",
+    "removeConfirm": "Retire \"{{modId}}\" nan Mods=? Sa a sèlman prepare chanjman an isit la — anyen pa ekri sou disk jiskaske ou anrejistre.",
+    "removeConfirmButton": "Retire",
+    "removedTitle": "Antre Mods= retire",
+    "removedToast": "Retire \"{{modId}}\" nan Mods=. Pa anrejistre — verifye epi anrejistre anba a."
+  },
   "tabs": {
     "serverSettings": "Paramèt Sèvè",
     "sandbox": "Sandbox",
@@ -320,8 +338,6 @@
   "toasts": {
     "error": "Erè",
     "loadConfigFailed": "Pa t kapab chaje konfigirasyon sèvè a.",
-    "stopServerTitle": "Sispann sèvè a anvan ou sove",
-    "stopServerDesc": "Project Zomboid ka ekri sou fichye konfigirasyon pandan li ap fonksyone.",
     "invalidIniTitle": "Paramèt sèvè envalid",
     "invalidSandboxTitle": "Valè Sandbox envalid",
     "fixSettings": "Korije: {{settings}}",

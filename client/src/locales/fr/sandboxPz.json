@@ -696,7 +696,7 @@
   },
   "survival": {
     "StatsDecrease": {
-      "label": "Péremption de la nourriture",
+      "label": "Diminution des stats",
       "options": {
         "1": {
           "label": "Très rapide"
@@ -785,7 +785,7 @@
       }
     },
     "EndRegen": {
-      "label": "Péremption de la nourriture",
+      "label": "Récupération d'endurance",
       "options": {
         "1": {
           "label": "Très rapide"
@@ -998,7 +998,7 @@
       }
     },
     "LockedHouses": {
-      "label": "Fréquence des alarmes de maison",
+      "label": "Fréquence de verrouillage des maisons",
       "options": {
         "1": {
           "label": "Jamais"
@@ -1066,7 +1066,7 @@
       }
     },
     "NatureAbundance": {
-      "label": "Abondance de l'agriculture",
+      "label": "Abondance de la nature",
       "options": {
         "1": {
           "label": "Très pauvre"
@@ -1086,7 +1086,7 @@
       }
     },
     "FishAbundance": {
-      "label": "Abondance de l'agriculture",
+      "label": "Abondance de poissons",
       "options": {
         "1": {
           "label": "Très pauvre"
@@ -1259,13 +1259,13 @@
           "label": "Aucun"
         },
         "2": {
-          "label": "Bas"
+          "label": "Très bas"
         },
         "3": {
-          "label": "Normal"
+          "label": "Bas"
         },
         "4": {
-          "label": "Haut"
+          "label": "Normal"
         },
         "5": {
           "label": "Élevé"
@@ -1540,22 +1540,22 @@
       "label": "Vitesse de vieillissement",
       "options": {
         "1": {
-          "label": "Très rapide"
+          "label": "Super rapide"
         },
         "2": {
-          "label": "Rapide"
+          "label": "Très rapide"
         },
         "3": {
-          "label": "Normal"
+          "label": "Rapide"
         },
         "4": {
-          "label": "Normal"
+          "label": "Normale"
         },
         "5": {
-          "label": "Slow"
+          "label": "Lente"
         },
         "6": {
-          "label": "Very Slow"
+          "label": "Très lente"
         }
       }
     },
@@ -1893,7 +1893,7 @@
       }
     },
     "Strength": {
-      "label": "Multiplicateur de force",
+      "label": "Force",
       "options": {
         "1": {
           "label": "Hors norme"
@@ -2292,7 +2292,7 @@
       "label": "Multiplicateur de cuisine"
     },
     "Farming": {
-      "label": "Multiplicateur d'agriculture"
+      "label": "Multiplicateur d'XP d'agriculture"
     },
     "Doctor": {
       "label": "Multiplicateur de premiers secours"

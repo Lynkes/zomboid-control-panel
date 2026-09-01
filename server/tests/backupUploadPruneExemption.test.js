@@ -35,9 +35,38 @@ vi.mock("../services/backupRecords.js", () => ({
 // beforeEach runs) -- so tmpDir must already be a real path at that first
 // import, not just non-undefined later. beforeEach swaps in a fresh one
 // per test for isolation.
-let tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-backup-prune-seed-"));
+//
+// initDir is kept as its OWN stable constant, separate from the mutable
+// tmpDir below (ENOTEMPTY class, hunt-wave12, 2026-08-29/30): tmpDir gets
+// reassigned by beforeEach, but logger.js's winston singleton resolved
+// logsDir from THIS value, once, at the import a few lines down -- it
+// never re-reads getDataPaths() afterward. No hook in this file ever
+// deletes initDir, which is exactly why it used to leak a real winston
+// logger's files forever (measured on this machine: 595 such directories
+// from this file's prefix, every sampled one containing real
+// combined.log/error.log). See the regression test at the bottom of this
+// file.
+const initDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-backup-prune-seed-"));
+let tmpDir = initDir;
 vi.mock("../utils/paths.js", () => ({
   getDataPaths: () => ({ dataDir: tmpDir, logsDir: tmpDir }),
+}));
+
+// ENOTEMPTY class (hunt-wave12, 2026-08-29/30): services/backupService.js
+// imports utils/logger.js, so without this the real winston logger
+// resolved its logsDir from initDir above and wrote real log files into it
+// for the lifetime of this file's test run. Never the same directory any
+// per-test afterEach deletes, so never an ENOTEMPTY risk the way
+// modThumbnailResolution.test.js's race was (5d5a9088) -- but a real,
+// separate, measured leak this mock closes. Matches the convention already
+// established elsewhere in this suite.
+vi.mock("../utils/logger.js", () => ({
+  createLogger: () => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  }),
 }));
 
 const { BackupService } = await import("../services/backupService.js");
@@ -119,5 +148,18 @@ describe("backup pruning: uploaded archives are exempt from automatic prune, not
 
     expect(result.deleted).toBe(0);
     expect(names(backupsPath)).toHaveLength(2);
+  });
+});
+
+// ENOTEMPTY class regression (hunt-wave12, 2026-08-29/30): placed last so
+// every test above has already run. Before the logger.js mock above, this
+// failed -- initDir genuinely contained combined.log/error.log, measured
+// directly on this machine. After it, nothing ever writes into initDir at
+// all, so this stays green rather than decorative.
+describe("ENOTEMPTY class regression: the module-load-time seed directory never receives real logger writes", () => {
+  it("initDir (captured at the static import above, never deleted by any hook) contains no *.log files", () => {
+    expect(
+      fs.readdirSync(initDir).filter((f) => f.endsWith(".log")),
+    ).toEqual([]);
   });
 });

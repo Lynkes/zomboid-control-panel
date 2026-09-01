@@ -3,6 +3,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import archiver from "archiver";
+import { spawnSync } from "child_process";
 
 const logServerEvent = vi.fn(async () => {});
 
@@ -448,6 +449,55 @@ describe("createBackup archive safety", () => {
     const files = fs.readdirSync(backupsPath);
     expect(files.some((f) => f.endsWith(".tmp"))).toBe(false);
     expect(files.some((f) => f.endsWith(".zip"))).toBe(true);
+  });
+
+  it("removes orphaned backup temp files before starting", async () => {
+    // hunt-wave11-2026-08-29 follow-up: cleanupOrphanBackupTemps now
+    // liveness-checks the .central-*.tmp pattern (it embeds a pid;
+    // *.zip.tmp does not, and stays pattern-only-deleted, see the
+    // function's own comment in backupService.js). The central temp here
+    // must be shaped like a REAL one (.central-{pid}-{timestamp}-{random}.tmp,
+    // StreamingZipWriter's own construction) with a pid confirmed dead --
+    // a plain "old" placeholder no longer matches the pattern at all and
+    // would sit there UNSWEPT under the new, safer behavior, which would
+    // make this assertion pass for the wrong reason (never deleted, so
+    // trivially satisfies existsSync === false only if we'd asserted the
+    // opposite -- picked a genuinely dead pid instead so the test still
+    // proves the sweep runs, not just that a mismatched name was ignored).
+    const deadPid = spawnSync(process.execPath, ["-e", "process.exit(0)"]).pid;
+    const service = createService();
+    fs.writeFileSync(path.join(backupsPath, "old.zip.tmp"), "partial");
+    fs.writeFileSync(
+      path.join(backupsPath, `.central-${deadPid}-1735500000000-k3f9zq.tmp`),
+      "partial",
+    );
+
+    const result = await service.createBackup({});
+
+    expect(result.success).toBe(true);
+    expect(fs.existsSync(path.join(backupsPath, "old.zip.tmp"))).toBe(false);
+    expect(
+      fs.existsSync(path.join(backupsPath, `.central-${deadPid}-1735500000000-k3f9zq.tmp`)),
+    ).toBe(false);
+  });
+
+  it("leaves a .central-*.tmp file behind whose pid is still alive, even though it matches the same filename shape", async () => {
+    const service = createService();
+    // Our own pid -- unambiguously alive for the duration of this test,
+    // same technique as writeFileAtomicOrphanTempSweep.test.js.
+    const liveCentralPath = path.join(
+      backupsPath,
+      `.central-${process.pid}-1735500000000-k3f9zq.tmp`,
+    );
+    fs.writeFileSync(liveCentralPath, "a backup genuinely still in flight");
+
+    const result = await service.createBackup({});
+
+    expect(result.success).toBe(true);
+    expect(fs.existsSync(liveCentralPath)).toBe(true);
+    expect(fs.readFileSync(liveCentralPath, "utf-8")).toBe(
+      "a backup genuinely still in flight",
+    );
   });
 
   it("uses a distinct name for sequential backups created in the same millisecond", async () => {

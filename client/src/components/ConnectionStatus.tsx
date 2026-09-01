@@ -1,7 +1,8 @@
 import { Wifi, WifiOff, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { useConnectionStatus } from '@/contexts/SocketContext'
+import { useConnectionStatus, useSocket } from '@/contexts/SocketContext'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import {
   Tooltip,
   TooltipContent,
@@ -16,6 +17,7 @@ interface ConnectionStatusProps {
 export function ConnectionStatus({ className, showLabel = false }: ConnectionStatusProps) {
   const { t } = useTranslation('connectionStatus')
   const { connected, reconnecting, reconnectAttempt, error } = useConnectionStatus()
+  const socket = useSocket()
 
   // Only show when not connected — a permanently visible "Connected" badge is noise
   if (connected && !reconnecting) return null
@@ -60,6 +62,16 @@ export function ConnectionStatus({ className, showLabel = false }: ConnectionSta
       description: t('disconnected.description'),
       hint: t('disconnected.hint'),
       technicalDetail: error ? t('disconnected.technicalDetail', { error }) : undefined,
+      // The automatic reconnect loop has already given up by the time this
+      // renders (App.tsx's reconnect_failed handler). It retries on its own
+      // once the tab becomes visible again or the network comes back, but
+      // an operator staring at a live, visible, network-fine tab the whole
+      // time has neither of those events to rescue them -- this button is
+      // their only path back short of a full page refresh. Calls the exact
+      // same socket.connect(), which re-checks/refreshes the access token
+      // first via the socket's auth function -- not a second, separate
+      // reconnect implementation.
+      showRetry: true,
     }
   }
 
@@ -104,6 +116,17 @@ export function ConnectionStatus({ className, showLabel = false }: ConnectionSta
             <p className="text-muted-foreground/70 font-mono text-xs mt-1.5 break-all">
               {status.technicalDetail}
             </p>
+          )}
+          {status.showRetry && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="mt-2 h-7 w-full text-xs"
+              onClick={() => socket?.connect()}
+            >
+              {t('disconnected.retry')}
+            </Button>
           )}
         </div>
       </TooltipContent>

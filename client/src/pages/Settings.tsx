@@ -45,6 +45,7 @@ import {
   Search,
   Bookmark,
   BookmarkPlus,
+  ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { reportClientError } from "@/lib/client-errors";
@@ -68,6 +69,7 @@ import { Label } from "@/components/ui/label";
 import { HelpTip } from "@/components/HelpTip";
 import { AutoUpdateResultBanner } from "@/components/AutoUpdateResultBanner";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -107,6 +109,7 @@ import { resolveRegisteredTranslation } from "@/lib/paramTranslation";
 import { useSocket } from "@/contexts/SocketContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme, type ThemeName } from "@/contexts/ThemeContext";
+import { platformTranslationKey, useRuntimeInfo } from "@/hooks/useRuntimeInfo";
 import { BridgeStatusBadge } from "@/components/BridgeStatusBadge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -283,6 +286,7 @@ function ThemeSelect() {
 
 export default function Settings() {
   const { t, i18n } = useTranslation("settings");
+  const runtimeInfo = useRuntimeInfo();
   const socket = useSocket();
   const [settings, setSettings] = useState<AppSettings>({
     panelBridgeAutoUpdate: true,
@@ -355,6 +359,10 @@ export default function Settings() {
   const [panelApplyLog, setPanelApplyLog] = useState<string | null>(null);
   const [panelApplyResultDismissed, setPanelApplyResultDismissed] =
     useState(false);
+  const [restartConfirmOpen, setRestartConfirmOpen] = useState(false);
+  const [restartRiskConfirmed, setRestartRiskConfirmed] = useState(false);
+  const [applyConfirmOpen, setApplyConfirmOpen] = useState(false);
+  const [applyRiskConfirmed, setApplyRiskConfirmed] = useState(false);
   const { toast } = useToast();
   const { user, authEnabled, logout, can } = useAuth();
 
@@ -817,6 +825,27 @@ export default function Settings() {
   );
   const isDockerPanelUpdate = panelUpdateStatus?.updateMode === "docker";
   const stagedPanelUpdatePath = panelUpdateStatus?.stagedUpdate?.path;
+  const panelRestartAssessment = runtimeInfo?.restartAssessment;
+  const updateRestartAssessment =
+    panelUpdatePreflight?.info.restartAssessment ?? panelRestartAssessment;
+  const panelRestartIsRisky =
+    panelRestartAssessment?.gameServers !== "preserved" ||
+    Boolean(panelRestartAssessment?.requiresConfirmation);
+  const updateRestartIsRisky =
+    updateRestartAssessment?.gameServers !== "preserved" ||
+    Boolean(updateRestartAssessment?.requiresConfirmation);
+  const restartAssessmentMessage = (
+    assessment: typeof panelRestartAssessment,
+    scope: "general" | "updates",
+  ) => {
+    if (assessment?.gameServers === "preserved") {
+      return t(`${scope}.${scope === "general" ? "restartGameServerPreserved" : "gameServerPreserved"}`);
+    }
+    if (assessment?.gameServers === "at-risk") {
+      return t(`${scope}.${scope === "general" ? "restartGameServerRisk" : "gameServerRisk"}`);
+    }
+    return t(`${scope}.${scope === "general" ? "restartGameServerUnknown" : "gameServerUnknown"}`);
+  };
 
   // Run preflight once status tells us we're in a packaged build and there is
   // anything actionable (either an available update or a staged file on disk).
@@ -2319,40 +2348,52 @@ export default function Settings() {
         onValueChange={handleTabChange}
         className="mt-6 lg:grid lg:grid-cols-[14.5rem_minmax(0,1fr)] lg:items-start lg:gap-7"
       >
-        <TabsList
-          aria-label={t("ariaLabel")}
-          className="mb-4 flex h-auto w-full max-w-full justify-start gap-1 overflow-x-auto rounded-md border border-border/50 bg-muted/30 p-1 lg:sticky lg:top-4 lg:mb-0 lg:flex-col lg:items-stretch lg:gap-px lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0"
-        >
-          {settingsGroups.map((group) => (
-            <React.Fragment key={group.name}>
-              <p
-                role="presentation"
-                className="hidden lg:block px-2 pb-1.5 pt-5 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/60 lg:first:pt-0"
-              >
-                {group.name}
-              </p>
-              {group.sections.map((section) => {
-                const Icon = section.icon;
-                return (
-                  <Tooltip key={section.id}>
-                    <TooltipTrigger asChild>
-                      <TabsTrigger
-                        value={section.id}
-                        className="settings-tab-trigger shrink-0 flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground/70 hover:bg-muted/50 hover:text-foreground data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none lg:w-full lg:justify-start lg:px-2.5"
-                      >
-                        <Icon className="w-4 h-4 shrink-0" />
-                        <span className="truncate">{section.label}</span>
-                      </TabsTrigger>
-                    </TooltipTrigger>
-                    <TooltipContent side="right" className="max-w-[220px]">
-                      <p className="text-xs">{section.tip}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                );
-              })}
-            </React.Fragment>
-          ))}
-        </TabsList>
+        <div className="relative lg:contents">
+          <TabsList
+            aria-label={t("ariaLabel")}
+            className="mb-4 flex h-auto w-full max-w-full justify-start gap-1 overflow-x-auto rounded-md border border-border/50 bg-muted/30 p-1 lg:sticky lg:top-4 lg:mb-0 lg:flex-col lg:items-stretch lg:gap-px lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0"
+          >
+            {settingsGroups.map((group) => (
+              <React.Fragment key={group.name}>
+                <p
+                  role="presentation"
+                  className="hidden lg:block px-2 pb-1.5 pt-5 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/60 lg:first:pt-0"
+                >
+                  {group.name}
+                </p>
+                {group.sections.map((section) => {
+                  const Icon = section.icon;
+                  return (
+                    <Tooltip key={section.id}>
+                      <TooltipTrigger asChild>
+                        <TabsTrigger
+                          value={section.id}
+                          className="settings-tab-trigger shrink-0 flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground/70 hover:bg-muted/50 hover:text-foreground data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none lg:w-full lg:justify-start lg:px-2.5"
+                        >
+                          <Icon className="w-4 h-4 shrink-0" />
+                          <span className="truncate">{section.label}</span>
+                        </TabsTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="max-w-[220px]">
+                        <p className="text-xs">{section.tip}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                })}
+              </React.Fragment>
+            ))}
+          </TabsList>
+          {/* Static scroll-continuation cue for the horizontal strip on mobile/tablet --
+              the strip always has more sections than fit, so this isn't scroll-position-tracked,
+              just a constant "there's more this way" edge like the sticky sidebar gets for free
+              on lg: via the group labels being visibly cut off at the viewport bottom instead. */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 right-0 flex w-10 items-center justify-end rounded-r-md bg-gradient-to-l from-muted to-transparent pr-1.5 lg:hidden"
+          >
+            <ChevronRight className="h-4 w-4 text-muted-foreground/80" />
+          </div>
+        </div>
 
         {/* Tab Content */}
         <div className="space-y-5">
@@ -2399,23 +2440,56 @@ export default function Settings() {
                     </Alert>
                   )}
                 <div className="flex items-center gap-3">
-                  <Button
-                    variant="outline"
-                    onClick={() =>
-                      restartPanelWithReconnect(
-                        t("general.restartToastDesc", { port: settings.panelPort }),
-                      )
-                    }
-                    disabled={restarting || isDirty}
-                    className="gap-2"
+                  <AlertDialog
+                    open={restartConfirmOpen}
+                    onOpenChange={(open) => {
+                      setRestartConfirmOpen(open);
+                      if (!open) setRestartRiskConfirmed(false);
+                    }}
                   >
-                    {restarting ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <RotateCw className="w-4 h-4" />
-                    )}
-                    {restarting ? t("general.restartingButton") : t("general.restartButton")}
-                  </Button>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="outline"
+                        disabled={restarting || isDirty}
+                        className="gap-2"
+                      >
+                        {restarting ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <RotateCw className="w-4 h-4" />
+                        )}
+                        {restarting ? t("general.restartingButton") : t("general.restartButton")}
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>{t("general.confirmRestartTitle")}</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          {restartAssessmentMessage(panelRestartAssessment, "general")}
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      {panelRestartIsRisky && (
+                        <label className="flex items-start gap-2 text-sm">
+                          <Checkbox
+                            checked={restartRiskConfirmed}
+                            onCheckedChange={(checked) => setRestartRiskConfirmed(checked === true)}
+                          />
+                          <span>{t("general.confirmRestartRisk")}</span>
+                        </label>
+                      )}
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>{t("updates.cancel")}</AlertDialogCancel>
+                        <AlertDialogAction
+                          disabled={panelRestartIsRisky && !restartRiskConfirmed}
+                          onClick={() => restartPanelWithReconnect(
+                            t("general.restartToastDesc", { port: settings.panelPort }),
+                          )}
+                        >
+                          {t("general.restartButton")}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                   {isDirty && (
                     <p className="text-xs text-muted-foreground">
                       {t("general.saveBeforeRestart")}
@@ -2738,7 +2812,17 @@ export default function Settings() {
                       <span className="inline-flex items-center rounded-full border border-destructive/35 bg-destructive/12 px-2.5 py-0.5 text-xs font-semibold text-destructive">
                         {t("updates.statusCannotReach")}
                       </span>
-                    ) : !panelUpdateStatus ? (
+                    ) : !panelUpdateStatus?.latestVersion ? (
+                      // impeccable-2026-08-31: this used to be !panelUpdateStatus,
+                      // which only guards a null response -- a real-but-never-
+                      // checked status object (currentVersion set, latestVersion
+                      // still unset -- see the "Latest: Not checked yet" /
+                      // "Last Check: Never" fields a few lines below) is truthy,
+                      // so it fell through to the "Up to date" branch and showed
+                      // that badge next to a card plainly saying it was never
+                      // checked. latestVersion is the same field the two detail
+                      // cells below already gate on -- reusing it here instead
+                      // of a bare existence check.
                       <span className="inline-flex items-center rounded-full border border-border/60 bg-background/60 px-2.5 py-0.5 text-xs font-semibold text-foreground/80">
                         {t("updates.statusNotChecked")}
                       </span>
@@ -2882,7 +2966,7 @@ export default function Settings() {
                               : t("updates.stagedGone")}
                           </span>
                           {panelUpdateStatus.lastApplyResult.likelyCause ===
-                            "av_quarantine" && (
+                            "av_quarantine" && runtimeInfo?.family === "windows" && (
                             <div className="rounded-md border border-destructive/40 bg-background/50 p-2 text-xs leading-relaxed">
                               <strong className="text-destructive-foreground">
                                 {t("updates.likelyCauseLabel")}
@@ -2927,11 +3011,11 @@ export default function Settings() {
                               <strong className="text-destructive-foreground">
                                 {t("updates.likelyCauseLabel")}
                               </strong>{" "}
-                              {t("updates.permissionDenied")}
+                              {t(platformTranslationKey("updates.permissionDenied", runtimeInfo?.family))}
                             </div>
                           )}
                           {panelUpdateStatus.lastApplyResult.likelyCause ===
-                            "helper_blocked" && (
+                            "helper_blocked" && runtimeInfo?.family === "windows" && (
                             <div className="rounded-md border border-destructive/40 bg-background/50 p-2 text-xs leading-relaxed">
                               <strong className="text-destructive-foreground">
                                 {t("updates.likelyCauseLabel")}
@@ -3142,7 +3226,13 @@ export default function Settings() {
                       </Button>
                     )}
 
-                    {!isDockerPanelUpdate && <AlertDialog>
+                    {!isDockerPanelUpdate && <AlertDialog
+                      open={applyConfirmOpen}
+                      onOpenChange={(open) => {
+                        setApplyConfirmOpen(open);
+                        if (!open) setApplyRiskConfirmed(false);
+                      }}
+                    >
                       <AlertDialogTrigger asChild>
                         <Button
                           variant="warning"
@@ -3177,6 +3267,9 @@ export default function Settings() {
                                   ? t("updates.confirmApplyVersionSuffix", { version: panelUpdateStatus.stagedUpdate.version })
                                   : ""}
                               </p>
+                              <p className={updateRestartIsRisky ? "font-medium text-destructive" : "text-foreground"}>
+                                {restartAssessmentMessage(updateRestartAssessment, "updates")}
+                              </p>
                               {panelUpdatePreflight?.warnings.length ? (
                                 <div>
                                   <p className="font-medium text-foreground">
@@ -3197,14 +3290,33 @@ export default function Settings() {
                                 </div>
                               ) : null}
                               <p className="text-xs text-muted-foreground">
-                                <Trans t={t} i18nKey="updates.helperLogHint" components={{ code: <code /> }} />
+                                <Trans
+                                  t={t}
+                                  i18nKey={platformTranslationKey("updates.helperLogHint", runtimeInfo?.family)}
+                                  values={{
+                                    path: panelUpdatePreflight?.info.applyLogPath
+                                      || runtimeInfo?.temporaryDirectory
+                                      || t("updates.logPathUnavailable"),
+                                  }}
+                                  components={{ code: <code /> }}
+                                />
                               </p>
+                              {updateRestartIsRisky && (
+                                <label className="flex items-start gap-2 text-sm text-foreground">
+                                  <Checkbox
+                                    checked={applyRiskConfirmed}
+                                    onCheckedChange={(checked) => setApplyRiskConfirmed(checked === true)}
+                                  />
+                                  <span>{t("updates.confirmGameServerRisk")}</span>
+                                </label>
+                              )}
                             </div>
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogCancel>{t("updates.cancel")}</AlertDialogCancel>
                           <AlertDialogAction
+                            disabled={updateRestartIsRisky && !applyRiskConfirmed}
                             onClick={() =>
                               restartPanelWithReconnect(
                                 t("updates.applyingDownloadedToast"),
@@ -3351,7 +3463,7 @@ export default function Settings() {
                         onChange={(e) =>
                           updateSetting("httpsCertPath", e.target.value)
                         }
-                        placeholder="Example: C:\\certs\\panel.fullchain.pem"
+                        placeholder={t(platformTranslationKey("https.certPathPlaceholder", runtimeInfo?.family))}
                         maxLength={260}
                       />
                       <p className="text-xs text-muted-foreground mt-1">
@@ -3371,7 +3483,7 @@ export default function Settings() {
                         onChange={(e) =>
                           updateSetting("httpsKeyPath", e.target.value)
                         }
-                        placeholder="Example: C:\\certs\\panel.privkey.pem"
+                        placeholder={t(platformTranslationKey("https.keyPathPlaceholder", runtimeInfo?.family))}
                         maxLength={260}
                       />
                       <p className="text-xs text-muted-foreground mt-1">
@@ -3542,7 +3654,13 @@ export default function Settings() {
             {/* Panel Bridge - Advanced Features */}
             <Card id="settings-bridge">
               <CardHeader className="pb-4">
-                <div className="flex items-center justify-between">
+                {/* impeccable-2026-08-31: this used to be a plain flex row
+                    with no responsive stacking -- on mobile the title +
+                    description column got squeezed into a narrow space next
+                    to the badge, wrapping the description into 5 short
+                    lines instead of its normal 2-3. Same fix shape as the
+                    Updates card's header a few tabs over. */}
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <CardTitle className="flex items-center gap-2">
                       <Zap className="w-4 h-4 text-primary" />
@@ -3573,7 +3691,7 @@ export default function Settings() {
                               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
                                 {t("bridge.unlocksTitle")}
                               </p>
-                              <div className="grid grid-cols-2 gap-2">
+                              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                                 <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
                                   <p className="font-medium text-foreground">
                                     {t("bridge.unlockWeatherTitle")}
@@ -3680,7 +3798,15 @@ export default function Settings() {
                   </div>
                   {bridgeStatus && (
                     <BridgeStatusBadge
-                      connected={bridgeStatus.modConnected}
+                      // modConnected alone is whether the mod is alive
+                      // (debounced -- stays true through a brief poll
+                      // miss). canSendCommands is a live, undebounced
+                      // check of whether the panel can actually write to
+                      // the bridge (dir writable, status file fresh) --
+                      // it can go false while modConnected is still true.
+                      // Badge must reflect both, or it reads "Connected"
+                      // right next to a Ping button that's about to throw.
+                      connected={bridgeStatus.modConnected && bridgeStatus.connection?.canSendCommands === true}
                       running={bridgeStatus.isRunning}
                       loading={bridgeLoading}
                       bridgePath={bridgeStatus.bridgePath}
@@ -4005,7 +4131,11 @@ export default function Settings() {
                       variant="outline"
                       size="sm"
                       className="gap-2"
-                      disabled={!bridgeStatus?.modConnected || pinging}
+                      // Server's sendCommand() throws "Bridge file connection
+                      // is unhealthy" whenever !canSendCommands, regardless of
+                      // modConnected -- gating on modConnected alone leaves
+                      // this clickable while it's guaranteed to throw.
+                      disabled={!bridgeStatus?.modConnected || bridgeStatus?.connection?.canSendCommands !== true || pinging}
                     >
                       {pinging ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -4034,8 +4164,17 @@ export default function Settings() {
                     </p>
                   </div>
 
-                  <div className="grid gap-4 lg:grid-cols-2">
-                    <div id="sftp-panelbridge" className="rounded-md border border-border/60 p-4 space-y-3">
+                  {/* impeccable-2026-08-31: lg:items-start left the RCON card
+                      (much shorter content -- name, host:port, one link) at
+                      its own natural height inside a row sized to the SFTP
+                      card (host/port/user/password/folder/interval/buttons),
+                      so the RCON card's border ended with a large empty gap
+                      beneath it instead of lining up with its neighbor.
+                      Default grid stretch instead: both cards' borders now
+                      match the row height, same fix shape as any two cards
+                      meant to sit level in one row. */}
+                  <div className="grid gap-4 lg:grid-cols-2 lg:items-stretch">
+                    <div id="rcon-command-connection" className="rounded-md border border-border/60 p-4 space-y-3">
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <p className="text-sm font-medium">{t("bridge.rconCommandTitle")}</p>
@@ -4061,7 +4200,7 @@ export default function Settings() {
                       </RouterLink>
                     </div>
 
-                    <div className="rounded-md border border-border/60 p-4 space-y-3">
+                    <div id="sftp-panelbridge" className="rounded-md border border-border/60 p-4 space-y-3">
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <p className="text-sm font-medium">{t("bridge.sftpFilesTitle")}</p>
@@ -4110,8 +4249,15 @@ export default function Settings() {
                       </div>
                       <FolderOpen className="h-4 w-4 shrink-0 text-primary" />
                     </div>
-                    <div className="flex flex-wrap items-end gap-3">
-                      <div className="min-w-[18rem] flex-1 space-y-1.5">
+                    {/* impeccable-2026-08-31: below sm:, this used to stay a
+                        row (flex-wrap alone doesn't force a break while
+                        flex-1 can still shrink) -- the path input compressed
+                        down to ~11 characters next to the button and clipped
+                        the rest with no ellipsis. Stack on mobile, row from
+                        sm: up, matching the same breakpoint the input's own
+                        sm:min-w-[18rem] already used. */}
+                    <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+                      <div className="min-w-0 flex-1 space-y-1.5 sm:min-w-[18rem]">
                         <Label htmlFor="sftp-config-path">{t("bridge.remoteServerFolderLabel")}</Label>
                         <Input
                           id="sftp-config-path"
@@ -4157,8 +4303,10 @@ export default function Settings() {
                       </div>
                       <FolderOpen className="h-4 w-4 shrink-0 text-primary" />
                     </div>
-                    <div className="flex flex-wrap items-end gap-3">
-                      <div className="min-w-[18rem] flex-1 space-y-1.5">
+                    {/* impeccable-2026-08-31: same mobile truncation fix as
+                        the Remote server folder row above. */}
+                    <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+                      <div className="min-w-0 flex-1 space-y-1.5 sm:min-w-[18rem]">
                         <Label htmlFor="sftp-log-path">{t("bridge.remoteLogFolderLabel")}</Label>
                         <Input
                           id="sftp-log-path"
@@ -4694,7 +4842,17 @@ export default function Settings() {
                       compact
                       type={backupsLoadError ? "disconnected" : "empty"}
                       title={backupsLoadError ? t("backups.loadFailedTitle") : t("backups.emptyTitle")}
-                      description={backupsLoadError ? t("backups.loadFailedDescription") : t("backups.emptyDescription")}
+                      description={
+                        backupsLoadError
+                          ? t("backups.loadFailedDescription")
+                          : // impeccable-2026-08-31: this used to always say "Click Backup Now
+                            // to create one" even when Backup Now is disabled because the saves
+                            // folder wasn't found (see the status row above) -- pointing the
+                            // operator at a dead control instead of the actual blocker.
+                            !backupStatus?.savesExists
+                            ? t("backups.emptyDescriptionSavesNotFound")
+                            : t("backups.emptyDescription")
+                      }
                     />
                   ) : (
                     <ScrollArea className="h-[200px] rounded-lg border">
@@ -5544,9 +5702,19 @@ export default function Settings() {
                         {panelUpdateStatus?.latestVersion ? (
                           <>
                             v{panelUpdateStatus.latestVersion}
-                            {panelUpdateStatus.updateAvailable && (
+                            {panelUpdateStatus.updateAvailable ? (
                               <span className="inline-flex items-center gap-1 rounded-full border border-warning/50 bg-warning/10 px-2 py-0.5 text-[10px] font-medium text-warning">
                                 {t("about.updateAvailableBadge")}
+                              </span>
+                            ) : (
+                              /* impeccable-2026-08-31: installed/latest matching used to render as
+                                 two bare numbers with no affirmative status -- the operator has to
+                                 compare them manually. The Updates tab already shows this same fact
+                                 with a status pill (statusUpToDate); this reuses that pattern instead
+                                 of leaving the "everything's fine" case silent next to the "update
+                                 available" case, which does get a badge. */
+                              <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                                {t("about.upToDateBadge")}
                               </span>
                             )}
                           </>
@@ -6215,6 +6383,15 @@ function WorkshopCollectionSyncCard({
         </div>
 
         {/* Steam session cookies */}
+        {/* impeccable-2026-08-31: this whole section -- auto-detect from
+            browser, paste-a-request, manual cookie fields -- used to render
+            fully expanded even though none of it does anything until a
+            Collection ID is set (Test Connection and Check Drift below are
+            already disabled on !collectionIdValid). The one hint that said
+            so was a small corner label, easy to miss. Gate the section
+            itself instead: shorter page by default, and the placeholder
+            names the actual next step instead of leaving it implicit. */}
+        {collectionIdValid ? (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
@@ -6475,6 +6652,12 @@ function WorkshopCollectionSyncCard({
             </p>
           </div>
         </div>
+        ) : (
+          <div className="flex items-start gap-3 rounded-xl border border-border/70 bg-background/40 p-4 text-sm text-muted-foreground">
+            <KeyRound className="w-4 h-4 mt-0.5 shrink-0 text-muted-foreground/70" aria-hidden="true" />
+            <p>{t("workshopSync.cookiesNeedCollectionId")}</p>
+          </div>
+        )}
 
         {/* Status / actions */}
         <div className="space-y-2 pt-2 border-t border-border/40">
@@ -6631,11 +6814,11 @@ function WorkshopCollectionSyncCard({
                   <table className="w-full text-xs">
                     <thead className="sticky top-0 bg-muted/80 backdrop-blur z-10">
                       <tr className="text-left text-muted-foreground border-b border-border/50">
-                        <th className="font-medium px-3 py-2 w-[120px]">
+                        <th className="font-medium px-3 py-2 sm:w-[120px]">
                           {t("workshopSync.columnStatus")}
                         </th>
                         <th className="font-medium px-3 py-2">{t("workshopSync.columnMod")}</th>
-                        <th className="font-medium px-3 py-2 w-[540px] text-right">
+                        <th className="font-medium px-3 py-2 sm:w-[540px] text-right">
                           {t("workshopSync.columnActions")}
                         </th>
                       </tr>
@@ -6700,13 +6883,13 @@ function WorkshopCollectionSyncCard({
                                     </span>
                                   )}
                                 </a>
-                                <div className="flex items-center gap-2 text-[10px] text-muted-foreground/80 font-mono">
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground/80 font-mono">
                                   <span>{it.workshopId}</span>
-                                  <span>·</span>
+                                  <span className="hidden sm:inline">·</span>
                                   <span>
                                     {it.inTracked ? t("workshopSync.trackedTag") : t("workshopSync.notTrackedTag")}
                                   </span>
-                                  <span>·</span>
+                                  <span className="hidden sm:inline">·</span>
                                   <span>
                                     {it.inCollection
                                       ? t("workshopSync.inCollectionTag")
@@ -6739,7 +6922,7 @@ function WorkshopCollectionSyncCard({
                                     ) : (
                                       <Server className="w-3 h-3" />
                                     )}
-                                    <span className="ml-1">{t("workshopSync.fromServer")}</span>
+                                    <span className="ml-1 hidden sm:inline">{t("workshopSync.fromServer")}</span>
                                   </Button>
                                 ) : (
                                   <Button
@@ -6758,7 +6941,7 @@ function WorkshopCollectionSyncCard({
                                     ) : (
                                       <Server className="w-3 h-3" />
                                     )}
-                                    <span className="ml-1">{t("workshopSync.toServer")}</span>
+                                    <span className="ml-1 hidden sm:inline">{t("workshopSync.toServer")}</span>
                                   </Button>
                                 )}
                                 {/* Collection side */}
@@ -6780,7 +6963,7 @@ function WorkshopCollectionSyncCard({
                                       ) : (
                                         <Minus className="w-3 h-3" />
                                       )}
-                                      <span className="ml-1">
+                                      <span className="ml-1 hidden sm:inline">
                                         {t("workshopSync.fromCollection")}
                                       </span>
                                     </Button>
@@ -6803,7 +6986,7 @@ function WorkshopCollectionSyncCard({
                                       ) : (
                                         <Plus className="w-3 h-3" />
                                       )}
-                                      <span className="ml-1">{t("workshopSync.toCollection")}</span>
+                                      <span className="ml-1 hidden sm:inline">{t("workshopSync.toCollection")}</span>
                                     </Button>
                                   </DisabledReason>
                                 )}
@@ -6825,7 +7008,7 @@ function WorkshopCollectionSyncCard({
                                     ) : (
                                       <Bookmark className="w-3 h-3" />
                                     )}
-                                    <span className="ml-1">{t("workshopSync.untrack")}</span>
+                                    <span className="ml-1 hidden sm:inline">{t("workshopSync.untrack")}</span>
                                   </Button>
                                 ) : (
                                   <Button
@@ -6844,7 +7027,7 @@ function WorkshopCollectionSyncCard({
                                     ) : (
                                       <BookmarkPlus className="w-3 h-3" />
                                     )}
-                                    <span className="ml-1">{t("workshopSync.track")}</span>
+                                    <span className="ml-1 hidden sm:inline">{t("workshopSync.track")}</span>
                                   </Button>
                                 )}
                                 <span
@@ -6870,7 +7053,7 @@ function WorkshopCollectionSyncCard({
                                   ) : (
                                     <Trash2 className="w-3 h-3" />
                                   )}
-                                  <span className="ml-1">{t("workshopSync.everywhere")}</span>
+                                  <span className="ml-1 hidden sm:inline">{t("workshopSync.everywhere")}</span>
                                 </Button>
                               </div>
                             </td>

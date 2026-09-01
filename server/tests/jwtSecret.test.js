@@ -66,7 +66,10 @@ describe("loadOrCreateJwtSecret", () => {
   });
 
   it("JWT_SECRET env override wins over the file and the file is left untouched", async () => {
-    process.env.JWT_SECRET = "env-secret-value";
+    // 32+ chars -- long enough to clear MIN_JWT_SECRET_LENGTH; this test is
+    // about override precedence, not the length guard (see its own
+    // describe block below).
+    process.env.JWT_SECRET = "env-secret-value-that-is-long-enough-32";
     fs.writeFileSync(getJwtSecretPath(), "file-secret-value", {
       mode: 0o600,
     });
@@ -74,7 +77,7 @@ describe("loadOrCreateJwtSecret", () => {
       legacyValue: "legacy-value",
     });
     expect(result.source).toBe("env");
-    expect(result.secret).toBe("env-secret-value");
+    expect(result.secret).toBe("env-secret-value-that-is-long-enough-32");
     expect(fs.readFileSync(getJwtSecretPath(), "utf8")).toBe(
       "file-secret-value",
     );
@@ -82,11 +85,41 @@ describe("loadOrCreateJwtSecret", () => {
 
   it("JWT_SECRET_FILE env override (Docker/K8s secret mount) also wins", async () => {
     const secretFilePath = path.join(tmpDir, "mounted-secret");
-    fs.writeFileSync(secretFilePath, "mounted-secret-value\n");
+    fs.writeFileSync(secretFilePath, "mounted-secret-value-that-is-long-enough\n");
     process.env.JWT_SECRET_FILE = secretFilePath;
     const result = await loadOrCreateJwtSecret({ legacyValue: null });
     expect(result.source).toBe("env");
-    expect(result.secret).toBe("mounted-secret-value");
+    expect(result.secret).toBe("mounted-secret-value-that-is-long-enough");
+  });
+
+  it("JWT_SECRET shorter than the minimum is REFUSED, not silently accepted (2026-08-29, auth/sessions hunt low-priority follow-up)", async () => {
+    process.env.JWT_SECRET = "x";
+    await expect(loadOrCreateJwtSecret({})).rejects.toThrow(
+      /only 1 characters.*at least 32/is,
+    );
+    // Never fell through to generate/persist a file-based key either --
+    // the env value is what's wrong; the fix is a better env value, not a
+    // silently-substituted one.
+    expect(fs.existsSync(getJwtSecretPath())).toBe(false);
+  });
+
+  it("JWT_SECRET_FILE content shorter than the minimum is ALSO refused -- the guard is on the resolved value, not just the plain env var", async () => {
+    const secretFilePath = path.join(tmpDir, "short-mounted-secret");
+    fs.writeFileSync(secretFilePath, "too-short\n");
+    process.env.JWT_SECRET_FILE = secretFilePath;
+    await expect(loadOrCreateJwtSecret({})).rejects.toThrow(/at least 32/i);
+  });
+
+  it("positive control: exactly 32 characters is accepted -- proves the boundary is >= 32, not > 32", async () => {
+    process.env.JWT_SECRET = "a".repeat(32);
+    const result = await loadOrCreateJwtSecret({});
+    expect(result.source).toBe("env");
+    expect(result.secret).toBe("a".repeat(32));
+  });
+
+  it("31 characters -- one under the boundary -- is refused, proving the boundary is exact, not approximate", async () => {
+    process.env.JWT_SECRET = "a".repeat(31);
+    await expect(loadOrCreateJwtSecret({})).rejects.toThrow(/at least 32/i);
   });
 
   // god's explicit ask: these two must not share a branch.

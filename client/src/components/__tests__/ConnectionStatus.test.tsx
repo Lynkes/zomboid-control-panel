@@ -1,17 +1,24 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
+import type { Socket } from 'socket.io-client'
 import { ConnectionStatus } from '../ConnectionStatus'
-import { ConnectionStatusContext, type ConnectionStatus as Status } from '@/contexts/SocketContext'
+import { SocketContext, ConnectionStatusContext, type ConnectionStatus as Status } from '@/contexts/SocketContext'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import en from '@/locales/en/connectionStatus.json'
 
-function renderWithStatus(status: Status, props: { showLabel?: boolean } = {}) {
+function renderWithStatus(
+  status: Status,
+  props: { showLabel?: boolean } = {},
+  socket: Partial<Socket> | null = null
+) {
   return render(
-    <ConnectionStatusContext.Provider value={status}>
-      <TooltipProvider>
-        <ConnectionStatus {...props} />
-      </TooltipProvider>
-    </ConnectionStatusContext.Provider>
+    <SocketContext.Provider value={socket as Socket | null}>
+      <ConnectionStatusContext.Provider value={status}>
+        <TooltipProvider>
+          <ConnectionStatus {...props} />
+        </TooltipProvider>
+      </ConnectionStatusContext.Provider>
+    </SocketContext.Provider>
   )
 }
 
@@ -76,5 +83,28 @@ describe('ConnectionStatus', () => {
     renderWithStatus(disconnected)
     expect(screen.queryByText(en.disconnected.label, { selector: 'span:not(.sr-only)' })).not.toBeInTheDocument()
     expect(screen.getByText(en.disconnected.label, { selector: '.sr-only' })).toBeInTheDocument()
+  })
+
+  // The manual retry affordance: the case where neither of App.tsx's
+  // visibilitychange/online recovery triggers can ever fire -- the tab was
+  // visible and the network never dropped, the server was simply down the
+  // whole time -- so this button is the operator's only path back short of
+  // a full page refresh.
+  it('shows a Retry button in the terminal disconnected state, and clicking it calls socket.connect()', async () => {
+    const connect = vi.fn()
+    renderWithStatus(disconnected, { showLabel: true }, { connect })
+    fireEvent.focus(screen.getByText(en.disconnected.label).closest('div')!)
+
+    const retryButton = await screen.findByRole('button', { name: en.disconnected.retry })
+    fireEvent.click(retryButton)
+
+    expect(connect).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not show a Retry button while still automatically reconnecting -- the loop is already trying on its own', async () => {
+    renderWithStatus(reconnecting, { showLabel: true })
+    fireEvent.focus(screen.getByText(en.reconnecting.label).closest('div')!)
+    await screen.findByText(en.reconnecting.hint)
+    expect(screen.queryByRole('button', { name: en.disconnected.retry })).not.toBeInTheDocument()
   })
 })
