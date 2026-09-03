@@ -2527,6 +2527,25 @@ export class ServerManager {
         }
 
         writeFileAtomic(configPath, content, "utf-8");
+
+        // 2026-09-03, serverManager.js sweep: read the write back rather
+        // than trusting writeFileAtomic() not throwing as proof the file on
+        // disk now says what we intended -- same "verify the effect, not
+        // just that the call didn't throw" shape as every other fix this
+        // sweep found. Cheap (content is already in memory) and catches a
+        // wrong-encoding or truncated-on-disk write that writeFileAtomic()
+        // itself has no way to detect from inside its own call. This
+        // function has no production caller today (see the comment above),
+        // but it is listed in eslint-rules/require-result-handling.js as a
+        // result callers must check -- closing this gap now means whoever
+        // wires it up later doesn't inherit a config write that reports
+        // success without ever having verified it landed.
+        const writtenBack = fs.readFileSync(configPath, "utf-8");
+        if (writtenBack !== content) {
+          throw new Error(
+            `Config write verification failed: ${configPath} does not match the intended content after write`,
+          );
+        }
       });
       log.info("Server config saved");
       return { success: true };
