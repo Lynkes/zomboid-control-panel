@@ -139,6 +139,19 @@ export default function Backups() {
       setBackupSchedule(status.schedule)
       setBackupMaxCount(status.maxBackups)
       setLoadError(null)
+      // The server's own backupInProgress mutex (backupService.js) is the
+      // one source of truth for whether a backup is actually running --
+      // including one this browser session didn't start (the scheduler, a
+      // second tab, or a backup already underway before this page loaded).
+      // creatingBackup was local-only and defaulted to false on every
+      // mount, so a page load or reload mid-backup showed no progress card
+      // and left Create Backup clickable, inviting a second backup into the
+      // server's own reject-on-conflict guard with no explanation on
+      // screen. Only ever set TRUE here -- the existing socket
+      // 'backup:progress' complete/error handlers and handleCreateBackup's
+      // own `finally` already own turning it back off correctly, and racing
+      // a false here against those would just reintroduce the bug sideways.
+      if (status.backupInProgress) setCreatingBackup(true)
     } catch (error) {
       setLoadError(getUserErrorMessage(error, t('toasts.loadStatusFailed')))
     }
@@ -572,6 +585,15 @@ export default function Backups() {
   const isAnySelected = selectedBackups.size > 0
   const allSelected = backups.length > 0 && selectedBackups.size === backups.length
 
+  // A restore this session didn't start (another tab, or already running
+  // when this page loaded) has no backup name to show in the per-row
+  // "Restoring <name>..." card, but it must still block new
+  // create/upload/restore actions the same way a locally-tracked one does
+  // -- the server's mutex (backupService.js) rejects a second restore or a
+  // backup during one either way, so leaving these enabled just moves the
+  // failure from "greyed out with a reason" to "clicked, then an error".
+  const restoreInProgressElsewhere = restoringBackup === null && Boolean(backupStatus?.restoreInProgress)
+
   return (
     <div className="space-y-6 page-transition">
       {/* Header */}
@@ -584,7 +606,7 @@ export default function Backups() {
             <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : activeServerRemote ? t('pageHeader.remoteDisabledTitle') : null}>
               <Button
                 onClick={handleCreateBackup}
-                disabled={creatingBackup || restoringBackup !== null || !backupStatus?.savesExists || activeServerRemote || !canManageBackups}
+                disabled={creatingBackup || restoringBackup !== null || restoreInProgressElsewhere || !backupStatus?.savesExists || activeServerRemote || !canManageBackups}
                 className="gap-2"
               >
                 {creatingBackup ? (
@@ -609,7 +631,7 @@ export default function Backups() {
               <Button
                 variant="outline"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={uploadingBackup || restoringBackup !== null || activeServerRemote || !canManageBackups}
+                disabled={uploadingBackup || restoringBackup !== null || restoreInProgressElsewhere || activeServerRemote || !canManageBackups}
                 className="gap-2"
                 // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Upload an existing world_backup_*.zip from another machine"); the actual disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                 title={t('pageHeader.uploadTitleLocal')}
@@ -1067,7 +1089,7 @@ export default function Backups() {
                               variant="ghost"
                               size="sm"
                               onClick={() => setRestoreDialog({ open: true, backupName: backup.name })}
-                              disabled={isRestoring || restoringBackup !== null || creatingBackup || !canRestoreBackups}
+                              disabled={isRestoring || restoringBackup !== null || restoreInProgressElsewhere || creatingBackup || !canRestoreBackups}
                               className="h-9 w-9 text-warning hover:text-warning hover:bg-warning/10"
                               aria-label={t('mainCard.restoreAria', { name: backup.name })}
                               // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, same text as the aria-label; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
