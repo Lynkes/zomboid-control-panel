@@ -878,6 +878,16 @@ export function generateStartupScripts(options) {
   const jvmArgs = [
     "-XX:+IgnoreUnrecognizedVMOptions",
     "-Djava.awt.headless=true",
+    // Removes a known charset-fallback failure mode: with no -Dfile.encoding,
+    // the JVM's default charset is the host platform's (e.g. GBK/CP936 on a
+    // Chinese-locale Windows host), so any PZ code path that decodes/encodes
+    // text without naming a charset explicitly follows the host locale
+    // instead of UTF-8. Deliberately NOT pairing this with
+    // -Dsun.jnu.encoding=UTF-8 -- that one governs filename/argv decoding,
+    // and forcing it away from the host's actual native encoding risks
+    // breaking access to any already-existing non-ASCII install/save path,
+    // a larger and different failure mode than garbled chat text.
+    "-Dfile.encoding=UTF-8",
     useNoSteam ? "-Dzomboid.steam=0" : "-Dzomboid.steam=1",
     "-Dzomboid.znetlog=1",
     "-XX:+UseZGC",
