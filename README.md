@@ -318,7 +318,7 @@ server {
 }
 ```
 
-Then set these before first launch (see [linux.md Phase 9](docs/install/linux.md) for the systemd equivalent):
+Then set these before first launch (see [linux.md Phase 10](docs/install/linux.md) for the systemd equivalent):
 
 ```bash
 TRUST_PROXY=1 HTTPS=true ./start.sh
