@@ -24,10 +24,20 @@ keep their image- and container-based lifecycle.
    management permission.
 6. Return to the dialog and activate the provider.
 
-Activation fails closed when the installed service is missing, is already
-running, has an ownership marker for another server profile, or the panel
-cannot prove that the previous process is stopped. This prevents an existing
-process from being adopted silently.
+**You know it worked when:** the dialog reports activation succeeded, and
+`systemctl --user status zomboid-panel-server-<id>.service` (or the
+equivalent `rc-service --user zomboid-panel-server-<id> status` for OpenRC)
+shows it managed by the service manager, not by the panel's own process
+supervision.
+
+**If activation fails:** it fails closed rather than adopting a process it
+can't verify — the dialog names which precondition wasn't met: the
+installed service is missing (step 4 didn't happen, or happened as the
+wrong account), is already running (stop it first — step 1), has an
+ownership marker for a different server profile (a service file generated
+for a different profile ID was installed here by mistake — regenerate and
+reinstall the right one), or the panel simply can't prove the previous
+process is stopped (confirm step 1's process check again before retrying).
 
 The generated names use the immutable panel profile ID:
 
@@ -63,6 +73,17 @@ sudo loginctl enable-linger <panel-user>
 Do not start it before activating the provider. The activation preflight
 requires the service to be installed but stopped.
 
+**You know it worked when:** `systemctl --user status
+zomboid-panel-server-<id>.service` shows the unit loaded and `enabled`, but
+`inactive (dead)` — loaded and enabled is what the panel's activation
+preflight checks for; running at this point means you started it too early.
+
+**If this goes wrong:** `systemctl --user` commands failing outright (not
+"unit not found", but every user-level systemctl command erroring) usually
+means lingering (the `loginctl enable-linger` step above) hasn't taken
+effect yet, or wasn't run as the right account — re-run it as root, naming
+the panel's actual service account.
+
 ## OpenRC
 
 Recent OpenRC releases support user services. Install the script in the panel
@@ -82,9 +103,30 @@ environment does not provide it.
 
 Again, leave it stopped until the provider activation succeeds.
 
+**You know it worked when:** the service shows added to the user's default
+runlevel and stopped — check with whatever your OpenRC distribution's
+user-service status command is; there's no single command name that's
+universal across OpenRC distributions the way `systemctl --user status` is
+for systemd.
+
+**If this goes wrong:** commands failing with a missing `XDG_RUNTIME_DIR` or
+"no user session" style error means the boot-time user-service integration
+mentioned above isn't set up yet for this account — that's a one-time,
+distribution-specific step, not something the panel can do for you.
+
 ## Rollback to direct mode
 
 Stop the managed service first. Select `direct` and confirm the migration. The
 panel refuses the switch if the service is still running or its state cannot be
 verified. After the provider changes, disable and remove the old unit manually
 if it is no longer needed.
+
+**You know it worked when:** the profile's **Lifecycle Provider** shows
+`direct` again, and starting the server from the panel launches it as the
+panel's own child process rather than through `systemctl`/`rc-service`.
+
+**If this goes wrong:** the same "fails closed" behavior as activation
+applies in reverse — if the panel can't confirm the managed service is
+stopped, it refuses the switch rather than risk two things trying to
+control the same game process at once. Stop the service directly with
+`systemctl --user stop` / `rc-service --user ... stop` first, then retry.
