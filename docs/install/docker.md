@@ -102,8 +102,16 @@ SteamCMD usually hasn't finished yet.
 
 5. Open `http://localhost:3001` (or whatever origin you set — see
    [CORS_ORIGINS](#cors_origins-when-accessed-from-anywhere-other-than-localhost)
-   below if that's not `localhost`).
-6. Create the admin account.
+   below if that's not `localhost`). You'll see a setup screen asking for a
+   **Setup Token**.
+6. Get that token by watching the same logs from Phase 3:
+   ```sh
+   docker logs zomboid-panel | grep "SETUP TOKEN"
+   ```
+   Copy the long string after `SETUP TOKEN required to complete first-run
+   setup:` — treat it like a password; anyone who has it can create the
+   admin account before you do. Paste it into the setup screen, choose a
+   username and password, confirm the password, and submit.
 7. Project Zomboid, RCON, and the PanelBridge mod are all local to this
    container, so the setup wizard should find them without extra
    configuration. If RCON shows disconnected, open **Settings** and confirm
@@ -241,7 +249,14 @@ each `:` is a real path on this machine, not a placeholder.
 
 ### Phase 5 — First login
 
-9. Open `http://localhost:3001`, create the admin account.
+9. Open `http://localhost:3001`. You'll see a setup screen asking for a
+   **Setup Token** — get it from the container's logs:
+   ```sh
+   docker compose logs zomboid-panel | grep "SETUP TOKEN"
+   ```
+   Copy the long string after `SETUP TOKEN required to complete first-run
+   setup:` and paste it into the setup screen, then choose a username and
+   password and submit.
 10. In **Settings**, set the server install path and Zomboid data path to
     the **container-side** paths from your volumes block (for example
     `/pz-server` and `/zomboid`), never the host paths on the left side of
@@ -299,7 +314,14 @@ ps` shows `zomboid-panel` as `Up`.
 
 ### Phase 3 — First login
 
-3. Open `http://localhost:3001`, create the admin account.
+3. Open `http://localhost:3001`. You'll see a setup screen asking for a
+   **Setup Token** — get it from the container's logs:
+   ```sh
+   docker compose -f docker-compose.install.yml logs zomboid-panel | grep "SETUP TOKEN"
+   ```
+   Copy the long string after `SETUP TOKEN required to complete first-run
+   setup:` and paste it into the setup screen, then choose a username and
+   password and submit.
 4. Open **Servers** and add your Project Zomboid server as a **remote
    server** using its RCON host, port, and password — this path has no
    shared filesystem, so PanelBridge needs SFTP (Settings → PanelBridge →
@@ -353,7 +375,12 @@ configured.
 
 ### Phase 3 — First login
 
-7. Open the WebUI, create the admin account.
+7. Open the WebUI. You'll see a setup screen asking for a **Setup Token** —
+   get it from the container's logs: in Unraid's **Docker** tab, click the
+   panel container's icon → **Logs**, and find the line starting `SETUP
+   TOKEN required to complete first-run setup:`. Copy the long string after
+   it and paste it into the setup screen, then choose a username and
+   password and submit.
 8. In **Settings**, set the paths to the **container-side** values —
    `/pz-server` and `/zomboid` — never the `/mnt/...` host paths from step 3.
 9. If your PZ container doesn't expose `/zomboid` to the panel at all, use
