@@ -1028,15 +1028,26 @@ router.post("/sync-from-server", async (req, res) => {
           skippedIgnored++;
           continue;
         }
-        // Try to resolve real name from mod.info on disk, fall back to mod ID from INI
+        // Try to resolve real name from mod.info on disk, fall back to a
+        // placeholder. modIds[i] (the Mods= list) is NOT usable as a
+        // same-index fallback here: Mods= and WorkshopItems= are two
+        // independently-ordered, independently-sized INI lists (a single
+        // workshop item can contribute zero, one, or several Mods= entries,
+        // and map-only/framework workshop items contribute none at all), so
+        // there is no positional correspondence between workshopIds[i] and
+        // modIds[i] to fall back on. Using it here silently labelled a
+        // workshop item with an unrelated mod's ID whenever the two lists
+        // diverged in length or order -- the common case, not the edge
+        // case. A "Workshop Mod <id>" placeholder is also what lets
+        // shouldRefreshTrackedModName() (above) pick this mod up and
+        // correct the name on a later refresh; a wrong-but-plausible-looking
+        // name from modIds[i] would never match that pattern and would
+        // stick around wrong forever.
         const nameFromDisk = modChecker?.resolveModNameFromDisk(workshopId);
-        // Use Steam API title if available, then disk name, then INI mod ID
+        // Use Steam API title if available, then disk name, then placeholder.
         const steamTitle = steamInfo.get(workshopId)?.title;
         const modName =
-          steamTitle ||
-          nameFromDisk ||
-          modIds[i] ||
-          `Workshop Mod ${workshopId}`;
+          steamTitle || nameFromDisk || `Workshop Mod ${workshopId}`;
         await addTrackedMod(workshopId, modName);
         synced++;
       } catch (e) {
