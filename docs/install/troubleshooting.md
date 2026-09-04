@@ -85,6 +85,44 @@ use` if you've enabled `HTTPS=true`.
 
 ---
 
+### Panel opens a new browser tab every time it starts or restarts
+
+**What you see:** every time the panel (the Windows/macOS/Linux `.exe`
+install, not Docker) starts up, it opens a new tab pointed at the panel's
+login page — including on a restart, so if something is restarting the panel
+repeatedly you end up with a pile of tabs to close by hand.
+
+**What it means:** this is by design for a fresh, interactive install — the
+first time you start the panel, it opens a tab automatically so you don't
+have to know the URL and type it in yourself. It fires on *every* process
+start, not just the first one, because the panel has no way to tell "first
+run" apart from "restart #40" — it only knows it's starting. If the panel is
+restarting more often than you expect, that's worth chasing down separately
+(see below); the tab-per-start behavior itself is expected, not a bug, and
+can be turned off.
+
+**What to do:** set `PANEL_AUTO_OPEN_BROWSER=false` in a `.env` file in the
+same folder as the panel `.exe` (create the file if it doesn't exist; it's
+read automatically on every start), then restart the panel. Any of `0`,
+`false`, `no`, or `off` works. This is the right setting for a headless box,
+a server you control over RDP/SSH rather than sitting at, or any machine
+where you'd rather keep one browser tab open yourself than have the panel
+manage tabs for you.
+
+**If the panel is restarting on its own and you don't know why:** the panel
+itself has no built-in "restart periodically to free memory" feature —
+nothing in its code restarts the panel process on a timer or a memory
+threshold. If it's restarting anyway, something external is doing it: a
+Task Scheduler entry, a service manager set to auto-restart on exit, an
+update being applied (Settings > Updates restarts the panel to apply a
+downloaded version), or a crash. Check `log.jsonl` in the panel's data
+folder for `app-start` entries — repeated `app-start` events close together
+in time, especially right after an error, point to a crash loop rather than
+an intentional restart, and are worth reporting rather than just muting the
+tab.
+
+---
+
 ### Cannot log in / forgot the admin password
 
 **What you see:** `Invalid username or password` even though you're sure
