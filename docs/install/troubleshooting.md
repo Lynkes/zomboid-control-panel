@@ -308,6 +308,71 @@ remote host and never claims otherwise.
 
 ---
 
+### Server process exited immediately after starting (code=1, signal=none) — startup failed
+
+**What you see:** clicking Start fails almost instantly with `Server
+process exited immediately after starting (code=1, signal=none) —
+startup failed.` On Windows, `server-launch.log` for that server is
+either **missing entirely, or exists but is empty (0 bytes)** — that
+pairing (this exact error, plus no real log content) is the fingerprint
+of this specific bug, not a different startup failure.
+
+Occasionally you'll instead see the same error with a short extra line
+attached, something like `'...\ProjectZomboid' is not recognized as an
+internal or external command...`. That's still this bug — see below for
+why the log is sometimes empty and sometimes has that one line in it
+instead.
+
+**Which versions this affects:** **v1.2.15**, the current release, on
+**Windows only** — v1.2.14 and earlier don't have this specific bug.
+v1.2.14 launched the server executable by its bare filename rather than
+its full path, so the install path itself never appeared on the command
+line handed to `cmd.exe` at all (that version had a different Windows
+bug of its own, since fixed, where a hardened system setting could stop
+that bare-filename launch from being found). v1.2.15 fixed that by
+launching with the full, absolute path instead — which is correct, but
+newly exposes that path (and the panel's own log path, below) to
+`cmd.exe`'s quote handling on the command line, which is what this bug
+is in.
+
+**What it means:** if the game server's install path, or the **panel's
+own** logs folder (wherever the panel itself is installed or configured
+to keep its data — not a per-server setting), contains a **space**
+anywhere, or one of the characters **`&` `(` `)` `^`**, `cmd.exe`'s quote
+handling on that command line breaks before the actual game server
+executable ever runs. `cmd.exe` exits with code 1 and nothing resembling
+the server starts — this is a bug in how v1.2.15 builds that command
+line, not anything wrong with your install, your path choice, or your
+server configuration.
+
+The log behaves differently depending on which character triggered it,
+which is why both symptoms above are the same bug: a bare **space** or
+**`&`**/**`^`** makes `cmd.exe`'s own output redirection fail before the
+log file is ever opened, so it's missing or stays at 0 bytes. A **`(`**
+in the path instead makes `cmd.exe` fail at looking up the command *after*
+redirection was already set up successfully, so the log exists and
+contains that one `is not recognized` line — but the game server still
+never ran, exactly as if the log were empty.
+
+**What to do (today, before the fix is released):** make sure both the
+game server's install folder and the panel's own install/data location
+are on a path with **no spaces and none of `&` `(` `)` `^`** — for
+example `D:\PZServer` rather than `D:\Program Files\PZ Server (x86)`.
+This is a workaround, not the intended fix; there is nothing else you
+need to change, and nothing about your server's own configuration
+(`.ini`, mods, RCON) is involved.
+
+**When does a real fix arrive:** the fix exists in this project's source
+today but **has not shipped in any released version yet** — v1.2.15 is
+still the latest release and still has this bug. Once a release contains
+it, you'll be able to use a path with spaces or these characters again
+without the workaround above; this page will be updated to name that
+version once it exists. Don't take "the code is fixed" to mean "my
+installed copy is fixed" — check your actual version against the
+release notes before assuming an upgrade already covers this.
+
+---
+
 ### Permission denied on mounted PZ folders
 
 **What you see (Linux/Docker):** `Cannot read /some/path (EACCES). The
