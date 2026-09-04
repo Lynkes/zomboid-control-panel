@@ -4729,12 +4729,10 @@ export function getSandboxSetting(key: string, section?: string): SandboxSetting
 //
 // The schema arrays above are DATA, not JSX -- t() can't be sprinkled into a
 // literal string in a const array the way it can into a template. Every
-// label/description/option-label here doubles as the English fallback text,
-// so there is nothing to keep in sync: a locale that has no entry for a key
-// falls straight through to the schema's own string, byte-for-byte identical
-// to today's rendering. English therefore never needs a locale entry for any
-// of these ~1,400 strings; only fr/es/zh-CN/de do, once a translation pass
-// actually adds them.
+// label/description/option-label here doubles as the runtime English fallback.
+// The same strings are mirrored into en/serverconfig.json because localeParity
+// uses English as its source of truth; other locale files carry either an
+// authored translation or an explicit English fallback until one is available.
 //
 // Keys are derived mechanically from data already on each entry:
 //   serverconfig.iniSettings.<category>.<key>.label / .description
@@ -4753,9 +4751,9 @@ export function getSandboxSetting(key: string, section?: string): SandboxSetting
 // today's two schemas happen not to (that invariant lives in
 // serverConfigSchema.test.ts and is about schema ownership, not i18n).
 //
-// A generator script can walk INI_SCHEMA/SANDBOX_SCHEMA/*_CATEGORIES/
-// *_CATEGORY_GROUPS with these exact same derivations to emit a complete,
-// exhaustive locale skeleton per language -- nobody hand-writes these keys.
+// A schema-driven extraction pass can walk INI_SCHEMA/SANDBOX_SCHEMA and the
+// category/group arrays with these exact same derivations to audit coverage;
+// nobody should invent a second key shape by hand.
 
 function translatedOrFallback(key: string, fallback: string): string {
   return resolveRegisteredTranslation('serverconfig', key, undefined) ?? fallback
@@ -4767,18 +4765,21 @@ function translatedOrFallback(key: string, fallback: string): string {
 // extracted verbatim from the game's Sandbox.json language files -- so an
 // operator setting "Meta Events" here sees the exact same word their game
 // client shows, rather than a differently-worded (even if accurate)
-// translation authored independently of PZ's own vocabulary. A hand-authored
-// override placed directly in serverconfig.json still wins if one is ever
-// added -- this only fills the gap when neither exists.
+// translation authored independently of PZ's own vocabulary. A hand-authored,
+// non-fallback override placed directly in serverconfig.json still wins --
+// this only fills the gap when no such override exists.
 // Descriptions are deliberately NOT wired to this: PZ's own tooltips were
 // written for its in-game options screen, ours were written for this panel,
 // and they are not automatically the same job.
 function translatedSandboxLabel(key: string, fallback: string): string {
-  return (
-    resolveRegisteredTranslation('serverconfig', `sandboxSettings.${key}`, undefined) ??
-    resolveRegisteredTranslation('sandboxPz', key, undefined) ??
-    fallback
-  )
+  const serverConfigValue = resolveRegisteredTranslation('serverconfig', `sandboxSettings.${key}`, undefined)
+  // Schema-generated locale entries intentionally keep the English fallback
+  // in languages that have not authored a panel-specific label yet. Treat an
+  // unchanged fallback as absent so the official PZ label remains available
+  // through sandboxPz for those languages (and for zh-TW) without being
+  // shadowed by the parity skeleton.
+  if (serverConfigValue !== undefined && serverConfigValue !== fallback) return serverConfigValue
+  return resolveRegisteredTranslation('sandboxPz', key, undefined) ?? serverConfigValue ?? fallback
 }
 
 export function getIniSettingLabel(setting: IniSetting): string {
@@ -4792,6 +4793,33 @@ export function getIniSettingDescription(setting: IniSetting): string {
 export function getIniSettingOptionLabel(setting: IniSetting, value: string): string {
   const fallback = setting.options?.find(o => o.value === value)?.label ?? value
   return translatedOrFallback(`iniSettings.${setting.category}.${setting.key}.options.${value}.label`, fallback)
+}
+
+/**
+ * Search text intentionally includes both schema English and the active
+ * locale. Operators often copy the literal key from an INI file, while the
+ * translated UI makes Chinese searches much more natural. Keeping this
+ * assembled here prevents each page from inventing a different search scope.
+ */
+export function getIniSettingSearchText(setting: IniSetting): string {
+  const category = INI_CATEGORIES.find(item => item.id === setting.category)
+  const group = category && INI_CATEGORY_GROUPS.find(item => item.id === category.group)
+  return [
+    setting.key,
+    setting.label,
+    setting.description,
+    getIniSettingLabel(setting),
+    getIniSettingDescription(setting),
+    ...(setting.options ?? []).flatMap(option => [
+      option.label,
+      getIniSettingOptionLabel(setting, option.value),
+      String(option.value),
+    ]),
+    category?.label,
+    category && getIniCategoryLabel(category),
+    group?.label,
+    group && getIniCategoryGroupLabel(group),
+  ].filter(Boolean).join(' ')
 }
 
 export function getIniCategoryLabel(category: { id: string; label: string }): string {
@@ -4813,6 +4841,29 @@ export function getSandboxSettingDescription(setting: SandboxSetting): string {
 export function getSandboxSettingOptionLabel(setting: SandboxSetting, value: number): string {
   const fallback = setting.options?.find(o => o.value === value)?.label ?? String(value)
   return translatedSandboxLabel(`${setting.category}.${setting.key}.options.${value}.label`, fallback)
+}
+
+export function getSandboxSettingSearchText(setting: SandboxSetting): string {
+  const category = SANDBOX_CATEGORIES.find(item => item.id === setting.category)
+  const group = category && SANDBOX_CATEGORY_GROUPS.find(item => item.id === category.group)
+  const qualifiedKey = `${setting.section || 'settings'}.${setting.key}`
+  return [
+    setting.key,
+    qualifiedKey,
+    setting.label,
+    setting.description,
+    getSandboxSettingLabel(setting),
+    getSandboxSettingDescription(setting),
+    ...(setting.options ?? []).flatMap(option => [
+      option.label,
+      getSandboxSettingOptionLabel(setting, option.value),
+      String(option.value),
+    ]),
+    category?.label,
+    category && getSandboxCategoryLabel(category),
+    group?.label,
+    group && getSandboxCategoryGroupLabel(group),
+  ].filter(Boolean).join(' ')
 }
 
 // Runtime belt-and-braces for the class of bug the enum audit found (a live

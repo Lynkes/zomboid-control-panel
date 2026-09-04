@@ -29,6 +29,17 @@ const META_EVENT: SandboxSetting = {
 }
 
 describe('ServerConfig -- unrecognized sandbox select value', () => {
+  it('shows the original key without adding its internal section prefix', () => {
+    const setting: SandboxSetting = {
+      ...META_EVENT,
+      key: 'Strength',
+      section: 'ZombieLore',
+    }
+    const { container } = render(<SandboxSettingRow setting={setting} value={2} onChange={vi.fn()} />)
+    expect(container.querySelector('code')).toHaveTextContent('Strength')
+    expect(container.querySelector('code')).not.toHaveTextContent('ZombieLore.Strength')
+  })
+
   it('shows a warning when the live value has no matching option', () => {
     render(<SandboxSettingRow setting={META_EVENT} value={5} onChange={vi.fn()} />)
     expect(screen.getByText(/does not recognize/i)).toBeInTheDocument()

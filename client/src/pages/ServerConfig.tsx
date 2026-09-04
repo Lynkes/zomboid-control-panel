@@ -123,11 +123,13 @@ import {
   getIniSettingLabel,
   getIniSettingDescription,
   getIniSettingOptionLabel,
+  getIniSettingSearchText,
   getIniCategoryLabel,
   getIniCategoryGroupLabel,
   getSandboxSettingLabel,
   getSandboxSettingDescription,
   getSandboxSettingOptionLabel,
+  getSandboxSettingSearchText,
   getSandboxCategoryLabel,
   getSandboxCategoryGroupLabel,
   getUnrecognizedSandboxOptionWarning
@@ -778,6 +780,7 @@ export function resolveServerConfigDeepLink(searchParams: URLSearchParams) {
 
 export default function ServerConfig() {
   const { t, i18n } = useTranslation('serverconfig')
+  const searchLocale = i18n.resolvedLanguage || i18n.language
   const [searchParams] = useSearchParams()
   const initialDeepLink = resolveServerConfigDeepLink(searchParams)
   // List separator is a language property, not something a joined list of
@@ -1672,34 +1675,26 @@ export default function ServerConfig() {
 
   // Filter settings by search + filter mode
   const filteredIniSettings = useMemo(() => {
-    const lower = deferredSearchQuery.toLowerCase()
+    const lower = deferredSearchQuery.toLocaleLowerCase(searchLocale)
     const filtered = INI_SCHEMA.filter(s => {
-      if (deferredSearchQuery && !(
-        s.key.toLowerCase().includes(lower) ||
-        getIniSettingLabel(s).toLowerCase().includes(lower) ||
-        getIniSettingDescription(s).toLowerCase().includes(lower)
-      )) return false
+      if (deferredSearchQuery && !getIniSettingSearchText(s).toLocaleLowerCase(searchLocale).includes(lower)) return false
       if (filterMode === 'modified' && !isIniNonDefault(s)) return false
       if (filterMode === 'nondefault' && !isIniModified(s)) return false
       return true
     })
     return groupByCategory(filtered)
-  }, [deferredSearchQuery, filterMode, isIniModified, isIniNonDefault, i18n.language])
+  }, [deferredSearchQuery, filterMode, isIniModified, isIniNonDefault, searchLocale])
 
   const filteredSandboxSettings = useMemo(() => {
-    const lower = deferredSearchQuery.toLowerCase()
+    const lower = deferredSearchQuery.toLocaleLowerCase(searchLocale)
     const filtered = SANDBOX_SCHEMA.filter(s => {
-      if (deferredSearchQuery && !(
-        s.key.toLowerCase().includes(lower) ||
-        getSandboxSettingLabel(s).toLowerCase().includes(lower) ||
-        getSandboxSettingDescription(s).toLowerCase().includes(lower)
-      )) return false
+      if (deferredSearchQuery && !getSandboxSettingSearchText(s).toLocaleLowerCase(searchLocale).includes(lower)) return false
       if (filterMode === 'modified' && !isSandboxNonDefault(s)) return false
       if (filterMode === 'nondefault' && !isSandboxModified(s)) return false
       return true
     })
     return groupByCategory(filtered)
-  }, [deferredSearchQuery, filterMode, isSandboxModified, isSandboxNonDefault, i18n.language])
+  }, [deferredSearchQuery, filterMode, isSandboxModified, isSandboxNonDefault, searchLocale])
 
   // Modified-count per category for rail badges
   const iniModifiedByCategory = useMemo(() => {
