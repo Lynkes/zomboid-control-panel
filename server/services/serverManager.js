@@ -1240,7 +1240,21 @@ export class ServerManager {
       cmd,
       this._getOwnershipDescriptor(),
     );
-    if (score === -1) return null; // Cmdline now proves this PID belongs to a different server.
+    // Deliberately stricter than the full scan's `owned` bucket threshold
+    // (score > 0), not merely "not proven wrong" (score !== -1). The full
+    // scan can fall back to an unattributable (score === 0) candidate
+    // because it has visibility into every PZ-looking process on the host
+    // and only does so when NOTHING else positively matched -- exactly the
+    // comparison this single-PID lookup cannot make. Accepting score === 0
+    // here would mean: a live PID whose command line merely "looks like a
+    // dedicated server" but carries no -servername/-cachedir (or carries
+    // one that matches neither this server's name nor its install path) is
+    // trusted as confirmed to BE this server -- which is precisely the PID-
+    // reuse doubt this fast path exists to fall through on, per its own
+    // doc comment above. Falling through here costs one full scan; wrongly
+    // accepting it can misreport another server's process as this one's,
+    // including to stopServer()'s kill path.
+    if (score <= 0) return null;
 
     log.debug(
       `getServerProcessDetails: pidfile fast path hit for pid=${recorded.pid}, skipping full scan`,
