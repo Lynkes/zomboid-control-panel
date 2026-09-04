@@ -552,6 +552,22 @@ export const SandboxSettingRow = memo(({
                   </div>
                 )}
               </div>
+            ) : setting.type === 'string' ? (
+              // GH#143: a plain text input, no numeric coercion. This used
+              // to fall into the numeric branch below (the catch-all had no
+              // type === 'string' gate), so every comma the user typed into
+              // a comma-separated list (WorldItemRemovalList,
+              // LootItemRemovalList -- the only two sandbox settings with
+              // type: 'string') got silently turned into a period by
+              // normalizeNumericInput(), including on paste. A third string
+              // setting added later lands here too rather than silently
+              // inheriting the numeric branch.
+              <Input
+                type="text"
+                value={value !== undefined ? String(value) : ''}
+                onChange={(e) => onChange(setting, e.target.value)}
+                className={isModified ? 'border-warning/40' : ''}
+              />
             ) : (
               <div>
                 <Input
