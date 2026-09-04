@@ -123,8 +123,22 @@ function buildLdLibraryPath(serverDir) {
 // `windowsVerbatimArguments: true` on the spawn() call, or Node re-quotes
 // this already-quoted string on top and reintroduces the same bug one layer
 // out.
+// 2026-09-04, P0 follow-up (adversarial review caught the other half of the
+// same regression): this originally only triggered on whitespace/quotes.
+// With windowsVerbatimArguments:true (above), Node's own argv joiner is no
+// longer a backstop -- this regex is now the ENTIRE defence against cmd.exe
+// treating a character as special. cmd's special set is `&<>()@^|`, and
+// batch parameter substitution (%1, %2, ...) additionally treats `,`, `;`,
+// and `=` as delimiters equivalent to whitespace (documented behavior, not
+// a cmd.exe quirk) -- so an unquoted path/arg containing any of those splits
+// or breaks identically to the whitespace case this P0 was opened for.
+// Confirmed on a real host: "...\Rock&Roll\..." and "...\PZ(x86)\..." and
+// "...\PZ^1\..." all failed with the same exit-1/empty-log signature before
+// this widening, and passed after. Deliberately NOT adding `%` (quoting
+// does not stop %VAR% expansion, so it buys nothing) or `!` (delayed
+// expansion is off under `cmd /c`, so there's nothing to protect against).
 export function windowsQuoteArgIfNeeded(value) {
-  return /[\s"]/.test(value) ? `"${value}"` : value;
+  return /[\s"&<>()^|,;=]/.test(value) ? `"${value}"` : value;
 }
 
 export function buildWindowsCmdLine(exePath, args, launchLogPath) {
