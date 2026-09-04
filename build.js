@@ -829,7 +829,18 @@ PANEL_PID=""
 STOPPING=0
 CRASH_COUNT=0
 MAX_RAPID_CRASHES="\${PANEL_SUPERVISOR_MAX_CRASHES:-5}"
-BACKOFF_SECONDS="\${PANEL_SUPERVISOR_BACKOFF_SECONDS:-2}"
+# 2026-09-04, Dwight's finding: this used to be a flat BACKOFF_SECONDS
+# (default 2, no escalation), while Start.bat's crash-loop protection has
+# always ramped BACKOFF_BASE_SECONDS*CRASH_COUNT up to BACKOFF_CAP_SECONDS --
+# so a Windows install got up to ~30s of spaced-out retries across its
+# MAX_RAPID_CRASHES attempts before giving up, and a Linux install got only
+# ~10s (5 attempts x a flat 2s) for the identical fault. Same tunable names
+# and defaults as Start.bat now, including the PANEL_SUPERVISOR_BACKOFF_SECONDS
+# escape hatch (still an explicit FIXED override when set, same as Windows --
+# tests use this to force a 0s backoff for speed).
+MIN_STABLE_SECONDS="\${PANEL_SUPERVISOR_MIN_STABLE_SECONDS:-60}"
+BACKOFF_BASE_SECONDS="\${PANEL_SUPERVISOR_BACKOFF_BASE_SECONDS:-2}"
+BACKOFF_CAP_SECONDS="\${PANEL_SUPERVISOR_BACKOFF_CAP_SECONDS:-30}"
 
 stop_panel() {
   STOPPING=1
@@ -904,7 +915,7 @@ while true; do
     continue
   fi
 
-  if [ "$PANEL_RUNTIME" -ge 30 ]; then
+  if [ "$PANEL_RUNTIME" -ge "$MIN_STABLE_SECONDS" ]; then
     CRASH_COUNT=0
   fi
   CRASH_COUNT=$((CRASH_COUNT + 1))
@@ -913,8 +924,17 @@ while true; do
     exit "$EXIT_CODE"
   fi
 
-  echo "Panel exited with code $EXIT_CODE; restarting in $BACKOFF_SECONDS second(s)..."
-  sleep "$BACKOFF_SECONDS" &
+  if [ -n "\${PANEL_SUPERVISOR_BACKOFF_SECONDS:-}" ]; then
+    BACKOFF="$PANEL_SUPERVISOR_BACKOFF_SECONDS"
+  else
+    BACKOFF=$((BACKOFF_BASE_SECONDS * CRASH_COUNT))
+    if [ "$BACKOFF" -gt "$BACKOFF_CAP_SECONDS" ]; then
+      BACKOFF="$BACKOFF_CAP_SECONDS"
+    fi
+  fi
+
+  echo "Panel exited with code $EXIT_CODE; relaunch attempt $CRASH_COUNT of $MAX_RAPID_CRASHES, restarting in $BACKOFF second(s)..."
+  sleep "$BACKOFF" &
   SLEEP_PID=$!
   wait "$SLEEP_PID" || true
 done
