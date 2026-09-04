@@ -2182,6 +2182,12 @@ export class PanelUpdateChecker {
       stagedStillPresent,
       helperLog,
       likelyCause,
+      // Only meaningful when likelyCause is "rollback_failed" -- see
+      // isRollbackRetryLikely()'s own doc comment. Omitted for every other
+      // cause rather than always including an irrelevant false.
+      ...(likelyCause === "rollback_failed"
+        ? { rollbackRetryLikely: this.isRollbackRetryLikely(helperLog) }
+        : {}),
       // Tell the UI whether "click Restart to retry" will work. If the staged
       // file is gone, the user has to re-download first.
       canRetryApply: stagedStillPresent,
@@ -2248,20 +2254,22 @@ export class PanelUpdateChecker {
     // from an unrelated prior step, and the final stamped line is the one
     // that actually ended the run (`goto :eof` follows every one of these).
     //
-    // Only two of Supervisor v2's codes get mapped to an EXISTING,
+    // Three of Supervisor v2's codes get mapped to an existing or new
     // client-recognised cause here -- av_quarantine (exact name match,
-    // Dwight's actual case) and binary_swap_failed (both of its trigger
+    // Dwight's actual case), binary_swap_failed (both of its trigger
     // lines are a failed `ren` on the live/staged exe, which is precisely
     // what 'rename_locked' already means per this function's own doc
-    // comment above). The remaining codes Supervisor v2 emits --
-    // version_mismatch, startup_handshake_failed, frontend_swap_failed,
-    // bundle_apply_failed, rollback_failed -- have no existing bucket that
-    // honestly describes them, and client/src/lib/api.ts's likelyCause union
-    // type doesn't know about them; inventing new values here would just
-    // move this exact defect shape (a value nothing on the other end
-    // consumes) to the client instead of fixing it. Left unmapped on
-    // purpose -- they fall through to 'unknown' below, exactly like today,
-    // not a regression -- as a named, deliberate gap for a follow-up that
+    // comment above), and rollback_failed (its own bucket -- see
+    // isRollbackRetryLikely() below for why one value can carry this
+    // honestly across all eight of its trigger lines). The remaining codes
+    // -- version_mismatch, startup_handshake_failed, frontend_swap_failed,
+    // bundle_apply_failed -- have no existing bucket that honestly
+    // describes them, and client/src/lib/api.ts's likelyCause union type
+    // doesn't know about them; inventing new values here would just move
+    // this exact defect shape (a value nothing on the other end consumes)
+    // to the client instead of fixing it. Left unmapped on purpose -- they
+    // fall through to 'unknown' below, exactly like today, not a
+    // regression -- as a named, deliberate gap for a follow-up that
     // extends the client-side vocabulary, not a silent one.
     const supervisorTags = [
       ...helperLog.matchAll(
@@ -2271,6 +2279,7 @@ export class PanelUpdateChecker {
     const lastSupervisorTag = supervisorTags[supervisorTags.length - 1];
     if (lastSupervisorTag === "av_quarantine") return "av_quarantine";
     if (lastSupervisorTag === "binary_swap_failed") return "rename_locked";
+    if (lastSupervisorTag === "rollback_failed") return "rollback_failed";
 
     // Helper was blocked from running at all (ASR / AV / Group Policy).
     // The PRE-SPAWN sentinel line written by the main panel is there, but
@@ -2336,6 +2345,45 @@ export class PanelUpdateChecker {
     }
 
     return "unknown";
+  }
+
+  /**
+   * For a "rollback_failed" apply, whether the operator should expect the
+   * SAME failure to recur automatically on a later restart/relaunch, as
+   * opposed to a fully-recovered state with only a harmless leftover
+   * update-bundle.json.
+   *
+   * Never throws.
+   *
+   * god's 2026-09-04 review: one likelyCause value ("rollback_failed") must
+   * not lie in any of its eight build.js trigger lines. Traced the full
+   * :rollback_update label (build.js ~605-678): 7 of the 8 lines fire before
+   * -- or because -- the pending-update marker files (.update-pending /
+   * .update-applying) failed to clear, and Supervisor v2's run_loop watches
+   * those files to decide whether to retry (a stuck .update-pending
+   * re-triggers a fresh swap attempt; a stuck .update-applying re-triggers
+   * the rollback itself via the startup-handshake check -- two different
+   * mechanisms, same operator-facing symptom: the identical failure keeps
+   * happening on its own). Only the 8th line ("...could not remove
+   * journal") is reached with both marker files already successfully
+   * cleared -- a cosmetic update-bundle.json leftover with no retry risk,
+   * and the only one of the eight this must return false for.
+   *
+   * Checks the LAST rollback_failed-tagged line specifically (not just
+   * whether the tag appears anywhere), for the same reason
+   * classifyApplyFailure() does: build.js always stamps its "rollback
+   * incomplete" summary line last whenever the restore itself failed, so an
+   * earlier, different rollback_failed line earlier in the same log must
+   * not override the line that actually ended the run.
+   */
+  isRollbackRetryLikely(helperLog) {
+    if (!helperLog) return false;
+    const rollbackLines = helperLog
+      .split(/\r?\n/)
+      .filter((line) => /\[rollback_failed\]/i.test(line));
+    if (rollbackLines.length === 0) return false;
+    const last = rollbackLines[rollbackLines.length - 1].toLowerCase();
+    return !last.includes("could not remove journal");
   }
 
   /**

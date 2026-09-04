@@ -50,14 +50,23 @@ describe("classifyApplyFailure() recognises Supervisor v2's real, current wordin
     expect(checker.classifyApplyFailure(log, false)).toBe("av_quarantine");
   });
 
-  it("a Supervisor v2 code with no existing client-recognised bucket falls through to 'unknown', unchanged from before this fix -- a named gap, not a regression", () => {
+  it("a Supervisor v2 code with no existing client-recognised bucket still falls through to 'unknown' -- a named gap, not a regression", () => {
+    const checker = new PanelUpdateChecker();
+    const log =
+      "[2026-09-04 10:00:00] Supervisor v2 starting\n" +
+      "[2026-09-04 10:00:05] Apply: staged frontend missing index.html [frontend_swap_failed]\n";
+
+    expect(checker.classifyApplyFailure(log, false)).toBe("unknown");
+  });
+
+  it("rollback_failed (2026-09-04, god's approval after the retry-risk case) maps to its own bucket", () => {
     const checker = new PanelUpdateChecker();
     const log =
       "[2026-09-04 10:00:00] Supervisor v2 starting\n" +
       "[2026-09-04 10:00:05] Apply: rolling back bundle\n" +
       "[2026-09-04 10:00:06] Apply: rollback incomplete; journal retained for recovery [rollback_failed]\n";
 
-    expect(checker.classifyApplyFailure(log, false)).toBe("unknown");
+    expect(checker.classifyApplyFailure(log, false)).toBe("rollback_failed");
   });
 
   it("the legacy [pre-spawn]-blocked path (spawnWindowsApplyHelper's format) still works for an un-upgraded pre-v1.0.21 install", () => {
@@ -85,5 +94,68 @@ describe("classifyApplyFailure() recognises Supervisor v2's real, current wordin
   it("a log matching no known pattern, legacy or current, still reports unknown", () => {
     const checker = new PanelUpdateChecker();
     expect(checker.classifyApplyFailure("some unrelated log content", false)).toBe("unknown");
+  });
+});
+
+// 2026-09-04, god's approval of the rollback_failed value: one likelyCause
+// must not lie in any of its eight build.js trigger lines. 7 of the 8 leave
+// a pending-update marker file behind (either .update-pending, re-triggering
+// a fresh swap via run_loop's own check, or .update-applying, re-triggering
+// the rollback itself via the startup-handshake check -- two different
+// retry mechanisms, same operator-facing symptom). Only the 8th
+// ("...could not remove journal") is reached with both marker files already
+// cleared -- cosmetic, no retry risk, and the only one of the eight this
+// must say false for.
+describe("isRollbackRetryLikely() -- the one distinction rollback_failed's single likelyCause value must not blur", () => {
+  it("restore itself failed (the most common shape -- covers all six specific binary/frontend sub-reasons, since build.js always stamps this summary line last when either restore fails)", () => {
+    const checker = new PanelUpdateChecker();
+    const log =
+      "[2026-09-04 10:00:00] Apply: binary restore failed; backup could not be activated [rollback_failed]\n" +
+      "[2026-09-04 10:00:00] Apply: rollback incomplete; journal retained for recovery [rollback_failed]\n";
+
+    expect(checker.isRollbackRetryLikely(log)).toBe(true);
+  });
+
+  it("restore succeeded but the pending marker itself could not be deleted -- still retry-likely", () => {
+    const checker = new PanelUpdateChecker();
+    const log =
+      "[2026-09-04 10:00:00] Apply: rollback cleanup incomplete; pending marker remains, journal retained [rollback_failed]\n";
+
+    expect(checker.isRollbackRetryLikely(log)).toBe(true);
+  });
+
+  it("restore succeeded, pending marker cleared, but the applying marker could not be deleted -- still retry-likely", () => {
+    const checker = new PanelUpdateChecker();
+    const log =
+      "[2026-09-04 10:00:00] Apply: rollback cleanup incomplete; applying marker remains, journal retained [rollback_failed]\n";
+
+    expect(checker.isRollbackRetryLikely(log)).toBe(true);
+  });
+
+  it("both marker files cleared, only the journal leftover -- cosmetic, NOT retry-likely (the one case that must not carry the warning)", () => {
+    const checker = new PanelUpdateChecker();
+    const log =
+      "[2026-09-04 10:00:00] Apply: rollback restored artifacts but could not remove journal [rollback_failed]\n";
+
+    expect(checker.isRollbackRetryLikely(log)).toBe(false);
+  });
+
+  it("only the LAST rollback_failed line decides -- an earlier retry-risk line followed by the terminal journal-only line must read as NOT retry-likely", () => {
+    const checker = new PanelUpdateChecker();
+    const log =
+      "[2026-09-04 10:00:00] Apply: rollback cleanup incomplete; pending marker remains, journal retained [rollback_failed]\n" +
+      "[2026-09-04 10:05:00] Apply: rollback restored artifacts but could not remove journal [rollback_failed]\n";
+
+    expect(checker.isRollbackRetryLikely(log)).toBe(false);
+  });
+
+  it("no rollback_failed tag anywhere in the log -- not retry-likely (nothing to warn about)", () => {
+    const checker = new PanelUpdateChecker();
+    expect(checker.isRollbackRetryLikely("Apply: staged binary missing or quarantined [av_quarantine]\n")).toBe(false);
+  });
+
+  it("no log at all -- not retry-likely", () => {
+    const checker = new PanelUpdateChecker();
+    expect(checker.isRollbackRetryLikely(null)).toBe(false);
   });
 });
