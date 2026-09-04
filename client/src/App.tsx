@@ -1,6 +1,7 @@
 import { Routes, Route, Link, Navigate, useLocation } from 'react-router-dom'
 import { useEffect, useState, useCallback, lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
+import { DirectionProvider } from '@radix-ui/react-direction'
 import type { Socket } from 'socket.io-client'
 import Layout from './components/Layout'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -20,6 +21,7 @@ import { isDemoMode } from './lib/demo'
 import { getUserErrorMessage } from './lib/errorMessage'
 import { createSocketAuthProvider } from './lib/socketAuth'
 import { registerReconnectRecovery } from './lib/socketRecovery'
+import { isRTL } from './i18n'
 
 type RouteLoaderMeta = {
   title: string
@@ -618,17 +620,30 @@ function AppContent() {
 }
 
 function App() {
+  // Radix's own direction detection (react-direction's useDirection) has NO
+  // fallback to document.documentElement.dir -- without an explicit dir prop
+  // or this Provider, every RTL-aware Radix primitive (Slider, Select,
+  // Tabs, Accordion, Menu/DropdownMenu, ScrollArea, RovingFocus -- see
+  // node_modules/@radix-ui/react-direction's own useDirection: `localDir ||
+  // globalDir || "ltr"`, no third fallback) silently stays 'ltr' forever,
+  // regardless of the app's actual active language. i18n.language (via
+  // useTranslation, so this re-renders on every language switch, not just
+  // at boot) is the reactive source of truth here, same as
+  // applyDocumentDirection() uses for the <html dir> sync in i18n/index.ts.
+  const { i18n } = useTranslation()
   return (
     <ErrorBoundary>
-      <ThemeProvider>
-        <TooltipProvider>
-          <AuthProvider>
-            <ConfirmProvider>
-              <AppContent />
-            </ConfirmProvider>
-          </AuthProvider>
-        </TooltipProvider>
-      </ThemeProvider>
+      <DirectionProvider dir={isRTL(i18n.language) ? 'rtl' : 'ltr'}>
+        <ThemeProvider>
+          <TooltipProvider>
+            <AuthProvider>
+              <ConfirmProvider>
+                <AppContent />
+              </ConfirmProvider>
+            </AuthProvider>
+          </TooltipProvider>
+        </ThemeProvider>
+      </DirectionProvider>
     </ErrorBoundary>
   )
 }
