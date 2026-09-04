@@ -152,6 +152,21 @@ function FakeVehicleSet:iterator()
     return it
 end
 function FakeCell:getVehicles() return FakeVehicleSet end
+-- Overrides fakeVehicleDecl's always-true stub: removeVehiclesInArea now
+-- re-verifies each removal against a fresh getVehiclesList() read (same
+-- fix as removeVehicle's own 2026-08-31 verify-enforcement pass, applied
+-- to this sibling handler since it had the identical "invoke didn't throw"
+-- gap), so the fake must actually leave the set for that re-check to see --
+-- same reasoning and same real-jar backing as removeVehicle's test below.
+function FakeVehicle1:permanentlyRemove()
+    for i, v in ipairs(FakeVehicleSet._items) do
+        if v == FakeVehicle1 then
+            table.remove(FakeVehicleSet._items, i)
+            break
+        end
+    end
+    return true
+end
 `;
     const bridge = loadPanelBridge(LUA_PATH, worldStub(cell));
     const result = bridge.callHandler('removeVehiclesInArea', { minX: 90, minY: 90, maxX: 110, maxY: 110 });
@@ -159,6 +174,31 @@ function FakeCell:getVehicles() return FakeVehicleSet end
     expect(result.ok).toBe(true);
     expect(result.data.removed).toBe(1);
     expect(result.data.vehicles[0].id).toBe(1);
+    expect(result.data.verified).toBe('confirmed');
+  });
+
+  it('removeVehiclesInArea: a removal call that does not throw but leaves the vehicle in place is NOT counted as removed (verify-by-effect, same class of bug removeVehicle was fixed for)', () => {
+    const cell = `
+FakeCell = {}
+${fakeVehicleDecl('FakeVehicle1', 1, 100, 100)}
+FakeVehicleList = { FakeVehicle1 }
+function FakeVehicleList:size() return 1 end
+function FakeVehicleList:get(i) return self[i + 1] end
+function FakeCell:getVehicles() return FakeVehicleList end
+`;
+    // fakeVehicleDecl's default permanentlyRemove() just "return true" with
+    // no actual mutation -- the exact shape of the original bug (a call
+    // that didn't throw, reported as a real removal with no confirmation).
+    const bridge = loadPanelBridge(LUA_PATH, worldStub(cell));
+    const result = bridge.callHandler('removeVehiclesInArea', { minX: 90, minY: 90, maxX: 110, maxY: 110 });
+
+    expect(result.ok).toBe(true);
+    expect(result.data.removed).toBe(0);
+    // An empty Lua table has no integer-keyed entries, so the harness's
+    // luaToJs converts it to {} not [] (see its own comment) -- matches the
+    // existing "Zero real vehicles" test above's identical assertion shape.
+    expect(result.data.vehicles).toEqual({});
+    expect(result.data.verified).toBe('confirmed');
   });
 
   it('removeVehiclesInArea: neither shape readable fails loudly instead of reporting "0 vehicle(s) removed"', () => {

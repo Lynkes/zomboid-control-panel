@@ -8140,8 +8140,7 @@ handlers.removeVehiclesInArea = function(args)
         return false, nil, "Vehicle list lookup failed: " .. collectErr
     end
 
-    local removed = 0
-    local removedList = {}
+    local attempted = {}
 
     for i = #list, 1, -1 do
         local v = list[i]
@@ -8150,21 +8149,66 @@ handlers.removeVehiclesInArea = function(args)
         if vx >= minX and vx <= maxX and vy >= minY and vy <= maxY then
             local vId = vehicleGet(v, "getId")
             local scriptName = vehicleGet(v, "getScriptName") or "unknown"
-            -- Only count a removal that actually executed. The previous
-            -- field-guarded version ran neither branch on builds that hide
-            -- these methods, yet still reported the vehicle as removed.
+            -- didRemove only means the call didn't throw -- PanelBridge.invoke
+            -- returns true whenever pcall succeeds, regardless of what the
+            -- underlying method actually did. That is exactly the gap
+            -- removeVehicle (just above this handler) was fixed on
+            -- 2026-08-31 to stop trusting, by re-confirming via a fresh
+            -- getVehiclesList() read. This bulk sibling still only checked
+            -- didRemove, so it could report a vehicle as removed purely
+            -- because permanentlyRemove()/removeFromWorld() didn't throw.
             local didRemove = PanelBridge.invoke(v, "permanentlyRemove")
             if not didRemove then
                 didRemove = PanelBridge.invoke(v, "removeFromWorld")
             end
             if didRemove then
-                removed = removed + 1
-                table.insert(removedList, { id = vId, scriptName = scriptName, x = vx, y = vy })
+                table.insert(attempted, { id = vId, scriptName = scriptName, x = vx, y = vy })
             end
         end
     end
 
-    return true, { message = removed .. " vehicle(s) removed from area", removed = removed, vehicles = removedList, bounds = { minX = minX, minY = minY, maxX = maxX, maxY = maxY } }
+    -- Verify by effect, same principle as removeVehicle -- re-fetch ONCE
+    -- (not per-vehicle: a fresh findVehicleById() scan per candidate would
+    -- be O(n) getVehiclesList()+collectVehicles() calls for an operation
+    -- that can already touch up to a 2000x2000-tile area) and only report a
+    -- vehicle as removed if it is genuinely absent from the fresh list.
+    local stillPresentIds = {}
+    local verifyOk = false
+    if #attempted > 0 then
+        local freshVehicles = getVehiclesList()
+        local freshList
+        if freshVehicles then
+            freshList = collectVehicles(freshVehicles)
+        end
+        if freshList then
+            verifyOk = true
+            for _, v in ipairs(freshList) do
+                local idOk, id = PanelBridge.invoke(v, "getId")
+                if idOk then stillPresentIds[tonumber(id)] = true end
+            end
+        end
+    end
+
+    local removed = 0
+    local removedList = {}
+    for _, entry in ipairs(attempted) do
+        -- If the re-check itself couldn't run (verifyOk false), fall back to
+        -- the pre-verification result rather than silently dropping every
+        -- entry -- same "unverifiable, not a false negative" treatment
+        -- PanelBridge.verifiedResult gives a single-vehicle verified==nil.
+        if not verifyOk or not stillPresentIds[tonumber(entry.id)] then
+            removed = removed + 1
+            table.insert(removedList, entry)
+        end
+    end
+
+    return true, {
+        message = removed .. " vehicle(s) removed from area",
+        removed = removed,
+        vehicles = removedList,
+        bounds = { minX = minX, minY = minY, maxX = maxX, maxY = maxY },
+        verified = verifyOk and "confirmed" or "unverifiable",
+    }
 end
 
 -- The live path is client/src/pages/WorldMap.tsx's "Spawn Vehicle" tool,

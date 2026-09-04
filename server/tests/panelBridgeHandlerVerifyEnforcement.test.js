@@ -95,7 +95,6 @@ const CANNOT_VERIFY_OR_EQUIVALENT = {
   vehicleHotwire: 'No single verifiable end-state exists for a multi-step hotwire sequence -- `actions` documents what ran step by step. (Also the site of the earlier undefined-global crash fix, commit 364c56d.)',
   clearZombiesNearPlayer: 'Reports a real removed-count computed via per-zombie pcall success, not a boolean -- equivalent honesty under a differently-shaped field (`removed`).',
   clearAllZombies: 'Same mechanism as clearZombiesNearPlayer; the ForceKillAllZombies branch is pcall-ceiling by nature of being a bulk fire-and-forget API, the manual fallback counts real removals.',
-  removeVehiclesInArea: 'Already counts only real per-vehicle invoke-confirmed removals (fixed from this exact defect once before, per its own comment) -- `removed` is the honest count.',
   vehicleRepair: 'Counts real per-part invoke success into `parts`, fails if 0 -- honest count, not a boolean flag.',
   giveItem: 'Counts real per-item AddItem success into `count`, fails if 0 added -- honest count.',
   airdrop: 'Counts real per-item placement success into `itemCount`/`failed` -- honest count, not a boolean.',
@@ -207,6 +206,23 @@ const CANNOT_VERIFY_OR_EQUIVALENT = {
   //
   // Both now emit a literal `verified` field, so neither needs an exemption
   // anymore.
+  //
+  // 2026-09-04 (overnight-bug-hunt, Kevin): removeVehiclesInArea used to be
+  // listed here too, with the reason "already counts only real per-vehicle
+  // invoke-confirmed removals (fixed from this exact defect once before)".
+  // That reasoning was itself the exact mistake this whole audit exists to
+  // catch: PanelBridge.invoke() returning true means the underlying call did
+  // not THROW, not that it took effect -- the earlier fix this reason
+  // referred to only replaced a broken field-existence check with a real
+  // invoke() call, it never added a re-confirmation step. So this handler
+  // had the identical "didn't throw != actually happened" gap removeVehicle
+  // (its immediate neighbor in the Lua file) was fixed for on 2026-08-31 --
+  // just one function away from the fix, never applied to it. Now re-fetches
+  // getVehiclesList() once after the removal loop and only counts a vehicle
+  // as removed if it's genuinely absent from the fresh read, same principle
+  // as removeVehicle, adapted for a bulk result (`removed` count + a real
+  // `verified` field) instead of a single boolean. No longer needs an
+  // exemption.
 };
 
 function loadHandlerLineRanges() {
