@@ -784,6 +784,8 @@
     "commandFailedDesc": "{{message}}。請檢查命令設定後重試。",
     "commandFailedFallback": "命令失敗",
     "bridgeCommandFailedFallback": "PanelBridge 命令失敗。",
+    "notPersistedDesc": "僅套用於目前執行中的世界 — SandboxVars.lua 未更新（{{reason}}），因此伺服器重新啟動後此變更將被還原。",
+    "notPersistedUnknownReason": "未知原因",
     "powerDidNotTakeEffectDesc": "伺服器報告電力狀態仍為{{state}} — 更改未生效。",
     "noPlayersOnlineError": "沒有線上玩家",
     "targetPlayerRequiredHorde": "生成屍群需要目標玩家",
