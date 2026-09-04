@@ -28,6 +28,7 @@ export const LANGUAGES: LanguageDef[] = [
   { code: 'es', nativeName: 'Español' },
   { code: 'de', nativeName: 'Deutsch' },
   { code: 'ht', nativeName: 'Kreyòl ayisyen' },
+  { code: 'uk', nativeName: 'Українська' },
 ]
 
 // The authored language: new keys are written here first, and the locale
