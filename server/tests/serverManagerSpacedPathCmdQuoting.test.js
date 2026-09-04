@@ -103,6 +103,42 @@ function runCmd(cmdArgs, cwd, opts = {}) {
       expect(logContent).toMatch(/MARKER_STARTED/);
     });
 
+    it("FIELD CASE (Charon's support bundle, confirmed 2026-09-04): a space in the directory name, NO parens, and a space in BOTH the bat path and the log path -- 'D:\\Zomboid Server\\Serwer\\' -- god's brief predicted parens were needed; they were not", async () => {
+      const tmpRoot = fs.mkdtempSync(
+        path.join(os.tmpdir(), "zcp-spacedpath-charon-"),
+      );
+      cleanupDirs.push(tmpRoot);
+      // Mirrors the reported install shape exactly: "Zomboid Server" as the
+      // spaced segment, no parens anywhere, one level deeper for the actual
+      // server dir (matching "D:\Zomboid Server\Serwer\").
+      const serverDir = path.join(tmpRoot, "Zomboid Server", "Serwer");
+      fs.mkdirSync(serverDir, { recursive: true });
+      const batPath = path.join(serverDir, "StartServer_CharonWorld.bat");
+      fs.writeFileSync(
+        batPath,
+        "@echo off\r\necho MARKER_STARTED\r\nexit /b 0\r\n",
+      );
+      // Panel Logs Dir in the bundle was also under the spaced "Zomboid
+      // Server" root ("D:\Zomboid Server\Panel\logs"), so the log path
+      // carries the same space too -- exactly 4 quote characters on the
+      // real /c line, as confirmed.
+      const logsDir = path.join(tmpRoot, "Zomboid Server", "Panel", "logs");
+      fs.mkdirSync(logsDir, { recursive: true });
+      const launchLogPath = path.join(logsDir, "server-launch.log");
+
+      const commandLine = buildWindowsCmdLine(batPath, [], launchLogPath);
+      console.log(`[Charon field case] argv=${JSON.stringify(["/c", commandLine])}`);
+
+      const result = await runCmd(["/c", commandLine], serverDir, {
+        windowsVerbatimArguments: true,
+      });
+
+      expect(result.code).toBe(0);
+      expect(fs.existsSync(launchLogPath)).toBe(true);
+      const logContent = fs.readFileSync(launchLogPath, "utf-8");
+      expect(logContent).toMatch(/MARKER_STARTED/);
+    });
+
     it("the fixed construction ALSO succeeds on a path with no space at all (no regression on the common no-space case)", async () => {
       const tmpRoot = fs.mkdtempSync(
         path.join(os.tmpdir(), "zcp-spacedpath-nospace-"),
