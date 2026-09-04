@@ -19,6 +19,17 @@ export interface IniSetting {
   fileExtensions?: string[]
 }
 
+/**
+ * Format a stored configuration value without translating its data meaning.
+ * Project Zomboid's boolean literals are part of the INI/sandbox contract and
+ * must remain the portable `true` / `false` strings in defaults and reset UI.
+ */
+export function formatRawConfigValue(value: unknown): string {
+  if (value === true) return 'true'
+  if (value === false) return 'false'
+  return String(value ?? '')
+}
+
 export interface NumericSettingBounds {
   min?: number
   max?: number
@@ -4778,7 +4789,7 @@ function translatedSandboxLabel(key: string, fallback: string): string {
   // unchanged fallback as absent so the official PZ label remains available
   // through sandboxPz for those languages (and for zh-TW) without being
   // shadowed by the parity skeleton.
-  if (serverConfigValue !== undefined && serverConfigValue !== fallback) return serverConfigValue
+  if (serverConfigValue !== null && serverConfigValue !== fallback) return serverConfigValue
   return resolveRegisteredTranslation('sandboxPz', key, undefined) ?? serverConfigValue ?? fallback
 }
 

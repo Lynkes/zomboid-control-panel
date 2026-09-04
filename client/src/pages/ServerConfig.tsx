@@ -132,7 +132,8 @@ import {
   getSandboxSettingSearchText,
   getSandboxCategoryLabel,
   getSandboxCategoryGroupLabel,
-  getUnrecognizedSandboxOptionWarning
+  getUnrecognizedSandboxOptionWarning,
+  formatRawConfigValue,
 } from '@/lib/serverConfigSchema'
 
 type EditorMode = 'structured' | 'raw'
@@ -307,7 +308,7 @@ const IniSettingRow = memo(({
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <code className="bg-muted px-1 rounded">{setting.key}</code>
           {setting.default !== undefined && (
-            <span className={isDifferentFromDefault ? 'text-warning' : ''}>{t('row.defaultValue', { value: String(setting.default) })}</span>
+            <span className={isDifferentFromDefault ? 'text-warning' : ''}>{t('row.defaultValue', { value: formatRawConfigValue(setting.default) })}</span>
           )}
         </div>
       </div>
@@ -444,7 +445,7 @@ const IniSettingRow = memo(({
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <code className="bg-muted px-1 rounded">{setting.key}</code>
         {setting.default !== undefined && (
-          <span className={isDifferentFromDefault ? 'text-warning' : ''}>{t('row.defaultValue', { value: String(setting.default) })}</span>
+          <span className={isDifferentFromDefault ? 'text-warning' : ''}>{t('row.defaultValue', { value: formatRawConfigValue(setting.default) })}</span>
         )}
       </div>
     </div>
@@ -500,7 +501,7 @@ export const SandboxSettingRow = memo(({
           <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
             <code className="bg-muted px-1 rounded">{setting.key}</code>
             {setting.default !== undefined && (
-              <span className={isDifferentFromDefault ? 'text-warning' : ''}>{t('row.defaultValue', { value: String(setting.default) })}</span>
+              <span className={isDifferentFromDefault ? 'text-warning' : ''}>{t('row.defaultValue', { value: formatRawConfigValue(setting.default) })}</span>
             )}
           </div>
         </div>
@@ -3892,14 +3893,14 @@ export default function ServerConfig() {
                                               onClick={() => opt.name && opt.default !== undefined && handleOptionChange(opt.name, opt.default, group.name)}
                                               disabled={isSaving}
                                               // eslint-disable-next-line local/no-dead-disabled-title -- pure hint naming the action + value; disables only transiently while a save is in flight (the adjacent spinner is the self-evident why). Triaged 2026-08-27. Note: the wrapping Radix Tooltip here has the same "no pointer/focus events on a disabled native button" limitation as this title, so its content is equally unreachable while isSaving -- out of scope for this rule (it only checks title+disabled), flagged here rather than fixed since isSaving is brief and self-evident.
-                                              title={t('modSettingsTab.resetToDefaultTitle', { value: opt.default })}
+                                              title={t('modSettingsTab.resetToDefaultTitle', { value: formatRawConfigValue(opt.default) })}
                                             >
                                               <Undo2 className="w-3 h-3" />
-                                              <span>{t('modSettingsTab.resetToDefaultLabel', { value: String(opt.default) })}</span>
+                                              <span>{t('modSettingsTab.resetToDefaultLabel', { value: formatRawConfigValue(opt.default) })}</span>
                                             </button>
                                           </TooltipTrigger>
                                           <TooltipContent side="left">
-                                            <p>{t('modSettingsTab.resetToDefaultTooltip', { value: String(opt.default) })}</p>
+                                            <p>{t('modSettingsTab.resetToDefaultTooltip', { value: formatRawConfigValue(opt.default) })}</p>
                                           </TooltipContent>
                                         </Tooltip>
                                       )}

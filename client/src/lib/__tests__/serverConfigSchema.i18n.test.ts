@@ -15,6 +15,7 @@ import {
   getSandboxSettingLabel,
   getSandboxSettingDescription,
   getSandboxSettingSearchText,
+  formatRawConfigValue,
 } from '../serverConfigSchema'
 
 // The first cases keep a small synthetic German bundle so the accessor key
@@ -99,6 +100,14 @@ describe('serverConfigSchema translated accessors (proof: rcon category)', () =>
     expect(getIniCategoryLabel(INI_CATEGORIES.find((category) => category.id === 'general')!)).toBe('常规')
     expect(getIniCategoryGroupLabel(INI_CATEGORY_GROUPS.find((group) => group.id === 'identity')!)).toBe('身份与基本信息')
     expect(getSandboxSettingLabel(DAY_LENGTH)).toBe('一天长度')
+  })
+
+  it('keeps boolean configuration values as raw true/false literals', () => {
+    expect(formatRawConfigValue(true)).toBe('true')
+    expect(formatRawConfigValue(false)).toBe('false')
+    expect(formatRawConfigValue('true')).toBe('true')
+    expect(formatRawConfigValue('false')).toBe('false')
+    expect(formatRawConfigValue(15)).toBe('15')
   })
 
   it('translates sandbox purpose text without replacing it with ranges or option tables', async () => {
