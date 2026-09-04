@@ -1370,7 +1370,14 @@ async function waitForRconAfterStart({ rconService, discordBot }) {
 
 // Start server
 router.post("/start", requirePermission("server.control"), async (req, res) => {
-  const lifecycleLock = acquireLifecycleLock("start");
+  // Fetched before acquiring the lock (a pure DB read, no lock needed for
+  // it) purely so a refusal from a concurrent operation can name which
+  // server it's for -- see lifecycleCoordinator.js's comment.
+  const activeServerForLock = await getActiveServer();
+  const lifecycleLock = acquireLifecycleLock(
+    "start",
+    activeServerForLock?.name || activeServerForLock?.serverName || null,
+  );
   if (!lifecycleLock) {
     return res.status(409).json(lifecycleInProgressResponse());
   }
@@ -1382,7 +1389,7 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
     lifecycleLock.release();
   };
   try {
-    const activeServer = await getActiveServer();
+    const activeServer = activeServerForLock;
     log.info(
       `POST /start (server=${activeServer?.name || "unknown"}, remote=${activeServer?.isRemote || false})`,
     );
@@ -1589,7 +1596,12 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
 
 // Stop server (graceful via RCON)
 router.post("/stop", requirePermission("server.control"), async (req, res) => {
-  const lifecycleLock = acquireLifecycleLock("stop");
+  // See /start's comment above for why this is fetched before the lock.
+  const activeServerForLock = await getActiveServer();
+  const lifecycleLock = acquireLifecycleLock(
+    "stop",
+    activeServerForLock?.name || activeServerForLock?.serverName || null,
+  );
   if (!lifecycleLock) {
     return res.status(409).json(lifecycleInProgressResponse());
   }
@@ -1601,7 +1613,7 @@ router.post("/stop", requirePermission("server.control"), async (req, res) => {
     lifecycleLock.release();
   };
   try {
-    const activeServer = await getActiveServer();
+    const activeServer = activeServerForLock;
     const rconService = req.app.get("rconService");
     const serverManager = req.app.get("serverManager");
     log.info("POST /stop — graceful shutdown requested");
@@ -1817,13 +1829,18 @@ async function attemptBoundedSaveBeforeForceStop(rconService) {
 
 // Force stop server
 router.post("/force-stop", requirePermission("server.control"), async (req, res) => {
-  const lifecycleLock = acquireLifecycleLock("force-stop");
+  // See /start's comment above for why this is fetched before the lock.
+  const activeServerForLock = await getActiveServer();
+  const lifecycleLock = acquireLifecycleLock(
+    "force-stop",
+    activeServerForLock?.name || activeServerForLock?.serverName || null,
+  );
   if (!lifecycleLock) {
     return res.status(409).json(lifecycleInProgressResponse());
   }
   try {
     log.info("POST /force-stop — force kill requested");
-    const activeServer = await getActiveServer();
+    const activeServer = activeServerForLock;
     if (activeServer?.isRemote) {
       return res.status(400).json({
         error:
@@ -1890,13 +1907,18 @@ router.post("/force-stop", requirePermission("server.control"), async (req, res)
 
 // Restart server
 router.post("/restart", requirePermission("server.control"), async (req, res) => {
-  const lifecycleLock = acquireLifecycleLock("restart");
+  // See /start's comment above for why this is fetched before the lock.
+  const activeServerForLock = await getActiveServer();
+  const lifecycleLock = acquireLifecycleLock(
+    "restart",
+    activeServerForLock?.name || activeServerForLock?.serverName || null,
+  );
   if (!lifecycleLock) {
     return res.status(409).json(lifecycleInProgressResponse());
   }
   let lifecycleLockTransferred = false;
   try {
-    const activeServer = await getActiveServer();
+    const activeServer = activeServerForLock;
     if (activeServer?.isRemote) {
       return res.status(400).json({
         error:

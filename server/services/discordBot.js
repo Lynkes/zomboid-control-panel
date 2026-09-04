@@ -1064,14 +1064,21 @@ export class DiscordBot {
 
   async handleStart(interaction) {
     await interaction.deferReply();
-    const lifecycleLock = acquireLifecycleLock("discord-start");
+    // Fetched before acquiring the lock (a pure DB read) so a refusal from
+    // a concurrent operation can name which server it's for -- see
+    // lifecycleCoordinator.js's comment.
+    const activeServerForLock = await getActiveServer();
+    const lifecycleLock = acquireLifecycleLock(
+      "discord-start",
+      activeServerForLock?.name || activeServerForLock?.serverName || null,
+    );
     if (!lifecycleLock) {
       await interaction.editReply(lifecycleInProgressResponse().error);
       return;
     }
 
     try {
-      const activeServer = await getActiveServer();
+      const activeServer = activeServerForLock;
       // Use the shared provider-aware verdict so split-container servers do
       // not look stopped merely because their process is outside this host.
       const observedRunning = await resolveObservedServerRunning(
@@ -1120,13 +1127,18 @@ export class DiscordBot {
 
   async handleStop(interaction) {
     await interaction.deferReply();
-    const lifecycleLock = acquireLifecycleLock("discord-stop");
+    // See handleStart's comment above for why this is fetched before the lock.
+    const activeServerForLock = await getActiveServer();
+    const lifecycleLock = acquireLifecycleLock(
+      "discord-stop",
+      activeServerForLock?.name || activeServerForLock?.serverName || null,
+    );
     if (!lifecycleLock) {
       await interaction.editReply(lifecycleInProgressResponse().error);
       return;
     }
     try {
-      const activeServer = await getActiveServer();
+      const activeServer = activeServerForLock;
       const observedRunning = await resolveObservedServerRunning(
         this.serverManager,
         this.rconService,
@@ -1182,7 +1194,10 @@ export class DiscordBot {
 
   async handleRestart(interaction) {
     await interaction.deferReply();
-    const lifecycleLock = acquireLifecycleLock("discord-restart");
+    const lifecycleLock = acquireLifecycleLock(
+      "discord-restart",
+      this.serverManager?.serverName || null,
+    );
     if (!lifecycleLock) {
       await interaction.editReply(lifecycleInProgressResponse().error);
       return;

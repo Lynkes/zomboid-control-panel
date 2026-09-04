@@ -1215,7 +1215,10 @@ export function parseServerId(value) {
 
 // Update a server
 router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
-  const lifecycleLock = acquireLifecycleLock("server-profile-change");
+  const lifecycleLock = acquireLifecycleLock(
+    "server-profile-change",
+    req.params.id || null,
+  );
   if (!lifecycleLock) {
     return res.status(409).json(lifecycleInProgressResponse());
   }
@@ -1551,7 +1554,10 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
 
 // Delete a server
 router.delete("/:id", requirePermission("servers.manage"), async (req, res) => {
-  const lifecycleLock = acquireLifecycleLock("server-profile-change");
+  const lifecycleLock = acquireLifecycleLock(
+    "server-profile-change",
+    req.params.id || null,
+  );
   if (!lifecycleLock) {
     return res.status(409).json(lifecycleInProgressResponse());
   }
@@ -1650,7 +1656,10 @@ async function reloadServicesForNewActiveServer(req, server) {
 
 // Set active server
 router.post("/:id/activate", requirePermission("servers.manage"), async (req, res) => {
-  const lifecycleLock = acquireLifecycleLock("server-profile-change");
+  const lifecycleLock = acquireLifecycleLock(
+    "server-profile-change",
+    req.params.id || null,
+  );
   if (!lifecycleLock) {
     return res.status(409).json(lifecycleInProgressResponse());
   }

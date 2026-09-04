@@ -3017,7 +3017,10 @@ async function start() {
               );
               rconService.setServerStarting(false);
             } else {
-              const lifecycleLock = acquireLifecycleLock("startup-auto-start");
+              const lifecycleLock = acquireLifecycleLock(
+                "startup-auto-start",
+                activeServer?.name || activeServer?.serverName || null,
+              );
               if (!lifecycleLock) {
                 log.warn(
                   "Auto-start skipped because another lifecycle operation is in progress",

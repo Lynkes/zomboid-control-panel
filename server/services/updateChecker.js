@@ -537,7 +537,7 @@ export class UpdateChecker {
   }
 
   async runAutoUpdate(updateInfo) {
-    const lifecycleLock = acquireLifecycleLock("automatic-update");
+    const lifecycleLock = acquireLifecycleLock("automatic-update", this.serverManager?.serverName || null);
     if (!lifecycleLock) {
       this.autoUpdateRunning = false;
       log.warn("Automatic update skipped because another lifecycle operation is in progress");

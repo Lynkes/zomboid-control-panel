@@ -1111,7 +1111,8 @@ export class Scheduler {
     }
 
     const lifecycleLock =
-      providedLifecycleLock || acquireLifecycleLock("restart");
+      providedLifecycleLock ||
+      acquireLifecycleLock("restart", serverManager?.serverName || null);
     if (!lifecycleLock) {
       return { success: false, ...lifecycleInProgressResponse() };
     }

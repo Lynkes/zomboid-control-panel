@@ -73,7 +73,10 @@ router.get("/stats", requirePermission("docker.manage"), async (req, res) => {
 });
 
 router.post("/containers/:id/:action", requirePermission("docker.manage"), async (req, res) => {
-  const lifecycleLock = acquireLifecycleLock(`docker-${req.params.action}`);
+  const lifecycleLock = acquireLifecycleLock(
+    `docker-${req.params.action}`,
+    req.params.id || null,
+  );
   if (!lifecycleLock) {
     return res.status(409).json(lifecycleInProgressResponse());
   }
