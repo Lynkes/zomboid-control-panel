@@ -1,0 +1,21 @@
+{
+  "displayWord": {
+    "running": "قيد التشغيل",
+    "stopped": "متوقف",
+    "connected": "متصل",
+    "disconnected": "انقطع الاتصال",
+    "connecting": "جارٍ الاتصال",
+    "active": "نشط",
+    "offline": "غير متصل",
+    "unknown": "غير معروف",
+    "not-applicable": "لا ينطبق",
+    "not-installed": "غير مثبَّت"
+  },
+  "shortWord": {
+    "up": "يعمل",
+    "down": "لا يعمل",
+    "connecting": "اتصال…",
+    "notInstalled": "لم يُثبَّت",
+    "unknown": "مجهول"
+  }
+}

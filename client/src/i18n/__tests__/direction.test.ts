@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import i18n, { LANGUAGE_CODES, isRTL, directionOf } from '@/i18n'
+import i18n, { LANGUAGES, LANGUAGE_CODES, isRTL, directionOf } from '@/i18n'
 import type { LanguageDef } from '@/i18n'
 
 // RTL support (Ukrainian/Arabic project): directionOf() is a free function
@@ -27,14 +27,26 @@ describe('directionOf', () => {
   })
 })
 
-describe('isRTL -- every language actually registered today (provably inert)', () => {
-  // Every one of the 6 currently-registered languages must be ltr -- this
-  // is the "nothing changes for the six existing locales" requirement,
-  // checked against the real registry rather than assumed. If a 7th
-  // (RTL) row lands later, this list intentionally does NOT grow to cover
-  // it -- see the languages.test.ts denominator note for why.
-  it.each(LANGUAGE_CODES)('isRTL(%s) is false', (code) => {
-    expect(isRTL(code)).toBe(false)
+describe('isRTL -- every language actually registered today', () => {
+  // This block used to assert isRTL(x) === false for every registered code,
+  // with a note that it deliberately would NOT grow to cover a future RTL
+  // row. That was a tripwire, and it fired the moment `ar` landed -- exactly
+  // as intended. It is now the real bidirectional assertion: each language's
+  // isRTL must agree with its own registry `dir`, derived from LANGUAGES
+  // rather than restated, so a ninth language cannot land silently wrong.
+  it.each(LANGUAGES.map((l) => [l.code, l.dir === 'rtl'] as const))(
+    'isRTL(%s) is %s',
+    (code, expected) => {
+      expect(isRTL(code)).toBe(expected)
+    },
+  )
+
+  it('at least one registered language is RTL, and at least one is not', () => {
+    // Guards the assertion above against becoming vacuous: if every row were
+    // LTR again, the table would still pass while proving nothing about the
+    // RTL branch.
+    expect(LANGUAGES.some((l) => l.dir === 'rtl')).toBe(true)
+    expect(LANGUAGES.some((l) => l.dir !== 'rtl')).toBe(true)
   })
 
   it('is false for an unregistered code', () => {
@@ -50,11 +62,20 @@ describe('document <html dir>/<html lang> sync on language switch', () => {
     await i18n.changeLanguage('en')
   })
 
-  it('stays ltr and updates lang for every registered (all-LTR) language', async () => {
-    for (const code of LANGUAGE_CODES) {
-      await i18n.changeLanguage(code)
-      expect(document.documentElement.dir).toBe('ltr')
-      expect(document.documentElement.lang).toBe(code)
+  it('sets dir from the registry and updates lang for every registered language', async () => {
+    for (const lang of LANGUAGES) {
+      await i18n.changeLanguage(lang.code)
+      expect(document.documentElement.dir).toBe(directionOf(lang))
+      expect(document.documentElement.lang).toBe(lang.code)
     }
+  })
+
+  it('flips dir back to ltr when switching away from an RTL language', async () => {
+    const rtl = LANGUAGES.find((l) => l.dir === 'rtl')
+    if (!rtl) throw new Error('no RTL language registered -- this test is vacuous')
+    await i18n.changeLanguage(rtl.code)
+    expect(document.documentElement.dir).toBe('rtl')
+    await i18n.changeLanguage('en')
+    expect(document.documentElement.dir).toBe('ltr')
   })
 })
