@@ -404,6 +404,25 @@ export function generateStartBat() {
   // Settings.tsx rollback_failed hint already tells the operator to delete
   // by hand, because this is exactly the one case that hint cannot reach --
   // there is no running panel left to render it in.
+  //
+  // Rollback false-positive fix (2026-09-04, Dwight's finding): the inverse
+  // defect from everything above -- the log says broken, the state is fine.
+  // :rollback_update used to decide "was a backup made?" by asking only
+  // whether %BIN_BACKUP% / %CLIENT_BACKUP% exist on disk. When the backup
+  // MOVE step itself is what failed (a locked file inside client\\dist, an
+  // AV scan holding a handle), no backup was ever created -- but the live
+  // copy was never disturbed either, since a failed move leaves its source
+  // in place. That is a completely safe state: nothing to restore, nothing
+  // broken. The old code could not tell that apart from a genuinely lost
+  // backup (one that existed and then vanished), so it reported the safe
+  // case as "[rollback_failed] ... journal retained for recovery" -- an
+  // operator reading that would reasonably believe their panel was damaged
+  // when it was not. EXE_BACKUP_MADE / CLIENT_BACKUP_MADE below track
+  // whether each backup step actually RAN and SUCCEEDED, set once per
+  // :apply_update attempt, so :rollback_update can tell "nothing to
+  // restore" apart from "backup missing" without weakening the genuine
+  // failure path -- a real lost/corrupted backup still trips
+  // [rollback_failed] exactly as before.
   return `@echo off
 setlocal ENABLEDELAYEDEXPANSION
 title Zomboid Control Panel
@@ -590,6 +609,10 @@ rem  - Keeps both backups until the new backend acknowledges listener startup.
 rem ============================================================
 :apply_update
   call :stamp "Apply: marker present, beginning swap"
+  rem See "Rollback false-positive fix" above. Reset per attempt -- these
+  rem must never carry a stale value into a later :rollback_update call.
+  set "EXE_BACKUP_MADE=0"
+  set "CLIENT_BACKUP_MADE=0"
 
   if not exist "%JOURNAL%" (
     call :stamp "Apply: update-bundle.json missing [version_mismatch]"
@@ -602,6 +625,24 @@ rem ============================================================
 
   if not defined STAGED_NAME (
     call :stamp "Apply: staged binary missing or quarantined [av_quarantine]"
+    del /f /q "%MARKER%" >nul 2>&1
+    goto :eof
+  )
+
+  rem Presence alone (the STAGED_NAME lookup above) does not catch a file
+  rem that exists under the right name but was partially written or
+  rem corrupted after staging -- the 1-2 second window Dwight measured
+  rem between the last presence check and this rename. journal.hashes
+  rem .binarySha256 is already computed and written for both platforms by
+  rem stageUpdateBundle() (updateBundle.js); the Linux apply path
+  rem (applyUpdateBundle()) already verifies against it before touching
+  rem anything. This mirrors that check on Windows, with the same
+  rem [av_quarantine] failure code Linux uses for a hash mismatch.
+  set "STAGED_HASH_STATUS="
+  for /f "usebackq delims=" %%F in (\`powershell -NoProfile -Command "$j = Get-Content -LiteralPath $env:JOURNAL -Raw | ConvertFrom-Json; $expected = $j.hashes.binarySha256; if (-not $expected) { 'NOHASH' } else { $actual = (Get-FileHash -LiteralPath $env:STAGED_NAME -Algorithm SHA256).Hash; if ($actual -ieq $expected) { 'OK' } else { 'MISMATCH' } }"\`) do set "STAGED_HASH_STATUS=%%F"
+
+  if not "!STAGED_HASH_STATUS!"=="OK" (
+    call :stamp "Apply: staged binary hash check [!STAGED_HASH_STATUS!] -- refusing to apply [av_quarantine]"
     del /f /q "%MARKER%" >nul 2>&1
     goto :eof
   )
@@ -629,6 +670,7 @@ rem ============================================================
     echo ERROR: could not rename %BASE_EXE% — is the panel still running?
     goto :eof
   )
+  set "EXE_BACKUP_MADE=1"
 
 :do_rename
   if exist "%CLIENT_LIVE%" (
@@ -638,6 +680,7 @@ rem ============================================================
       call :rollback_update
       goto :eof
     )
+    set "CLIENT_BACKUP_MADE=1"
   )
   move "!STAGED_CLIENT!" "%CLIENT_LIVE%" >nul 2>&1
   if errorlevel 1 (
@@ -679,51 +722,65 @@ goto :eof
   call :stamp "Apply: restoring previous frontend and backend"
   set "ROLLBACK_FAILED=0"
   set "BINARY_RESTORE_OK=1"
+  if "!EXE_BACKUP_MADE!"=="0" goto :rollback_binary_skip
   if not exist "%BIN_BACKUP%" (
     call :stamp "Apply: binary restore failed; backup is missing [rollback_failed]"
     set "BINARY_RESTORE_OK=0"
-  ) else (
-    if exist "%BASE_EXE%" (
-      del /f /q "%BASE_EXE%" >nul 2>&1
-      if exist "%BASE_EXE%" (
-        call :stamp "Apply: binary restore failed; active executable could not be removed [rollback_failed]"
-        set "BINARY_RESTORE_OK=0"
-      )
-    )
-    if "!BINARY_RESTORE_OK!"=="1" (
-      ren "%BIN_BACKUP%" "%BASE_EXE%" >nul 2>&1
-      if errorlevel 1 (
-        call :stamp "Apply: binary restore failed; backup could not be activated [rollback_failed]"
-        set "BINARY_RESTORE_OK=0"
-      )
-    )
-    if not exist "%BASE_EXE%" set "BINARY_RESTORE_OK=0"
-    if exist "%BIN_BACKUP%" set "BINARY_RESTORE_OK=0"
+    goto :rollback_binary_done
   )
+  if exist "%BASE_EXE%" (
+    del /f /q "%BASE_EXE%" >nul 2>&1
+    if exist "%BASE_EXE%" (
+      call :stamp "Apply: binary restore failed; active executable could not be removed [rollback_failed]"
+      set "BINARY_RESTORE_OK=0"
+    )
+  )
+  if "!BINARY_RESTORE_OK!"=="1" (
+    ren "%BIN_BACKUP%" "%BASE_EXE%" >nul 2>&1
+    if errorlevel 1 (
+      call :stamp "Apply: binary restore failed; backup could not be activated [rollback_failed]"
+      set "BINARY_RESTORE_OK=0"
+    )
+  )
+  if not exist "%BASE_EXE%" set "BINARY_RESTORE_OK=0"
+  if exist "%BIN_BACKUP%" set "BINARY_RESTORE_OK=0"
+  goto :rollback_binary_done
+
+:rollback_binary_skip
+  call :stamp "Apply: binary restore skipped; backup step never ran, executable untouched"
+
+:rollback_binary_done
   if "!BINARY_RESTORE_OK!"=="0" set "ROLLBACK_FAILED=1"
 
   set "CLIENT_RESTORE_OK=1"
+  if "!CLIENT_BACKUP_MADE!"=="0" goto :rollback_client_skip
   if not exist "%CLIENT_BACKUP%" (
     call :stamp "Apply: frontend restore failed; backup is missing [rollback_failed]"
     set "CLIENT_RESTORE_OK=0"
-  ) else (
-    if exist "%CLIENT_LIVE%" (
-      rmdir /s /q "%CLIENT_LIVE%" >nul 2>&1
-      if exist "%CLIENT_LIVE%" (
-        call :stamp "Apply: frontend restore failed; active frontend could not be removed [rollback_failed]"
-        set "CLIENT_RESTORE_OK=0"
-      )
-    )
-    if "!CLIENT_RESTORE_OK!"=="1" (
-      move "%CLIENT_BACKUP%" "%CLIENT_LIVE%" >nul 2>&1
-      if errorlevel 1 (
-        call :stamp "Apply: frontend restore failed; backup could not be activated [rollback_failed]"
-        set "CLIENT_RESTORE_OK=0"
-      )
-    )
-    if not exist "%CLIENT_LIVE%" set "CLIENT_RESTORE_OK=0"
-    if exist "%CLIENT_BACKUP%" set "CLIENT_RESTORE_OK=0"
+    goto :rollback_client_done
   )
+  if exist "%CLIENT_LIVE%" (
+    rmdir /s /q "%CLIENT_LIVE%" >nul 2>&1
+    if exist "%CLIENT_LIVE%" (
+      call :stamp "Apply: frontend restore failed; active frontend could not be removed [rollback_failed]"
+      set "CLIENT_RESTORE_OK=0"
+    )
+  )
+  if "!CLIENT_RESTORE_OK!"=="1" (
+    move "%CLIENT_BACKUP%" "%CLIENT_LIVE%" >nul 2>&1
+    if errorlevel 1 (
+      call :stamp "Apply: frontend restore failed; backup could not be activated [rollback_failed]"
+      set "CLIENT_RESTORE_OK=0"
+    )
+  )
+  if not exist "%CLIENT_LIVE%" set "CLIENT_RESTORE_OK=0"
+  if exist "%CLIENT_BACKUP%" set "CLIENT_RESTORE_OK=0"
+  goto :rollback_client_done
+
+:rollback_client_skip
+  call :stamp "Apply: frontend restore skipped; backup step never ran, live frontend untouched"
+
+:rollback_client_done
   if "!CLIENT_RESTORE_OK!"=="0" set "ROLLBACK_FAILED=1"
 
   if "!ROLLBACK_FAILED!"=="1" (

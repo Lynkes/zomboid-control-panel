@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { execFileSync, spawn } from "child_process";
+import crypto from "crypto";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -95,9 +96,23 @@ function setupPendingUpdate(dir) {
   fs.mkdirSync(stagedClientPath, { recursive: true });
   fs.writeFileSync(path.join(liveClientPath, "index.html"), "old-client");
   fs.writeFileSync(path.join(stagedClientPath, "index.html"), "new-client");
+  // Matches the real journal shape stageUpdateBundle() writes
+  // (updateBundle.js): hashes.binarySha256 of the staged binary AS
+  // STAGED, computed the same way (Node crypto, sha256, hex) -- Start.bat
+  // now verifies against this before every apply, so a fixture missing it
+  // would make every pending-update scenario in this file trip the new
+  // [av_quarantine] refusal instead of exercising what each test actually
+  // means to test.
+  const binarySha256 = crypto
+    .createHash("sha256")
+    .update(fs.readFileSync(stagedBinaryPath))
+    .digest("hex");
   fs.writeFileSync(
     path.join(dir, "update-bundle.json"),
-    JSON.stringify({ paths: { stagedClient: stagedClientPath } }),
+    JSON.stringify({
+      hashes: { binarySha256 },
+      paths: { stagedClient: stagedClientPath },
+    }),
   );
   fs.writeFileSync(path.join(dir, ".update-pending"), "pending");
 }
@@ -111,6 +126,24 @@ function denyDelete(targetPath) {
 function allowDelete(targetPath) {
   if (!fs.existsSync(targetPath)) return;
   execFileSync("icacls.exe", [targetPath, "/remove:d", "*S-1-1-0"], {
+    stdio: "ignore",
+  });
+}
+
+// Reproduces Dwight's actual finding (a read handle held on a file inside
+// client\\dist, opened without FILE_SHARE_DELETE) so that renaming the
+// directory itself fails with a clean sharing violation -- the way an AV
+// scan or an editor with the file open would. An icacls deny-delete ACE on
+// the DIRECTORY itself was tried first and rejected: it made cmd.exe's own
+// `move` behave unreliably (observed hanging, and once mis-ordering which
+// of the two backup moves actually failed) rather than the clean
+// errorlevel 1 a real sharing violation produces, confirmed with a
+// standalone repro outside this file. FileShare.Read excludes Delete,
+// matching what actually blocks a rename on NTFS.
+function holdFileOpenWithoutDelete(filePath, durationSeconds) {
+  const psScript = `$fs = [System.IO.File]::Open('${filePath.replace(/'/g, "''")}', 'Open', 'Read', 'Read'); Start-Sleep -Seconds ${durationSeconds}; $fs.Close()`;
+  return spawn("powershell.exe", ["-NoProfile", "-Command", psScript], {
+    windowsHide: true,
     stdio: "ignore",
   });
 }
@@ -550,6 +583,64 @@ describe.skipIf(!!skipReason)(
     );
 
     it(
+      "refuses to apply a staged binary whose hash no longer matches the journal, instead of installing it over a working install",
+      async () => {
+        // 2026-09-04, Dwight's finding (code-grounded, not live-tested at
+        // the time): the Windows apply path only ever checked that a file
+        // named right existed -- never that its CONTENT still matched what
+        // was staged. A file partially overwritten or corrupted in the
+        // window between staging and apply would pass that presence check
+        // and get renamed into place anyway. Linux's applyUpdateBundle()
+        // already hashes and refuses (updateBundle.js:376-385); this is
+        // the same check, same [av_quarantine] failure code, now in
+        // Start.bat's :apply_update.
+        const dir = freshScenarioDir("staged-hash-mismatch");
+        await writeStartBatInto(dir);
+        setupStub(dir, [0], [0]);
+        setupPendingUpdate(dir);
+
+        // Corrupt the staged binary AFTER setupPendingUpdate() already
+        // hashed and journaled the good copy -- exactly Dwight's window: a
+        // file that still exists under the right name (passes the
+        // presence check) but no longer matches what was staged.
+        const stagedBinaryPath = path.join(dir, "ZomboidControlPanel.exe.new");
+        const corrupted = fs.readFileSync(stagedBinaryPath);
+        corrupted[corrupted.length - 1] ^= 0xff;
+        fs.writeFileSync(stagedBinaryPath, corrupted);
+
+        const result = await runSupervisor(
+          dir,
+          { PANEL_SUPERVISOR_BACKOFF_SECONDS: "0" },
+          60000,
+        );
+
+        // The pre-existing exe (set up by setupStub, untouched) is what
+        // actually launches -- the corrupted staged binary is never
+        // installed, and this must not read as a crash or trigger a retry.
+        expect(countLaunches(result.stdout)).toBe(1);
+        expect(result.status).toBe(0);
+        const log = readSupervisorLog(dir);
+        expect(log).toMatch(/staged binary hash check \[MISMATCH\].*av_quarantine/i);
+        expect(log).not.toMatch(/bundle activated/i);
+        // Nothing was renamed: old client stays live, no binary backup was
+        // ever created (the hash check runs before any backup/rename step).
+        expect(
+          fs.readFileSync(path.join(dir, "client", "dist", "index.html"), "utf8"),
+        ).toBe("old-client");
+        expect(
+          fs.existsSync(
+            path.join(dir, "ZomboidControlPanel.exe.bundle-previous"),
+          ),
+        ).toBe(false);
+        // The refused marker is consumed (not left to retry forever against
+        // an unrepairable corrupted file) -- matches the existing
+        // "staged binary missing or quarantined" branch's own posture.
+        expect(fs.existsSync(path.join(dir, ".update-pending"))).toBe(false);
+      },
+      75000,
+    );
+
+    it(
       "rolls back instead of launching when the pending marker cannot become the applying marker",
       async () => {
         const dir = freshScenarioDir("marker-move-failure");
@@ -638,6 +729,78 @@ describe.skipIf(!!skipReason)(
         expect(log).toMatch(/binary restore failed/i);
         expect(log).toMatch(/rollback incomplete; journal retained/i);
         expect(log).not.toMatch(/rollback complete/i);
+      },
+      135000,
+    );
+
+    it(
+      "does not report a rollback failure when the frontend backup step itself never ran",
+      async () => {
+        // 2026-09-04, Dwight's finding, god-dispatched: the inverse of the
+        // two tests above -- the log said broken, the state was fine. He
+        // forced the client\\dist backup MOVE itself to fail (a locked file
+        // inside it); a failed move leaves its source exactly where it was,
+        // so the live frontend was never disturbed and nothing needed
+        // restoring. The old code inferred "was a backup made?" purely from
+        // whether client\\dist.previous exists on disk, so it read this as
+        // a lost backup and reported "[rollback_failed] ... journal
+        // retained for recovery" -- an operator would reasonably believe
+        // their panel was damaged when it was not. This holds a file inside
+        // the LIVE client\\dist directory open without FILE_SHARE_DELETE,
+        // forcing that first move to fail before any backup is ever
+        // created, while the exe backup (made moments earlier) genuinely
+        // does need restoring -- exercising both the new "skip" path and
+        // the pre-existing "real restore" path in the same run.
+        const dir = freshScenarioDir("client-backup-never-ran");
+        await writeStartBatInto(dir);
+        setupStub(dir, [0], [0]);
+        setupPendingUpdate(dir);
+
+        const liveClientPath = path.join(dir, "client", "dist");
+        const lockedFilePath = path.join(liveClientPath, "index.html");
+        const holder = holdFileOpenWithoutDelete(lockedFilePath, 25);
+        const supervisor = runSupervisor(
+          dir,
+          { PANEL_SUPERVISOR_BACKOFF_SECONDS: "0" },
+          120000,
+        );
+        let result;
+        try {
+          await waitForCondition(
+            () =>
+              /could not back up live frontend/i.test(readSupervisorLog(dir)),
+            30000,
+            "the supervisor to report the client backup failure",
+          );
+        } finally {
+          holder.kill();
+          result = await supervisor;
+        }
+
+        expect(result.status).toBe(0);
+        expect(countLaunches(result.stdout)).toBeGreaterThanOrEqual(1);
+        const log = readSupervisorLog(dir);
+        expect(log).toMatch(/could not back up live frontend/i);
+        expect(log).toMatch(
+          /frontend restore skipped; backup step never ran/i,
+        );
+        expect(log).not.toMatch(/frontend restore failed/i);
+        expect(log).not.toMatch(/rollback incomplete/i);
+        expect(log).toMatch(/rollback complete/i);
+        // The genuine failure path must still work in the SAME run: the exe
+        // backup (made before the client move was even attempted) really
+        // was disturbed, and really does get restored -- not weakened by
+        // the client-side fix.
+        expect(
+          fs.readFileSync(
+            path.join(dir, "client", "dist", "index.html"),
+            "utf8",
+          ),
+        ).toBe("old-client");
+        expect(fs.existsSync(path.join(dir, ".update-pending"))).toBe(false);
+        expect(fs.existsSync(path.join(dir, "update-bundle.json"))).toBe(
+          false,
+        );
       },
       135000,
     );
