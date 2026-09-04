@@ -643,6 +643,82 @@ describe.skipIf(!!skipReason)(
     );
 
     it(
+      "bounds the rollback-retry loop and halts visibly, naming the three recovery files, instead of looping forever",
+      async () => {
+        // 2026-09-04, god's design review of Angela's :rollback_update
+        // proposal: a stuck .update-applying re-triggers ROLLBACK on every
+        // RELAUNCH (not every restart, unlike .update-pending), against an
+        // identical already-failed state each time. Unlike the
+        // "denied-backup-restore" test above, this scenario must NOT let
+        // the live exe get deleted as a side effect of the restore attempt
+        // (that would trip the pre-existing, unrelated "no exe found" halt
+        // on the next iteration and never actually exercise the new bound)
+        // -- so this forces "backup is missing" specifically (delete the
+        // backup outright, don't just deny its own delete permission),
+        // since that branch never touches BASE_EXE at all, letting the
+        // handshake-fail/rollback cycle genuinely repeat.
+        const dir = freshScenarioDir("rollback-retry-cap");
+        await writeStartBatInto(dir);
+        setupStub(dir, [1], [0]);
+        setupPendingUpdate(dir);
+
+        const backupPath = path.join(
+          dir,
+          "ZomboidControlPanel.exe.bundle-previous",
+        );
+        // watchdog 60000: two fast (0ms-sleep) launches plus two rollback
+        // attempts, no crash-loop backoff involved (APPLYING never clears,
+        // so the crash-loop branch below the handshake check is never
+        // reached) -- generous relative to this file's own fastest
+        // multi-launch scenarios given no prior measurement of this exact
+        // one exists yet.
+        const supervisor = runSupervisor(
+          dir,
+          {
+            PANEL_SUPERVISOR_BACKOFF_SECONDS: "0",
+            PANEL_SUPERVISOR_MAX_ROLLBACK_RETRIES: "1",
+          },
+          60000,
+        );
+        let result;
+        try {
+          await waitForCondition(
+            () => fs.existsSync(backupPath),
+            30000,
+            "the binary backup to be created",
+          );
+          fs.rmSync(backupPath, { force: true });
+        } finally {
+          result = await supervisor;
+        }
+
+        expect(result.status).toBe(1);
+        // cap=1 allows exactly one rollback retry: launch, fail, retry 1 of
+        // 1, launch again, fail again, halt on the second occurrence --
+        // never a third launch.
+        expect(countLaunches(result.stdout)).toBe(2);
+        expect(fs.existsSync(path.join(dir, "ZomboidControlPanel.exe"))).toBe(
+          true,
+        );
+        const log = readSupervisorLog(dir);
+        expect(log).toMatch(/binary restore failed; backup is missing/i);
+        expect(log).toMatch(/retry 1 of 1/);
+        expect(log).not.toMatch(/retry 2 of 1/);
+        expect(log).toMatch(/rollback_retry_exhausted/);
+        // The console halt message is the second delivery path for the
+        // same recovery guidance the client's rollback_failed hint already
+        // gives -- this is precisely the case that hint cannot reach, since
+        // the panel isn't running to render it. Checked on stdout (the
+        // plain `echo` lines), not the timestamped log, since that's what
+        // an operator actually sees in the console window.
+        expect(result.stdout).toMatch(/\.update-pending/);
+        expect(result.stdout).toMatch(/\.update-applying/);
+        expect(result.stdout).toMatch(/update-bundle\.json/);
+      },
+      75000,
+    );
+
+    it(
       "resets the crash counter after a run that stays up long enough, so the cap never trips",
       async () => {
         const dir = freshScenarioDir("resets-after-stable-run");

@@ -368,6 +368,42 @@ export function generateStartBat() {
   // crash after hours of uptime is never treated as part of a boot loop. All
   // three tunables are overridable via environment variable (used by
   // server/tests/supervisor-restart.test.js to keep the test fast).
+  //
+  // Rollback-retry protection (2026-09-04, god's design review of Angela's
+  // :rollback_update proposal): a stuck .update-pending and a stuck
+  // .update-applying are NOT the same risk and must not get the same
+  // treatment. .update-pending re-triggers a fresh :apply_update on the next
+  // restart (run_loop's own `if exist MARKER` check below) -- a genuinely
+  // different attempt each time, against possibly-changed external
+  // conditions (an AV scan finishing, OneDrive releasing a lock), naturally
+  // rate-limited to once per restart, a human-paced action. Retention here
+  // is deliberately unbounded and untouched by this change -- Dwight proved
+  // it rescues a real transient failure (a relaunch completed his pending
+  // update once he released a file lock).
+  //
+  // .update-applying is different in kind, not just in which file survives.
+  // It only exists once :apply_update has ALREADY succeeded and the new
+  // binary has ALREADY been launched -- the swap is done, so there is
+  // nothing left to retry there. If that binary never acknowledges startup,
+  // the handshake check below calls :rollback_update to undo the swap; if
+  // THAT also fails, retrying is not a fresh attempt at anything, it is the
+  // identical file-restore operation run again against a state nothing has
+  // changed about, at crash-loop cadence (every relaunch, seconds apart,
+  // not every restart). Two of :rollback_update's three failure shapes
+  // ("backup is missing") are permanent -- there is nothing to restore FROM,
+  // ever -- and even the plausibly-transient third ("could not be removed" /
+  // "could not be activated", the same held-lock class .update-pending's
+  // retry can recover from) does not need more than one or two genuine
+  // attempts. So: bounded at MAX_ROLLBACK_RETRIES, then halt rather than
+  // loop -- and halting is strictly better than looping here, not merely
+  // safer, because the panel is ALREADY down in this scenario (the new
+  // binary never acknowledged startup); this is a choice between a visible
+  // stop and an invisible loop, not between running and stopped. The halt
+  // message names the same three files
+  // (.update-pending/.update-applying/update-bundle.json) the panel's own
+  // Settings.tsx rollback_failed hint already tells the operator to delete
+  // by hand, because this is exactly the one case that hint cannot reach --
+  // there is no running panel left to render it in.
   return `@echo off
 setlocal ENABLEDELAYEDEXPANSION
 title Zomboid Control Panel
@@ -392,6 +428,13 @@ set "BACKOFF_CAP_SECONDS=30"
 set "CRASH_COUNT=0"
 if defined PANEL_SUPERVISOR_MAX_CRASHES set "MAX_RAPID_CRASHES=%PANEL_SUPERVISOR_MAX_CRASHES%"
 if defined PANEL_SUPERVISOR_MIN_STABLE_SECONDS set "MIN_STABLE_SECONDS=%PANEL_SUPERVISOR_MIN_STABLE_SECONDS%"
+
+rem === See "Rollback-retry protection" above. In-memory only (mirrors    ===
+rem === CRASH_COUNT's own choice) -- resets on a full supervisor restart, ===
+rem === a legitimately fresh context worth one more shot.                 ===
+set "MAX_ROLLBACK_RETRIES=2"
+set "ROLLBACK_RETRY_COUNT=0"
+if defined PANEL_SUPERVISOR_MAX_ROLLBACK_RETRIES set "MAX_ROLLBACK_RETRIES=%PANEL_SUPERVISOR_MAX_ROLLBACK_RETRIES%"
 
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" >nul 2>&1
 
@@ -427,7 +470,9 @@ echo.
   call :stamp "Panel exited with code !EXITCODE!"
 
   if exist "%APPLYING%" (
-    call :stamp "Apply: startup handshake failed; rolling back bundle [startup_handshake_failed]"
+    if !ROLLBACK_RETRY_COUNT! GEQ !MAX_ROLLBACK_RETRIES! goto rollback_retry_exhausted
+    set /a ROLLBACK_RETRY_COUNT+=1
+    call :stamp "Apply: startup handshake failed; rolling back bundle, retry !ROLLBACK_RETRY_COUNT! of !MAX_ROLLBACK_RETRIES! [startup_handshake_failed]"
     call :rollback_update
     goto run_loop
   )
@@ -512,6 +557,29 @@ echo.
     powershell -NoProfile -Command "Start-Sleep -Seconds !BACKOFF!" >nul 2>&1
   )
   goto run_loop
+
+rem "exit /b" inside a parenthesized block nested two deep (the "if exist
+rem APPLYING ( if !COUNT! GEQ !CAP! ( ... exit /b 1 ) ... )" shape) does not
+rem reliably propagate its exit code back to the parent "cmd.exe /c" process
+rem -- confirmed empirically (a minimal repro returned 0 instead of 1 from
+rem inside such a block; moving the same exit /b to an unnested label reached
+rem via goto returned 1 correctly every time). This label exists so the halt
+rem below runs unnested, the same way the "no exe found" halt above does
+rem (single level of nesting, which does not hit this problem).
+:rollback_retry_exhausted
+  call :stamp "Apply: startup handshake failed again after !ROLLBACK_RETRY_COUNT! rollback retries -- halting rather than looping [rollback_retry_exhausted]"
+  echo.
+  echo ERROR: The panel update failed to apply, and the automatic rollback
+  echo could not fully recover after !ROLLBACK_RETRY_COUNT! attempts. To avoid
+  echo repeating the same failure forever, the panel will not restart itself.
+  echo.
+  echo To recover manually, delete these files from this folder, then run
+  echo Start.bat again:
+  echo   .update-pending
+  echo   .update-applying
+  echo   update-bundle.json
+  pause
+  exit /b 1
 
 
 rem ============================================================
@@ -598,6 +666,11 @@ rem ============================================================
     call :rollback_update
     goto :eof
   )
+  rem A fresh, successfully-activated bundle is a new incident, not a
+  rem continuation of whatever handshake failures a PREVIOUS bundle may have
+  rem hit -- reset here so an old, already-resolved retry count can never
+  rem count against an unrelated later update.
+  set "ROLLBACK_RETRY_COUNT=0"
   call :stamp "Apply: bundle activated; waiting for backend startup acknowledgement"
 goto :eof
 
