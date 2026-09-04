@@ -178,5 +178,88 @@ function runCmd(cmdArgs, cwd, opts = {}) {
       const logContent = fs.readFileSync(launchLogPath, "utf-8");
       expect(logContent).toMatch(/MARKER_STARTED/);
     });
+
+    // 2026-09-04, widened-class chain-coverage follow-up (Angela's audit):
+    // windowsQuoteArgIfNeeded's widened trigger set is
+    // `/[\s"&<>()^|,;=]/` -- of those, `=` and space were already proven
+    // all the way through parseCustomStartCommand -> buildWindowsCmdLine ->
+    // real cmd.exe (the two tests above). The rest were only proven against
+    // buildWindowsCmdLine directly (serverManagerSpacedPathCmdQuoting.test.js
+    // / serverManagerCommandLineRoundTrip.test.js), not chained through the
+    // tokenizer first.
+    //
+    // Checked before writing a single chained test: `validateStartCommand()`
+    // (serverManager.js, private, called before a custom start command ever
+    // reaches parseCustomStartCommand) blocks
+    // `/[&|;<>`${}()!%\[\]\n\r]/` outright with "Invalid start command".
+    // That regex, mirrored exactly below and verified against every
+    // character in the widened quoting class, blocks SEVEN of the nine
+    // remaining ones -- `& < > ( ) | ;` can never reach
+    // parseCustomStartCommand via a real custom start command at all, so
+    // chaining a test through the tokenizer for them would exercise a
+    // provably unreachable path, not close a real gap. Only `^` and `,`
+    // pass validateStartCommand and can actually arrive at the tokenizer.
+    const VALIDATE_START_COMMAND_BLOCKLIST = /[&|;<>`${}()!%\[\]\n\r]/;
+
+    it.each([
+      ["&", true],
+      ["<", true],
+      [">", true],
+      ["(", true],
+      [")", true],
+      ["|", true],
+      [";", true],
+      ["^", false],
+      [",", false],
+    ])(
+      "validateStartCommand's blocklist %s -> blocked=%s (determines whether this character can ever reach parseCustomStartCommand via a real custom start command)",
+      (char, expectedBlocked) => {
+        expect(VALIDATE_START_COMMAND_BLOCKLIST.test(char)).toBe(
+          expectedBlocked,
+        );
+      },
+    );
+
+    it.each([
+      ["caret", "^"],
+      ["comma", ","],
+    ])(
+      "chains parseCustomStartCommand -> buildWindowsCmdLine -> real cmd.exe for a %s inside an arg -- the two widened-class characters validateStartCommand actually lets through",
+      async (label, char) => {
+        const { tmpRoot, batPath, launchLogPath } = makeFixture(
+          `chain-${label}`,
+        );
+        cleanupDirs.push(tmpRoot);
+        fs.writeFileSync(
+          batPath,
+          "@echo off\r\necho MARKER_STARTED arg1=[%1]\r\nexit /b 0\r\n",
+        );
+
+        const rawArg = `-somearg=a${char}b`;
+        const startCommand = `${batPath} ${rawArg}`;
+
+        // The tokenizer itself only splits on whitespace/quote boundaries --
+        // neither `^` nor `,` is either, so this must come through as ONE
+        // token, unmangled, before quoting ever sees it.
+        const { args } = parseCustomStartCommand(startCommand);
+        expect(args).toEqual([rawArg]);
+
+        const commandLine = buildWindowsCmdLine(batPath, args, launchLogPath);
+        console.log(
+          `[chain ${label}] argv=${JSON.stringify(["/c", commandLine])}`,
+        );
+        const result = await runCmd(
+          ["/c", commandLine],
+          path.dirname(batPath),
+          { windowsVerbatimArguments: true },
+        );
+
+        expect(result.code).toBe(0);
+        expect(fs.existsSync(launchLogPath)).toBe(true);
+        const logContent = fs.readFileSync(launchLogPath, "utf-8");
+        expect(logContent).toMatch(/MARKER_STARTED/);
+        expect(logContent).toContain(rawArg);
+      },
+    );
   },
 );
