@@ -127,6 +127,36 @@ function runCmd(cmdArgs, cwd, opts = {}) {
       expect(logContent).toMatch(/MARKER_STARTED/);
     });
 
+    it("succeeds when the bat path is clean but the LOG path has a space (launchLogPath comes from the panel's own data dir, independent of the server's install path)", async () => {
+      const tmpRoot = fs.mkdtempSync(
+        path.join(os.tmpdir(), "zcp-spacedpath-asymmetric-"),
+      );
+      cleanupDirs.push(tmpRoot);
+      const serverDir = path.join(tmpRoot, "CleanServerDir");
+      fs.mkdirSync(serverDir, { recursive: true });
+      const batPath = path.join(serverDir, "StartServer64.bat");
+      fs.writeFileSync(
+        batPath,
+        "@echo off\r\necho MARKER_STARTED\r\nexit /b 0\r\n",
+      );
+      const logsDir = path.join(tmpRoot, "Panel Data (logs)");
+      fs.mkdirSync(logsDir, { recursive: true });
+      const launchLogPath = path.join(logsDir, "server-launch.log");
+
+      const commandLine = buildWindowsCmdLine(batPath, [], launchLogPath);
+      console.log(
+        `[asymmetric spaced-log-path fix] argv=${JSON.stringify(["/c", commandLine])}`,
+      );
+      const result = await runCmd(["/c", commandLine], serverDir, {
+        windowsVerbatimArguments: true,
+      });
+
+      expect(result.code).toBe(0);
+      expect(fs.existsSync(launchLogPath)).toBe(true);
+      const logContent = fs.readFileSync(launchLogPath, "utf-8");
+      expect(logContent).toMatch(/MARKER_STARTED/);
+    });
+
     it("also fixes the custom-start-command shape (extra args after the bat path)", async () => {
       const { tmpRoot, batPath, launchLogPath } = makeBatFixture("args");
       cleanupDirs.push(tmpRoot);
