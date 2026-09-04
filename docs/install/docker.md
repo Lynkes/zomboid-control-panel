@@ -522,3 +522,20 @@ Path D actually wire it up out of the box:
 
 Restart (or recreate, for Path B/C) the panel container for the change to
 take effect.
+
+## Automating first-run setup
+
+Every path above has you grab the **Setup Token** by grepping it out of the
+container logs after first start. If you're scripting the deployment (CI,
+Ansible, a provisioning tool) and nothing is watching those logs, set
+`SETUP_TOKEN` to a value you choose *before* the first start instead — the
+panel uses it directly and skips generating and printing its own:
+
+```yaml
+environment:
+  SETUP_TOKEN: a-value-only-your-script-knows
+```
+
+Treat it exactly like the printed token would be — whoever presents it
+first creates the admin account. It only matters before that first account
+exists; once setup is complete, the panel ignores it.

@@ -10,6 +10,13 @@ heading that matches your symptom, not the subsystem you think is at fault.
 Every heading below quotes real on-screen text — search this page (Ctrl+F)
 for a phrase you're looking at and you'll land in the right place.
 
+Several sections below tell you to check the panel's log. If the default log
+isn't detailed enough to see what's actually happening, set
+`LOG_LEVEL=debug` (in a `.env` file next to the panel `.exe`, in your
+`docker-compose.yml`/`.env`, or in the service's environment on Linux) and
+restart the panel — this applies everywhere a section below says to check
+the log, not just one symptom.
+
 ---
 
 ## Part 1: Preflight — have these five things ready
@@ -213,6 +220,16 @@ these in the console/log — they map to the same two root causes:
 - `Connection was reset. Server may have restarted or crashed.`
 - `Authentication failed. Check RCON password in server settings.` (the
   password changed on one side but not the other)
+
+**If the server is managed somewhere the panel can't see it** (a remote
+host, a container the panel doesn't control, or anywhere its own
+process-detection can't find the PZ process): the panel normally checks
+"is the server process running" before it even attempts an RCON connection,
+and that check can itself be slow or simply unable to see a server it
+doesn't manage locally. Set `RCON_SKIP_SERVER_CHECK=true` to skip that
+pre-check and let the RCON connection attempt itself be the test — safe
+because it only removes an early skip, not any authentication or network
+check.
 
 ---
 
