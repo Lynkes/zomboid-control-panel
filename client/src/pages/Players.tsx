@@ -1498,7 +1498,7 @@ export default function Players() {
           <CardContent className="space-y-4">
             {/* Search */}
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 ref={searchInputRef}
                 placeholder={
@@ -3353,7 +3353,7 @@ export default function Players() {
                   )}
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="relative flex-1">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                       <Input
                         placeholder={t('notes.filterPlaceholder')}
                         value={logPlayerFilter}

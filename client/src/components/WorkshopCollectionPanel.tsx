@@ -663,7 +663,7 @@ export function WorkshopCollectionPanel() {
           </div>
 
           <div className="relative w-full lg:w-64">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+            <Search className="absolute start-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}

@@ -308,7 +308,7 @@ function TimezonePicker({ id, value, onChange, disabled }: TimezonePickerProps) 
   return (
     <div ref={containerRef} className="relative">
       <div className="relative">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/50" aria-hidden="true" />
+        <Search className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/50" aria-hidden="true" />
         <Input
           id={id}
           role="combobox"

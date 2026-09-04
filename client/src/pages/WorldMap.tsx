@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { Trans, useTranslation } from 'react-i18next'
+import { getCurrentLanguage, isRTL } from '@/i18n'
 import { useTheme } from '@/contexts/ThemeContext'
 import { useSocket } from '@/contexts/SocketContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -2020,23 +2021,32 @@ export default function WorldMap() {
 
     // Empty state
     if (currentPlayers.length === 0) {
-      // The floating control rail (top-3 left-3, w-12) permanently overlaps
-      // the canvas's left edge, so text centered on the full canvas width can
-      // render underneath it on narrow (mobile) viewports. Only nudge right
-      // when a naive center would tuck the text under the rail.
+      // The floating control rail (top-3 start-3, w-12) permanently overlaps
+      // the canvas's start edge -- left in ltr, right in rtl (canvas drawing
+      // is raw pixel math, not CSS, so it does not follow the CSS mirror on
+      // its own) -- so text centered on the full canvas width can render
+      // underneath it on narrow (mobile) viewports. Only nudge away from
+      // that edge when a naive center would tuck the text under the rail.
       const railClearance = 72
+      const rtl = isRTL(getCurrentLanguage())
       ctx.textAlign = 'center'
 
       ctx.fillStyle = C.emptyTitle
       ctx.font = '600 14px ui-sans-serif, system-ui, sans-serif'
       const title = t('emptyState.title')
-      const titleX = Math.max(W / 2, railClearance + ctx.measureText(title).width / 2)
+      const titleHalfWidth = ctx.measureText(title).width / 2
+      const titleX = rtl
+        ? Math.min(W / 2, W - railClearance - titleHalfWidth)
+        : Math.max(W / 2, railClearance + titleHalfWidth)
       ctx.fillText(title, titleX, H / 2 - 8)
 
       ctx.font = '400 11px ui-sans-serif, system-ui, sans-serif'
       ctx.fillStyle = C.emptySubtitle
       const subtitle = t('emptyState.subtitle')
-      const subtitleX = Math.max(W / 2, railClearance + ctx.measureText(subtitle).width / 2)
+      const subtitleHalfWidth = ctx.measureText(subtitle).width / 2
+      const subtitleX = rtl
+        ? Math.min(W / 2, W - railClearance - subtitleHalfWidth)
+        : Math.max(W / 2, railClearance + subtitleHalfWidth)
       ctx.fillText(subtitle, subtitleX, H / 2 + 10)
     }
 
@@ -2792,13 +2802,13 @@ export default function WorldMap() {
 
       <div ref={mapWrapperRef} className="relative rounded-md border border-border/60 overflow-hidden bg-background shadow-[inset_0_0_0_1px_rgba(0,0,0,0.35)]">
         {/* Corner brackets — tactical control-room frame */}
-        <span aria-hidden className="pointer-events-none absolute top-0 left-0 z-30 h-3 w-3 border-s-2 border-t-2 border-primary/50" />
-        <span aria-hidden className="pointer-events-none absolute top-0 right-0 z-30 h-3 w-3 border-e-2 border-t-2 border-primary/50" />
-        <span aria-hidden className="pointer-events-none absolute bottom-0 left-0 z-30 h-3 w-3 border-s-2 border-b-2 border-primary/50" />
-        <span aria-hidden className="pointer-events-none absolute bottom-0 right-0 z-30 h-3 w-3 border-e-2 border-b-2 border-primary/50" />
+        <span aria-hidden className="pointer-events-none absolute top-0 start-0 z-30 h-3 w-3 border-s-2 border-t-2 border-primary/50" />
+        <span aria-hidden className="pointer-events-none absolute top-0 end-0 z-30 h-3 w-3 border-e-2 border-t-2 border-primary/50" />
+        <span aria-hidden className="pointer-events-none absolute bottom-0 start-0 z-30 h-3 w-3 border-s-2 border-b-2 border-primary/50" />
+        <span aria-hidden className="pointer-events-none absolute bottom-0 end-0 z-30 h-3 w-3 border-e-2 border-b-2 border-primary/50" />
 
         {/* Control rail — top-left */}
-        <div className="absolute top-3 left-3 z-10 w-12 rounded-md border border-border/55 bg-card/85 backdrop-blur-md shadow-lg overflow-hidden">
+        <div className="absolute top-3 start-3 z-10 w-12 rounded-md border border-border/55 bg-card/85 backdrop-blur-md shadow-lg overflow-hidden">
           <div className="flex items-center justify-center gap-1 px-1.5 py-1 border-b border-border/40 bg-muted/40 font-mono text-[9px] uppercase tracking-[0.24em] text-primary/70">
             <span className="text-primary/60">//</span>
             <span>{t('controlRail.ctrlLabel')}</span>
@@ -2984,7 +2994,7 @@ export default function WorldMap() {
         )}
 
         {/* Roster panel — top-right */}
-        <div className={cn('absolute top-3 right-3 z-10', rosterCollapsed ? 'w-auto' : 'w-56')}>
+        <div className={cn('absolute top-3 end-3 z-10', rosterCollapsed ? 'w-auto' : 'w-56')}>
           <div className="rounded-md border border-border/55 bg-card/85 backdrop-blur-md shadow-lg overflow-hidden">
             <button
               type="button"
@@ -3051,7 +3061,7 @@ export default function WorldMap() {
         </div>
 
         {/* HUD coordinate bar — bottom-left */}
-        <div className="absolute bottom-3 left-3 z-10">
+        <div className="absolute bottom-3 start-3 z-10">
           <div className="flex items-stretch rounded-md border border-border/55 bg-card/85 backdrop-blur-md shadow-lg font-mono text-[11px] tabular-nums overflow-hidden">
             <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-e border-border/40">
               <Crosshair className={cn('w-3 h-3', cursorWorldPos ? 'text-primary/80' : 'text-muted-foreground/40')} />
@@ -3079,12 +3089,12 @@ export default function WorldMap() {
             overlays stack instead of colliding; side-by-side once there's
             room (>= sm). */}
         {selectedPlayer && (
-          <div className="absolute right-3 z-10 w-60 bottom-14 sm:bottom-3">
+          <div className="absolute end-3 z-10 w-60 bottom-14 sm:bottom-3">
             <div className="relative rounded-md border border-border/55 bg-card/90 backdrop-blur-md shadow-lg overflow-hidden">
-              <span aria-hidden className="pointer-events-none absolute top-0 left-0 h-2 w-2 border-s-2 border-t-2 border-primary/50" />
-              <span aria-hidden className="pointer-events-none absolute top-0 right-0 h-2 w-2 border-e-2 border-t-2 border-primary/50" />
-              <span aria-hidden className="pointer-events-none absolute bottom-0 left-0 h-2 w-2 border-s-2 border-b-2 border-primary/50" />
-              <span aria-hidden className="pointer-events-none absolute bottom-0 right-0 h-2 w-2 border-e-2 border-b-2 border-primary/50" />
+              <span aria-hidden className="pointer-events-none absolute top-0 start-0 h-2 w-2 border-s-2 border-t-2 border-primary/50" />
+              <span aria-hidden className="pointer-events-none absolute top-0 end-0 h-2 w-2 border-e-2 border-t-2 border-primary/50" />
+              <span aria-hidden className="pointer-events-none absolute bottom-0 start-0 h-2 w-2 border-s-2 border-b-2 border-primary/50" />
+              <span aria-hidden className="pointer-events-none absolute bottom-0 end-0 h-2 w-2 border-e-2 border-b-2 border-primary/50" />
               <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 border-b border-border/40 bg-muted/40 font-mono text-[10px] uppercase tracking-[0.22em] text-primary/70">
                 <span className="flex items-center gap-1.5">
                   <span className="text-primary/60">//</span>

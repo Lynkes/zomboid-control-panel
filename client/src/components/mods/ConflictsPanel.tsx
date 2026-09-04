@@ -783,7 +783,7 @@ export function ConflictsPanel({
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
                               <div className="relative">
-                                <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground/60 pointer-events-none" aria-hidden="true" />
+                                <Search className="w-3 h-3 absolute start-2 top-1/2 -translate-y-1/2 text-muted-foreground/60 pointer-events-none" aria-hidden="true" />
                                 <input
                                   type="text"
                                   value={pairSearchQuery}

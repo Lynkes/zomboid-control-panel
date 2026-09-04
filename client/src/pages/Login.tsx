@@ -323,7 +323,7 @@ export default function Login() {
     <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
       <a
         href="#login-form"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:text-primary-foreground"
+        className="sr-only focus:not-sr-only focus:absolute focus:start-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:text-primary-foreground"
       >
         {t('skipToForm')}
       </a>
@@ -432,7 +432,7 @@ export default function Login() {
                   <button
                     type="button"
                     onClick={() => setShowNewPassword(!showNewPassword)}
-                    className="absolute inset-y-0 right-3 flex items-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                    className="absolute inset-y-0 end-3 flex items-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                     title={showNewPassword ? t('signIn.hidePassword') : t('signIn.showPassword')}
                     aria-label={showNewPassword ? t('signIn.hidePassword') : t('signIn.showPassword')}
                     aria-pressed={showNewPassword}
@@ -561,7 +561,7 @@ export default function Login() {
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute inset-y-0 right-3 flex items-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                    className="absolute inset-y-0 end-3 flex items-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                     title={showPassword ? t('signIn.hidePassword') : t('signIn.showPassword')}
                     aria-label={showPassword ? t('signIn.hidePassword') : t('signIn.showPassword')}
                     aria-pressed={showPassword}

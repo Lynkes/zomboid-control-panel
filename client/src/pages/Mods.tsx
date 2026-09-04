@@ -3476,7 +3476,7 @@ export default function Mods() {
             {mods.length > 0 && (
             <div className="flex items-center gap-4 flex-wrap">
               <div className="relative min-w-0 basis-full sm:basis-auto sm:flex-1 sm:max-w-sm">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
                   ref={searchInputRef}
                   value={searchQuery}
@@ -4367,7 +4367,7 @@ export default function Mods() {
                           </div>
                           <div className="flex w-full shrink-0 flex-col gap-2 lg:w-auto lg:items-end">
                             <div className="relative w-full lg:w-72">
-                              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+                              <Search className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
                               <Input value={modManagerSearch} onChange={e => handleModManagerSearchChange(e.target.value)} placeholder={t('activeMods.filterPlaceholder')} aria-label={t('activeMods.filterAria')} className="h-9 text-xs ps-8 bg-background/60" />
                               {modManagerSearch && (
                                 <button onClick={() => { handleModManagerSearchChange('') }} aria-label={t('activeMods.clearSearchAria')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-[11px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded">✕</button>

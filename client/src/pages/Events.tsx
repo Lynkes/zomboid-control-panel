@@ -2306,7 +2306,7 @@ export default function Events() {
       <div className="grid gap-4 lg:grid-cols-[250px_minmax(0,1fr)]">
         <aside className="min-w-0 space-y-3 lg:sticky lg:top-4 lg:self-start">
           <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Search className="pointer-events-none absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={sectionQuery}
               onChange={(e) => setSectionQuery(e.target.value)}

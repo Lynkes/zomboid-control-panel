@@ -2521,7 +2521,7 @@ export default function ServerConfig() {
                   {/* Scoped search + filter mode — applies to all categories on this tab */}
                   <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
                     <div className="relative min-w-0 flex-1 sm:max-w-md">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
                         ref={iniSearchRef}
                         placeholder={t('search.settingsPlaceholder')}
@@ -2607,10 +2607,10 @@ export default function ServerConfig() {
                     </ScrollArea>
                   ) : (
                     // Rail mode: vertical category nav (grouped) + single active category content
-                    <div className="grid gap-0 md:grid-cols-[252px_minmax(0,1fr)]">
+                    <div className="grid gap-0 md:grid-cols-[252px_minmax(0,1fr)] rtl:md:grid-cols-[minmax(0,1fr)_252px]">
                       <nav
                         aria-label={t('categoriesNav.iniAria')}
-                        className="-mx-2 flex flex-col gap-0.5 px-2 pb-2 md:mx-0 md:border-e md:border-border/50 md:pb-0 md:pe-3 md:pt-1 md:max-h-[calc(100vh-420px)] md:min-h-[360px] md:overflow-y-auto"
+                        className="-mx-2 flex flex-col gap-0.5 px-2 pb-2 md:mx-0 md:order-1 md:border-e md:border-border/50 md:pb-0 md:pe-3 md:pt-1 md:max-h-[calc(100vh-420px)] md:min-h-[360px] md:overflow-y-auto rtl:md:order-2"
                       >
                         <div className="hidden md:flex items-center justify-between px-3 pb-1">
                           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
@@ -2718,7 +2718,7 @@ export default function ServerConfig() {
                           )
                         })()}
                       </nav>
-                      <ScrollArea className="h-[calc(100vh-420px)] min-h-[360px] md:ps-5 pe-4">
+                      <ScrollArea className="h-[calc(100vh-420px)] min-h-[360px] md:ps-5 pe-4 md:order-2 rtl:md:order-1">
                         {(() => {
                           if (activeIniCategory === 'uncategorized') {
                             if (uncategorizedIniKeys.length === 0) {
@@ -2928,7 +2928,7 @@ export default function ServerConfig() {
                   {/* Scoped search — applies to all categories on this tab */}
                   <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
                     <div className="relative min-w-0 flex-1 sm:max-w-md">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
                         ref={sandboxSearchRef}
                         placeholder={t('search.sandboxPlaceholder')}
@@ -3013,10 +3013,10 @@ export default function ServerConfig() {
                     </ScrollArea>
                   ) : (
                     // Rail mode: vertical category nav (grouped) + single active category content
-                    <div className="grid gap-0 md:grid-cols-[252px_minmax(0,1fr)]">
+                    <div className="grid gap-0 md:grid-cols-[252px_minmax(0,1fr)] rtl:md:grid-cols-[minmax(0,1fr)_252px]">
                       <nav
                         aria-label={t('categoriesNav.sandboxAria')}
-                        className="-mx-2 flex flex-col gap-0.5 px-2 pb-2 md:mx-0 md:border-e md:border-border/50 md:pb-0 md:pe-3 md:pt-1 md:max-h-[calc(100vh-420px)] md:min-h-[360px] md:overflow-y-auto"
+                        className="-mx-2 flex flex-col gap-0.5 px-2 pb-2 md:mx-0 md:order-1 md:border-e md:border-border/50 md:pb-0 md:pe-3 md:pt-1 md:max-h-[calc(100vh-420px)] md:min-h-[360px] md:overflow-y-auto rtl:md:order-2"
                       >
                         <div className="hidden md:flex items-center justify-between px-3 pb-1">
                           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
@@ -3123,7 +3123,7 @@ export default function ServerConfig() {
                           )
                         })()}
                       </nav>
-                      <ScrollArea className="h-[calc(100vh-420px)] min-h-[360px] md:ps-5 pe-4">
+                      <ScrollArea className="h-[calc(100vh-420px)] min-h-[360px] md:ps-5 pe-4 md:order-2 rtl:md:order-1">
                         {(() => {
                           if (activeSandboxCategory === 'uncategorized') {
                             if (uncategorizedSandboxKeys.length === 0) {
@@ -3572,7 +3572,7 @@ export default function ServerConfig() {
               {modSettings && modSettingsGroups.length > 0 && (
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 min-w-[200px]">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <Input
                       ref={modSettingsSearchRef}
                       placeholder={t('modSettingsTab.searchPlaceholder')}

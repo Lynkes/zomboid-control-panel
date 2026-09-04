@@ -4841,7 +4841,7 @@ export default function Debug() {
                     </SelectContent>
                   </Select>
                   <div className="relative w-full sm:w-auto">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                    <Search className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                     <Input
                       placeholder={t("activityTab.searchPlaceholder")}
                       value={activitySearch}
@@ -5427,7 +5427,7 @@ export default function Debug() {
                 <div className="flex flex-wrap items-center gap-3">
                   {/* Search */}
                   <div className="relative flex-1 min-w-0 w-full sm:max-w-md">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <Input
                       ref={searchInputRef}
                       placeholder={t("logsTab.searchLogsPlaceholder")}
