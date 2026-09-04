@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import i18n, { LANGUAGES, LANGUAGE_CODES, isRTL, directionOf } from '@/i18n'
+import i18n, { LANGUAGES, isRTL, directionOf } from '@/i18n'
 import type { LanguageDef } from '@/i18n'
 
 // RTL support (Ukrainian/Arabic project): directionOf() is a free function
