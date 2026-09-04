@@ -10,6 +10,7 @@ import { fileURLToPath } from "url";
 import archiver from "archiver";
 import { createLogger } from "../utils/logger.js";
 import { getDiskFree } from "../utils/diskSpace.js";
+import { resolveLaunchMode } from "../services/serverManager.js";
 const log = createLogger("API:Debug");
 import { getDataPaths, setDataPaths } from "../utils/paths.js";
 import {
@@ -832,6 +833,28 @@ async function buildZomboidPaths(activeServer) {
   }
 
   const root = configured;
+
+  // 2026-09-04, god's finding in Charon's real bundle: installPath is not
+  // always a directory. "Custom launcher" mode (operator ruling 2026-08-27,
+  // custom-launcher-as-a-real-supported-mode-not-an-accident) legitimately
+  // stores a .bat/.sh/.exe FILE path in installPath -- resolveLaunchMode()
+  // is the shared, already-correct detector for this (serverManager.js's
+  // own launch-mode selection uses it). Joining "logs" straight onto a
+  // custom-launcher installPath produces a path like
+  // "...\StartServer_CharonWorld.bat\logs" (ENOENT, and listDir(installPath)
+  // itself would fail the same way trying to readdir a file) -- the
+  // install DIRECTORY for a custom launcher is the folder the script lives
+  // in, exactly the same relationship scanForPzPaths() already relies on
+  // (a discovered installPaths entry is the folder containing the launcher
+  // script it found alongside it).
+  const { mode: launchMode } = resolveLaunchMode({
+    installPath: activeServer?.installPath,
+  });
+  const installDir =
+    launchMode === "custom" && activeServer?.installPath
+      ? path.dirname(activeServer.installPath)
+      : activeServer?.installPath || null;
+
   return {
     configuredPath: configured,
     installPath: activeServer?.installPath || null,
@@ -853,11 +876,9 @@ async function buildZomboidPaths(activeServer) {
             recurseInto: ["default"],
           })
         : null,
-      install: activeServer?.installPath
-        ? await listDir(activeServer.installPath)
-        : null,
-      installLogs: activeServer?.installPath
-        ? await listDir(path.join(activeServer.installPath, "logs"))
+      install: installDir ? await listDir(installDir) : null,
+      installLogs: installDir
+        ? await listDir(path.join(installDir, "logs"))
         : null,
     },
   };
@@ -6311,3 +6332,7 @@ export { summarizeRconRejections, buildRconCommandRejectionsCheck };
 // deadline behavior and its diagnostics-check decision -- see
 // server/tests/scanSaveStatsDeadline.test.js.
 export { scanSaveStats, buildStaleLocksCheck };
+// Exported for direct unit testing of the zomboid-paths.json bundle
+// section's custom-launcher installPath handling -- see
+// server/tests/zomboidPathsInstallLogs.test.js.
+export { buildZomboidPaths };
