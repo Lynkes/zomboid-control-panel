@@ -161,13 +161,29 @@ class PanelBridge extends EventEmitter {
     // initial remote directory and status sync. A bad replacement must not
     // disconnect an otherwise healthy server.
     const previousTransport = this.sftpTransport;
-    if (this.isRunning) this.stop();
-    if (previousTransport) await previousTransport.stop();
-    this.configure(cachePath, true);
-    this.config.commandTimeoutMs = 60000;
-    this.sftpTransport = transport;
-    this.lastSftpStatus = transport.getStatus();
-    this.start();
+    try {
+      if (this.isRunning) this.stop();
+      if (previousTransport) await previousTransport.stop();
+      this.configure(cachePath, true);
+      this.config.commandTimeoutMs = 60000;
+      this.sftpTransport = transport;
+      this.lastSftpStatus = transport.getStatus();
+      this.start();
+    } catch (error) {
+      // The new transport connected successfully -- the try/catch above
+      // already proved that -- but something in the swap itself failed
+      // (this.configure()/this.start() throwing, or a future edit adding a
+      // step here that can). Without this, the freshly-connected transport
+      // is silently leaked: its SFTP connection and poll timer keep
+      // running, owned by nothing, and this.sftpTransport is left pointing
+      // at whatever it was before -- possibly the OLD transport, which was
+      // already stopped two lines up, so the bridge would report itself
+      // configured against a transport that isn't actually running.
+      this.sftpTransport = null;
+      await transport.stop();
+      this.lastSftpStatus = transport.getStatus();
+      throw error;
+    }
     return this.bridgePath;
   }
 
