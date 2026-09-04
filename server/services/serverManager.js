@@ -101,6 +101,43 @@ function buildLdLibraryPath(serverDir) {
   return result;
 }
 
+// 2026-09-04, P0 regression (41d0c6e5/1130108a broke real users): builds the
+// string handed to `cmd.exe /c` ourselves instead of letting Node quote each
+// argv element independently. With an install path containing a space --
+// "C:\Program Files (x86)\..." or just "...\Zomboid Server\..." -- Node
+// quotes BOTH the bat path and launchLogPath (4 quote chars total on the /c
+// line). cmd.exe's documented quote-preservation rule (`cmd /?`) only kicks
+// in with EXACTLY two quote characters; with 4 it falls back to stripping
+// only the first character of the whole line and the last quote character
+// anywhere in it, which mangles the boundary between the two paths and the
+// redirection -- cmd exits 1 before ever launching java.exe, with the launch
+// log never written. Reproduced directly: a bare space in either path was
+// enough on its own, parens weren't even required.
+//
+// Fix: quote each piece ourselves (only where it actually needs it), join
+// into one line, then wrap that ENTIRE line in one more pair of quotes. That
+// gives cmd's fallback-strip exactly one outer pair to remove (first
+// character of the line, and the last quote character in it -- which is
+// now our own closing wrapper quote, since we control where it sits) and
+// leaves every inner per-path quote untouched. This must be paired with
+// `windowsVerbatimArguments: true` on the spawn() call, or Node re-quotes
+// this already-quoted string on top and reintroduces the same bug one layer
+// out.
+export function windowsQuoteArgIfNeeded(value) {
+  return /[\s"]/.test(value) ? `"${value}"` : value;
+}
+
+export function buildWindowsCmdLine(exePath, args, launchLogPath) {
+  const parts = [
+    windowsQuoteArgIfNeeded(exePath),
+    ...args.map(windowsQuoteArgIfNeeded),
+  ];
+  if (launchLogPath) {
+    parts.push(">", windowsQuoteArgIfNeeded(launchLogPath), "2>&1");
+  }
+  return `"${parts.join(" ")}"`;
+}
+
 // Locates the actual JVM executable inside a PZ install directory (jre64 for
 // 64-bit installs, jre for older/32-bit ones -- same directories buildLdLibraryPath
 // already knows about). Returns null if neither exists so callers can treat
@@ -1423,14 +1460,22 @@ export class ServerManager {
           // `>`/`2>&1` redirection instead. We don't need our own copy of
           // the fd for this branch at all, so close it now rather than
           // leaving it open across the spawn call for no reason.
+          //
+          // 2026-09-04, P0: build the /c command line ourselves (see
+          // buildWindowsCmdLine's comment) instead of handing cmd.exe loose
+          // argv tokens that Node quotes independently -- that broke every
+          // install path with a space in it.
           this._closeLaunchLogFd();
-          const cmdArgs = launchLogPath
-            ? ["/c", resolvedCmd, ...args, ">", launchLogPath, "2>&1"]
-            : ["/c", resolvedCmd, ...args];
-          this.serverProcess = spawn("cmd.exe", cmdArgs, {
+          const commandLine = buildWindowsCmdLine(
+            resolvedCmd,
+            args,
+            launchLogPath,
+          );
+          this.serverProcess = spawn("cmd.exe", ["/c", commandLine], {
             cwd,
             detached: true,
             stdio: "ignore",
+            windowsVerbatimArguments: true,
           });
         } else if (!isWindows && ext === ".sh") {
           try {
@@ -1550,14 +1595,20 @@ export class ServerManager {
         // launches) instead of a handle passed two processes deep. We
         // don't need our own copy of the fd for this branch, so close it
         // now rather than across the spawn call.
+        //
+        // 2026-09-04, P0: build the /c command line ourselves (see
+        // buildWindowsCmdLine's comment) instead of handing cmd.exe loose
+        // argv tokens that Node quotes independently -- that broke every
+        // install path with a space in it (e.g. "...\Zomboid Server\...",
+        // "C:\Program Files (x86)\..."), which is the common case, not an
+        // edge case.
         this._closeLaunchLogFd();
-        const cmdArgs = launchLogPath
-          ? ["/c", batPath, ">", launchLogPath, "2>&1"]
-          : ["/c", batPath];
-        this.serverProcess = spawn("cmd.exe", cmdArgs, {
+        const commandLine = buildWindowsCmdLine(batPath, [], launchLogPath);
+        this.serverProcess = spawn("cmd.exe", ["/c", commandLine], {
           cwd: this.serverPath,
           detached: true,
           stdio: "ignore",
+          windowsVerbatimArguments: true,
         });
       } else {
         // Ensure the script is executable

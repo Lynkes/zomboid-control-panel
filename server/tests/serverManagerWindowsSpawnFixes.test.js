@@ -31,6 +31,17 @@ import { EventEmitter } from "events";
 // cmd.exe or a JVM) and asserts on the exact command/args/stdio
 // serverManager.js hands it, for both the default-bat path and a custom
 // .bat start command.
+//
+// 2026-09-04, P0 update: the argv shape these assertions check against
+// changed again (see server/tests/serverManagerSpacedPathCmdQuoting.test.js
+// for why -- the loose-argv `["/c", batPath, ">", logPath, "2>&1"]` shape
+// this file originally asserted on is itself what broke every install path
+// with a space in it; that is a REAL cmd.exe quoting bug this mocked suite
+// is structurally unable to see, since it never invokes real cmd.exe).
+// serverManager.js now builds one pre-quoted command-line string and spawns
+// with windowsVerbatimArguments:true; these assertions were updated to
+// match that shape. The actual real-cmd.exe space/parens regression test
+// lives in serverManagerSpacedPathCmdQuoting.test.js, not here.
 
 const spawnCalls = [];
 const spawnMock = vi.fn(() => {
@@ -125,14 +136,18 @@ async function runStart(manager) {
 
         expect(result.success).toBe(true);
         expect(spawnCalls).toHaveLength(1);
-        const { command, args } = spawnCalls[0];
+        const { command, args, options } = spawnCalls[0];
         expect(command).toBe("cmd.exe");
         expect(args[0]).toBe("/c");
         // This is the actual regression: a bare filename only resolves via
         // cmd.exe's own cwd search, which NoDefaultCurrentDirectoryInExePath
-        // turns off.
-        expect(args[1]).toBe(path.join(tmpRoot, serverBat));
+        // turns off. The absolute path is now embedded (quoted as needed)
+        // inside the single pre-built command-line string, not a standalone
+        // argv element.
+        const absoluteBatPath = path.join(tmpRoot, serverBat);
+        expect(args[1]).toContain(absoluteBatPath);
         expect(args[1]).not.toBe(serverBat);
+        expect(options.windowsVerbatimArguments).toBe(true);
       });
 
       it("has cmd.exe redirect stdout/stderr to server-launch.log itself, not a raw fd through Node's stdio", async () => {
@@ -143,10 +158,10 @@ async function runStart(manager) {
         await runStart(manager);
 
         const { args, options } = spawnCalls[0];
-        expect(args).toContain(">");
-        expect(args).toContain("2>&1");
-        const logPathArg = args[args.indexOf(">") + 1];
-        expect(path.basename(logPathArg)).toBe("server-launch.log");
+        // Now a single pre-quoted command-line string (see
+        // serverManagerSpacedPathCmdQuoting.test.js for why loose argv
+        // tokens broke on spaced paths), not separate ">"/"2>&1" tokens.
+        expect(args[1]).toMatch(/ > "?.*server-launch\.log"? 2>&1"$/);
         // No raw fd handed to spawn's stdio for the Windows branch anymore
         // -- cmd.exe does its own file open/redirect instead.
         expect(options.stdio).toBe("ignore");
@@ -168,12 +183,10 @@ async function runStart(manager) {
         const { command, args, options } = spawnCalls[0];
         expect(command).toBe("cmd.exe");
         expect(args[0]).toBe("/c");
-        expect(args[1]).toBe(customPath);
-        expect(args).toContain(">");
-        expect(args).toContain("2>&1");
-        const logPathArg = args[args.indexOf(">") + 1];
-        expect(path.basename(logPathArg)).toBe("server-launch.log");
+        expect(args[1]).toContain(customPath);
+        expect(args[1]).toMatch(/ > "?.*server-launch\.log"? 2>&1"$/);
         expect(options.stdio).toBe("ignore");
+        expect(options.windowsVerbatimArguments).toBe(true);
       });
     });
   },
