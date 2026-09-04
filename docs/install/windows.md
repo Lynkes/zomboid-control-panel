@@ -236,6 +236,16 @@ nothing, double-check you pasted the **data** folder (`%USERPROFILE%\Zomboid`),
 not the install folder — the `.ini` files live under the data folder's
 `Server\` subfolder, not next to `ProjectZomboid64.exe`.
 
+**Test Connection succeeding here doesn't yet prove the panel can start
+this server** — it only checks RCON against a server that's already
+running (for example if you started it manually once, per Phase 4's own
+advice). If your install folder — Steam's own default location,
+`...\Program Files (x86)\Steam\steamapps\common\...`, qualifies — has a
+space anywhere in it, or one of `&` `(` `)` `^`, clicking **Start** from
+the panel can fail even though this step succeeded; see
+[Server process exited immediately after starting](troubleshooting.md#server-process-exited-immediately-after-starting-code1-signalnone--startup-failed)
+in troubleshooting.md.
+
 ---
 
 ## Phase 7: Open Windows Firewall for LAN access
