@@ -94,6 +94,7 @@
     "heal": "Heilen",
     "god": "Godmode",
     "godTip": "Aktiviert für diesen Spieler immer den Godmode — kein Umschalten. Zum Deaktivieren stattdessen die Spieler-Seite verwenden.",
+    "openPlayerControls": "Spielersteuerung öffnen",
     "healedTitle": "Geheilt",
     "healedDesc": "{{username}} wurde geheilt.",
     "godModeEnabled": "Godmode aktiviert"

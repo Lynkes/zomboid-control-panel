@@ -52,6 +52,30 @@ describe("Docker deployment guidance", () => {
     expect(workflow).toContain(
       "type=semver,pattern={{version}},prefix=updater-",
     );
+    expect(workflow.match(/flavor: latest=false/g) || []).toHaveLength(2);
+  });
+
+  it("uploads the Linux archive from the release tree created by build.js", () => {
+    const workflow = readRepoFile(".github/workflows/release-artifacts.yml");
+
+    expect(workflow).toContain("archive_path: release/ZomboidControlPanel-linux.tar.gz");
+    expect(workflow).toContain("path: ${{ matrix.archive_path }}");
+  });
+
+  it("uploads the Windows archive from the root path created by Compress-Archive", () => {
+    const workflow = readRepoFile(".github/workflows/release-artifacts.yml");
+
+    expect(workflow).toContain("archive_path: ZomboidControlPanel-windows.zip");
+  });
+
+  it("verifies all release versions before tag publication", () => {
+    const workflow = readRepoFile(".github/workflows/release-artifacts.yml");
+    const verifier = readRepoFile("scripts/verify-release-version.mjs");
+
+    expect(workflow).toContain("node scripts/verify-release-version.mjs");
+    expect(verifier).toContain("package-lock.json root package");
+    expect(verifier).toContain("PanelBridge must contain exactly one");
+    expect(verifier).toContain("release-manifest.json client file inventory differs");
   });
 
   it("keeps the generic installer explicitly panel-only", () => {
@@ -60,5 +84,19 @@ describe("Docker deployment guidance", () => {
     expect(compose).toContain("Project Zomboid runs on another machine");
     expect(compose).not.toContain("16261:16261/udp");
     expect(compose).not.toContain("16262:16262/udp");
+  });
+
+  it("documents the opt-in Docker lifecycle prerequisites", () => {
+    const compose = readRepoFile("docker-compose.yml");
+    const docs = readRepoFile("docs/install/docker.md");
+
+    expect(compose).toContain("/var/run/docker.sock:/var/run/docker.sock");
+    expect(compose).toContain("PANEL_DOCKER_CONTROL_ENABLED");
+    expect(compose).toContain("group_add:");
+    expect(docs).toContain("zomboid-panel.managed: \"true\"");
+    expect(docs).toContain("docker update --label-add zomboid-panel.managed=true");
+    expect(docs).toContain("PANEL_DOCKER_CONTROL_ENABLED=true");
+    expect(docs).toContain("/var/run/docker.sock");
+    expect(docs).toContain("--group-add=281");
   });
 });

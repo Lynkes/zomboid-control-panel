@@ -103,6 +103,111 @@ describe('RconService', () => {
   });
 
   describe('execute', () => {
+    it('can return a lifecycle command failure without entering reconnect', async () => {
+      const liveRcon = new RconService();
+      const client = {
+        execute: vi.fn().mockRejectedValue(new Error('ECONNRESET')),
+        disconnect: vi.fn(),
+      };
+      liveRcon.client = client;
+      liveRcon.connected = true;
+      const reconnectSpy = vi.spyOn(liveRcon, 'reconnect');
+
+      const result = await liveRcon.save({
+        skipLog: true,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Connection was reset');
+      expect(reconnectSpy).not.toHaveBeenCalled();
+      expect(client.disconnect).toHaveBeenCalledTimes(1);
+    });
+
+    it('cleans up the replacement client when an explicitly retried command fails again', async () => {
+      const liveRcon = new RconService();
+      const replacement = {
+        execute: vi.fn().mockRejectedValue(new Error('ECONNRESET')),
+        disconnect: vi.fn(),
+      };
+      const original = {
+        execute: vi.fn().mockRejectedValue(new Error('ECONNRESET')),
+        disconnect: vi.fn(),
+      };
+      liveRcon.client = original;
+      liveRcon.connected = true;
+      liveRcon.reconnect = vi.fn(async () => {
+        liveRcon.client = replacement;
+        liveRcon.connected = true;
+        return true;
+      });
+
+      const result = await liveRcon.save({
+        skipLog: true,
+        retryOnConnectionError: true,
+      });
+
+      expect(result.success).toBe(false);
+      expect(liveRcon.connected).toBe(false);
+      expect(liveRcon.client).toBeNull();
+      expect(replacement.disconnect).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not let an old reconnect clear a newer reconnect mutex', async () => {
+      const liveRcon = new RconService();
+      const deferred = () => {
+        let resolve;
+        const promise = new Promise((r) => {
+          resolve = r;
+        });
+        return { promise, resolve };
+      };
+      const first = deferred();
+      const second = deferred();
+      let call = 0;
+      liveRcon._doReconnect = () => (call++ === 0 ? first.promise : second.promise);
+
+      const firstCall = liveRcon.reconnect();
+      await Promise.resolve();
+      liveRcon.forceResetConnectionState();
+      const secondCall = liveRcon.reconnect();
+
+      expect(liveRcon.reconnectPromise).toBe(second.promise);
+      first.resolve(false);
+      await firstCall;
+      expect(liveRcon.reconnecting).toBe(true);
+      expect(liveRcon.reconnectPromise).toBe(second.promise);
+
+      second.resolve(false);
+      await secondCall;
+      expect(liveRcon.reconnecting).toBe(false);
+      expect(liveRcon.reconnectPromise).toBeNull();
+    });
+
+    it('does not let an old connection failure clear a newer connection generation', async () => {
+      const liveRcon = new RconService();
+      const oldAttempt = new Error('ECONNRESET');
+      let rejectTarget;
+      liveRcon.hasConfiguredTarget = vi.fn(
+        () =>
+          new Promise((_, reject) => {
+            rejectTarget = reject;
+          }),
+      );
+
+      const oldConnect = liveRcon.connect();
+      await Promise.resolve();
+      liveRcon.forceResetConnectionState();
+      const replacement = { disconnect: vi.fn() };
+      liveRcon.client = replacement;
+      liveRcon.connected = true;
+      rejectTarget(oldAttempt);
+      await expect(oldConnect).rejects.toThrow('ECONNRESET');
+
+      expect(liveRcon.connected).toBe(true);
+      expect(liveRcon.client).toBe(replacement);
+      expect(replacement.disconnect).not.toHaveBeenCalled();
+    });
+
     it('should return error when server is starting', async () => {
       rcon.serverStarting = true;
       const result = await rcon.execute('players');
@@ -139,6 +244,35 @@ describe('RconService', () => {
   });
 
   describe('health check', () => {
+    it('does not let a stale health callback report success after the client changes', async () => {
+      const liveRcon = new RconService();
+      let resolveHealth;
+      const original = {
+        execute: vi.fn(
+          () =>
+            new Promise((resolve) => {
+              resolveHealth = resolve;
+            }),
+        ),
+        disconnect: vi.fn(),
+      };
+      const replacement = { disconnect: vi.fn() };
+      liveRcon.client = original;
+      liveRcon.connected = true;
+
+      const healthPromise = liveRcon.healthCheck();
+      await Promise.resolve();
+      liveRcon.client = replacement;
+      resolveHealth("Players connected (0)");
+
+      await expect(healthPromise).resolves.toEqual({
+        healthy: false,
+        reason: "Connection changed",
+      });
+      expect(original.disconnect).not.toHaveBeenCalled();
+      expect(replacement.disconnect).not.toHaveBeenCalled();
+    });
+
     it('should disconnect after max consecutive failures', () => {
       rcon.connected = true;
       rcon.simulateHealthCheckFailure(); // 1
@@ -189,7 +323,7 @@ describe('RconService', () => {
     });
   });
 
-  describe('serverMessage (ASCII safety)', () => {
+  describe('serverMessage text safety', () => {
     it('strips emoji and other non-ASCII chars before sending to PZ', async () => {
       const liveRcon = new RconService();
       const executeSpy = vi.spyOn(liveRcon, 'execute').mockResolvedValue({ success: true, response: 'ok' });
@@ -250,16 +384,28 @@ describe('RconService', () => {
       expect(result.success).toBe(false);
     });
 
-    it('transliterates common accented Latin letters instead of dropping them', async () => {
+    it('preserves accented Latin letters in broadcasts', async () => {
       const liveRcon = new RconService();
       const executeSpy = vi.spyOn(liveRcon, 'execute').mockResolvedValue({ success: true, response: 'ok' });
 
       await liveRcon.serverMessage('Redemarrage du serveur \u00e0 20h, merci de vous d\u00e9connecter');
 
       const sent = executeSpy.mock.calls[0][0];
-      expect(sent).toContain('Redemarrage du serveur a 20h');
-      expect(sent).toContain('deconnecter');
-      expect(sent).not.toMatch(/[\u00C0-\u024F]/);
+      expect(sent).toContain('Redemarrage du serveur \u00e0 20h');
+      expect(sent).toContain('d\u00e9connecter');
+    });
+
+    it('preserves Chinese scheduled-message text while keeping command delimiters out', async () => {
+      const liveRcon = new RconService();
+      const executeSpy = vi.spyOn(liveRcon, 'execute').mockResolvedValue({ success: true, response: 'ok' });
+      const message = "\u670d\u52a1\u5668\u5c06\u5728\u4e94\u5206\u949f\u540e\u91cd\u542f\"\\quit\n";
+
+      await liveRcon.serverMessage(message, { skipLog: true });
+
+      expect(executeSpy).toHaveBeenCalledWith(
+        'servermsg "\u670d\u52a1\u5668\u5c06\u5728\u4e94\u5206\u949f\u540e\u91cd\u542fquit"',
+        { skipLog: true },
+      );
     });
   });
 

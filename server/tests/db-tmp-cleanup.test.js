@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "fs";
 import path from "path";
 import { spawnSync } from "child_process";
@@ -81,5 +81,31 @@ describe("sweepOrphanedTmpFiles", () => {
     sweepOrphanedTmpFiles();
     expect(fs.existsSync(decoyPath)).toBe(true);
     fs.rmSync(decoyPath, { force: true });
+  });
+
+  // 2026-09-02, single-signal-sweep, REAL DEFECT fix: this sweep used to
+  // carry its own local isPidAlive(), a THIRD undeduplicated copy of the
+  // exact bug already fixed once in pidLock.js (bughunt-2026-08-31-c) --
+  // it resolved any signal-0 probe error OTHER than EPERM to "dead",
+  // instead of failing toward "still alive" for anything short of a
+  // confirmed ESRCH. Now imports the shared, correctly-directioned
+  // utils/pidLiveness.js isPidAlive() instead. This must NOT delete a tmp
+  // file when the liveness probe is genuinely ambiguous (e.g. some
+  // transient errno that is neither ESRCH nor EPERM) -- an ambiguous
+  // signal should never authorise deleting a file a live writer might
+  // still own.
+  it("does NOT remove a tmp file when the pid-liveness probe is ambiguous (neither ESRCH nor EPERM)", () => {
+    const filePath = writeTmpFile(999999, OLD_ENOUGH_MS);
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => {
+      const err = new Error("simulated ambiguous signal-0 probe failure");
+      err.code = "EAGAIN";
+      throw err;
+    });
+    try {
+      sweepOrphanedTmpFiles();
+      expect(fs.existsSync(filePath)).toBe(true);
+    } finally {
+      killSpy.mockRestore();
+    }
   });
 });

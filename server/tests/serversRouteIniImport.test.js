@@ -168,6 +168,58 @@ describe("POST / config.importIniFrom", () => {
     expect(response.status).toHaveBeenCalledWith(201);
   });
 
+  // 2026-09-03: importIniFrom read and applied rconPassword from the ini
+  // but never wrote importIniFrom.dataPath back to zomboidDataPath -- the
+  // created server saved successfully (rconPassword worked fine) but could
+  // not start, since serverManager needs zomboidDataPath to resolve the
+  // cachedir. Found via a real enrolment through this exact route. The sibling
+  // route this handler's own comment says it mirrors -- POST
+  // /create-from-discovery in discovery.js -- sets
+  // `zomboidDataPath: discovered.dataPath` from the equivalent field, which is
+  // the contract this pins.
+  it("populates zomboidDataPath from importIniFrom.dataPath, not just rconPassword", async () => {
+    writeIni(
+      tmpRoot,
+      "servertest",
+      "RCONPassword=import-me\nRCONPort=27015\nDefaultPort=16261\n",
+    );
+    const response = createResponse();
+
+    await runRoute(
+      "/",
+      "post",
+      { body: importBody(), user: { role: "admin" } },
+      response,
+    );
+
+    expect(createServer).toHaveBeenCalledWith(
+      expect.objectContaining({ zomboidDataPath: tmpRoot }),
+    );
+  });
+
+  it("the imported zomboidDataPath overrides a client-supplied one, same precedence as rconPassword", async () => {
+    writeIni(
+      tmpRoot,
+      "servertest",
+      "RCONPassword=import-me\nRCONPort=27015\nDefaultPort=16261\n",
+    );
+    const response = createResponse();
+
+    await runRoute(
+      "/",
+      "post",
+      {
+        body: importBody({ zomboidDataPath: "C:\\some\\other\\path" }),
+        user: { role: "admin" },
+      },
+      response,
+    );
+
+    expect(createServer).toHaveBeenCalledWith(
+      expect.objectContaining({ zomboidDataPath: tmpRoot }),
+    );
+  });
+
   it("the re-read value overrides a client-supplied rconPassword", async () => {
     writeIni(
       tmpRoot,

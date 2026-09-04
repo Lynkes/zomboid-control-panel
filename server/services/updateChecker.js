@@ -11,6 +11,7 @@ import {
   getActiveSteamOperations,
   clearActiveSteamOperation,
 } from "./activeSteamOperations.js";
+import { acquireLifecycleLock } from "./lifecycleCoordinator.js";
 
 export function parseAutoUpdateWarningMinutes(value) {
   if (value === null || value === undefined) return 15;
@@ -478,9 +479,23 @@ export class UpdateChecker {
           // Emit to all connected clients
           this.io.emit("server:updateAvailable", updateInfo);
         }
-        if (!wasAvailable) {
-          await this.scheduleAutoUpdate(updateInfo);
-        }
+        // Deliberately NOT gated on !wasAvailable (unlike the emit above,
+        // which is purely about notification spam). scheduleAutoUpdate()
+        // itself is the re-entrancy guard (this.autoUpdateRunning ||
+        // this.autoUpdateTimer, both reset once a warning/run cycle
+        // finishes), so calling it on every periodic check while an update
+        // is outstanding is a safe no-op once one is already scheduled or
+        // running -- but it's what actually lets two real cases work:
+        // (1) the operator enables serverAutoUpdate AFTER an update was
+        // already detected while it was off (previously silently ignored
+        // that update forever, since wasAvailable was already true by the
+        // time the setting flipped on); (2) a scheduled auto-update FAILS
+        // (SteamCMD error, stop timeout, build didn't advance) -- the old
+        // once-per-availability-episode gate meant it never retried until
+        // a NEWER build shipped, indistinguishable from "auto-update is
+        // silently broken" to an operator watching it happen once and never
+        // again.
+        await this.scheduleAutoUpdate(updateInfo);
       } else {
         log.debug(
           `Server is up to date (build ${installed.buildId}, ${installed.branch} branch)`,
@@ -536,6 +551,13 @@ export class UpdateChecker {
   }
 
   async runAutoUpdate(updateInfo) {
+    const lifecycleLock = acquireLifecycleLock("automatic-update", this.serverManager?.serverName || null);
+    if (!lifecycleLock) {
+      this.autoUpdateRunning = false;
+      log.warn("Automatic update skipped because another lifecycle operation is in progress");
+      return { success: false, message: "Another server lifecycle operation is in progress" };
+    }
+
     let shouldRestart = false;
     // Set right before the SteamCMD spawn below claims activeSteamOperations
     // for this path; the outer finally() releases it defensively too (a
@@ -543,6 +565,7 @@ export class UpdateChecker {
     // thrown error can never leave a permanent claim, per the same
     // requirement as every other guarded spawn site.
     let normalizedInstallPath = null;
+    let targetServerId = null;
     // Tracks how far the job got, recorded on failure alongside a stable
     // reason key -- see the class doc comment on _recordAutoUpdateResult()
     // for why phase (not a per-reason serverUp guess) is the source of
@@ -574,6 +597,7 @@ export class UpdateChecker {
         return;
       }
       const activeServer = await getActiveServer();
+      targetServerId = activeServer?.id ?? null;
       const steamcmdPath = await getSetting("steamcmdPath");
       // Refuse a container-managed server outright. Its image owns the game
       // install, and the stop below would RCON-quit a process the container's
@@ -680,11 +704,43 @@ export class UpdateChecker {
         clearActiveSteamOperation(normalizedInstallPath);
       }
       if (code !== 0) fail("STEAMCMD_EXIT_CODE", `SteamCMD exited with code ${code}`, { code });
+
+      // SteamCMD's own exit code is not proof the install actually changed --
+      // it can exit 0 on a no-op (stale/corrupt local manifest cache, a
+      // branch that silently resolved to what's already installed, etc).
+      // Re-read the manifest we just asked SteamCMD to rewrite and confirm
+      // the buildId actually advanced before declaring success, the same
+      // "observe the effect, don't trust the exit code" discipline
+      // reconcilePendingUpdate() already applies to the panel's own binary
+      // updater (it re-checks the running version rather than trusting that
+      // staging happened).
+      const postUpdate = await this.getInstalledBuildInfo(
+        activeServer.installPath,
+      );
+      const postBuildId = postUpdate?.buildId
+        ? parseInt(postUpdate.buildId, 10)
+        : NaN;
+      const preBuildId = parseInt(updateInfo.installed.buildId, 10);
+      if (isNaN(postBuildId) || postBuildId <= preBuildId) {
+        fail(
+          "BUILD_DID_NOT_ADVANCE",
+          `SteamCMD exited successfully but the installed build did not change (still ${postUpdate?.buildId ?? "unreadable"}, expected newer than ${updateInfo.installed.buildId})`,
+          {
+            installedBuildId: sanitizeError(postUpdate?.buildId ?? "unknown"),
+            previousBuildId: sanitizeError(updateInfo.installed.buildId),
+          },
+        );
+      }
+
       this.io.emit("server:autoUpdateComplete", { success: true });
       await this._recordAutoUpdateResult({
         status: "success",
         at: new Date().toISOString(),
-        appliedVersion: updateInfo?.latest?.version ?? updateInfo?.installed?.version ?? null,
+        // `updateInfo.latest`/`.installed` only ever carry `.buildId`, never
+        // a `.version` field -- the old `?.version` lookups here always
+        // evaluated to undefined, so this was silently `null` on every real
+        // success. Report the build ID we just verified actually landed.
+        appliedVersion: postUpdate?.buildId ?? null,
       });
     } catch (error) {
       this.io.emit("server:autoUpdateComplete", { success: false, error: error.message });
@@ -727,7 +783,9 @@ export class UpdateChecker {
       // completed" -- the same predicate, no new state.
       if (shouldRestart && phase !== "before-stop") {
         try {
-          const started = await this.serverManager.startServer();
+          const started = await this.serverManager.startServer({
+            serverId: targetServerId,
+          });
           if (started?.success) {
             await this._patchAutoUpdateResultServerUp(true);
           } else {
@@ -739,6 +797,7 @@ export class UpdateChecker {
           await this._patchAutoUpdateResultServerUp(false);
         }
       }
+      lifecycleLock.release();
     }
   }
 

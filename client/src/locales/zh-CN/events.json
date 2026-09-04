@@ -588,6 +588,8 @@
     "bridgeFailedDesc": "{{message}}。请检查桥接/服务器连接后重试。",
     "commandFailedDesc": "{{message}}。请检查命令设置后重试。",
     "commandFailedFallback": "命令失败",
+    "notPersistedDesc": "仅应用于当前运行中的世界 — SandboxVars.lua 未被更新（{{reason}}），因此服务器重启后此更改将被撤销。",
+    "notPersistedUnknownReason": "未知原因",
     "bridgeCommandFailedFallback": "桥接命令失败。",
     "powerDidNotTakeEffectDesc": "服务器报告电力状态仍为{{state}} — 更改未生效。",
     "noPlayersOnlineError": "没有在线玩家",

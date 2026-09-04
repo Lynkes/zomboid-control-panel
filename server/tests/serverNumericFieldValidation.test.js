@@ -297,7 +297,10 @@ describe("POST /api/server/configure-network refuses an out-of-range game port",
       response,
     );
 
-    expect(performRestart).toHaveBeenCalledWith(5, { label: "Manual restart" });
+    expect(performRestart).toHaveBeenCalledWith(
+      5,
+      expect.objectContaining({ label: "Manual restart", lifecycleLock: expect.any(Object) }),
+    );
     expect(response.json).toHaveBeenCalledWith(
       expect.objectContaining({ success: true }),
     );

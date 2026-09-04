@@ -278,7 +278,15 @@ router.get("/tracked", async (req, res) => {
           );
           if (fs.existsSync(iniPath)) {
             const content = readTextFile(iniPath);
-            const workshopMatch = content.match(/^WorkshopItems=(.*)$/m);
+            // Widened to tolerate whitespace around "=" -- same fix as this
+            // file's other ini-read sites (hunt-wave13, 3d1921ad/783672aa),
+            // missed here. A hand-edited "WorkshopItems = ..." line
+            // previously parsed as zero configured items, not "the check
+            // couldn't run" -- so every tracked mod would show as missing
+            // from the server, the exact "unreadable INI reported as every
+            // mod missing" case this route's own serverConfigRead flag
+            // (just above) exists to prevent.
+            const workshopMatch = content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
             const workshopIds =
               workshopMatch?.[1]?.split(";").filter(Boolean) || [];
             const configuredIds = new Set(
@@ -968,8 +976,14 @@ router.post("/sync-from-server", async (req, res) => {
 
     // Read and parse the INI file (normalize CRLF for cross-platform compatibility)
     const content = readTextFile(iniPath);
-    const modsMatch = content.match(/^Mods=(.*)$/m);
-    const workshopMatch = content.match(/^WorkshopItems=(.*)$/m);
+    // Widened to tolerate whitespace around "=" -- same fix as this file's
+    // other ini-read sites (hunt-wave13, 3d1921ad/783672aa), missed here. A
+    // hand-edited "WorkshopItems = ..." line previously parsed as zero
+    // workshop items, so this button -- the actual onboarding path for
+    // adding an already-running server -- reported "No mods found in
+    // server configuration" and synced nothing, for a server that has mods.
+    const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
+    const workshopMatch = content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
 
     const modIds = modsMatch?.[1]?.split(";").filter(Boolean) || [];
     const workshopIds = workshopMatch?.[1]?.split(";").filter(Boolean) || [];
@@ -1028,15 +1042,26 @@ router.post("/sync-from-server", async (req, res) => {
           skippedIgnored++;
           continue;
         }
-        // Try to resolve real name from mod.info on disk, fall back to mod ID from INI
+        // Try to resolve real name from mod.info on disk, fall back to a
+        // placeholder. modIds[i] (the Mods= list) is NOT usable as a
+        // same-index fallback here: Mods= and WorkshopItems= are two
+        // independently-ordered, independently-sized INI lists (a single
+        // workshop item can contribute zero, one, or several Mods= entries,
+        // and map-only/framework workshop items contribute none at all), so
+        // there is no positional correspondence between workshopIds[i] and
+        // modIds[i] to fall back on. Using it here silently labelled a
+        // workshop item with an unrelated mod's ID whenever the two lists
+        // diverged in length or order -- the common case, not the edge
+        // case. A "Workshop Mod <id>" placeholder is also what lets
+        // shouldRefreshTrackedModName() (above) pick this mod up and
+        // correct the name on a later refresh; a wrong-but-plausible-looking
+        // name from modIds[i] would never match that pattern and would
+        // stick around wrong forever.
         const nameFromDisk = modChecker?.resolveModNameFromDisk(workshopId);
-        // Use Steam API title if available, then disk name, then INI mod ID
+        // Use Steam API title if available, then disk name, then placeholder.
         const steamTitle = steamInfo.get(workshopId)?.title;
         const modName =
-          steamTitle ||
-          nameFromDisk ||
-          modIds[i] ||
-          `Workshop Mod ${workshopId}`;
+          steamTitle || nameFromDisk || `Workshop Mod ${workshopId}`;
         await addTrackedMod(workshopId, modName);
         synced++;
       } catch (e) {
@@ -2228,10 +2253,16 @@ router.get("/current-config", async (req, res) => {
 
     const content = readTextFile(iniPath);
 
-    // Extract mod-related settings
-    const modsMatch = content.match(/^Mods=(.*)$/m);
-    const workshopMatch = content.match(/^WorkshopItems=(.*)$/m);
-    const mapMatch = content.match(/^Map=(.*)$/m);
+    // Extract mod-related settings. Widened to tolerate whitespace around
+    // "=" -- this is GET /current-config, the route the Mods page actually
+    // loads on open (see the duplicate-key comment just below), so a hand-
+    // edited "Mods = foo;bar" line didn't just misparse a field here, it
+    // rendered the whole Mods page as empty (totalMods: 0) with no error at
+    // all. Same fix as this file's other ini-write/-read sites (hunt-
+    // wave13, 3d1921ad/783672aa), missed here.
+    const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
+    const workshopMatch = content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
+    const mapMatch = content.match(/^[ \t]*Map[ \t]*=[ \t]*(.*)$/m);
 
     const modIds = modsMatch?.[1]?.split(";").filter(Boolean) || [];
     const workshopIds = workshopMatch?.[1]?.split(";").filter(Boolean) || [];
@@ -3886,7 +3917,12 @@ router.post("/repair-map-entries", async (req, res) => {
       const mapMatch = content.match(/^[ \t]*Map[ \t]*=[ \t]*(.*)$/m);
       const currentMaps = mapMatch?.[1]?.split(";").filter(Boolean) || [];
 
-      const workshopMatch = content.match(/^WorkshopItems=(.*)$/m);
+      // Same widening -- this site was missed when hunt-wave13 landed. A
+      // hand-edited "WorkshopItems = ..." line previously read as zero
+      // workshop items, so this route would see no valid map folders from
+      // any configured mod and strip every non-vanilla Map= entry as
+      // "invalid", not just repair genuinely-stale ones.
+      const workshopMatch = content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
       const workshopIds = workshopMatch?.[1]?.split(";").filter(Boolean) || [];
 
       const validMapFolders = new Set();
@@ -4018,7 +4054,15 @@ router.post("/deduplicate-mod-ids", async (req, res) => {
     // Atomically read-modify-write inside the lock
     const lockResult = await withIniLock(iniPath, async () => {
       let content = readTextFile(iniPath);
-      const modsMatch = content.match(/^Mods=(.*)$/m);
+      // Widened to tolerate whitespace around "=" (same fix as this file's
+      // other ini-write sites, hunt-wave13, 3d1921ad/783672aa) -- this site
+      // was missed when that fix landed. modsMatch doubles as the exists-
+      // check for the replace below: a hand-edited "Mods = foo;bar" line
+      // previously matched nothing here, so currentMods came back empty and
+      // this route reported "No duplicate mod IDs found" (a false clean
+      // bill of health) instead of ever reading the real, possibly-
+      // duplicated list.
+      const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
       const currentMods = modsMatch?.[1]?.split(";").filter(Boolean) || [];
 
       const seen = new Map();
@@ -4039,7 +4083,7 @@ router.post("/deduplicate-mod-ids", async (req, res) => {
       }
 
       content = content.replace(
-        /^Mods=.*/m,
+        /^[ \t]*Mods[ \t]*=.*/m,
         `Mods=${sanitizeModIdList(deduped)}`,
       );
       const backupWarning = backupWarningFor(
@@ -4881,7 +4925,13 @@ router.post("/sync-mod-ids", async (req, res) => {
 
     // First pass: read INI to get workshop IDs list (no lock needed for read-only)
     const preContent = readTextFile(iniPath);
-    const preWorkshopMatch = preContent.match(/^WorkshopItems=(.*)$/m);
+    // Widened to tolerate whitespace around "=" -- same fix as the write
+    // pass further below in this same route (hunt-wave13, 783672aa), missed
+    // on this earlier read pass. This is the list the whole sync loop
+    // iterates over, so a hand-edited "WorkshopItems = ..." line made the
+    // entire route a silent no-op (0 synced, 0 missing, no error) instead
+    // of actually reconciling anything.
+    const preWorkshopMatch = preContent.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
     const workshopIds = (
       preWorkshopMatch?.[1]?.split(";").filter(Boolean) || []
     ).filter((id) => /^\d{1,15}$/.test(id));
@@ -5062,8 +5112,14 @@ router.get("/validate-config", async (req, res) => {
     }
 
     const content = readTextFile(iniPath);
-    const workshopMatch = content.match(/^WorkshopItems=(.*)$/m);
-    const modsMatch = content.match(/^Mods=(.*)$/m);
+    // Widened to tolerate whitespace around "=" -- same fix as this file's
+    // other ini-read sites (hunt-wave13, 3d1921ad/783672aa), missed here. A
+    // hand-edited "WorkshopItems = ..." line previously parsed as zero
+    // workshop items/mods, which this "closest thing to a health check"
+    // route (see the duplicate-key comment below) would have validated as
+    // clean instead of flagging.
+    const workshopMatch = content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
+    const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
 
     const workshopIds = workshopMatch
       ? workshopMatch[1].split(";").filter(Boolean)
@@ -5220,8 +5276,14 @@ router.post("/presets", async (req, res) => {
     }
 
     const content = readTextFile(iniPath);
-    const workshopMatch = content.match(/^WorkshopItems=(.*)$/m);
-    const modsMatch = content.match(/^Mods=(.*)$/m);
+    // Widened to tolerate whitespace around "=" -- same fix as this file's
+    // other ini-read sites (hunt-wave13, 3d1921ad/783672aa), missed here. A
+    // hand-edited "WorkshopItems = ..." line previously parsed as zero
+    // workshop items/mods, silently saving an EMPTY preset while reporting
+    // success ("Preset ... created successfully") for a server that
+    // actually has mods configured.
+    const workshopMatch = content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
+    const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
 
     const workshopIds = workshopMatch
       ? workshopMatch[1].split(";").filter(Boolean)
@@ -6435,8 +6497,16 @@ async function readIniModLists() {
   let modIdsFromIni = [];
   if (iniPath && fs.existsSync(iniPath)) {
     const iniContent = readTextFile(iniPath);
-    const wsMatch = iniContent.match(/^WorkshopItems=(.*)$/m);
-    const modsMatch = iniContent.match(/^Mods=(.*)$/m);
+    // Widened to tolerate whitespace around "=" -- this is the shared
+    // parser behind the conflict scanner (/conflicts, /conflicts/stream),
+    // findMissingDeps, and sync-mod-ids' read pass, so a hand-edited
+    // "WorkshopItems = ..." / "Mods = ..." line didn't just mis-parse one
+    // route, it silently zeroed out workshopIds/modIdsFromIni for every
+    // caller of this function -- an empty-modlist result with no error,
+    // same bug class this file already fixed at several other call sites
+    // (hunt-wave13, 3d1921ad/783672aa) but missed here.
+    const wsMatch = iniContent.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
+    const modsMatch = iniContent.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
     if (wsMatch && wsMatch[1].trim()) {
       workshopIds = wsMatch[1]
         .trim()
@@ -8119,7 +8189,12 @@ router.get("/disk-only", async (req, res) => {
         const iniPath = path.join(serverConfigPath, `${sanitized}.ini`);
         if (fs.existsSync(iniPath)) {
           const content = readTextFile(iniPath);
-          const m = content.match(/^WorkshopItems=(.*)$/m);
+          // Widened to tolerate whitespace around "=" -- same fix as this
+          // file's other ini-read sites (hunt-wave13, 3d1921ad/783672aa),
+          // missed here. A hand-edited "WorkshopItems = ..." line previously
+          // parsed as zero enabled items, so this route would show every
+          // already-enabled downloaded mod as "installed but disabled".
+          const m = content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
           for (const id of m?.[1]?.split(";").filter(Boolean) || [])
             inIni.add(id);
         }

@@ -94,6 +94,7 @@
     "heal": "Curar",
     "god": "Dios",
     "godTip": "Siempre activa el Modo Dios para este jugador — no alterna. Desactívalo desde Jugadores.",
+    "openPlayerControls": "Abrir controles del jugador",
     "healedTitle": "Curado",
     "healedDesc": "{{username}} curado",
     "godModeEnabled": "Modo Dios activado"

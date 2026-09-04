@@ -117,6 +117,7 @@ describe("runManagedLifecycle", () => {
 
     expect(client.runManagedAction).not.toHaveBeenCalled();
     expect(result.success).toBe(true);
+    expect(result.alreadyRunning).toBe(true);
   });
 
   it("restarts a running container through Docker", async () => {

@@ -236,6 +236,7 @@ describe('PanelBridge vehicle compatibility', () => {
     const lua = await readFile(luaPath, 'utf8');
     const capabilityKey = lua.match(/local function capabilityKey\(obj, methodName\)([\s\S]*?)\nend/);
 
+    expect(capabilityKey?.[1]).toContain('if type(obj) == "table" then');
     expect(capabilityKey?.[1]).toContain('obj:getClass()');
     expect(capabilityKey?.[1]).toContain('tostring(classValue) .. "#" .. methodName');
     expect(capabilityKey?.[1]).not.toContain(':getName()');

@@ -78,10 +78,22 @@ services:
       # - /mnt/pz-remote/install:/pz-server:ro
       # - /mnt/pz-remote/Zomboid:/zomboid:z
 
+      # --- Optional: control a PZ container through the Docker socket ---
+      # Enable only for a trusted, local panel. The socket grants control over
+      # every container on this Docker host.
+      # - /var/run/docker.sock:/var/run/docker.sock
+
+    # Uncomment this with the numeric group ID of /var/run/docker.sock when
+    # PUID/PGID do not already belong to that group. The entrypoint preserves
+    # this supplementary group before dropping privileges.
+    # group_add:
+    #   - "${DOCKER_GID:-999}"
+
     environment:
       - NODE_ENV=production
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
+      - PANEL_DOCKER_CONTROL_ENABLED=${PANEL_DOCKER_CONTROL_ENABLED:-false}
       # Optional overrides (see .env.example for the full list):
       # - PORT=3001
       # - PZ_SERVER_PATH=/pz-server

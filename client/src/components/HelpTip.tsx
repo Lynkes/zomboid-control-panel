@@ -43,7 +43,7 @@ export function HelpTip({ label, children, side = 'top', className }: HelpTipPro
       >
         <HelpCircle className="h-3.5 w-3.5" aria-hidden="true" />
       </TooltipTrigger>
-      <TooltipContent side={side} className="max-w-xs text-left text-xs leading-relaxed">
+      <TooltipContent side={side} className="max-w-xs text-start text-xs leading-relaxed">
         {children}
       </TooltipContent>
     </Tooltip>

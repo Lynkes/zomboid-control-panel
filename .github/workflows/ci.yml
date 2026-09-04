@@ -213,8 +213,18 @@ jobs:
         working-directory: client
         run: npm install --no-audit --prefer-offline --include=optional
 
+      # serverManagerSpacedPathCmdQuoting.test.js and
+      # serverManagerWindowsSpawnFixes.test.js both gate on
+      # `process.platform === "win32"` and were previously never run on any
+      # CI job -- the `server` job above is ubuntu-latest, and this was the
+      # only windows-runs-on job, but it wasn't listed here. Confirmed
+      # (2026-09-04 P0 review): a change that silently drops
+      # windowsVerbatimArguments:true from the Windows spawn branches would
+      # have shipped fully green. A platform-gated test not wired into any
+      # job that actually runs on that platform reads as coverage in the
+      # tree but provides none.
       - name: Exercise bundle transaction and generated supervisor
-        run: npx vitest run server/tests/panelUpdateBundle.test.js server/tests/supervisor-restart.test.js
+        run: npx vitest run server/tests/panelUpdateBundle.test.js server/tests/supervisor-restart.test.js server/tests/serverManagerSpacedPathCmdQuoting.test.js server/tests/serverManagerWindowsSpawnFixes.test.js server/tests/serverManagerCustomStartCommandQuoting.test.js server/tests/serverManagerCommandLineRoundTrip.test.js
 
       - name: Build packaged Windows executable
         run: node build.js --windows

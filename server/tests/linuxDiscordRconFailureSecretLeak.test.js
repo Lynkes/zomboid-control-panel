@@ -105,7 +105,9 @@ describe("layer 2 -- RconService.execute() routes a timed-out command away from 
 
   it("reconnect succeeds after the timeout -- the retried result carries no trace of the original password-bearing message", async () => {
     const { service, command } = makeService({ reconnectSucceeds: true });
-    const result = await service.execute(command);
+    const result = await service.execute(command, {
+      retryOnConnectionError: true,
+    });
 
     expect(JSON.stringify(result)).not.toContain(FAKE_PASSWORD);
     expect(result).toEqual({ success: true, response: "Player added successfully" });
@@ -113,7 +115,9 @@ describe("layer 2 -- RconService.execute() routes a timed-out command away from 
 
   it("reconnect fails after the timeout -- the returned error is the RECONNECT failure, not the original timeout message", async () => {
     const { service, command } = makeService({ reconnectSucceeds: false });
-    const result = await service.execute(command);
+    const result = await service.execute(command, {
+      retryOnConnectionError: true,
+    });
 
     expect(JSON.stringify(result)).not.toContain(FAKE_PASSWORD);
     expect(result.success).toBe(false);
@@ -153,7 +157,7 @@ describe("layer 3 -- DiscordBot.handleRcon() end to end: the actual Discord-boun
         service.reconnect = async () => {
           throw new Error("RCON reconnection failed: ECONNREFUSED");
         };
-        return service.execute(command);
+        return service.execute(command, { retryOnConnectionError: true });
       },
     };
     const bot = new DiscordBot(rconService, null, null, null);

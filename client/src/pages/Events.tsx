@@ -775,12 +775,12 @@ function BridgeResultDisplay({ result, loading, onInlineAction, players }: Bridg
         <div className="overflow-x-auto -mx-1 pb-1 [mask-image:linear-gradient(to_right,transparent,black_12px,black_calc(100%-12px),transparent)] [-webkit-mask-image:linear-gradient(to_right,transparent,black_12px,black_calc(100%-12px),transparent)]">
           <table className="w-full min-w-max text-sm">
             <thead>
-              <tr className="border-b border-border/60 text-left">
-                <th className="pb-2 pr-3 text-xs font-medium text-muted-foreground">{t('resultDisplay.idHeader')}</th>
-                <th className="pb-2 pr-3 text-xs font-medium text-muted-foreground">{t('resultDisplay.typeHeader')}</th>
-                <th className="pb-2 pr-3 text-xs font-medium text-muted-foreground">{t('resultDisplay.locationHeader')}</th>
-                <th className="pb-2 pr-3 text-xs font-medium text-muted-foreground">{t('resultDisplay.batteryHeader')}</th>
-                <th className="pb-2 pr-3 text-xs font-medium text-muted-foreground">{t('resultDisplay.statusHeader')}</th>
+              <tr className="border-b border-border/60 text-start">
+                <th className="pb-2 pe-3 text-xs font-medium text-muted-foreground">{t('resultDisplay.idHeader')}</th>
+                <th className="pb-2 pe-3 text-xs font-medium text-muted-foreground">{t('resultDisplay.typeHeader')}</th>
+                <th className="pb-2 pe-3 text-xs font-medium text-muted-foreground">{t('resultDisplay.locationHeader')}</th>
+                <th className="pb-2 pe-3 text-xs font-medium text-muted-foreground">{t('resultDisplay.batteryHeader')}</th>
+                <th className="pb-2 pe-3 text-xs font-medium text-muted-foreground">{t('resultDisplay.statusHeader')}</th>
                 <th className="pb-2 text-xs font-medium text-muted-foreground">{t('resultDisplay.actionsHeader')}</th>
               </tr>
             </thead>
@@ -796,15 +796,15 @@ function BridgeResultDisplay({ result, loading, onInlineAction, players }: Bridg
                 const trunkLocked = Boolean(v.trunkLocked)
                 return (
                   <tr key={vid} className="border-b border-border/30 last:border-0">
-                    <td className="py-2.5 pr-3 font-mono text-xs text-foreground/80">{vid}</td>
-                    <td className="py-2.5 pr-3 text-xs">{script || '—'}</td>
-                    <td className="py-2.5 pr-3 font-mono text-xs text-foreground/70">{vx}, {vy}</td>
-                    <td className="py-2.5 pr-3">
+                    <td className="py-2.5 pe-3 font-mono text-xs text-foreground/80">{vid}</td>
+                    <td className="py-2.5 pe-3 text-xs">{script || '—'}</td>
+                    <td className="py-2.5 pe-3 font-mono text-xs text-foreground/70">{vx}, {vy}</td>
+                    <td className="py-2.5 pe-3">
                       <span className={cn('text-xs font-medium', battery > 50 ? 'text-success' : battery > 20 ? 'text-warning' : 'text-destructive')}>
                         {battery}%
                       </span>
                     </td>
-                    <td className="py-2.5 pr-3">
+                    <td className="py-2.5 pe-3">
                       <div className="flex flex-wrap gap-1">
                         {alarmed && <Badge variant="outline" className="h-5 text-[10px] px-1.5 text-warning border-warning/30">{t('resultDisplay.alarmBadge')}</Badge>}
                         {sirening && <Badge variant="outline" className="h-5 text-[10px] px-1.5 text-info border-info/30">{t('resultDisplay.sirenBadge')}</Badge>}
@@ -1476,13 +1476,14 @@ export default function Events() {
     }
 
     let active = true
+    const shouldLoadVehicles = activeSection === 'vehicles'
     const loadBridgeOptions = async () => {
       setBridgeOptionsLoading(true)
       try {
         const [safehouseResult, factionResult, vehicleResult] = await Promise.allSettled([
           panelBridgeApi.sendCommand('getSafehouses', {}),
           panelBridgeApi.sendCommand('getFactions', {}),
-          panelBridgeApi.sendCommand('getVehiclesDetailed', {}),
+          shouldLoadVehicles ? panelBridgeApi.sendCommand('getVehiclesDetailed', {}) : Promise.resolve(null),
         ])
         if (!active) return
 
@@ -1533,7 +1534,7 @@ export default function Events() {
           failureReasons.push(t('toasts.sourceFactions'))
         }
 
-        if (vehicleResult.status === 'fulfilled') {
+        if (vehicleResult.status === 'fulfilled' && vehicleResult.value) {
           const vehiclePayload = (vehicleResult.value as { data?: unknown })?.data ?? vehicleResult.value
           const rawVehicles = Array.isArray(vehiclePayload)
             ? vehiclePayload
@@ -1554,7 +1555,7 @@ export default function Events() {
           const dedupedVehicles = Array.from(new Map(vehicleOptions.map((option) => [option.value, option])).values())
           setBridgeVehicleOptions(dedupedVehicles)
           updatedAnySource = true
-        } else {
+        } else if (shouldLoadVehicles) {
           failureReasons.push(t('toasts.sourceVehicles'))
         }
 
@@ -1589,7 +1590,7 @@ export default function Events() {
       active = false
       clearInterval(interval)
     }
-  }, [bridgeConnected, bridgeOptionsRefreshTick, i18n.language])
+  }, [activeSection, bridgeConnected, bridgeOptionsRefreshTick, i18n.language])
 
   const pushActivity = useCallback((label: string, ok: boolean) => {
     setActivity((prev) => [
@@ -1707,28 +1708,28 @@ export default function Events() {
       // PanelBridge.lua's "Water has no Java flag like isHydroPowerOn()"
       // comment) -- only power's outcome can be verified this way.
       //
-      // 2026-08-30, panelbridge-total-audit-2026-08-30 (Finding C): a
-      // `result?.persisted === false` / `result.persistReason` warning used
-      // to live here, checking whether the SandboxVars write would survive a
-      // server restart. Neither handler has ever set either field -- the
-      // handlers only log "FINAL SandboxVars.*Modifier=..." into an
-      // unstructured debug string array, never a structured persisted
-      // boolean -- so the warning was permanently dead code that implied a
-      // check was happening when it wasn't. Removed rather than left as a
-      // silent no-op; reported to god (in-scope: PanelBridge.lua is off
-      // limits for this fix) that a real implementation needs the Lua
-      // handlers to compare their own already-computed FINAL
-      // SandboxVars.*Modifier value against the intended target and return
-      // that comparison as an actual field.
+      // `persisted`/`persistReason` are NOT Lua fields -- since 5aaf2c3e
+      // (2026-08-02) panelBridge.js's /utilities/restore and /utilities
+      // /shutoff routes call persistUtilities() (Node-side, writes
+      // SandboxVars.lua directly) and merge its { persisted, persistReason }
+      // into the JSON response alongside the Lua handler's own result. A
+      // 2026-08-30 audit ("Finding C") checked only the Lua handler's raw
+      // result -- which never carries these fields -- concluded the warning
+      // below was dead code, and deleted it in 2d7cca63. It was live: a
+      // false `persisted` here is a genuine "this will not survive a server
+      // restart" signal on the wire today. Restored 2026-09-04.
       const powerMismatch = power && typeof result?.hydroPowerOn === 'boolean' && result.hydroPowerOn !== on
+      const notPersisted = result?.persisted === false
       toast({
         title: powerMismatch ? t('toasts.actionFailedTitle', { action }) : successCopy.title,
         description: powerMismatch
           ? t('toasts.powerDidNotTakeEffectDesc', {
               state: result.hydroPowerOn ? t('utilities.statusOnline') : t('utilities.statusOffline'),
             })
-          : successCopy.description,
-        variant: powerMismatch ? 'destructive' : ('success' as const),
+          : notPersisted
+            ? t('toasts.notPersistedDesc', { reason: result.persistReason || t('toasts.notPersistedUnknownReason') })
+            : successCopy.description,
+        variant: powerMismatch ? 'destructive' : notPersisted ? 'default' : ('success' as const),
       })
       pushActivity(powerMismatch ? t('toasts.actionFailedTitle', { action }) : successCopy.title, !powerMismatch)
     } catch (error) {
@@ -2305,13 +2306,13 @@ export default function Events() {
       <div className="grid gap-4 lg:grid-cols-[250px_minmax(0,1fr)]">
         <aside className="min-w-0 space-y-3 lg:sticky lg:top-4 lg:self-start">
           <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Search className="pointer-events-none absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={sectionQuery}
               onChange={(e) => setSectionQuery(e.target.value)}
               placeholder={t('sidebar.searchPlaceholder')}
               aria-label={t('sidebar.searchAria')}
-              className="h-9 min-w-0 pl-8 text-sm"
+              className="h-9 min-w-0 ps-8 text-sm"
             />
           </div>
 
@@ -2336,7 +2337,7 @@ export default function Events() {
                         }}
                         aria-current={isActive ? 'true' : undefined}
                         className={cn(
-                          'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm transition-colors',
+                          'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-start text-sm transition-colors',
                           isActive
                             ? 'bg-primary text-primary-foreground'
                             : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'

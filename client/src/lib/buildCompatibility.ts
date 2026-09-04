@@ -4,6 +4,17 @@ export type BuildMetadata = {
   apiContractVersion: number
 }
 
+export type BackendBuildMetadata = Partial<BuildMetadata> & {
+  version?: string
+}
+
+const UNKNOWN_VALUES = new Set(['', 'unknown', '0.0.0'])
+
+function knownValue(value: unknown): string {
+  const normalized = String(value ?? '').trim()
+  return UNKNOWN_VALUES.has(normalized.toLowerCase()) ? '' : normalized
+}
+
 export function compiledBuildMetadata(): BuildMetadata {
   return {
     panelVersion: typeof __PANEL_VERSION__ !== 'undefined' ? __PANEL_VERSION__ : '0.0.0',
@@ -17,12 +28,18 @@ export function compiledBuildMetadata(): BuildMetadata {
 
 export function assessBuildCompatibility(
   frontend: BuildMetadata,
-  backend: Partial<BuildMetadata>,
+  backend: BackendBuildMetadata,
 ) {
+  const frontendVersion = knownValue(frontend.panelVersion)
+  const backendVersion = knownValue(backend.panelVersion) || knownValue(backend.version)
+  const frontendSha = knownValue(frontend.buildSha)
+  const backendSha = knownValue(backend.buildSha)
+  const frontendContract = Number(frontend.apiContractVersion)
+  const backendContract = Number(backend.apiContractVersion)
   const compatible =
-    backend.panelVersion === frontend.panelVersion &&
-    backend.buildSha === frontend.buildSha &&
-    backend.apiContractVersion === frontend.apiContractVersion
+    !frontendVersion || !backendVersion || frontendVersion === backendVersion
+    && (!frontendSha || !backendSha || frontendSha === backendSha)
+    && (!Number.isInteger(frontendContract) || !Number.isInteger(backendContract) || frontendContract === backendContract)
   return compatible
     ? { compatible: true as const }
     : {

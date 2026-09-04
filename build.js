@@ -4,11 +4,13 @@ import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import { gzipSync } from "zlib";
 import { pathToFileURL } from "url";
 
 const distDir = "./dist-exe";
 const releaseDir = "./release";
-const linuxArchivePath = "./ZomboidControlPanel-linux.tar.gz";
+const linuxArchiveStagingPath = "./ZomboidControlPanel-linux.tar.gz";
+const linuxArchivePath = "./release/ZomboidControlPanel-linux.tar.gz";
 
 // Files in the Linux release tree that must carry the executable bit. NTFS
 // has no POSIX exec bit, so a Windows host's own fs.chmodSync()/writeFileSync
@@ -46,6 +48,74 @@ function createLinuxReleaseArchive(sourceDir, archivePath) {
 
     archive.finalize();
   });
+}
+const DEFAULT_API_CONTRACT_VERSION = 1;
+
+export function resolveBuildSha(env = process.env) {
+  const configured = String(env.GITHUB_SHA || env.PANEL_BUILD_SHA || "").trim();
+  if (configured) return configured;
+  try {
+    return execSync("git rev-parse HEAD", { encoding: "utf8" }).trim() || "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+export function resolveApiContractVersion(env = process.env) {
+  const parsed = Number(env.PANEL_API_CONTRACT_VERSION);
+  return Number.isInteger(parsed) && parsed > 0
+    ? parsed
+    : DEFAULT_API_CONTRACT_VERSION;
+}
+
+export function createEmbeddedClientBundle(clientDist, expectedMetadata) {
+  const files = {};
+  const walk = (directory, relativeDirectory = "") => {
+    for (const entry of fs
+      .readdirSync(directory, { withFileTypes: true })
+      .sort((left, right) => left.name.localeCompare(right.name))) {
+      const absolutePath = path.join(directory, entry.name);
+      const relativePath = path
+        .join(relativeDirectory, entry.name)
+        .split(path.sep)
+        .join("/");
+      if (entry.isDirectory()) {
+        walk(absolutePath, relativePath);
+      } else if (entry.isFile()) {
+        files[relativePath] = fs.readFileSync(absolutePath).toString("base64");
+      } else {
+        throw new Error(`Unsupported client build entry: ${relativePath}`);
+      }
+    }
+  };
+
+  walk(clientDist);
+  if (!files["index.html"] || !files["build-info.json"]) {
+    throw new Error("Client build is missing index.html or build-info.json");
+  }
+
+  let clientMetadata;
+  try {
+    clientMetadata = JSON.parse(
+      Buffer.from(files["build-info.json"], "base64").toString("utf8"),
+    );
+  } catch (error) {
+    throw new Error(`Client build metadata is invalid: ${error.message}`, {
+      cause: error,
+    });
+  }
+  if (
+    clientMetadata.panelVersion !== expectedMetadata.panelVersion ||
+    clientMetadata.buildSha !== expectedMetadata.buildSha ||
+    Number(clientMetadata.apiContractVersion) !==
+      expectedMetadata.apiContractVersion
+  ) {
+    throw new Error("Client build metadata does not match the executable build");
+  }
+
+  return gzipSync(
+    Buffer.from(JSON.stringify({ schemaVersion: 1, files }), "utf8"),
+  ).toString("base64");
 }
 
 function delay(ms) {
@@ -101,6 +171,30 @@ function sha256File(filePath) {
   const hash = crypto.createHash("sha256");
   hash.update(fs.readFileSync(filePath));
   return hash.digest("hex");
+}
+
+export function getClientDistFileHashes(clientDist) {
+  const hashes = {};
+  const walk = (directory, relativeDirectory = "") => {
+    for (const entry of fs
+      .readdirSync(directory, { withFileTypes: true })
+      .sort((left, right) => left.name.localeCompare(right.name))) {
+      const absolutePath = path.join(directory, entry.name);
+      const relativePath = path
+        .join(relativeDirectory, entry.name)
+        .split(path.sep)
+        .join("/");
+      if (entry.isDirectory()) {
+        walk(absolutePath, relativePath);
+      } else if (entry.isFile()) {
+        hashes[relativePath] = sha256File(absolutePath);
+      } else {
+        throw new Error(`Unsupported client build entry: ${relativePath}`);
+      }
+    }
+  };
+  walk(clientDist);
+  return hashes;
 }
 
 function resolveBuiltBinaryPath(target) {
@@ -197,7 +291,7 @@ needs internet).
 - install-linux-service.sh - explicit systemd installer; run with --enable to start the service
 - docker-compose.install.yml - Docker Compose installer (published panel image)
 - docs/install/            - Install guides for every platform (see Where To Go Next, above)
-- client/dist/             - Web interface (required, must stay alongside binary)
+- client/dist/             - Web interface copy for manual upgrades and legacy installs
 - data/db.json             - Configuration database (created on first run; NEVER overwrite when upgrading — see data/README.txt)
 - data/db.example.json     - Reference db structure (safe to delete)
 - data/README.txt          - Upgrade-safety notes for the data/ folder
@@ -206,8 +300,10 @@ needs internet).
 - checksums.txt            - SHA256 hashes for release archives
 - release-manifest.json    - Build metadata for this package
 
-Keep every file in this same folder — the binary needs client/dist/ next to
-it, and won't start without it.
+The standalone binary embeds the matching web interface and can recover from
+an older or missing client/dist folder. Keep client/dist when using the
+journaled updater or a manual archive upgrade; it is still retained in the
+package for compatibility with older binaries.
 
 ## Panel Bridge Setup (Optional)
 The PanelBridge Lua enables advanced features like weather control. It is a
@@ -272,6 +368,61 @@ export function generateStartBat() {
   // crash after hours of uptime is never treated as part of a boot loop. All
   // three tunables are overridable via environment variable (used by
   // server/tests/supervisor-restart.test.js to keep the test fast).
+  //
+  // Rollback-retry protection (2026-09-04, god's design review of Angela's
+  // :rollback_update proposal): a stuck .update-pending and a stuck
+  // .update-applying are NOT the same risk and must not get the same
+  // treatment. .update-pending re-triggers a fresh :apply_update on the next
+  // restart (run_loop's own `if exist MARKER` check below) -- a genuinely
+  // different attempt each time, against possibly-changed external
+  // conditions (an AV scan finishing, OneDrive releasing a lock), naturally
+  // rate-limited to once per restart, a human-paced action. Retention here
+  // is deliberately unbounded and untouched by this change -- Dwight proved
+  // it rescues a real transient failure (a relaunch completed his pending
+  // update once he released a file lock).
+  //
+  // .update-applying is different in kind, not just in which file survives.
+  // It only exists once :apply_update has ALREADY succeeded and the new
+  // binary has ALREADY been launched -- the swap is done, so there is
+  // nothing left to retry there. If that binary never acknowledges startup,
+  // the handshake check below calls :rollback_update to undo the swap; if
+  // THAT also fails, retrying is not a fresh attempt at anything, it is the
+  // identical file-restore operation run again against a state nothing has
+  // changed about, at crash-loop cadence (every relaunch, seconds apart,
+  // not every restart). Two of :rollback_update's three failure shapes
+  // ("backup is missing") are permanent -- there is nothing to restore FROM,
+  // ever -- and even the plausibly-transient third ("could not be removed" /
+  // "could not be activated", the same held-lock class .update-pending's
+  // retry can recover from) does not need more than one or two genuine
+  // attempts. So: bounded at MAX_ROLLBACK_RETRIES, then halt rather than
+  // loop -- and halting is strictly better than looping here, not merely
+  // safer, because the panel is ALREADY down in this scenario (the new
+  // binary never acknowledged startup); this is a choice between a visible
+  // stop and an invisible loop, not between running and stopped. The halt
+  // message names the same three files
+  // (.update-pending/.update-applying/update-bundle.json) the panel's own
+  // Settings.tsx rollback_failed hint already tells the operator to delete
+  // by hand, because this is exactly the one case that hint cannot reach --
+  // there is no running panel left to render it in.
+  //
+  // Rollback false-positive fix (2026-09-04, Dwight's finding): the inverse
+  // defect from everything above -- the log says broken, the state is fine.
+  // :rollback_update used to decide "was a backup made?" by asking only
+  // whether %BIN_BACKUP% / %CLIENT_BACKUP% exist on disk. When the backup
+  // MOVE step itself is what failed (a locked file inside client\\dist, an
+  // AV scan holding a handle), no backup was ever created -- but the live
+  // copy was never disturbed either, since a failed move leaves its source
+  // in place. That is a completely safe state: nothing to restore, nothing
+  // broken. The old code could not tell that apart from a genuinely lost
+  // backup (one that existed and then vanished), so it reported the safe
+  // case as "[rollback_failed] ... journal retained for recovery" -- an
+  // operator reading that would reasonably believe their panel was damaged
+  // when it was not. EXE_BACKUP_MADE / CLIENT_BACKUP_MADE below track
+  // whether each backup step actually RAN and SUCCEEDED, set once per
+  // :apply_update attempt, so :rollback_update can tell "nothing to
+  // restore" apart from "backup missing" without weakening the genuine
+  // failure path -- a real lost/corrupted backup still trips
+  // [rollback_failed] exactly as before.
   return `@echo off
 setlocal ENABLEDELAYEDEXPANSION
 title Zomboid Control Panel
@@ -296,6 +447,13 @@ set "BACKOFF_CAP_SECONDS=30"
 set "CRASH_COUNT=0"
 if defined PANEL_SUPERVISOR_MAX_CRASHES set "MAX_RAPID_CRASHES=%PANEL_SUPERVISOR_MAX_CRASHES%"
 if defined PANEL_SUPERVISOR_MIN_STABLE_SECONDS set "MIN_STABLE_SECONDS=%PANEL_SUPERVISOR_MIN_STABLE_SECONDS%"
+
+rem === See "Rollback-retry protection" above. In-memory only (mirrors    ===
+rem === CRASH_COUNT's own choice) -- resets on a full supervisor restart, ===
+rem === a legitimately fresh context worth one more shot.                 ===
+set "MAX_ROLLBACK_RETRIES=2"
+set "ROLLBACK_RETRY_COUNT=0"
+if defined PANEL_SUPERVISOR_MAX_ROLLBACK_RETRIES set "MAX_ROLLBACK_RETRIES=%PANEL_SUPERVISOR_MAX_ROLLBACK_RETRIES%"
 
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" >nul 2>&1
 
@@ -331,7 +489,9 @@ echo.
   call :stamp "Panel exited with code !EXITCODE!"
 
   if exist "%APPLYING%" (
-    call :stamp "Apply: startup handshake failed; rolling back bundle [startup_handshake_failed]"
+    if !ROLLBACK_RETRY_COUNT! GEQ !MAX_ROLLBACK_RETRIES! goto rollback_retry_exhausted
+    set /a ROLLBACK_RETRY_COUNT+=1
+    call :stamp "Apply: startup handshake failed; rolling back bundle, retry !ROLLBACK_RETRY_COUNT! of !MAX_ROLLBACK_RETRIES! [startup_handshake_failed]"
     call :rollback_update
     goto run_loop
   )
@@ -417,6 +577,29 @@ echo.
   )
   goto run_loop
 
+rem "exit /b" inside a parenthesized block nested two deep (the "if exist
+rem APPLYING ( if !COUNT! GEQ !CAP! ( ... exit /b 1 ) ... )" shape) does not
+rem reliably propagate its exit code back to the parent "cmd.exe /c" process
+rem -- confirmed empirically (a minimal repro returned 0 instead of 1 from
+rem inside such a block; moving the same exit /b to an unnested label reached
+rem via goto returned 1 correctly every time). This label exists so the halt
+rem below runs unnested, the same way the "no exe found" halt above does
+rem (single level of nesting, which does not hit this problem).
+:rollback_retry_exhausted
+  call :stamp "Apply: startup handshake failed again after !ROLLBACK_RETRY_COUNT! rollback retries -- halting rather than looping [rollback_retry_exhausted]"
+  echo.
+  echo ERROR: The panel update failed to apply, and the automatic rollback
+  echo could not fully recover after !ROLLBACK_RETRY_COUNT! attempts. To avoid
+  echo repeating the same failure forever, the panel will not restart itself.
+  echo.
+  echo To recover manually, delete these files from this folder, then run
+  echo Start.bat again:
+  echo   .update-pending
+  echo   .update-applying
+  echo   update-bundle.json
+  pause
+  exit /b 1
+
 
 rem ============================================================
 rem :apply_update  — activate the journaled frontend/backend bundle.
@@ -426,6 +609,10 @@ rem  - Keeps both backups until the new backend acknowledges listener startup.
 rem ============================================================
 :apply_update
   call :stamp "Apply: marker present, beginning swap"
+  rem See "Rollback false-positive fix" above. Reset per attempt -- these
+  rem must never carry a stale value into a later :rollback_update call.
+  set "EXE_BACKUP_MADE=0"
+  set "CLIENT_BACKUP_MADE=0"
 
   if not exist "%JOURNAL%" (
     call :stamp "Apply: update-bundle.json missing [version_mismatch]"
@@ -438,6 +625,24 @@ rem ============================================================
 
   if not defined STAGED_NAME (
     call :stamp "Apply: staged binary missing or quarantined [av_quarantine]"
+    del /f /q "%MARKER%" >nul 2>&1
+    goto :eof
+  )
+
+  rem Presence alone (the STAGED_NAME lookup above) does not catch a file
+  rem that exists under the right name but was partially written or
+  rem corrupted after staging -- the 1-2 second window Dwight measured
+  rem between the last presence check and this rename. journal.hashes
+  rem .binarySha256 is already computed and written for both platforms by
+  rem stageUpdateBundle() (updateBundle.js); the Linux apply path
+  rem (applyUpdateBundle()) already verifies against it before touching
+  rem anything. This mirrors that check on Windows, with the same
+  rem [av_quarantine] failure code Linux uses for a hash mismatch.
+  set "STAGED_HASH_STATUS="
+  for /f "usebackq delims=" %%F in (\`powershell -NoProfile -Command "$j = Get-Content -LiteralPath $env:JOURNAL -Raw | ConvertFrom-Json; $expected = $j.hashes.binarySha256; if (-not $expected) { 'NOHASH' } else { $actual = (Get-FileHash -LiteralPath $env:STAGED_NAME -Algorithm SHA256).Hash; if ($actual -ieq $expected) { 'OK' } else { 'MISMATCH' } }"\`) do set "STAGED_HASH_STATUS=%%F"
+
+  if not "!STAGED_HASH_STATUS!"=="OK" (
+    call :stamp "Apply: staged binary hash check [!STAGED_HASH_STATUS!] -- refusing to apply [av_quarantine]"
     del /f /q "%MARKER%" >nul 2>&1
     goto :eof
   )
@@ -465,6 +670,7 @@ rem ============================================================
     echo ERROR: could not rename %BASE_EXE% — is the panel still running?
     goto :eof
   )
+  set "EXE_BACKUP_MADE=1"
 
 :do_rename
   if exist "%CLIENT_LIVE%" (
@@ -474,6 +680,7 @@ rem ============================================================
       call :rollback_update
       goto :eof
     )
+    set "CLIENT_BACKUP_MADE=1"
   )
   move "!STAGED_CLIENT!" "%CLIENT_LIVE%" >nul 2>&1
   if errorlevel 1 (
@@ -502,6 +709,11 @@ rem ============================================================
     call :rollback_update
     goto :eof
   )
+  rem A fresh, successfully-activated bundle is a new incident, not a
+  rem continuation of whatever handshake failures a PREVIOUS bundle may have
+  rem hit -- reset here so an old, already-resolved retry count can never
+  rem count against an unrelated later update.
+  set "ROLLBACK_RETRY_COUNT=0"
   call :stamp "Apply: bundle activated; waiting for backend startup acknowledgement"
 goto :eof
 
@@ -510,51 +722,65 @@ goto :eof
   call :stamp "Apply: restoring previous frontend and backend"
   set "ROLLBACK_FAILED=0"
   set "BINARY_RESTORE_OK=1"
+  if "!EXE_BACKUP_MADE!"=="0" goto :rollback_binary_skip
   if not exist "%BIN_BACKUP%" (
     call :stamp "Apply: binary restore failed; backup is missing [rollback_failed]"
     set "BINARY_RESTORE_OK=0"
-  ) else (
-    if exist "%BASE_EXE%" (
-      del /f /q "%BASE_EXE%" >nul 2>&1
-      if exist "%BASE_EXE%" (
-        call :stamp "Apply: binary restore failed; active executable could not be removed [rollback_failed]"
-        set "BINARY_RESTORE_OK=0"
-      )
-    )
-    if "!BINARY_RESTORE_OK!"=="1" (
-      ren "%BIN_BACKUP%" "%BASE_EXE%" >nul 2>&1
-      if errorlevel 1 (
-        call :stamp "Apply: binary restore failed; backup could not be activated [rollback_failed]"
-        set "BINARY_RESTORE_OK=0"
-      )
-    )
-    if not exist "%BASE_EXE%" set "BINARY_RESTORE_OK=0"
-    if exist "%BIN_BACKUP%" set "BINARY_RESTORE_OK=0"
+    goto :rollback_binary_done
   )
+  if exist "%BASE_EXE%" (
+    del /f /q "%BASE_EXE%" >nul 2>&1
+    if exist "%BASE_EXE%" (
+      call :stamp "Apply: binary restore failed; active executable could not be removed [rollback_failed]"
+      set "BINARY_RESTORE_OK=0"
+    )
+  )
+  if "!BINARY_RESTORE_OK!"=="1" (
+    ren "%BIN_BACKUP%" "%BASE_EXE%" >nul 2>&1
+    if errorlevel 1 (
+      call :stamp "Apply: binary restore failed; backup could not be activated [rollback_failed]"
+      set "BINARY_RESTORE_OK=0"
+    )
+  )
+  if not exist "%BASE_EXE%" set "BINARY_RESTORE_OK=0"
+  if exist "%BIN_BACKUP%" set "BINARY_RESTORE_OK=0"
+  goto :rollback_binary_done
+
+:rollback_binary_skip
+  call :stamp "Apply: binary restore skipped; backup step never ran, executable untouched"
+
+:rollback_binary_done
   if "!BINARY_RESTORE_OK!"=="0" set "ROLLBACK_FAILED=1"
 
   set "CLIENT_RESTORE_OK=1"
+  if "!CLIENT_BACKUP_MADE!"=="0" goto :rollback_client_skip
   if not exist "%CLIENT_BACKUP%" (
     call :stamp "Apply: frontend restore failed; backup is missing [rollback_failed]"
     set "CLIENT_RESTORE_OK=0"
-  ) else (
-    if exist "%CLIENT_LIVE%" (
-      rmdir /s /q "%CLIENT_LIVE%" >nul 2>&1
-      if exist "%CLIENT_LIVE%" (
-        call :stamp "Apply: frontend restore failed; active frontend could not be removed [rollback_failed]"
-        set "CLIENT_RESTORE_OK=0"
-      )
-    )
-    if "!CLIENT_RESTORE_OK!"=="1" (
-      move "%CLIENT_BACKUP%" "%CLIENT_LIVE%" >nul 2>&1
-      if errorlevel 1 (
-        call :stamp "Apply: frontend restore failed; backup could not be activated [rollback_failed]"
-        set "CLIENT_RESTORE_OK=0"
-      )
-    )
-    if not exist "%CLIENT_LIVE%" set "CLIENT_RESTORE_OK=0"
-    if exist "%CLIENT_BACKUP%" set "CLIENT_RESTORE_OK=0"
+    goto :rollback_client_done
   )
+  if exist "%CLIENT_LIVE%" (
+    rmdir /s /q "%CLIENT_LIVE%" >nul 2>&1
+    if exist "%CLIENT_LIVE%" (
+      call :stamp "Apply: frontend restore failed; active frontend could not be removed [rollback_failed]"
+      set "CLIENT_RESTORE_OK=0"
+    )
+  )
+  if "!CLIENT_RESTORE_OK!"=="1" (
+    move "%CLIENT_BACKUP%" "%CLIENT_LIVE%" >nul 2>&1
+    if errorlevel 1 (
+      call :stamp "Apply: frontend restore failed; backup could not be activated [rollback_failed]"
+      set "CLIENT_RESTORE_OK=0"
+    )
+  )
+  if not exist "%CLIENT_LIVE%" set "CLIENT_RESTORE_OK=0"
+  if exist "%CLIENT_BACKUP%" set "CLIENT_RESTORE_OK=0"
+  goto :rollback_client_done
+
+:rollback_client_skip
+  call :stamp "Apply: frontend restore skipped; backup step never ran, live frontend untouched"
+
+:rollback_client_done
   if "!CLIENT_RESTORE_OK!"=="0" set "ROLLBACK_FAILED=1"
 
   if "!ROLLBACK_FAILED!"=="1" (
@@ -603,7 +829,18 @@ PANEL_PID=""
 STOPPING=0
 CRASH_COUNT=0
 MAX_RAPID_CRASHES="\${PANEL_SUPERVISOR_MAX_CRASHES:-5}"
-BACKOFF_SECONDS="\${PANEL_SUPERVISOR_BACKOFF_SECONDS:-2}"
+# 2026-09-04, Dwight's finding: this used to be a flat BACKOFF_SECONDS
+# (default 2, no escalation), while Start.bat's crash-loop protection has
+# always ramped BACKOFF_BASE_SECONDS*CRASH_COUNT up to BACKOFF_CAP_SECONDS --
+# so a Windows install got up to ~30s of spaced-out retries across its
+# MAX_RAPID_CRASHES attempts before giving up, and a Linux install got only
+# ~10s (5 attempts x a flat 2s) for the identical fault. Same tunable names
+# and defaults as Start.bat now, including the PANEL_SUPERVISOR_BACKOFF_SECONDS
+# escape hatch (still an explicit FIXED override when set, same as Windows --
+# tests use this to force a 0s backoff for speed).
+MIN_STABLE_SECONDS="\${PANEL_SUPERVISOR_MIN_STABLE_SECONDS:-60}"
+BACKOFF_BASE_SECONDS="\${PANEL_SUPERVISOR_BACKOFF_BASE_SECONDS:-2}"
+BACKOFF_CAP_SECONDS="\${PANEL_SUPERVISOR_BACKOFF_CAP_SECONDS:-30}"
 
 stop_panel() {
   STOPPING=1
@@ -678,7 +915,7 @@ while true; do
     continue
   fi
 
-  if [ "$PANEL_RUNTIME" -ge 30 ]; then
+  if [ "$PANEL_RUNTIME" -ge "$MIN_STABLE_SECONDS" ]; then
     CRASH_COUNT=0
   fi
   CRASH_COUNT=$((CRASH_COUNT + 1))
@@ -687,8 +924,17 @@ while true; do
     exit "$EXIT_CODE"
   fi
 
-  echo "Panel exited with code $EXIT_CODE; restarting in $BACKOFF_SECONDS second(s)..."
-  sleep "$BACKOFF_SECONDS" &
+  if [ -n "\${PANEL_SUPERVISOR_BACKOFF_SECONDS:-}" ]; then
+    BACKOFF="$PANEL_SUPERVISOR_BACKOFF_SECONDS"
+  else
+    BACKOFF=$((BACKOFF_BASE_SECONDS * CRASH_COUNT))
+    if [ "$BACKOFF" -gt "$BACKOFF_CAP_SECONDS" ]; then
+      BACKOFF="$BACKOFF_CAP_SECONDS"
+    fi
+  fi
+
+  echo "Panel exited with code $EXIT_CODE; relaunch attempt $CRASH_COUNT of $MAX_RAPID_CRASHES, restarting in $BACKOFF second(s)..."
+  sleep "$BACKOFF" &
   SLEEP_PID=$!
   wait "$SLEEP_PID" || true
 done
@@ -700,15 +946,11 @@ async function main() {
   const targets = resolveTargets(args);
   const rootPkg = JSON.parse(fs.readFileSync("./package.json", "utf-8"));
   const panelVersion = rootPkg.version || "0.0.0";
-  let buildSha = process.env.GITHUB_SHA || process.env.PANEL_BUILD_SHA || "";
-  if (!buildSha) {
-    try {
-      buildSha = execSync("git rev-parse HEAD", { encoding: "utf8" }).trim();
-    } catch {
-      buildSha = "unknown";
-    }
-  }
-  const apiContractVersion = 1;
+  const buildSha = resolveBuildSha({
+    GITHUB_SHA: process.env.GITHUB_SHA,
+    PANEL_BUILD_SHA: process.env.PANEL_BUILD_SHA,
+  });
+  const apiContractVersion = resolveApiContractVersion();
 
   await cleanDir(distDir);
   if (!fs.existsSync(distDir)) {
@@ -737,10 +979,21 @@ async function main() {
     process.exit(1);
   }
 
+  const embeddedClientDistB64 = createEmbeddedClientBundle("./client/dist", {
+    panelVersion,
+    buildSha,
+    apiContractVersion,
+  });
+  const clientDistFileHashes = getClientDistFileHashes("./client/dist");
+  console.log(
+    `Embedded client bundle prepared (${embeddedClientDistB64.length} base64 chars)`,
+  );
+
   console.log("Building server bundle...");
 
-  console.log(`Version: ${panelVersion}`);
-  console.log(`Build SHA: ${buildSha}`);
+  console.log(
+    `Version: ${panelVersion} (build ${buildSha}, API contract ${apiContractVersion})`,
+  );
 
   // Read PanelBridge.lua and inline it as a base64 define so it lives INSIDE
   // server.cjs (and therefore inside the pkg binary). pkg's `assets` glob was
@@ -781,6 +1034,7 @@ async function main() {
       PANEL_BUILD_SHA: JSON.stringify(buildSha),
       PANEL_API_CONTRACT_VERSION: JSON.stringify(apiContractVersion),
       PANEL_BRIDGE_LUA_B64: JSON.stringify(panelBridgeLuaB64),
+      PANEL_CLIENT_DIST_B64: JSON.stringify(embeddedClientDistB64),
     },
     banner: {
       js: "const import_meta_url = require('url').pathToFileURL(__filename).href;",
@@ -1056,6 +1310,7 @@ Recommended safe-upgrade commands:
         builtAt: new Date().toISOString(),
         hostPlatform: process.platform,
         targets,
+        clientFiles: clientDistFileHashes,
         artifacts: manifestArtifacts,
       },
       null,
@@ -1095,7 +1350,10 @@ Recommended safe-upgrade commands:
 
   if (targets.includes("linux")) {
     console.log("Packaging Linux release archive...");
-    await createLinuxReleaseArchive(releaseDir, linuxArchivePath);
+    // The archive must be created outside sourceDir: placing it inside the
+    // tree being archived makes tar include its own output indefinitely.
+    await createLinuxReleaseArchive(releaseDir, linuxArchiveStagingPath);
+    fs.renameSync(linuxArchiveStagingPath, linuxArchivePath);
     console.log(`Wrote ${linuxArchivePath}`);
   }
 }

@@ -57,9 +57,29 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+// 2026-09-02, single-signal-sweep: formatWritablePathError now detects
+// containers via the shared utils/dockerDetect.js isContainerized(), which
+// falls back to a /proc/1/cgroup scan when neither marker file is present
+// (some CI sandboxes, older Docker). Every "bare-metal" case below mocks
+// existsSync to false, which -- unmocked -- would fall straight through to
+// a REAL fs.readFileSync("/proc/1/cgroup") read of whatever host actually
+// runs this test. Force the ENOENT branch explicitly so these stay
+// hermetic instead of silently depending on the test runner not itself
+// being a container.
+function mockNotContainerized() {
+  vi.spyOn(fs, "existsSync").mockReturnValue(false);
+  vi.spyOn(fs, "readFileSync").mockImplementation(() => {
+    const err = new Error(
+      "ENOENT: no such file or directory, open '/proc/1/cgroup'",
+    );
+    err.code = "ENOENT";
+    throw err;
+  });
+}
+
 describe("formatWritablePathError: variant split (2026-08-22 correction)", () => {
   it("install + bare-metal", () => {
-    vi.spyOn(fs, "existsSync").mockReturnValue(false);
+    mockNotContainerized();
     const result = formatWritablePathError("install", "/srv/pz", false);
     expect(result.code).toBe(ErrorCode.WRITABLE_PATH_INSTALL_BAREMETAL);
     expect(result.params).toEqual({ path: "/srv/pz" });
@@ -90,7 +110,7 @@ describe("formatWritablePathError: variant split (2026-08-22 correction)", () =>
   });
 
   it("data + bare-metal", () => {
-    vi.spyOn(fs, "existsSync").mockReturnValue(false);
+    mockNotContainerized();
     const result = formatWritablePathError("data", "/srv/pz_Data", false);
     expect(result.code).toBe(ErrorCode.WRITABLE_PATH_DATA_BAREMETAL);
     expect(result.params).toEqual({ path: "/srv/pz_Data" });
@@ -124,13 +144,34 @@ describe("formatWritablePathError: variant split (2026-08-22 correction)", () =>
   ])(
     "%s/container=%s: en and fr both interpolate cleanly with the formatter's own params",
     (kind, container, expectedCode) => {
-      vi.spyOn(fs, "existsSync").mockReturnValue(container);
+      if (container) {
+        vi.spyOn(fs, "existsSync").mockReturnValue(true);
+      } else {
+        mockNotContainerized();
+      }
       const result = formatWritablePathError(kind, "/some/path", false);
       expect(result.code).toBe(expectedCode);
       expect(() => interpolate(EN_ERRORS[result.code], result.params)).not.toThrow();
       expect(() => interpolate(FR_ERRORS[result.code], result.params)).not.toThrow();
     },
   );
+
+  // 2026-09-02, single-signal-sweep, REAL DEFECT fix: this formatter used to
+  // hand-roll only the two dockerenv/containerenv marker-file checks (no
+  // cgroup fallback), the exact gap utils/dockerDetect.js's isContainerized()
+  // already closed for a "some CI sandboxes, older Docker" runtime that
+  // skips the marker file. On such a runtime the OLD code confidently
+  // returned the bare-metal "chown/chmod" guidance instead of the correct
+  // Docker PUID/PGID guidance -- a wrong answer delivered with confidence,
+  // not a hedge. Neither marker file exists here; only the cgroup scan
+  // reveals the container.
+  it("detects a container via the cgroup fallback even when neither marker file exists", () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(false);
+    vi.spyOn(fs, "readFileSync").mockReturnValue("0::/docker/abc123\n");
+    const result = formatWritablePathError("data", "/srv/pz_Data", false);
+    expect(result.code).toBe(ErrorCode.WRITABLE_PATH_DATA_CONTAINER);
+    expect(result.message).toContain("PUID");
+  });
 });
 
 describe("formatDirectoryReadError: variant split (2026-08-22 correction)", () => {

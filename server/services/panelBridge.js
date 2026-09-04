@@ -20,6 +20,37 @@ const log = createLogger('Bridge');
 const MOD_WRITE_SUFFIX = '.txt';
 const RESULT_FILE_PATTERN = /^res-(\d+)\.json(?:\.txt)?$/;
 
+// 2026-09-02, destructive-guards-sweep: cleanupInboxFiles/cleanupOutboxFiles
+// used to unlink every *.tmp file they found with NO guard at all -- no age
+// check, no liveness check, nothing. Both the mod-side (Lua getFileWriter,
+// likely doing its own atomic write-then-rename under the hood -- the code
+// here has documented "orphaned .tmp files from interrupted atomic writes"
+// since before this fix, implying a *.tmp file mid-write is an expected,
+// routine sight, not a rare crash artifact) and the panel's own inbox write
+// (writeFileSync(tempFile) + renameSync, see sendCommand-family callers
+// below) both go through a temp-then-rename pattern, so a *.tmp file this
+// sweep sees can genuinely be mid-write, not just orphaned. Deleting it out
+// from under the writer silently drops a queued command or its result --
+// same defect shape as database/init.js's db.json.*.tmp sweep (bughunt
+// single-signal-sweep-2026-09-02), same fix: gate on age, matching
+// database/init.js's MIN_ORPHAN_AGE_MS convention. The cleanup sweep itself
+// only runs once per cleanupIntervalMs (60s), so a genuinely orphaned file
+// still gets swept on the next pass -- this only removes the window where a
+// file that is not yet a full sweep interval old gets deleted while a
+// writer might still be using it.
+const MIN_ORPHAN_TMP_AGE_MS = 60_000;
+
+// Fails toward KEEPING the file on any ambiguity (stat failure means "can't
+// prove this is safe to delete"), matching pidLiveness.js's isPidAlive()
+// philosophy: an inconclusive signal never authorises a destructive action.
+function isOldEnoughToSweep(filePath, minAgeMs = MIN_ORPHAN_TMP_AGE_MS) {
+  try {
+    return Date.now() - fs.statSync(filePath).mtimeMs >= minAgeMs;
+  } catch (_) {
+    return false;
+  }
+}
+
 // Format an age in milliseconds as a short human string ("38d", "2h", "45s").
 // Used for diagnostics messages so users don't read raw seconds-since-epoch.
 function formatAge(ms) {
@@ -130,13 +161,29 @@ class PanelBridge extends EventEmitter {
     // initial remote directory and status sync. A bad replacement must not
     // disconnect an otherwise healthy server.
     const previousTransport = this.sftpTransport;
-    if (this.isRunning) this.stop();
-    if (previousTransport) await previousTransport.stop();
-    this.configure(cachePath, true);
-    this.config.commandTimeoutMs = 60000;
-    this.sftpTransport = transport;
-    this.lastSftpStatus = transport.getStatus();
-    this.start();
+    try {
+      if (this.isRunning) this.stop();
+      if (previousTransport) await previousTransport.stop();
+      this.configure(cachePath, true);
+      this.config.commandTimeoutMs = 60000;
+      this.sftpTransport = transport;
+      this.lastSftpStatus = transport.getStatus();
+      this.start();
+    } catch (error) {
+      // The new transport connected successfully -- the try/catch above
+      // already proved that -- but something in the swap itself failed
+      // (this.configure()/this.start() throwing, or a future edit adding a
+      // step here that can). Without this, the freshly-connected transport
+      // is silently leaked: its SFTP connection and poll timer keep
+      // running, owned by nothing, and this.sftpTransport is left pointing
+      // at whatever it was before -- possibly the OLD transport, which was
+      // already stopped two lines up, so the bridge would report itself
+      // configured against a transport that isn't actually running.
+      this.sftpTransport = null;
+      await transport.stop();
+      this.lastSftpStatus = transport.getStatus();
+      throw error;
+    }
     return this.bridgePath;
   }
 
@@ -625,7 +672,18 @@ class PanelBridge extends EventEmitter {
 
     // Reset state so next start() cycle is clean
     this.processedResults.clear();
-    this.previousPlayers = new Set();
+    // Same reasoning as handleStatusFailure's own comment: close out every
+    // tracked player's session before clearing previousPlayers, rather than
+    // wiping it directly. Wiping it directly (the old behavior) didn't
+    // avoid the problem, it just moved it -- the next checkModStatus() read
+    // after a restart would see the SAME still-connected players as brand
+    // new joins (previous was empty) and fire a phantom "connect" that
+    // silently overwrote their still-open prior session with no
+    // "disconnect" ever recorded, the identical playtime-loss bug via a
+    // different path. This way the session actually closes (playtime
+    // accumulated) before the phantom reconnect opens a new one -- a split
+    // session instead of lost time.
+    this.trackPlayerActivity([]);
     this.watcherRetries = 0;
     this.modStatus = null;
     this.consecutiveFailures = 0;
@@ -1152,12 +1210,16 @@ class PanelBridge extends EventEmitter {
     if (!inboxDir || !fs.existsSync(inboxDir)) return;
 
     // Sweep orphaned .tmp files from interrupted atomic writes regardless of cursor state.
+    // Age-gated (see isOldEnoughToSweep above) -- a .tmp file this fresh may
+    // still be mid-write, not orphaned.
     try {
       // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
       for (const fileName of fs.readdirSync(inboxDir)) {
         if (fileName.endsWith('.tmp')) {
           // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
-          try { fs.unlinkSync(path.join(inboxDir, fileName)); } catch (_) { /* ignore */ }
+          const tmpPath = path.join(inboxDir, fileName);
+          if (!isOldEnoughToSweep(tmpPath)) continue;
+          try { fs.unlinkSync(tmpPath); } catch (_) { /* ignore */ }
         }
       }
     } catch (_) { /* ignore */ }
@@ -1188,9 +1250,13 @@ class PanelBridge extends EventEmitter {
     let deleted = 0;
     for (const fileName of files) {
       // Sweep .tmp orphans from interrupted writes (atomic temp+rename pattern).
+      // Age-gated, same reasoning as the sweep above.
       if (fileName.endsWith('.tmp')) {
         // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
-        try { fs.unlinkSync(path.join(inboxDir, fileName)); deleted++; } catch (_) { /* ignore */ }
+        const tmpPath = path.join(inboxDir, fileName);
+        if (isOldEnoughToSweep(tmpPath)) {
+          try { fs.unlinkSync(tmpPath); deleted++; } catch (_) { /* ignore */ }
+        }
         continue;
       }
       const seq = this.extractSeq(fileName, /^cmd-(\d+)\.json$/);
@@ -1215,13 +1281,16 @@ class PanelBridge extends EventEmitter {
     // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
     if (!outboxDir || !fs.existsSync(outboxDir)) return;
 
-    // Sweep orphaned .tmp files first, regardless of cursor state.
+    // Sweep orphaned .tmp files first, regardless of cursor state. Age-gated,
+    // same reasoning as cleanupInboxFiles above.
     try {
       // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
       for (const fileName of fs.readdirSync(outboxDir)) {
         if (fileName.endsWith('.tmp')) {
           // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
-          try { fs.unlinkSync(path.join(outboxDir, fileName)); } catch (_) { /* ignore */ }
+          const tmpPath = path.join(outboxDir, fileName);
+          if (!isOldEnoughToSweep(tmpPath)) continue;
+          try { fs.unlinkSync(tmpPath); } catch (_) { /* ignore */ }
         }
       }
     } catch (_) { /* ignore */ }
@@ -1405,6 +1474,24 @@ class PanelBridge extends EventEmitter {
 
     // Update mod status to disconnected after several failures
     if (this.modStatus?.alive && this.consecutiveFailures >= this.maxConsecutiveFailures) {
+      // Close out every currently-tracked player's session BEFORE wiping
+      // modStatus.players below. trackPlayerActivity()'s connect/disconnect
+      // diffing (against this.previousPlayers) only ever ran from a fresh,
+      // alive status read in checkModStatus() -- a player connected at the
+      // moment the mod goes offline (server crash, hang, or stop) never got
+      // a "disconnect" recorded, because nothing here called it. That
+      // matters beyond this in-memory status: recordPlayerSession() only
+      // accumulates total_playtime_seconds on "disconnect" -- with no
+      // matching call, that player's still-open session (last_session_start)
+      // just sits there and gets silently overwritten the next time they
+      // connect, dropping the elapsed time for every ordinary server
+      // crash/stop/restart with anyone online, not some rare edge case.
+      // maxConsecutiveFailures=5 at a 1s poll interval means this only
+      // fires after 5 straight seconds of no fresh status -- long enough
+      // that a transient blip (a single slow disk write, a GC pause)
+      // resolves before ever reaching here, so this isn't trading a real
+      // bug for spurious disconnect noise on routine jitter.
+      this.trackPlayerActivity([]);
       // Preserve last known version, serverName, etc. when going offline
       // Don't set playerCount - undefined means unknown (offline), 0 means online with no players
       this.modStatus = {

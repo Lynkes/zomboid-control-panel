@@ -112,7 +112,21 @@ not be softened.
 
 ## Recommendation
 
-**BLOCK** — pending a user decision on DISC-001.
+> **status: SUPERSEDED — re-confirmed 2026-09-03 (kevin).** The `BLOCK` verdict below is this
+> file's own text-freeze point (it predates `VERIFICATION.md`'s round 2). DISC-001 was decided by
+> the user and resolved the same day by `FND-005`, independently verified **PASS**
+> (`evidence/FND-005/VERIFICATION.md`), and `STATUS.md`'s Recent Accepted Packages table lists
+> FND-001 as accepted 2026-08-22 alongside FND-005. **Current status: effectively accepted** — the
+> text below was never rewritten to say so, which is exactly the "verdict moved on, the document
+> didn't" pattern this reconciliation pass was asked to catch. Re-verified today against current
+> HEAD (`761f41bc`, 2026-09-03), not just cited from 2026-08-27's record: `vitest.config.js`,
+> `server/tests/vitest.globalSetup.mjs`, and the `PANEL_PATHS_CONFIG_PATH` override in
+> `server/utils/paths.js` — the three pieces of FND-005's actual fix — are all still present and
+> unchanged. The underlying resolution still holds, not just the paper trail describing it.
+
+**BLOCK** — pending a user decision on DISC-001. *(original text, kept verbatim below as the
+historical record of what this package's own evidence said at the time it was written — see the
+status note above for the current, correct reading.)*
 
 Everything FND-001 was contracted to produce exists and is sound: program ledgers, baseline runtime
 facts, inventory starting point, performance sample, evidence structure. Production behavior is

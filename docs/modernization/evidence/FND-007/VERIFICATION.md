@@ -38,6 +38,17 @@
 
 1. **[INFORMATIONAL, not a defect] One dynamic `await import("../services/discordBot.js")` remains in the file (line 740), for a different named export (`normalizeChatRelayScope`) than the one that was hoisted (`DiscordBot`).** This does not reintroduce RISK-001: the static top-level import at line 10 guarantees the module is fully resolved and cached before any test in the file runs, so this remaining dynamic import is a same-specifier cache hit rather than a fresh cold transform. Directly confirmed by measurement — the test containing this dynamic import ("falls back to the full public scope for an unknown stored value") itself runs in 0ms. `SUMMARY.md`'s claim ("removed 11 identical ... lines") is technically precise as stated and does not claim exhaustive removal of every dynamic import in the file, so this is not a misstatement — I record it only because Job 2 asked me to verify the mock-safety claim thoroughly, and this is the kind of leftover that class of check is meant to catch. No action needed.
 
+## Spot re-check, 2026-09-03 (kevin, floor-wide FND-* reconciliation sweep)
+
+Re-read `server/tests/bugfixes.test.js` directly against current `origin/main` (`761f41bc`): the
+static top-level import (`import { DiscordBot } from "../services/discordBot.js"`) is at line 10,
+and a fresh `grep -c 'await import("../services/discordBot'` returns 0 — the fix is fully intact,
+not partially reverted. The one leftover dynamic import this file's own Findings section noted
+(a different export, `normalizeChatRelayScope`) is still present too, now around line 925 (shifted
+from the "line 740" this document originally cited — expected, ~300 commits have landed in this
+file's neighborhood since) — same harmless shape as originally found, confirmed by re-reading the
+surrounding test rather than trusting the old line number. **Verdict below still holds.**
+
 ## Verdict
 
 PASS

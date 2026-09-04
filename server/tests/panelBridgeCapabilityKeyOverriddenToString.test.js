@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { lua, to_luastring } from 'fengari';
 import { loadPanelBridge } from './helpers/panelBridgeLua.js';
 
 // 2026-08-30, wave123 (queued behind the total-audit failure-honesty lens):
@@ -43,6 +44,55 @@ const LUA_PATH = path.join(
 );
 
 describe('PanelBridge.lua capabilityKey -- does not build a value-derived key from an overridden toString', () => {
+  it('does not index getClass on a Java userdata wrapper', () => {
+    const bridge = loadPanelBridge(LUA_PATH, '');
+    lua.lua_newuserdata(bridge.L, 0);
+    lua.lua_setglobal(bridge.L, to_luastring('__probe'));
+
+    bridge.run(`
+      local getClassReads = 0
+      local methodReads = 0
+      debug.setmetatable(__probe, {
+        __index = function(_, key)
+          if key == "getClass" then
+            getClassReads = getClassReads + 1
+          else
+            methodReads = methodReads + 1
+          end
+          return function() return "ok" end
+        end,
+      })
+      __probeOk = PanelBridgeModule.invoke(__probe, "someMethod")
+      __probeGetClassReads = getClassReads
+      __probeMethodReads = methodReads
+    `);
+
+    expect(bridge.getGlobal('__probeOk')).toBe(true);
+    expect(bridge.getGlobal('__probeGetClassReads')).toBe(0);
+    expect(bridge.getGlobal('__probeMethodReads')).toBe(1);
+  });
+
+  it('checks userdata methods without indexing or invoking the receiver', () => {
+    const bridge = loadPanelBridge(LUA_PATH, '');
+    lua.lua_newuserdata(bridge.L, 0);
+    lua.lua_setglobal(bridge.L, to_luastring('__probe'));
+
+    bridge.run(`
+      local invoked = 0
+      debug.setmetatable(__probe, {
+        __index = function(_, key)
+          invoked = invoked + 1
+          return function() invoked = invoked + 100 end
+        end,
+      })
+      __probeHasMethod = PanelBridgeModule.hasMethod(__probe, "missingMethod")
+      __probeInvocationCount = invoked
+    `);
+
+    expect(bridge.getGlobal('__probeHasMethod')).toBe(false);
+    expect(bridge.getGlobal('__probeInvocationCount')).toBe(0);
+  });
+
   it('an object with NO getClass() and an overridden toString (no @hex) never poisons the cache for a DIFFERENT object sharing that same toString text', () => {
     const bridge = loadPanelBridge(LUA_PATH, '');
 

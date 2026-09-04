@@ -1,0 +1,10 @@
+{
+  "pzMemory": "ذاكرة PZ",
+  "players": "اللاعبون",
+  "hostCpu": "معالج المضيف",
+  "hostMemory": "ذاكرة المضيف",
+  "hostSwap": "ذاكرة التبديل للمضيف",
+  "disk": "القرص",
+  "onlineUnit": "متصل",
+  "normal": "طبيعي"
+}

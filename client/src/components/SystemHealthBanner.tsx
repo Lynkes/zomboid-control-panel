@@ -113,7 +113,7 @@ export function SystemHealthBanner() {
         </span>
         <span className="min-w-0 text-xs text-muted-foreground">{banner.message}</span>
       </div>
-      <div className="ml-auto flex items-center gap-1">
+      <div className="ms-auto flex items-center gap-1">
         <button
           type="button"
           onClick={() => navigate('/debug')}

@@ -15,6 +15,7 @@ import {
 } from "../utils/serverRconSecrets.js";
 import { redactRconCommandSecrets } from "../utils/rconCommandRedaction.js";
 import { readUiSecretFile, writeUiSecretFile } from "../utils/uiSecretFile.js";
+import { isPidAlive } from "../utils/pidLiveness.js";
 const log = createLogger("DB");
 
 // ============================================
@@ -558,23 +559,6 @@ const TMP_FILE_RE = /^db\.json\.(\d+)\.[0-9a-z]+\.tmp$/i;
 const MIN_ORPHAN_AGE_MS = 60_000;
 
 /**
- * Same liveness judgement as pidLock.js's isProcessAlive() — signal 0:
- * ESRCH (or other error) means dead, EPERM means alive but not ours, no
- * error means alive. Duplicated locally rather than imported: pidLock.js is
- * owned by another fix in flight right now and doesn't export it.
- */
-function isPidAlive(pid) {
-  if (!pid || !Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    if (err.code === "EPERM") return true;
-    return false;
-  }
-}
-
-/**
  * Remove orphaned write-temp files left by a crash, but only ones provably
  * dead. Two panel processes can legitimately share a data dir for a moment
  * during a restart — that's exactly why the tmp name is pid-qualified — so
@@ -654,17 +638,21 @@ function pruneBackups() {
   }
 }
 
-function getLatestBackup() {
+// Newest-first, full paths. Recovery below needs to fall through past a
+// corrupt "latest" backup to the next-older one rather than giving up --
+// see the recovery loop in getDb() for why a single bad candidate must not
+// mean the whole ring is abandoned.
+function listBackupsNewestFirst() {
   try {
-    const files = fs
+    return fs
       .readdirSync(backupDir)
       .filter((f) => f.startsWith("db-") && f.endsWith(".json"))
       .sort()
-      .reverse();
-    return files.length > 0 ? path.join(backupDir, files[0]) : null;
+      .reverse()
+      .map((f) => path.join(backupDir, f));
   } catch {
     log.debug(`No backups found to list`);
-    return null;
+    return [];
   }
 }
 
@@ -940,36 +928,59 @@ export async function getDb() {
         // fallback for that case.
       }
 
-      // Attempt recovery from backup. Do NOT snapshot the corrupt file first —
-      // that would poison the backup ring (pruneBackups keeps newest 5 and
-      // could evict the last known-good backup) AND make getLatestBackup
-      // return the corrupt copy.
-      const backup = getLatestBackup();
-      if (backup) {
-        log.warn(`Attempting recovery from ${path.basename(backup)}...`);
+      // Attempt recovery from backup, newest first, falling through to the
+      // next-older candidate if one is also unreadable. A single corrupted
+      // "latest" backup must not mean the whole ring is abandoned in favour
+      // of a full reset -- pruneBackups only evicts past MAX_BACKUPS, so
+      // several older, structurally-independent backups usually still exist
+      // (2026-09-03, destructive-paths-sweep: the previous single-candidate
+      // version fell straight to defaultData -- discarding every setting,
+      // server and user -- the moment that one backup also failed to read,
+      // even when an older good one was sitting right next to it).
+      //
+      // Do NOT snapshot the corrupt file first — that would poison the
+      // backup ring (pruneBackups keeps newest 5 and could evict the last
+      // known-good backup) AND make listBackupsNewestFirst() return the
+      // corrupt copy as a candidate.
+      const backups = listBackupsNewestFirst();
+      if (backups.length > 0) {
+        // Preserve the corrupt file for forensics ONCE, before trying any
+        // candidate, OUTSIDE the rotation ring so pruneBackups never touches
+        // it.
         try {
-          // Preserve the corrupt file for forensics, OUTSIDE the rotation ring
-          // so pruneBackups never touches it.
+          const corruptPath = path.join(
+            backupDir,
+            `corrupt-${new Date().toISOString().replace(/[:.]/g, "-")}.json`,
+          );
+          fs.copyFileSync(dbPath, corruptPath);
           try {
-            const corruptPath = path.join(
-              backupDir,
-              `corrupt-${new Date().toISOString().replace(/[:.]/g, "-")}.json`,
-            );
-            fs.copyFileSync(dbPath, corruptPath);
-            try {
-              fs.chmodSync(corruptPath, 0o600);
-            } catch (_) {
-              /* best-effort */
-            }
+            fs.chmodSync(corruptPath, 0o600);
           } catch (_) {
             /* best-effort */
           }
+        } catch (_) {
+          /* best-effort */
+        }
 
-          fs.copyFileSync(backup, dbPath);
-          await db.read();
-          log.info("Database recovery successful!");
-        } catch (recoverErr) {
-          log.error(`Recovery failed: ${recoverErr.message} — starting fresh`);
+        let recovered = false;
+        for (const backup of backups) {
+          log.warn(`Attempting recovery from ${path.basename(backup)}...`);
+          try {
+            fs.copyFileSync(backup, dbPath);
+            await db.read();
+            log.info(
+              `Database recovery successful from ${path.basename(backup)}!`,
+            );
+            recovered = true;
+            break;
+          } catch (recoverErr) {
+            log.error(
+              `Recovery from ${path.basename(backup)} failed: ${recoverErr.message}`,
+            );
+          }
+        }
+        if (!recovered) {
+          log.error("All backups failed to recover — starting fresh");
           db.data = { ...defaultData };
         }
       } else {
@@ -1733,8 +1744,14 @@ export async function getAllSettings() {
 // ============================================
 
 // Falls back to the docker-compose PZ_SERVER_PATH / PZ_SAVE_PATH env vars when
-// a stored server profile has no path configured, and auto-detects isRemote
-// from whether the resolved paths exist on this host.
+// a stored server profile has no path configured. isRemote is inferred from
+// whether the resolved paths exist on this host ONLY for legacy records that
+// predate the isRemote field (server.isRemote is genuinely undefined/null —
+// every server created via POST /api/servers since 94c5520e always stores an
+// explicit boolean). A stored isRemote, true or false, always wins: it is the
+// operator's choice, and fs.existsSync() at read time is not — a local server
+// whose install hasn't run yet (or whose drive is momentarily unmounted) must
+// not be silently reclassified as remote on every read.
 export function normalizeServerMemory(server) {
   if (!server) return server;
   const installPath = server.installPath || process.env.PZ_SERVER_PATH || "";
@@ -1745,12 +1762,18 @@ export function normalizeServerMemory(server) {
   const pathsExistLocally =
     Boolean(installPath && fs.existsSync(installPath)) ||
     Boolean(zomboidDataPath && fs.existsSync(zomboidDataPath));
+  const hasStoredIsRemote =
+    server.isRemote !== undefined && server.isRemote !== null;
 
   return {
     ...server,
     installPath,
     zomboidDataPath,
-    isRemote: pathsConfigured ? !pathsExistLocally : server.isRemote || false,
+    isRemote: hasStoredIsRemote
+      ? server.isRemote
+      : pathsConfigured
+        ? !pathsExistLocally
+        : false,
     lifecycleProvider: ["systemd", "openrc"].includes(server.lifecycleProvider)
       ? server.lifecycleProvider
       : "direct",

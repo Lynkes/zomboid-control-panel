@@ -82,8 +82,8 @@ describe("POST /server/force-stop -- bounded, fail-open pre-stop save", () => {
       response,
     );
 
-    expect(rconService.save).toHaveBeenCalled();
-    expect(runManagedLifecycle).toHaveBeenCalledWith("stop");
+    expect(rconService.save).toHaveBeenCalledWith({ retryOnConnectionError: false });
+    expect(runManagedLifecycle).toHaveBeenCalledWith("stop", { serverId: null });
     expect(response.json).toHaveBeenCalledWith(
       expect.objectContaining({ success: true, saveOutcome: "saved" }),
     );
@@ -106,7 +106,7 @@ describe("POST /server/force-stop -- bounded, fail-open pre-stop save", () => {
       response,
     );
 
-    expect(runManagedLifecycle).toHaveBeenCalledWith("stop");
+    expect(runManagedLifecycle).toHaveBeenCalledWith("stop", { serverId: null });
     expect(response.json).toHaveBeenCalledWith(
       expect.objectContaining({ success: true, saveOutcome: "failed" }),
     );
@@ -127,7 +127,7 @@ describe("POST /server/force-stop -- bounded, fail-open pre-stop save", () => {
     );
 
     expect(rconService.save).not.toHaveBeenCalled();
-    expect(runManagedLifecycle).toHaveBeenCalledWith("stop");
+    expect(runManagedLifecycle).toHaveBeenCalledWith("stop", { serverId: null });
     expect(response.json).toHaveBeenCalledWith(
       expect.objectContaining({ success: true, saveOutcome: "skipped" }),
     );
@@ -158,7 +158,7 @@ describe("POST /server/force-stop -- bounded, fail-open pre-stop save", () => {
       await vi.advanceTimersByTimeAsync(3100); // past the 3s bound
       await handlerPromise;
 
-      expect(runManagedLifecycle).toHaveBeenCalledWith("stop");
+      expect(runManagedLifecycle).toHaveBeenCalledWith("stop", { serverId: null });
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({ success: true, saveOutcome: "timedOut" }),
       );
@@ -207,7 +207,7 @@ describe("POST /server/force-stop -- bounded, fail-open pre-stop save", () => {
     );
 
     expect(rconService.save).toHaveBeenCalled();
-    expect(serverManager.stopServer).toHaveBeenCalledWith(false);
+    expect(serverManager.stopServer).toHaveBeenCalledWith(false, { serverId: null });
     expect(response.json).toHaveBeenCalledWith(
       expect.objectContaining({ success: true, saveOutcome: "saved" }),
     );

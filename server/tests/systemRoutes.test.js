@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "fs";
 
 const getCircuitBreakerStatus = vi.fn();
 vi.mock("../database/init.js", () => ({ getCircuitBreakerStatus }));
@@ -149,6 +150,10 @@ describe("GET /api/system/storage-health", () => {
 });
 
 describe("GET /api/system/runtime", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("returns concrete runtime paths without assuming shell variables", async () => {
     const runtime = buildRuntimeInfo({
       platform: "linux",
@@ -179,6 +184,22 @@ describe("GET /api/system/runtime", () => {
   });
 
   it("uses a neutral family and service manager for unknown platforms", () => {
+    // fileExists: () => false only neutralizes the two dockerenv/containerenv
+    // marker-file checks. buildRuntimeInfo's container detection now goes
+    // through utils/dockerDetect.js's isContainerized(), which -- unmocked --
+    // falls back to a REAL fs.readFileSync("/proc/1/cgroup") read of
+    // whatever host runs this test. Force the ENOENT branch so this stays
+    // hermetic rather than silently depending on the test runner not itself
+    // being a container (see the paired positive test below for the case
+    // where that fallback DOES fire).
+    vi.spyOn(fs, "readFileSync").mockImplementation(() => {
+      const err = new Error(
+        "ENOENT: no such file or directory, open '/proc/1/cgroup'",
+      );
+      err.code = "ENOENT";
+      throw err;
+    });
+
     expect(
       buildRuntimeInfo({
         platform: "mystery-os",
@@ -204,5 +225,32 @@ describe("GET /api/system/runtime", () => {
         reason: "test",
       },
     });
+  });
+
+  // 2026-09-02, single-signal-sweep, REAL DEFECT fix: this endpoint used to
+  // hand-roll only the two dockerenv/containerenv marker-file checks (no
+  // cgroup fallback) -- the same gap utils/dockerDetect.js's isContainerized()
+  // already closed for a "some CI sandboxes, older Docker" runtime that
+  // skips the marker file. On such a runtime the OLD code confidently
+  // reported serviceManager "none" (or "unknown") instead of "container".
+  // Neither marker file exists here (fileExists returns false); only the
+  // cgroup scan reveals the container.
+  it("reports serviceManager \"container\" via the cgroup fallback even when neither marker file exists", () => {
+    vi.spyOn(fs, "readFileSync").mockReturnValue("0::/docker/abc123\n");
+
+    const runtime = buildRuntimeInfo({
+      platform: "linux",
+      temporaryDirectory: "/tmp",
+      environment: {},
+      pathSeparator: "/",
+      fileExists: () => false,
+      restartAssessment: {
+        gameServers: "unknown",
+        requiresConfirmation: true,
+        reason: "test",
+      },
+    });
+
+    expect(runtime.serviceManager).toBe("container");
   });
 });

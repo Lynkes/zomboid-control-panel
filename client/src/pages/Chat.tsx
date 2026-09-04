@@ -359,9 +359,9 @@ export default function Chat() {
   }
 
   const getMessageStyle = (type: string) => {
-    if (type === 'server') return 'border-l-2 border-amber-400/70 bg-amber-400/5 pl-3 pr-3 py-2'
-    if (type === 'admin')  return 'border-l-2 border-destructive/70 bg-destructive/5 pl-3 pr-3 py-2'
-    return 'border-l-2 border-primary/55 bg-muted/15 pl-3 pr-3 py-2'
+    if (type === 'server') return 'border-s-2 border-amber-400/70 bg-amber-400/5 ps-3 pe-3 py-2'
+    if (type === 'admin')  return 'border-s-2 border-destructive/70 bg-destructive/5 ps-3 pe-3 py-2'
+    return 'border-s-2 border-primary/55 bg-muted/15 ps-3 pe-3 py-2'
   }
 
   const getMessageMeta = (msg: ChatMessage) => {
@@ -563,7 +563,7 @@ export default function Chat() {
                 }}
                 aria-label={presetsEditing ? t('quickBroadcasts.doneAria') : t('quickBroadcasts.editAria')}
               >
-                {presetsEditing ? <><Check className="w-3 h-3 mr-1" />{t('quickBroadcasts.done')}</> : <><Pencil className="w-3 h-3 mr-1" />{t('quickBroadcasts.edit')}</>}
+                {presetsEditing ? <><Check className="w-3 h-3 me-1" />{t('quickBroadcasts.done')}</> : <><Pencil className="w-3 h-3 me-1" />{t('quickBroadcasts.edit')}</>}
               </Button>
             </div>
             <div className="p-2 space-y-1.5">
@@ -601,7 +601,7 @@ export default function Chat() {
                   <div key={`preset-${idx}`} className="flex items-center gap-1">
                     <button
                       type="button"
-                      className="group flex-1 min-h-9 px-2 py-1.5 text-left rounded-sm bg-muted/15 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 transition-colors text-xs text-foreground/85 whitespace-normal"
+                      className="group flex-1 min-h-9 px-2 py-1.5 text-start rounded-sm bg-muted/15 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 transition-colors text-xs text-foreground/85 whitespace-normal"
                       onClick={() => {
                         if (presetsEditing) {
                           setEditingIdx(idx)

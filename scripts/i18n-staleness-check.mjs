@@ -58,7 +58,7 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 export const EN_DIR = "client/src/locales/en";
-export const ALL_LANGS = ["fr", "de", "es", "zh-CN", "ht"];
+export const ALL_LANGS = ["fr", "de", "es", "zh-CN", "zh-TW", "ht"];
 
 // Two locale values touched within this window of each other are treated as
 // part of ONE coherent change (a translator working through the same fix the
@@ -180,9 +180,32 @@ function wasRealEdit(enHash, enPath, dottedKey, currentValue) {
   return parentValue !== currentValue;
 }
 
+// blameLines()/git() collapse EVERY git-invocation failure to the same null
+// -- "file isn't tracked" and "git blame errored out" (lock contention,
+// resource exhaustion, any transient failure) are indistinguishable at that
+// layer. analyzeNamespace() treats a null keyMapForFile() result as "this
+// language has nothing to report", which is only correct for the first
+// case. Conflating them silently drops a language from the report on a
+// TRANSIENT failure -- indistinguishable from that language genuinely being
+// up to date. Staged and confirmed 2026-09-02 (card
+// staleness-gate-reported-3-of-5-stale-locales): a synthetic blame failure
+// for one language, on a tree where that language WAS the only stale one,
+// produces a clean report for it, same as if it were fine. So: only treat
+// "file does not exist on disk" as the legitimate skip (a namespace that
+// genuinely hasn't been localized into this language yet); anything else
+// (file exists, blame still failed) is a real error the caller must not
+// silently swallow.
 function keyMapForFile(relPath) {
+  const full = path.join(ROOT, relPath);
+  if (!fs.existsSync(full)) return null;
   const blame = blameLines(relPath);
-  if (blame === null) return null;
+  if (blame === null) {
+    throw new Error(
+      `git blame failed for ${relPath} even though the file exists on disk -- ` +
+        "this is a transient git failure (lock contention, resource exhaustion, etc), " +
+        "not \"nothing to report\". Treating it as clean would silently hide real drift. Re-run once git is not contended.",
+    );
+  }
   const keyPaths = keyPathsForFile(relPath);
   const map = {};
   for (const [idxStr, kp] of Object.entries(keyPaths)) {
@@ -246,10 +269,22 @@ function main() {
 
   console.log(`Scanning ${nsList.length} namespace(s) x ${opts.langs.length} language(s), co-change window ${CO_CHANGE_WINDOW_MS / 60000}min...`);
   const all = [];
+  const errored = [];
   for (const ns of nsList) {
-    all.push(...analyzeNamespace(ns, opts.langs));
+    try {
+      all.push(...analyzeNamespace(ns, opts.langs));
+    } catch (err) {
+      // Report tool: never fail the build over this (see header), but a
+      // silently-skipped namespace reads as "checked, clean" -- say so loudly.
+      errored.push({ ns, message: err.message });
+    }
   }
   all.sort((a, b) => b.gapMinutes - a.gapMinutes);
+
+  if (errored.length > 0) {
+    console.log(`\n${errored.length} namespace(s) could NOT be checked (git failure, not "clean") -- re-run:\n`);
+    for (const e of errored) console.log(`  ${e.ns}: ${e.message}`);
+  }
 
   console.log(`\n${all.length} candidate(s) -- each needs a human read of both languages' actual meaning, not just this table:\n`);
   for (const f of all) {

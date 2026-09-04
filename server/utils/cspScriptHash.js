@@ -58,9 +58,17 @@ export function computeInlineScriptCspHash(clientDistPath, log) {
     return null;
   }
 
+  // Browsers newline-normalize script text (CRLF/CR -> LF) during HTML
+  // parsing before computing the CSP hash, per spec. Hashing the raw bytes
+  // here would compute the wrong hash on any checkout where this source
+  // file has CRLF line endings (e.g. git's core.autocrlf=true on Windows,
+  // the default on many dev machines) — the browser blocks the script with
+  // a CSP violation because its own (correctly normalized) hash never
+  // matches ours.
+  const normalized = match[1].replace(/\r\n?/g, "\n");
   const digest = crypto
     .createHash("sha256")
-    .update(match[1], "utf8")
+    .update(normalized, "utf8")
     .digest("base64");
   return `'sha256-${digest}'`;
 }

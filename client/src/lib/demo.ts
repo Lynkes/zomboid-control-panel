@@ -386,6 +386,89 @@ function demoIniSettings(): Record<string, string> {
   }
 }
 
+const demoTemplateExclusions = [
+  'RCONPassword',
+  'Password',
+  'ServerName',
+  'PublicName',
+  'DefaultPort',
+  'UDPPort',
+  'RCONPort',
+  'server_browser_announced_ip',
+]
+
+const demoTemplates = [
+  {
+    schemaVersion: 1,
+    meta: {
+      id: 'vanilla-apocalypse',
+      name: 'Vanilla Apocalypse',
+      description: 'A clean Build 42 baseline with the classic survival rules.',
+      tags: ['vanilla', 'balanced'],
+      pzBuild: '42',
+    },
+    sandboxVars: {},
+    serverIni: {},
+    iniExclusions: demoTemplateExclusions,
+    mods: [],
+    map: { mapId: 'Muldraugh, KY' },
+    difficulty: { level: 'standard' },
+    isBuiltin: true,
+  },
+  {
+    schemaVersion: 1,
+    meta: {
+      id: 'first-week-friendly',
+      name: 'First Week Friendly',
+      description: 'A forgiving starting week for a co-op server finding its feet.',
+      tags: ['beginner', 'co-op'],
+      pzBuild: '42',
+    },
+    sandboxVars: {
+      ZombieLore: { Speed: 2, Strength: 2 },
+      World: { ElecShut: 3, WaterShut: 3 },
+    },
+    serverIni: { PauseEmpty: true, PVP: false },
+    iniExclusions: demoTemplateExclusions,
+    mods: [],
+    map: { mapId: 'Muldraugh, KY' },
+    difficulty: { level: 'easy' },
+    isBuiltin: true,
+  },
+  {
+    schemaVersion: 1,
+    meta: {
+      id: 'hardcore-survivor',
+      name: 'Hardcore Survivor',
+      description: 'A harsher ruleset for experienced survivors who want pressure.',
+      tags: ['hardcore', 'challenge'],
+      pzBuild: '42',
+    },
+    sandboxVars: {
+      ZombieLore: { Speed: 3, Strength: 3 },
+      World: { ElecShut: 1, WaterShut: 1 },
+    },
+    serverIni: { PauseEmpty: false, PVP: false },
+    iniExclusions: demoTemplateExclusions,
+    mods: [],
+    map: { mapId: 'West Point, KY' },
+    difficulty: { level: 'hard' },
+    isBuiltin: true,
+  },
+]
+
+function demoTemplateDiff() {
+  return {
+    serverIni: [],
+    sandboxVars: [],
+    summary: { iniChanges: 0, sandboxChanges: 0, totalChanges: 0 },
+  }
+}
+
+export function getDemoTemplates() {
+  return { templates: demoTemplates }
+}
+
 function demoStorageHealth() {
   return {
     diskSpace: {
@@ -584,6 +667,15 @@ export function installDemoFetchShim(): void {
     }
     if (path === '/api/server-files/templates') {
       return jsonResponse({ templates: [] })
+    }
+    if (path === '/api/templates') {
+      return jsonResponse(getDemoTemplates())
+    }
+    if (path === '/api/templates/hidden') {
+      return jsonResponse({ templates: [] })
+    }
+    if (path.startsWith('/api/templates/') && path.endsWith('/preview') && method === 'POST') {
+      return jsonResponse({ success: true, diff: demoTemplateDiff() })
     }
 
     if (path === '/api/mods/status') {

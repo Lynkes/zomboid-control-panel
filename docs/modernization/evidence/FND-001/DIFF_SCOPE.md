@@ -82,3 +82,14 @@ Actively verified absent or removed:
 returned `PASS work-package=FND-001 changed=55`, exit 0. Every changed path falls inside declared
 ownership, and no tracked V1 source file was modified — confirmed independently by
 `git status --porcelain` showing zero non-`??` entries after the complete gate.
+
+> **status: verdict correct, justification was dead — corrected 2026-09-03 (kevin).** The PASS
+> above reads as if the explicit `-AllowedPath` argument was evaluated. `VERIFICATION.md`'s round 2
+> (`DISC-002`, `RISK-007` in `RISK_REGISTER.md`) later established that `pwsh -File` binds a
+> comma-separated `-AllowedPath` as one glued string, so this exact invocation **never evaluated the
+> argument at all** — the PASS came entirely from the script's hardcoded `$initialHandoff` fallback,
+> which happened to already cover every FND-001 path. The **PASS verdict itself is still correct**
+> (independently confirmed by the manual `git status --porcelain` check on the same line, which
+> doesn't depend on the broken script argument at all) — but the command output quoted above is not
+> the reason it's correct. Fixed by FND-006; today's tree (`761f41bc`) has the corrected
+> comma-splitting script, confirmed by direct read of `scripts/modernization/check-owned-paths.ps1`.

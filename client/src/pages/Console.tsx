@@ -168,7 +168,7 @@ const ServerLogLine = memo(function ServerLogLine({ line }: { line: string }) {
   return (
     <div
       className={cn(
-        'border-l px-2 py-0.5 leading-tight',
+        'border-s px-2 py-0.5 leading-tight',
         parsed.type === 'ERROR'
           ? 'border-destructive/40 bg-destructive/8'
           : parsed.type === 'WARN'
@@ -885,8 +885,8 @@ export default function Console() {
                 aria-label={serverLogPaused ? t('serverLog.resumeAria') : t('serverLog.pauseAria')}
               >
                 {serverLogPaused
-                  ? <><Play className="w-3 h-3 mr-1" />{t('serverLog.resume')}</>
-                  : <><Pause className="w-3 h-3 mr-1" />{t('serverLog.pause')}</>}
+                  ? <><Play className="w-3 h-3 me-1" />{t('serverLog.resume')}</>
+                  : <><Pause className="w-3 h-3 me-1" />{t('serverLog.pause')}</>}
               </Button>
               <Button
                 variant="ghost"
@@ -898,7 +898,7 @@ export default function Console() {
                   : t('serverLog.filterOffTooltip')}
                 className={cn('h-7 px-2 font-mono text-[10px] uppercase tracking-[0.16em]', serverLogFiltered && 'text-primary')}
               >
-                <Filter className="w-3 h-3 mr-1" />
+                <Filter className="w-3 h-3 me-1" />
                 {serverLogFiltered
                   ? (serverLogLines.length > filteredLogLines.length
                       ? t('serverLog.filterWithCount', { count: serverLogLines.length - filteredLogLines.length })
@@ -927,7 +927,7 @@ export default function Console() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button variant="destructive" size="sm" className="h-7 px-2 font-mono text-[10px] uppercase tracking-[0.16em]" onClick={clearServerLog}>
-                    <Trash2 className="w-3 h-3 mr-1" />
+                    <Trash2 className="w-3 h-3 me-1" />
                     {t('serverLog.clear')}
                   </Button>
                 </TooltipTrigger>
@@ -958,10 +958,10 @@ export default function Console() {
           ) : (
             <div className="relative rounded-md border border-border/55 bg-card/85 overflow-hidden shadow-lg">
               {/* corner brackets */}
-              <div aria-hidden className="absolute top-1 left-1 w-2.5 h-2.5 border-l-2 border-t-2 border-primary/45 pointer-events-none z-10" />
-              <div aria-hidden className="absolute top-1 right-1 w-2.5 h-2.5 border-r-2 border-t-2 border-primary/45 pointer-events-none z-10" />
-              <div aria-hidden className="absolute bottom-1 left-1 w-2.5 h-2.5 border-l-2 border-b-2 border-primary/45 pointer-events-none z-10" />
-              <div aria-hidden className="absolute bottom-1 right-1 w-2.5 h-2.5 border-r-2 border-b-2 border-primary/45 pointer-events-none z-10" />
+              <div aria-hidden className="absolute top-1 left-1 w-2.5 h-2.5 border-s-2 border-t-2 border-primary/45 pointer-events-none z-10" />
+              <div aria-hidden className="absolute top-1 right-1 w-2.5 h-2.5 border-e-2 border-t-2 border-primary/45 pointer-events-none z-10" />
+              <div aria-hidden className="absolute bottom-1 left-1 w-2.5 h-2.5 border-s-2 border-b-2 border-primary/45 pointer-events-none z-10" />
+              <div aria-hidden className="absolute bottom-1 right-1 w-2.5 h-2.5 border-e-2 border-b-2 border-primary/45 pointer-events-none z-10" />
               {/* header strip */}
               <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-border/50 bg-muted/30 font-mono text-[9px] uppercase tracking-[0.24em] select-none">
                 <span className="flex items-center gap-1.5 text-primary/65">
@@ -1065,7 +1065,7 @@ export default function Console() {
               onClick={testRconConnection}
               disabled={testingConnection || !hasRconConfig}
             >
-              <RefreshCw className={cn('w-3 h-3 mr-1', testingConnection && 'animate-spin')} />
+              <RefreshCw className={cn('w-3 h-3 me-1', testingConnection && 'animate-spin')} />
               {t('rcon.recheck')}
             </Button>
           </div>
@@ -1113,10 +1113,10 @@ export default function Console() {
 
           {/* Console Output (primary surface) */}
           <div className="relative rounded-md border border-border/55 bg-card/85 overflow-hidden shadow-lg">
-            <div aria-hidden className="absolute top-1 left-1 w-2.5 h-2.5 border-l-2 border-t-2 border-primary/45 pointer-events-none z-10" />
-            <div aria-hidden className="absolute top-1 right-1 w-2.5 h-2.5 border-r-2 border-t-2 border-primary/45 pointer-events-none z-10" />
-            <div aria-hidden className="absolute bottom-1 left-1 w-2.5 h-2.5 border-l-2 border-b-2 border-primary/45 pointer-events-none z-10" />
-            <div aria-hidden className="absolute bottom-1 right-1 w-2.5 h-2.5 border-r-2 border-b-2 border-primary/45 pointer-events-none z-10" />
+            <div aria-hidden className="absolute top-1 left-1 w-2.5 h-2.5 border-s-2 border-t-2 border-primary/45 pointer-events-none z-10" />
+            <div aria-hidden className="absolute top-1 right-1 w-2.5 h-2.5 border-e-2 border-t-2 border-primary/45 pointer-events-none z-10" />
+            <div aria-hidden className="absolute bottom-1 left-1 w-2.5 h-2.5 border-s-2 border-b-2 border-primary/45 pointer-events-none z-10" />
+            <div aria-hidden className="absolute bottom-1 right-1 w-2.5 h-2.5 border-e-2 border-b-2 border-primary/45 pointer-events-none z-10" />
             {/* header strip */}
             <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-border/50 bg-muted/30 font-mono text-[9px] uppercase tracking-[0.24em] select-none">
               <span className="flex items-center gap-1.5 text-primary/65">
@@ -1133,7 +1133,7 @@ export default function Console() {
                     onClick={clearLog}
                     disabled={liveLog.length === 0}
                   >
-                    <Trash2 className="w-3 h-3 mr-1" />
+                    <Trash2 className="w-3 h-3 me-1" />
                     {t('rcon.clear')}
                   </Button>
                 </TooltipTrigger>
@@ -1155,11 +1155,11 @@ export default function Console() {
                     <div className="flex items-start gap-2">
                       <span className="text-primary shrink-0">$</span>
                       <span className="text-foreground/90 break-all min-w-0 grow">{entry.command}</span>
-                      <span className="text-muted-foreground/60 text-[10px] ml-auto shrink-0 tabular-nums font-mono">
+                      <span className="text-muted-foreground/60 text-[10px] ms-auto shrink-0 tabular-nums font-mono">
                         {new Date(entry.timestamp).toLocaleTimeString(i18n.language)}
                       </span>
                     </div>
-                    <div className={cn('ml-4 mt-0.5 text-xs border-l-2 pl-2 break-words', entry.success ? 'border-primary/30 text-foreground/85' : 'border-destructive/50 text-destructive')}>
+                    <div className={cn('ms-4 mt-0.5 text-xs border-s-2 ps-2 break-words', entry.success ? 'border-primary/30 text-foreground/85' : 'border-destructive/50 text-destructive')}>
                       {entry.response.split('\n').map((line, i) => (
                         <div key={`line-${i}`} className="break-words">{line || '\u00A0'}</div>
                       ))}
@@ -1172,7 +1172,7 @@ export default function Console() {
 
           {/* Quick Commands */}
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="font-mono text-[9px] uppercase tracking-[0.24em] text-primary/60 mr-1">{t('rcon.quickLabel')}</span>
+            <span className="font-mono text-[9px] uppercase tracking-[0.24em] text-primary/60 me-1">{t('rcon.quickLabel')}</span>
             {quickCommands.map((qc) => (
               <Button
                 key={qc.command}
@@ -1206,7 +1206,7 @@ export default function Console() {
                 onChange={(e) => setCommand(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={t('rcon.placeholder')}
-                className="pl-[5.5rem] font-mono bg-card/70 border-border/55 focus-visible:border-primary/60"
+                className="ps-[5.5rem] font-mono bg-card/70 border-border/55 focus-visible:border-primary/60"
                 disabled={loading || !hasRconConfig || rconConnected === false || !canExecuteRcon}
                 maxLength={2000}
                 aria-label={t('rcon.inputAria')}
@@ -1223,7 +1223,7 @@ export default function Console() {
                 aria-label={t('rcon.executeAria')}
                 className="font-mono text-[11px] uppercase tracking-[0.18em]"
               >
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Send className="w-3.5 h-3.5 mr-1.5" />{t('rcon.run')}</>}
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Send className="w-3.5 h-3.5 me-1.5" />{t('rcon.run')}</>}
               </Button>
             </DisabledReason>
           </div>
@@ -1305,9 +1305,9 @@ export default function Console() {
                       disabled={sendingAnnouncement || !announcement.trim() || !hasRconConfig || rconConnected === false || !canExecuteRcon}
                     >
                       {sendingAnnouncement ? (
-                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        <Loader2 className="w-4 h-4 animate-spin me-2" />
                       ) : (
-                        <Send className="w-4 h-4 mr-2" />
+                        <Send className="w-4 h-4 me-2" />
                       )}
                       {t('broadcast.send')}
                     </Button>
@@ -1348,7 +1348,7 @@ export default function Console() {
                     placeholder={t('history.searchPlaceholder')}
                     value={historySearch}
                     onChange={(e) => setHistorySearch(e.target.value)}
-                    className="pl-8 h-8 text-sm"
+                    className="ps-8 h-8 text-sm"
                     aria-label={t('history.searchAria')}
                   />
                 </div>
@@ -1367,7 +1367,7 @@ export default function Console() {
                         <button
                           key={entry.id}
                           type="button"
-                          className="w-full text-left p-2.5 rounded-md hover:bg-muted/30 cursor-pointer transition-colors"
+                          className="w-full text-start p-2.5 rounded-md hover:bg-muted/30 cursor-pointer transition-colors"
                           onClick={() => {
                             setCommand(entry.command)
                             inputRef.current?.focus()

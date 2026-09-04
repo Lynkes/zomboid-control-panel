@@ -8,6 +8,7 @@ import { getDataPaths } from "../utils/paths.js";
 import { getDiskStatusForPath } from "../services/diskMonitor.js";
 import { getCircuitBreakerStatus } from "../database/init.js";
 import { getRestartAssessment } from "../services/panelUpdateChecker.js";
+import { isContainerized } from "../utils/dockerDetect.js";
 
 const log = createLogger("API:System");
 const router = express.Router();
@@ -36,7 +37,7 @@ export function buildRuntimeInfo({
     serviceManager = "openrc";
   } else {
     try {
-      if (fileExists("/.dockerenv") || fileExists("/run/.containerenv")) {
+      if (isContainerized(fileExists)) {
         serviceManager = "container";
       } else if (family === "windows" || platform === "darwin") {
         serviceManager = "none";

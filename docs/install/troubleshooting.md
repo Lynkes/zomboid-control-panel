@@ -10,6 +10,13 @@ heading that matches your symptom, not the subsystem you think is at fault.
 Every heading below quotes real on-screen text — search this page (Ctrl+F)
 for a phrase you're looking at and you'll land in the right place.
 
+Several sections below tell you to check the panel's log. If the default log
+isn't detailed enough to see what's actually happening, set
+`LOG_LEVEL=debug` (in a `.env` file next to the panel `.exe`, in your
+`docker-compose.yml`/`.env`, or in the service's environment on Linux) and
+restart the panel — this applies everywhere a section below says to check
+the log, not just one symptom.
+
 ---
 
 ## Part 1: Preflight — have these five things ready
@@ -82,6 +89,44 @@ port mapping in `docker-compose.yml` (Docker) to a free port, then restart.
 
 The same message and the same fix apply to `HTTPS port ... is already in
 use` if you've enabled `HTTPS=true`.
+
+---
+
+### Panel opens a new browser tab every time it starts or restarts
+
+**What you see:** every time the panel (the Windows/macOS/Linux `.exe`
+install, not Docker) starts up, it opens a new tab pointed at the panel's
+login page — including on a restart, so if something is restarting the panel
+repeatedly you end up with a pile of tabs to close by hand.
+
+**What it means:** this is by design for a fresh, interactive install — the
+first time you start the panel, it opens a tab automatically so you don't
+have to know the URL and type it in yourself. It fires on *every* process
+start, not just the first one, because the panel has no way to tell "first
+run" apart from "restart #40" — it only knows it's starting. If the panel is
+restarting more often than you expect, that's worth chasing down separately
+(see below); the tab-per-start behavior itself is expected, not a bug, and
+can be turned off.
+
+**What to do:** set `PANEL_AUTO_OPEN_BROWSER=false` in a `.env` file in the
+same folder as the panel `.exe` (create the file if it doesn't exist; it's
+read automatically on every start), then restart the panel. Any of `0`,
+`false`, `no`, or `off` works. This is the right setting for a headless box,
+a server you control over RDP/SSH rather than sitting at, or any machine
+where you'd rather keep one browser tab open yourself than have the panel
+manage tabs for you.
+
+**If the panel is restarting on its own and you don't know why:** the panel
+itself has no built-in "restart periodically to free memory" feature —
+nothing in its code restarts the panel process on a timer or a memory
+threshold. If it's restarting anyway, something external is doing it: a
+Task Scheduler entry, a service manager set to auto-restart on exit, an
+update being applied (Settings > Updates restarts the panel to apply a
+downloaded version), or a crash. Check `log.jsonl` in the panel's data
+folder for `app-start` entries — repeated `app-start` events close together
+in time, especially right after an error, point to a crash loop rather than
+an intentional restart, and are worth reporting rather than just muting the
+tab.
 
 ---
 
@@ -176,6 +221,53 @@ these in the console/log — they map to the same two root causes:
 - `Authentication failed. Check RCON password in server settings.` (the
   password changed on one side but not the other)
 
+**If the server is managed somewhere the panel can't see it** (a remote
+host, a container the panel doesn't control, or anywhere its own
+process-detection can't find the PZ process): the panel normally checks
+"is the server process running" before it even attempts an RCON connection,
+and that check can itself be slow or simply unable to see a server it
+doesn't manage locally. Set `RCON_SKIP_SERVER_CHECK=true` to skip that
+pre-check and let the RCON connection attempt itself be the test — safe
+because it only removes an early skip, not any authentication or network
+check.
+
+---
+
+### Broadcast messages show garbled text for Chinese or other non-Latin characters
+
+**What you see:** a Scheduled Task server message, or a manually sent
+broadcast, shows up in-game as garbled or mismatched characters instead of
+the Chinese (or other non-Latin) text you typed — not blank boxes, but
+wrong-looking text.
+
+**What it means:** the panel sends the message to the PZ server as correct
+UTF-8 over RCON — this has been independently verified byte-for-byte,
+including the packet's length field, for exactly this kind of text.
+Garbled-but-present characters are the signature of a *charset mismatch* on
+the receiving side, not a transmission problem: something decoded valid
+UTF-8 bytes using the wrong text encoding. The most likely cause is Project
+Zomboid's own dedicated server — a Java process — falling back to the host
+OS's default text encoding instead of UTF-8 when it reads the RCON command.
+On a Chinese-locale Windows machine, that default is typically GBK, not
+UTF-8.
+
+**What to do:**
+- On the machine running the **PZ dedicated server** (not the panel, and
+  not the game client) — if it's Windows: **Settings → Time & Language →
+  Language & Region → Administrative language settings → Change system
+  locale → check "Beta: Use Unicode UTF-8 for worldwide language support"**,
+  then restart the machine and restart the PZ server. This forces Java's
+  default text encoding to UTF-8 system-wide and is the most likely fix.
+- If you launch the PZ server yourself rather than through the panel's
+  generated startup script, you can instead add `-Dfile.encoding=UTF-8` to
+  the `java` command line that starts `zombie.network.GameServer` — same
+  effect, scoped to that one process instead of the whole machine.
+- If neither helps, try sending the same text through a different broadcast
+  method (for example PanelBridge's in-game chat action instead of RCON
+  `servermsg`, where available) to see whether the problem is specific to
+  RCON or affects every broadcast path — that narrows down whether this is
+  an RCON-decode issue or something in PZ's text rendering more generally.
+
 ---
 
 ### Panel says it cannot determine whether the server is running
@@ -216,14 +308,82 @@ remote host and never claims otherwise.
 
 ---
 
+### Server process exited immediately after starting (code=1, signal=none) — startup failed
+
+**What you see:** clicking Start fails almost instantly with `Server
+process exited immediately after starting (code=1, signal=none) —
+startup failed.` On Windows, `server-launch.log` for that server is
+either **missing entirely, or exists but is empty (0 bytes)** — that
+pairing (this exact error, plus no real log content) is the fingerprint
+of this specific bug, not a different startup failure.
+
+Occasionally you'll instead see the same error with a short extra line
+attached, something like `'...\ProjectZomboid' is not recognized as an
+internal or external command...`. That's still this bug — see below for
+why the log is sometimes empty and sometimes has that one line in it
+instead.
+
+**Which versions this affects:** **v1.2.15**, the current release, on
+**Windows only** — v1.2.14 and earlier don't have this specific bug.
+v1.2.14 launched the server executable by its bare filename rather than
+its full path, so the install path itself never appeared on the command
+line handed to `cmd.exe` at all (that version had a different Windows
+bug of its own, since fixed, where a hardened system setting could stop
+that bare-filename launch from being found). v1.2.15 fixed that by
+launching with the full, absolute path instead — which is correct, but
+newly exposes that path (and the panel's own log path, below) to
+`cmd.exe`'s quote handling on the command line, which is what this bug
+is in.
+
+**What it means:** if the game server's install path, or the **panel's
+own** logs folder (wherever the panel itself is installed or configured
+to keep its data — not a per-server setting), contains a **space**
+anywhere, or one of the characters **`&` `(` `)` `^`**, `cmd.exe`'s quote
+handling on that command line breaks before the actual game server
+executable ever runs. `cmd.exe` exits with code 1 and nothing resembling
+the server starts — this is a bug in how v1.2.15 builds that command
+line, not anything wrong with your install, your path choice, or your
+server configuration.
+
+The log behaves differently depending on which character triggered it,
+which is why both symptoms above are the same bug: a bare **space** or
+**`&`**/**`^`** makes `cmd.exe`'s own output redirection fail before the
+log file is ever opened, so it's missing or stays at 0 bytes. A **`(`**
+in the path instead makes `cmd.exe` fail at looking up the command *after*
+redirection was already set up successfully, so the log exists and
+contains that one `is not recognized` line — but the game server still
+never ran, exactly as if the log were empty.
+
+**What to do (today, before the fix is released):** make sure both the
+game server's install folder and the panel's own install/data location
+are on a path with **no spaces and none of `&` `(` `)` `^`** — for
+example `D:\PZServer` rather than `D:\Program Files\PZ Server (x86)`.
+This is a workaround, not the intended fix; there is nothing else you
+need to change, and nothing about your server's own configuration
+(`.ini`, mods, RCON) is involved.
+
+**When does a real fix arrive:** the fix exists in this project's source
+today but **has not shipped in any released version yet** — v1.2.15 is
+still the latest release and still has this bug. Once a release contains
+it, you'll be able to use a path with spaces or these characters again
+without the workaround above; this page will be updated to name that
+version once it exists. Don't take "the code is fixed" to mean "my
+installed copy is fixed" — check your actual version against the
+release notes before assuming an upgrade already covers this.
+
+---
+
 ### Permission denied on mounted PZ folders
 
 **What you see (Linux/Docker):** `Cannot read /some/path (EACCES). The
 panel service account needs read and execute permission on this folder and
 every parent folder.`
 
-**What you see (Windows):** `Cannot read C:\some\path (EACCES). Run the
-panel as an account that can read this folder.`
+**What you see (Windows):** `Cannot read C:\some\path (EPERM). Run the
+panel as an account that can read this folder.` (Windows permission errors
+surface as `EPERM`, not `EACCES` — the code in parentheses is whatever the
+OS actually returned, so treat the exact code as informational, not a
+required match.)
 
 **What it means:** the panel process's user doesn't have permission to
 read a folder you pointed it at — almost always a PZ install or save

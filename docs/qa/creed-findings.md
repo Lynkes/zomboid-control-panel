@@ -1,5 +1,15 @@
 # Creed — adversarial findings log
 
+> **RECONCILIATION SUMMARY (2026-09-02, kevin, reconcile-qa-findings-2026-09-02):** All 14 findings
+> in this file verified against current source at HEAD `5f913567`. **14 FIXED, 0 LIVE, 0 INVALID.**
+> Findings 1-4 and 6-9 already carried "RECONCILED 2026-08-24" notes from an earlier pass — spot-checked
+> those against current code (not just trusted) and confirmed the cited constructs are still present
+> and the cited commits are still ancestors of HEAD. Findings 5-14 had never been reconciled before
+> this pass; all ten were checked fresh against current code and found already fixed by commits
+> unrelated to any QA-doc reconciliation effort (backup cron validation, template `iniExclusions`
+> union fix, template-apply fail-closed branch, scheduler 6-field cron rejection, and the five
+> discovery/serverFinder items). Per-finding evidence inline below.
+
 Read-only bug hunt. Areas assigned: server/routes/{scheduler,discord,backup,serverFiles,servers,discovery,templates,serverFinder,panelBridge,rcon}.js
 and their matching server/services/*.js, plus a cross-cutting audit of server/services/permissions.js's capability catalogue.
 Findings appended as found, each verified before being listed unless marked UNVERIFIED. Coverage notes at the bottom.
@@ -11,6 +21,8 @@ Findings appended as found, each verified before being listed unless marked UNVE
 > `path.isAbsolute(scanPath)` / `path.isAbsolute(dataPath)` on the RAW input, with an explicit
 > comment ("Must check isAbsolute() on the raw input: path.resolve() always...") before resolving.
 > Verified directly by reading current source.
+
+**status: FIXED** — re-verified 2026-09-02 at HEAD `5f913567` (commit `0cacaa8` still an ancestor of HEAD, fix construct read directly, not inferred from the commit existing).
 
 ## Finding 1 — dead "must be absolute path" check in servers.js /auto-scan and /detect
 
@@ -36,6 +48,8 @@ if (!path.isAbsolute(resolvedPath)) {
 > **RECONCILED 2026-08-24 (jim):** FIXED at `0cacaa8` (same commit as Finding 1 — three sites fixed
 > together). Was Cosmetic even before the fix (the real containment lived in the downstream suffix +
 > realpath check), now also correct at the surface.
+
+**status: FIXED (was cosmetic even before the fix)** — re-verified 2026-09-02 at HEAD `5f913567`.
 
 ## Finding 2 — same dead check in panelBridge.js /install-mod, but harmless due to a real check downstream
 
@@ -96,6 +110,8 @@ or we're given non-overlapping file lists.
 > says). Verified directly, not just from a claim — I initially escalated this as still-live before
 > checking, corrected within minutes. See the RESUMED section below for the full correction record.
 
+**status: FIXED** — re-verified 2026-09-02 at HEAD `5f913567`. `backupService.js`'s `cleanupOldBackups()` still excludes `uploaded-*` explicitly; `deleteBackupsOlderThan()` still deliberately does not (documented, correct asymmetry).
+
 ## Finding 3 — cleanupOldBackups()/deleteBackupsOlderThan() delete uploaded backups despite a comment saying they won't
 
 **WHERE:** `server/services/backupService.js:557-581` (`cleanupOldBackups`), also
@@ -138,6 +154,8 @@ manually preserved, while a written comment tells them it can't happen.
 > `requirePermission("backups.download")`, its own dedicated capability rather than reusing
 > `backups.manage` — the better fix, since a capability should only be reused when its grant set
 > actually matches. A comment above the route documents the exposure path.
+
+**status: FIXED** — re-verified 2026-09-02 at HEAD `5f913567`.
 
 ## Finding 4 — GET /api/backup/download/:name has no backups.manage permission gate
 
@@ -208,6 +226,8 @@ all night. Both are resolved:
 - Finding 4 (`GET /download/:name` ungated): `backup.js:171` now gates on a dedicated
   `requirePermission("backups.download")` capability, distinct from `backups.manage`.
 
+**status: FIXED** (verified fresh 2026-09-02, HEAD `5f913567` — no prior reconciliation note existed for this finding). `server/routes/backup.js`'s `POST /settings` now rejects `req.body.schedule` with a 400 unless it passes both `isSupportedFiveFieldCron()` and `!isCronTooFrequent()` (lines ~131-142) before ever assigning `allowed.schedule` — the "accepted with zero validation" gap this finding described no longer exists.
+
 ## Finding 5 — POST /api/backup/settings accepts an invalid cron schedule with zero validation; failure is silent
 
 **WHERE:** `server/routes/backup.js:77-108` (`POST /settings`), `server/services/backupService.js:168-183`
@@ -252,6 +272,8 @@ silent wrong answer that costs the most, per this dispatch's own framing) — wo
 future UI change adds a custom-schedule input.
 
 ---
+
+**status: FIXED** (verified fresh 2026-09-02, HEAD `5f913567` — no prior reconciliation note existed for this finding). `backupService.js`'s `restoreBackup()` (~line 1139 onward) no longer calls `checkServerRunning()`; it now calls `getServerProcessDetails()` and explicitly refuses (`success:false`) when `!processDetails || processDetails.scanFailed`, matching the route's own fail-closed check. Comment cites "bug-hunt-2026-08-27, backup-restore hunt" as the fixing pass — the landmine this finding warned about (a future direct caller inheriting a fail-open guard) is closed.
 
 ## Finding 6 — backupService.js's own internal restore guard still uses the pre-fix fail-open pattern; currently masked, a landmine for any future caller
 
@@ -305,6 +327,8 @@ anything tonight.
 
 ---
 
+**status: FIXED** (verified fresh 2026-09-02, HEAD `5f913567` — no prior reconciliation note existed for this finding). `server/utils/templateSchema.js` now exports `resolveIniExclusions(template)`, which unions `DEFAULT_INI_EXCLUSIONS` with any template-supplied `iniExclusions` (a template may only ADD to the excluded set, never remove from it). Both `validateTemplate()` and `templateService.js`'s `prepareIniChange()` (the actual apply-time write path) call this shared function instead of reading `template.iniExclusions` directly — confirmed by reading both call sites, not by trusting a comment. Code comments in both files explicitly cite "2026-08-24 conv-template-privesc" as the incident this closed. The `"iniExclusions": []` bypass this finding demonstrated no longer works at either the validate or apply site.
+
 ## Finding 7 (SECURITY, already flagged separately and immediately) — template `iniExclusions` self-referential bypass lets `templates.manage` rewrite RCON password/ports/ServerName
 
 **WHERE:** `server/utils/templateSchema.js:22-34,124-126`, `server/services/templateService.js:92-104,124-133,191-192`.
@@ -323,6 +347,8 @@ array, so a template shipping `"iniExclusions": []` sails through validation and
 exclusion list's purpose) scopes to gameplay rulesets, not server identity/networking/secrets.
 **SEVERITY: High — real capability-boundary violation, live and exploitable today.**
 
+**status: FIXED (fail-closed, not the full cross-server check)** (verified fresh 2026-09-02, HEAD `5f913567`). `server/routes/templates.js`'s `POST /:id/apply` (~line 114) still only runs the real running-state check `if (String(activeServer?.id) === String(serverId))`, but the `else` branch — previously nothing — now explicitly refuses with 409 `SIM_TEMPLATE_APPLY_INACTIVE_SERVER_UNVERIFIABLE` rather than silently skipping the guard. Comment cites "2026-08-24 conv-template-privesc" and explains the design choice: real cross-server process detection wasn't built, but "can't check" now fails the same way it does everywhere else in this codebase instead of applying unchecked. Closes the exploitable gap this finding described; the underlying feature limitation (no way to check a non-active server's process state) is unchanged but is no longer a silent bypass.
+
 ## Finding 8 (already flagged separately and immediately) — template apply's stopped-server guard only checks the *active* server, not the target
 
 **WHERE:** `server/routes/templates.js:89-128`.
@@ -338,6 +364,8 @@ single server by name, so there's no existing mechanism to check a non-active se
 the `if` were removed — this needs a small design change, not a one-line fix.
 **SEVERITY: High — the same "wholesale config overwrite against a live process's open files" class
 backup/restore correctness is prioritized for.**
+
+**status: FIXED** (verified fresh 2026-09-02, HEAD `5f913567` — no prior reconciliation note existed for this finding). `server/routes/scheduler.js` now imports and calls `hasUnsupportedCronFieldCount()` (from `utils/cronValidation.js`) BEFORE `isCronTooFrequent()`, at both `POST /tasks` (create, ~line 285) and `PUT /tasks/:id` (update, ~line 392) — a 6-field seconds-precision expression is now rejected outright with `SCHEDULER_CRON_SECONDS_UNSUPPORTED` rather than falling through the minutes-only frequency check. The exact `"*/5 * * * * *"` bypass this finding demonstrated is closed at both mutation sites.
 
 ## Finding 9 (SECURITY, already flagged separately and immediately) — scheduler's DoS frequency guard is bypassed by 6-field (seconds-precision) cron expressions
 
@@ -359,26 +387,33 @@ exactly the DoS this check exists to prevent, with the check itself silently rep
 
 ## Findings 10-14 — from the discovery/templates/serverFinder sub-hunt, non-security, not independently re-verified line-by-line by me (fork's write-up read and judged sound; territory/severity framing consistent with everything else verified in this pass)
 
+**status: ALL FIVE FIXED** (verified fresh 2026-09-02, HEAD `5f913567` — no prior reconciliation note existed for any of these). Per-item evidence below.
+
 - **`queryServerInfo` (serverFinder.js:64-101) collapses three distinct failure modes (timeout,
   socket error, unparseable response) into the same `null`.** Pattern #5. `GET /ping` reports
   "offline" for a response it simply couldn't parse; `GET /query` says "did not respond" when it
   did. Medium — a future A2S protocol bump would silently misreport every server as offline with no
   diagnostic trail. serverFinder.js:577-583, :521-526.
+  **FIXED** — `queryServerInfo()` now takes an optional `onFailureReason` callback invoked with `'timeout' | 'socket-error' | 'unparseable-response'`, and a shared `QUERY_FAILURE_MESSAGES` map gives `GET /query`/`GET /ping` distinct wording for each.
 - **`GET /` (serverFinder.js:364-485) can report "0 servers found" identically whether nothing is
   listed or every lookup path (Steam API + master-server fallback) errored.** Pattern #5. Medium —
   misleading exactly when an operator most needs a real signal (broken egress/API key).
+  **FIXED** — `deriveSteamApiFailureReason({steamApiError, serversFound})` now surfaces the real API error when `serversFound === 0`, alongside `masterDiscovery` stats in the response.
 - **`discoverMounts()` (mountDiscovery.js:18-32) can't distinguish "mount not present" from
   "couldn't check it" (permission denied, I/O error) — same shape, no logging on the caught-error
   path.** Pattern #5. Low-Medium, onboarding-only, but a realistic failure mode for exactly the
   Docker bind-mount deployment this feature targets.
+  **FIXED** — `classifyDir()` now returns `"missing"` (ENOENT) vs `"inaccessible"` (any other error, e.g. EACCES) distinctly; comment explicitly names this exact finding's misdiagnosis risk as the reason.
 - **`GET /discover-mounts` (discovery.js:29-36) is ungated while its sibling `POST /create-from-discovery`
   requires `servers.discover`.** Pattern #1. Low confidence on severity — discloses filesystem
   paths/candidate server names to any authenticated role, not secrets, but worth a deliberate
   decision rather than a silent asymmetry.
+  **FIXED** — `GET /discover-mounts` now requires `requirePermission("servers.discover")`, matching its sibling.
 - **`readServerIniSettings`'s port fields (mountDiscovery.js:180,182) silently default
   (`parseInt(...) || 27015`) on a malformed value instead of erroring, unlike the sibling
   `rconPassword` field the caller does check-and-refuse.** Pattern #3 + #1. Low-Medium — a corrupted
   source ini could silently populate a new server profile with the wrong RCON port.
+  **FIXED** — ports now go through `parsePort(value, default, max?)`, which returns `null` on a malformed value; `readServerIniSettings()` returns `null` for the whole result if either port is `null`, refusing rather than silently defaulting.
 
 ## Areas the discovery/templates/serverFinder sub-hunt checked clean
 

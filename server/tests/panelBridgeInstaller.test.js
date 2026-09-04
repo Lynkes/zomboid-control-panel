@@ -3,9 +3,12 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {
+  autoInstallBridgeIfNeeded,
   canAutoInstall,
   checkBridgeInstalled,
+  getBundledBridgeVersion,
   installBridge,
+  isBridgeVersionBehindBundled,
   resolveInstallDir,
   resolveSourcePath,
 } from '../services/panelBridgeInstaller.js';
@@ -215,6 +218,61 @@ describe('installBridge', () => {
 // features for any launcher whose extension wasn't already lowercase. Both
 // call sites now share this one implementation instead of each carrying
 // their own copy.
+// 2026-09-02, bridge-enforcement: the pre-spawn call routes/server.js's
+// /start and /restart now make. Route-level ordering (install-before-spawn)
+// is covered by serverStartRestartBridgeAutoInstall.test.js; these just
+// pin the function's own behavior in isolation.
+describe('autoInstallBridgeIfNeeded', () => {
+  it('installs a stale bridge', () => {
+    const targetDir = path.join(tmpDir, 'media', 'lua', 'server');
+    fs.mkdirSync(targetDir, { recursive: true });
+    fs.writeFileSync(path.join(targetDir, 'PanelBridge.lua'), 'local VERSION = "0.0.1"\n');
+
+    autoInstallBridgeIfNeeded(localServer());
+
+    expect(fs.readFileSync(path.join(targetDir, 'PanelBridge.lua'), 'utf8')).toBe(
+      fs.readFileSync(resolveSourcePath(), 'utf8'),
+    );
+  });
+
+  it('does not throw when the install fails', () => {
+    fs.writeFileSync(path.join(tmpDir, 'media'), 'not a directory');
+    expect(() => autoInstallBridgeIfNeeded(localServer())).not.toThrow();
+  });
+
+  it('is a no-op for a remote server', () => {
+    autoInstallBridgeIfNeeded({ ...localServer(), isRemote: true });
+    expect(fs.existsSync(path.join(tmpDir, 'media', 'lua', 'server', 'PanelBridge.lua'))).toBe(false);
+  });
+});
+
+describe('getBundledBridgeVersion / isBridgeVersionBehindBundled', () => {
+  it('returns the same version checkBridgeInstalled reports after a fresh install', () => {
+    installBridge(localServer());
+    const status = checkBridgeInstalled(localServer());
+    expect(getBundledBridgeVersion()).toBe(status.version);
+  });
+
+  // The only signal a remote/SFTP server can ever produce: no local file to
+  // content-compare, so this is the whole check for that topology.
+  it('flags a live version older than what this panel bundles', () => {
+    expect(isBridgeVersionBehindBundled('0.0.1')).toBe(true);
+  });
+
+  it('does not flag the currently bundled version as behind itself', () => {
+    expect(isBridgeVersionBehindBundled(getBundledBridgeVersion())).toBe(false);
+  });
+
+  it('does not flag a newer-than-bundled live version as behind', () => {
+    expect(isBridgeVersionBehindBundled('999.0.0')).toBe(false);
+  });
+
+  it('is false with no live version to compare (unconnected/never reported)', () => {
+    expect(isBridgeVersionBehindBundled(null)).toBe(false);
+    expect(isBridgeVersionBehindBundled(undefined)).toBe(false);
+  });
+});
+
 describe('resolveInstallDir', () => {
   it('is case-insensitive for the launch-script extension (.BAT/.Sh/.EXE)', () => {
     for (const ext of ['.bat', '.BAT', '.Bat', '.sh', '.SH', '.Sh', '.exe', '.EXE', '.Exe']) {

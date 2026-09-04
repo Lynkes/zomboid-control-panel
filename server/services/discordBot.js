@@ -23,10 +23,15 @@ import { sanitizeError } from "../utils/sanitize.js";
 import { describeStartFailure } from "./discordStartFailure.js";
 import { readIniValues } from "../utils/templateFiles.js";
 import { runManagedLifecycle } from "./managedContainer.js";
+import { resolveObservedServerRunning } from "../utils/serverStatus.js";
 import {
   collectKnownSecretValues,
   redactKnownSecrets,
 } from "../utils/discordMessageRedaction.js";
+import {
+  acquireLifecycleLock,
+  lifecycleInProgressResponse,
+} from "./lifecycleCoordinator.js";
 
 // Workaround for undici 8.x + Node.js 22+/24+: undici adds Symbol(sensitiveHeaders)
 // to response header objects, but the WebIDL ByteString converter in undici's
@@ -926,13 +931,19 @@ export class DiscordBot {
   async handleStatus(interaction) {
     await interaction.deferReply();
 
-    // getServerStatus() already runs getServerProcessDetails() internally
-    // and exposes scanFailed -- no need for a second, separate
-    // checkServerRunning() call that would silently discard it and report
-    // a confident "offline" during a detection hiccup.
+    // getServerStatus() is still the source for uptime/etc, but its OWN
+    // .running/.scanFailed come from the local process scan alone -- wrong
+    // for a split-container/docker-managed setup where PZ is genuinely up
+    // but not locally visible (GH#114). resolveObservedServerRunning() is
+    // the same OR-of-every-signal verdict the dashboard badge and the
+    // status watchdog use, so this can't disagree with either of them.
     const status = await this.serverManager.getServerStatus();
-    const isRunning = status.running;
-    const statusUnknown = status.scanFailed;
+    const observedRunning = await resolveObservedServerRunning(
+      this.serverManager,
+      this.rconService,
+    );
+    const isRunning = observedRunning === true;
+    const statusUnknown = observedRunning === null;
 
     // Format uptime from seconds
     let uptimeStr = "N/A";
@@ -980,14 +991,20 @@ export class DiscordBot {
   async handlePlayers(interaction) {
     await interaction.deferReply();
 
-    const details = await this.serverManager.getServerProcessDetails();
-    if (details.scanFailed) {
+    // See handleStatus()'s comment: the raw local scan alone can't see a
+    // split-container/docker-managed server, so this asks the same
+    // OR-every-signal question the dashboard badge and watchdog do.
+    const observedRunning = await resolveObservedServerRunning(
+      this.serverManager,
+      this.rconService,
+    );
+    if (observedRunning === null) {
       await interaction.editReply(
         "🟡 Unable to verify server status — try again shortly.",
       );
       return;
     }
-    if (!details.running) {
+    if (!observedRunning) {
       await interaction.editReply("🔴 Server is offline");
       return;
     }
@@ -1047,143 +1064,207 @@ export class DiscordBot {
 
   async handleStart(interaction) {
     await interaction.deferReply();
+    // Fetched before acquiring the lock (a pure DB read) so a refusal from
+    // a concurrent operation can name which server it's for -- see
+    // lifecycleCoordinator.js's comment.
+    const activeServerForLock = await getActiveServer();
+    const lifecycleLock = acquireLifecycleLock(
+      "discord-start",
+      activeServerForLock?.name || activeServerForLock?.serverName || null,
+    );
+    if (!lifecycleLock) {
+      await interaction.editReply(lifecycleInProgressResponse().error);
+      return;
+    }
 
-    // getServerProcessDetails(), not checkServerRunning() -- the latter
-    // collapses a failed detection scan into a confident "not running,"
-    // which would let this command launch a second server process
-    // alongside one that's actually still up. Same fail-open class already
-    // fixed at /wipe, /delete-files, chunks.js, templates.js and others.
-    const details = await this.serverManager.getServerProcessDetails();
-    if (details.scanFailed) {
-      await interaction.editReply(
-        "⚠️ Unable to verify whether the server is already running — refusing to start to avoid launching a second process. Check the panel UI directly.",
+    try {
+      const activeServer = activeServerForLock;
+      // Use the shared provider-aware verdict so split-container servers do
+      // not look stopped merely because their process is outside this host.
+      const observedRunning = await resolveObservedServerRunning(
+        this.serverManager,
+        this.rconService,
       );
-      return;
-    }
-    if (details.running) {
-      await interaction.editReply("⚠️ Server is already running");
-      return;
-    }
+      if (observedRunning === null) {
+        await interaction.editReply(
+          "⚠️ Unable to verify whether the server is already running — refusing to start to avoid launching a second process. Check the panel UI directly.",
+        );
+        return;
+      }
+      if (observedRunning) {
+        await interaction.editReply("⚠️ Server is already running");
+        return;
+      }
 
-    // A container-managed server starts through Docker — the panel has no
-    // process to spawn inside another container.
-    const managed = await runManagedLifecycle("start");
-    const started = managed.handled
-      ? managed
-      : await this.serverManager.startServer();
-    if (!started?.success) {
+      // A container-managed server starts through Docker — the panel has no
+      // process to spawn inside another container.
+      const managed = await runManagedLifecycle("start", {
+        serverId: activeServer?.id ?? null,
+      });
+      const started = managed.handled
+        ? managed
+        : await this.serverManager.startServer({
+            serverId: activeServer?.id ?? null,
+          });
+      if (!started?.success) {
+        await interaction.editReply(
+          `❌ Failed to start the server: ${sanitizeError(started?.error || started?.message)}`,
+        );
+        return;
+      }
       await interaction.editReply(
-        `❌ Failed to start the server: ${sanitizeError(started?.error || started?.message)}`,
+        started.alreadyRunning ? "✅ Server is already running" : "🚀 Server is starting...",
       );
-      return;
-    }
-    await interaction.editReply("🚀 Server is starting...");
+      if (started.alreadyRunning) return;
 
-    // Send notification to channel
-    const safeTag = escapeMarkdown(String(interaction.user.tag));
-    await this.sendNotification(`🚀 **Server started** by ${safeTag}`);
+      // Send notification to channel
+      const safeTag = escapeMarkdown(String(interaction.user.tag));
+      await this.sendNotification(`🚀 **Server started** by ${safeTag}`);
+    } finally {
+      lifecycleLock.release();
+    }
   }
 
   async handleStop(interaction) {
     await interaction.deferReply();
-
-    const details = await this.serverManager.getServerProcessDetails();
-    if (details.scanFailed) {
-      await interaction.editReply(
-        "⚠️ Unable to verify whether the server is running. Check the panel UI directly before retrying.",
+    // See handleStart's comment above for why this is fetched before the lock.
+    const activeServerForLock = await getActiveServer();
+    const lifecycleLock = acquireLifecycleLock(
+      "discord-stop",
+      activeServerForLock?.name || activeServerForLock?.serverName || null,
+    );
+    if (!lifecycleLock) {
+      await interaction.editReply(lifecycleInProgressResponse().error);
+      return;
+    }
+    try {
+      const activeServer = activeServerForLock;
+      const observedRunning = await resolveObservedServerRunning(
+        this.serverManager,
+        this.rconService,
       );
-      return;
-    }
-    if (!details.running) {
-      await interaction.editReply("⚠️ Server is not running");
-      return;
-    }
+      if (observedRunning === null) {
+        await interaction.editReply(
+          "⚠️ Unable to verify whether the server is running. Check the panel UI directly before retrying.",
+        );
+        return;
+      }
+      if (!observedRunning) {
+        await interaction.editReply("⚠️ Server is not running");
+        return;
+      }
 
-    if (!this.rconService?.connected) {
-      await interaction.editReply(
-        "❌ RCON is not connected — cannot gracefully stop the server. Use the panel UI to force-stop if needed.",
-      );
-      return;
-    }
+      if (!this.rconService?.connected) {
+        await interaction.editReply(
+          "❌ RCON is not connected — cannot gracefully stop the server. Use the panel UI to force-stop if needed.",
+        );
+        return;
+      }
 
-    // Quitting after a failed save would discard everything since the last one.
-    const saved = await this.rconService.save();
-    if (!saved?.success) {
-      await interaction.editReply(
-        `❌ Save failed, so the server was left running: ${sanitizeError(saved?.error)}`,
-      );
-      return;
-    }
-    // A container-managed server must go down through Docker: RCON quit kills
-    // PID 1, the container exits, and its restart policy brings the world back.
-    const managed = await runManagedLifecycle("stop");
-    const quit = managed.handled ? managed : await this.rconService.quit();
-    if (!quit?.success) {
-      await interaction.editReply(
-        `❌ The world was saved, but the shutdown command failed: ${sanitizeError(quit?.error)}`,
-      );
-      return;
-    }
+      // Quitting after a failed save would discard everything since the last one.
+      const saved = await this.rconService.save();
+      if (!saved?.success) {
+        await interaction.editReply(
+          `❌ Save failed, so the server was left running: ${sanitizeError(saved?.error)}`,
+        );
+        return;
+      }
+      // A container-managed server must go down through Docker: RCON quit kills
+      // PID 1, the container exits, and its restart policy brings the world back.
+      const managed = await runManagedLifecycle("stop", {
+        serverId: activeServer?.id ?? null,
+      });
+      const quit = managed.handled
+        ? managed
+        : await this.rconService.quit();
+      if (!quit?.success) {
+        await interaction.editReply(
+          `❌ The world was saved, but the shutdown command failed: ${sanitizeError(quit?.error)}`,
+        );
+        return;
+      }
 
-    await interaction.editReply("🛑 Server is stopping...");
-    const safeTag = escapeMarkdown(String(interaction.user.tag));
-    await this.sendNotification(`🛑 **Server stopped** by ${safeTag}`);
+      await interaction.editReply("🛑 Server is stopping...");
+      const safeTag = escapeMarkdown(String(interaction.user.tag));
+      await this.sendNotification(`🛑 **Server stopped** by ${safeTag}`);
+    } finally {
+      lifecycleLock.release();
+    }
   }
 
   async handleRestart(interaction) {
     await interaction.deferReply();
-
-    const minutes = interaction.options.getInteger("minutes") ?? 5;
-
-    const details = await this.serverManager.getServerProcessDetails();
-    if (details.scanFailed) {
-      await interaction.editReply(
-        "⚠️ Unable to verify whether the server is running. Check the panel UI directly before retrying.",
-      );
-      return;
-    }
-    if (!details.running) {
-      await interaction.editReply(
-        "⚠️ Server is not running. Use /start to start the server.",
-      );
-      return;
-    }
-
-    if (!this.rconService?.connected) {
-      await interaction.editReply(
-        "❌ RCON is not connected — cannot send the restart warning. Try again once RCON reconnects.",
-      );
-      return;
-    }
-
-    // The scheduler opens its own countdown with the same warning, so an
-    // extra notice here only doubles it in game — and unlike the scheduler's
-    // it lacks the [SERVER] prefix, so it leaks back into the chat relay.
-    await interaction.editReply(
-      `🔄 Server restart initiated (${minutes} min warning)`,
+    const lifecycleLock = acquireLifecycleLock(
+      "discord-restart",
+      this.serverManager?.serverName || null,
     );
-    const safeTag = escapeMarkdown(String(interaction.user.tag));
-    await this.sendNotification(
-      `🔄 **Server restart** initiated by ${safeTag}`,
-    );
+    if (!lifecycleLock) {
+      await interaction.editReply(lifecycleInProgressResponse().error);
+      return;
+    }
 
-    // Use scheduler for proper restart with the specified warning time
     try {
-      // performRestart reports refusal and failure by return value rather than
-      // by throwing, so without this the command always claims it worked.
-      const result = await this.scheduler.performRestart(minutes);
-      if (!result?.success) {
+      const minutes = interaction.options.getInteger("minutes") ?? 5;
+
+      // See handleStart()'s comment: the raw local scan alone can't see a
+      // split-container/docker-managed server.
+      const observedRunning = await resolveObservedServerRunning(
+        this.serverManager,
+        this.rconService,
+      );
+      if (observedRunning === null) {
+        await interaction.editReply(
+          "⚠️ Unable to verify whether the server is running. Check the panel UI directly before retrying.",
+        );
+        return;
+      }
+      if (!observedRunning) {
+        await interaction.editReply(
+          "⚠️ Server is not running. Use /start to start the server.",
+        );
+        return;
+      }
+
+      if (!this.rconService?.connected) {
+        await interaction.editReply(
+          "❌ RCON is not connected — cannot send the restart warning. Try again once RCON reconnects.",
+        );
+        return;
+      }
+
+      // The scheduler opens its own countdown with the same warning, so an
+      // extra notice here only doubles it in game — and unlike the scheduler's
+      // it lacks the [SERVER] prefix, so it leaks back into the chat relay.
+      await interaction.editReply(
+        `🔄 Server restart initiated (${minutes} min warning)`,
+      );
+      const safeTag = escapeMarkdown(String(interaction.user.tag));
+      await this.sendNotification(
+        `🔄 **Server restart** initiated by ${safeTag}`,
+      );
+
+      // Use scheduler for proper restart with the specified warning time
+      try {
+        // performRestart reports refusal and failure by return value rather than
+        // by throwing, so without this the command always claims it worked.
+        const result = await this.scheduler.performRestart(minutes, {
+          lifecycleLock,
+        });
+        if (!result?.success) {
+          await this._reportRestartOutcome(
+            interaction,
+            `❌ Restart did not complete: ${sanitizeError(result?.message || "unknown error")}`,
+          );
+        }
+      } catch (error) {
+        log.error(`restart failed: ${error.message}`);
         await this._reportRestartOutcome(
           interaction,
-          `❌ Restart did not complete: ${sanitizeError(result?.message || "unknown error")}`,
+          `❌ Server restart failed: ${sanitizeError(error.message)}`,
         );
       }
-    } catch (error) {
-      log.error(`restart failed: ${error.message}`);
-      await this._reportRestartOutcome(
-        interaction,
-        `❌ Server restart failed: ${sanitizeError(error.message)}`,
-      );
+    } finally {
+      lifecycleLock.release();
     }
   }
 
@@ -1483,10 +1564,17 @@ export class DiscordBot {
     this._presenceUpdateInFlight = (async () => {
       let activity = "Server offline";
       try {
-        const details = await this.serverManager.getServerProcessDetails();
-        if (details.scanFailed) {
+        // See handleStart()'s comment: the raw local scan alone can't see a
+        // split-container/docker-managed server, and this presence text was
+        // stuck on "Server offline" forever for that topology even with
+        // RCON connected.
+        const observedRunning = await resolveObservedServerRunning(
+          this.serverManager,
+          this.rconService,
+        );
+        if (observedRunning === null) {
           activity = "Status unknown";
-        } else if (details.running) {
+        } else if (observedRunning) {
           if (this.rconService?.connected) {
             const result = await this.rconService.getPlayers();
             if (result?.success) {

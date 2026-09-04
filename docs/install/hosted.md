@@ -64,8 +64,8 @@ panel.
 
 ## Phase 2 — Add the server as remote
 
-5. In the panel, open **Servers**.
-6. Click **Add Remote Server**.
+5. In the panel's left sidebar, click **My Servers**.
+6. Click **Add Existing Server**, then choose **Remote Server**.
 7. Fill in:
    - **Server machine (RCON host)** — the address of the machine running
      PZ. This is your provider's server address (for example

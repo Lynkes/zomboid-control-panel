@@ -33,7 +33,9 @@ import {
 import {
   canAutoInstall,
   checkBridgeInstalled,
+  getBundledBridgeVersion,
   installBridge,
+  isBridgeVersionBehindBundled,
   resolveInstallDir,
 } from "../services/panelBridgeInstaller.js";
 import { createLogger } from "../utils/logger.js";
@@ -449,10 +451,20 @@ function isValidBridgePath(inputPath) {
 router.get("/status", async (req, res) => {
   const status = bridge.getStatus();
 
-  // Also include detected paths and local auto-install status from the
-  // active server (only meaningful for local/non-remote installs).
+  // Also include detected paths and either local auto-install status or a
+  // remote version check, depending on the active server's topology.
   let detectedPaths = null;
   let localInstall = null;
+  // Remote/SFTP servers have no local file the panel can content-compare
+  // against -- canAutoInstall()/checkBridgeInstalled() both require a
+  // target path the panel writes to, which a remote server has none of (the
+  // panel never touches its filesystem). The only signal that's possible
+  // there is a plain version-STRING comparison between the bridge's own
+  // live self-report (status.version, from its status.json heartbeat) and
+  // whatever this panel currently bundles -- do not "fix" this into a
+  // content comparison later; it cannot work for a server the panel never
+  // writes to (2026-09-02 bridge-enforcement/bridge-install-integrity).
+  let remoteBridgeVersionCheck = null;
   try {
     const activeServer = await getActiveServer();
     if (activeServer) {
@@ -463,10 +475,20 @@ router.get("/status", async (req, res) => {
         // Bridge path would be: zomboidDataPath/Saves/Multiplayer/{serverName}/panelbridge/
         // OR for dedicated servers: installPath/../Server_files/Saves/Multiplayer/{serverName}/panelbridge/
       };
-      localInstall = {
-        canAutoInstall: canAutoInstall(activeServer),
-        ...checkBridgeInstalled(activeServer),
-      };
+      if (activeServer.isRemote) {
+        const bundledVersion = getBundledBridgeVersion();
+        const liveVersion = status.version || null;
+        remoteBridgeVersionCheck = {
+          bundledVersion,
+          liveVersion,
+          behind: liveVersion ? isBridgeVersionBehindBundled(liveVersion) : null,
+        };
+      } else {
+        localInstall = {
+          canAutoInstall: canAutoInstall(activeServer),
+          ...checkBridgeInstalled(activeServer),
+        };
+      }
     }
   } catch (e) {
     // Ignore
@@ -477,6 +499,7 @@ router.get("/status", async (req, res) => {
     modConnected: bridge.isModConnected(),
     detectedPaths,
     localInstall,
+    remoteBridgeVersionCheck,
   });
 });
 

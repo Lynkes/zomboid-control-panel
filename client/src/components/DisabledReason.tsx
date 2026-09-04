@@ -46,7 +46,7 @@ export function DisabledReason({ reason, side = 'top', className, children }: Di
           {children}
         </span>
       </TooltipTrigger>
-      <TooltipContent side={side} className="max-w-xs text-left text-xs leading-relaxed">
+      <TooltipContent side={side} className="max-w-xs text-start text-xs leading-relaxed">
         {reason}
       </TooltipContent>
     </Tooltip>

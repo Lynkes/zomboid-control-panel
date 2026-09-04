@@ -538,11 +538,11 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
                 <table className="w-full min-w-[720px] border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-border/60">
-                      <th className="sticky left-0 top-0 z-30 border-b border-border/60 bg-muted px-3 py-2 text-left align-top text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      <th className="sticky left-0 top-0 z-30 border-b border-border/60 bg-muted px-3 py-2 text-start align-top text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         {t('matrix.capabilityColumnHeader')}
                       </th>
                       {roles.map((role) => (
-                        <th key={role.id} className="sticky top-0 z-20 min-w-[170px] border-b border-border/60 bg-muted px-3 py-2 text-left align-top">
+                        <th key={role.id} className="sticky top-0 z-20 min-w-[170px] border-b border-border/60 bg-muted px-3 py-2 text-start align-top">
                           <div className="flex items-center gap-1.5">
                             <span className="font-semibold text-foreground">{role.name}</span>
                             {role.isSeeded && (
@@ -610,7 +610,7 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
                               type="button"
                               onClick={() => toggleGroup(group.group)}
                               aria-expanded={!collapsed}
-                              className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-foreground/70 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
+                              className="flex w-full items-center gap-1.5 px-3 py-2 text-start text-xs font-semibold uppercase tracking-wide text-foreground/70 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
                             >
                               <ChevronDown
                                 className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform motion-reduce:transition-none ${collapsed ? '-rotate-90' : ''}`}
@@ -709,7 +709,7 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-border/60 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                      <tr className="border-b border-border/60 text-start text-xs uppercase tracking-wide text-muted-foreground">
                         <th className="px-3 py-2">{t('userAssignment.usernameColumn')}</th>
                         <th className="px-3 py-2">{t('userAssignment.roleColumn')}</th>
                       </tr>

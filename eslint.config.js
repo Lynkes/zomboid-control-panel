@@ -30,6 +30,7 @@ export default [
         PANEL_BUILD_SHA: "readonly",
         PANEL_API_CONTRACT_VERSION: "readonly",
         PANEL_BRIDGE_LUA_B64: "readonly",
+        PANEL_CLIENT_DIST_B64: "readonly",
       },
     },
     rules: {

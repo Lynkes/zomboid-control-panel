@@ -588,6 +588,8 @@
     "bridgeFailedDesc": "{{message}}. Vérifiez la connexion bridge/serveur et réessayez.",
     "commandFailedDesc": "{{message}}. Vérifiez les paramètres de la commande et réessayez.",
     "commandFailedFallback": "Échec de la commande",
+    "notPersistedDesc": "Appliqué uniquement au monde en cours d'exécution — SandboxVars.lua n'a pas été mis à jour ({{reason}}), un redémarrage du serveur annulera donc ce changement.",
+    "notPersistedUnknownReason": "raison inconnue",
     "bridgeCommandFailedFallback": "Échec de la commande bridge.",
     "powerDidNotTakeEffectDesc": "Le serveur indique que l'alimentation est toujours {{state}} — le changement n'a pas été appliqué.",
     "noPlayersOnlineError": "Aucun joueur en ligne",

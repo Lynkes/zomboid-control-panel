@@ -102,6 +102,7 @@ import {
   ServerBackupArchive,
   PanelUpdateStatus,
   PanelUpdatePreflight,
+  PanelUpdateMessage,
   ServerInstance,
 } from "@/lib/api";
 import { getUserErrorMessage } from "@/lib/errorMessage";
@@ -778,7 +779,22 @@ export default function Settings() {
       setPanelUpdateStatusError(null);
       // "Ready to apply" reflects whether a binary is staged on disk, not just
       // whether the last click finished. Survives page reloads.
-      if (status.stagedUpdate) {
+      //
+      // GH#141: once a failed apply reports canRetryApply:false, the staged
+      // binary is gone and NOTHING re-stages it -- clicking Restart again is
+      // guaranteed to fail identically (server/services/panelUpdateChecker.js's
+      // reconcilePendingUpdate() leaves pendingPanelUpdate set on purpose so a
+      // fresh download can still retry, but that means status.updateAvailable
+      // stays true with status.stagedUpdate now null, and neither branch below
+      // would otherwise touch panelUpdateReady -- leaving it stuck at whatever
+      // it was before the apply failed. Checked first and explicitly so a
+      // stuck-true "ready" from before the failure can't survive it.
+      if (
+        status.lastApplyResult?.status === "failed" &&
+        status.lastApplyResult.canRetryApply === false
+      ) {
+        setPanelUpdateReady(false);
+      } else if (status.stagedUpdate) {
         setPanelUpdateReady(true);
       } else if (!status.updateAvailable) {
         setPanelUpdateReady(false);
@@ -846,6 +862,17 @@ export default function Settings() {
     }
     return t(`${scope}.${scope === "general" ? "restartGameServerUnknown" : "gameServerUnknown"}`);
   };
+
+  const translatePanelUpdateMessages = (
+    messages: string[],
+    details?: PanelUpdateMessage[],
+  ) =>
+    messages.map((message, index) => {
+      const detail = details?.[index];
+      return detail
+        ? t(detail.key, { ...detail.params, defaultValue: message })
+        : message;
+    });
 
   // Run preflight once status tells us we're in a packaged build and there is
   // anything actionable (either an available update or a staged file on disk).
@@ -2246,7 +2273,7 @@ export default function Settings() {
                 disabled={loading}
               >
                 <RefreshCw
-                  className={cn("w-4 h-4 mr-2", loading && "animate-spin")}
+                  className={cn("w-4 h-4 me-2", loading && "animate-spin")}
                 />
                 {t("pageHeader.retry")}
               </Button>
@@ -2271,7 +2298,7 @@ export default function Settings() {
             className="absolute inset-y-0 left-0 w-[3px] bg-gradient-to-b from-warning via-warning/80 to-warning/30"
             aria-hidden="true"
           />
-          <div className="flex flex-col gap-3 p-4 pl-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 p-4 ps-5 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-3">
               <div className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-warning/40 bg-warning/15 text-warning">
                 <AlertTriangle className="h-4 w-4" />
@@ -2346,12 +2373,12 @@ export default function Settings() {
       <Tabs
         value={activeSection}
         onValueChange={handleTabChange}
-        className="mt-6 lg:grid lg:grid-cols-[14.5rem_minmax(0,1fr)] lg:items-start lg:gap-7"
+        className="mt-6 lg:grid lg:grid-cols-[14.5rem_minmax(0,1fr)] rtl:lg:grid-cols-[minmax(0,1fr)_14.5rem] lg:items-start lg:gap-7"
       >
         <div className="relative lg:contents">
           <TabsList
             aria-label={t("ariaLabel")}
-            className="mb-4 flex h-auto w-full max-w-full justify-start gap-1 overflow-x-auto rounded-md border border-border/50 bg-muted/30 p-1 lg:sticky lg:top-4 lg:mb-0 lg:flex-col lg:items-stretch lg:gap-px lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0"
+            className="mb-4 flex h-auto w-full max-w-full justify-start gap-1 overflow-x-auto rounded-md border border-border/50 bg-muted/30 p-1 lg:sticky lg:top-4 lg:order-1 lg:mb-0 lg:flex-col lg:items-stretch lg:gap-px lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0 rtl:lg:order-2"
           >
             {settingsGroups.map((group) => (
               <React.Fragment key={group.name}>
@@ -2389,14 +2416,14 @@ export default function Settings() {
               on lg: via the group labels being visibly cut off at the viewport bottom instead. */}
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 right-0 flex w-10 items-center justify-end rounded-r-md bg-gradient-to-l from-muted to-transparent pr-1.5 lg:hidden"
+            className="pointer-events-none absolute inset-y-0 end-0 flex w-10 items-center justify-end rounded-e-md bg-gradient-to-l rtl:bg-gradient-to-r from-muted to-transparent pe-1.5 lg:hidden"
           >
-            <ChevronRight className="h-4 w-4 text-muted-foreground/80" />
+            <ChevronRight className="h-4 w-4 text-muted-foreground/80 rtl:-scale-x-100" />
           </div>
         </div>
 
         {/* Tab Content */}
-        <div className="space-y-5">
+        <div className="space-y-5 lg:order-2 rtl:lg:order-1">
           <TabsContent value="general" className="mt-0">
             {/* Panel Settings */}
             <Card id="settings-general">
@@ -2763,7 +2790,7 @@ export default function Settings() {
                         {t("access.recentBlockedLabel")}
                       </p>
                       <ScrollArea className="h-[150px] rounded-lg border border-border/60 bg-muted/20 p-2">
-                        <div className="space-y-2 pr-2">
+                        <div className="space-y-2 pe-2">
                           {corsDiagnostics.blocked.slice(0, 12).map((entry) => (
                             <div
                               key={entry.id}
@@ -3048,6 +3075,57 @@ export default function Settings() {
                               {t("updates.noHelperLogDesc")}
                             </div>
                           )}
+                          {panelUpdateStatus.lastApplyResult.likelyCause ===
+                            "rollback_failed" && runtimeInfo?.family === "windows" && (
+                            <div className="rounded-md border border-destructive/40 bg-background/50 p-2 text-xs leading-relaxed">
+                              <strong className="text-destructive-foreground">
+                                {t("updates.likelyCauseLabel")}
+                              </strong>{" "}
+                              {panelUpdateStatus.lastApplyResult
+                                .rollbackRetryLikely
+                                ? t("updates.rollbackFailedRetryWarning", {
+                                    defaultValue:
+                                      "the automatic rollback did not fully complete. The panel is likely to retry this exact update again on the next restart and fail the same way, until this is cleared by hand.",
+                                  })
+                                : t("updates.rollbackFailedCosmetic", {
+                                    defaultValue:
+                                      "the update rolled back successfully. One leftover file could not be removed automatically and is safe to delete by hand.",
+                                  })}
+                              {panelUpdateStatus.lastApplyResult
+                                .panelFolder && (
+                                <div className="mt-1">
+                                  <strong>
+                                    {t("updates.rollbackFailedRecoveryLabel", {
+                                      defaultValue: "Files to delete:",
+                                    })}
+                                  </strong>{" "}
+                                  {panelUpdateStatus.lastApplyResult
+                                    .rollbackRetryLikely
+                                    ? t("updates.rollbackFailedRecoveryNote", {
+                                        defaultValue:
+                                          "close this panel first, then delete these three files from the install folder below:",
+                                      })
+                                    : t(
+                                        "updates.rollbackFailedRecoveryNoteCosmetic",
+                                        {
+                                          defaultValue:
+                                            "delete this file from the install folder below:",
+                                        },
+                                      )}
+                                  <pre className="mt-1 rounded bg-background/70 p-1 text-[11px]">
+                                    {panelUpdateStatus.lastApplyResult
+                                      .rollbackRetryLikely
+                                      ? ".update-pending\n.update-applying\nupdate-bundle.json"
+                                      : "update-bundle.json"}
+                                  </pre>
+                                  <div className="mt-1 text-[11px] opacity-80">
+                                    {panelUpdateStatus.lastApplyResult
+                                      .panelFolder}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
                           {panelApplyLog && (
                             <details className="mt-1 text-xs">
                               <summary className="cursor-pointer font-medium">
@@ -3101,8 +3179,11 @@ export default function Settings() {
                         <AlertTriangle className="h-4 w-4" />
                         <AlertTitle>{t("updates.updateBlockedTitle")}</AlertTitle>
                         <AlertDescription>
-                          <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
-                            {panelUpdatePreflight.blockers.map((b, i) => (
+                          <ul className="mt-1 list-disc space-y-1 ps-5 text-sm">
+                            {translatePanelUpdateMessages(
+                              panelUpdatePreflight.blockers,
+                              panelUpdatePreflight.blockerDetails,
+                            ).map((b, i) => (
                               <li key={`blk-${i}`} className="break-words">
                                 {b}
                               </li>
@@ -3125,8 +3206,11 @@ export default function Settings() {
                         <AlertTriangle className="h-4 w-4" />
                         <AlertTitle>{t("updates.beforeYouRestartTitle")}</AlertTitle>
                         <AlertDescription>
-                          <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
-                            {panelUpdatePreflight.warnings.map((w, i) => (
+                          <ul className="mt-1 list-disc space-y-1 ps-5 text-sm">
+                            {translatePanelUpdateMessages(
+                              panelUpdatePreflight.warnings,
+                              panelUpdatePreflight.warningDetails,
+                            ).map((w, i) => (
                               <li key={`wrn-${i}`} className="break-words">
                                 {w}
                               </li>
@@ -3275,8 +3359,11 @@ export default function Settings() {
                                   <p className="font-medium text-foreground">
                                     {t("updates.confirmBeforeContinuing")}
                                   </p>
-                                  <ul className="mt-1 list-disc space-y-1 pl-5">
-                                    {panelUpdatePreflight.warnings.map(
+                                  <ul className="mt-1 list-disc space-y-1 ps-5">
+                                    {translatePanelUpdateMessages(
+                                      panelUpdatePreflight.warnings,
+                                      panelUpdatePreflight.warningDetails,
+                                    ).map(
                                       (w, i) => (
                                         <li
                                           key={`confirm-wrn-${i}`}
@@ -3430,7 +3517,7 @@ export default function Settings() {
                 </div>
 
                 {settings.httpsEnabled && (
-                  <div className="ml-2 space-y-4 border-l-2 border-primary/20 pl-2">
+                  <div className="ms-2 space-y-4 border-s-2 border-primary/20 ps-2">
                     <div className="max-w-xs">
                       <Label htmlFor="https-port">{t("https.portLabel")}</Label>
                       <Input
@@ -3563,7 +3650,7 @@ export default function Settings() {
                     className="w-full sm:w-auto"
                   >
                     {testingRcon ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      <Loader2 className="w-4 h-4 me-2 animate-spin" />
                     ) : null}
                     {t("connection.testButton")}
                   </Button>
@@ -3973,7 +4060,7 @@ export default function Settings() {
                         </span>
                         {bridgeStatus.consecutiveFailures != null &&
                           bridgeStatus.consecutiveFailures > 0 && (
-                            <span className="ml-auto text-[10px] tabular-nums text-warning">
+                            <span className="ms-auto text-[10px] tabular-nums text-warning">
                               {t("bridge.consecutiveFailures", { count: bridgeStatus.consecutiveFailures })}
                             </span>
                           )}
@@ -4228,8 +4315,8 @@ export default function Settings() {
                       </div>
                       <div className="flex flex-wrap items-end gap-3">
                         <div className="w-36 space-y-1.5"><Label htmlFor="sftp-poll">{t("bridge.syncIntervalLabel")}</Label><Input id="sftp-poll" inputMode="numeric" value={settings.panelBridgeSftpPollIntervalSeconds} onChange={(event) => updateSetting("panelBridgeSftpPollIntervalSeconds", event.target.value)} /></div>
-                        <Button type="button" variant="outline" onClick={handleTestSftp} disabled={testingSftp || bridgeLoading}>{testingSftp ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link className="mr-2 h-4 w-4" />}{t("bridge.verifyAndPrepare")}</Button>
-                        <Button type="button" onClick={handleConfigureSftp} disabled={bridgeLoading}>{bridgeLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Cloud className="mr-2 h-4 w-4" />}{t("bridge.startSftpBridge")}</Button>
+                        <Button type="button" variant="outline" onClick={handleTestSftp} disabled={testingSftp || bridgeLoading}>{testingSftp ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <Link className="me-2 h-4 w-4" />}{t("bridge.verifyAndPrepare")}</Button>
+                        <Button type="button" onClick={handleConfigureSftp} disabled={bridgeLoading}>{bridgeLoading ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <Cloud className="me-2 h-4 w-4" />}{t("bridge.startSftpBridge")}</Button>
                       </div>
                       {bridgeStatus?.transport?.type === "sftp" && <div className="space-y-1 text-xs text-muted-foreground"><p>SFTP {bridgeStatus.transport.running ? t("bridge.sftpRunning") : t("bridge.sftpStopped")}{bridgeStatus.transport.lastLatencyMs != null ? t("bridge.lastSyncSuffix", { ms: bridgeStatus.transport.lastLatencyMs }) : ""}</p>{bridgeStatus.transport.lastError && <p className="text-warning">{getSftpStatusMessage(bridgeStatus.transport)}</p>}</div>}
                     </div>
@@ -4272,7 +4359,7 @@ export default function Settings() {
                         onClick={handleCheckRemoteConfig}
                         disabled={loadingRemoteConfig || !settings.panelBridgeSftpConfigPath.trim()}
                       >
-                        {loadingRemoteConfig ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FolderOpen className="mr-2 h-4 w-4" />}
+                        {loadingRemoteConfig ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <FolderOpen className="me-2 h-4 w-4" />}
                         {t("bridge.checkFolder")}
                       </Button>
                     </div>
@@ -4321,7 +4408,7 @@ export default function Settings() {
                         onClick={handleListRemoteLogs}
                         disabled={loadingRemoteLogs || !settings.panelBridgeSftpLogPath.trim()}
                       >
-                        {loadingRemoteLogs ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FolderOpen className="mr-2 h-4 w-4" />}
+                        {loadingRemoteLogs ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <FolderOpen className="me-2 h-4 w-4" />}
                         {t("bridge.listLogs")}
                       </Button>
                     </div>
@@ -4339,7 +4426,7 @@ export default function Settings() {
                                 <button
                                   type="button"
                                   onClick={() => handleTailRemoteLog(file.name)}
-                                  className="min-w-0 flex-1 truncate text-left text-xs font-mono text-primary hover:underline"
+                                  className="min-w-0 flex-1 truncate text-start text-xs font-mono text-primary hover:underline"
                                 >
                                   {file.name}
                                 </button>
@@ -4509,7 +4596,7 @@ export default function Settings() {
                   </div>
                 </div>
                 {settings.modAutoRestart && (
-                  <div className="max-w-xs space-y-2 pl-4 border-l-2 border-primary/30">
+                  <div className="max-w-xs space-y-2 ps-4 border-s-2 border-primary/30">
                     <Label htmlFor="mod-restart-delay" className="text-base">
                       {t("mods.restartDelayLabel")}
                     </Label>
@@ -4549,7 +4636,7 @@ export default function Settings() {
                       </p>
                     </div>
                   </div>
-                  <div className="max-w-md space-y-2 pl-4 pt-4 border-l-2 border-primary/30">
+                  <div className="max-w-md space-y-2 ps-4 pt-4 border-s-2 border-primary/30">
                     <Label htmlFor="steam-update-account" className="text-base">
                       {t("mods.steamAccountLabel")}
                     </Label>
@@ -4566,7 +4653,7 @@ export default function Settings() {
                     </p>
                   </div>
                   {settings.serverAutoUpdate && (
-                    <div className="max-w-md space-y-2 pl-4 pt-4 border-l-2 border-primary/30">
+                    <div className="max-w-md space-y-2 ps-4 pt-4 border-s-2 border-primary/30">
                       <Label htmlFor="server-update-warning-minutes" className="text-base">
                         {t("mods.warningMinutesLabel")}
                       </Label>
@@ -4651,7 +4738,7 @@ export default function Settings() {
                         updateSetting("steamApiKey", e.target.value)
                       }
                       placeholder={t("mods.steamApiKeyPlaceholder")}
-                      className="h-11 pr-10"
+                      className="h-11 pe-10"
                       maxLength={128}
                     />
                     <button
@@ -4784,7 +4871,7 @@ export default function Settings() {
                   </div>
 
                   {backupStatus?.enabled && (
-                    <div className="grid grid-cols-1 gap-4 border-l-2 border-primary/20 pl-4 sm:grid-cols-2">
+                    <div className="grid grid-cols-1 gap-4 border-s-2 border-primary/20 ps-4 sm:grid-cols-2">
                       <div className="space-y-2">
                         <div className="flex items-center gap-1.5">
                           <Label htmlFor="backup-schedule">{t("backups.scheduleLabel")}</Label>
@@ -4825,7 +4912,7 @@ export default function Settings() {
                           size="sm"
                         >
                           {backupLoading && (
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            <Loader2 className="w-4 h-4 me-2 animate-spin" />
                           )}
                           {t("backups.saveScheduleButton")}
                         </Button>
@@ -4906,7 +4993,7 @@ export default function Settings() {
                                       <AlertTriangle className="w-5 h-5 text-warning" />
                                       {t("backups.restoreDialogTitle")}
                                     </AlertDialogTitle>
-                                    <AlertDialogDescription className="text-left space-y-2">
+                                    <AlertDialogDescription className="text-start space-y-2">
                                       <p>
                                         <Trans t={t} i18nKey="backups.restoreDialogIntro" values={{ name: backup.name }} components={{ b: <strong /> }} />
                                       </p>
@@ -5124,7 +5211,7 @@ export default function Settings() {
                           value={currentPassword}
                           onChange={(e) => setCurrentPassword(e.target.value)}
                           placeholder={t("security.currentPasswordPlaceholder")}
-                          className="h-11 pr-10"
+                          className="h-11 pe-10"
                           maxLength={128}
                           autoComplete="current-password"
                           aria-label={t("ariaLabels.currentPassword")}
@@ -5154,7 +5241,7 @@ export default function Settings() {
                           value={newPassword}
                           onChange={(e) => setNewPassword(e.target.value)}
                           placeholder={t("security.newPasswordPlaceholder")}
-                          className="h-11 pr-10"
+                          className="h-11 pe-10"
                           maxLength={128}
                           autoComplete="new-password"
                           aria-label={t("ariaLabels.newPassword")}
@@ -5244,9 +5331,9 @@ export default function Settings() {
                           disabled={generatingRecoveryCodes}
                         >
                           {generatingRecoveryCodes ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            <Loader2 className="me-2 h-4 w-4 animate-spin" />
                           ) : (
-                            <Key className="mr-2 h-4 w-4" />
+                            <Key className="me-2 h-4 w-4" />
                           )}
                           {recoveryCodeStatus?.configured
                             ? t("security.generateNewCodes")
@@ -5304,7 +5391,7 @@ export default function Settings() {
                                 window.setTimeout(() => URL.revokeObjectURL(url), 1500);
                               }}
                             >
-                              <Download className="mr-1.5 h-3.5 w-3.5" />
+                              <Download className="me-1.5 h-3.5 w-3.5" />
                               {t("security.downloadButton")}
                             </Button>
                             <Button
@@ -5346,9 +5433,9 @@ export default function Settings() {
                                   }
                                 >
                                   {preparingLocalPasswordReset ? (
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    <Loader2 className="me-2 h-4 w-4 animate-spin" />
                                   ) : (
-                                    <Key className="mr-2 h-4 w-4" />
+                                    <Key className="me-2 h-4 w-4" />
                                   )}
                                   {showLocalPasswordReset
                                     ? t("security.refreshLocalRecovery")
@@ -5414,7 +5501,7 @@ export default function Settings() {
                                         )
                                       }
                                       placeholder={t("security.newPasswordForResetLabel")}
-                                      className="h-11 pr-10"
+                                      className="h-11 pe-10"
                                       maxLength={128}
                                       autoComplete="new-password"
                                       aria-label={t("ariaLabels.newPasswordLocalReset")}
@@ -5535,7 +5622,7 @@ export default function Settings() {
                         <AlertDialog open={regenerateJwtDialogOpen} onOpenChange={setRegenerateJwtDialogOpen}>
                           <AlertDialogTrigger asChild>
                             <Button type="button" variant="destructive">
-                              <RefreshCw className="mr-2 h-4 w-4" />
+                              <RefreshCw className="me-2 h-4 w-4" />
                               {t("security.regenerateJwt.button")}
                             </Button>
                           </AlertDialogTrigger>
@@ -5560,7 +5647,7 @@ export default function Settings() {
                                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                               >
                                 {regeneratingJwtSecret ? (
-                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  <Loader2 className="me-2 h-4 w-4 animate-spin" />
                                 ) : null}
                                 {t("security.regenerateJwt.confirm")}
                               </AlertDialogAction>
@@ -6326,9 +6413,9 @@ function WorkshopCollectionSyncCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-7">
-        <div className="grid gap-6 border-b border-border/40 pb-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,.8fr)]">
+        <div className="grid gap-6 border-b border-border/40 pb-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,.8fr)] rtl:lg:grid-cols-[minmax(18rem,.8fr)_minmax(0,1fr)]">
         {/* Collection ID */}
-        <div className="space-y-2">
+        <div className="space-y-2 lg:order-1 rtl:lg:order-2">
           <Label htmlFor="ws-collection-id" className="text-base">
             {t("workshopSync.collectionIdLabel")}
           </Label>
@@ -6349,7 +6436,7 @@ function WorkshopCollectionSyncCard({
 
         {/* Auto-sync toggle */}
         <div
-          className={`flex items-start justify-between gap-4 lg:border-l lg:border-border/40 lg:pl-6 ${
+          className={`flex items-start justify-between gap-4 lg:order-2 lg:border-s lg:border-border/40 lg:ps-6 rtl:lg:order-1 ${
             autoSyncOn && !credsConfigured
               ? "text-warning"
               : ""
@@ -6492,9 +6579,9 @@ function WorkshopCollectionSyncCard({
                         onClick={() => handleAutoExtract(b.id, b.label)}
                       >
                         {extractingFrom === b.id ? (
-                          <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                          <RefreshCw className="w-3.5 h-3.5 me-1.5 animate-spin" />
                         ) : (
-                          <Check className="w-3.5 h-3.5 mr-1.5" />
+                          <Check className="w-3.5 h-3.5 me-1.5" />
                         )}
                         {b.label}
                       </Button>
@@ -6543,7 +6630,7 @@ function WorkshopCollectionSyncCard({
                     onClick={handlePasteFromClipboard}
                     disabled={savingCookies}
                   >
-                    <Cloud className="w-3.5 h-3.5 mr-1.5" />
+                    <Cloud className="w-3.5 h-3.5 me-1.5" />
                     {t("workshopSync.pasteFromClipboard")}
                   </Button>
                 )}
@@ -6589,9 +6676,9 @@ function WorkshopCollectionSyncCard({
                     disabled={!pasteText.trim() || savingCookies}
                   >
                     {savingCookies ? (
-                      <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                      <Loader2 className="w-3.5 h-3.5 me-1.5 animate-spin" />
                     ) : (
-                      <Check className="w-3.5 h-3.5 mr-1.5" />
+                      <Check className="w-3.5 h-3.5 me-1.5" />
                     )}
                     {savingCookies ? t("workshopSync.saving") : t("workshopSync.extractAndSave")}
                   </Button>
@@ -6620,7 +6707,7 @@ function WorkshopCollectionSyncCard({
               <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
                 {t("workshopSync.howToGetRequestSummary")}
               </summary>
-              <ol className="list-decimal list-inside mt-2 space-y-1 text-muted-foreground pl-1">
+              <ol className="list-decimal list-inside mt-2 space-y-1 text-muted-foreground ps-1">
                 <li>
                   {t("workshopSync.howToStep1")}
                 </li>
@@ -6672,9 +6759,9 @@ function WorkshopCollectionSyncCard({
                 title={!credsConfigured ? undefined : t("workshopSync.testConnectionTitleReady")}
               >
                 {testing ? (
-                  <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  <Loader2 className="w-3.5 h-3.5 me-1.5 animate-spin" />
                 ) : (
-                  <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                  <CheckCircle2 className="w-3.5 h-3.5 me-1.5" />
                 )}
                 {t("workshopSync.testConnection")}
               </Button>
@@ -6686,14 +6773,14 @@ function WorkshopCollectionSyncCard({
               disabled={!collectionIdValid || diffLoading}
             >
               {diffLoading ? (
-                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                <Loader2 className="w-3.5 h-3.5 me-1.5 animate-spin" />
               ) : (
-                <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                <RefreshCw className="w-3.5 h-3.5 me-1.5" />
               )}
               {t("workshopSync.checkDrift")}
             </Button>
 
-            <div className="ml-auto text-xs text-muted-foreground">
+            <div className="ms-auto text-xs text-muted-foreground">
               {diffError ? (
                 <span className="text-destructive flex items-center gap-1">
                   <AlertTriangle className="w-3 h-3" /> {diffError}
@@ -6780,13 +6867,13 @@ function WorkshopCollectionSyncCard({
               </div>
 
               {/* Search */}
-              <div className="relative ml-auto">
-                <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+              <div className="relative ms-auto">
+                <Search className="absolute start-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
                 <Input
                   value={itemSearch}
                   onChange={(e) => setItemSearch(e.target.value)}
                   placeholder={t("workshopSync.searchPlaceholder")}
-                  className="h-8 pl-7 pr-7 text-xs w-56"
+                  className="h-8 ps-7 pe-7 text-xs w-56"
                 />
                 {itemSearch && (
                   <button
@@ -6813,12 +6900,12 @@ function WorkshopCollectionSyncCard({
                 ) : (
                   <table className="w-full text-xs">
                     <thead className="sticky top-0 bg-muted/80 backdrop-blur z-10">
-                      <tr className="text-left text-muted-foreground border-b border-border/50">
+                      <tr className="text-start text-muted-foreground border-b border-border/50">
                         <th className="font-medium px-3 py-2 sm:w-[120px]">
                           {t("workshopSync.columnStatus")}
                         </th>
                         <th className="font-medium px-3 py-2">{t("workshopSync.columnMod")}</th>
-                        <th className="font-medium px-3 py-2 sm:w-[540px] text-right">
+                        <th className="font-medium px-3 py-2 sm:w-[540px] text-end">
                           {t("workshopSync.columnActions")}
                         </th>
                       </tr>
@@ -6922,7 +7009,7 @@ function WorkshopCollectionSyncCard({
                                     ) : (
                                       <Server className="w-3 h-3" />
                                     )}
-                                    <span className="ml-1 hidden sm:inline">{t("workshopSync.fromServer")}</span>
+                                    <span className="ms-1 hidden sm:inline">{t("workshopSync.fromServer")}</span>
                                   </Button>
                                 ) : (
                                   <Button
@@ -6941,7 +7028,7 @@ function WorkshopCollectionSyncCard({
                                     ) : (
                                       <Server className="w-3 h-3" />
                                     )}
-                                    <span className="ml-1 hidden sm:inline">{t("workshopSync.toServer")}</span>
+                                    <span className="ms-1 hidden sm:inline">{t("workshopSync.toServer")}</span>
                                   </Button>
                                 )}
                                 {/* Collection side */}
@@ -6963,7 +7050,7 @@ function WorkshopCollectionSyncCard({
                                       ) : (
                                         <Minus className="w-3 h-3" />
                                       )}
-                                      <span className="ml-1 hidden sm:inline">
+                                      <span className="ms-1 hidden sm:inline">
                                         {t("workshopSync.fromCollection")}
                                       </span>
                                     </Button>
@@ -6986,7 +7073,7 @@ function WorkshopCollectionSyncCard({
                                       ) : (
                                         <Plus className="w-3 h-3" />
                                       )}
-                                      <span className="ml-1 hidden sm:inline">{t("workshopSync.toCollection")}</span>
+                                      <span className="ms-1 hidden sm:inline">{t("workshopSync.toCollection")}</span>
                                     </Button>
                                   </DisabledReason>
                                 )}
@@ -7008,7 +7095,7 @@ function WorkshopCollectionSyncCard({
                                     ) : (
                                       <Bookmark className="w-3 h-3" />
                                     )}
-                                    <span className="ml-1 hidden sm:inline">{t("workshopSync.untrack")}</span>
+                                    <span className="ms-1 hidden sm:inline">{t("workshopSync.untrack")}</span>
                                   </Button>
                                 ) : (
                                   <Button
@@ -7027,7 +7114,7 @@ function WorkshopCollectionSyncCard({
                                     ) : (
                                       <BookmarkPlus className="w-3 h-3" />
                                     )}
-                                    <span className="ml-1 hidden sm:inline">{t("workshopSync.track")}</span>
+                                    <span className="ms-1 hidden sm:inline">{t("workshopSync.track")}</span>
                                   </Button>
                                 )}
                                 <span
@@ -7053,7 +7140,7 @@ function WorkshopCollectionSyncCard({
                                   ) : (
                                     <Trash2 className="w-3 h-3" />
                                   )}
-                                  <span className="ml-1 hidden sm:inline">{t("workshopSync.everywhere")}</span>
+                                  <span className="ms-1 hidden sm:inline">{t("workshopSync.everywhere")}</span>
                                 </Button>
                               </div>
                             </td>
@@ -7087,7 +7174,7 @@ function WorkshopCollectionSyncCard({
               <AlertDialogDescription asChild>
                 <div className="space-y-2">
                   <p>{t("workshopSync.purgeDialogIntro")}</p>
-                  <ul className="list-disc pl-5 space-y-0.5">
+                  <ul className="list-disc ps-5 space-y-0.5">
                     <li>{t("workshopSync.purgePlace1")}</li>
                     <li>
                       <Trans t={t} i18nKey="workshopSync.purgePlace2" components={{ code: <code /> }} />

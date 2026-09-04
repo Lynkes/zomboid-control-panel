@@ -2310,7 +2310,7 @@ export default function ChunkCleaner() {
                             </div>
                             <Badge
                               variant="secondary"
-                              className="ml-2 text-xs shrink-0"
+                              className="ms-2 text-xs shrink-0"
                             >
                               {save.sizeFormatted}
                             </Badge>
@@ -2329,7 +2329,7 @@ export default function ChunkCleaner() {
                   disabled={loadingSaves}
                 >
                   <RefreshCw
-                    className={`w-3.5 h-3.5 mr-1.5 ${loadingSaves ? "animate-spin" : ""}`}
+                    className={`w-3.5 h-3.5 me-1.5 ${loadingSaves ? "animate-spin" : ""}`}
                   />
                   {loadingSaves ? t("save.refreshing") : t("save.refresh")}
                 </Button>
@@ -2397,7 +2397,7 @@ export default function ChunkCleaner() {
                             // eslint-disable-next-line local/no-dead-disabled-title -- pure hint describing what the button does; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                             title={t("save.saveAsDefaultTitle")}
                           >
-                            <Save className="w-3 h-3 mr-1" />
+                            <Save className="w-3 h-3 me-1" />
                             {savingPath ? t("save.saving") : t("save.saveAsDefault")}
                           </Button>
                         </DisabledReason>
@@ -2431,7 +2431,7 @@ export default function ChunkCleaner() {
                             }
                             disabled={savingPath || !canManageChunks}
                           >
-                            <Save className="w-3 h-3 mr-1" />
+                            <Save className="w-3 h-3 me-1" />
                             {savingPath ? t("save.saving") : t("save.saveAsDefault")}
                           </Button>
                         </DisabledReason>
@@ -2741,7 +2741,7 @@ export default function ChunkCleaner() {
                     setDeleteDialogOpen(true);
                   }}
                 >
-                  <Trash2 className="w-4 h-4 mr-2" />
+                  <Trash2 className="w-4 h-4 me-2" />
                   {t("deleteButton", { count: selectedChunks.size })}
                 </Button>
               </DisabledReason>
@@ -2869,9 +2869,9 @@ export default function ChunkCleaner() {
                                     )
                                   }
                                 >
-                                  <FolderOpen className="w-3 h-3 mr-1" />
+                                  <FolderOpen className="w-3 h-3 me-1" />
                                   {t("canvas.tryParent")}{" "}
-                                  <span className="font-mono ml-1 truncate max-w-[180px]">
+                                  <span className="font-mono ms-1 truncate max-w-[180px]">
                                     {debugInfo.rejection.parentSuggestion}
                                   </span>
                                 </Button>
@@ -2883,7 +2883,7 @@ export default function ChunkCleaner() {
                                     <summary className="cursor-pointer hover:text-foreground/80">
                                       {t("canvas.whyRejected")}
                                     </summary>
-                                    <ul className="pl-3 pt-1 space-y-0.5">
+                                    <ul className="ps-3 pt-1 space-y-0.5">
                                       {Object.entries(
                                         debugInfo.rejection.checks,
                                       ).map(([k, v]) => (
@@ -2929,7 +2929,7 @@ export default function ChunkCleaner() {
                                           void applySuggestedPath(s.path)
                                         }
                                         disabled={!s.exists || loadingSaves}
-                                        className="flex-1 text-left text-[11px] font-mono px-2 py-1 rounded border border-border/40 bg-background hover:bg-accent/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors break-all"
+                                        className="flex-1 text-start text-[11px] font-mono px-2 py-1 rounded border border-border/40 bg-background hover:bg-accent/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors break-all"
                                         // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (folder missing) now lives in the DisabledReason wrapper above; this title carries only the enabled-state status hint and is correctly absent, not dead, when the wrapper's reason covers the disable.
                                         title={
                                           s.exists
@@ -3016,7 +3016,7 @@ export default function ChunkCleaner() {
                               setShowCustomPath(true);
                             }}
                           >
-                            <FolderOpen className="w-3.5 h-3.5 mr-1.5" />
+                            <FolderOpen className="w-3.5 h-3.5 me-1.5" />
                             {t("canvas.setCustomPath")}
                           </Button>
                           <Button
@@ -3027,7 +3027,7 @@ export default function ChunkCleaner() {
                             disabled={loadingSaves}
                           >
                             <RefreshCw
-                              className={`w-3.5 h-3.5 mr-1.5 ${loadingSaves ? "animate-spin" : ""}`}
+                              className={`w-3.5 h-3.5 me-1.5 ${loadingSaves ? "animate-spin" : ""}`}
                             />
                             {t("canvas.tryAgain")}
                           </Button>
@@ -3202,7 +3202,7 @@ export default function ChunkCleaner() {
                 const loadedCount = vehiclesInArea.length;
                 return (
                   <div className="flex items-center justify-between p-3 rounded-lg bg-muted">
-                    <div className="min-w-0 pr-3">
+                    <div className="min-w-0 pe-3">
                       <Label className="flex items-center gap-1.5">
                         <Car className="w-3.5 h-3.5" />
                         {t("deleteDialog.removeVehiclesLabel")}
@@ -3274,12 +3274,12 @@ export default function ChunkCleaner() {
               >
                 {deleting ? (
                   <>
-                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    <RefreshCw className="w-4 h-4 me-2 animate-spin" />
                     {t("deleteDialog.deleting")}
                   </>
                 ) : (
                   <>
-                    <Trash2 className="w-4 h-4 mr-2" />
+                    <Trash2 className="w-4 h-4 me-2" />
                     {t("deleteDialog.confirm")}
                   </>
                 )}
@@ -3363,7 +3363,7 @@ export default function ChunkCleaner() {
                 }}
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               >
-                <Trash2 className="w-4 h-4 mr-2" />
+                <Trash2 className="w-4 h-4 me-2" />
                 {t("serverRunningDialog.forceDelete")}
               </AlertDialogAction>
             </AlertDialogFooter>

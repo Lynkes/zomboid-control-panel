@@ -82,6 +82,8 @@ works and isn't just decorative.
 > `server/tests/dataPathDrift.test.js` (both directions: a configured non-default data dir, and
 > the real unmocked default).
 
+**status: FIXED** — re-verified 2026-09-02, HEAD `5f913567`. `commit a4c3030` confirmed still an ancestor of HEAD.
+
 ## BUG: Crash Logs tab reads `process.cwd()`, not the configured logs directory — WHERE: `server/routes/debug.js:4300-4305` (`GET /api/debug/crash-logs`) and `:4386-4389` (`GET /api/debug/crash-logs/:filename`)
 
 **WHAT HAPPENS:** The Debug page's "Crashes" tab is supposed to show this panel install's own
@@ -135,6 +137,8 @@ for siblings.
 > `collections.length`/`.size` string-interpolation. Tests cover three cases explicitly: populated
 > stats, unavailable stats (still renders "?" — unknown stays unknown), and a genuinely empty
 > database (renders "0", not "?" — an honest zero is not the same as "couldn't tell").
+
+**status: FIXED** (same commit `a4c3030` as the Crash Logs bug above) — re-verified 2026-09-02, HEAD `5f913567`.
 
 ## BUG: "Database accessible" diagnostic always shows "? collections, 0 MB" — WHERE: `server/routes/debug.js:3156`, feeding off `server/database/init.js:845-889` (`getDatabaseStatsSync`)
 
@@ -239,6 +243,8 @@ not reporting it.
 > primary path. The same commit also filled in the "Download a backup archive" French gap
 > (Finding below) — a bundled fix.
 
+**status: FIXED** — re-verified 2026-09-02, HEAD `5f913567`. `commit 7f3be0a` confirmed still an ancestor of HEAD.
+
 ### BUG: `getUserErrorMessage()` never translates by error code — always shows the server's raw English text, even when a correct French translation already exists — WHERE: `client/src/lib/errorMessage.ts:3-28`, used at 18 call sites in `ServerConfig.tsx`, 6 in `Events.tsx`, 1 in `Dashboard.tsx`
 
 **WHAT HAPPENS:** In French, `/server-config` with no active server shows a banner that's French
@@ -290,6 +296,8 @@ whoever wrote the French `errors.json` entries reasonably believes this is alrea
 > silently skipped) — call this FIXED with one small, documented, intentional exception rather
 > than fully closed.
 
+**status: FIXED, with one documented, intentional exception (`server.configDrift` deliberately deferred)** — re-verified 2026-09-02, HEAD `5f913567`. All 8 cited batch commits (`87c3d3a` through `df1f75a`) confirmed present in git history.
+
 ### BUG: Debug → Diagnostics tab is 100% untranslated, by design of where the text comes from — WHERE: every check pushed in `server/routes/debug.js`'s `/diagnostics` handler (~40+ `diagOk`/`diagWarn`/`diagSkip` calls, e.g. lines 1940-1970 and on)
 
 **WHAT HAPPENS:** In French, the Diagnostics tab's page chrome, tab labels, and a handful of
@@ -324,6 +332,8 @@ understood correctly under stress.
 > sauvegarde" / a full translated description. Both `en/roles.json` and `fr/roles.json` have 28
 > `"label"` entries — counts match, nothing else missing in this section.
 
+**status: FIXED** (same commit `7f3be0a` as the errorMessage.ts fix above) — re-verified 2026-09-02, HEAD `5f913567`.
+
 ### BUG (small, isolated): Roles & Permissions — one capability row never got translated — WHERE: `client/src/locales/fr/roles.json` (or wherever the "Backups" section's capability copy lives), row "Download a backup archive"
 
 **WHAT HAPPENS:** On `/roles` in French, every capability row in the "SAUVEGARDES" section is
@@ -335,6 +345,8 @@ deleting or restoring one: this one leaves the machine."* Every other ~25 rows o
 fully translated. This is a single missed key, not a pattern — clean and easy to fix.
 
 ---
+
+**status: NOT APPLICABLE — flagged as an open question by the original author, not a defect claim.** No verdict needed for a question; recording so a future reader knows this was intentionally not a finding.
 
 ### OBSERVATION, not filing as a bug: built-in Template cards keep their English name/description/tags in French
 

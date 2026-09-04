@@ -1058,12 +1058,9 @@ export default function Mods() {
     [groupedMods]
   )
 
-  // hunt-wave7-2026-08-29: status.removedWorkshopIds is bare workshop ids
-  // (Steam confirmed EResult 9 -- FileNotFound, permanently gone) -- resolve
-  // to names for a message an operator can actually act on. A removed item
-  // still shows by its raw id if it's somehow not in the tracked list (e.g.
-  // the tracking record itself was deleted separately) rather than being
-  // silently dropped from the count.
+  // status.removedWorkshopIds contains Workshop IDs still present in tracking
+  // after Steam confirmed EResult 9 (FileNotFound); removed subscriptions are
+  // filtered server-side so this warning disappears after the X action.
   const removedWorkshopMods = useMemo(() => {
     const byId = new Map(mods.map((m) => [m.workshop_id, m]))
     return (status?.removedWorkshopIds || []).map((id) => ({
@@ -1572,9 +1569,9 @@ export default function Mods() {
       if (result.skippedIgnored > 0) parts.push(t('toasts.skippedIgnored', { count: result.skippedIgnored }))
       // Sentence separator/terminator is a language property, not something
       // every locale's untranslated fragment can be assumed to want a Latin
-      // ". " for -- zh-CN's own fragments carry no punctuation and expect a
+      // ". " for -- zh-CN / zh-TW's own fragments carry no punctuation and expect a
       // full-width terminator instead.
-      const sentenceEnd = i18n.language === 'zh-CN' ? '。' : '. '
+      const sentenceEnd = i18n.language.startsWith('zh') ? '。' : '. '
       toast({
         title: t('toasts.modsSyncedTitle'),
         description: parts.join(sentenceEnd) + sentenceEnd.trim(),
@@ -2498,7 +2495,7 @@ export default function Mods() {
             <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <span className="min-w-0 break-words" dir="auto">{fetchError}</span>
               <Button variant="outline" size="sm" onClick={fetchData} className="self-start">
-                <RefreshCw className="mr-2 h-4 w-4" /> {t('fetchError.retry')}
+                <RefreshCw className="me-2 h-4 w-4" /> {t('fetchError.retry')}
               </Button>
             </AlertDescription>
           </Alert>
@@ -2572,7 +2569,7 @@ export default function Mods() {
                     onClick={handleOpenWorkshopBrowser}
                     disabled={savingWorkshopPath || !canManageServers}
                   >
-                    <FolderOpen className="mr-1.5 h-3.5 w-3.5" />
+                    <FolderOpen className="me-1.5 h-3.5 w-3.5" />
                     {t('statusBar.fixPath')}
                   </Button>
                 </DisabledReason>
@@ -2580,11 +2577,11 @@ export default function Mods() {
             </>
           )}
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ms-auto flex items-center gap-2">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button variant="outline" size="sm" className="min-h-[44px] sm:min-h-0" onClick={handleSyncFromServer} disabled={loading || !canManageMods}>
-                  <Download className="w-3.5 h-3.5 mr-1.5" />
+                  <Download className="w-3.5 h-3.5 me-1.5" />
                   {t('statusBar.sync')}
                 </Button>
               </TooltipTrigger>
@@ -2593,7 +2590,7 @@ export default function Mods() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button variant="outline" size="sm" className="min-h-[44px] sm:min-h-0" onClick={handleCheckUpdates} disabled={checking || !canManageMods}>
-                  <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${checking ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`w-3.5 h-3.5 me-1.5 ${checking ? 'animate-spin' : ''}`} />
                   {t('statusBar.checkUpdates')}
                 </Button>
               </TooltipTrigger>
@@ -2621,7 +2618,7 @@ export default function Mods() {
                     onClick={() => { if (!canManageMods) return; setCollectionDialogOpen(true) }}
                     disabled={!canManageMods}
                   >
-                    <Library className="w-4 h-4 mr-2" />
+                    <Library className="w-4 h-4 me-2" />
                     {t('statusBar.importCollection')}
                   </DropdownMenuItem>
                 </DisabledReason>
@@ -2630,7 +2627,7 @@ export default function Mods() {
                     onClick={() => { if (!canManageMods) return; setRestartSettingsOpen(true) }}
                     disabled={!canManageMods}
                   >
-                    <Settings2 className="w-4 h-4 mr-2" />
+                    <Settings2 className="w-4 h-4 me-2" />
                     {t('statusBar.autoRestartSettings')}
                   </DropdownMenuItem>
                 </DisabledReason>
@@ -2701,7 +2698,7 @@ export default function Mods() {
               </div>
             </div>
             <Button variant="warning" size="sm" onClick={handleCheckUpdates} disabled={loading || checking || !canManageMods}>
-              <RefreshCw className={`w-4 h-4 mr-2 ${checking ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-4 h-4 me-2 ${checking ? 'animate-spin' : ''}`} />
               {t('staleFlag.checkNow')}
             </Button>
           </div>
@@ -2727,7 +2724,7 @@ export default function Mods() {
                   {removedWorkshopMods.map((m) => (
                     <span
                       key={m.workshopId}
-                      className="inline-flex items-center gap-1 rounded-md border border-warning/30 bg-background/60 py-1 pl-2 pr-1 text-xs"
+                      className="inline-flex items-center gap-1 rounded-md border border-warning/30 bg-background/60 py-1 ps-2 pe-1 text-xs"
                     >
                       <span className="max-w-[16rem] truncate" title={m.name || m.workshopId}>
                         {m.name || m.workshopId}
@@ -2782,7 +2779,7 @@ export default function Mods() {
                 }}
                 aria-label={t('steamApiIssue.dismissAria')}
                 title={t('steamApiIssue.dismissTooltip')}
-                className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground/60 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+                className="ms-auto shrink-0 rounded p-0.5 text-muted-foreground/60 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
               >
                 <X className="h-3 w-3" />
               </button>
@@ -2863,7 +2860,7 @@ export default function Mods() {
                           }
                           if (item.id === 'conflicts' && !conflicts && !conflictsLoading) void scanConflicts()
                         }}
-                        className={`flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left transition-colors ${
+                        className={`flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-start transition-colors ${
                           isActive
                             ? 'bg-primary text-primary-foreground'
                             : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
@@ -2877,7 +2874,7 @@ export default function Mods() {
                             )}
                             {count != null && count > 0 && (
                               <span
-                                className={`ml-auto shrink-0 rounded-full px-1.5 font-mono text-[10px] tabular-nums ${
+                                className={`ms-auto shrink-0 rounded-full px-1.5 font-mono text-[10px] tabular-nums ${
                                   isActive ? 'bg-primary-foreground/20' : 'bg-muted-foreground/20'
                                 }`}
                               >
@@ -3018,7 +3015,7 @@ export default function Mods() {
                                     )}
                                     {mod.isMap && (
                                       <Badge variant="secondary" className="text-xs">
-                                        <MapIcon className="w-3 h-3 mr-1" />
+                                        <MapIcon className="w-3 h-3 me-1" />
                                         {t('collectionDialog.mapBadge')}
                                       </Badge>
                                     )}
@@ -3141,7 +3138,7 @@ export default function Mods() {
                             <RefreshCw className="w-4 h-4 animate-spin" />
                           ) : (
                             <>
-                              <Search className="w-4 h-4 mr-1" />
+                              <Search className="w-4 h-4 me-1" />
                               {t('addModDialog.discover')}
                             </>
                           )}
@@ -3194,18 +3191,18 @@ export default function Mods() {
                           <div className="flex gap-1 shrink-0">
                             {discoveredMod.isMap && (
                               <Badge variant="secondary" className="text-xs h-5">
-                                <MapIcon className="w-3 h-3 mr-1" />
+                                <MapIcon className="w-3 h-3 me-1" />
                                 {t('addModDialog.mapBadge')}
                               </Badge>
                             )}
                             {discoveredMod.isDownloaded ? (
                               <Badge variant="success" className="text-xs h-5">
-                                <CheckCircle className="w-3 h-3 mr-1" />
+                                <CheckCircle className="w-3 h-3 me-1" />
                                 {t('addModDialog.downloadedBadge')}
                               </Badge>
                             ) : (
                               <Badge variant="warning" className="text-xs h-5">
-                                <Download className="w-3 h-3 mr-1" />
+                                <Download className="w-3 h-3 me-1" />
                                 {t('addModDialog.notDownloadedBadge')}
                               </Badge>
                             )}
@@ -3300,7 +3297,7 @@ export default function Mods() {
                                         aria-pressed={selectedModIds.has(modId)}
                                         className={`flex items-center gap-2 px-2.5 py-1.5 rounded cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 ${
                                           selectedModIds.has(modId)
-                                            ? 'bg-primary/10 border-l-2 border-l-primary'
+                                            ? 'bg-primary/10 border-s-2 border-s-primary'
                                             : isConfigured
                                               ? 'bg-muted/30 opacity-70'
                                               : 'hover:bg-muted/40'
@@ -3381,7 +3378,7 @@ export default function Mods() {
                     >
                       {loading ? (
                         <>
-                          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                          <RefreshCw className="w-4 h-4 me-2 animate-spin" />
                           {t('addModDialog.adding')}
                         </>
                       ) : discoveredMod?.modIds.length ? (
@@ -3479,14 +3476,14 @@ export default function Mods() {
             {mods.length > 0 && (
             <div className="flex items-center gap-4 flex-wrap">
               <div className="relative min-w-0 basis-full sm:basis-auto sm:flex-1 sm:max-w-sm">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
                   ref={searchInputRef}
                   value={searchQuery}
                   onChange={(e) => handleSearchChange(e.target.value)}
                   placeholder={t('installedTab.searchPlaceholder')}
                   maxLength={200}
-                  className="pl-9"
+                  className="ps-9"
                   aria-label={t('installedTab.searchAria')}
                 />
               </div>
@@ -3498,7 +3495,7 @@ export default function Mods() {
                 aria-pressed={showUpdatesOnly}
                 className={showUpdatesOnly ? "w-full border-warning/40 bg-warning/15 text-warning hover:bg-warning/25 sm:w-auto" : "w-full sm:w-auto"}
               >
-                {showUpdatesOnly ? <Check className="w-4 h-4 mr-2" /> : <Filter className="w-4 h-4 mr-2" />}
+                {showUpdatesOnly ? <Check className="w-4 h-4 me-2" /> : <Filter className="w-4 h-4 me-2" />}
                 {t('installedTab.updatesOnly')}
               </Button>
 
@@ -3515,10 +3512,10 @@ export default function Mods() {
                     aria-pressed={showDisabled}
                     className="w-full sm:w-auto"
                   >
-                    {showDisabled ? <EyeOff className="w-4 h-4 mr-2" /> : <Eye className="w-4 h-4 mr-2" />}
+                    {showDisabled ? <EyeOff className="w-4 h-4 me-2" /> : <Eye className="w-4 h-4 me-2" />}
                     {showDisabled ? t('installedTab.hideDisabled') : t('installedTab.showDisabled')}
                     {showDisabled && disabledMods.length > 0 && (
-                      <span className="ml-2 inline-flex items-center justify-center rounded-full bg-muted/40 px-1.5 text-[10px] font-medium tabular-nums">
+                      <span className="ms-2 inline-flex items-center justify-center rounded-full bg-muted/40 px-1.5 text-[10px] font-medium tabular-nums">
                         {disabledMods.length}
                       </span>
                     )}
@@ -3553,7 +3550,7 @@ export default function Mods() {
                     {collectionStatus.autoSync && <span className="text-[10px] opacity-70">{t('installedTab.collectionAutoTag')}</span>}
                   </button>
                 ) : collectionStatus.drift > 0 ? (
-                  <div className="inline-flex items-center gap-1 rounded-md border border-warning/40 bg-warning/10 pl-2.5 pr-1 py-0.5 text-xs font-medium text-warning">
+                  <div className="inline-flex items-center gap-1 rounded-md border border-warning/40 bg-warning/10 ps-2.5 pe-1 py-0.5 text-xs font-medium text-warning">
                     <AlertTriangle className="w-3.5 h-3.5" />
                     <span>{t('installedTab.collectionDrift', { count: collectionStatus.drift })}</span>
                     <Button
@@ -3561,7 +3558,7 @@ export default function Mods() {
                       variant="ghost"
                       onClick={handleCollectionSyncNow}
                       disabled={collectionSyncing || !canManageMods}
-                      className="h-6 px-2 ml-1 text-xs hover:bg-warning/20"
+                      className="h-6 px-2 ms-1 text-xs hover:bg-warning/20"
                       // eslint-disable-next-line local/no-dead-disabled-title -- pure hint describing what the button does ("Sync tracked mods → Steam Workshop collection"), not why it's disabled; unconditional, no permission text to lose. Triaged 2026-08-27.
                       title={t('installedTab.collectionSyncTooltip')}
                     >
@@ -3577,7 +3574,7 @@ export default function Mods() {
               )}
 
               {selectedMods.size > 0 && (
-                <div className="ml-auto flex w-full flex-wrap items-center gap-2 sm:w-auto bulk-bar-enter">
+                <div className="ms-auto flex w-full flex-wrap items-center gap-2 sm:w-auto bulk-bar-enter">
                   <span className="text-sm text-muted-foreground">
                     {t('installedTab.selectedCount', { count: selectedMods.size })}
                   </span>
@@ -3585,14 +3582,14 @@ export default function Mods() {
                     {t('installedTab.deselect')}
                   </Button>
                   <Button variant="destructive" size="sm" onClick={() => setConfirmBulkRemove(true)} disabled={loading}>
-                    <Trash2 className="w-4 h-4 mr-2" />
+                    <Trash2 className="w-4 h-4 me-2" />
                     {t('installedTab.remove')}
                   </Button>
                 </div>
               )}
 
               {selectedMods.size === 0 && visibleServerMods.length > 0 && (
-                <Button variant="ghost" size="sm" onClick={selectAllVisible} className="ml-auto w-full sm:w-auto">
+                <Button variant="ghost" size="sm" onClick={selectAllVisible} className="ms-auto w-full sm:w-auto">
                   {t('installedTab.selectAll', { count: visibleServerMods.length })}
                 </Button>
               )}
@@ -3638,12 +3635,12 @@ export default function Mods() {
                             type="button"
                             onClick={handleSyncFromServer}
                             disabled={loading || !canManageMods}
-                            className="group text-left rounded-lg border border-border/50 hover:border-primary/40 hover:bg-primary/[0.04] bg-muted/15 px-3 py-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                            className="group text-start rounded-lg border border-border/50 hover:border-primary/40 hover:bg-primary/[0.04] bg-muted/15 px-3 py-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                           >
                             <div className="flex items-center gap-2 mb-1.5">
                               <RefreshCw className="w-3.5 h-3.5 text-primary" aria-hidden="true" />
                               <span className="text-xs font-semibold text-foreground/90">{t('installedTab.syncFromServerTitle')}</span>
-                              <ChevronRight className="w-3 h-3 ml-auto text-muted-foreground/50 group-hover:text-primary group-hover:translate-x-0.5 transition-all" aria-hidden="true" />
+                              <ChevronRight className="w-3 h-3 ms-auto text-muted-foreground/50 group-hover:text-primary group-hover:translate-x-0.5 transition-all" aria-hidden="true" />
                             </div>
                             <p className="text-[11px] text-muted-foreground leading-snug">
                               {t('installedTab.syncFromServerDesc')}
@@ -3655,12 +3652,12 @@ export default function Mods() {
                             type="button"
                             onClick={() => setCollectionDialogOpen(true)}
                             disabled={loading}
-                            className="group text-left rounded-lg border border-border/50 hover:border-primary/40 hover:bg-primary/[0.04] bg-muted/15 px-3 py-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                            className="group text-start rounded-lg border border-border/50 hover:border-primary/40 hover:bg-primary/[0.04] bg-muted/15 px-3 py-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                           >
                             <div className="flex items-center gap-2 mb-1.5">
                               <Library className="w-3.5 h-3.5 text-primary" aria-hidden="true" />
                               <span className="text-xs font-semibold text-foreground/90">{t('installedTab.importCollectionTitle')}</span>
-                              <ChevronRight className="w-3 h-3 ml-auto text-muted-foreground/50 group-hover:text-primary group-hover:translate-x-0.5 transition-all" aria-hidden="true" />
+                              <ChevronRight className="w-3 h-3 ms-auto text-muted-foreground/50 group-hover:text-primary group-hover:translate-x-0.5 transition-all" aria-hidden="true" />
                             </div>
                             <p className="text-[11px] text-muted-foreground leading-snug">
                               {t('installedTab.importCollectionDesc')}
@@ -3671,12 +3668,12 @@ export default function Mods() {
                             type="button"
                             onClick={() => setAdvancedAddOpen(true)}
                             disabled={loading}
-                            className="group text-left rounded-lg border border-border/50 hover:border-primary/40 hover:bg-primary/[0.04] bg-muted/15 px-3 py-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                            className="group text-start rounded-lg border border-border/50 hover:border-primary/40 hover:bg-primary/[0.04] bg-muted/15 px-3 py-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                           >
                             <div className="flex items-center gap-2 mb-1.5">
                               <PlusCircle className="w-3.5 h-3.5 text-primary" aria-hidden="true" />
                               <span className="text-xs font-semibold text-foreground/90">{t('installedTab.addSingleModTitle')}</span>
-                              <ChevronRight className="w-3 h-3 ml-auto text-muted-foreground/50 group-hover:text-primary group-hover:translate-x-0.5 transition-all" aria-hidden="true" />
+                              <ChevronRight className="w-3 h-3 ms-auto text-muted-foreground/50 group-hover:text-primary group-hover:translate-x-0.5 transition-all" aria-hidden="true" />
                             </div>
                             <p className="text-[11px] text-muted-foreground leading-snug">
                               {t('installedTab.addSingleModDesc')}
@@ -3697,10 +3694,10 @@ export default function Mods() {
                       {modListVirtualizer.getVirtualItems().map(virtualRow => {
                         const item = flatModItems[virtualRow.index]
                         const groupBorder =
-                          item.type === 'hint' ? 'border-l-2 border-muted-foreground/30'
-                          : item.group === 'update' ? 'border-l-2 border-warning'
-                          : item.group === 'neverChecked' ? 'border-l-2 border-muted-foreground/30'
-                          : 'border-l-2 border-primary/30'
+                          item.type === 'hint' ? 'border-s-2 border-muted-foreground/30'
+                          : item.group === 'update' ? 'border-s-2 border-warning'
+                          : item.group === 'neverChecked' ? 'border-s-2 border-muted-foreground/30'
+                          : 'border-s-2 border-primary/30'
 
                         return (
                           <div
@@ -3731,7 +3728,7 @@ export default function Mods() {
                             {item.type === 'header' && item.group === 'neverChecked' && (
                               <button
                                 type="button"
-                                className="flex w-full items-center gap-2 bg-muted/20 px-4 py-2 border-b border-border/40 hover:bg-muted/30 transition-colors text-left"
+                                className="flex w-full items-center gap-2 bg-muted/20 px-4 py-2 border-b border-border/40 hover:bg-muted/30 transition-colors text-start"
                                 onClick={() => setNeverCheckedExpanded(!neverCheckedExpanded)}
                                 aria-expanded={neverCheckedExpanded}
                               >
@@ -3744,7 +3741,7 @@ export default function Mods() {
                                   {item.count}
                                 </span>
                                 {!neverCheckedExpanded && (
-                                  <span className="ml-auto text-[11px] text-muted-foreground/70">
+                                  <span className="ms-auto text-[11px] text-muted-foreground/70">
                                     {t('installedTab.expandHint')} <kbd className="rounded border border-border/60 bg-muted/40 px-1 py-0 font-mono text-[10px]">{t('installedTab.checkUpdatesKbd')}</kbd>
                                   </span>
                                 )}
@@ -3753,7 +3750,7 @@ export default function Mods() {
                             {item.type === 'header' && item.group === 'upToDate' && (
                               <button
                                 type="button"
-                                className="flex w-full items-center gap-2 bg-primary/5 px-4 py-2 border-b border-border/40 hover:bg-primary/10 transition-colors text-left"
+                                className="flex w-full items-center gap-2 bg-primary/5 px-4 py-2 border-b border-border/40 hover:bg-primary/10 transition-colors text-start"
                                 onClick={() => setUpToDateExpanded(!upToDateExpanded)}
                                 aria-expanded={upToDateExpanded}
                               >
@@ -3817,7 +3814,7 @@ export default function Mods() {
                       disabled={disabledLoading}
                     >
                       {disabledLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                      <span className="ml-1.5">{t('disabledPanel.refresh')}</span>
+                      <span className="ms-1.5">{t('disabledPanel.refresh')}</span>
                     </Button>
                     {disabledMods.length > 0 && !disabledLoading && (
                       <Button
@@ -3832,14 +3829,14 @@ export default function Mods() {
                         ) : (
                           <Trash2 className="w-3.5 h-3.5" />
                         )}
-                        <span className="ml-1.5">{t('disabledPanel.deleteAll')}</span>
+                        <span className="ms-1.5">{t('disabledPanel.deleteAll')}</span>
                       </Button>
                     )}
                   </div>
                 </div>
                 {disabledLoading ? (
                   <div className="px-4 py-6 text-center text-sm text-muted-foreground">
-                    <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
+                    <Loader2 className="w-4 h-4 animate-spin inline me-2" />
                     {t('disabledPanel.scanning')}
                   </div>
                 ) : disabledMods.length === 0 ? (
@@ -3882,7 +3879,7 @@ export default function Mods() {
                               <Loader2 className="w-3.5 h-3.5 animate-spin" />
                             ) : (
                               <>
-                                <Plus className="w-3.5 h-3.5 mr-1" />
+                                <Plus className="w-3.5 h-3.5 me-1" />
                                 {t('disabledPanel.enable')}
                               </>
                             )}
@@ -3918,7 +3915,7 @@ export default function Mods() {
               <div className="rounded-lg border border-border/30 bg-card/50">
                 <button
                   type="button"
-                  className="flex w-full items-center justify-between px-4 py-2.5 text-left text-sm text-muted-foreground hover:text-foreground transition-colors"
+                  className="flex w-full items-center justify-between px-4 py-2.5 text-start text-sm text-muted-foreground hover:text-foreground transition-colors"
                   onClick={() => setIgnoredModsOpen(!ignoredModsOpen)}
                 >
                   <span className="flex items-center gap-2">
@@ -3981,7 +3978,7 @@ export default function Mods() {
                         ) : (
                           <Trash2 className="w-3.5 h-3.5" />
                         )}
-                        <span className="ml-1.5">{t('ignoredPanel.deleteAllFromDisk')}</span>
+                        <span className="ms-1.5">{t('ignoredPanel.deleteAllFromDisk')}</span>
                       </Button>
                       <Button
                         variant="ghost"
@@ -4280,7 +4277,7 @@ export default function Mods() {
                                     }
                                   }}
                                 >
-                                  {deduplicating ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Wrench className="w-3 h-3 mr-1" />}
+                                  {deduplicating ? <Loader2 className="w-3 h-3 animate-spin me-1" /> : <Wrench className="w-3 h-3 me-1" />}
                                   {t('serverConfigTab.fix')}
                                 </Button>
                                 </DisabledReason>
@@ -4370,8 +4367,8 @@ export default function Mods() {
                           </div>
                           <div className="flex w-full shrink-0 flex-col gap-2 lg:w-auto lg:items-end">
                             <div className="relative w-full lg:w-72">
-                              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
-                              <Input value={modManagerSearch} onChange={e => handleModManagerSearchChange(e.target.value)} placeholder={t('activeMods.filterPlaceholder')} aria-label={t('activeMods.filterAria')} className="h-9 text-xs pl-8 bg-background/60" />
+                              <Search className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+                              <Input value={modManagerSearch} onChange={e => handleModManagerSearchChange(e.target.value)} placeholder={t('activeMods.filterPlaceholder')} aria-label={t('activeMods.filterAria')} className="h-9 text-xs ps-8 bg-background/60" />
                               {modManagerSearch && (
                                 <button onClick={() => { handleModManagerSearchChange('') }} aria-label={t('activeMods.clearSearchAria')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-[11px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded">✕</button>
                               )}
@@ -4439,7 +4436,7 @@ export default function Mods() {
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="end">
                                       <DropdownMenuItem onClick={() => copyText(g.wsId).then(() => toast({ title: t('installedTab.copiedTitle'), description: t('installedTab.copiedWorkshopId', { id: g.wsId }) })).catch(() => {})}>
-                                        <FileText className="mr-2 h-4 w-4" />
+                                        <FileText className="me-2 h-4 w-4" />
                                         {t('activeMods.copyWorkshopId')}
                                       </DropdownMenuItem>
                                       <DropdownMenuSeparator />
@@ -4451,7 +4448,7 @@ export default function Mods() {
                                           onClick={() => { if (!canManageMods) return; setConfirmRemoveWorkshop({ wsId: g.wsId, knownModIds: g.mods.map(m => m.id) }) }}
                                           disabled={!canManageMods}
                                         >
-                                          <Trash2 className="mr-2 h-4 w-4" />
+                                          <Trash2 className="me-2 h-4 w-4" />
                                           {t('activeMods.removeFromIni')}
                                         </DropdownMenuItem>
                                       </DisabledReason>
@@ -4464,7 +4461,7 @@ export default function Mods() {
                                           onClick={() => { if (!canManageMods) return; setConfirmRemoveMod(g.wsId) }}
                                           disabled={!canManageMods}
                                         >
-                                          <Trash2 className="mr-2 h-4 w-4" />
+                                          <Trash2 className="me-2 h-4 w-4" />
                                           {t('activeMods.removeFromServer')}
                                         </DropdownMenuItem>
                                       </DisabledReason>
@@ -4673,7 +4670,7 @@ export default function Mods() {
                                                   title={scanClashingPairs.length === 1
                                                     ? t('activeMods.dismissOneTooltip', { a: scanClashingPairs[0][0], b: scanClashingPairs[0][1] })
                                                     : t('activeMods.dismissAllTooltip', { count: scanClashingPairs.length })}
-                                                  className="ml-auto inline-flex items-center gap-1 rounded border border-border/50 bg-muted/30 px-2 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
+                                                  className="ms-auto inline-flex items-center gap-1 rounded border border-border/50 bg-muted/30 px-2 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
                                                 >
                                                   {t('activeMods.notAConflict')}
                                                 </button>
@@ -4712,7 +4709,7 @@ export default function Mods() {
                                                     disabled={!canManageMods}
                                                     // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (mods.manage) now lives in the DisabledReason wrapper above; this title carries only the always-relevant restore-dismissed hint, correctly absent rather than dead when actually disabled.
                                                     title={t('activeMods.restoreDismissedTooltip', { count: dismissedHere.length })}
-                                                    className="ml-auto text-[10px] text-muted-foreground/60 underline-offset-2 hover:text-foreground hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                                                    className="ms-auto text-[10px] text-muted-foreground/60 underline-offset-2 hover:text-foreground hover:underline disabled:cursor-not-allowed disabled:opacity-50"
                                                   >
                                                     {t('activeMods.restoreDismissed', { count: dismissedHere.length })}
                                                   </button>
@@ -4858,7 +4855,7 @@ export default function Mods() {
                                       type="button"
                                       onClick={() => toggleMod(mod, inspectedGroup.wsId)}
                                       disabled={!canManageMods}
-                                      className={`flex w-full items-center gap-2 rounded border px-2 py-1.5 text-left text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50 ${mod.enabled ? 'border-success/25 bg-success/10 text-success' : 'border-border/45 bg-muted/20 text-muted-foreground hover:text-foreground'}`}
+                                      className={`flex w-full items-center gap-2 rounded border px-2 py-1.5 text-start text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50 ${mod.enabled ? 'border-success/25 bg-success/10 text-success' : 'border-border/45 bg-muted/20 text-muted-foreground hover:text-foreground'}`}
                                       // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (mods.manage) now lives in the DisabledReason wrapper above; this title carries only the always-relevant click-to-toggle hint, correctly absent rather than dead when actually disabled.
                                       title={`${mod.enabled ? t('activeMods.clickToDisable') : t('activeMods.clickToEnable')} ${mod.id}`}
                                     >
@@ -4913,7 +4910,7 @@ export default function Mods() {
                                             }}
                                             disabled={searchState?.loading}
                                           >
-                                            {searchState?.loading ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Search className="mr-1 h-3 w-3" />}
+                                            {searchState?.loading ? <Loader2 className="me-1 h-3 w-3 animate-spin" /> : <Search className="me-1 h-3 w-3" />}
                                             {t('activeMods.findInWorkshop')}
                                           </Button>
                                           {added && <span className="inline-flex items-center gap-1 text-[10px] font-medium text-success"><Check className="h-3 w-3" /> {t('activeMods.added')}</span>}
@@ -4982,7 +4979,7 @@ export default function Mods() {
                                                           onClick={() => handleInspectorAddDep(hit, dep, key)}
                                                           disabled={adding || added || !canManageMods}
                                                         >
-                                                          {adding ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : added ? <Check className="mr-1 h-3 w-3" /> : <Plus className="mr-1 h-3 w-3" />}
+                                                          {adding ? <Loader2 className="me-1 h-3 w-3 animate-spin" /> : added ? <Check className="me-1 h-3 w-3" /> : <Plus className="me-1 h-3 w-3" />}
                                                           {added ? t('activeMods.addedButton') : t('activeMods.addButton')}
                                                         </Button>
                                                       </div>
@@ -5027,7 +5024,7 @@ export default function Mods() {
                                 onClick={() => setConfirmRemoveWorkshop({ wsId: inspectedGroup.wsId, knownModIds: inspectedGroup.mods.map(m => m.id) })}
                                 disabled={!canManageMods}
                               >
-                                <Trash2 className="mr-2 h-3.5 w-3.5" />
+                                <Trash2 className="me-2 h-3.5 w-3.5" />
                                 {t('activeMods.removeFromIni')}
                               </Button>
                             </div>
@@ -5115,7 +5112,7 @@ export default function Mods() {
                         onClick={handleAutoSort}
                         disabled={savingModOrder || !!autoSortPreview}
                       >
-                        <Wand2 className="w-3 h-3 mr-1" />
+                        <Wand2 className="w-3 h-3 me-1" />
                         {t('loadOrder.autoSort')}
                       </Button>
                     </div>
@@ -5138,12 +5135,12 @@ export default function Mods() {
                         </div>
 
                         <ScrollArea className="max-h-40">
-                          <div className="space-y-0.5 pr-2">
+                          <div className="space-y-0.5 pe-2">
                             {autoSortPreview.moved.map((move) => (
                               <div key={move.modId} className="flex items-center gap-2 text-[11px]">
-                                <span className="tabular-nums text-muted-foreground w-8 text-right shrink-0">#{move.from}</span>
+                                <span className="tabular-nums text-muted-foreground w-8 text-end shrink-0">#{move.from}</span>
                                 <ArrowRight className="w-3 h-3 text-muted-foreground/60 shrink-0" />
-                                <span className="tabular-nums text-primary w-8 text-right shrink-0">#{move.to}</span>
+                                <span className="tabular-nums text-primary w-8 text-end shrink-0">#{move.to}</span>
                                 <span className="font-mono truncate shrink-0">{move.modId}</span>
                                 {modIdNameMap.get(move.modId) && (
                                   <span className="text-muted-foreground/60 truncate">{modIdNameMap.get(move.modId)}</span>
@@ -5195,7 +5192,7 @@ export default function Mods() {
                                   }`}
                                 >
                                   <GripVertical className="w-3 h-3 text-muted-foreground/30 shrink-0" />
-                                  <span className="text-[11px] tabular-nums text-muted-foreground w-5 text-right shrink-0">{idx + 1}</span>
+                                  <span className="text-[11px] tabular-nums text-muted-foreground w-5 text-end shrink-0">{idx + 1}</span>
                                   <span className="text-[11px] font-mono truncate shrink-0">{modId}</span>
                                   {displayName && <span className="text-[11px] text-muted-foreground/60 truncate flex-1">{displayName}</span>}
                                   {!displayName && <span className="flex-1" />}
@@ -5218,7 +5215,7 @@ export default function Mods() {
                           <div className="flex gap-2">
                             <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setAutoSortPreview(null); setOrderedModIds(iniConfig.modIds) }}>{t('loadOrder.reset')}</Button>
                             <Button size="sm" className="h-8 text-xs" onClick={handleSaveModOrder} disabled={savingModOrder || !canManageMods}>
-                              {savingModOrder ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Save className="w-3 h-3 mr-1" />}
+                              {savingModOrder ? <Loader2 className="w-3 h-3 me-1 animate-spin" /> : <Save className="w-3 h-3 me-1" />}
                               {t('loadOrder.saveOrder')}
                             </Button>
                           </div>
@@ -5249,9 +5246,9 @@ export default function Mods() {
                         variant="outline"
                       >
                         {syncing ? (
-                          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                          <RefreshCw className="w-4 h-4 me-2 animate-spin" />
                         ) : (
-                          <RefreshCw className="w-4 h-4 mr-2" />
+                          <RefreshCw className="w-4 h-4 me-2" />
                         )}
                         {t('addModsTab.syncButton')}
                       </Button>
@@ -5277,12 +5274,12 @@ export default function Mods() {
                           {modsToInstall.map(mod => (
                             <Badge key={mod.workshopId} variant="outline" className="max-w-full text-xs sm:max-w-[200px]">
                               <span className="truncate">{mod.name}</span>
-                              {mod.isMap && <MapIcon className="w-3 h-3 ml-1" />}
+                              {mod.isMap && <MapIcon className="w-3 h-3 ms-1" />}
                               <button
                                 type="button"
                                 aria-label={t('addModsTab.removeFromQueueAria', { name: mod.name })}
                                 onClick={() => removeFromInstallList(mod.workshopId)}
-                                className="ml-1 hover:text-destructive"
+                                className="ms-1 hover:text-destructive"
                               >
                                 ×
                               </button>
@@ -5290,7 +5287,7 @@ export default function Mods() {
                           ))}
                         </div>
                         <Button onClick={handleWriteToIni} disabled={loading || !canManageMods} size="sm">
-                          <FileText className="w-4 h-4 mr-2" />
+                          <FileText className="w-4 h-4 me-2" />
                           {t('addModsTab.writeToIni')}
                         </Button>
                       </div>
@@ -5315,7 +5312,7 @@ export default function Mods() {
                       <Dialog open={savePresetOpen} onOpenChange={setSavePresetOpen}>
                         <DialogTrigger asChild>
                           <Button size="sm" disabled={!iniConfig?.configured || !canManageMods}>
-                            <Save className="w-4 h-4 mr-2" />
+                            <Save className="w-4 h-4 me-2" />
                             {t('presetsTab.saveCurrent')}
                           </Button>
                         </DialogTrigger>
@@ -5358,7 +5355,7 @@ export default function Mods() {
                               {t('presetsTab.cancel')}
                             </Button>
                             <Button onClick={handleSavePreset} disabled={savingPreset || !presetName.trim() || !canManageMods} className="w-full sm:w-auto">
-                              {savingPreset && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                              {savingPreset && <Loader2 className="w-4 h-4 me-2 animate-spin" />}
                               {t('presetsTab.savePreset')}
                             </Button>
                           </DialogFooter>
@@ -5405,7 +5402,7 @@ export default function Mods() {
                                 ) : (
                                   <Download className="w-4 h-4" />
                                 )}
-                                <span className="ml-1.5">{t('presetsTab.load')}</span>
+                                <span className="ms-1.5">{t('presetsTab.load')}</span>
                               </Button>
                               <Button
                                 size="sm"
@@ -5688,14 +5685,14 @@ export default function Mods() {
                                 {someSelected ? t('deactivatedTab.selectedCount', { count: selectedDeactivated.length }) : t('deactivatedTab.selectAllCount', { count: deactivatedIds.length })}
                               </span>
                             </div>
-                            <div className="ml-auto flex items-center gap-2">
+                            <div className="ms-auto flex items-center gap-2">
                               <Button
                                 variant="outline"
                                 size="sm"
                                 disabled={!someSelected || loading || !canManageMods}
                                 onClick={() => handleBulkEnable(selectedDeactivated)}
                               >
-                                <PlusCircle className="w-4 h-4 mr-1.5" />
+                                <PlusCircle className="w-4 h-4 me-1.5" />
                                 {someSelected ? t('deactivatedTab.reEnableCount', { count: selectedDeactivated.length }) : t('deactivatedTab.reEnable')}
                               </Button>
                             </div>
@@ -5734,7 +5731,7 @@ export default function Mods() {
                                   handleBulkRemove(ids)
                                 }}
                               >
-                                <Trash2 className="w-4 h-4 mr-1.5" />
+                                <Trash2 className="w-4 h-4 me-1.5" />
                                 {someSelected ? t('deactivatedTab.deleteSelected', { count: selectedDeactivated.length }) : t('deactivatedTab.deleteAll', { count: deactivatedIds.length })}
                               </Button>
                               </DisabledReason>
@@ -5759,7 +5756,7 @@ export default function Mods() {
                                     handleRefreshNames(targets)
                                   }}
                                 >
-                                  <RefreshCw className={`w-3 h-3 mr-1 ${loading ? 'animate-spin' : ''}`} />
+                                  <RefreshCw className={`w-3 h-3 me-1 ${loading ? 'animate-spin' : ''}`} />
                                   {t('deactivatedTab.refreshNames')}
                                 </Button>
                               </div>
@@ -5776,7 +5773,7 @@ export default function Mods() {
                         return (
                           <div
                             key={mod.id}
-                            className={`group/modrow flex items-center gap-3 px-3 py-2.5 border-l-2 border-muted-foreground/20 hover:bg-accent/40 transition-colors ${isSelected ? 'bg-accent/30' : ''}`}
+                            className={`group/modrow flex items-center gap-3 px-3 py-2.5 border-s-2 border-muted-foreground/20 hover:bg-accent/40 transition-colors ${isSelected ? 'bg-accent/30' : ''}`}
                           >
                             <div className="shrink-0">
                               <Checkbox

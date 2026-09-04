@@ -1,10 +1,33 @@
 ---@diagnostic disable: undefined-global, deprecated
 --[[
     PanelBridge - Server-side mod for Zomboid Control Panel
-    Version: 1.7.45
+    Version: 1.7.51
 
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
+
+                v1.7.49 Changes:
+                - Fix: Build 42 exposes VehicleParts as Java userdata;
+                    capabilityKey() no longer indexes getClass on userdata,
+                    which was flooding the dedicated log with Kahlua
+                    "attempted index: getClass of non-table" traces during
+                    vehicle detail polling.
+
+                v1.7.48 Changes:
+                - Bundled with panel v1.2.12. No additional bridge
+                    protocol changes.
+
+                v1.7.47 Changes:
+                - Bundled with panel v1.2.11. No additional bridge
+                    protocol changes.
+
+                v1.7.46 Changes:
+                - Fix: on a fresh world, Build 42 can report its sandbox
+                    countdown as still powered while the live hydro state is
+                    off. Startup now restores hydro power only when the same
+                    countdown formula the game uses says scheduled power has
+                    not yet shut off; intentional instant/expired settings
+                    remain off.
 
                 v1.7.45 Changes:
                 - Fix: triggerSwarmEvent used to go straight to the
@@ -456,7 +479,7 @@
 local json
 
 local PanelBridge = {
-    VERSION = "1.7.45",
+    VERSION = "1.7.51",
     PROTOCOL_VERSION = "queue-v1",
     CHECK_INTERVAL = 250, -- milliseconds (fast command polling)
     lastCheck = 0,
@@ -629,10 +652,17 @@ end
 -- vehicle's getter) is NOT marked unavailable, so one bad object cannot
 -- disable a working accessor server-wide.
 local function capabilityKey(obj, methodName)
-    local ok, classValue = pcall(function() return obj:getClass() end)
-    if ok and classValue then
-        -- Build 42.20 class wrappers stringify correctly but reject getName().
-        return tostring(classValue) .. "#" .. methodName
+    -- Kahlua exposes some B42 Java wrappers as userdata rather than Lua
+    -- tables. Indexing one with `obj:getClass()` raises "attempted index ...
+    -- of non-table" before pcall can turn it into a quiet result (notably
+    -- zombie.vehicles.VehicleParts). Only Lua tables may take this probe;
+    -- userdata uses the default-toString fallback below.
+    if type(obj) == "table" then
+        local ok, classValue = pcall(function() return obj:getClass() end)
+        if ok and classValue then
+            -- Build 42.20 class wrappers stringify correctly but reject getName().
+            return tostring(classValue) .. "#" .. methodName
+        end
     end
     -- Some Java wrappers reject getClass(). Strip the identity hash so the key
     -- still identifies the class rather than the individual instance. This
@@ -725,8 +755,16 @@ end
 -- PanelBridge.invoke). Never gate an action on this; use invoke instead.
 function PanelBridge.hasMethod(obj, methodName)
     if not obj then return false end
-    if type(obj[methodName]) == "function" then return true end
+    -- This is an advisory diagnostic only: never invoke an arbitrary method
+    -- just to answer whether it exists. Java userdata cannot be indexed as a
+    -- Lua table, so only inspect fields on actual Lua tables and otherwise
+    -- rely on a capability result cached by a real invoke() caller.
+    if type(obj) == "table" then
+        local ok, method = pcall(function() return obj[methodName] end)
+        if ok and type(method) == "function" then return true end
+    end
     local key = capabilityKey(obj, methodName)
+    if key and PanelBridge.methodCapabilities[key] == false then return false end
     return key ~= nil and PanelBridge.methodCapabilities[key] == true
 end
 
@@ -757,17 +795,18 @@ end
 -- but no 2-arg overload exists for it on this build -- no bypass is possible
 -- through this method.
 function PanelBridge.setCharacterCheatBypassingRoleGate(player, methodName, enabled)
-    if not player or not player[methodName] then
+    if not player then
         return false, methodName .. " method not available in this PZ version"
     end
-    if pcall(function() player[methodName](player, enabled, true) end) then
+    local bypassOk, bypassErr = PanelBridge.invoke(player, methodName, enabled, true)
+    if bypassOk then
         return true
     end
-    local ok, err = pcall(function() player[methodName](player, enabled) end)
+    local ok, err = PanelBridge.invoke(player, methodName, enabled)
     if ok then
         return true
     end
-    return false, err
+    return false, err or bypassErr
 end
 
 -- Safely get a value from a method, with default fallback
@@ -5453,6 +5492,29 @@ local function setElectricityOnLoadedSquares(enabled)
     return squareCount, "success"
 end
 
+function PanelBridge.reconcileStartupPower()
+    local world = getWorld()
+    local sandbox = getSandboxOptions()
+    local gameTime = getGameTime()
+    if not world or not sandbox or not gameTime then return false end
+
+    local shutdownDay = tonumber(PanelBridge.tryGet(sandbox, "getElecShutModifier"))
+    local worldAgeHours = tonumber(PanelBridge.tryGet(gameTime, "getWorldAgeHours")) or 0
+    local timeSinceApo = tonumber(PanelBridge.tryGet(sandbox, "getTimeSinceApo")) or 1
+    local worldAgeDays = worldAgeHours / 24 + (timeSinceApo - 1) * 30
+    if not shutdownDay or shutdownDay < 0 or worldAgeDays >= shutdownDay then
+        return false
+    end
+
+    if PanelBridge.tryGet(world, "isHydroPowerOn") ~= false then return false end
+    if not PanelBridge.invoke(world, "setHydroPowerOn", true) then return false end
+    if PanelBridge.tryGet(world, "isHydroPowerOn") ~= true then return false end
+
+    setElectricityOnLoadedSquares(true)
+    PanelBridge.invoke(world, "transmitWeather")
+    return true
+end
+
 -- Helper function to activate light switches in loaded chunks around all players
 -- Drives a light switch to `enabled`.
 -- Returns: inRequestedState, didChange
@@ -6295,11 +6357,9 @@ handlers.setGodMode = function(args)
     -- players an admin tool needs to act on.
     local method = nil
     local success, err
-    if player.setGodMod then
-        success, err = PanelBridge.setCharacterCheatBypassingRoleGate(player, "setGodMod", enabled)
-        if success then method = "setGodMod" end
-    end
-    if not success and player.setGodMode then
+    success, err = PanelBridge.setCharacterCheatBypassingRoleGate(player, "setGodMod", enabled)
+    if success then method = "setGodMod" end
+    if not success then
         success, err = PanelBridge.setCharacterCheatBypassingRoleGate(player, "setGodMode", enabled)
         if success then method = "setGodMode" end
     end
@@ -8080,8 +8140,7 @@ handlers.removeVehiclesInArea = function(args)
         return false, nil, "Vehicle list lookup failed: " .. collectErr
     end
 
-    local removed = 0
-    local removedList = {}
+    local attempted = {}
 
     for i = #list, 1, -1 do
         local v = list[i]
@@ -8090,21 +8149,66 @@ handlers.removeVehiclesInArea = function(args)
         if vx >= minX and vx <= maxX and vy >= minY and vy <= maxY then
             local vId = vehicleGet(v, "getId")
             local scriptName = vehicleGet(v, "getScriptName") or "unknown"
-            -- Only count a removal that actually executed. The previous
-            -- field-guarded version ran neither branch on builds that hide
-            -- these methods, yet still reported the vehicle as removed.
+            -- didRemove only means the call didn't throw -- PanelBridge.invoke
+            -- returns true whenever pcall succeeds, regardless of what the
+            -- underlying method actually did. That is exactly the gap
+            -- removeVehicle (just above this handler) was fixed on
+            -- 2026-08-31 to stop trusting, by re-confirming via a fresh
+            -- getVehiclesList() read. This bulk sibling still only checked
+            -- didRemove, so it could report a vehicle as removed purely
+            -- because permanentlyRemove()/removeFromWorld() didn't throw.
             local didRemove = PanelBridge.invoke(v, "permanentlyRemove")
             if not didRemove then
                 didRemove = PanelBridge.invoke(v, "removeFromWorld")
             end
             if didRemove then
-                removed = removed + 1
-                table.insert(removedList, { id = vId, scriptName = scriptName, x = vx, y = vy })
+                table.insert(attempted, { id = vId, scriptName = scriptName, x = vx, y = vy })
             end
         end
     end
 
-    return true, { message = removed .. " vehicle(s) removed from area", removed = removed, vehicles = removedList, bounds = { minX = minX, minY = minY, maxX = maxX, maxY = maxY } }
+    -- Verify by effect, same principle as removeVehicle -- re-fetch ONCE
+    -- (not per-vehicle: a fresh findVehicleById() scan per candidate would
+    -- be O(n) getVehiclesList()+collectVehicles() calls for an operation
+    -- that can already touch up to a 2000x2000-tile area) and only report a
+    -- vehicle as removed if it is genuinely absent from the fresh list.
+    local stillPresentIds = {}
+    local verifyOk = false
+    if #attempted > 0 then
+        local freshVehicles = getVehiclesList()
+        local freshList
+        if freshVehicles then
+            freshList = collectVehicles(freshVehicles)
+        end
+        if freshList then
+            verifyOk = true
+            for _, v in ipairs(freshList) do
+                local idOk, id = PanelBridge.invoke(v, "getId")
+                if idOk then stillPresentIds[tonumber(id)] = true end
+            end
+        end
+    end
+
+    local removed = 0
+    local removedList = {}
+    for _, entry in ipairs(attempted) do
+        -- If the re-check itself couldn't run (verifyOk false), fall back to
+        -- the pre-verification result rather than silently dropping every
+        -- entry -- same "unverifiable, not a false negative" treatment
+        -- PanelBridge.verifiedResult gives a single-vehicle verified==nil.
+        if not verifyOk or not stillPresentIds[tonumber(entry.id)] then
+            removed = removed + 1
+            table.insert(removedList, entry)
+        end
+    end
+
+    return true, {
+        message = removed .. " vehicle(s) removed from area",
+        removed = removed,
+        vehicles = removedList,
+        bounds = { minX = minX, minY = minY, maxX = maxX, maxY = maxY },
+        verified = verifyOk and "confirmed" or "unverifiable",
+    }
 end
 
 -- The live path is client/src/pages/WorldMap.tsx's "Spawn Vehicle" tool,
@@ -8992,6 +9096,10 @@ function PanelBridge.onServerStarted()
 
     -- Detect version and available APIs
     PanelBridge.detectVersion()
+
+    if PanelBridge.reconcileStartupPower() then
+        print("[PanelBridge] Restored startup power from the configured sandbox countdown")
+    end
 
     -- Write initial status
     PanelBridge.updateStatus()

@@ -73,4 +73,13 @@ describe('Templates.tsx canManage: gates on the templates.manage capability, not
     expect(screen.queryByRole('button', { name: 'Save Current Config' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Import' })).not.toBeInTheDocument()
   })
+
+  it('renders the empty state when the template list payload is missing its array', async () => {
+    mockCan = () => false
+    listTemplates.mockResolvedValue({ templates: undefined as unknown as SimTemplate[] })
+
+    renderTemplates()
+
+    expect(await screen.findByText('No templates yet')).toBeInTheDocument()
+  })
 })

@@ -9,7 +9,8 @@ import { execFileSync } from 'child_process'
 const rootPkg = JSON.parse(readFileSync(path.resolve(__dirname, '../package.json'), 'utf-8'))
 
 function resolveBuildSha() {
-  if (process.env.PANEL_BUILD_SHA) return process.env.PANEL_BUILD_SHA
+  const configured = process.env.PANEL_BUILD_SHA?.trim()
+  if (configured) return configured
   try {
     return execFileSync('git', ['rev-parse', 'HEAD'], {
       cwd: path.resolve(__dirname, '..'),
@@ -25,7 +26,10 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const basePath = env.VITE_BASE_PATH || '/'
   const buildSha = resolveBuildSha()
-  const apiContractVersion = Number(process.env.PANEL_API_CONTRACT_VERSION || 1)
+  const parsedApiContractVersion = Number(process.env.PANEL_API_CONTRACT_VERSION)
+  const apiContractVersion = Number.isInteger(parsedApiContractVersion) && parsedApiContractVersion > 0
+    ? parsedApiContractVersion
+    : 1
 
   return {
     base: basePath,

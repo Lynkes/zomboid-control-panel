@@ -95,6 +95,40 @@ describe("POST /server/restart -- scheduler:action_result socket emission", () =
     });
   });
 
+  it("rejects a second restart while the first accepted restart is still running", async () => {
+    let finishRestart;
+    const performRestart = vi.fn(
+      () => new Promise((resolve) => {
+        finishRestart = resolve;
+      }),
+    );
+    const app = {
+      get: (key) =>
+        key === "scheduler" ? { performRestart } : key === "io" ? { emit: vi.fn() } : null,
+    };
+    const firstResponse = createResponse();
+
+    try {
+      await getHandler("/restart", "post")({ body: {}, app }, firstResponse);
+      expect(performRestart).toHaveBeenCalledWith(
+        5,
+        expect.objectContaining({ lifecycleLock: expect.any(Object) }),
+      );
+
+      const secondResponse = createResponse();
+      await getHandler("/restart", "post")({ body: {}, app }, secondResponse);
+
+      expect(secondResponse.status).toHaveBeenCalledWith(409);
+      expect(secondResponse.json).toHaveBeenCalledWith(
+        expect.objectContaining({ code: "SERVER_LIFECYCLE_IN_PROGRESS" }),
+      );
+      expect(performRestart).toHaveBeenCalledOnce();
+    } finally {
+      finishRestart?.({ success: true, message: "Restarted successfully" });
+      await flushMicrotasks();
+    }
+  });
+
   it("emits failure if performRestart itself throws", async () => {
     const emit = vi.fn();
     const performRestart = vi.fn().mockRejectedValue(new Error("unexpected crash"));

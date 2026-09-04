@@ -1,5 +1,12 @@
 # FND-007: Hoist the discordBot import out of the per-test timeout (RISK-001)
 
+> **status note, 2026-09-03 (kevin):** `State: review` below is left as-is deliberately, not
+> stale — same situation as `FND-006/WORK_PACKAGE.md`. `SUMMARY.md`'s **ACCEPT** recommendation and
+> `VERIFICATION.md`'s **PASS** verdict both stand and are re-confirmed today, but
+> `docs/modernization/WORK_PACKAGES.md` (outside this reconciliation's scope) still lists this
+> package as `review`; `STATUS.md`'s 2026-08-27 audit flagged this on purpose. Flagged to the
+> coordinator rather than changed here.
+
 - State: review
 - Owner: coordinator
 - Worktree: coordinator worktree (no branch)
@@ -54,7 +61,8 @@ The server suite is deterministic on a cold run instead of green-by-luck.
 - [x] Domain tests
 - [x] V1 parity evidence (no production file touched)
 - [x] Full required gate
-- [ ] Independent verification
+- [x] Independent verification — `VERIFICATION.md`: **PASS** (2026-09-03: was unchecked despite
+      the verdict already existing; corrected)
 - [x] Rollback rehearsal (procedure verified; see ROLLBACK.md)
 
 ## Evidence

@@ -50,7 +50,7 @@ export default function Templates() {
   const fetchTemplates = useCallback(async () => {
     try {
       const { templates: list } = await templatesApi.list()
-      setTemplates(list)
+      setTemplates(Array.isArray(list) ? list : [])
       setLoadError(null)
     } catch (error) {
       setLoadError(getUserErrorMessage(error, t('toasts.loadFailedFallback')))
@@ -66,7 +66,7 @@ export default function Templates() {
     }
     try {
       const { templates: list } = await templatesApi.listHidden()
-      setHiddenTemplates(list)
+      setHiddenTemplates(Array.isArray(list) ? list : [])
     } catch {
       // Non-fatal: the main list above already loaded and is the primary
       // view. Leave the hidden section empty rather than surface a second

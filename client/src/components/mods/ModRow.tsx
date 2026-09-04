@@ -156,7 +156,7 @@ export function ModRow({
         </div>
         {actions != null && <div className="flex shrink-0 items-center gap-0.5">{actions}</div>}
       </div>
-      {footer != null && <div className="space-y-1 px-3 pb-2 sm:pl-8">{footer}</div>}
+      {footer != null && <div className="space-y-1 px-3 pb-2 sm:ps-8">{footer}</div>}
     </div>
   )
 }

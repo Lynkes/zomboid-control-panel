@@ -90,6 +90,21 @@ describe("Scheduler.runTaskNow command dispatch", () => {
     );
   });
 
+  it("preserves Chinese text when routing a scheduled server message", async () => {
+    const { scheduler, rconService } = makeScheduler();
+    const message = "\u670d\u52a1\u5668\u5c06\u5728\u4e94\u5206\u949f\u540e\u91cd\u542f";
+
+    await scheduler.runTaskNow({
+      id: 31,
+      name: "Broadcast",
+      command: `servermsg ${message}`,
+    });
+
+    expect(rconService.serverMessage).toHaveBeenCalledWith(message, {
+      skipLog: true,
+    });
+  });
+
   it("routes 'bridge:<action>' through executeBridgeAction()", async () => {
     const { scheduler } = makeScheduler();
     scheduler.executeBridgeAction = vi.fn().mockResolvedValue();
@@ -919,5 +934,39 @@ describe("POST /api/scheduler/restart-now requires server.control in addition to
 
     expect(response.status).not.toHaveBeenCalledWith(403);
     expect(performRestart).toHaveBeenCalled();
+  });
+});
+
+describe("PUT /api/scheduler/restart-warning", () => {
+  function getRestartWarningHandler() {
+    const layer = router.stack.find(
+      (entry) => entry.route?.path === "/restart-warning" && entry.route.methods.put,
+    );
+    return layer.route.stack[0].handle;
+  }
+
+  it("persists the submitted warning settings through Scheduler", async () => {
+    const setRestartWarning = vi.fn().mockResolvedValue({
+      locale: "zh-CN",
+      template: "将在 {count}{unit} 后重启",
+    });
+    const response = createResponse();
+
+    await getRestartWarningHandler()(
+      {
+        body: { locale: "zh-CN", template: "将在 {count}{unit} 后重启" },
+        app: { get: () => ({ setRestartWarning }) },
+      },
+      response,
+    );
+
+    expect(setRestartWarning).toHaveBeenCalledWith({
+      locale: "zh-CN",
+      template: "将在 {count}{unit} 后重启",
+    });
+    expect(response.json).toHaveBeenCalledWith({
+      success: true,
+      restartWarning: { locale: "zh-CN", template: "将在 {count}{unit} 后重启" },
+    });
   });
 });

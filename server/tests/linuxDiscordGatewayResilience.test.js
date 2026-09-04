@@ -260,20 +260,59 @@ describe.skipIf(isWindows || !opensslAvailable)(
         mock.send429Count = 2;
         mock.retryAfterSeconds = 1;
 
+        // The discriminating measurement used to be wall-clock elapsed time
+        // (>= 1800ms, on the theory that hammering resolves in well under a
+        // second while genuinely waiting out two 1s Retry-After windows
+        // takes at least ~2s). That's exactly right in spirit but flaky in
+        // practice: this floor runs many agents/workflows concurrently, and
+        // under load the two real ~1050ms waits plus request/response
+        // overhead can land under the threshold on a slow tick even though
+        // the code waited correctly -- proven flaky (3/4 pass, 1/4 fail at
+        // the same commit) rather than assumed.
+        //
+        // Fixed by observing the delay discord.js's REST layer actually
+        // computed and scheduled a real wait against, instead of how long
+        // this machine took to get through it. @discordjs/rest logs
+        // "Encountered unexpected 429 rate limit ... Retry After: <n>ms"
+        // via RESTEvents.Debug synchronously, immediately before it awaits
+        // a real sleep() for exactly that many ms (verified against
+        // node_modules/@discordjs/rest/dist/index.js -- no branch between
+        // the log line and the await skips it). A hammering/bypassing bug
+        // (e.g. our _safeDiscordMakeRequest wrapper swallowing the 429
+        // before discord.js's own handler processes it) would mean this
+        // message never appears for that request, or appears fewer times
+        // than the mock's real 429 count -- so this keeps the same
+        // discrimination the wall-clock version was reaching for, just
+        // pinned to what the code decided rather than to the clock.
+        const { RESTEvents } = await import("discord.js");
+        const rateLimitWaitsMs = [];
+        const onDebug = (message) => {
+          const match = /Encountered unexpected 429 rate limit[\s\S]*?Retry After\s*:\s*(\d+)ms/.exec(message);
+          if (match) rateLimitWaitsMs.push(Number(match[1]));
+        };
+        bot.client.rest.on(RESTEvents.Debug, onDebug);
+
         const t0 = Date.now();
         const result = await bot._sendToChannel("1111", "should survive 2 rate limits");
         const elapsedMs = Date.now() - t0;
+        bot.client.rest.off(RESTEvents.Debug, onDebug);
 
         expect(result).toBe(true);
         expect(mock.sendAttempts).toBe(3); // 2 rate-limited + 1 success
-        // Hammering (retrying immediately, ignoring Retry-After) would
-        // resolve in well under a second. Genuinely waiting out two 1s
-        // Retry-After windows takes at least ~2s. This is the actual
-        // discriminating measurement, not a message-content assumption.
-        expect(elapsedMs).toBeGreaterThanOrEqual(1800);
-        // And it does eventually resolve well inside our own 30s send
-        // ceiling (the suspect-1 fix) -- this is the "well-behaved 429"
-        // counterpart to that fix's "pathological 429" case.
+        expect(rateLimitWaitsMs).toHaveLength(2); // one real, logged wait per 429 -- not zero, not fewer than the mock sent
+        for (const waitedMs of rateLimitWaitsMs) {
+          // retryAfterSeconds (1) * 1000 -- discord.js's own default 50ms
+          // safety offset on top only ever adds to this, never subtracts,
+          // so >= 1000 alone already rules out "computed ~0 / ignored it".
+          expect(waitedMs).toBeGreaterThanOrEqual(1000);
+        }
+        // Still checks it doesn't hang: unlike the lower bound above, an
+        // upper ceiling on real elapsed time is not the flaky direction --
+        // load only pushes elapsed time up, never down, so this can't
+        // false-fail the way the removed lower bound did. Eventually
+        // resolves well inside our own 30s send ceiling (the suspect-1
+        // fix) -- this is the "well-behaved 429" counterpart to that fix's
+        // "pathological 429" case.
         expect(elapsedMs).toBeLessThan(10000);
         expect(bot._breakerFor("1111").failures).toBe(0); // absorbed by discord.js's own retry, breaker never saw it
       },

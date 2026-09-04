@@ -682,7 +682,7 @@ export default function Layout({ children }: LayoutProps) {
     <div className="flex h-screen bg-background">
       <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[60] focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground focus:text-sm">{t('skipToContent')}</a>
       {/* Mobile Header */}
-      <div className="fixed top-0 left-0 right-0 z-50 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/85 lg:hidden">
+      <div className="fixed top-0 inset-x-0 z-50 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/85 lg:hidden">
         <div className="flex items-center justify-between p-3">
           <PanelBrand compact />
           <Button
@@ -712,7 +712,7 @@ export default function Layout({ children }: LayoutProps) {
         ref={mobileMenuAsideRef}
         aria-label={t('nav.sidebarAriaLabel')}
         className={cn(
-        "fixed inset-y-0 left-0 z-40 flex flex-col border-r bg-card transform transition-all duration-300 ease-out will-change-[width,transform] motion-reduce:transition-none lg:relative",
+        "fixed inset-y-0 left-0 z-40 flex flex-col border-e bg-card transform transition-all duration-300 ease-out will-change-[width,transform] motion-reduce:transition-none lg:relative",
         sidebarCollapsed ? "lg:w-[60px]" : "lg:w-64",
         "w-72",
         "lg:translate-x-0",
@@ -795,17 +795,17 @@ export default function Layout({ children }: LayoutProps) {
               <button
                 type="button"
                 className={cn(
-                  "active-server-strip group relative w-full border-b border-border/40 px-3 py-2.5 text-left transition-colors",
+                  "active-server-strip group relative w-full border-b border-border/40 px-3 py-2.5 text-start transition-colors",
                   "focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/60",
                   `active-server-strip--${serverRunState}`
                 )}
               >
-                {/* Left accent edge — pulses on running, dim on stopped */}
+                {/* Start-edge accent — pulses on running, dim on stopped */}
                 <span className="active-server-strip__edge" aria-hidden />
 
                 <div className="flex items-center gap-1.5 text-[9.5px] font-medium uppercase leading-none tracking-[0.26em] text-muted-foreground/70">
                   <span>{t('activeServer.label')}</span>
-                  <span className="ml-1 inline-block h-px flex-1 bg-gradient-to-r from-border/40 to-transparent" aria-hidden />
+                  <span className="ms-1 inline-block h-px flex-1 bg-gradient-to-r rtl:bg-gradient-to-l from-border/40 to-transparent" aria-hidden />
                   <ChevronDown className="h-3 w-3 text-muted-foreground/60 transition-transform duration-200 group-data-[state=open]:rotate-180" />
                 </div>
                 <div className="mt-1.5 flex items-center gap-2">
@@ -871,7 +871,7 @@ export default function Layout({ children }: LayoutProps) {
               ))}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => navigate('/servers')} className="py-2.5 px-3">
-                <Layers className="w-4 h-4 mr-2" />
+                <Layers className="w-4 h-4 me-2" />
                 {t('activeServer.manageServers')}
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -898,7 +898,7 @@ export default function Layout({ children }: LayoutProps) {
                 )}
               >
                 {location.pathname === dashboardItem.to && (
-                  <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[2px] rounded-r-full bg-primary" aria-hidden />
+                  <span className="absolute start-0 top-1/2 -translate-y-1/2 h-5 w-[2px] rounded-s-full bg-primary" aria-hidden />
                 )}
                 <dashboardItem.icon className={cn('h-[15px] w-[15px] shrink-0', location.pathname === dashboardItem.to ? 'text-primary' : 'text-muted-foreground/80 group-hover:text-foreground')} />
                 {!sidebarCollapsed && <span className="truncate">{t(dashboardItem.labelKey)}</span>}
@@ -959,7 +959,7 @@ export default function Layout({ children }: LayoutProps) {
                             )}
                           >
                             {isActive && (
-                              <span className={cn('absolute left-0 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-r-full', tone.childDot)} aria-hidden />
+                              <span className={cn('absolute start-0 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-s-full', tone.childDot)} aria-hidden />
                             )}
                             <item.icon className={cn('h-[15px] w-[15px] shrink-0', isActive ? tone.labelActive : 'text-muted-foreground/80 group-hover:text-foreground')} />
                           </NavLink>
@@ -1038,7 +1038,7 @@ export default function Layout({ children }: LayoutProps) {
                           >
                             <item.icon className="h-[15px] w-[15px] shrink-0 text-muted-foreground/50" />
                             <span className="truncate text-muted-foreground/70 line-through decoration-muted-foreground/30">{t(item.labelKey)}</span>
-                            <Badge variant="outline" className="ml-auto px-1 py-0 text-[9px] uppercase tracking-wider">
+                            <Badge variant="outline" className="ms-auto px-1 py-0 text-[9px] uppercase tracking-wider">
                               {t('nav.localBadge')}
                             </Badge>
                           </div>
@@ -1065,14 +1065,14 @@ export default function Layout({ children }: LayoutProps) {
                         {({ isActive }) => (
                           <>
                             {isActive && (
-                              <span className={cn('absolute left-0 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-r-full', tone.childDot)} aria-hidden />
+                              <span className={cn('absolute start-0 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-s-full', tone.childDot)} aria-hidden />
                             )}
                             <item.icon className={cn('h-[15px] w-[15px] shrink-0 transition-colors', isActive ? tone.labelActive : 'text-muted-foreground/80 group-hover:text-foreground')} />
                             <span className="truncate">{t(item.labelKey)}</span>
                             {item.badge && (
                               <Badge
                                 variant={isActive ? 'secondary' : 'outline'}
-                                className="ml-auto px-1.5 py-0 text-[10px] uppercase tracking-wider text-warning border-warning/40"
+                                className="ms-auto px-1.5 py-0 text-[10px] uppercase tracking-wider text-warning border-warning/40"
                               >
                                 {item.badge}
                               </Badge>
@@ -1080,7 +1080,7 @@ export default function Layout({ children }: LayoutProps) {
                             {item.to === '/players' && playerCount > 0 && (
                               <Badge
                                 variant={isActive ? 'secondary' : 'success'}
-                                className="ml-auto min-w-[24px] justify-center px-1.5 py-0 text-[10px] leading-tight"
+                                className="ms-auto min-w-[24px] justify-center px-1.5 py-0 text-[10px] leading-tight"
                               >
                                 {playerCountLabel}
                               </Badge>
@@ -1088,7 +1088,7 @@ export default function Layout({ children }: LayoutProps) {
                             {item.to === '/mods' && modUpdatesAvailable > 0 && (
                               <Badge
                                 variant="warning"
-                                className="ml-auto min-w-[24px] justify-center px-1.5 py-0 text-[10px] leading-tight"
+                                className="ms-auto min-w-[24px] justify-center px-1.5 py-0 text-[10px] leading-tight"
                                 title={t('modBadge.updatesAvailable', { count: modUpdatesAvailable })}
                               >
                                 {modUpdatesAvailable > 99 ? '99+' : modUpdatesAvailable}
@@ -1096,7 +1096,7 @@ export default function Layout({ children }: LayoutProps) {
                             )}
                             {item.to === '/settings' && panelUpdateAvailable && (
                               <span
-                                className="ml-auto h-1.5 w-1.5 rounded-full bg-warning motion-safe:animate-pulse"
+                                className="ms-auto h-1.5 w-1.5 rounded-full bg-warning motion-safe:animate-pulse"
                                 title={panelUpdateAvailable.version
                                   ? t('panelUpdateBadge.titleWithVersion', { version: panelUpdateAvailable.version })
                                   : t('panelUpdateBadge.titleNoVersion')}
@@ -1121,7 +1121,7 @@ export default function Layout({ children }: LayoutProps) {
               <div className="flex items-center gap-2 text-[11px]">
                 <ConnectionStatus />
                 <AuthFooter />
-                <LanguageSwitcher className="ml-auto" />
+                <LanguageSwitcher className="ms-auto" />
               </div>
               <div className="flex items-center gap-2 text-[11px]">
                 <span className="flex items-center gap-2">
@@ -1208,7 +1208,7 @@ export default function Layout({ children }: LayoutProps) {
           {updateInfo && updateInfo.updateAvailable && !updateDismissed && (
             <div
               role="status"
-              className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-warning/35 bg-warning/[0.04] py-2 pl-3 pr-2 shadow-[inset_2px_0_0_hsl(var(--warning))]"
+              className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-warning/35 bg-warning/[0.04] py-2 ps-3 pe-2 shadow-[inset_2px_0_0_hsl(var(--warning))]"
             >
               <AlertCircle className="h-3.5 w-3.5 shrink-0 text-warning" />
               <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5">
@@ -1230,7 +1230,7 @@ export default function Layout({ children }: LayoutProps) {
                   b{updateInfo.installed.buildId} <span className="text-muted-foreground/60">→</span> b{updateInfo.latest.buildId}
                 </span>
               </div>
-              <div className="ml-auto flex items-center gap-1">
+              <div className="ms-auto flex items-center gap-1">
                 <Button
                   variant="ghost"
                   size="sm"

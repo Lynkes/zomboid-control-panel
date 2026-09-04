@@ -94,6 +94,7 @@
     "heal": "Soigner",
     "god": "Dieu",
     "godTip": "Active toujours le Mode Dieu pour ce joueur — ce n'est pas un bouton bascule. Désactivez-le depuis Joueurs.",
+    "openPlayerControls": "Ouvrir les contrôles du joueur",
     "healedTitle": "Soigné",
     "healedDesc": "{{username}} soigné",
     "godModeEnabled": "Mode Dieu activé"

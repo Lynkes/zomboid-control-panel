@@ -1702,6 +1702,11 @@ export class ModChecker extends EventEmitter {
 
   async getStatus() {
     const trackedMods = (await getTrackedMods()) || [];
+    const trackedWorkshopIds = new Set(
+      trackedMods
+        .map((mod) => String(mod?.workshop_id ?? "").trim())
+        .filter(Boolean),
+    );
     const workshopInfo = await this.getWorkshopInfo();
     // Only count updates for mods that are actually listed in the server INI.
     // Mods downloaded into the Workshop folder but absent from WorkshopItems=
@@ -1753,13 +1758,14 @@ export class ModChecker extends EventEmitter {
       lastSteamApiFailureAt: this.lastSteamApiFailureAt
         ? this.lastSteamApiFailureAt.toISOString()
         : null,
-      // Workshop IDs Steam has explicitly confirmed no longer exist (EResult
-      // 9 -- FileNotFound; see fetchSteamTimestamps), distinct from an id
-      // that's merely absent because the last check never queried it or the
-      // API call failed outright. Empty whenever nothing has been confirmed
-      // removed as of the last check.
+      // Only surface IDs that are still tracked. The ACF can retain a dead
+      // subscription after the operator removes it, so exposing the raw
+      // Steam-result cache here would keep the warning alive forever.
       removedWorkshopIds: [...this.lastUnavailableWorkshopIds.entries()]
-        .filter(([, info]) => info.reason === "removed")
+        .filter(
+          ([id, info]) =>
+            info.reason === "removed" && trackedWorkshopIds.has(String(id)),
+        )
         .map(([id]) => id),
       // Workshop IDs Steam answered with a non-1, non-9 result -- neither
       // confirmed working nor confirmed removed. Deliberately not folded
@@ -1770,7 +1776,10 @@ export class ModChecker extends EventEmitter {
       // resultCode rather than just the id -- "unknown" isn't answerable
       // from a support ticket, "result code 15" is.
       unknownWorkshopIds: [...this.lastUnavailableWorkshopIds.entries()]
-        .filter(([, info]) => info.reason === "unknown")
+        .filter(
+          ([id, info]) =>
+            info.reason === "unknown" && trackedWorkshopIds.has(String(id)),
+        )
         .map(([id, info]) => ({ id, resultCode: info.resultCode })),
       autoRestartEnabled: this.autoRestartEnabled,
       // Restart options

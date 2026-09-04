@@ -110,6 +110,11 @@ export function getDevModeUpgradeInstruction(containerized = isContainerized()) 
     : "In dev mode, pull the latest code with git.";
 }
 
+function addPreflightMessage(messages, details, key, params, fallback) {
+  messages.push(fallback);
+  details.push({ key, params });
+}
+
 export function createUpdateDataBackup(dataPaths, version, fsModule = fs) {
   const dbPath = dataPaths?.dbPath;
   if (!dbPath || !fsModule.existsSync(dbPath)) return null;
@@ -1604,12 +1609,14 @@ export class PanelUpdateChecker {
 
   /**
    * Run preflight checks before download/apply. Returns:
-   *   { ok, blockers: string[], warnings: string[], info: {...} }
+  *   { ok, blockers: string[], warnings: string[], blockerDetails: [], warningDetails: [], info: {...} }
    * Blockers prevent the update from proceeding; warnings are shown to the user.
    */
   async preflight() {
     const blockers = [];
     const warnings = [];
+    const blockerDetails = [];
+    const warningDetails = [];
     const info = {};
 
     const isWindows = process.platform === "win32";
@@ -1623,21 +1630,60 @@ export class PanelUpdateChecker {
 
     if (this.dockerUpdateProxy.enabled) {
       info.dockerUpdater = true;
-      return { ok: true, blockers, warnings, info };
+      // Everything binary mode checks below (disk space, write permissions,
+      // database readability) is about THIS process's own filesystem
+      // access -- none of it applies here, since a separate update
+      // controller container does the build/health-check/rollback for
+      // docker mode. Returning bare ok:true with empty warnings used to
+      // look identical to "we checked, you are fine" when the truth is "we
+      // cannot check this from here" -- checksPerformed:false is the
+      // honest, machine-readable core of that fix and must stay true for
+      // every docker preflight, not just failing ones.
+      //
+      // The explanation text is informational, not a warning: it is the
+      // SAME sentence on every single docker preflight, forever, regardless
+      // of the operator's actual setup -- god's 2026-09-04 review call on
+      // 2b043928. A `warnings` entry that always fires isn't a warning, it's
+      // a label, and it spends the one channel we'll need later to tell a
+      // docker operator something is actually wrong with their install (by
+      // which point they'll have been trained for months that this screen's
+      // warnings are furniture). Kept out of `warnings`/`warningDetails` on
+      // purpose; surfaced instead as a self-contained informational field in
+      // the same {key, params, message} shape translatePanelUpdateMessages
+      // already knows how to translate, for whenever the client wants it.
+      info.checksPerformed = false;
+      info.dockerNotChecked = {
+        key: "updates.preflight.dockerNotChecked",
+        params: {},
+        message:
+          "Docker updates are applied by a separate update controller container. The panel does not run its own preflight checks (disk space, permissions, etc.) for this mode -- those are the controller's responsibility.",
+      };
+      return { ok: true, blockers, warnings, blockerDetails, warningDetails, info };
     }
 
     if (!isPackaged) {
-      blockers.push(
-        `Self-update is only available in packaged builds. ${getDevModeUpgradeInstruction()}`,
+      const containerized = isContainerized();
+      addPreflightMessage(
+        blockers,
+        blockerDetails,
+        containerized
+          ? "updates.preflight.packagedBuildDocker"
+          : "updates.preflight.packagedBuildGit",
+        {},
+        `Self-update is only available in packaged builds. ${getDevModeUpgradeInstruction(containerized)}`,
       );
-      return { ok: false, blockers, warnings, info };
+      return { ok: false, blockers, warnings, blockerDetails, warningDetails, info };
     }
 
     if (!this.latestRelease) {
-      warnings.push(
+      addPreflightMessage(
+        warnings,
+        warningDetails,
+        "updates.preflight.noReleaseInfo",
+        {},
         "No release info cached yet — click Check for Updates first.",
       );
-      return { ok: blockers.length === 0, blockers, warnings, info };
+      return { ok: blockers.length === 0, blockers, warnings, blockerDetails, warningDetails, info };
     }
 
     if (!this.updateAvailable) {
@@ -1662,11 +1708,23 @@ export class PanelUpdateChecker {
         info.databaseReadable = true;
       } catch (err) {
         info.databaseReadable = false;
-        blockers.push(`Panel database cannot be read before update: ${err.message}.`);
+        addPreflightMessage(
+          blockers,
+          blockerDetails,
+          "updates.preflight.databaseUnreadable",
+          { error: err.message },
+          `Panel database cannot be read before update: ${err.message}.`,
+        );
       }
     } else {
       info.databaseReadable = false;
-      warnings.push("No data/db.json was found beside the running panel. This looks like a fresh install; verify the data folder before applying the update.");
+      addPreflightMessage(
+        warnings,
+        warningDetails,
+        "updates.preflight.databaseMissing",
+        {},
+        "No data/db.json was found beside the running panel. This looks like a fresh install; verify the data folder before applying the update.",
+      );
     }
 
     // Resolve the asset so we can size-check.
@@ -1690,7 +1748,12 @@ export class PanelUpdateChecker {
       }
     }
     if (!asset) {
-      blockers.push(
+      const platform = isWindows ? "Windows" : "Linux";
+      addPreflightMessage(
+        blockers,
+        blockerDetails,
+        "updates.preflight.binaryMissing",
+        { platform },
         `No ${isWindows ? "Windows" : "Linux"} binary found in the latest release.`,
       );
     } else {
@@ -1706,7 +1769,19 @@ export class PanelUpdateChecker {
       info.writable = true;
     } catch (err) {
       info.writable = false;
-      blockers.push(getPanelFolderPermissionGuidance(process.platform, err.code || err.message));
+      const permissionKey =
+        process.platform === "win32"
+          ? "updates.preflight.folderNotWritableWindows"
+          : process.platform === "linux"
+            ? "updates.preflight.folderNotWritableLinux"
+            : "updates.preflight.folderNotWritableOther";
+      addPreflightMessage(
+        blockers,
+        blockerDetails,
+        permissionKey,
+        { detail: err.code || err.message },
+        getPanelFolderPermissionGuidance(process.platform, err.code || err.message),
+      );
     } finally {
       if (probeCreated) {
         try {
@@ -1726,7 +1801,13 @@ export class PanelUpdateChecker {
         info.freeBytes = free;
         const needed = asset.size * 2;
         if (free !== null && free < needed) {
-          blockers.push(
+          const neededMb = (needed / 1024 / 1024).toFixed(0);
+          const freeMb = (free / 1024 / 1024).toFixed(0);
+          addPreflightMessage(
+            blockers,
+            blockerDetails,
+            "updates.preflight.diskSpace",
+            { neededMb, freeMb },
             `Not enough free disk space. Need ~${(needed / 1024 / 1024).toFixed(0)} MB, have ${(free / 1024 / 1024).toFixed(0)} MB.`,
           );
         }
@@ -1743,12 +1824,20 @@ export class PanelUpdateChecker {
       const onDesktop = /\\desktop(\\|$)/.test(lowered);
       const inDocuments = /\\documents(\\|$)/.test(lowered);
       if (inOneDrive) {
-        warnings.push(
+        addPreflightMessage(
+          warnings,
+          warningDetails,
+          "updates.preflight.oneDrive",
+          {},
           "Panel lives inside a OneDrive-synced folder. Sync can briefly lock the exe while it is being replaced. Pause OneDrive before clicking Restart and Apply, or move the panel to a non-synced location (e.g. C:\\ZomboidPanel).",
         );
         info.oneDrive = true;
       } else if (onDesktop || inDocuments) {
-        warnings.push(
+        addPreflightMessage(
+          warnings,
+          warningDetails,
+          "updates.preflight.syncSuspect",
+          {},
           "Panel lives on the Desktop or in Documents. If you use OneDrive Backup/Known Folder Move, that folder is sync-backed and may lock the exe during apply. Consider moving the panel to a non-synced location.",
         );
         info.syncSuspect = true;
@@ -1756,7 +1845,11 @@ export class PanelUpdateChecker {
 
       const inProgramFiles = /^c:\\program files/i.test(exeDir);
       if (inProgramFiles) {
-        warnings.push(
+        addPreflightMessage(
+          warnings,
+          warningDetails,
+          "updates.preflight.programFiles",
+          {},
           "Panel is installed under Program Files — Windows requires Administrator rights to replace files there. If apply fails, relaunch the panel as Administrator.",
         );
         info.programFiles = true;
@@ -1767,25 +1860,49 @@ export class PanelUpdateChecker {
     const staged = this.getStagedUpdate();
     if (staged) {
       info.stagedUpdate = { version: staged.version, path: staged.stagedPath };
-      warnings.push(
+      addPreflightMessage(
+        warnings,
+        warningDetails,
+        "updates.preflight.previousUpdateStaged",
+        { version: staged.version || "?" },
         `A previous update (v${staged.version || "?"}) is already staged and ready to apply on next restart.`,
       );
     }
 
-    // Lingering .old from a prior apply.
+    // Lingering backup from a prior apply. The bundle-journal rewrite
+    // renamed this suffix from ".old" to ".bundle-previous" (see
+    // updateBundle.js's backupBinaryPath and build.js's BIN_BACKUP), but
+    // this probe was never updated to match -- it has been checking a
+    // filename nothing writes anymore since that rewrite landed, so it can
+    // never fire for the current mechanism. That silence reads as "nothing
+    // lingering" when the actual current risk (a .bundle-previous a failed
+    // or incomplete rollback left behind -- exactly the class of bug fixed
+    // in acb202b1) goes completely unchecked here. Checking both: the
+    // current suffix as the real signal, the legacy one only so a
+    // long-unapplied pre-rewrite install still gets a warning too.
     try {
-      const oldPath = exePath + ".old";
-      if (fs.existsSync(oldPath)) {
-        info.oldPath = oldPath;
-        warnings.push(
-          "A previous backup (.old) is present next to the exe. It will be cleaned up on the next successful apply.",
+      const bundlePreviousPath = `${exePath}.bundle-previous`;
+      const legacyOldPath = `${exePath}.old`;
+      const lingeringPath = fs.existsSync(bundlePreviousPath)
+        ? bundlePreviousPath
+        : fs.existsSync(legacyOldPath)
+          ? legacyOldPath
+          : null;
+      if (lingeringPath) {
+        info.oldPath = lingeringPath;
+        addPreflightMessage(
+          warnings,
+          warningDetails,
+          "updates.preflight.previousBackup",
+          {},
+          "A previous backup is present next to the exe. It will be cleaned up on the next successful apply.",
         );
       }
     } catch (err) {
-      log.debug(`.old probe failed: ${err.message}`);
+      log.debug(`Previous-backup probe failed: ${err.message}`);
     }
 
-    return { ok: blockers.length === 0, blockers, warnings, info };
+    return { ok: blockers.length === 0, blockers, warnings, blockerDetails, warningDetails, info };
   }
 
   /**
@@ -2081,6 +2198,12 @@ export class PanelUpdateChecker {
       stagedStillPresent,
       helperLog,
       likelyCause,
+      // Only meaningful when likelyCause is "rollback_failed" -- see
+      // isRollbackRetryLikely()'s own doc comment. Omitted for every other
+      // cause rather than always including an irrelevant false.
+      ...(likelyCause === "rollback_failed"
+        ? { rollbackRetryLikely: this.isRollbackRetryLikely(helperLog) }
+        : {}),
       // Tell the UI whether "click Restart to retry" will work. If the staged
       // file is gone, the user has to re-download first.
       canRetryApply: stagedStillPresent,
@@ -2115,15 +2238,78 @@ export class PanelUpdateChecker {
     if (!helperLog) return "no_helper_log";
     const l = helperLog.toLowerCase();
 
+    // 2026-09-04, Dwight's finding + god's follow-up: readMostRecentApplyLog()
+    // prefers supervisor.log (build.js's generateStartBat(), "Supervisor v2")
+    // whenever it exists, and only falls back to panel-update-last.log (the
+    // spawnWindowsApplyHelper() .cmd helper -- itself dead code, never called
+    // in production) for an un-upgraded pre-v1.0.21 install. Checked, by
+    // grepping build.js for every phrase in the prose lists below: NONE of
+    // them occur in it, so none of these branches can ever fire against a
+    // real current install's log.
+    //
+    // Only the [pre-spawn]/"apply helper started" pair genuinely matches
+    // spawnWindowsApplyHelper()'s own wording. The rest of the prose below
+    // (av_quarantine/permission/rename_locked) matches nothing currently in
+    // this repository, including that dead function -- `git log -S"quarantined
+    // by av"` shows it was introduced once, at v1.0.14, and never touched
+    // since, through two later apply-mechanism rewrites. Whatever wrote that
+    // wording at v1.0.14 is gone; the classifier was never updated either
+    // time its producer changed underneath it. That's why Dwight saw
+    // "unknown" while the log plainly said `staged binary missing or
+    // quarantined [av_quarantine]`: the classifier was entirely keyed to
+    // wording nothing has written in at least two apply-mechanism
+    // generations.
+    //
+    // Supervisor v2 already stamps a stable bracketed code on every FAILURE
+    // line it writes (see build.js's `:apply_update`/`:rollback_update`
+    // labels) -- exactly the "producer emits a code, classifier matches the
+    // code" shape that should have existed from the start. Checked first,
+    // ahead of the legacy prose fallbacks below, because it's the current,
+    // most specific, most authoritative signal when present. Only the last
+    // occurrence is used: a real log can carry an earlier informational tag
+    // from an unrelated prior step, and the final stamped line is the one
+    // that actually ended the run (`goto :eof` follows every one of these).
+    //
+    // Three of Supervisor v2's codes get mapped to an existing or new
+    // client-recognised cause here -- av_quarantine (exact name match,
+    // Dwight's actual case), binary_swap_failed (both of its trigger
+    // lines are a failed `ren` on the live/staged exe, which is precisely
+    // what 'rename_locked' already means per this function's own doc
+    // comment above), and rollback_failed (its own bucket -- see
+    // isRollbackRetryLikely() below for why one value can carry this
+    // honestly across all eight of its trigger lines). The remaining codes
+    // -- version_mismatch, startup_handshake_failed, frontend_swap_failed,
+    // bundle_apply_failed -- have no existing bucket that honestly
+    // describes them, and client/src/lib/api.ts's likelyCause union type
+    // doesn't know about them; inventing new values here would just move
+    // this exact defect shape (a value nothing on the other end consumes)
+    // to the client instead of fixing it. Left unmapped on purpose -- they
+    // fall through to 'unknown' below, exactly like today, not a
+    // regression -- as a named, deliberate gap for a follow-up that
+    // extends the client-side vocabulary, not a silent one.
+    const supervisorTags = [
+      ...helperLog.matchAll(
+        /\[(av_quarantine|version_mismatch|startup_handshake_failed|frontend_swap_failed|binary_swap_failed|bundle_apply_failed|rollback_failed)\]/gi,
+      ),
+    ].map((m) => m[1].toLowerCase());
+    const lastSupervisorTag = supervisorTags[supervisorTags.length - 1];
+    if (lastSupervisorTag === "av_quarantine") return "av_quarantine";
+    if (lastSupervisorTag === "binary_swap_failed") return "rename_locked";
+    if (lastSupervisorTag === "rollback_failed") return "rollback_failed";
+
     // Helper was blocked from running at all (ASR / AV / Group Policy).
     // The PRE-SPAWN sentinel line written by the main panel is there, but
     // no lines from the helper itself. Unique signature of the v1.0.21+
-    // helper framework — we can tell the user exactly what to do.
+    // helper framework — we can tell the user exactly what to do. Legacy
+    // path: spawnWindowsApplyHelper() is dead in production (see above),
+    // kept here only in case an un-upgraded pre-v1.0.21 install is still
+    // writing panel-update-last.log.
     if (l.includes("[pre-spawn]") && !l.includes("apply helper started")) {
       return "helper_blocked";
     }
 
-    // AV / Controlled Folder Access — file vanished between helper steps.
+    // Legacy AV / Controlled Folder Access wording (see the class-level
+    // comment above): file vanished between helper steps.
     // Patterns cover: post-place verify failure, rollback copy wiped, staged
     // gone before we started, and the Windows "cannot find" messages that
     // surface as Move-Item failures when the source was deleted mid-apply.
@@ -2175,6 +2361,45 @@ export class PanelUpdateChecker {
     }
 
     return "unknown";
+  }
+
+  /**
+   * For a "rollback_failed" apply, whether the operator should expect the
+   * SAME failure to recur automatically on a later restart/relaunch, as
+   * opposed to a fully-recovered state with only a harmless leftover
+   * update-bundle.json.
+   *
+   * Never throws.
+   *
+   * god's 2026-09-04 review: one likelyCause value ("rollback_failed") must
+   * not lie in any of its eight build.js trigger lines. Traced the full
+   * :rollback_update label (build.js ~605-678): 7 of the 8 lines fire before
+   * -- or because -- the pending-update marker files (.update-pending /
+   * .update-applying) failed to clear, and Supervisor v2's run_loop watches
+   * those files to decide whether to retry (a stuck .update-pending
+   * re-triggers a fresh swap attempt; a stuck .update-applying re-triggers
+   * the rollback itself via the startup-handshake check -- two different
+   * mechanisms, same operator-facing symptom: the identical failure keeps
+   * happening on its own). Only the 8th line ("...could not remove
+   * journal") is reached with both marker files already successfully
+   * cleared -- a cosmetic update-bundle.json leftover with no retry risk,
+   * and the only one of the eight this must return false for.
+   *
+   * Checks the LAST rollback_failed-tagged line specifically (not just
+   * whether the tag appears anywhere), for the same reason
+   * classifyApplyFailure() does: build.js always stamps its "rollback
+   * incomplete" summary line last whenever the restore itself failed, so an
+   * earlier, different rollback_failed line earlier in the same log must
+   * not override the line that actually ended the run.
+   */
+  isRollbackRetryLikely(helperLog) {
+    if (!helperLog) return false;
+    const rollbackLines = helperLog
+      .split(/\r?\n/)
+      .filter((line) => /\[rollback_failed\]/i.test(line));
+    if (rollbackLines.length === 0) return false;
+    const last = rollbackLines[rollbackLines.length - 1].toLowerCase();
+    return !last.includes("could not remove journal");
   }
 
   /**

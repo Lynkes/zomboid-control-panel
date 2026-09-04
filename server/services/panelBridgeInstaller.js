@@ -208,3 +208,58 @@ export function installBridge(server) {
     return { success: false, error: error.message };
   }
 }
+
+// Best-effort: keep PanelBridge.lua current on servers the panel can reach
+// directly on disk, immediately before the game process (re)spawns. PZ loads
+// Lua at Java-process startup, so this is the only moment a write here can
+// take effect for the launch that's about to happen -- writing the file
+// afterward just produces a fresher file the already-running JVM ignores
+// until its next restart. Previously the equivalent check
+// (routes/servers.js's own autoInstallBridgeIfNeeded) only ran on POST
+// /:id/activate -- an uncommon "reassign the active server profile" action --
+// never on an ordinary start or restart, which is how a server can drift
+// arbitrarily far behind the shipped bridge with nothing ever re-checking it
+// (2026-09-02 bridge-install-integrity audit). Exported so routes/server.js's
+// /start and /restart can call the same logic without reimplementing it.
+// Never let an install failure block starting/restarting the server -- the
+// caller's own comment explains why that would make this fix worse than the
+// bug it closes.
+export function autoInstallBridgeIfNeeded(server) {
+  try {
+    if (!canAutoInstall(server)) return;
+    const status = checkBridgeInstalled(server);
+    if (status.installed && !status.needsUpdate) return;
+
+    const result = installBridge(server);
+    if (result.success) {
+      log.info(
+        `PanelBridge ${status.installed ? 'updated' : 'installed'} at ${result.targetPath} (v${result.version || 'unknown'})`,
+      );
+    } else {
+      log.warn(`PanelBridge auto-install failed: ${result.error}`);
+    }
+  } catch (error) {
+    log.warn(`PanelBridge auto-install check failed: ${error.message}`);
+  }
+}
+
+// The version currently bundled with this panel install, independent of any
+// per-server target. This is the only signal available for a remote/SFTP
+// server: canAutoInstall()/checkBridgeInstalled() both require a local
+// target path to compare content against, which a remote server has none of
+// -- the panel never writes its files. All a remote status check can do is
+// compare the mod's own self-reported live VERSION (PanelBridge.lua reports
+// PanelBridge.VERSION every tick via status.json) against this.
+export function getBundledBridgeVersion() {
+  const sourcePath = resolveSourcePath();
+  return sourcePath ? readVersion(sourcePath) : null;
+}
+
+// True when a live, self-reported bridge version is older than what this
+// panel currently bundles. String comparison is the only signal available
+// for a remote server -- see getBundledBridgeVersion() above.
+export function isBridgeVersionBehindBundled(liveVersion) {
+  const bundled = getBundledBridgeVersion();
+  if (!bundled || !liveVersion) return false;
+  return compareModVersions(liveVersion, bundled) < 0;
+}

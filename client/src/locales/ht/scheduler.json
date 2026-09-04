@@ -195,6 +195,25 @@
     "fallbackTitle": "Fizo orè ki sove a pa valab ankò",
     "fallbackDesc": "Nou pa t kapab itilize \"{{configured}}\" (petèt yo retire l nan baz done fizo orè yo, oswa panel sa a restore soti nan yon lòt machin). Orè yo ap fonksyone nan {{effective}} jiskaske pwoblèm sa a rezoud."
   },
+  "restartWarning": {
+    "title": "Avètisman Redèmaj",
+    "description": "Mesaj kontdaoun redèmaj otomatik ki voye bay tout jwè konekte yo.",
+    "languageLabel": "Lang mesaj la",
+    "templateLabel": "Modèl kontdaoun",
+    "templateHint": "Itilize {count} pou nimewo a ak {unit} pou minit oswa segond.",
+    "presetButton": "Itilize prereglaj lang lan",
+    "saveButton": "Sove avètisman yo",
+    "saved": "Avètisman redèmaj yo sove",
+    "saveFailed": "Nou pa t kapab sove avètisman redèmaj yo",
+    "languages": {
+      "en": "Anglè",
+      "zh-CN": "Chinwa senplifye",
+      "fr": "Franse",
+      "de": "Alman",
+      "es": "Panyòl",
+      "ht": "Kreyòl ayisyen"
+    }
+  },
   "toasts": {
     "errorTitle": "Erè",
     "successTitle": "Siksè",

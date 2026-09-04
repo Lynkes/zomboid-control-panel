@@ -1,8 +1,8 @@
 import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
-import { LANGUAGE_CODES, SOURCE_LANGUAGE } from './languages'
+import { LANGUAGE_CODES, SOURCE_LANGUAGE, isRTL } from './languages'
 
-export { LANGUAGES, SOURCE_LANGUAGE, LANGUAGE_CODES } from './languages'
+export { LANGUAGES, SOURCE_LANGUAGE, LANGUAGE_CODES, isRTL, directionOf } from './languages'
 export type { LanguageDef } from './languages'
 export type SupportedLanguage = string
 
@@ -37,29 +37,94 @@ function isSupportedLanguage(value: string | null | undefined): value is Support
   return !!value && LANGUAGE_CODES.includes(value)
 }
 
-// Phase 1 covers Login, Setup and the app shell/nav only — every other page
-// still renders hardcoded English. See the i18n scoping report for the plan
-// to roll the remaining strings out namespace by namespace.
-function detectInitialLanguage(): SupportedLanguage {
+function mapBrowserLanguage(raw: string | null | undefined): SupportedLanguage | null {
+  if (!raw) return null
+  const tag = raw.trim().replace(/_/g, '-')
+  const lower = tag.toLowerCase()
+  if (isSupportedLanguage(tag)) return tag
+  if (
+    lower.startsWith('zh-hant') ||
+    lower.startsWith('zh-tw') ||
+    lower.startsWith('zh-hk') ||
+    lower.startsWith('zh-mo')
+  ) {
+    return 'zh-TW'
+  }
+  if (
+    lower.startsWith('zh-hans') ||
+    lower.startsWith('zh-cn') ||
+    lower.startsWith('zh-sg')
+  ) {
+    return 'zh-CN'
+  }
+  return null
+}
+
+// Bare primary subtag (fr-FR -> fr, zh-Hant-TW -> zh), lowercased.
+function bareSubtag(raw: string): string {
+  return raw.trim().replace(/_/g, '-').split('-')[0].toLowerCase()
+}
+
+export function detectInitialLanguage(): SupportedLanguage {
   try {
     const stored = localStorage.getItem(LANGUAGE_STORAGE_KEY)
     if (isSupportedLanguage(stored)) return stored
   } catch {
     // localStorage unavailable (privacy mode, disabled storage) — fall through
   }
-  const browserLang = (navigator.language || SOURCE_LANGUAGE).slice(0, 2).toLowerCase()
-  return isSupportedLanguage(browserLang) ? browserLang : SOURCE_LANGUAGE
+  const candidates = [
+    navigator.language,
+    ...(Array.isArray(navigator.languages) ? navigator.languages : []),
+  ]
+  for (const raw of candidates) {
+    const mapped = mapBrowserLanguage(raw)
+    if (mapped) return mapped
+  }
+  // Second pass, bare-subtag fallback: mapBrowserLanguage() above only
+  // exact-matches a full tag or special-cases zh-*, so a browser reporting
+  // a region-qualified tag with no exact/zh match (fr-FR, de-DE, es-ES,
+  // ht-HT, or a real ar-PS/ar-EG/ar-SA once Arabic is registered -- see
+  // rtl-and-new-languages) fell straight through to English. This restores
+  // the pre-4666849b prefix-match behaviour, but as a FALLBACK layer run
+  // only after every candidate has already had its shot at an exact/zh
+  // match, so the newer, more specific behaviour still wins whenever it
+  // applies -- fixes the fr-FR/de-DE/es-ES/ht-HT regression without
+  // reverting the Chinese fix that was the actual point of that rewrite.
+  for (const raw of candidates) {
+    const bare = bareSubtag(raw)
+    if (isSupportedLanguage(bare)) return bare
+  }
+  return SOURCE_LANGUAGE
 }
+
+// Keeps <html dir>/<html lang> in sync with the active language -- on
+// first load AND on every runtime switch (the switcher is a live control,
+// not a boot-time setting). Applied synchronously before i18next's own
+// init resolves so the very first paint is already correct rather than
+// flashing ltr and then flipping; the 'languageChanged' subscription below
+// covers every change after that, including setLanguage()'s own
+// i18n.changeLanguage() call. For all seven languages registered today
+// this is a no-op every time (isRTL() is false for all of them) -- there is no
+// RTL row in LANGUAGES yet.
+function applyDocumentDirection(lang: string): void {
+  document.documentElement.dir = isRTL(lang) ? 'rtl' : 'ltr'
+  document.documentElement.lang = lang
+}
+
+const initialLanguage = detectInitialLanguage()
+applyDocumentDirection(initialLanguage)
 
 i18n.use(initReactI18next).init({
   resources,
-  lng: detectInitialLanguage(),
+  lng: initialLanguage,
   fallbackLng: SOURCE_LANGUAGE,
   ns: namespaces,
   defaultNS: 'shell',
   interpolation: { escapeValue: false }, // React already escapes interpolated values
   returnEmptyString: false,
 })
+
+i18n.on('languageChanged', applyDocumentDirection)
 
 export function setLanguage(lang: SupportedLanguage): void {
   void i18n.changeLanguage(lang)

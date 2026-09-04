@@ -77,3 +77,13 @@ throwing. The defect reappearing is the proof.
 
 **ACCEPT**, subject to independent verification — including a re-check of the DISC-002b retraction,
 since a withdrawn finding deserves the same scrutiny as a filed one.
+
+> **status: verification PASSED, formal acceptance still pending — re-confirmed 2026-09-03
+> (kevin).** `VERIFICATION.md` returned **PASS**, including a from-scratch re-check of the
+> DISC-002b retraction. `docs/modernization/WORK_PACKAGES.md` still lists this package's state as
+> `review`, not `accepted` — `STATUS.md`'s 2026-08-27 audit deliberately flagged this rather than
+> assuming acceptance, and nothing has moved it forward since. Re-verified today against current
+> HEAD (`761f41bc`): the comma-split and refuse-empty fix in
+> `scripts/modernization/check-owned-paths.ps1` are both still in place. Also corrected in this pass
+> — not found by the original verification — `RESULTS.json.git_sha` was a malformed zero-padded
+> value, not a real commit hash; fixed to the real commit (`8f4ec5f2`).

@@ -402,7 +402,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
                 {contextPlayer}
               </span>
               {scannedAt && (
-                <span className="ml-auto text-[11px] text-muted-foreground/50 tabular-nums shrink-0 hidden sm:inline">
+                <span className="ms-auto text-[11px] text-muted-foreground/50 tabular-nums shrink-0 hidden sm:inline">
                   {t('scannedOn', { date: new Date(scannedAt).toLocaleDateString(i18n.language) })}
                 </span>
               )}
@@ -450,14 +450,14 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
             title={t('rescanTitle')}
           >
             {scanning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-            <span className="ml-1.5 hidden sm:inline">{catalogEmpty ? t('scan') : t('rescan')}</span>
+            <span className="ms-1.5 hidden sm:inline">{catalogEmpty ? t('scan') : t('rescan')}</span>
           </Button>
         </div>
 
         {/* ========== BODY ========== */}
         <div className="grid grid-cols-[220px_1fr] min-h-0 min-w-0">
           {/* ----- Category sidebar ----- */}
-          <aside className="border-r border-border/70 bg-card/40 overflow-y-auto overscroll-contain">
+          <aside className="border-e border-border/70 bg-card/40 overflow-y-auto overscroll-contain">
             <div className="sticky top-0 z-10 bg-card/80 backdrop-blur-sm px-3 pt-3 pb-1.5 text-[10px] uppercase tracking-[0.2em] font-semibold text-muted-foreground/60">
               {t('categories')}
             </div>
@@ -466,7 +466,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
               type="button"
               onClick={() => setActiveCategory(null)}
               className={cn(
-                'w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-left border-l-[3px]',
+                'w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-start border-s-[3px]',
                 'motion-safe:transition-colors duration-100',
                 !activeCategory
                   ? 'bg-primary/12 text-primary border-primary'
@@ -493,7 +493,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
                   type="button"
                   onClick={() => setActiveCategory(cat.raw)}
                   className={cn(
-                    'w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-left border-l-[3px]',
+                    'w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-start border-s-[3px]',
                     'motion-safe:transition-colors duration-100',
                     isActive
                       ? 'bg-primary/12 text-primary border-primary'
@@ -519,7 +519,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
                 {t('resultsCount', { count: totalFiltered })}
               </span>
               {capped && (
-                <span className="text-[10px] uppercase tracking-wider text-warning/80 font-semibold ml-auto">
+                <span className="text-[10px] uppercase tracking-wider text-warning/80 font-semibold ms-auto">
                   {t('showingFirstN', { max: MAX_VISIBLE })}
                 </span>
               )}
@@ -606,7 +606,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
                 data-slot="recent-history-scroll"
                 className="min-w-0 flex-1 overflow-x-auto overscroll-contain"
               >
-                <div className="flex w-max items-center gap-1.5 pr-1">
+                <div className="flex w-max items-center gap-1.5 pe-1">
                   {recent.map(r => (
                     <button
                       key={r.id}
@@ -722,12 +722,12 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
             >
               {spawning ? (
                 <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  <Loader2 className="w-4 h-4 me-2 animate-spin" />
                   {t('sending')}
                 </>
               ) : (
                 <>
-                  <Sparkles className="w-4 h-4 mr-2" />
+                  <Sparkles className="w-4 h-4 me-2" />
                   {isItems ? (qty > 1 ? t('giveWithQty', { qty }) : t('give')) : t('spawn')}
                 </>
               )}
@@ -790,7 +790,7 @@ function ResultRow({
       onClick={onSelect}
       onDoubleClick={onDoubleSpawn}
       className={cn(
-        'w-full flex items-center gap-3 px-4 py-2 text-left border-l-[3px]',
+        'w-full flex items-center gap-3 px-4 py-2 text-start border-s-[3px]',
         'motion-safe:transition-colors duration-75',
         isSelected
           ? 'bg-primary/15 border-primary'
@@ -862,7 +862,7 @@ function EmptyCatalog({ mode, scanning, scanError, onScan }: EmptyCatalogProps) 
         {isItems ? t('scanItemsBody') : t('scanVehiclesBody')}
       </p>
       <Button onClick={onScan} disabled={scanning} size="sm">
-        {scanning ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+        {scanning ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : <RefreshCw className="w-4 h-4 me-2" />}
         {scanning ? t('scanning') : (isItems ? t('scanItems') : t('scanVehicles'))}
       </Button>
       {scanError && (

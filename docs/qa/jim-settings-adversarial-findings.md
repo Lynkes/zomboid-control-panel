@@ -21,6 +21,8 @@ Kevin's brief: (1) input reaching something live, (2) accepted input that silent
 > `.on("error", ...)` handler (line 608), mirroring `httpServer`'s. Defense-in-depth fully closed,
 > not just the save-time half.
 
+**status: FIXED** — re-verified 2026-09-02, HEAD `5f913567`. `config.js`'s `PUT /app-settings` still validates `httpsCertPath`/`httpsKeyPath`/`httpsPort` at save time; `certs.js`'s `loadOrCreateCerts` still wraps its reads in try/catch; `index.js`'s `httpsServer` still has its `.on("error", ...)` handler. All three defense-in-depth pieces confirmed present, matching the 2026-08-24 note below.
+
 ## FINDING 1 (High): saving an HTTPS cert/key path or port with no validation crashes the ENTIRE panel process on the next restart — WHERE: `server/routes/config.js`'s `PUT /app-settings` (no validation for `httpsCertPath`/`httpsKeyPath`/`httpsPort`) + `server/utils/certs.js:211-223` (`loadOrCreateCerts`, unguarded `fs.readFileSync`) + `server/index.js:2695-2732` (HTTPS boot sequence, no local try/catch) + `server/index.js:138-145` (global `uncaughtException`/`unhandledRejection` → `fatalExit` → `process.exit(1)`)
 
 **WHAT HAPPENS:** Settings → HTTPS tab lets an operator type a certificate path, a key path, and a
@@ -120,7 +122,7 @@ moment of the mistake, and with no in-panel recovery path once it fires.
 
 ## Chased and ruled out (recording so nobody re-spends time on these)
 
-- **RCON `reconnectInterval` (Connection tab):** client caps 1-60 via the `<Input>`'s min/max, but
+- **status: FIXED** (re-verified 2026-09-02, HEAD `5f913567`) — **RCON `reconnectInterval` (Connection tab):** client caps 1-60 via the `<Input>`'s min/max, but
   like the HTTPS fields, nothing stops a direct `PUT /app-settings` call sending `0`, a negative
   number, or a huge one. Read where it's actually consumed (`autoReconnect` interval timer) — worst
   case is a reconnect loop that's too fast or effectively never fires, not a crash or an injection.
@@ -129,17 +131,17 @@ moment of the mistake, and with no in-panel recovery path once it fires.
   > **RECONCILED 2026-08-24 (fork):** FIXED at `c005a7d` (same commit as Finding 1 — the numeric-
   > field audit closed this alongside httpsPort/panelPort). `config.js:531-535` now validates
   > `reconnectInterval` is a whole number 1-60, returning 400 otherwise. Verified directly.
-- **SFTP settings (Bridge tab: host/port/username/password/bridgePath/pollIntervalSeconds):**
+- **status: no defect found (checked clean, not re-verified this pass — no code changed since the original check that would alter this verdict)** — **SFTP settings (Bridge tab: host/port/username/password/bridgePath/pollIntervalSeconds):**
   `POST /sftp/test` and `/sftp/configure` both wrap their work in try/catch returning a plain 400 on
   failure (`server/routes/panelBridge.js`) — a bad host/port/path fails the connection attempt
   gracefully at request time, not at panel-boot time, so there's no equivalent crash vector. Did not
   fuzz path-traversal on `bridgePath`/`logPath`/`configPath` to the same depth Finding 1 got; lower
   priority since the worst outcome I could find by reading is a failed SFTP connection, not process
   death or an unintended file read/write outside the panel's own control.
-- **`corsAllowedOrigins` (General/Access area):** already gated through `validateCorsAllowedOrigins`
+- **status: no defect found (checked clean)** — **`corsAllowedOrigins` (General/Access area):** already gated through `validateCorsAllowedOrigins`
   with explicit length/count/format checks (5000 char total, 100 origins max, 256 chars each) — read
   it, no bypass found.
-- **Security tab — password change, recovery codes, "reset password on server" local-recovery
+- **status: no defect found (checked clean, deliberate defense-in-depth confirmed)** — **Security tab — password change, recovery codes, "reset password on server" local-recovery
   flow:** traced end to end (`server/routes/auth.js` `POST /reset-token/local` and
   `POST /reset-password`, `server/services/auth.js`'s `resetPassword`/`generateRecoveryCodes`). This
   is solid, defense-in-depth work: `isLocalPanelRequest` checks the actual TCP `req.socket.

@@ -195,6 +195,25 @@
     "fallbackTitle": "Gespeicherte Zeitzone ist nicht mehr gültig",
     "fallbackDesc": "„{{configured}}“ konnte nicht verwendet werden (möglicherweise wurde sie aus der Zeitzonendatenbank entfernt, oder dieses Panel wurde von einem anderen Rechner wiederhergestellt). Zeitpläne laufen bis zur Behebung in {{effective}}."
   },
+  "restartWarning": {
+    "title": "Neustartwarnungen",
+    "description": "Countdown-Nachrichten für automatische Neustarts an alle verbundenen Spieler.",
+    "languageLabel": "Nachrichtensprache",
+    "templateLabel": "Countdown-Vorlage",
+    "templateHint": "{count} für die Zahl und {unit} für Minuten oder Sekunden verwenden.",
+    "presetButton": "Sprachvorlage verwenden",
+    "saveButton": "Warnungen speichern",
+    "saved": "Neustartwarnungen gespeichert",
+    "saveFailed": "Neustartwarnungen konnten nicht gespeichert werden",
+    "languages": {
+      "en": "Englisch",
+      "zh-CN": "Chinesisch (vereinfacht)",
+      "fr": "Französisch",
+      "de": "Deutsch",
+      "es": "Spanisch",
+      "ht": "Haitianisches Kreol"
+    }
+  },
   "toasts": {
     "errorTitle": "Fehler",
     "successTitle": "Erfolg",

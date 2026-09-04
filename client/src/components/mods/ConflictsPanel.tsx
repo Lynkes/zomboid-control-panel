@@ -270,7 +270,7 @@ export function ConflictsPanel({
                 </span>
               )}
               <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground" onClick={scanConflicts} disabled={conflictsLoading}>
-                <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                <RefreshCw className="w-3.5 h-3.5 me-1.5" />
                 {t('rescan')}
               </Button>
             </div>
@@ -340,7 +340,7 @@ export function ConflictsPanel({
                 </p>
               </div>
               <Button variant="outline" size="sm" onClick={scanConflicts} disabled={conflictsLoading}>
-                <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> {t('retry')}
+                <RefreshCw className="w-3.5 h-3.5 me-1.5" /> {t('retry')}
               </Button>
             </div>
           </div>
@@ -395,7 +395,7 @@ export function ConflictsPanel({
               {/* CTA + meta */}
               <div className="flex flex-col items-center gap-2">
                 <Button onClick={scanConflicts} disabled={conflictsLoading} className="min-w-[200px]">
-                  <Shield className="w-4 h-4 mr-2" aria-hidden="true" />
+                  <Shield className="w-4 h-4 me-2" aria-hidden="true" />
                   {t('scanForConflicts')}
                 </Button>
                 <p className="text-[11px] text-muted-foreground/70 flex items-center gap-1.5">
@@ -462,7 +462,7 @@ export function ConflictsPanel({
                     </p>
                   </div>
                 </div>
-                <div className="space-y-1.5 pl-6">
+                <div className="space-y-1.5 ps-6">
                   {conflicts.idCollisions!.filter(c => c.active).map(coll => (
                     <div key={coll.modId} className="text-[11px] flex items-baseline gap-2 flex-wrap">
                       <code className="font-mono px-1.5 py-0.5 rounded bg-destructive/10 text-destructive font-medium shrink-0">{coll.modId}</code>
@@ -570,7 +570,7 @@ export function ConflictsPanel({
                           <button
                             type="button"
                             onClick={() => setConflictSubTab('dependencies')}
-                            className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-1 text-[11px] font-medium text-destructive hover:bg-destructive/15 transition-colors shrink-0"
+                            className="ms-auto inline-flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-1 text-[11px] font-medium text-destructive hover:bg-destructive/15 transition-colors shrink-0"
                           >
                             <GitBranch className="w-3 h-3" aria-hidden="true" />
                             {t('missingDepsCount', { count: dedupedDepCount })}
@@ -585,7 +585,7 @@ export function ConflictsPanel({
                   </div>
 
                   {/* Scan stats strip — right side */}
-                  <div className="flex items-center gap-4 border-l border-border/30 px-4 py-3 text-[11px] bg-background/30">
+                  <div className="flex items-center gap-4 border-s border-border/30 px-4 py-3 text-[11px] bg-background/30">
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div className="text-center cursor-help">
@@ -715,7 +715,7 @@ export function ConflictsPanel({
                     <Network className="w-3.5 h-3.5" />
                     {t('fileConflictsTab')}
                     {conflicts.totalPairs > 0 && (
-                      <Badge variant="secondary" className="text-[11px] h-4 px-1 ml-0.5">{conflicts.totalPairs}</Badge>
+                      <Badge variant="secondary" className="text-[11px] h-4 px-1 ms-0.5">{conflicts.totalPairs}</Badge>
                     )}
                   </button>
                   <button
@@ -729,7 +729,7 @@ export function ConflictsPanel({
                     <GitBranch className="w-3.5 h-3.5" />
                     {t('missingDepsTab')}
                     {dedupedDepCount > 0 && (
-                      <Badge variant="destructive" className="text-[11px] h-4 px-1 ml-0.5">{dedupedDepCount}</Badge>
+                      <Badge variant="destructive" className="text-[11px] h-4 px-1 ms-0.5">{dedupedDepCount}</Badge>
                     )}
                   </button>
                 </div>
@@ -783,14 +783,14 @@ export function ConflictsPanel({
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
                               <div className="relative">
-                                <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground/60 pointer-events-none" aria-hidden="true" />
+                                <Search className="w-3 h-3 absolute start-2 top-1/2 -translate-y-1/2 text-muted-foreground/60 pointer-events-none" aria-hidden="true" />
                                 <input
                                   type="text"
                                   value={pairSearchQuery}
                                   onChange={(e) => setPairSearchQuery(e.target.value)}
                                   placeholder={t('filterByModName')}
                                   aria-label={t('filterConflictPairsAria')}
-                                  className="h-8 w-full min-w-[14rem] pl-6 pr-6 rounded-md text-[11px] bg-background/50 border border-border/40 focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent placeholder:text-muted-foreground/50 sm:w-56"
+                                  className="h-8 w-full min-w-[14rem] ps-6 pe-6 rounded-md text-[11px] bg-background/50 border border-border/40 focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent placeholder:text-muted-foreground/50 sm:w-56"
                                 />
                                 {pairSearchQuery && (
                                   <button
@@ -885,7 +885,7 @@ export function ConflictsPanel({
 
                           {/* Pairs list */}
                           {filteredPairs.length > 0 ? (
-                            <div className="max-h-[min(calc(100vh-420px),70vh)] min-h-[200px] overflow-y-auto rounded-lg border border-border/20 pr-1">
+                            <div className="max-h-[min(calc(100vh-420px),70vh)] min-h-[200px] overflow-y-auto rounded-lg border border-border/20 pe-1">
                               <div className="p-1.5 space-y-2">
                                 {(groupByWinner
                                   ? groupedPairs
@@ -915,11 +915,11 @@ export function ConflictsPanel({
                                   const posB = loadOrderMap.get(pair.modB.modId)
                                   const winner = posA != null && posB != null ? (posA > posB ? 'A' : posB > posA ? 'B' : null) : null
                                   return (
-                                    <AccordionItem key={pairKey} value={pairKey} className={`border rounded-lg px-0 overflow-hidden border-l-[3px] conflict-pair-enter ${
-                                      maxSeverity === 'high' ? 'border-l-destructive/60 bg-destructive/[0.02]' : maxSeverity === 'medium' ? 'border-l-warning/50' : 'border-l-primary/40'
+                                    <AccordionItem key={pairKey} value={pairKey} className={`border rounded-lg px-0 overflow-hidden border-s-[3px] conflict-pair-enter ${
+                                      maxSeverity === 'high' ? 'border-s-destructive/60 bg-destructive/[0.02]' : maxSeverity === 'medium' ? 'border-s-warning/50' : 'border-s-primary/40'
                                     }`} style={{ animationDelay: `${Math.min(pairIdx * 50, 400)}ms` }}>
                                       <AccordionTrigger className="px-3 py-2.5 hover:no-underline hover:bg-muted/20 [&[data-state=open]]:bg-muted/15 transition-colors">
-                                        <div className="flex min-w-0 flex-1 flex-col gap-2 text-left sm:flex-row sm:items-center sm:gap-3">
+                                        <div className="flex min-w-0 flex-1 flex-col gap-2 text-start sm:flex-row sm:items-center sm:gap-3">
                                           <div className={`w-2 h-2 rounded-full shrink-0 ${
                                             maxSeverity === 'high' ? 'bg-destructive severity-pulse' : maxSeverity === 'medium' ? 'bg-warning' : 'bg-primary/60'
                                           }`} aria-hidden="true" />
@@ -963,7 +963,7 @@ export function ConflictsPanel({
                                                 {modPill(pair.modB, posB, bWinsAll || fallbackWinnerSide === 'B', aWinsAll || fallbackWinnerSide === 'A')}
 
                                                 {/* Verdict pill on the right */}
-                                                <div className="flex shrink-0 flex-wrap items-center gap-2 sm:ml-auto sm:flex-nowrap">
+                                                <div className="flex shrink-0 flex-wrap items-center gap-2 sm:ms-auto sm:flex-nowrap">
                                                   {/* File count + severity dots */}
                                                   <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-muted/30 border border-border/30">
                                                     <span className="text-[11px] tabular-nums font-medium text-foreground/80">
@@ -971,7 +971,7 @@ export function ConflictsPanel({
                                                     </span>
                                                     <span className="text-[10px] text-muted-foreground/70">{t('filesWord', { count: totalFiles })}</span>
                                                     {(pair.highCount > 0 || pair.mediumCount > 0 || pair.lowCount > 0) && (
-                                                      <span className="flex items-center gap-0.5 ml-1 pl-1.5 border-l border-border/40">
+                                                      <span className="flex items-center gap-0.5 ms-1 ps-1.5 border-s border-border/40">
                                                         {pair.highCount > 0 && (
                                                           <span className="inline-flex items-center gap-0.5 text-[10px] tabular-nums text-destructive/80">
                                                             <span className="w-1 h-1 rounded-full bg-destructive" aria-hidden="true" />
@@ -1062,7 +1062,7 @@ export function ConflictsPanel({
 
                                             {/* Fix-it actions: promote one mod over the other in load order. */}
                                             {posA != null && posB != null && (
-                                              <div className="ml-auto flex items-center gap-1.5 flex-wrap">
+                                              <div className="ms-auto flex items-center gap-1.5 flex-wrap">
                                                 <DisabledReason reason={posA > posB ? t('alreadyLoadsLast', { name: pair.modA.modName }) : null}>
                                                   <Button
                                                     size="sm"
@@ -1328,9 +1328,9 @@ export function ConflictsPanel({
                         <span className="text-xs text-muted-foreground">
                           {t('missingCount', { count: rows.length })}
                           {addableRows.length < rows.length - addedCount && (
-                            <span className="ml-1 text-warning/80">— {t('unresolvedCount', { count: rows.length - addableRows.length - addedCount })}</span>
+                            <span className="ms-1 text-warning/80">— {t('unresolvedCount', { count: rows.length - addableRows.length - addedCount })}</span>
                           )}
-                          {addedCount > 0 && <span className="text-success ml-1">{t('addedCountParen', { count: addedCount })}</span>}
+                          {addedCount > 0 && <span className="text-success ms-1">{t('addedCountParen', { count: addedCount })}</span>}
                         </span>
                         {addableRows.length > 0 && (
                           <Button
@@ -1344,7 +1344,7 @@ export function ConflictsPanel({
                               ? t('addResolvedPartialTitle', { count: addableRows.length, remaining: rows.length - addableRows.length - addedCount })
                               : t('addResolvedAllTitle', { count: addableRows.length })}
                           >
-                            {fixingAllDeps ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <PlusCircle className="w-3.5 h-3.5 mr-1.5" />}
+                            {fixingAllDeps ? <Loader2 className="w-3.5 h-3.5 me-1.5 animate-spin" /> : <PlusCircle className="w-3.5 h-3.5 me-1.5" />}
                             {t('addResolvedButton', { count: addableRows.length })}
                           </Button>
                         )}
@@ -1380,7 +1380,7 @@ export function ConflictsPanel({
                                     target="_blank" rel="noopener noreferrer"
                                     className="text-muted-foreground/70 hover:text-foreground underline decoration-muted-foreground/30 hover:decoration-foreground/50 transition-colors"
                                   >{row.requiredBy}<span className="sr-only"> {t('opensInNewTab')}</span></a>
-                                  {row.source === 'steam' && <span className="ml-1.5 text-accent/70">{t('viaWorkshop')}</span>}
+                                  {row.source === 'steam' && <span className="ms-1.5 text-accent/70">{t('viaWorkshop')}</span>}
                                 </span>
                               </div>
 
@@ -1415,7 +1415,7 @@ export function ConflictsPanel({
                                     disabled={adding}
                                     className="h-7 px-2.5 text-xs"
                                   >
-                                    {adding ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Plus className="w-3 h-3 mr-1" />}
+                                    {adding ? <Loader2 className="w-3 h-3 animate-spin me-1" /> : <Plus className="w-3 h-3 me-1" />}
                                     {t('add')}
                                   </Button>
                                 ) : (
@@ -1427,7 +1427,7 @@ export function ConflictsPanel({
                                     aria-controls={`dep-search-${row.key}`}
                                     className="h-7 px-2.5 text-xs"
                                   >
-                                    <Search className="w-3 h-3 mr-1" /> {searchOpen ? t('hide') : t('searchWorkshop')}
+                                    <Search className="w-3 h-3 me-1" /> {searchOpen ? t('hide') : t('searchWorkshop')}
                                   </Button>
                                 )}
                                 {row.depWorkshopId && (
@@ -1489,7 +1489,7 @@ export function ConflictsPanel({
                                           </span>
                                         </div>
                                       )}
-                                      <ul className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+                                      <ul className="space-y-1.5 max-h-72 overflow-y-auto pe-1">
                                         {searchState.results.map((hit) => {
                                           const candidateKey = `${row.key}::${hit.workshopId}`
                                           const candAdding = depAdding.includes(candidateKey)
@@ -1530,7 +1530,7 @@ export function ConflictsPanel({
                                                     disabled={candAdding}
                                                     onClick={() => handleAddDep(hit.workshopId, hit.modId || row.depModId || '', candidateKey)}
                                                   >
-                                                    {candAdding ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Plus className="w-3 h-3 mr-1" />}
+                                                    {candAdding ? <Loader2 className="w-3 h-3 animate-spin me-1" /> : <Plus className="w-3 h-3 me-1" />}
                                                     {t('add')}
                                                   </Button>
                                                 )}
@@ -1642,7 +1642,7 @@ export function ConflictsPanel({
                   <span className="text-[11px] text-muted-foreground">{t('topFileTypes')}</span>
                   {topExts.map(([ext, count]) => (
                     <Badge key={ext} variant="secondary" className="text-[10px] h-5 px-1.5 tabular-nums">
-                      .{ext} <span className="text-muted-foreground/80 ml-1">{count}</span>
+                      .{ext} <span className="text-muted-foreground/80 ms-1">{count}</span>
                     </Badge>
                   ))}
                 </div>

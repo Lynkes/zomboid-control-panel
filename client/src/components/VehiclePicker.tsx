@@ -277,7 +277,7 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
             className="shrink-0"
           >
             {scanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-            <span className="ml-1.5 hidden sm:inline">{t('scan')}</span>
+            <span className="ms-1.5 hidden sm:inline">{t('scan')}</span>
           </Button>
         </div>
         {scanError ? (
@@ -319,7 +319,7 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
           <span className="flex-1 min-w-0 truncate">
             <span className="font-medium">{selectedVehicle.name || selectedVehicle.id}</span>
             {typeof selectedVehicle.seats === 'number' && selectedVehicle.seats > 0 && (
-              <span className="inline-flex items-center gap-0.5 text-muted-foreground ml-2 text-xs">
+              <span className="inline-flex items-center gap-0.5 text-muted-foreground ms-2 text-xs">
                 <Users className="w-3 h-3" />
                 {selectedVehicle.seats}
               </span>
@@ -334,7 +334,7 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
           <button
             type="button"
             onClick={e => { e.stopPropagation(); handleClear() }}
-            className="-mr-1 flex items-center justify-center w-6 h-6 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring shrink-0 motion-safe:transition-colors"
+            className="-me-1 flex items-center justify-center w-6 h-6 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring shrink-0 motion-safe:transition-colors"
             aria-label={t('clearSelectionAria')}
           >
             <X className="w-3.5 h-3.5" />
@@ -429,7 +429,7 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
                           data-veh-index={globalIdx}
                           onClick={() => handleSelect(veh.id)}
                           className={cn(
-                            'w-full flex items-center gap-2.5 px-3 h-9 text-sm text-left',
+                            'w-full flex items-center gap-2.5 px-3 h-9 text-sm text-start',
                             'motion-safe:transition-colors duration-75',
                             'hover:bg-accent/10',
                             veh.id === value && 'bg-primary/10 text-primary',
@@ -478,7 +478,7 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
               <span>{t('closeHint')}</span>
             </div>
             {scannedAt && (
-              <span className="truncate text-right opacity-50">
+              <span className="truncate text-end opacity-50">
                 {new Date(scannedAt).toLocaleDateString(i18n.language)}
               </span>
             )}

@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { Trans, useTranslation } from 'react-i18next'
+import { getCurrentLanguage, isRTL } from '@/i18n'
 import { useTheme } from '@/contexts/ThemeContext'
 import { useSocket } from '@/contexts/SocketContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -44,6 +46,7 @@ import {
   Megaphone,
   Save,
   AlertTriangle,
+  ArrowUpRight,
 } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
 import { BridgeStatusBadge } from '@/components/BridgeStatusBadge'
@@ -634,6 +637,7 @@ export default function WorldMap() {
   const playerFetchGateRef = useRef(createInFlightGate())
   const overlayFetchGateRef = useRef(createInFlightGate())
   const playersRef = useRef<MapPlayer[]>([])
+  const pointerDownRef = useRef<{ x: number; y: number } | null>(null)
   const drawRequestRef = useRef<number>(0)
   const canvasColorsRef = useRef<CanvasColors>(resolveCanvasColors())
 
@@ -1270,6 +1274,37 @@ export default function WorldMap() {
     }, [dziToCanvas]
   )
 
+  const playerRenderPosition = useCallback(
+    (player: MapPlayer, s?: number, off?: { x: number; y: number }) => {
+      let drawX = player.x
+      let drawY = player.y
+      if (!prefersReducedMotion.current && player.animProgress !== undefined && player.animProgress < 1) {
+        const progress = easeOutCubic(Math.min(1, player.animProgress))
+        drawX = (player.prevX ?? player.x) + (player.x - (player.prevX ?? player.x)) * progress
+        drawY = (player.prevY ?? player.y) + (player.y - (player.prevY ?? player.y)) * progress
+      }
+      return playerToScreen(drawX, drawY, s, off)
+    }, [playerToScreen]
+  )
+
+  const playerAtScreenPoint = useCallback(
+    (mx: number, my: number) => {
+      const markerRadius = Math.max(5, Math.min(16, scaleRef.current * 1400))
+      let closest: MapPlayer | null = null
+      let closestDistance = Number.POSITIVE_INFINITY
+      for (const player of playersRef.current) {
+        const point = playerRenderPosition(player)
+        const distance = Math.hypot(mx - point.x, my - point.y)
+        const hitRadius = Math.max(MARKER_HIT_RADIUS, markerRadius + 8)
+        if (distance < hitRadius && distance < closestDistance) {
+          closest = player
+          closestDistance = distance
+        }
+      }
+      return closest
+    }, [playerRenderPosition]
+  )
+
   // Canvas pixel → game-tile (inverse isometric)
   const screenToTile = useCallback(
     (cx: number, cy: number, s?: number, off?: { x: number; y: number }) => {
@@ -1358,29 +1393,31 @@ export default function WorldMap() {
     if (!overlayFetchGateRef.current.enter()) return
     try {
       const [vRes, persistedRes, sRes] = await Promise.allSettled([
-        panelBridgeApi.sendCommand('getVehiclesDetailed'),
-        mapApi.vehicles(),
+        showVehicles ? panelBridgeApi.sendCommand('getVehiclesDetailed') : Promise.resolve(null),
+        showVehicles ? mapApi.vehicles() : Promise.resolve(null),
         panelBridgeApi.sendCommand('getSafehouses'),
       ])
       if (!mountedRef.current) return
-      const vehicleById = new Map<number, MapVehicle>()
-      if (persistedRes.status === 'fulfilled') {
-        for (const vehicle of persistedRes.value.vehicles) {
-          if (Number.isFinite(vehicle.id) && Number.isFinite(vehicle.x) && Number.isFinite(vehicle.y)) {
-            vehicleById.set(vehicle.id, { ...vehicle, persisted: true })
+      if (showVehicles) {
+        const vehicleById = new Map<number, MapVehicle>()
+        if (persistedRes.status === 'fulfilled' && persistedRes.value) {
+          for (const vehicle of persistedRes.value.vehicles) {
+            if (Number.isFinite(vehicle.id) && Number.isFinite(vehicle.x) && Number.isFinite(vehicle.y)) {
+              vehicleById.set(vehicle.id, { ...vehicle, persisted: true })
+            }
           }
         }
-      }
-      if (vRes.status === 'fulfilled' && vRes.value.success && vRes.value.data) {
-        const vData = vRes.value.data as Record<string, unknown>
-        const vList = Array.isArray(vData) ? vData : Array.isArray(vData.vehicles) ? vData.vehicles : []
-        for (const vehicle of vList as MapVehicle[]) {
-          if (typeof vehicle.id === 'number' && typeof vehicle.x === 'number' && typeof vehicle.y === 'number' && isFinite(vehicle.x) && isFinite(vehicle.y)) {
-            vehicleById.set(vehicle.id, vehicle)
+        if (vRes.status === 'fulfilled' && vRes.value && vRes.value.success && vRes.value.data) {
+          const vData = vRes.value.data as Record<string, unknown>
+          const vList = Array.isArray(vData) ? vData : Array.isArray(vData.vehicles) ? vData.vehicles : []
+          for (const vehicle of vList as MapVehicle[]) {
+            if (typeof vehicle.id === 'number' && typeof vehicle.x === 'number' && typeof vehicle.y === 'number' && isFinite(vehicle.x) && isFinite(vehicle.y)) {
+              vehicleById.set(vehicle.id, vehicle)
+            }
           }
         }
+        setVehicles([...vehicleById.values()])
       }
-      setVehicles([...vehicleById.values()])
       if (sRes.status === 'fulfilled' && sRes.value.success && sRes.value.data) {
         const sData = sRes.value.data as Record<string, unknown>
         const sList = Array.isArray(sData) ? sData : Array.isArray(sData.safehouses) ? sData.safehouses : []
@@ -1390,7 +1427,7 @@ export default function WorldMap() {
     } finally {
       overlayFetchGateRef.current.leave()
     }
-  }, [hasActiveServer])
+  }, [hasActiveServer, showVehicles])
 
   // ─── Polling ────────────────────────────────────────────
   useEffect(() => {
@@ -1712,16 +1749,7 @@ export default function WorldMap() {
     const mRadius = Math.max(5, Math.min(16, s * 1400))
 
     for (const player of currentPlayers) {
-      // Interpolate position (skip if reduced motion)
-      let drawX = player.x
-      let drawY = player.y
-      if (!prefersReducedMotion.current && player.animProgress !== undefined && player.animProgress < 1) {
-        const t = easeOutCubic(Math.min(1, player.animProgress))
-        drawX = (player.prevX ?? player.x) + (player.x - (player.prevX ?? player.x)) * t
-        drawY = (player.prevY ?? player.y) + (player.y - (player.prevY ?? player.y)) * t
-      }
-
-      const p = playerToScreen(drawX, drawY, s, off)
+      const p = playerRenderPosition(player, s, off)
       if (p.x < -50 || p.x > W + 50 || p.y < -50 || p.y > H + 50) continue
 
       const isHovered = hoveredPlayer === player.username
@@ -1993,23 +2021,32 @@ export default function WorldMap() {
 
     // Empty state
     if (currentPlayers.length === 0) {
-      // The floating control rail (top-3 left-3, w-12) permanently overlaps
-      // the canvas's left edge, so text centered on the full canvas width can
-      // render underneath it on narrow (mobile) viewports. Only nudge right
-      // when a naive center would tuck the text under the rail.
+      // The floating control rail (top-3 start-3, w-12) permanently overlaps
+      // the canvas's start edge -- left in ltr, right in rtl (canvas drawing
+      // is raw pixel math, not CSS, so it does not follow the CSS mirror on
+      // its own) -- so text centered on the full canvas width can render
+      // underneath it on narrow (mobile) viewports. Only nudge away from
+      // that edge when a naive center would tuck the text under the rail.
       const railClearance = 72
+      const rtl = isRTL(getCurrentLanguage())
       ctx.textAlign = 'center'
 
       ctx.fillStyle = C.emptyTitle
       ctx.font = '600 14px ui-sans-serif, system-ui, sans-serif'
       const title = t('emptyState.title')
-      const titleX = Math.max(W / 2, railClearance + ctx.measureText(title).width / 2)
+      const titleHalfWidth = ctx.measureText(title).width / 2
+      const titleX = rtl
+        ? Math.min(W / 2, W - railClearance - titleHalfWidth)
+        : Math.max(W / 2, railClearance + titleHalfWidth)
       ctx.fillText(title, titleX, H / 2 - 8)
 
       ctx.font = '400 11px ui-sans-serif, system-ui, sans-serif'
       ctx.fillStyle = C.emptySubtitle
       const subtitle = t('emptyState.subtitle')
-      const subtitleX = Math.max(W / 2, railClearance + ctx.measureText(subtitle).width / 2)
+      const subtitleHalfWidth = ctx.measureText(subtitle).width / 2
+      const subtitleX = rtl
+        ? Math.min(W / 2, W - railClearance - subtitleHalfWidth)
+        : Math.max(W / 2, railClearance + subtitleHalfWidth)
       ctx.fillText(subtitle, subtitleX, H / 2 + 10)
     }
 
@@ -2027,7 +2064,7 @@ export default function WorldMap() {
       ctx.stroke()
       ctx.setLineDash([])
     }
-  }, [canvasSize, loadDziTile, drawTileWithFallback, playerToScreen, hoveredPlayer, selectedPlayer, cursorWorldPos, isDragging, showVehicles, showSafehouses, hoveredVehicle, t, presetLabel])
+  }, [canvasSize, loadDziTile, drawTileWithFallback, playerToScreen, playerRenderPosition, hoveredPlayer, selectedPlayer, cursorWorldPos, isDragging, showVehicles, showSafehouses, hoveredVehicle, t, presetLabel])
 
   // ─── Animation loop ─────────────────────────────────────
   useEffect(() => {
@@ -2182,6 +2219,7 @@ export default function WorldMap() {
   // ─── Mouse interactions ─────────────────────────────────
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button === 0) {
+      pointerDownRef.current = { x: e.clientX, y: e.clientY }
       setIsDragging(true)
       setDragStart({ x: e.clientX, y: e.clientY, offX: offsetRef.current.x, offY: offsetRef.current.y })
       setContextMenu(null)
@@ -2211,8 +2249,8 @@ export default function WorldMap() {
       // Hit test players — the token is centred on the tile position
       let found: string | null = null
       for (const player of playersRef.current) {
-        const p = playerToScreen(player.x, player.y)
-        const hitR = Math.max(MARKER_HIT_RADIUS, Math.max(5, Math.min(16, scaleRef.current * 1400)) + 4)
+        const p = playerRenderPosition(player)
+        const hitR = Math.max(MARKER_HIT_RADIUS, Math.max(5, Math.min(16, scaleRef.current * 1400)) + 8)
         if (Math.hypot(mx - p.x, my - p.y) < hitR) {
           found = player.username
           break
@@ -2235,36 +2273,27 @@ export default function WorldMap() {
       }
       setHoveredVehicle(foundVehicle)
     },
-    [isDragging, dragStart, screenToTile, playerToScreen, showVehicles]
+    [isDragging, dragStart, screenToTile, playerRenderPosition, playerToScreen, showVehicles]
   )
 
   const handleMouseUp = useCallback(
     (e: React.MouseEvent) => {
-      if (isDragging) {
-        const dx = Math.abs(e.clientX - dragStart.x)
-        const dy = Math.abs(e.clientY - dragStart.y)
-        setIsDragging(false)
+      const start = pointerDownRef.current
+      pointerDownRef.current = null
+      if (!start) return
 
-        if (dx < 3 && dy < 3) {
-          const canvas = canvasRef.current
-          if (!canvas) return
-          const rect = canvas.getBoundingClientRect()
-          const mx = e.clientX - rect.left
-          const my = e.clientY - rect.top
+      const dx = Math.abs(e.clientX - start.x)
+      const dy = Math.abs(e.clientY - start.y)
+      setIsDragging(false)
 
-          for (const player of playersRef.current) {
-            const p = playerToScreen(player.x, player.y)
-            const dist = Math.sqrt((mx - p.x) ** 2 + (my - p.y) ** 2)
-            if (dist < MARKER_HIT_RADIUS) {
-              setSelectedPlayer(player)
-              return
-            }
-          }
-          setSelectedPlayer(null)
-        }
-      }
+      if (dx >= 3 || dy >= 3) return
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const rect = canvas.getBoundingClientRect()
+      const clickedPlayer = playerAtScreenPoint(e.clientX - rect.left, e.clientY - rect.top)
+      setSelectedPlayer(clickedPlayer)
     },
-    [isDragging, dragStart, playerToScreen]
+    [playerAtScreenPoint]
   )
 
   const handleContextMenu = useCallback(
@@ -2279,7 +2308,7 @@ export default function WorldMap() {
 
       let clickedPlayer: MapPlayer | undefined
       for (const player of playersRef.current) {
-        const p = playerToScreen(player.x, player.y)
+        const p = playerRenderPosition(player)
         const hitR = Math.max(MARKER_HIT_RADIUS, Math.max(5, Math.min(16, scaleRef.current * 1400)) + 4)
         if (Math.hypot(mx - p.x, my - p.y) < hitR) {
           clickedPlayer = player
@@ -2309,10 +2338,11 @@ export default function WorldMap() {
         vehicle: clickedVehicle,
       })
     },
-    [screenToTile, playerToScreen, showVehicles]
+    [screenToTile, playerRenderPosition, playerToScreen, showVehicles]
   )
 
   const handleMouseLeave = useCallback(() => {
+    pointerDownRef.current = null
     setIsDragging(false)
     setHoveredPlayer(null)
     setHoveredVehicle(null)
@@ -2320,8 +2350,8 @@ export default function WorldMap() {
   }, [])
 
   // ─── Touch support ─────────────────────────────────────
-  const touchRef = useRef<{ startX: number; startY: number; offX: number; offY: number; pinchDist: number | null }>({
-    startX: 0, startY: 0, offX: 0, offY: 0, pinchDist: null,
+  const touchRef = useRef<{ startX: number; startY: number; offX: number; offY: number; pinchDist: number | null; moved: boolean; hadPinch: boolean }>({
+    startX: 0, startY: 0, offX: 0, offY: 0, pinchDist: null, moved: false, hadPinch: false,
   })
 
   const getTouchDist = (touches: React.TouchList) => {
@@ -2333,10 +2363,12 @@ export default function WorldMap() {
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     if (e.touches.length === 1) {
       const t = e.touches[0]
-      touchRef.current = { startX: t.clientX, startY: t.clientY, offX: offsetRef.current.x, offY: offsetRef.current.y, pinchDist: null }
+      touchRef.current = { startX: t.clientX, startY: t.clientY, offX: offsetRef.current.x, offY: offsetRef.current.y, pinchDist: null, moved: false, hadPinch: false }
       setIsDragging(true)
     } else if (e.touches.length === 2) {
       touchRef.current.pinchDist = getTouchDist(e.touches)
+      touchRef.current.moved = true
+      touchRef.current.hadPinch = true
     }
   }, [])
 
@@ -2362,14 +2394,24 @@ export default function WorldMap() {
     } else if (e.touches.length === 1) {
       const t = e.touches[0]
       const tr = touchRef.current
+      if (Math.hypot(t.clientX - tr.startX, t.clientY - tr.startY) >= 3) tr.moved = true
       setOffset({ x: tr.offX + (t.clientX - tr.startX), y: tr.offY + (t.clientY - tr.startY) })
     }
   }, [])
 
-  const handleTouchEnd = useCallback(() => {
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    const tr = touchRef.current
+    const touch = e.changedTouches[0]
+    if (!tr.moved && !tr.hadPinch && touch) {
+      const canvas = canvasRef.current
+      if (canvas) {
+        const rect = canvas.getBoundingClientRect()
+        setSelectedPlayer(playerAtScreenPoint(touch.clientX - rect.left, touch.clientY - rect.top))
+      }
+    }
     setIsDragging(false)
     touchRef.current.pinchDist = null
-  }, [])
+  }, [playerAtScreenPoint])
 
   // ─── Zoom controls ─────────────────────────────────────
   const zoomIn = useCallback(() => {
@@ -2483,7 +2525,7 @@ export default function WorldMap() {
         setContextMenu(null)
       }
     },
-    [toast, canWorldEvents]
+    [toast, canWorldEvents, t]
   )
 
   const createNoiseAt = useCallback(
@@ -2502,7 +2544,7 @@ export default function WorldMap() {
         setContextMenu(null)
       }
     },
-    [toast, canWorldEvents]
+    [toast, canWorldEvents, t]
   )
 
   const callAirdrop = useCallback(
@@ -2760,13 +2802,13 @@ export default function WorldMap() {
 
       <div ref={mapWrapperRef} className="relative rounded-md border border-border/60 overflow-hidden bg-background shadow-[inset_0_0_0_1px_rgba(0,0,0,0.35)]">
         {/* Corner brackets — tactical control-room frame */}
-        <span aria-hidden className="pointer-events-none absolute top-0 left-0 z-30 h-3 w-3 border-l-2 border-t-2 border-primary/50" />
-        <span aria-hidden className="pointer-events-none absolute top-0 right-0 z-30 h-3 w-3 border-r-2 border-t-2 border-primary/50" />
-        <span aria-hidden className="pointer-events-none absolute bottom-0 left-0 z-30 h-3 w-3 border-l-2 border-b-2 border-primary/50" />
-        <span aria-hidden className="pointer-events-none absolute bottom-0 right-0 z-30 h-3 w-3 border-r-2 border-b-2 border-primary/50" />
+        <span aria-hidden className="pointer-events-none absolute top-0 start-0 z-30 h-3 w-3 border-s-2 border-t-2 border-primary/50" />
+        <span aria-hidden className="pointer-events-none absolute top-0 end-0 z-30 h-3 w-3 border-e-2 border-t-2 border-primary/50" />
+        <span aria-hidden className="pointer-events-none absolute bottom-0 start-0 z-30 h-3 w-3 border-s-2 border-b-2 border-primary/50" />
+        <span aria-hidden className="pointer-events-none absolute bottom-0 end-0 z-30 h-3 w-3 border-e-2 border-b-2 border-primary/50" />
 
         {/* Control rail — top-left */}
-        <div className="absolute top-3 left-3 z-10 w-12 rounded-md border border-border/55 bg-card/85 backdrop-blur-md shadow-lg overflow-hidden">
+        <div className="absolute top-3 start-3 z-10 w-12 rounded-md border border-border/55 bg-card/85 backdrop-blur-md shadow-lg overflow-hidden">
           <div className="flex items-center justify-center gap-1 px-1.5 py-1 border-b border-border/40 bg-muted/40 font-mono text-[9px] uppercase tracking-[0.24em] text-primary/70">
             <span className="text-primary/60">//</span>
             <span>{t('controlRail.ctrlLabel')}</span>
@@ -2952,7 +2994,7 @@ export default function WorldMap() {
         )}
 
         {/* Roster panel — top-right */}
-        <div className={cn('absolute top-3 right-3 z-10', rosterCollapsed ? 'w-auto' : 'w-56')}>
+        <div className={cn('absolute top-3 end-3 z-10', rosterCollapsed ? 'w-auto' : 'w-56')}>
           <div className="rounded-md border border-border/55 bg-card/85 backdrop-blur-md shadow-lg overflow-hidden">
             <button
               type="button"
@@ -2987,7 +3029,7 @@ export default function WorldMap() {
                         : t('roster.panToAria', { name: p.displayName || p.username })
                     }
                     className={cn(
-                      'w-full px-2.5 py-1.5 flex items-center gap-2 text-left text-xs transition-colors border-l-2 border-transparent hover:bg-muted/50',
+                      'w-full px-2.5 py-1.5 flex items-center gap-2 text-start text-xs transition-colors border-s-2 border-transparent hover:bg-muted/50',
                       selectedPlayer?.username === p.username && 'bg-muted/50 border-primary/60'
                     )}
                   >
@@ -3019,9 +3061,9 @@ export default function WorldMap() {
         </div>
 
         {/* HUD coordinate bar — bottom-left */}
-        <div className="absolute bottom-3 left-3 z-10">
+        <div className="absolute bottom-3 start-3 z-10">
           <div className="flex items-stretch rounded-md border border-border/55 bg-card/85 backdrop-blur-md shadow-lg font-mono text-[11px] tabular-nums overflow-hidden">
-            <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-r border-border/40">
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-e border-border/40">
               <Crosshair className={cn('w-3 h-3', cursorWorldPos ? 'text-primary/80' : 'text-muted-foreground/40')} />
               {cursorWorldPos ? (
                 <span className="text-foreground">
@@ -3031,7 +3073,7 @@ export default function WorldMap() {
                 <span className="text-muted-foreground/50">{t('hud.hoverForCoords')}</span>
               )}
             </div>
-            <div className="flex items-center gap-1 px-2.5 py-1.5 border-r border-border/40">
+            <div className="flex items-center gap-1 px-2.5 py-1.5 border-e border-border/40">
               <span className="text-muted-foreground/50 text-[9px] uppercase tracking-[0.22em]">z</span>
               <span className={cn(floor !== 0 ? 'text-accent' : 'text-muted-foreground/70')}>{floorLabel(floor)}</span>
             </div>
@@ -3047,12 +3089,12 @@ export default function WorldMap() {
             overlays stack instead of colliding; side-by-side once there's
             room (>= sm). */}
         {selectedPlayer && (
-          <div className="absolute right-3 z-10 w-60 bottom-14 sm:bottom-3">
+          <div className="absolute end-3 z-10 w-60 bottom-14 sm:bottom-3">
             <div className="relative rounded-md border border-border/55 bg-card/90 backdrop-blur-md shadow-lg overflow-hidden">
-              <span aria-hidden className="pointer-events-none absolute top-0 left-0 h-2 w-2 border-l-2 border-t-2 border-primary/50" />
-              <span aria-hidden className="pointer-events-none absolute top-0 right-0 h-2 w-2 border-r-2 border-t-2 border-primary/50" />
-              <span aria-hidden className="pointer-events-none absolute bottom-0 left-0 h-2 w-2 border-l-2 border-b-2 border-primary/50" />
-              <span aria-hidden className="pointer-events-none absolute bottom-0 right-0 h-2 w-2 border-r-2 border-b-2 border-primary/50" />
+              <span aria-hidden className="pointer-events-none absolute top-0 start-0 h-2 w-2 border-s-2 border-t-2 border-primary/50" />
+              <span aria-hidden className="pointer-events-none absolute top-0 end-0 h-2 w-2 border-e-2 border-t-2 border-primary/50" />
+              <span aria-hidden className="pointer-events-none absolute bottom-0 start-0 h-2 w-2 border-s-2 border-b-2 border-primary/50" />
+              <span aria-hidden className="pointer-events-none absolute bottom-0 end-0 h-2 w-2 border-e-2 border-b-2 border-primary/50" />
               <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 border-b border-border/40 bg-muted/40 font-mono text-[10px] uppercase tracking-[0.22em] text-primary/70">
                 <span className="flex items-center gap-1.5">
                   <span className="text-primary/60">//</span>
@@ -3104,7 +3146,7 @@ export default function WorldMap() {
                           }}
                         />
                       </div>
-                      <span className="font-mono tabular-nums w-8 text-right">{Math.round(selectedPlayer.health)}%</span>
+                      <span className="font-mono tabular-nums w-8 text-end">{Math.round(selectedPlayer.health)}%</span>
                     </div>
                   </div>
                 )}
@@ -3131,7 +3173,7 @@ export default function WorldMap() {
                           }}
                         />
                       </div>
-                      <span className="font-mono tabular-nums w-8 text-right">{Math.round(value * 100)}%</span>
+                      <span className="font-mono tabular-nums w-8 text-end">{Math.round(value * 100)}%</span>
                     </div>
                   </div>
                 ))}
@@ -3151,10 +3193,11 @@ export default function WorldMap() {
                   </div>
                 )}
               </div>
-              <div className="px-2 py-1.5 border-t border-border/40 bg-muted/20 flex gap-1">
-                <DisabledReason reason={!canGmTools ? t('permissions.noGmToolsBridgeAction') : null} className="flex-1">
+              <div className="space-y-1 border-t border-border/40 bg-muted/20 px-2 py-1.5">
+                <div className="grid grid-cols-2 gap-1">
+                <DisabledReason reason={!canGmTools ? t('permissions.noGmToolsBridgeAction') : null}>
                   <Button
-                    size="sm" variant="ghost" className="h-7 text-xs gap-1 w-full"
+                    size="sm" variant="ghost" className="h-7 min-w-0 w-full px-1.5 text-xs gap-1"
                     disabled={actionLoading !== null || !canGmTools}
                     onClick={() => {
                       if (!canGmTools) return
@@ -3168,10 +3211,10 @@ export default function WorldMap() {
                     <Heart className="w-3 h-3" /> {t('dossier.heal')}
                   </Button>
                 </DisabledReason>
-                <div className="flex-1 flex items-center gap-1 min-w-0">
-                  <DisabledReason reason={!canGmTools ? t('permissions.noGmToolsBridgeAction') : null} className="flex-1 min-w-0">
+                <div className="flex min-w-0 items-center gap-1">
+                  <DisabledReason reason={!canGmTools ? t('permissions.noGmToolsBridgeAction') : null} className="min-w-0 flex-1">
                     <Button
-                      size="sm" variant="ghost" className="h-7 text-xs gap-1 w-full"
+                      size="sm" variant="ghost" className="h-7 min-w-0 w-full px-1.5 text-xs gap-1"
                       disabled={actionLoading !== null || !canGmTools}
                       onClick={() => {
                         if (!canGmTools) return
@@ -3196,6 +3239,16 @@ export default function WorldMap() {
                   </DisabledReason>
                   <HelpTip label={t('dossier.god')} className="shrink-0">{t('dossier.godTip')}</HelpTip>
                 </div>
+                </div>
+                <Link
+                  to={`/players?player=${encodeURIComponent(selectedPlayer.username)}`}
+                  onClick={() => setSelectedPlayer(null)}
+                  className="flex min-h-7 items-center justify-center gap-1.5 rounded-sm border border-border/50 px-2 text-[10px] font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60"
+                >
+                  <Users className="h-3 w-3" />
+                  <span>{t('dossier.openPlayerControls')}</span>
+                  <ArrowUpRight className="h-3 w-3" />
+                </Link>
               </div>
             </div>
           </div>
@@ -3322,7 +3375,7 @@ export default function WorldMap() {
                             style={{ width: `${Math.round(contextMenu.vehicle.fuelPct)}%` }}
                           />
                         </div>
-                        <span className="font-mono text-[10px] tabular-nums text-muted-foreground/80 w-8 text-right">{Math.round(contextMenu.vehicle.fuelPct)}%</span>
+                        <span className="font-mono text-[10px] tabular-nums text-muted-foreground/80 w-8 text-end">{Math.round(contextMenu.vehicle.fuelPct)}%</span>
                       </div>
                     )}
                     {contextMenu.vehicle.batteryCharge != null && (
@@ -3334,7 +3387,7 @@ export default function WorldMap() {
                             style={{ width: `${Math.round(contextMenu.vehicle.batteryCharge)}%` }}
                           />
                         </div>
-                        <span className="font-mono text-[10px] tabular-nums text-muted-foreground/80 w-8 text-right">{Math.round(contextMenu.vehicle.batteryCharge)}%</span>
+                        <span className="font-mono text-[10px] tabular-nums text-muted-foreground/80 w-8 text-end">{Math.round(contextMenu.vehicle.batteryCharge)}%</span>
                       </div>
                     )}
                     {contextMenu.vehicle.fuelPct == null && contextMenu.vehicle.batteryCharge == null && (
@@ -3710,7 +3763,7 @@ export default function WorldMap() {
                   .finally(() => setActionLoading(null))
               }}
             >
-              {actionLoading === 'spawn-vehicle' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
+              {actionLoading === 'spawn-vehicle' ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : <Plus className="w-4 h-4 me-2" />}
               {t('spawnDialog.spawn')}
             </Button>
             </DisabledReason>
@@ -3728,7 +3781,7 @@ export default function WorldMap() {
               {activeTemplateId && (() => {
                 const tpl = dropTemplates.find((t) => t.id === activeTemplateId)
                 return tpl ? (
-                  <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-normal text-muted-foreground">
+                  <span className="ms-1 inline-flex items-center gap-1 rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-normal text-muted-foreground">
                     <Save className="w-3 h-3" />
                     {tpl.name}
                   </span>
@@ -3757,7 +3810,7 @@ export default function WorldMap() {
 
             {/* Templates bar */}
             <div className="flex items-center gap-2 flex-wrap">
-              <Label className="text-xs text-muted-foreground flex items-center gap-1.5 mr-auto">
+              <Label className="text-xs text-muted-foreground flex items-center gap-1.5 me-auto">
                 <Save className="w-3.5 h-3.5" />
                 {t('dropDialog.packageTemplates')}
               </Label>
@@ -3871,7 +3924,7 @@ export default function WorldMap() {
                   setActiveTemplateId(null)
                 }}
               >
-                <Plus className="w-3.5 h-3.5 mr-1" />
+                <Plus className="w-3.5 h-3.5 me-1" />
                 {t('dropDialog.addItem')}
               </Button>
               <div className="text-[11px] text-muted-foreground/70 tabular-nums">
@@ -3945,7 +3998,7 @@ export default function WorldMap() {
                 disabled={dropItems.filter((it) => it.itemType.trim()).length === 0}
                 onClick={() => { setSavingTemplate(true); setTemplateNameInput('') }}
               >
-                <Save className="w-3.5 h-3.5 mr-2" />
+                <Save className="w-3.5 h-3.5 me-2" />
                 {t('dropDialog.saveCurrentAsPackage')}
               </Button>
             )}
@@ -4023,8 +4076,8 @@ export default function WorldMap() {
               }}
             >
               {actionLoading === 'drop'
-                ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                : <Flame className="w-4 h-4 mr-2" />}
+                ? <Loader2 className="w-4 h-4 me-2 animate-spin" />
+                : <Flame className="w-4 h-4 me-2" />}
               {(() => {
                 const validCount = dropItems.filter((it) => it.itemType.trim()).length
                 const totalQty = dropItems.filter((it) => it.itemType.trim()).reduce((s, it) => s + it.count, 0)
@@ -4113,8 +4166,8 @@ export default function WorldMap() {
               }}
             >
               {actionLoading === 'vehicle-remove'
-                ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                : <Trash2 className="w-4 h-4 mr-2" />}
+                ? <Loader2 className="w-4 h-4 me-2 animate-spin" />
+                : <Trash2 className="w-4 h-4 me-2" />}
               {t('removeVehicleDialog.confirm')}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -4137,12 +4190,12 @@ function ContextMenuItem({ icon, label, onClick, loading, description, disabled,
   tone?: ContextMenuTone
 }) {
   const toneAccent: Record<ContextMenuTone, string> = {
-    default: 'group-hover:border-l-primary/60 group-focus-visible:border-l-primary/60',
-    primary: 'group-hover:border-l-primary/70 group-focus-visible:border-l-primary/70',
-    warning: 'group-hover:border-l-amber-400/80 group-focus-visible:border-l-amber-400/80',
-    danger: 'group-hover:border-l-destructive/80 group-focus-visible:border-l-destructive/80',
-    info: 'group-hover:border-l-info/80 group-focus-visible:border-l-info/80',
-    success: 'group-hover:border-l-emerald-400/80 group-focus-visible:border-l-emerald-400/80',
+    default: 'group-hover:border-s-primary/60 group-focus-visible:border-s-primary/60',
+    primary: 'group-hover:border-s-primary/70 group-focus-visible:border-s-primary/70',
+    warning: 'group-hover:border-s-amber-400/80 group-focus-visible:border-s-amber-400/80',
+    danger: 'group-hover:border-s-destructive/80 group-focus-visible:border-s-destructive/80',
+    info: 'group-hover:border-s-info/80 group-focus-visible:border-s-info/80',
+    success: 'group-hover:border-s-emerald-400/80 group-focus-visible:border-s-emerald-400/80',
   }
   return (
     <button
@@ -4151,21 +4204,21 @@ function ContextMenuItem({ icon, label, onClick, loading, description, disabled,
       disabled={loading || disabled}
       // eslint-disable-next-line local/no-dead-disabled-title -- description is also rendered as a visible line below (`{description && <span ...>}` a few lines down), so this title is redundant, not a hidden disabled-reason. Adjudicated 2026-08-27 (god chased the "hidden reason" hypothesis and refuted it against the actual JSX).
       title={description}
-      className="group relative w-full pr-2 py-1.5 text-xs flex items-stretch gap-2.5 transition-colors duration-100 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent hover:bg-muted/45 focus-visible:bg-muted/45 focus-visible:outline-none"
+      className="group relative w-full pe-2 py-1.5 text-xs flex items-stretch gap-2.5 transition-colors duration-100 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent hover:bg-muted/45 focus-visible:bg-muted/45 focus-visible:outline-none"
     >
       <span
         aria-hidden
         className={cn(
-          'w-[2px] -my-px shrink-0 border-l-2 border-transparent transition-colors',
+          'w-[2px] -my-px shrink-0 border-s-2 border-transparent transition-colors',
           toneAccent[tone]
         )}
       />
-      <span className="flex-none w-4 flex items-center justify-center pl-1">
+      <span className="flex-none w-4 flex items-center justify-center ps-1">
         {loading
           ? <Loader2 className="w-3.5 h-3.5 animate-spin text-primary/70" />
           : icon}
       </span>
-      <span className="flex flex-col min-w-0 text-left flex-1">
+      <span className="flex flex-col min-w-0 text-start flex-1">
         <span className="truncate text-foreground">{label}</span>
         {description && <span className="text-[10px] text-muted-foreground/60 truncate leading-tight">{description}</span>}
       </span>

@@ -1383,7 +1383,7 @@
   },
   "healthTab": {
     "systemStatusTitle": "Systemstatus",
-    "healthy": "Gesund",
+    "healthy": "Betriebsbereit",
     "checking": "Wird geprüft...",
     "issuesDetected": "Probleme erkannt",
     "rconOffline": "RCON Getrennt",

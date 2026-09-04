@@ -19,6 +19,7 @@ const log = createLogger("ManagedContainer");
 
 // Wired once from index.js. Routes may still pass an explicit client.
 let sharedDockerClient = null;
+const containerLifecycleQueues = new WeakMap();
 
 export function setDockerClient(client) {
   sharedDockerClient = client || null;
@@ -26,6 +27,30 @@ export function setDockerClient(client) {
 
 export function getDockerClient() {
   return sharedDockerClient;
+}
+
+async function acquireContainerLifecycleLock(dockerClient, ref) {
+  let queues = containerLifecycleQueues.get(dockerClient);
+  if (!queues) {
+    queues = new Map();
+    containerLifecycleQueues.set(dockerClient, queues);
+  }
+
+  const previous = queues.get(ref) || Promise.resolve();
+  let releaseSignal;
+  const current = new Promise((resolve) => {
+    releaseSignal = resolve;
+  });
+  queues.set(ref, current);
+  await previous;
+
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    if (queues.get(ref) === current) queues.delete(ref);
+    releaseSignal();
+  };
 }
 
 /**
@@ -145,16 +170,38 @@ export async function runManagedLifecycle(
   if (!resolved.handled) return { handled: false };
   if (resolved.error) return { handled: true, success: false, error: resolved.error };
 
-  if (action === "stop" && !resolved.running) {
-    return { handled: true, success: true, message: "Container is already stopped" };
-  }
-  if (action === "start" && resolved.running) {
-    return { handled: true, success: true, message: "Container is already running" };
-  }
+  const release = await acquireContainerLifecycleLock(dockerClient, resolved.ref);
+  try {
+    const current = await resolveManagedContainer({ serverId, dockerClient });
+    if (!current.handled) {
+      return {
+        handled: true,
+        success: false,
+        error: "Docker control became unavailable while the lifecycle action was waiting",
+      };
+    }
+    if (current.error) {
+      return { handled: true, success: false, error: current.error };
+    }
 
-  const result = await dockerClient.runManagedAction(resolved.ref, action);
-  log.info(
-    `Managed container ${resolved.ref}: ${action} -> ${result?.success ? "ok" : result?.error || "failed"}`,
-  );
-  return { handled: true, ...result };
+    if (action === "stop" && !current.running) {
+      return { handled: true, success: true, message: "Container is already stopped" };
+    }
+    if (action === "start" && current.running) {
+      return {
+        handled: true,
+        success: true,
+        alreadyRunning: true,
+        message: "Container is already running",
+      };
+    }
+
+    const result = await dockerClient.runManagedAction(current.ref, action);
+    log.info(
+      `Managed container ${current.ref}: ${action} -> ${result?.success ? "ok" : result?.error || "failed"}`,
+    );
+    return { handled: true, ...result };
+  } finally {
+    release();
+  }
 }

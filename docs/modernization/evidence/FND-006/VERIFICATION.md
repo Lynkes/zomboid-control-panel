@@ -53,6 +53,18 @@ Reproduced independently, per the coordinator's own prescribed method (confirm t
 
 None. Every claim I tested — the three-case guard behavior, the plan-text correction, the CRLF/LF self-repair, and the DISC-002b retraction — held up exactly as described under independent, from-scratch reproduction, including the one place (case b, DISC-002b step 2) where the coordinator explicitly warned about a reproduction trap. I hit both traps myself on a first pass (piped exit code for case b; a near-miss on the regex terminator for the DISC-002b repro, caught before it mattered by confirming the substitution landed) and both resolved to the coordinator's stated outcome once corrected.
 
+## Spot re-check, 2026-09-03 (kevin, floor-wide FND-* reconciliation sweep)
+
+Re-read `scripts/modernization/check-owned-paths.ps1` directly against current `origin/main`
+(`761f41bc`): the comma-split (line 24) and the refuse-on-empty throw (line 30, "produced no usable
+entries") are both still present, unchanged. `V2_MODERNIZATION_PLAN.md`'s explanatory note beside
+the documented invocation (added by this package) is also still present and accurate. **Verdict
+below still holds.** Separately, `RESULTS.json.git_sha` for this package was a malformed value
+(`f9c4619000...`, a zero-padded short-SHA rather than a real 40-char commit hash) — corrected in
+this same reconciliation pass to the real commit, `8f4ec5f2` (confirmed via `git rev-parse`), which
+also carries FND-007's changes. This did not affect this verdict, since the verifier's own
+re-executed commands never depended on that field.
+
 ## Verdict
 
 PASS

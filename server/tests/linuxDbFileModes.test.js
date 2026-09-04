@@ -26,21 +26,52 @@ function mode(p) {
 
 const realWriteFileSync = fs.writeFileSync;
 
-// 2026-08-30, flake-class-fixed-margin-sync: same shape as
-// server/tests/supervisor-restart.test.js's waitForCondition -- poll for the
-// actual post-condition instead of a wall-clock guess at when a scheduled
-// retry will have fired and landed.
-async function waitForCondition(check, timeoutMs, description) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
+// 2026-08-30, flake-class-fixed-margin-sync: originally a blind `await
+// sleep(1500)` -- a wall-clock guess that the first retry
+// (WRITE_BACKOFF_BASE_MS = 1000ms in database/init.js) would have fired AND
+// landed with 500ms to spare. Replaced with polling for the actual
+// post-condition (same shape as server/tests/supervisor-restart.test.js's
+// waitForCondition) instead of guessing a fixed margin.
+//
+// 2026-09-02, gate-flake-linuxdbfilemodes-timing: that poll still ran on
+// REAL wall-clock time -- fine for "did the scheduled retry fire", but the
+// retry that heals db.json here isn't only gated on that;
+// database/init.js's flushWrites() reuses whichever debounce/backoff timer
+// is already pending (scheduleWrite() only arms a NEW retry timer `if
+// (!_writeTimer)`), so the healing retry is a real setTimeout callback
+// competing with every OTHER timer this floor's other concurrently-running
+// vitest workers have queued. Staged proof (isolated child-process probe
+// against this exact retry/backoff code, no reimplementation): with the
+// SAME single fault this test injects, healing landed at ~534ms -- but
+// feeding 3 consecutive real write failures into the same code pushed that
+// to ~6.5s, and 4 consecutive failures to ~14.5s, blowing straight through
+// the "generous" 10s deadline this test used to have. That's not a second,
+// distinct failure mode -- it's the SAME exponential-backoff retry (1s, 2s,
+// 4s, 8s... per WRITE_BACKOFF_BASE_MS) compounding past any fixed
+// wall-clock margin once real contention causes more than a couple of
+// genuine (not just the one deliberately-injected) transient failures in a
+// row -- exactly what routinely happens with multiple agents running full
+// suites concurrently on this floor. A bigger fixed number just moves
+// the cliff, it doesn't remove it. Fixed by driving the wait with fake
+// timers instead: the retry callback still runs for real (real
+// writeFileSync/renameSync, real flushWrites() code, nothing mocked below
+// the timer boundary), but firing it no longer depends on this process
+// actually getting CPU time from the real OS scheduler within some window
+// -- so the test is immune to floor contention entirely, not just padded
+// against yesterday's worst observed case.
+async function waitForConditionFakeTime(check, timeoutMs, description) {
+  const stepMs = 25;
+  for (let elapsed = 0; elapsed <= timeoutMs; elapsed += stepMs) {
     if (check()) return true;
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await vi.advanceTimersByTimeAsync(stepMs);
   }
+  if (check()) return true;
   throw new Error(`Timed out waiting for ${description}`);
 }
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.useRealTimers(); // no-op if the crash-safety test below didn't enable fake timers
 });
 
 describe("db.json / backups — real on-disk mode", () => {
@@ -110,6 +141,16 @@ describe("db.json write — crash-safety via fault injection at the write bounda
         throw new Error("simulated crash mid-write");
       });
 
+      // The healing retry's own setTimeout must fire on FAKE time, not real
+      // wall-clock time -- see waitForConditionFakeTime's comment for why.
+      // Must be enabled BEFORE the calls below schedule anything: fake and
+      // real timers are separate systems, and vi.advanceTimersByTimeAsync()
+      // can only fire a timer that was itself scheduled while fake timers
+      // were already active. Not enabled any earlier (e.g. around the
+      // baseline getDb()/commitNow() above) so it can't interact with that
+      // unrelated init-time scheduling.
+      vi.useFakeTimers();
+
       await setSetting("crashProbeMarker", "should-not-appear-if-killed-mid-write");
       await commitNow(); // flushWrites() catches the thrown error internally, never rejects
 
@@ -135,14 +176,9 @@ describe("db.json write — crash-safety via fault injection at the write bounda
 
       // And the write path self-heals on its own scheduled retry -- no
       // operator action needed, no data loss beyond the interrupted write.
-      // 2026-08-30, flake-class-fixed-margin-sync: this used to be a blind
-      // `await sleep(1500)` -- a wall-clock guess that the first retry
-      // (WRITE_BACKOFF_BASE_MS = 1000ms in database/init.js) would have
-      // fired AND landed with 500ms to spare. Under this floor's routine
-      // multi-agent CPU contention, a delayed timer callback could still be
-      // mid-flight at the 1500ms mark. Poll for the actual post-condition
-      // instead, with a deadline generous enough to absorb real contention.
-      await waitForCondition(
+      // See waitForConditionFakeTime's comment above for why this polls on
+      // fake time rather than a real wall-clock deadline.
+      await waitForConditionFakeTime(
         () => {
           try {
             return (

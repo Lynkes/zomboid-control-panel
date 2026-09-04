@@ -588,6 +588,8 @@
     "bridgeFailedDesc": "{{message}}. Überprüfe die Brücken-/Server-Verbindung und versuche es erneut.",
     "commandFailedDesc": "{{message}}. Überprüfe die Befehlseinstellungen und versuche es erneut.",
     "commandFailedFallback": "Befehl fehlgeschlagen",
+    "notPersistedDesc": "Nur auf die laufende Welt angewendet — SandboxVars.lua wurde nicht aktualisiert ({{reason}}), daher macht ein Serverneustart dies rückgängig.",
+    "notPersistedUnknownReason": "unbekannter Grund",
     "bridgeCommandFailedFallback": "Brücken-Befehl fehlgeschlagen.",
     "powerDidNotTakeEffectDesc": "Der Server meldet, dass der Strom weiterhin {{state}} ist — die Änderung wurde nicht wirksam.",
     "noPlayersOnlineError": "Keine Spieler online",

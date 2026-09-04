@@ -19,3 +19,10 @@ Start.bat text eol=crlf
 # Windows -- release-artifacts.yml builds the Linux leg on ubuntu-22.04, so
 # CI-published releases were never affected.
 zomboid-panel.service text eol=lf
+
+# Defense in depth for the CSP script-hash bug (browser-bug-hunt-2026-09-02):
+# server/utils/cspScriptHash.js now newline-normalizes before hashing, which
+# is the real fix and correct on any checkout regardless of line endings --
+# but pinning this file to LF removes the CRLF case entirely on machines
+# where core.autocrlf=true would otherwise check it out with CRLF.
+client/index.html text eol=lf

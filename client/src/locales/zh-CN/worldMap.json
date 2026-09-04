@@ -94,6 +94,7 @@
     "heal": "治疗",
     "god": "无敌",
     "godTip": "始终为该玩家开启无敌模式——不是切换开关。请改到「玩家」页面关闭它。",
+    "openPlayerControls": "打开玩家控制",
     "healedTitle": "已治疗",
     "healedDesc": "{{username}} 已被治疗",
     "godModeEnabled": "已启用无敌模式"

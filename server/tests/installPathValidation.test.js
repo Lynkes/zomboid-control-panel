@@ -244,5 +244,18 @@ describe("installPath/serverPath shape validation (POST / and PUT /:id)", () => 
       );
       expect(response.status).not.toHaveBeenCalledWith(400);
     });
+
+    it("PUT /:id preserves a cleared Docker container as JSON null", async () => {
+      const response = createResponse();
+      await getUpdateHandler()(
+        { params: { id: "1" }, body: { dockerContainerName: null } },
+        response,
+      );
+
+      expect(updateServer).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ dockerContainerName: null }),
+      );
+    });
   });
 });

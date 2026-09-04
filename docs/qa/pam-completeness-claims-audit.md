@@ -35,6 +35,8 @@ Of those 37:
   sentence asserting a sweep found and closed every instance of something (Kevin's refinement:
   untested/non-enumerating has more than one cause, and only "nobody checked" predicts a bug).
 
+**status: FIXED (comment corrected, no behavior change — as this doc's own author intended and applied within the same task)** — re-verified 2026-09-02, HEAD `5f913567`. `server/index.js`'s comment block around `checkServerStatusNow()` still names the `rconService.on("disconnected", ...)` handler as the second, independently-maintained site and states the actual current-vs-future-risk split accurately.
+
 ## FINDING (confirmed, fixed as a comment-only change): `server/index.js:2497`, `checkServerStatusNow()`
 
 **Claim:** "Routing every 'did the running state actually change' decision through this ONE
@@ -76,6 +78,8 @@ is actually true — they share the variable, each guards before acting, so they
 drift, but a future fix made only in `checkServerStatusNow()` won't reach the handler. **No behaviour
 change.**
 
+**status: STILL OPEN — deliberately deferred, not a bug** (re-verified 2026-09-02, HEAD `5f913567`). `server/index.js`'s `rconService.on("disconnected", ...)` handler (still at ~line 1233) remains a separate, independently-maintained implementation — has not been consolidated through `checkServerStatusNow()`. This is exactly as intended: the doc's author explicitly deferred this as a behavior-change item needing its own review, not an oversight or a regression. No live defect (the two sites still share one variable and each guards immediately before acting, so they cannot presently drift — see the FINDING above) — this is a code-quality/future-proofing improvement still awaiting its own review pass.
+
 ## CARDED, not fixed tonight: consolidate the RCON-disconnect handler through `checkServerStatusNow()`
 
 **What:** Rewrite `server/index.js`'s `rconService.on("disconnected", ...)` handler
@@ -96,8 +100,9 @@ reaches both trigger paths for free instead of one.
 **Owner:** `server/index.js` is Dwight's file. Not touched beyond the one comment block, per the
 explicit one-file, one-comment grant for this task.
 
-## Two more low-severity wording overclaims (verified, not fixed — outside ownership, not worth a
-## separate card)
+## Two more low-severity wording overclaims (verified, not fixed — outside ownership, not worth a separate card)
+
+**status: FIXED** (re-verified 2026-09-02, HEAD `5f913567` — fixed since this doc was written, which described it as "verified, not fixed"). `index.js:2014-2018`'s comment now explicitly names `POST /debug/client-errors` as the one deliberate exception, citing this exact finding ("bughunt-2026-08-31-b, completeness-claims audit") and stating it "was already false the day it was written" instead of claiming universality.
 
 1. **`server/index.js:2014`**, the socket `subscribe:logs` gate comment: *"requires
    diagnostics.manage -- every route in that file [`debug.js`] is admin-only by design."* Literally
@@ -107,6 +112,8 @@ explicit one-file, one-comment grant for this task.
    write-only crash-report intake, not a log-reading route, so the thing the gate protects stays
    protected — but the literal "every route" is wrong. Recommend naming the one exception instead of
    claiming universality, next time that file is touched.
+**status: FIXED** (re-verified 2026-09-02, HEAD `5f913567` — fixed since this doc was written, which described it as "verified, not fixed"). `server.js`'s `saveAndResolveSteamCmdExe` header comment now states "THE RULE, not a count of call sites" instead of the "single point every spawn() goes through" overclaim, explicitly citing this exact finding and its own falseness "the day it was written."
+
 2. **`server/routes/server.js:92`**, `saveAndResolveSteamCmdExe`'s header (the 2026-08-27 CodeQL
    command-injection fix): *"The single point every spawn() of a SteamCMD-family executable in this
    file goes through."* One exception exists, and it's self-documented right at the site:
@@ -115,6 +122,8 @@ explicit one-file, one-comment grant for this task.
    persist-before-use step already ran earlier in the same request. Safe in effect; "the single
    point every spawn() goes through" isn't literally true. Recommend softening to name the documented
    exception.
+
+**status: NOT APPLICABLE — no defects, listed for coverage record only.** Not re-verified this pass; no code changed in these areas since the original check that would alter these verdicts.
 
 ## Cleared (verified against current code, not just re-read)
 

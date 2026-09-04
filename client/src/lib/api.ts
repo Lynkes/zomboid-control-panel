@@ -570,7 +570,8 @@ export interface CharacterImportResponse {
 
 // Server API
 export const serverApi = {
-  getStatus: () => apiGet("/server/status"),
+  getStatus: (options?: { retries?: number }) =>
+    apiGet("/server/status", undefined, options?.retries),
   getNetworkInterfaces: (): Promise<{
     interfaces: { name: string; address: string }[];
   }> => apiGet("/server/network-interfaces"),
@@ -707,7 +708,8 @@ export const serverApi = {
 
 // Players API
 export const playersApi = {
-  getPlayers: () => apiGet("/players"),
+  getPlayers: (options?: { retries?: number }) =>
+    apiGet("/players", undefined, options?.retries),
   getWhitelist: () => apiGet<{
     success: boolean
     available: boolean
@@ -851,8 +853,24 @@ export interface ScheduleHistoryEntry {
   executed_at: string;
 }
 
+export interface RestartWarningSettings {
+  locale: "en" | "zh-CN" | "fr" | "de" | "es" | "ht";
+  template: string;
+}
+
+export interface SchedulerStatus {
+  activeTasks: number;
+  autoRestartEnabled: boolean;
+  modUpdateRestartPending: boolean;
+  timezone?: string;
+  configuredTimezone?: string | null;
+  timezoneFallback?: { configured: string; effective: string } | null;
+  restartWarning?: RestartWarningSettings;
+  restartWarningPresets?: Record<RestartWarningSettings["locale"], string>;
+}
+
 export const schedulerApi = {
-  getStatus: () => apiGet("/scheduler/status"),
+  getStatus: () => apiGet("/scheduler/status") as Promise<SchedulerStatus>,
   getTasks: () => apiGet("/scheduler/tasks"),
   createTask: (
     name: string,
@@ -907,6 +925,11 @@ export const schedulerApi = {
       timezone: string;
       configuredTimezone: string | null;
       timezoneFallback: { configured: string; effective: string } | null;
+    }>,
+  setRestartWarning: (restartWarning: RestartWarningSettings) =>
+    apiPut("/scheduler/restart-warning", restartWarning) as Promise<{
+      success: boolean;
+      restartWarning: RestartWarningSettings;
     }>,
 };
 
@@ -1658,8 +1681,8 @@ export const serversApi = {
   }>,
   getActive: () =>
     apiGet("/servers/active") as Promise<{ server: ServerInstance }>,
-  getComposedStatus: () =>
-    apiGet("/servers/active/status") as Promise<ComposedServerStatus>,
+  getComposedStatus: (options?: { retries?: number }) =>
+    apiGet("/servers/active/status", undefined, options?.retries) as Promise<ComposedServerStatus>,
   getResolvedActive: async () => {
     const data = (await apiGet("/servers")) as { servers: ServerInstance[] };
     return {
@@ -1669,14 +1692,15 @@ export const serversApi = {
         null,
     };
   },
-  getStatus: () =>
-    apiGet("/servers/status") as Promise<{
+  getStatus: (options?: { retries?: number }) =>
+    apiGet("/servers/status", undefined, options?.retries) as Promise<{
       servers: Array<{
         id: string;
         name: string;
         running: boolean;
         pid: string | null;
         isActive: boolean;
+        stateUnknown?: boolean;
       }>;
       detectedProcesses: number;
       detectionError: string | null;
@@ -3306,15 +3330,28 @@ export interface PanelUpdateApplyResult {
     | "rename_locked"
     | "permission"
     | "no_helper_log"
+    | "rollback_failed"
     | "unknown";
+  // Only meaningful when likelyCause is "rollback_failed" -- see
+  // isRollbackRetryLikely()'s doc comment in panelUpdateChecker.js. Absent
+  // for every other cause (this question doesn't apply to them), not a
+  // stale false.
+  rollbackRetryLikely?: boolean;
   canRetryApply?: boolean;
   panelFolder?: string;
+}
+
+export interface PanelUpdateMessage {
+  key: string;
+  params?: Record<string, string | number>;
 }
 
 export interface PanelUpdatePreflight {
   ok: boolean;
   blockers: string[];
   warnings: string[];
+  blockerDetails?: PanelUpdateMessage[];
+  warningDetails?: PanelUpdateMessage[];
   info: {
     isPackaged?: boolean;
     platform?: string;

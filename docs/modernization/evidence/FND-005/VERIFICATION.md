@@ -54,6 +54,16 @@ Ordered by severity.
 
 No other findings. The rollback instructions in `ROLLBACK.md` are correct and were not exercised (exercising them would delete the evidence under review, same reasoning as FND-001's).
 
+## Spot re-check, 2026-09-03 (kevin, floor-wide FND-* reconciliation sweep)
+
+Re-read the two load-bearing files directly against current `origin/main` (`761f41bc`, ~300 commits
+and two point releases past this verdict's own date): `vitest.config.js` and
+`server/tests/vitest.globalSetup.mjs` are both still present, unchanged in the mechanism this
+verdict describes. Did not re-run the full repeatability proof (duplicating this file's own
+already-thorough re-execution would add nothing) — code presence of the exact two files this
+verdict's reasoning depends on is the evidence bar used consistently across this reconciliation
+pass. **Verdict below still holds.**
+
 ## Verdict
 
 PASS

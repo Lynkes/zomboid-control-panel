@@ -124,6 +124,21 @@ beforeEach(() => {
 })
 
 describe('Events -- Bridge Tools "Run Operation" now logs to Recent Actions', () => {
+  it('defers vehicle option polling until the Vehicles section is active', async () => {
+    sendCommand.mockReset().mockResolvedValue({
+      success: true,
+      data: { safehouses: [], factions: [], vehicles: [] },
+    } as never)
+    renderEvents()
+
+    await waitFor(() => expect(sendCommand).toHaveBeenCalledWith('getSafehouses', {}))
+    expect(sendCommand).not.toHaveBeenCalledWith('getVehiclesDetailed', {})
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Spawn vehicle' }))
+
+    await waitFor(() => expect(sendCommand).toHaveBeenCalledWith('getVehiclesDetailed', {}))
+  })
+
   it('replaces "No recent actions" with the operation label on a successful run', async () => {
     sendCommand.mockReset().mockResolvedValue({ success: true, data: { vehicles: [] } } as never)
     renderEvents()

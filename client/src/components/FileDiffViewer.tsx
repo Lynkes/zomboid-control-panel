@@ -144,7 +144,7 @@ export const FileDiffViewer = memo(function FileDiffViewer({ file, modAId, modBI
         type="button"
         onClick={handleClick}
         aria-expanded={expanded}
-        className={`flex items-center gap-2 text-xs py-1.5 px-2 rounded transition-colors duration-100 w-full text-left ${
+        className={`flex items-center gap-2 text-xs py-1.5 px-2 rounded transition-colors duration-100 w-full text-start ${
           expanded ? 'bg-muted/60' : 'hover:bg-muted/40'
         }`}
       >
@@ -198,7 +198,7 @@ export const FileDiffViewer = memo(function FileDiffViewer({ file, modAId, modBI
 
       {/* Expanded diff panel */}
       {expanded && (
-        <div className="diff-panel-enter ml-5 mr-2 mt-1.5 mb-2.5 rounded-md border border-border/50 overflow-hidden bg-background/50">
+        <div className="diff-panel-enter ms-5 me-2 mt-1.5 mb-2.5 rounded-md border border-border/50 overflow-hidden bg-background/50">
           {overlap && overlap.total > 0 && overlap.kind !== 'lua-shadow' && overlap.items.length > 0 && (
             <div className="px-3 py-2 border-b border-border/30 bg-muted/20">
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground/70 mb-1">
@@ -237,7 +237,7 @@ export const FileDiffViewer = memo(function FileDiffViewer({ file, modAId, modBI
           )}
           {loading && (
             <div aria-busy="true" className="flex items-center justify-center py-6 text-muted-foreground text-xs">
-              <Loader2 aria-hidden="true" className="w-3.5 h-3.5 animate-spin mr-2" /> {t('comparingFiles')}
+              <Loader2 aria-hidden="true" className="w-3.5 h-3.5 animate-spin me-2" /> {t('comparingFiles')}
             </div>
           )}
           {error && (
@@ -276,7 +276,7 @@ function TextDiffView({ diff, modAName, modBName }: { diff: TextDiff; modAName: 
         <span className="text-muted-foreground/70">→</span>
         <span className="truncate max-w-[80px] sm:max-w-[120px]" title={modBName}>{modBName}</span>
         <span className="text-muted-foreground/70">{t('linesCount', { count: diff.modB.lineCount })}</span>
-        <span className="ml-auto shrink-0 tabular-nums">
+        <span className="ms-auto shrink-0 tabular-nums">
           <span className="text-success">+{diff.totalAdded}</span>
           {' '}
           <span className="text-destructive">-{diff.totalRemoved}</span>
@@ -303,11 +303,11 @@ function TextDiffView({ diff, modAName, modBName }: { diff: TextDiff; modAName: 
                     : ''
                 }`}
               >
-                <span className="diff-gutter w-8 sm:w-[52px] shrink-0 text-right pr-2 text-muted-foreground/40 select-none border-r border-border/20">
+                <span className="diff-gutter w-8 sm:w-[52px] shrink-0 text-end pe-2 text-muted-foreground/40 select-none border-e border-border/20">
                   {line.type === 'remove' && line.lineA != null ? line.lineA : ''}
                   {line.type === 'context' && line.lineA != null ? line.lineA : ''}
                 </span>
-                <span className="diff-gutter w-8 sm:w-[52px] shrink-0 text-right pr-2 text-muted-foreground/40 select-none border-r border-border/20">
+                <span className="diff-gutter w-8 sm:w-[52px] shrink-0 text-end pe-2 text-muted-foreground/40 select-none border-e border-border/20">
                   {line.type === 'add' && line.lineB != null ? line.lineB : ''}
                   {line.type === 'context' && line.lineB != null ? line.lineB : ''}
                 </span>
@@ -316,7 +316,7 @@ function TextDiffView({ diff, modAName, modBName }: { diff: TextDiff; modAName: 
                 }`}>
                   {line.type === 'add' ? '+' : line.type === 'remove' ? '-' : ' '}
                 </span>
-                <span className="flex-1 min-w-0 whitespace-pre pr-3 text-foreground/80">
+                <span className="flex-1 min-w-0 whitespace-pre pe-3 text-foreground/80">
                   {line.text}
                 </span>
               </div>

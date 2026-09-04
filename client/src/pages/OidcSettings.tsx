@@ -389,7 +389,7 @@ export default function OidcSettings({ embedded = false }: { embedded?: boolean 
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="ml-auto h-7 gap-1.5 px-2 text-xs"
+                        className="ms-auto h-7 gap-1.5 px-2 text-xs"
                         onClick={handleUseRedirectUri}
                       >
                         {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}

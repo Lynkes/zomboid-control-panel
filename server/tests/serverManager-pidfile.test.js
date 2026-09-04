@@ -124,6 +124,37 @@ describe('ServerManager pidfile fast path', () => {
     expect(details.running).toBe(false);
   });
 
+  it('falls back to the OS scan when the PID is alive with a dedicated-server cmdline that carries no identifying info at all (score 0, unattributable) -- weaker evidence than the fast path may trust', async () => {
+    // 2026-09-04, overnight bug hunt: scoreServerProcessOwnership() returns
+    // 0 (not -1) for a live PZ-looking process whose command line has
+    // neither -servername nor -cachedir, or whose install path doesn't
+    // appear in it either -- e.g. another operator's server on the same
+    // host, launched from a stock/vanilla StartServer64.bat with no
+    // identifying args. The full scan (getServerProcessDetails' non-fast
+    // path below) only trusts a score-0 "unattributable" candidate when
+    // NOTHING else on the host positively matched -- a comparison this
+    // single-PID lookup structurally cannot make, since it only ever looks
+    // at the one recorded PID. Before this fix, checking `score === -1`
+    // (instead of `score <= 0`) meant a reused PID landing on exactly this
+    // kind of unrelated, unidentifiable server process was wrongly
+    // confirmed as running by the fast path, even though the full scan
+    // would never have that confidence for the same command line without
+    // first checking there was no better-attributed alternative.
+    manager._writePidFile(3131);
+    manager._getLiveCommandLine = async () =>
+      'java zombie.network.GameServer'; // no -servername, no -cachedir, no install path
+    let scanCalled = false;
+    manager._scanDedicatedServerProcesses = async () => {
+      scanCalled = true;
+      return { running: false, matched: [] };
+    };
+
+    const details = await manager.getServerProcessDetails();
+
+    expect(scanCalled).toBe(true);
+    expect(details.running).toBe(false);
+  });
+
   it('falls back to the OS scan when the live command-line lookup itself fails or times out', async () => {
     manager._writePidFile(6161);
     manager._getLiveCommandLine = async () => null; // lookup failure is indistinguishable from "not alive" by design

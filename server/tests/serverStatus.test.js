@@ -30,4 +30,15 @@ describe("isServerObservedRunning", () => {
       }),
     ).toBeNull();
   });
+
+  it("trusts a completed host check over stale connector flags", () => {
+    expect(
+      isServerObservedRunning({
+        processRunning: false,
+        rconConnected: true,
+        bridgeConnected: true,
+        hostStateAuthoritative: true,
+      }),
+    ).toBe(false);
+  });
 });

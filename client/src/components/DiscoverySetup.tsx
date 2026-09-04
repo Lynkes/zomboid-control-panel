@@ -139,7 +139,7 @@ export function DiscoverySetup({ open, onOpenChange, mount, onCreated }: Discove
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t('cancel')}</Button>
           <Button onClick={handleCreate} disabled={creating || !selectedName}>
-            {creating && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
+            {creating && <Loader2 className="me-2 h-4 w-4 animate-spin" aria-hidden="true" />}
             {t('addServer')}
           </Button>
         </DialogFooter>

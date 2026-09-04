@@ -1,6 +1,7 @@
 import { Routes, Route, Link, Navigate, useLocation } from 'react-router-dom'
 import { useEffect, useState, useCallback, lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
+import { DirectionProvider } from '@radix-ui/react-direction'
 import type { Socket } from 'socket.io-client'
 import Layout from './components/Layout'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -20,6 +21,7 @@ import { isDemoMode } from './lib/demo'
 import { getUserErrorMessage } from './lib/errorMessage'
 import { createSocketAuthProvider } from './lib/socketAuth'
 import { registerReconnectRecovery } from './lib/socketRecovery'
+import { isRTL } from './i18n'
 
 type RouteLoaderMeta = {
   title: string
@@ -266,10 +268,10 @@ function AuthScreenLoader() {
       {/* Center stage */}
       <div className="relative w-full max-w-[520px]">
         {/* Corner brackets */}
-        <span aria-hidden="true" className="pointer-events-none absolute -left-2 -top-2 h-5 w-5 border-l-2 border-t-2 border-primary/45" />
-        <span aria-hidden="true" className="pointer-events-none absolute -right-2 -top-2 h-5 w-5 border-r-2 border-t-2 border-primary/45" />
-        <span aria-hidden="true" className="pointer-events-none absolute -bottom-2 -left-2 h-5 w-5 border-b-2 border-l-2 border-primary/45" />
-        <span aria-hidden="true" className="pointer-events-none absolute -bottom-2 -right-2 h-5 w-5 border-b-2 border-r-2 border-primary/45" />
+        <span aria-hidden="true" className="pointer-events-none absolute -start-2 -top-2 h-5 w-5 border-s-2 border-t-2 border-primary/45" />
+        <span aria-hidden="true" className="pointer-events-none absolute -end-2 -top-2 h-5 w-5 border-e-2 border-t-2 border-primary/45" />
+        <span aria-hidden="true" className="pointer-events-none absolute -bottom-2 -start-2 h-5 w-5 border-b-2 border-s-2 border-primary/45" />
+        <span aria-hidden="true" className="pointer-events-none absolute -bottom-2 -end-2 h-5 w-5 border-b-2 border-e-2 border-primary/45" />
 
         <div className="relative rounded-md border border-border/60 bg-card/70 px-6 py-7 backdrop-blur-sm shadow-[0_30px_80px_-50px_hsl(var(--foreground)/0.6)]">
           {/* Header strip */}
@@ -330,12 +332,12 @@ function AuthScreenLoader() {
                   </span>
                   <span className="truncate">{step.label}</span>
                   {isCurrent && (
-                    <span className="ml-auto text-[10px] uppercase tracking-[0.2em] text-primary/80">
+                    <span className="ms-auto text-[10px] uppercase tracking-[0.2em] text-primary/80">
                       …
                     </span>
                   )}
                   {isDone && (
-                    <span className="ml-auto text-[10px] uppercase tracking-[0.2em] text-emerald-500/70">
+                    <span className="ms-auto text-[10px] uppercase tracking-[0.2em] text-emerald-500/70">
                       OK
                     </span>
                   )}
@@ -618,17 +620,30 @@ function AppContent() {
 }
 
 function App() {
+  // Radix's own direction detection (react-direction's useDirection) has NO
+  // fallback to document.documentElement.dir -- without an explicit dir prop
+  // or this Provider, every RTL-aware Radix primitive (Slider, Select,
+  // Tabs, Accordion, Menu/DropdownMenu, ScrollArea, RovingFocus -- see
+  // node_modules/@radix-ui/react-direction's own useDirection: `localDir ||
+  // globalDir || "ltr"`, no third fallback) silently stays 'ltr' forever,
+  // regardless of the app's actual active language. i18n.language (via
+  // useTranslation, so this re-renders on every language switch, not just
+  // at boot) is the reactive source of truth here, same as
+  // applyDocumentDirection() uses for the <html dir> sync in i18n/index.ts.
+  const { i18n } = useTranslation()
   return (
     <ErrorBoundary>
-      <ThemeProvider>
-        <TooltipProvider>
-          <AuthProvider>
-            <ConfirmProvider>
-              <AppContent />
-            </ConfirmProvider>
-          </AuthProvider>
-        </TooltipProvider>
-      </ThemeProvider>
+      <DirectionProvider dir={isRTL(i18n.language) ? 'rtl' : 'ltr'}>
+        <ThemeProvider>
+          <TooltipProvider>
+            <AuthProvider>
+              <ConfirmProvider>
+                <AppContent />
+              </ConfirmProvider>
+            </AuthProvider>
+          </TooltipProvider>
+        </ThemeProvider>
+      </DirectionProvider>
     </ErrorBoundary>
   )
 }

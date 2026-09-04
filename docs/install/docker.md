@@ -102,8 +102,16 @@ SteamCMD usually hasn't finished yet.
 
 5. Open `http://localhost:3001` (or whatever origin you set — see
    [CORS_ORIGINS](#cors_origins-when-accessed-from-anywhere-other-than-localhost)
-   below if that's not `localhost`).
-6. Create the admin account.
+   below if that's not `localhost`). You'll see a setup screen asking for a
+   **Setup Token**.
+6. Get that token by watching the same logs from Phase 3:
+   ```sh
+   docker logs zomboid-panel | grep "SETUP TOKEN"
+   ```
+   Copy the long string after `SETUP TOKEN required to complete first-run
+   setup:` — treat it like a password; anyone who has it can create the
+   admin account before you do. Paste it into the setup screen, choose a
+   username and password, confirm the password, and submit.
 7. Project Zomboid, RCON, and the PanelBridge mod are all local to this
    container, so the setup wizard should find them without extra
    configuration. If RCON shows disconnected, open **Settings** and confirm
@@ -188,6 +196,44 @@ container as the panel.
    [CORS_ORIGINS](#cors_origins-when-accessed-from-anywhere-other-than-localhost)
    below before continuing.
 
+### Optional: let the panel control a PZ container
+
+Path B can start, stop, and restart a Project Zomboid container on the same
+Docker host. This is deliberately opt-in: mounting `docker.sock` gives the
+panel control over every container on that host.
+
+Before `docker compose up -d`:
+
+1. In `.env`, set:
+   ```dotenv
+   PANEL_DOCKER_CONTROL_ENABLED=true
+   DOCKER_GID=999
+   ```
+   Replace `999` with the numeric group that owns the host socket:
+   `stat -c '%g' /var/run/docker.sock`.
+2. In `docker-compose.yml`, uncomment the Docker socket volume and the
+   `group_add` block. The supplementary group is required when the panel's
+   `PUID`/`PGID` is not already allowed to read and write the socket.
+3. Add the management label to the PZ container. For Compose, add this to
+   the PZ service and recreate it:
+   ```yaml
+   labels:
+     zomboid-panel.managed: "true"
+   ```
+   For an existing container, the equivalent one-time command is:
+   ```sh
+   docker update --label-add zomboid-panel.managed=true <pz-container>
+   ```
+4. In **Servers**, put the PZ container's name or ID in **Docker container**
+   on the server profile. Use the Compose service/container name when the
+   panel and PZ share a Docker network.
+
+**You know it worked when:** the Docker page lists the labeled container,
+the server profile shows its container name, and Start/Stop uses the
+container lifecycle instead of sending RCON `quit` to PID 1. If the Docker
+page says the daemon is unavailable, check the socket mount and the numeric
+socket group before changing the PZ configuration.
+
 **You know it worked when:** rereading the volumes block, the left side of
 each `:` is a real path on this machine, not a placeholder.
 
@@ -203,7 +249,14 @@ each `:` is a real path on this machine, not a placeholder.
 
 ### Phase 5 — First login
 
-9. Open `http://localhost:3001`, create the admin account.
+9. Open `http://localhost:3001`. You'll see a setup screen asking for a
+   **Setup Token** — get it from the container's logs:
+   ```sh
+   docker compose logs zomboid-panel | grep "SETUP TOKEN"
+   ```
+   Copy the long string after `SETUP TOKEN required to complete first-run
+   setup:` and paste it into the setup screen, then choose a username and
+   password and submit.
 10. In **Settings**, set the server install path and Zomboid data path to
     the **container-side** paths from your volumes block (for example
     `/pz-server` and `/zomboid`), never the host paths on the left side of
@@ -230,8 +283,8 @@ RCON shows connected.
   GHCR access), it builds from source automatically and tags the result the
   same, so later `up -d` runs won't try to pull again. Each tagged release
   also publishes a version-pinned image with a matching name (for example
-  `ghcr.io/fpsacha/zomboid-panel:v1.2.4`), if you'd rather pin a version
-  than track `:latest`.
+  `ghcr.io/fpsacha/zomboid-panel:1.2.4` — no `v` prefix, unlike the git tag
+  it's built from), if you'd rather pin a version than track `:latest`.
 
 ---
 
@@ -261,7 +314,14 @@ ps` shows `zomboid-panel` as `Up`.
 
 ### Phase 3 — First login
 
-3. Open `http://localhost:3001`, create the admin account.
+3. Open `http://localhost:3001`. You'll see a setup screen asking for a
+   **Setup Token** — get it from the container's logs:
+   ```sh
+   docker compose -f docker-compose.install.yml logs zomboid-panel | grep "SETUP TOKEN"
+   ```
+   Copy the long string after `SETUP TOKEN required to complete first-run
+   setup:` and paste it into the setup screen, then choose a username and
+   password and submit.
 4. Open **Servers** and add your Project Zomboid server as a **remote
    server** using its RCON host, port, and password — this path has no
    shared filesystem, so PanelBridge needs SFTP (Settings → PanelBridge →
@@ -315,7 +375,12 @@ configured.
 
 ### Phase 3 — First login
 
-7. Open the WebUI, create the admin account.
+7. Open the WebUI. You'll see a setup screen asking for a **Setup Token** —
+   get it from the container's logs: in Unraid's **Docker** tab, click the
+   panel container's icon → **Logs**, and find the line starting `SETUP
+   TOKEN required to complete first-run setup:`. Copy the long string after
+   it and paste it into the setup screen, then choose a username and
+   password and submit.
 8. In **Settings**, set the paths to the **container-side** values —
    `/pz-server` and `/zomboid` — never the `/mnt/...` host paths from step 3.
 9. If your PZ container doesn't expose `/zomboid` to the panel at all, use
@@ -323,9 +388,29 @@ configured.
    folder.
 
 **You know it worked when:** the dashboard shows the server status card and
-RCON shows connected. The panel can monitor and administer the game through
-RCON, but it cannot start, stop, or auto-update a PZ container it doesn't
-own — leave lifecycle management with Unraid/your PZ template.
+RCON shows connected. By default, the panel can monitor and administer the
+game through RCON, but it does not start, stop, or auto-update a PZ container
+owned by Unraid.
+
+### Optional: let the panel control the Unraid PZ container
+
+Only enable this when you want the panel to own the container lifecycle
+instead of Unraid. In the Unraid template editor:
+
+1. Add a bind mount from the host `/var/run/docker.sock` to the container
+   `/var/run/docker.sock` with read/write access.
+2. Add the environment variable `PANEL_DOCKER_CONTROL_ENABLED=true`.
+3. Add the Docker socket's numeric group to the container's **Extra
+   Parameters**, for example `--group-add=281`. Find the real value on the
+   Unraid host with `stat -c '%g' /var/run/docker.sock`; do not assume the
+   example value.
+4. Add the label `zomboid-panel.managed=true` to the existing PZ container
+   and put that container's name in the panel's **Docker container** field.
+
+The Docker socket is equivalent to host-level container control, so leave
+this disabled unless the panel is trusted. If it is enabled but the Docker
+page still reports the daemon as unavailable, check the socket mount and
+the supplementary group first.
 
 ---
 
@@ -437,3 +522,20 @@ Path D actually wire it up out of the box:
 
 Restart (or recreate, for Path B/C) the panel container for the change to
 take effect.
+
+## Automating first-run setup
+
+Every path above has you grab the **Setup Token** by grepping it out of the
+container logs after first start. If you're scripting the deployment (CI,
+Ansible, a provisioning tool) and nothing is watching those logs, set
+`SETUP_TOKEN` to a value you choose *before* the first start instead — the
+panel uses it directly and skips generating and printing its own:
+
+```yaml
+environment:
+  SETUP_TOKEN: a-value-only-your-script-knows
+```
+
+Treat it exactly like the printed token would be — whoever presents it
+first creates the admin account. It only matters before that first account
+exists; once setup is complete, the panel ignores it.

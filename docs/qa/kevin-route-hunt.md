@@ -50,6 +50,8 @@ No findings.
 > reconnect.", botStarted:false, botStartError:...}` instead of a flat `success:true` — exactly
 > the fix shape recommended below.
 
+**status: FIXED** — re-verified 2026-09-02, HEAD `5f913567`. `commit 4e2f0c5` confirmed still an ancestor of HEAD.
+
 ## Finding 1 — PUT /api/discord/config reports success even when the reconnect it just triggered failed
 
 **WHERE:** `server/routes/discord.js:139-185` (`PUT /config`), the exact contrast is `server/routes/discord.js:193-218` (`POST /start`) 30 lines below it.
@@ -93,6 +95,8 @@ res.json({ success: true, message: "Discord bot configuration updated" });
 > suggested (check-and-warn); it check-and-refuses. `backupWarningFor()` now wraps every other
 > call site too (grepped: `createBackup(` appears at 11 sites, all now routed through it).
 
+**status: FIXED** — re-verified 2026-09-02, HEAD `5f913567`. `commit 494de7a` confirmed still an ancestor of HEAD.
+
 ## Finding 2 — DATA-DESTROYING: createBackup()'s return value is silently discarded at all 11 call sites in serverFiles.js; POST /sandbox/repair explicitly tells the operator a backup exists when it may not
 
 **WHERE:** `server/routes/serverFiles.js:308-358` (`createBackup()`), called at lines 1071, 1170, 1227, 1318, 1384, 1455, 1507, 1587, 1686, 1912, 1928 — every one of them `await createBackup(...)` with the return value discarded. Sharpest instance: `POST /sandbox/repair`, lines 1352-1413.
@@ -113,6 +117,8 @@ The sharpest case is `POST /sandbox/repair`: it repairs a corrupted `SandboxVars
 > reports what RCON actually returned"). The route now checks `result?.success` from
 > `reloadOptions()` and responds `{success:false, error, result}` on a real RCON failure instead
 > of a hardcoded `success:true`.
+
+**status: FIXED** — re-verified 2026-09-02, HEAD `5f913567`. `commit 9305865` confirmed still an ancestor of HEAD.
 
 ## Finding 3 — POST /save-and-reload hardcodes success:true regardless of whether RCON actually reloaded anything
 
@@ -140,6 +146,8 @@ res.json({ success: true, message: "Options reloaded", result });
 > landed, not prevention of the partial state — but it fully closes the "total-failure-claimed-
 > on-partial-success" defect described below.
 
+**status: FIXED** — re-verified 2026-09-02, HEAD `5f913567`. `commit 913fc3a` confirmed still an ancestor of HEAD.
+
 ## Finding 4 — POST /templates/:id/apply: a real partial-apply (INI write succeeds, Sandbox write fails) is reported as a total failure, hiding that half the template already landed
 
 **WHERE:** `server/routes/serverFiles.js:1883-1951`.
@@ -162,6 +170,8 @@ Findings 2, 3, 4 above are everything found in this file. Everything else checke
 
 ---
 
+**status: no defect found (checked clean, not re-verified this pass — no code changed since the original check that would alter this verdict; the correction note immediately below covers the one gap found later in adjacent territory)**
+
 ## Area checked clean — discovery.js
 
 **READ:** full file, 125 lines. One mutating route (`POST /create-from-discovery`, gated `servers.discover`); `GET /discover-mounts` is an ungated read-only probe of standard bind-mount locations — returns candidate paths only, no credentials, same shape as the other deliberately-open read-only routes found tonight. Not filing. No dead checks, no false guarantees, no partial-failure masking — every validation step (`installResult.valid`, `dataResult.valid`, `SERVER_NAME_RE`, `iniSettings?.rconPassword`) is checked and returns a specific 400 before the server gets created.
@@ -183,6 +193,8 @@ Findings 2, 3, 4 above are everything found in this file. Everything else checke
 > didn't try supplying a competing `iniExclusions` alongside the excluded key — an easy case to
 > miss precisely because the function's own comment asserts it's unconditional.
 
+**status: FIXED (the correction's finding, i.e. creed-findings.md Finding 7's `iniExclusions` bypass) — re-verified 2026-09-02, HEAD `5f913567`.** `resolveIniExclusions()` now unions `DEFAULT_INI_EXCLUSIONS` with template-supplied extras at both `validateTemplate()` and `templateService.js`'s `prepareIniChange()`; see `docs/qa/creed-findings.md` Finding 7 for full evidence. The rest of this "checked clean" section's claims (transactional writes via `writeFilesTransaction()`, fail-loud `backupFile()`) were not re-verified this pass — no code changed since the original check that would alter those verdicts.
+
 ## Area checked clean — templates.js + services/templateService.js (a SEPARATE, more sophisticated system from serverFiles.js's own embedded `/templates` routes above — worth knowing both exist)
 
 **READ:** `server/routes/templates.js` (full, 137 lines), `services/templateService.js` (full), `utils/templateSchema.js`'s validation/exclusion logic, `utils/templateFiles.js`'s file-writing helpers.
@@ -199,6 +211,8 @@ No findings — if anything, this file is the "restore path is genuinely solid" 
 > **RECONCILED 2026-08-24 (fork):** FIXED at `7ff8763` ("fix(security): serverFinder's SSRF
 > deny-list now blocks 100.64.0.0/10"). `isPrivateIp()` now includes
 > `if (a === 100 && b >= 64 && b <= 127) return true;` — the exact fix suggested below, verbatim.
+
+**status: FIXED** — re-verified 2026-09-02, HEAD `5f913567`. `commit 7ff8763` confirmed still an ancestor of HEAD.
 
 ## Finding 5 — serverFinder.js's SSRF deny-list misses 100.64.0.0/10 (Carrier-Grade NAT / shared address space)
 
@@ -219,6 +233,8 @@ No findings — if anything, this file is the "restore path is genuinely solid" 
 **READ:** `GET /`, `/status`, `/rcon-status`, `/active`, `/:id` (all ungated but all either route through `sanitizeServerResponse(List)` or return genuinely credential-free status data — `/rcon-status`'s own comment claims "never returns credential material," checked and holds: response is `{id, status}` where status is a short enum-like string, never the password); `POST /` and `PUT /:id` (both `servers.manage`) — whitelisted update fields prevent mass assignment, `isMaskedSecret()` correctly strips a resubmitted masked placeholder before it can overwrite the real stored `rconPassword`/`adminPassword`, every downstream reconnect/reload step (ServerManager, RconService) is independently try/caught with a `log.warn` rather than failing the whole request or silently claiming reconnect succeeded — response text stays honestly scoped to "server updated," not "server updated and reconnected"; `DELETE /:id`; `POST /:id/activate`'s "never let an install failure block activation" comment (verified: `autoInstallBridgeIfNeeded` is synchronous, self-contained try/catch, called unawaited — structurally cannot produce an unhandled rejection or block the response).
 
 ---
+
+**status: FIXED (both parts)** — re-verified 2026-09-02, HEAD `5f913567`. `commits 0cacaa8` and `24f2338` confirmed still ancestors of HEAD. The one genuinely-uncertain item (`/server-info` player-data sensitivity) remains Lua-side and out of `server/`'s reach — no verdict possible without the Lua mod source, as originally flagged.
 
 ## Finding 6 — panelBridge.js: dead checks fixed (this hunt), stale comment (not fixed), one item flagged as unverified rather than guessed
 

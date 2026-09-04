@@ -464,14 +464,14 @@ export default function ServerFinder() {
           <>
             <Button variant="outline" onClick={() => fetchServers(false)} disabled={loading}>
               {loading ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                <Loader2 className="h-4 w-4 me-2 animate-spin" />
               ) : (
-                <RefreshCw className="h-4 w-4 mr-2" />
+                <RefreshCw className="h-4 w-4 me-2" />
               )}
               {t('pageHeader.refreshList')}
             </Button>
             <Button onClick={() => fetchServers(true)} disabled={loading}>
-              <RefreshCw className="h-4 w-4 mr-2" />
+              <RefreshCw className="h-4 w-4 me-2" />
               {t('pageHeader.reloadFromSteam')}
             </Button>
             <HelpTip label={t('pageHeader.reloadFromSteam')}>{t('pageHeader.reloadFromSteamTip')}</HelpTip>
@@ -579,19 +579,19 @@ export default function ServerFinder() {
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg">{t('searchFilters.title')}</CardTitle>
             <Button variant="ghost" size="sm" onClick={() => setFiltersOpen(!filtersOpen)}>
-              <Filter className="h-4 w-4 mr-2" />
+              <Filter className="h-4 w-4 me-2" />
               {filtersOpen ? t('searchFilters.hideFilters') : t('searchFilters.showFilters')}
             </Button>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Search className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder={t('searchFilters.searchPlaceholder')}
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="pl-9"
+              className="ps-9"
               aria-label={t('searchFilters.searchAria')}
               maxLength={128}
             />
@@ -700,7 +700,7 @@ export default function ServerFinder() {
               <p className="font-medium text-destructive">{t('error.title')}</p>
               <p className="text-sm text-muted-foreground">{error}</p>
             </div>
-            <Button variant="outline" onClick={() => fetchServers()} className="ml-auto">
+            <Button variant="outline" onClick={() => fetchServers()} className="ms-auto">
               {t('error.retry')}
             </Button>
           </CardContent>
@@ -726,7 +726,7 @@ export default function ServerFinder() {
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              <span className="ml-3 text-muted-foreground">{t('serverList.loading')}</span>
+              <span className="ms-3 text-muted-foreground">{t('serverList.loading')}</span>
             </div>
           ) : filteredServers.length === 0 ? (
             <div className="text-center py-12">
@@ -881,7 +881,7 @@ export default function ServerFinder() {
                                   {t('serverItem.pingNa')}
                                 </span>
                               </TooltipTrigger>
-                              <TooltipContent className="max-w-56 text-left">
+                              <TooltipContent className="max-w-56 text-start">
                                 {t(pingFailDescKey(pKey ? pingFailReasons[pKey] : undefined))}
                               </TooltipContent>
                             </Tooltip>

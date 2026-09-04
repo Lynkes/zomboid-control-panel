@@ -227,7 +227,7 @@ function ConnLine({
     <div className="flex min-w-0 items-center gap-2.5 py-1.5">
       <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', dot)} aria-hidden="true" />
       <span className="shrink-0 font-mono text-[11px] font-medium text-foreground/70">{label}</span>
-      <span className={cn('min-w-0 flex-1 truncate text-right font-mono text-[11px] tabular-nums', valueTone)}>
+      <span className={cn('min-w-0 flex-1 truncate text-end font-mono text-[11px] tabular-nums', valueTone)}>
         {value ?? (state === 'on' ? t('connLine.connected') : state === 'wait' ? t('connLine.pending') : t('connLine.offline'))}
       </span>
       {hint && <span className="shrink-0 font-mono text-[10px] text-muted-foreground/50">{hint}</span>}
@@ -400,19 +400,22 @@ export default function Dashboard() {
 
   /* ---------------------------- fetchers ---------------------------------- */
   const fetchStatus = useCallback(async () => {
-    try { const data = await serverApi.getStatus(); setStatus(data); setFetchError(null); setLastUpdated(new Date()) }
+    try { const data = await serverApi.getStatus({ retries: 0 }); setStatus(data); setFetchError(null); setLastUpdated(new Date()) }
     catch { setFetchError(t('errors.failedToConnect')) }
   }, [t])
 
   const fetchComposedStatus = useCallback(async () => {
-    try { setComposedStatus(await serversApi.getComposedStatus()) }
+    try { setComposedStatus(await serversApi.getComposedStatus({ retries: 0 })) }
     catch { setComposedStatus(null) }
   }, [])
 
   usePageShortcut('r', () => { if (loading === null) { fetchStatus(); fetchComposedStatus() } })
 
   const fetchPlayers = useCallback(async () => {
-    try { const d = await playersApi.getPlayers(); if (d.players) setPlayers(d.players) } catch { setPlayers([]) }
+    try {
+      const d = await playersApi.getPlayers({ retries: 0 })
+      if (d.players) setPlayers(d.players)
+    } catch { setPlayers([]) }
   }, [])
   const fetchBridgeStatus = useCallback(async () => {
     try { setBridgeStatus(await panelBridgeApi.getStatus()) } catch { setBridgeStatus(null) }
@@ -766,7 +769,7 @@ export default function Dashboard() {
         pollIntervalRef.current = setInterval(async () => {
           attempts++
           try {
-            const data = await serverApi.getStatus()
+            const data = await serverApi.getStatus({ retries: 0 })
             setStatus(data)
             if (data?.running || attempts >= 15) {
               if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null }
@@ -934,7 +937,7 @@ export default function Dashboard() {
         level: 'warning',
         headline: t('verdict.rconDisconnected'),
         headlineHelp: (
-          <HelpTip label={t('verdict.rconHelpLabel')} className="ml-1.5 align-[-2px]">
+          <HelpTip label={t('verdict.rconHelpLabel')} className="ms-1.5 align-[-2px]">
             {t('verdict.rconHelpTip')}
           </HelpTip>
         ),
@@ -1022,41 +1025,48 @@ export default function Dashboard() {
 
   const workItems: WorkItem[] = [
     {
+      id: 'players',
       to: '/players', icon: Activity, label: t('workItems.players'),
       state: online ? String(players.length) : t('liveActivity.offline'),
       tone: !online ? 'bad' : players.length > 0 ? 'good' : 'default',
     },
     {
+      id: 'zombies',
       to: '/events', icon: Skull, label: t('workItems.zombies'),
       state: bridgeStatus?.modConnected ? (zombieCount !== null ? String(zombieCount) : t('connLine.pending')) : t('liveActivity.offline'),
       tone: !bridgeStatus?.modConnected ? 'default' : zombieCount !== null ? 'good' : 'default',
     },
     {
+      id: 'console',
       to: '/console', icon: Wifi, label: t('workItems.console'),
       state: status?.rcon?.connected ? t('workItems.rconReady') : t('workItems.rconOffline'),
       tone: status?.rcon?.connected ? 'good' : 'warning',
     },
     {
+      id: 'mods',
       to: '/mods', icon: Gamepad2, label: t('workItems.mods'),
       state: modsPending ? t('workItems.modsToUpdate', { count: maintenance.modUpdatesAvailable }) : t('workItems.modsTracked', { count: maintenance.modsTracked }),
       tone: modsPending ? 'warning' : 'default',
     },
     {
+      id: 'schedule',
       to: '/scheduler', icon: CalendarClock, label: t('workItems.schedule'),
       state: scheduleState,
       tone: nextRunEta ? 'good' : maintenance.scheduledTasksCount > 0 ? 'good' : 'default',
     },
     ...(errorCount != null ? [{
+      id: 'errors',
       to: '/console', icon: ScrollText, label: t('workItems.errors'),
       state: errorCount === 0 ? t('workItems.errorsNone') : t('workItems.errorsLogged', { count: errorCount }),
       tone: errorCount === 0 ? 'good' : errorCount >= 50 ? 'warning' : 'default',
     } as WorkItem] : []),
     {
+      id: 'backups',
       to: '/backups', icon: Archive, label: t('workItems.backups'),
       state: backupState,
       tone: maintenance.backupCount === 0 ? 'warning' : 'good',
     },
-    { to: '/server-config', icon: Server, label: t('workItems.config') },
+    { id: 'config', to: '/server-config', icon: Server, label: t('workItems.config') },
   ]
 
   // WORK_STATE_TONE (DashboardVerdict.tsx) already colors each row by
@@ -1066,8 +1076,19 @@ export default function Dashboard() {
   // their original relative order) puts what needs attention where the
   // operator's own "actionable items on top" ask actually lands: the top
   // of the list, not just a different color partway down it.
+  //
+  // 'warning' collapses into the same bucket as 'default'/'good' rather
+  // than getting its own rank (GH#137): 'warning' is the tone a normal
+  // Stop/Restart passes through on the way to disconnecting RCON, so
+  // ranking it above 'default' reshuffled the whole list on every
+  // ordinary status poll while a server was merely stopping or starting
+  // -- rows visibly swapping places for a state the operator caused
+  // themselves and already knows about, not something that needed
+  // surfacing. 'bad' (the server is actually unreachable) is the state
+  // worth interrupting the list's order for; the rest stay in place and
+  // let color alone carry the signal, same as they always did.
   const WORK_ITEM_SEVERITY: Record<'bad' | 'warning' | 'default' | 'good', number> = {
-    bad: 0, warning: 1, default: 2, good: 3,
+    bad: 0, warning: 1, default: 1, good: 1,
   }
   const sortedWorkItems = [...workItems].sort(
     (a, b) => WORK_ITEM_SEVERITY[a.tone ?? 'default'] - WORK_ITEM_SEVERITY[b.tone ?? 'default'],
@@ -1191,7 +1212,7 @@ export default function Dashboard() {
           </div>
 
           {/* primary controls — right-aligned */}
-          <div className="order-2 ml-auto flex flex-wrap justify-end gap-1">
+          <div className="order-2 ms-auto flex flex-wrap justify-end gap-1">
           {!online ? (
             <DisabledReason reason={
               !hasServer ? t('actions.addServerFirst')
@@ -1296,13 +1317,13 @@ export default function Dashboard() {
                 onClick={() => handleAction('Create backup', () => backupApi.createBackup({ includeDb: true }).then(() => fetchMaintenance()))}
                 disabled={!hasServer || loading !== null || activeServer?.isRemote}
               >
-                <Archive className="mr-2 h-4 w-4" /> {t('actions.createBackup')}
+                <Archive className="me-2 h-4 w-4" /> {t('actions.createBackup')}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={fetchStatus}>
-                <RefreshCw className="mr-2 h-4 w-4" /> {t('actions.refreshStatus')}
+                <RefreshCw className="me-2 h-4 w-4" /> {t('actions.refreshStatus')}
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link to="/settings" className="flex items-center"><Server className="mr-2 h-4 w-4" /> {t('actions.bridgeSettings')}</Link>
+                <Link to="/settings" className="flex items-center"><Server className="me-2 h-4 w-4" /> {t('actions.bridgeSettings')}</Link>
               </DropdownMenuItem>
               {!rconConnected && (
                 <DisabledReason
@@ -1316,7 +1337,7 @@ export default function Dashboard() {
                   }
                 >
                   <DropdownMenuItem onClick={handleConnect} disabled={!hasServer || loading !== null || (!activeServer?.isRemote && !hostRunning)}>
-                    <Wifi className="mr-2 h-4 w-4" /> {t('actions.connectRcon')}
+                    <Wifi className="me-2 h-4 w-4" /> {t('actions.connectRcon')}
                   </DropdownMenuItem>
                 </DisabledReason>
               )}
@@ -1349,7 +1370,7 @@ export default function Dashboard() {
                   disabled={!hasServer || !online || loading !== null || activeServer?.isRemote || !canControlServer}
                   className="text-destructive focus:text-destructive"
                 >
-                  <Zap className="mr-2 h-4 w-4" /> {t('actions.restartNow')}
+                  <Zap className="me-2 h-4 w-4" /> {t('actions.restartNow')}
                 </DropdownMenuItem>
               </DisabledReason>
               <DisabledReason
@@ -1378,7 +1399,7 @@ export default function Dashboard() {
                   disabled={!hasServer || online || loading !== null || activeServer?.isRemote || !canWipeServer}
                   className="text-destructive focus:text-destructive"
                 >
-                  <Trash2 className="mr-2 h-4 w-4" /> {t('actions.wipeServer')}
+                  <Trash2 className="me-2 h-4 w-4" /> {t('actions.wipeServer')}
                 </DropdownMenuItem>
               </DisabledReason>
             </DropdownMenuContent>
@@ -1408,7 +1429,7 @@ export default function Dashboard() {
           <div
             role="status"
             className={cn(
-              'mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border py-2 pl-3 pr-2',
+              'mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border py-2 ps-3 pe-2',
               lastFailed
                 ? 'border-destructive/35 bg-destructive/[0.05] shadow-[inset_2px_0_0_hsl(var(--destructive))]'
                 : 'border-primary/35 bg-primary/[0.04] shadow-[inset_2px_0_0_hsl(var(--primary))]',
@@ -1432,7 +1453,7 @@ export default function Dashboard() {
                 </span>
               )}
             </div>
-            <div className="ml-auto flex items-center gap-1">
+            <div className="ms-auto flex items-center gap-1">
               <Button
                 size="sm"
                 variant="ghost"
@@ -1484,7 +1505,7 @@ export default function Dashboard() {
               onClick={dismiss}
               aria-label={t('updateCheckError.dismissAria')}
               title={t('updateCheckError.dismissTooltip')}
-              className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground/60 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+              className="ms-auto shrink-0 rounded p-0.5 text-muted-foreground/60 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
             >
               <X className="h-3 w-3" />
             </button>
@@ -1496,7 +1517,7 @@ export default function Dashboard() {
       {fetchError && (
         <div
           role="alert"
-          className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-destructive/40 bg-destructive/[0.05] py-2 pl-3 pr-2 shadow-[inset_2px_0_0_hsl(var(--destructive))]"
+          className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-destructive/40 bg-destructive/[0.05] py-2 ps-3 pe-2 shadow-[inset_2px_0_0_hsl(var(--destructive))]"
         >
           <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
           <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5">
@@ -1507,7 +1528,7 @@ export default function Dashboard() {
               {fetchError}{t('connectionError.suffix')}
             </span>
           </div>
-          <Button variant="outline" size="sm" onClick={fetchStatus} className="ml-auto h-7 gap-1.5 px-2.5 text-xs">
+          <Button variant="outline" size="sm" onClick={fetchStatus} className="ms-auto h-7 gap-1.5 px-2.5 text-xs">
             <RefreshCw className="h-3 w-3" /> {t('connectionError.retry')}
           </Button>
         </div>
@@ -1521,7 +1542,7 @@ export default function Dashboard() {
       {status && !status.serverPathConfigured && !activeServer?.isRemote && (
         <Link
           to="/server-setup"
-          className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-warning/40 bg-warning/[0.04] py-2 pl-3 pr-2 shadow-[inset_2px_0_0_hsl(var(--warning))] transition-colors hover:bg-warning/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+          className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-warning/40 bg-warning/[0.04] py-2 ps-3 pe-2 shadow-[inset_2px_0_0_hsl(var(--warning))] transition-colors hover:bg-warning/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
         >
           <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warning" />
           <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5">
@@ -1532,7 +1553,7 @@ export default function Dashboard() {
               {t('notConfigured.description')}
             </span>
           </div>
-          <span className="ml-auto text-xs font-medium text-warning/85">{t('notConfigured.openSetup')}</span>
+          <span className="ms-auto text-xs font-medium text-warning/85">{t('notConfigured.openSetup')}</span>
         </Link>
       )}
 
@@ -1558,10 +1579,10 @@ export default function Dashboard() {
             ].map(([n, title, body]) => (
               <li key={n} className="rounded-md border border-border/50 bg-background/40 p-3">
                 <p className="text-sm font-semibold text-foreground">
-                  <span className="mr-1.5 inline-flex h-4 w-4 items-center justify-center rounded text-[10px] font-bold bg-primary/15 text-primary" aria-hidden="true">{n}</span>
+                  <span className="me-1.5 inline-flex h-4 w-4 items-center justify-center rounded text-[10px] font-bold bg-primary/15 text-primary" aria-hidden="true">{n}</span>
                   {title}
                 </p>
-                <p className="mt-1 pl-[1.4rem] text-xs leading-5 text-muted-foreground">{body}</p>
+                <p className="mt-1 ps-[1.4rem] text-xs leading-5 text-muted-foreground">{body}</p>
               </li>
             ))}
           </ol>
@@ -1755,7 +1776,7 @@ export default function Dashboard() {
                 >
                   <RefreshCw className={cn('h-3 w-3', loading ? 'animate-spin' : '')} />
                   {t('maintenance.refreshStatus')}
-                  <span className="ml-auto font-mono text-[10px] text-muted-foreground/65">
+                  <span className="ms-auto font-mono text-[10px] text-muted-foreground/65">
                     {lastUpdated ? lastUpdated.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' }) : '—'}
                   </span>
                 </Button>
@@ -1974,7 +1995,7 @@ export default function Dashboard() {
                   } finally { setWipeLoading(false) }
                 }}
               >
-                {wipeLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {wipeLoading ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}
                 {t('wipeDialog.preview')}
               </Button>
             ) : (
@@ -2000,7 +2021,7 @@ export default function Dashboard() {
                   } finally { setWipeLoading(false); setWipeBackupProgress(null) }
                 }}
               >
-                {wipeLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                {wipeLoading ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <Trash2 className="me-2 h-4 w-4" />}
                 {t('wipeDialog.wipeNow')}
               </Button>
             )}

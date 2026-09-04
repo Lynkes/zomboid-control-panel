@@ -26,8 +26,12 @@ you did it right before moving to the next one.
    ```
 
 **You know it worked when:** the terminal prints `Starting Zomboid Control
-Panel...` followed by `Open your browser to: http://localhost:3001`, and
-that URL loads the setup screen in a browser.
+Panel...`, then — a few seconds later, once the panel process itself has
+bound its port — a boxed **Ready** section listing a `Local:` URL (for
+example `http://localhost:3001`). Use whatever port that box actually
+shows, not blindly `3001` (see [Phase 8 of the Windows
+guide](windows.md#phase-8-what-to-do-if-port-3001-is-already-taken) for why
+it can differ). That URL loads the setup screen in a browser.
 
 **If this goes wrong:** `./start.sh: Permission denied` means step 3's
 `chmod +x` didn't run or didn't apply — repeat it. `ERROR: ./ZomboidControlPanel
@@ -35,12 +39,40 @@ was not found in this folder` means the archive was extracted somewhere else,
 or you're running `start.sh` from outside the folder you extracted into — `cd`
 back into it first.
 
-Leave this terminal running for now — closing it stops the panel. Phase 5
+Leave this terminal running for now — closing it stops the panel. Phase 6
 below covers turning this into a proper background service.
 
 ---
 
-## Phase 2: Confirm your distro is new enough
+## Phase 2: Create the first-run admin account
+
+Nobody owns this panel yet. Nothing else in this guide works until you do
+this step, since every later phase assumes you're logged in.
+
+1. In the terminal from Phase 1, find the line starting with `SETUP TOKEN
+   required to complete first-run setup:` followed by a long string of
+   letters and numbers. Copy that string — treat it like a password; anyone
+   who has it can create the admin account before you do.
+2. Open the `Local:` URL from Phase 1 in a browser (on the same machine, or
+   from another one on your network if you've already sorted out access to
+   it). You'll see the setup screen with a **Setup Token** field, a **Panel
+   Port** field (leave this at whatever port Phase 1's Ready box actually
+   showed), a username, and a password.
+3. Paste the setup token, choose a username and password, confirm the
+   password, and submit.
+
+**You know it worked when:** the setup screen closes and you land on the
+panel's dashboard, logged in.
+
+**If this goes wrong:** `Invalid or missing setup token` means the token was
+mistyped or scrolled out of view in the terminal — scroll back up, or
+restart `start.sh` to print a fresh copy of the *same* token (it doesn't
+change on restart, only on first use, and only when nobody has finished
+setup yet).
+
+---
+
+## Phase 3: Confirm your distro is new enough
 
 The panel binary needs **glibc 2.28 or newer**. This is a property of your
 Linux distribution, not something you install separately.
@@ -66,7 +98,7 @@ switching to Docker.
 
 ---
 
-## Phase 3: Install curl
+## Phase 4: Install curl
 
 `curl` isn't bundled with every minimal Linux install, and the panel uses it
 for one specific feature: detecting new Project Zomboid map builds for the
@@ -92,7 +124,7 @@ step now.
 
 ---
 
-## Phase 4: Run as a dedicated user, not root
+## Phase 5: Run as a dedicated user, not root
 
 `start.sh` prints a warning if you run it as root. Don't ignore it — create a
 low-privilege user instead:
@@ -101,7 +133,7 @@ low-privilege user instead:
 sudo useradd -r -m -s /bin/false pzuser
 ```
 
-You don't need to do anything with this user yet by hand — Phase 5 below sets
+You don't need to do anything with this user yet by hand — Phase 6 below sets
 the systemd service to run as `pzuser` automatically, and hands it ownership
 of the panel's own folder. If you're just testing manually in a foreground
 terminal (Phase 1) as your normal login user, that's fine for now; this
@@ -114,7 +146,7 @@ user`.
 this phase.** The very first run creates its data directory — the database,
 its startup backup, the JWT signing key, the log files — owned by whichever
 account started it. If that first run was root and every run after is
-`pzuser` (Phase 5's service), that account can no longer read or write any of
+`pzuser` (Phase 6's service), that account can no longer read or write any of
 it, and the panel refuses to start rather than run in a half-broken state.
 The fix is a `chown -R` back to the account you actually run it as — the
 panel's own error message prints the exact command, naming every affected
@@ -129,7 +161,7 @@ low-privilege account.
 
 ---
 
-## Phase 5: Install the panel as a systemd service
+## Phase 6: Install the panel as a systemd service
 
 This makes the panel start automatically on boot and restart itself if it
 crashes, instead of you needing a terminal open. The archive from Phase 1
@@ -191,7 +223,7 @@ ReadWritePaths=/opt/zomboid-panel
 ```
 
 This is fine as long as everything the panel needs to write — including any
-PZ server it manages — lives under `/opt/zomboid-panel`. Phase 6 below has
+PZ server it manages — lives under `/opt/zomboid-panel`. Phase 7 below has
 you use exactly that layout (`/opt/zomboid-panel/data/pzserver`), so if you
 follow it as written you won't hit this.
 
@@ -223,9 +255,9 @@ the list.
 
 ---
 
-## Phase 6: Install a PZ server through the panel wizard
+## Phase 7: Install a PZ server through the panel wizard
 
-If you installed the service as in Phase 5, the panel runs as `pzuser` and
+If you installed the service as in Phase 6, the panel runs as `pzuser` and
 can only write inside `/opt/zomboid-panel` (see the trap above). Point the
 setup wizard at a folder under there, and create it **before** you open the
 wizard — the wizard does not create its own top-level folder:
@@ -252,18 +284,18 @@ through SteamCMD instead of immediately failing on the folder path.
 install step means either the folder from step 1 above wasn't created, or it
 was created as your login user instead of `pzuser` (drop the `sudo -u pzuser`
 and it'll be owned wrong). A permission error partway through — after
-download starts — points at the `ReadWritePaths` trap in Phase 5 instead,
+download starts — points at the `ReadWritePaths` trap in Phase 6 instead,
 usually because a **Custom config location** was set outside
 `/opt/zomboid-panel`.
 
 ---
 
-## Phase 7: SteamCMD's 32-bit library dependencies
+## Phase 8: SteamCMD's 32-bit library dependencies
 
 The wizard downloads and runs SteamCMD for you — you don't install SteamCMD
 yourself. But SteamCMD's own binary is 32-bit, and on a 64-bit Linux install
 the OS doesn't have 32-bit runtime libraries installed by default. Install
-them once, before running the wizard in Phase 6:
+them once, before running the wizard in Phase 7:
 
 ```bash
 # Debian / Ubuntu
@@ -274,7 +306,7 @@ sudo yum install glibc.i686 libstdc++.i686
 ```
 
 **You know it worked when:** the SteamCMD download step in the wizard (Phase
-6) completes instead of hanging or exiting immediately.
+7) completes instead of hanging or exiting immediately.
 
 **If you skip this:** the panel's own install flow tries to detect the
 problem and will emit a warning in the install log along the lines of *"Could
@@ -285,7 +317,7 @@ is the first thing to check even if you didn't see that warning.
 
 ---
 
-## Phase 8: Open the firewall
+## Phase 9: Open the firewall
 
 Only needed if you're accessing the panel from another machine (see
 [Remote Access](../../README.md#remote-access) in the README for the
@@ -317,7 +349,7 @@ shows `3001` before looking anywhere else.
 
 ---
 
-## Phase 9: Reverse proxy and account recovery
+## Phase 10: Reverse proxy and account recovery
 
 Skip this phase entirely if you're not putting the panel behind nginx, Caddy,
 or another reverse proxy — everything below only applies once you set
@@ -366,11 +398,12 @@ saved somewhere safe.
 ## Summary checklist
 
 - [ ] Panel starts via `start.sh` and loads at `:3001` (Phase 1)
-- [ ] Distro clears the glibc 2.28 floor (Phase 2)
-- [ ] `curl` installed, so World Map stays on the latest build (Phase 3)
-- [ ] Panel runs as `pzuser`, not root (Phase 4)
-- [ ] `zomboid-panel.service` installed and `active (running)` (Phase 5)
-- [ ] `/opt/zomboid-panel/data/pzserver` created before the install wizard (Phase 6)
-- [ ] 32-bit libraries installed so SteamCMD runs (Phase 7)
-- [ ] Firewall open on 3001, only if accessed remotely (Phase 8)
-- [ ] Recovery codes generated before going behind a reverse proxy (Phase 9)
+- [ ] Admin account created using the terminal's setup token (Phase 2)
+- [ ] Distro clears the glibc 2.28 floor (Phase 3)
+- [ ] `curl` installed, so World Map stays on the latest build (Phase 4)
+- [ ] Panel runs as `pzuser`, not root (Phase 5)
+- [ ] `zomboid-panel.service` installed and `active (running)` (Phase 6)
+- [ ] `/opt/zomboid-panel/data/pzserver` created before the install wizard (Phase 7)
+- [ ] 32-bit libraries installed so SteamCMD runs (Phase 8)
+- [ ] Firewall open on 3001, only if accessed remotely (Phase 9)
+- [ ] Recovery codes generated before going behind a reverse proxy (Phase 10)

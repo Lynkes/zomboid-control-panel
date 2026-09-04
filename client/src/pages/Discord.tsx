@@ -815,7 +815,7 @@ export default function Discord() {
                   </p>
                 </div>
 
-                <div className="space-y-4 pl-1">
+                <div className="space-y-4 ps-1">
                   <div className="flex items-start gap-3">
                     <div className="flex items-center justify-center w-7 h-7 rounded-full bg-primary/10 text-primary text-sm font-bold shrink-0 mt-0.5">
                       1
@@ -833,7 +833,7 @@ export default function Discord() {
                           target="_blank"
                           rel="noopener noreferrer"
                         >
-                          <ExternalLink className="w-4 h-4 mr-2" /> {t("wizard.step0.openPortalButton")}{" "}
+                          <ExternalLink className="w-4 h-4 me-2" /> {t("wizard.step0.openPortalButton")}{" "}
                           <span className="sr-only">{t("wizard.step0.opensInNewTab")}</span>
                         </a>
                       </Button>
@@ -876,7 +876,7 @@ export default function Discord() {
                 <div className="flex justify-end">
                   <Button onClick={() => setSetupStep(1)}>
                     {t("wizard.step0.next")}{" "}
-                    <ChevronRight className="w-4 h-4 ml-1" />
+                    <ChevronRight className="w-4 h-4 ms-1" />
                   </Button>
                 </div>
               </div>
@@ -919,7 +919,7 @@ export default function Discord() {
                           setInviteUrl(null);
                         }}
                         placeholder={t("wizard.step1.tokenPlaceholder")}
-                        className="pr-10 font-mono text-sm"
+                        className="pe-10 font-mono text-sm"
                         maxLength={200}
                       />
                       <Button
@@ -947,7 +947,7 @@ export default function Discord() {
                         <RefreshCw className="w-4 h-4 animate-spin" />
                       ) : (
                         <>
-                          <Zap className="w-4 h-4 mr-1.5" /> {t("wizard.step1.verify")}
+                          <Zap className="w-4 h-4 me-1.5" /> {t("wizard.step1.verify")}
                         </>
                       )}
                     </Button>
@@ -985,11 +985,11 @@ export default function Discord() {
 
                 <div className="flex justify-between">
                   <Button variant="outline" onClick={() => setSetupStep(0)}>
-                    <ChevronLeft className="w-4 h-4 mr-1" /> {t("wizard.step1.back")}
+                    <ChevronLeft className="w-4 h-4 me-1" /> {t("wizard.step1.back")}
                   </Button>
                   <Button onClick={() => setSetupStep(2)} disabled={!botInfo}>
                     {t("wizard.step1.next")}{" "}
-                    <ChevronRight className="w-4 h-4 ml-1" />
+                    <ChevronRight className="w-4 h-4 ms-1" />
                   </Button>
                 </div>
               </div>
@@ -1055,10 +1055,10 @@ export default function Discord() {
 
                 <div className="flex justify-between">
                   <Button variant="outline" onClick={() => setSetupStep(1)}>
-                    <ChevronLeft className="w-4 h-4 mr-1" /> {t("wizard.step2.back")}
+                    <ChevronLeft className="w-4 h-4 me-1" /> {t("wizard.step2.back")}
                   </Button>
                   <Button onClick={() => setSetupStep(3)}>
-                    {t("wizard.step2.next")} <ChevronRight className="w-4 h-4 ml-1" />
+                    {t("wizard.step2.next")} <ChevronRight className="w-4 h-4 ms-1" />
                   </Button>
                 </div>
               </div>
@@ -1090,12 +1090,12 @@ export default function Discord() {
                           target="_blank"
                           rel="noopener noreferrer"
                         >
-                          <UserPlus className="w-5 h-5 mr-2" /> {t("wizard.step3.inviteButton")}{" "}
+                          <UserPlus className="w-5 h-5 me-2" /> {t("wizard.step3.inviteButton")}{" "}
                           <span className="sr-only">{t("wizard.step3.opensInNewTab")}</span>
                         </a>
                       </Button>
                       <div className="flex w-full flex-col items-center justify-center gap-2 sm:flex-row">
-                        <p className="max-w-md break-all text-left font-mono text-xs text-muted-foreground sm:text-center">
+                        <p className="max-w-md break-all text-start font-mono text-xs text-muted-foreground sm:text-center">
                           {inviteUrl}
                         </p>
                         <CopyButton text={inviteUrl} label={t("wizard.step3.copyUrl")} />
@@ -1151,10 +1151,10 @@ export default function Discord() {
 
                 <div className="flex justify-between">
                   <Button variant="outline" onClick={() => setSetupStep(2)}>
-                    <ChevronLeft className="w-4 h-4 mr-1" /> {t("wizard.step3.back")}
+                    <ChevronLeft className="w-4 h-4 me-1" /> {t("wizard.step3.back")}
                   </Button>
                   <Button onClick={() => setSetupStep(4)}>
-                    {t("wizard.step3.next")} <ChevronRight className="w-4 h-4 ml-1" />
+                    {t("wizard.step3.next")} <ChevronRight className="w-4 h-4 ms-1" />
                   </Button>
                 </div>
               </div>
@@ -1291,7 +1291,7 @@ export default function Discord() {
 
                 <div className="flex justify-between">
                   <Button variant="outline" onClick={() => setSetupStep(3)}>
-                    <ChevronLeft className="w-4 h-4 mr-1" /> {t("wizard.step4.back")}
+                    <ChevronLeft className="w-4 h-4 me-1" /> {t("wizard.step4.back")}
                   </Button>
                   <Button
                     onClick={() => setSetupStep(5)}
@@ -1302,7 +1302,7 @@ export default function Discord() {
                       hasAdminRoleIdError
                     }
                   >
-                    {t("wizard.step4.next")} <ChevronRight className="w-4 h-4 ml-1" />
+                    {t("wizard.step4.next")} <ChevronRight className="w-4 h-4 ms-1" />
                   </Button>
                 </div>
               </div>
@@ -1390,7 +1390,7 @@ export default function Discord() {
 
                 <div className="flex justify-between">
                   <Button variant="outline" onClick={() => setSetupStep(4)}>
-                    <ChevronLeft className="w-4 h-4 mr-1" /> {t("wizard.step5.back")}
+                    <ChevronLeft className="w-4 h-4 me-1" /> {t("wizard.step5.back")}
                   </Button>
                   <div className="flex gap-2">
                     <DisabledReason reason={!canManageIntegrations ? t("shared.noPermission") : null}>
@@ -1400,9 +1400,9 @@ export default function Discord() {
                       disabled={saving || !canSaveConfig || !canManageIntegrations}
                     >
                       {saving ? (
-                        <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                        <RefreshCw className="w-4 h-4 me-2 animate-spin" />
                       ) : (
-                        <Settings className="w-4 h-4 mr-2" />
+                        <Settings className="w-4 h-4 me-2" />
                       )}
                       {t("wizard.step5.saveDraft")}
                     </Button>
@@ -1413,9 +1413,9 @@ export default function Discord() {
                       disabled={saving || !canSaveConfig || !canManageIntegrations}
                     >
                       {saving ? (
-                        <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                        <RefreshCw className="w-4 h-4 me-2 animate-spin" />
                       ) : (
-                        <Play className="w-4 h-4 mr-2" />
+                        <Play className="w-4 h-4 me-2" />
                       )}
                       {t("wizard.step5.saveAndStart")}
                     </Button>
@@ -1523,7 +1523,7 @@ export default function Discord() {
         {/* Bot Status */}
         <Card className="relative overflow-hidden">
           <div
-            className={`absolute top-0 left-0 right-0 h-[2px] ${
+            className={`absolute top-0 inset-x-0 h-[2px] ${
               status?.running
                 ? "bg-gradient-to-r from-primary via-primary/80 to-primary/30"
                 : status?.error
@@ -1646,7 +1646,7 @@ export default function Discord() {
                     }}
                     aria-label={t("management.gatewayIssue.dismissAria")}
                     title={t("management.gatewayIssue.dismissTooltip")}
-                    className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground/60 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+                    className="ms-auto shrink-0 rounded p-0.5 text-muted-foreground/60 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
                   >
                     <X className="h-3 w-3" />
                   </button>
@@ -1667,9 +1667,9 @@ export default function Discord() {
                   disabled={stopping || !canManageIntegrations}
                 >
                   {stopping ? (
-                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    <RefreshCw className="w-4 h-4 me-2 animate-spin" />
                   ) : (
-                    <Square className="w-4 h-4 mr-2" />
+                    <Square className="w-4 h-4 me-2" />
                   )}
                   {stopping ? t("management.botStatus.stopping") : t("management.botStatus.stop")}
                 </Button>
@@ -1682,9 +1682,9 @@ export default function Discord() {
                   disabled={starting || !canManageIntegrations}
                 >
                   {starting ? (
-                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    <RefreshCw className="w-4 h-4 me-2 animate-spin" />
                   ) : (
-                    <Play className="w-4 h-4 mr-2" />
+                    <Play className="w-4 h-4 me-2" />
                   )}
                   {starting ? t("management.botStatus.starting") : t("management.botStatus.start")}
                 </Button>
@@ -1699,9 +1699,9 @@ export default function Discord() {
                   disabled={sendingTest || !canManageIntegrations}
                 >
                   {sendingTest ? (
-                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    <RefreshCw className="w-4 h-4 me-2 animate-spin" />
                   ) : (
-                    <Send className="w-4 h-4 mr-2" />
+                    <Send className="w-4 h-4 me-2" />
                   )}
                   {sendingTest ? t("management.botStatus.sendingTest") : t("management.botStatus.sendTest")}
                 </Button>
@@ -1861,7 +1861,7 @@ export default function Discord() {
               >
                 {savingPermissions ? (
                   <>
-                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />{" "}
+                    <RefreshCw className="w-4 h-4 me-2 animate-spin" />{" "}
                     {t("management.commandPermissions.saving")}
                   </>
                 ) : (
@@ -1892,7 +1892,7 @@ export default function Discord() {
               {t("management.configuration.botTokenLabel")}
               {config?.hasToken && (
                 <Badge variant="outline" className="text-xs">
-                  <CheckCircle2 className="w-3 h-3 mr-1" /> {t("management.configuration.configuredBadge")}
+                  <CheckCircle2 className="w-3 h-3 me-1" /> {t("management.configuration.configuredBadge")}
                 </Badge>
               )}
             </Label>
@@ -1912,7 +1912,7 @@ export default function Discord() {
                       ? t("management.configuration.tokenPlaceholderHasToken")
                       : t("management.configuration.tokenPlaceholderNew")
                   }
-                  className="pr-10"
+                  className="pe-10"
                   maxLength={200}
                 />
                 <Button
@@ -1940,7 +1940,7 @@ export default function Discord() {
                   <RefreshCw className="w-4 h-4 animate-spin" />
                 ) : (
                   <>
-                    <Zap className="w-4 h-4 mr-1.5" /> {t("management.configuration.verifyToken")}
+                    <Zap className="w-4 h-4 me-1.5" /> {t("management.configuration.verifyToken")}
                   </>
                 )}
               </Button>
@@ -2159,12 +2159,12 @@ export default function Discord() {
               >
                 {resetting ? (
                   <>
-                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />{" "}
+                    <RefreshCw className="w-4 h-4 me-2 animate-spin" />{" "}
                     {t("management.configuration.wiping")}
                   </>
                 ) : (
                   <>
-                    <Trash2 className="w-4 h-4 mr-2" /> {t("management.configuration.wipe")}
+                    <Trash2 className="w-4 h-4 me-2" /> {t("management.configuration.wipe")}
                   </>
                 )}
               </Button>
@@ -2179,7 +2179,7 @@ export default function Discord() {
               >
                 {saving ? (
                   <>
-                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />{" "}
+                    <RefreshCw className="w-4 h-4 me-2 animate-spin" />{" "}
                     {t("management.configuration.saving")}
                   </>
                 ) : (
@@ -2257,7 +2257,7 @@ export default function Discord() {
             <Button onClick={handleSaveWebhookEvents} disabled={savingEvents || !canManageIntegrations}>
               {savingEvents ? (
                 <>
-                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> {t("management.webhookEvents.saving")}
+                  <RefreshCw className="w-4 h-4 me-2 animate-spin" /> {t("management.webhookEvents.saving")}
                 </>
               ) : (
                 t("management.webhookEvents.save")

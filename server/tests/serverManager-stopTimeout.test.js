@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { execFile } from 'child_process';
 import { ServerManager } from '../services/serverManager.js';
 
@@ -20,10 +20,31 @@ import { ServerManager } from '../services/serverManager.js';
 function makeManager(overrides = {}) {
   const manager = new ServerManager();
   Object.assign(manager, { configLoaded: true, serverName: 'StopTimeoutTest' }, overrides);
+  manager._confirmProcessStopped = vi.fn().mockResolvedValue(true);
   return manager;
 }
 
 describe('stopServer: kill timeout cannot leave the server permanently stuck', () => {
+  it.runIf(process.platform !== 'win32')('also stops the tracked detached launcher process group', async () => {
+    const manager = makeManager({
+      serverProcess: { pid: 4241, killed: false, exitCode: null },
+    });
+    manager.getServerProcessDetails = async () => ({
+      running: true,
+      matched: [{ pid: '4242', cmd: 'java zombie.network.GameServer -servername StopTimeoutTest' }],
+      owned: [{ pid: '4242', cmd: 'java zombie.network.GameServer -servername StopTimeoutTest' }],
+      scanFailed: false,
+    });
+    const groupKill = vi
+      .spyOn(manager, '_killProcessGroup')
+      .mockReturnValue({ failed: false, errors: [] });
+    manager._killPids = async () => ({ timedOut: false });
+
+    await manager.stopServer(false);
+
+    expect(groupKill).toHaveBeenCalledWith(4241);
+  });
+
   it('simulates a kill that never returns on its own: _stopping still clears and the caller is told the confirmation timed out', async () => {
     const manager = makeManager();
     manager.getServerProcessDetails = async () => ({
@@ -96,6 +117,25 @@ describe('stopServer: kill timeout cannot leave the server permanently stuck', (
     const result = await stopServerWithGuard(manager);
 
     expect(result).toEqual({ success: true, message: 'Forced fallback kill executed' });
+    expect(manager._stopping).toBe(false);
+  });
+
+  it('does not claim success when the post-kill process scan still sees the server', async () => {
+    const manager = makeManager();
+    manager.getServerProcessDetails = async () => ({
+      running: true,
+      matched: [{ pid: '4242', cmd: 'java zombie.network.GameServer -servername StopTimeoutTest' }],
+      owned: [{ pid: '4242', cmd: 'java zombie.network.GameServer -servername StopTimeoutTest' }],
+      scanFailed: false,
+    });
+    manager._killPids = async () => ({ timedOut: false });
+    manager._confirmProcessStopped = vi.fn().mockResolvedValue(false);
+
+    const result = await stopServerWithGuard(manager);
+
+    expect(result.success).toBe(true);
+    expect(result.confirmed).toBe(false);
+    expect(result.message).toContain('still running');
     expect(manager._stopping).toBe(false);
   });
 });

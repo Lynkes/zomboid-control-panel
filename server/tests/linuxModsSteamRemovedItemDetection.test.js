@@ -35,6 +35,7 @@ vi.mock("../database/init.js", () => ({
 }));
 
 const { ModChecker } = await import("../services/modChecker.js");
+const { getTrackedMods } = await import("../database/init.js");
 
 function steamResponse(details) {
   return {
@@ -98,6 +99,7 @@ describe("fetchSteamTimestamps: distinguishing removed-upstream from a batch fai
 
     const checker = new ModChecker();
     await checker.fetchSteamTimestamps(["2222222222"]);
+    getTrackedMods.mockResolvedValueOnce([{ workshop_id: "2222222222" }]);
 
     const status = await checker.getStatus();
     expect(status.removedWorkshopIds).toEqual(["2222222222"]);
@@ -118,6 +120,10 @@ describe("fetchSteamTimestamps: distinguishing removed-upstream from a batch fai
 
     const checker = new ModChecker();
     await checker.fetchSteamTimestamps(["2222222222", "4444444444"]);
+    getTrackedMods.mockResolvedValueOnce([
+      { workshop_id: "2222222222" },
+      { workshop_id: "4444444444" },
+    ]);
 
     const status = await checker.getStatus();
     expect(status.removedWorkshopIds).toEqual(["2222222222"]);
@@ -126,6 +132,23 @@ describe("fetchSteamTimestamps: distinguishing removed-upstream from a batch fai
     expect(status.unknownWorkshopIds).toEqual([
       { id: "4444444444", resultCode: 15 },
     ]);
+  });
+
+  it("stops surfacing a removed ID after it is no longer tracked, even when the ACF cache remains", async () => {
+    global.fetch = vi.fn(async () =>
+      steamResponse([{ publishedfileid: "2222222222", result: 9 }]),
+    );
+
+    const checker = new ModChecker();
+    await checker.fetchSteamTimestamps(["2222222222"]);
+
+    getTrackedMods.mockResolvedValueOnce([{ workshop_id: "2222222222" }]);
+    expect((await checker.getStatus()).removedWorkshopIds).toEqual([
+      "2222222222",
+    ]);
+
+    getTrackedMods.mockResolvedValueOnce([]);
+    expect((await checker.getStatus()).removedWorkshopIds).toEqual([]);
   });
 
   it("does not report a Steam API outage when Steam answers but every queried item is confirmed removed", async () => {
@@ -169,7 +192,6 @@ describe("fetchSteamTimestamps: distinguishing removed-upstream from a batch fai
 
     const checker = new ModChecker();
     checker.workshopAcfPath = acfPath;
-    const { getTrackedMods } = await import("../database/init.js");
     getTrackedMods.mockResolvedValue([
       { workshop_id: "2222222222", preview_url: null },
     ]);

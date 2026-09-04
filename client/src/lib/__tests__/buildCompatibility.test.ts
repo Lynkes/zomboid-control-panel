@@ -29,4 +29,13 @@ describe('build compatibility', () => {
       assessBuildCompatibility({ ...backend, apiContractVersion: 2 }, backend),
     ).toEqual(expect.objectContaining({ compatible: false }))
   })
+
+  it('accepts legacy unknown backend metadata but still requires a demonstrable mismatch to block', () => {
+    expect(
+      assessBuildCompatibility(backend, {
+        version: 'unknown',
+        buildSha: 'unknown',
+      }),
+    ).toEqual({ compatible: true })
+  })
 })

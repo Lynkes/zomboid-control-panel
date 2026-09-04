@@ -61,3 +61,10 @@ The 1488 ms outlier returning is the proof the rollback worked.
 ## Recommendation
 
 **ACCEPT**, subject to independent verification.
+
+> **status: verification PASSED, formal acceptance still pending — re-confirmed 2026-09-03
+> (kevin).** `VERIFICATION.md` returned **PASS**. `docs/modernization/WORK_PACKAGES.md` still lists
+> this package's state as `review`, not `accepted` — same deliberate, still-open gap as FND-006 (see
+> `STATUS.md`'s 2026-08-27 audit). Re-verified today against current HEAD (`761f41bc`): the static
+> import is still at `server/tests/bugfixes.test.js:10`, and zero dynamic
+> `import("../services/discordBot.js")` calls remain — the fix has not regressed.

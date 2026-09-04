@@ -942,3 +942,79 @@ describe("POST /api/servers/:id/activate: the activeServerChanged broadcast must
     );
   });
 });
+
+// setActiveServer() already succeeded (the database record IS active) by
+// the time reloadServicesForNewActiveServer() runs -- a failure in that
+// best-effort reload must not turn a successful activation into a 500, the
+// same posture DELETE /:id already has for this exact shared function (see
+// that describe block above). Before this fix, POST /:id/activate called
+// it unguarded: a throw there skipped both the success response AND the
+// activeServerChanged broadcast, even though the server was already active
+// in the database -- a client watching for that event would never learn
+// the active server changed at all.
+describe("POST /api/servers/:id/activate: a live-service reload failure must not turn a successful activation into an error", () => {
+  let serverManager;
+  let rconService;
+  let io;
+
+  function buildReq(id) {
+    return {
+      params: { id },
+      user: { role: "admin" },
+      app: {
+        get: (key) => ({ serverManager, rconService, io, modChecker: null })[key],
+      },
+    };
+  }
+
+  beforeEach(() => {
+    setActiveServer.mockReset();
+    io = { emit: vi.fn() };
+    rconService = {
+      isConnected: vi.fn(() => false),
+      disconnect: vi.fn(async () => {}),
+      reloadConfig: vi.fn(async () => {}),
+      connect: vi.fn(async () => {}),
+    };
+  });
+
+  it("still reports success and still broadcasts activeServerChanged when serverManager.reloadConfig throws", async () => {
+    setActiveServer.mockResolvedValue({
+      id: "1",
+      name: "Active One",
+      rconPassword: "secret",
+    });
+    serverManager = {
+      reloadConfig: vi.fn(async () => {
+        throw new Error("reload exploded");
+      }),
+    };
+
+    const response = createResponse();
+    await runRoute("/:id/activate", "post", buildReq("1"), response);
+
+    expect(response.status).not.toHaveBeenCalledWith(500);
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        server: expect.objectContaining({ id: "1" }),
+        warnings: expect.arrayContaining([expect.stringMatching(/could not be fully reloaded/i)]),
+      }),
+    );
+    expect(io.emit).toHaveBeenCalledWith(
+      "activeServerChanged",
+      expect.objectContaining({ server: expect.objectContaining({ id: "1" }) }),
+    );
+  });
+
+  it("reports success with no warnings when the reload succeeds normally (control)", async () => {
+    setActiveServer.mockResolvedValue({ id: "1", name: "Active One" });
+    serverManager = { reloadConfig: vi.fn(async () => {}) };
+
+    const response = createResponse();
+    await runRoute("/:id/activate", "post", buildReq("1"), response);
+
+    expect(response.status).not.toHaveBeenCalledWith(500);
+    const [payload] = response.json.mock.calls[0];
+    expect(payload.warnings).toBeUndefined();
+  });
+});

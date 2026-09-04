@@ -84,9 +84,9 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-function renderPlayers() {
+function renderPlayers(initialEntries = ['/']) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={initialEntries}>
       <TooltipProvider>
         <Players />
       </TooltipProvider>
@@ -118,6 +118,14 @@ async function selectTestPlayer() {
 }
 
 describe('Players.tsx dossier: mobile-affordance fixes', () => {
+  it('opens the requested player when linked from the World Map dossier', async () => {
+    await setUpFixtures()
+    renderPlayers(['/players?player=TestPlayer'])
+
+    await waitFor(() => expect(screen.getAllByText('TestPlayer').length).toBeGreaterThan(1), { timeout: 3000 })
+    expect(screen.getByRole('tab', { name: 'Vitals' })).toBeInTheDocument()
+  })
+
   it('#4 tab strip wraps instead of clipping into a horizontal scroller', async () => {
     await setUpFixtures()
     renderPlayers()

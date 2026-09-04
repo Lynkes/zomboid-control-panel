@@ -94,6 +94,7 @@
     "heal": "Heal",
     "god": "God",
     "godTip": "Always turns God Mode on for this player — it doesn't toggle. Turn it back off from Players instead.",
+    "openPlayerControls": "Open player controls",
     "healedTitle": "Healed",
     "healedDesc": "{{username}} healed",
     "godModeEnabled": "God mode enabled"

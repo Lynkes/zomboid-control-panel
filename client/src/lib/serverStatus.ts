@@ -14,11 +14,11 @@ export type ServerProvider = 'native' | 'docker-local' | 'remote-sftp'
  * for every non-remote server).
  */
 export function resolveClientProvider(
-  server: { isRemote?: boolean; dockerContainerName?: string | null } | null | undefined,
+  server: { isRemote?: boolean; dockerContainerName?: string | null; dockerContainerId?: string | null } | null | undefined,
 ): ServerProvider | null {
   if (!server) return null
   if (server.isRemote) return 'remote-sftp'
-  if (server.dockerContainerName) return 'docker-local'
+  if (server.dockerContainerName || server.dockerContainerId) return 'docker-local'
   return 'native'
 }
 
@@ -26,6 +26,35 @@ export interface ComposedStatusSignals {
   host: { status: string }
   server: { status: string }
   bridge: { status: string }
+}
+
+export function resolveServerCardRunning(
+  server: { isActive?: boolean; isRemote?: boolean; dockerContainerName?: string | null; dockerContainerId?: string | null } | null | undefined,
+  processStatus: { running?: boolean; stateUnknown?: boolean } | null | undefined,
+  composedStatus: ComposedStatusSignals | null | undefined,
+): boolean | null {
+  if (!server) return null
+  const provider = resolveClientProvider(server)
+
+  if (!server.isActive) {
+    if (provider !== 'native' || processStatus?.stateUnknown || typeof processStatus?.running !== 'boolean') return null
+    return processStatus.running
+  }
+
+  if (composedStatus) {
+    if (
+      composedStatus.host.status === 'running' ||
+      composedStatus.server.status === 'connected' ||
+      composedStatus.bridge.status === 'active'
+    ) return true
+    if (composedStatus.host.status === 'stopped' &&
+      composedStatus.server.status === 'disconnected' &&
+      composedStatus.bridge.status !== 'active') return false
+    return null
+  }
+
+  if (provider !== 'native' || processStatus?.stateUnknown || typeof processStatus?.running !== 'boolean') return null
+  return processStatus.running
 }
 
 export interface DashboardStatusInput {

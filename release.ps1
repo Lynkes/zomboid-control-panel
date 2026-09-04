@@ -27,6 +27,10 @@
 .PARAMETER ReleaseNotes
     Path to a markdown file with release notes. If omitted, auto-generates from commits.
 
+.PARAMETER PanelBridgeVersion
+    PanelBridge version to ship. If omitted, a new application release increments
+    the current PanelBridge patch version; an explicit same-version release keeps it.
+
 .PARAMETER SkipBuild
     Skip the client and exe build steps (use existing release/ folder).
 
@@ -56,6 +60,8 @@ param(
     [string]$ReleaseTitle = "",
 
     [string]$ReleaseNotes = "",
+
+    [string]$PanelBridgeVersion = "",
 
     [switch]$SkipBuild,
     [switch]$SkipGitHub,
@@ -92,9 +98,126 @@ function Write-Skip($msg) { Write-Host "  SKIP: $msg" -ForegroundColor Yellow }
 function Write-Dry($msg)  { Write-Host "  DRY RUN: $msg" -ForegroundColor Magenta }
 function Write-Warn($msg) { Write-Host "  WARN: $msg" -ForegroundColor Yellow }
 
+function Get-NextPatchVersion($currentVersion, $label) {
+    $match = [regex]::Match([string]$currentVersion, '^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$')
+    if (-not $match.Success) {
+        throw "$label version is not a numeric SemVer: $currentVersion"
+    }
+    return "$($match.Groups['major'].Value).$($match.Groups['minor'].Value).$([int]$match.Groups['patch'].Value + 1)"
+}
+
+function Read-BuildMetadata($path, $label) {
+    if (-not (Test-Path $path)) {
+        throw "$label build-info.json not found at $path"
+    }
+    try {
+        return Get-Content $path -Raw | ConvertFrom-Json
+    } catch {
+        throw "$label build-info.json is not valid JSON: $path"
+    }
+}
+
+function Assert-BuildMetadata($metadata, $expected, $label) {
+    if ([string]$metadata.panelVersion -ne [string]$expected.version -or
+        [string]$metadata.buildSha -ne [string]$expected.buildSha -or
+        [int]$metadata.apiContractVersion -ne [int]$expected.apiContractVersion) {
+        throw "$label metadata does not match release manifest (version/build SHA/API contract)"
+    }
+}
+
+function Get-DirectoryFileHashes($root) {
+    $rootPath = (Resolve-Path -LiteralPath $root).Path.TrimEnd([char[]]@('\', '/'))
+    $hashes = @{}
+    foreach ($file in Get-ChildItem -LiteralPath $rootPath -Recurse -File) {
+        $relative = $file.FullName.Substring($rootPath.Length).TrimStart([char[]]@('\', '/')).Replace('\', '/')
+        $hashes[$relative] = (Get-FileHash -Algorithm SHA256 -LiteralPath $file.FullName).Hash.ToLowerInvariant()
+    }
+    return $hashes
+}
+
+function Assert-DirectoryMatches($source, $target, $label) {
+    if (-not (Test-Path -LiteralPath $source -PathType Container)) {
+        throw "$label source directory not found at $source"
+    }
+    if (-not (Test-Path -LiteralPath $target -PathType Container)) {
+        throw "$label release directory not found at $target"
+    }
+    $sourceHashes = Get-DirectoryFileHashes $source
+    $targetHashes = Get-DirectoryFileHashes $target
+    $relativePaths = @($sourceHashes.Keys + $targetHashes.Keys | Sort-Object -Unique)
+    foreach ($relative in $relativePaths) {
+        if (-not $sourceHashes.ContainsKey($relative) -or -not $targetHashes.ContainsKey($relative)) {
+            throw "$label contents differ: missing or extra file $relative"
+        }
+        if ($sourceHashes[$relative] -ne $targetHashes[$relative]) {
+            throw "$label contents differ: file hash mismatch for $relative"
+        }
+    }
+}
+
+function Assert-DirectoryMatchesManifest($source, $manifestFiles, $label) {
+    if (-not $manifestFiles) {
+        throw "$label file hashes are missing from release-manifest.json"
+    }
+    $actualHashes = Get-DirectoryFileHashes $source
+    $expectedHashes = @{}
+    foreach ($property in $manifestFiles.PSObject.Properties) {
+        $expectedHashes[$property.Name] = ([string]$property.Value).ToLowerInvariant()
+    }
+    $relativePaths = @($actualHashes.Keys + $expectedHashes.Keys | Sort-Object -Unique)
+    foreach ($relative in $relativePaths) {
+        if (-not $actualHashes.ContainsKey($relative) -or -not $expectedHashes.ContainsKey($relative)) {
+            throw "$label does not match manifest: missing or extra file $relative"
+        }
+        if ($actualHashes[$relative] -ne $expectedHashes[$relative]) {
+            throw "$label does not match manifest: file hash mismatch for $relative"
+        }
+    }
+}
+
+function Assert-ReleaseVersionParity($expectedPanelVersion, $expectedBridgeVersion) {
+    $rootPackage = Get-Content (Join-Path $RepoDir "package.json") -Raw | ConvertFrom-Json
+    $rootLock = Get-Content (Join-Path $RepoDir "package-lock.json") -Raw | ConvertFrom-Json -AsHashtable
+    $clientPackage = Get-Content (Join-Path $RepoDir "client\package.json") -Raw | ConvertFrom-Json
+    $clientLock = Get-Content (Join-Path $RepoDir "client\package-lock.json") -Raw | ConvertFrom-Json -AsHashtable
+    $rootLockPackage = $rootLock["packages"][""]
+    $clientLockPackage = $clientLock["packages"][""]
+    $versions = @(
+        @{ Label = "package.json"; Value = $rootPackage.version },
+        @{ Label = "package-lock.json"; Value = $rootLock.version },
+        @{ Label = "package-lock.json root package"; Value = $rootLockPackage.version },
+        @{ Label = "client/package.json"; Value = $clientPackage.version },
+        @{ Label = "client/package-lock.json"; Value = $clientLock.version },
+        @{ Label = "client/package-lock.json root package"; Value = $clientLockPackage.version }
+    )
+    foreach ($version in $versions) {
+        if ([string]$version.Value -ne [string]$expectedPanelVersion) {
+            throw "$($version.Label) is $($version.Value), expected $expectedPanelVersion"
+        }
+    }
+
+    $luaPath = Join-Path $RepoDir "pz-mod\PanelBridge\media\lua\server\PanelBridge.lua"
+    $modInfoPath = Join-Path $RepoDir "pz-mod\PanelBridge\mod.info"
+    $lua = Get-Content $luaPath -Raw
+    $modInfo = Get-Content $modInfoPath -Raw
+    $header = [regex]::Matches($lua, '(?m)^\s*Version:\s*([^\r\n]+)\r?$')
+    $runtime = [regex]::Matches($lua, '(?m)^\s*VERSION\s*=\s*"([^"]+)"')
+    $manifest = [regex]::Matches($modInfo, '(?m)^modversion=([^\r\n]+)\r?$')
+    if ($header.Count -ne 1 -or $runtime.Count -ne 1 -or $manifest.Count -ne 1) {
+        throw "PanelBridge version declarations are missing or duplicated"
+    }
+    if ($header[0].Groups[1].Value.Trim() -ne $expectedBridgeVersion -or
+        $runtime[0].Groups[1].Value -ne $expectedBridgeVersion -or
+        $manifest[0].Groups[1].Value -ne $expectedBridgeVersion) {
+        throw "PanelBridge versions do not match: expected $expectedBridgeVersion"
+    }
+}
+
 # ============================================
 # AUTO-VERSION: Increment from current package.json if no -Version given
 # ============================================
+$versionWasProvided = -not [string]::IsNullOrWhiteSpace($Version)
+$originalPanelVersion = (Get-Content (Join-Path $RepoDir "package.json") -Raw | ConvertFrom-Json).version
 if (-not $Version) {
     $pkgContent = Get-Content (Join-Path $RepoDir "package.json") -Raw | ConvertFrom-Json
     $currentVersion = $pkgContent.version
@@ -112,6 +235,20 @@ if (-not $Version) {
     }
     $Version = "$major.$minor.$patch"
     Write-Host "  Auto-incremented version: $currentVersion -> $Version (bump: $Bump)" -ForegroundColor Magenta
+}
+
+$bridgeLuaPath = Join-Path $RepoDir "pz-mod\PanelBridge\media\lua\server\PanelBridge.lua"
+$bridgeLuaBeforeRelease = Get-Content $bridgeLuaPath -Raw
+$bridgeRuntimeMatch = [regex]::Match($bridgeLuaBeforeRelease, '(?m)^\s*VERSION\s*=\s*"([^"]+)"')
+if (-not $bridgeRuntimeMatch.Success) {
+    throw "PanelBridge runtime VERSION declaration not found"
+}
+if (-not $PanelBridgeVersion) {
+    $PanelBridgeVersion = if ($versionWasProvided -and $Version -eq $originalPanelVersion) {
+        $bridgeRuntimeMatch.Groups[1].Value
+    } else {
+        Get-NextPatchVersion $bridgeRuntimeMatch.Groups[1].Value "PanelBridge"
+    }
 }
 
 $TagName = "v$Version"
@@ -189,6 +326,25 @@ if (Test-Path $pkgFile) {
     Write-Warning "Package file not found: $pkgFile"
 }
 
+$rootLockFile = Join-Path $RepoDir "package-lock.json"
+if (Test-Path $rootLockFile) {
+    $rootLockContent = Get-Content $rootLockFile -Raw
+    $rootLockPattern = '("name":\s*"pz-server-manager",\s*\r?\n\s*"version":\s*")[^"]*(")'
+    $rootLockMatchCount = [regex]::Matches($rootLockContent, $rootLockPattern).Count
+    if ($rootLockMatchCount -ne 2) {
+        throw "Expected exactly 2 root package version occurrences in $rootLockFile, found $rootLockMatchCount"
+    }
+    $newRootLockContent = [regex]::Replace($rootLockContent, $rootLockPattern, "`${1}$Version`${2}")
+    if ($DryRun) {
+        Write-Dry "Would update $rootLockFile ($rootLockMatchCount occurrences)"
+    } else {
+        [System.IO.File]::WriteAllText($rootLockFile, $newRootLockContent, [System.Text.UTF8Encoding]::new($false))
+        Write-Ok "Updated $rootLockFile ($rootLockMatchCount occurrences)"
+    }
+} else {
+    throw "Package lock file not found: $rootLockFile"
+}
+
 # client/package.json drifted from root for four releases (1.2.2 while root
 # reached 1.2.6) because this step never touched it -- bump it in the same
 # step as root so there's no window where they can disagree. A test
@@ -238,6 +394,33 @@ if (Test-Path $clientLockFile) {
     }
 } else {
     Write-Warning "Package lock file not found: $clientLockFile"
+}
+
+$bridgeModInfoPath = Join-Path $RepoDir "pz-mod\PanelBridge\mod.info"
+if (-not (Test-Path $bridgeModInfoPath)) {
+    throw "PanelBridge manifest not found: $bridgeModInfoPath"
+}
+$bridgeLuaContent = Get-Content $bridgeLuaPath -Raw
+$bridgeHeaderPattern = '(?m)^    Version:\s*[^\r\n]+'
+$bridgeRuntimePattern = '(?m)^    VERSION\s*=\s*"[^"]+"'
+$bridgeModVersionPattern = '(?m)^modversion=[^\r\n]+'
+if ([regex]::Matches($bridgeLuaContent, $bridgeHeaderPattern).Count -ne 1 -or
+    [regex]::Matches($bridgeLuaContent, $bridgeRuntimePattern).Count -ne 1 -or
+    [regex]::Matches((Get-Content $bridgeModInfoPath -Raw), $bridgeModVersionPattern).Count -ne 1) {
+    throw "Expected exactly one PanelBridge header, runtime, and manifest version"
+}
+$newBridgeLuaContent = $bridgeLuaContent -replace $bridgeHeaderPattern, "    Version: $PanelBridgeVersion"
+$bridgeRuntimeReplacement = '    VERSION = "' + $PanelBridgeVersion + '"'
+$newBridgeLuaContent = $newBridgeLuaContent -replace $bridgeRuntimePattern, $bridgeRuntimeReplacement
+$newBridgeModInfoContent = (Get-Content $bridgeModInfoPath -Raw) -replace $bridgeModVersionPattern, "modversion=$PanelBridgeVersion"
+if ($DryRun) {
+    Write-Dry "Would update PanelBridge to $PanelBridgeVersion in Lua and mod.info"
+} else {
+    [System.IO.File]::WriteAllText($bridgeLuaPath, $newBridgeLuaContent, [System.Text.UTF8Encoding]::new($false))
+    [System.IO.File]::WriteAllText($bridgeModInfoPath, $newBridgeModInfoContent, [System.Text.UTF8Encoding]::new($false))
+    Write-Ok "Updated PanelBridge Lua and mod.info to $PanelBridgeVersion"
+    Assert-ReleaseVersionParity $Version $PanelBridgeVersion
+    Write-Ok "All package, lockfile, and PanelBridge versions are synchronized"
 }
 
 # ============================================
@@ -310,14 +493,15 @@ if ($SkipBuild) {
         $zipSize = [math]::Round((Get-Item $zipPath).Length / 1MB, 1)
         Write-Ok "Windows archive created: ZomboidControlPanel-windows.zip ($zipSize MB)"
 
-        # Package Linux release archive (tar.gz to preserve +x permissions)
+        # build.js already created the Linux archive with explicit per-entry
+        # modes. Do not recreate it with Windows tar: bsdtar strips the
+        # executable bit from the extensionless binary and shell scripts.
         $tarPath = Join-Path $RepoDir $LinuxTarPath
-        if (Test-Path $tarPath) { Remove-Item $tarPath -Force }
-        Push-Location $releaseFolder
-        tar -czf $tarPath --exclude="ZomboidControlPanel.exe" --exclude="ZomboidControlPanel-windows.zip" --exclude="ZomboidControlPanel-linux.tar.gz" --exclude="Start.bat" --exclude="data/db.json" --exclude="data/backups" *
-        Pop-Location
+        if (-not (Test-Path $tarPath)) {
+            throw "Linux archive not found at $tarPath"
+        }
         $tarSize = [math]::Round((Get-Item $tarPath).Length / 1MB, 1)
-        Write-Ok "Linux archive created: ZomboidControlPanel-linux.tar.gz ($tarSize MB)"
+        Write-Ok "Linux archive verified: ZomboidControlPanel-linux.tar.gz ($tarSize MB)"
 
         $releaseArtifacts = @(
             @{ platform = "win";   kind = "binary"; file = "ZomboidControlPanel.exe";          path = $winExe },
@@ -361,7 +545,35 @@ if (-not $DryRun) {
     if ([string]$manifest.version -ne $Version) {
         throw "Release artifact version mismatch: requested v$Version but release-manifest.json contains v$($manifest.version). Rebuild the artifacts; refusing to publish stale binaries."
     }
+    $metadataExpected = [pscustomobject]@{
+        version = $manifest.version
+        buildSha = $manifest.buildSha
+        apiContractVersion = $manifest.apiContractVersion
+    }
+    $sourceClientMetadata = Read-BuildMetadata (Join-Path $RepoDir "client\dist\build-info.json") "Source client"
+    $releaseClientMetadata = Read-BuildMetadata (Join-Path $RepoDir "release\client\dist\build-info.json") "Release client"
+    Assert-BuildMetadata $sourceClientMetadata $metadataExpected "Source client"
+    Assert-BuildMetadata $releaseClientMetadata $metadataExpected "Release client"
+    Assert-DirectoryMatches (Join-Path $RepoDir "client\dist") (Join-Path $RepoDir "release\client\dist") "Release client"
+    Assert-DirectoryMatchesManifest (Join-Path $RepoDir "client\dist") $manifest.clientFiles "Source client"
+    foreach ($binary in @(
+        @{ Path = (Join-Path $RepoDir $WinExePath); File = "ZomboidControlPanel.exe" },
+        @{ Path = (Join-Path $RepoDir $LinuxBinPath); File = "ZomboidControlPanel" }
+    )) {
+        if (-not (Test-Path $binary.Path)) {
+            throw "Release binary not found at $($binary.Path)"
+        }
+        $manifestArtifact = @($manifest.artifacts | Where-Object { [string]$_.file -eq $binary.File }) | Select-Object -First 1
+        if (-not $manifestArtifact) {
+            throw "Release manifest is missing the $($binary.File) artifact"
+        }
+        $actualHash = (Get-FileHash -Algorithm SHA256 -Path $binary.Path).Hash.ToLowerInvariant()
+        if ($actualHash -ne [string]$manifestArtifact.sha256.ToLowerInvariant()) {
+            throw "Release binary hash mismatch for $($binary.File); rebuild the artifacts before publishing"
+        }
+    }
     Write-Ok "Release artifact version verified: v$Version"
+    Write-Ok "Release frontend and binary metadata verified: build $($manifest.buildSha)"
 }
 
 # ============================================

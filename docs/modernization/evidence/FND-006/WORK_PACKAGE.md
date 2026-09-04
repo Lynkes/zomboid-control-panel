@@ -1,5 +1,15 @@
 # FND-006: Harden the owned-path guard (DISC-002) and correct the plan text
 
+> **status note, 2026-09-03 (kevin):** `State: review` below is left as-is deliberately, not
+> stale. `SUMMARY.md`'s **ACCEPT** recommendation and `VERIFICATION.md`'s **PASS** verdict both
+> stand and are re-confirmed today, but `docs/modernization/WORK_PACKAGES.md` (the program ledger,
+> outside this reconciliation's `docs/modernization/evidence/` scope) still lists this package as
+> `review` — `STATUS.md`'s 2026-08-27 audit explicitly noted this on purpose ("acceptance not
+> assumed"), and nothing since has moved it forward. That is a live process gap, not a documentation
+> error in this file: verified-safe work has sat unaccepted for over a week. Flagged to the
+> coordinator rather than changed here, since promoting a package's own acceptance state is a
+> coordinator decision this reconciliation pass is not authorized to make.
+
 - State: review
 - Owner: coordinator
 - Worktree: coordinator worktree (no branch)
@@ -56,7 +66,8 @@ usable entries, instead of silently proceeding with an empty allow-list and prin
 - [x] Domain tests
 - [x] V1 parity evidence (no production file touched; 535/535 unchanged)
 - [x] Full required gate
-- [ ] Independent verification
+- [x] Independent verification — `VERIFICATION.md`: **PASS** (2026-09-03: was unchecked despite
+      the verdict already existing; corrected)
 - [x] Rollback rehearsal (procedure verified; see ROLLBACK.md)
 
 ## Evidence

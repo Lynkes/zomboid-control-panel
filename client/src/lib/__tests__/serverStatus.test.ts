@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { deriveDashboardStatus, resolveClientProvider, resolveServerRunning, waitForServerState } from '../serverStatus'
+import { deriveDashboardStatus, resolveClientProvider, resolveServerCardRunning, resolveServerRunning, waitForServerState } from '../serverStatus'
 
 describe('resolveClientProvider', () => {
   it('returns null for no server', () => {
@@ -18,6 +18,12 @@ describe('resolveClientProvider', () => {
   // native, or a Docker provider gets misread as a locally-scannable one.
   it('maps a dockerContainerName mapping to docker-local, not native', () => {
     expect(resolveClientProvider({ isRemote: false, dockerContainerName: 'pz-server' })).toBe(
+      'docker-local',
+    )
+  })
+
+  it('maps a dockerContainerId mapping to docker-local, not native', () => {
+    expect(resolveClientProvider({ isRemote: false, dockerContainerId: 'container-id' })).toBe(
       'docker-local',
     )
   })
@@ -135,6 +141,65 @@ describe('resolveServerRunning', () => {
   it('FAIL CLOSED: no active server at all is unknown (null), not a free pass to save', async () => {
     await expect(resolveServerRunning(null, vi.fn(), vi.fn())).resolves.toBeNull()
     await expect(resolveServerRunning(undefined, vi.fn(), vi.fn())).resolves.toBeNull()
+  })
+})
+
+describe('resolveServerCardRunning', () => {
+  const composed = (host: string, server: string, bridge: string) => ({
+    host: { status: host },
+    server: { status: server },
+    bridge: { status: bridge },
+  })
+
+  it('keeps Stop available when the local process scan misses a live active server but RCON is connected', () => {
+    expect(
+      resolveServerCardRunning(
+        { isActive: true },
+        { running: false },
+        composed('stopped', 'connected', 'offline'),
+      ),
+    ).toBe(true)
+  })
+
+  it('uses the process scan for inactive cards and does not borrow the active server signals', () => {
+    expect(
+      resolveServerCardRunning(
+        { isActive: false },
+        { running: false },
+        composed('running', 'connected', 'active'),
+      ),
+    ).toBe(false)
+    expect(
+      resolveServerCardRunning(
+        { isActive: false },
+        { running: true },
+        null,
+      ),
+    ).toBe(true)
+  })
+
+  it('recognizes a positive host or bridge signal for the active card', () => {
+    expect(resolveServerCardRunning({ isActive: true }, null, composed('running', 'disconnected', 'offline'))).toBe(true)
+    expect(resolveServerCardRunning({ isActive: true }, null, composed('unknown', 'disconnected', 'active'))).toBe(true)
+    expect(resolveServerCardRunning({ isActive: true }, null, composed('stopped', 'disconnected', 'offline'))).toBe(false)
+    expect(resolveServerCardRunning({ isActive: true }, null, composed('stopped', 'connecting', 'offline'))).toBeNull()
+  })
+
+  it('returns unknown while an active server has no trustworthy status', () => {
+    expect(resolveServerCardRunning({ isActive: true }, null, null)).toBeNull()
+    expect(resolveServerCardRunning({ isActive: true }, { running: false, stateUnknown: true }, null)).toBeNull()
+    expect(resolveServerCardRunning({ isActive: true }, { running: true }, composed('stopped', 'disconnected', 'offline'))).toBe(false)
+  })
+
+  it('does not trust the local process scan for an active Docker server', () => {
+    expect(
+      resolveServerCardRunning(
+        { isActive: true, dockerContainerId: 'container-id' },
+        { running: true },
+        composed('stopped', 'disconnected', 'offline'),
+      ),
+    ).toBe(false)
+    expect(resolveServerCardRunning({ isActive: true, dockerContainerName: 'zomboid-panel' }, { running: true }, null)).toBeNull()
   })
 })
 

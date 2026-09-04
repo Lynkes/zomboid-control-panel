@@ -163,7 +163,7 @@ export function FolderBrowser({ open, onOpenChange, onSelect, initialPath, title
                 <button
                   key={entry.path}
                   className={cn(
-                    'flex items-center gap-3 w-full px-3 py-1.5 text-left text-sm transition-colors hover:bg-muted/60',
+                    'flex items-center gap-3 w-full px-3 py-1.5 text-start text-sm transition-colors hover:bg-muted/60',
                     selectedPath === entry.path && 'bg-primary/12 text-primary'
                   )}
                   onClick={() => handleSelect(entry)}

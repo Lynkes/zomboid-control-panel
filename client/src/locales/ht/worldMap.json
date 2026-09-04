@@ -94,6 +94,7 @@
     "heal": "Geri",
     "god": "Bondye",
     "godTip": "Toujou aktive Mòd Bondye pou jwè sa a — li pa yon switch. Dezaktive li nan Jwè yo.",
+    "openPlayerControls": "Louvri kontwòl jwè a",
     "healedTitle": "Geri",
     "healedDesc": "{{username}} geri",
     "godModeEnabled": "Mòd Bondye aktive"

@@ -4,7 +4,7 @@ This file is the program-level recovery entry point. Package-specific commands l
 
 | Domain/package | Feature flag | Last legacy authority | Candidate authority | Rollback manifest | Last rehearsal | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| FND-001 (baseline/ledgers) | none — no runtime behavior | V1 `data/db.json` via lowdb | unchanged | `evidence/FND-001/ROLLBACK.md` | not rehearsed (would delete the evidence under review) | review |
+| FND-001 (baseline/ledgers) | none — no runtime behavior | V1 `data/db.json` via lowdb | unchanged | `evidence/FND-001/ROLLBACK.md` | not rehearsed (would delete the evidence under review) | accepted *(was `review`; `STATUS.md`/`WORK_PACKAGES.md` list FND-001 as accepted since 2026-08-22 — corrected 2026-09-03)* |
 
 No domain has a modern authority yet. Nothing on this table can strand data, because nothing on it
 writes any.

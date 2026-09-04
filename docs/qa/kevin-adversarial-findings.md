@@ -24,6 +24,8 @@ would actually type.
 > rcon.execute, later run by someone who no longer does — and found the run-time check re-verifies
 > the CALLER's current capability, not whoever created the task. Verified by reading current source.
 
+**status: FIXED** — re-verified 2026-09-02, HEAD `5f913567`. `commit 4a7dc86` confirmed still an ancestor of HEAD; also independently re-confirmed this session while auditing `docs/qa/creed-findings.md`'s Finding 9 that `POST /tasks/:id/run` (manual trigger, the third path) still gates via `requireCapabilityInline(requiredCapabilityForScheduledCommand(task.command), ...)` re-checking the CALLER's current capability.
+
 ## FINDING 1 (High): `automation.manage` silently grants full raw-RCON execution — a capability the Roles screen presents as a separate, unrelated toggle — WHERE: `server/routes/scheduler.js:26` (router-level gate) + `server/services/scheduler.js:266-274` (`executeTask`'s fallback branch)
 
 **WHAT HAPPENS:** A custom role holding `automation.manage` ("Create and edit automated restarts,
@@ -98,6 +100,8 @@ now), and it's silent to both the operator granting the role and the RCON audit 
 > logic, closing the inconsistency this finding specifically called out. Verified by reading current
 > source.
 
+**status: FIXED** — re-verified 2026-09-02, HEAD `5f913567`. `commit dff7dd2` confirmed still an ancestor of HEAD.
+
 ## FINDING 2 (Medium): Ban reasons the panel accepts and logs as-typed get their accented characters silently deleted before reaching RCON — a curly-quote/accent handling gap `serverMessage()` in the SAME file already solved — WHERE: `server/services/rcon.js:1166-1180` (`sanitizeForBanReason` / `banPlayer`), contrast with `:1092-1104` (`serverMessage`)
 
 **WHAT HAPPENS:** `POST /players/ban` validates the `reason` field with `players.js`'s
@@ -160,6 +164,8 @@ account of what happened to be literally true.
 > "immediate unconditional success response" half of this finding (the UI can't distinguish
 > "genuinely under way" from "about to fail") is unchanged — this fix addresses the mislabeling half
 > specifically, which is what the finding's own "WHAT SHOULD HAPPEN" asked for.
+
+**status: FIXED (the mislabeling half; the "immediate unconditional success response" half was never claimed as a defect — see the RECONCILED note below)** — re-verified 2026-09-02, HEAD `5f913567`. `commit 4a7dc86` confirmed still an ancestor of HEAD.
 
 ## FINDING 3 (Low): manually-triggered `Restart Now` always reports success immediately, and any later failure is recorded in Schedule History mislabeled "Auto Restart" — WHERE: `server/services/scheduler.js:636-651` (`performRestart`) called from `server/routes/scheduler.js:325-354` (`POST /restart-now`)
 

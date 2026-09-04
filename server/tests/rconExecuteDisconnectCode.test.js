@@ -97,7 +97,10 @@ describe("RconService.execute(): the code actually reaches the response object c
     service.serverStarting = false;
     service.connect = vi.fn().mockResolvedValue(false);
 
-    const result = await service.execute("players", { skipLog: true });
+    const result = await service.execute("players", {
+      skipLog: true,
+      retryOnConnectionError: true,
+    });
 
     expect(result).toEqual({
       success: false,
@@ -122,13 +125,18 @@ describe("RconService.execute(): the code actually reaches the response object c
     };
     service.reconnect = vi.fn().mockResolvedValue(false);
 
-    const result = await service.execute("players", { skipLog: true });
+    const result = await service.execute("players", {
+      skipLog: true,
+      retryOnConnectionError: true,
+    });
 
     expect(service.reconnect).toHaveBeenCalledOnce();
     expect(result).toEqual({
       success: false,
       error: "RCON reconnection failed",
       code: ErrorCode.RCON_EXECUTE_DISCONNECTED,
+      commandSent: true,
+      transportError: true,
     });
   });
 

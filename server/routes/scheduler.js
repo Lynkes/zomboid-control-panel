@@ -178,6 +178,17 @@ router.put('/timezone', async (req, res) => {
   }
 });
 
+router.put('/restart-warning', async (req, res) => {
+  try {
+    const scheduler = req.app.get('scheduler');
+    const restartWarning = await scheduler.setRestartWarning(req.body);
+    res.json({ success: true, restartWarning });
+  } catch (error) {
+    log.error(`Failed to update restart warning: ${error.message}`);
+    res.status(400).json({ error: sanitizeError(error.message) });
+  }
+});
+
 // Get all scheduled tasks
 router.get('/tasks', async (req, res) => {
   try {

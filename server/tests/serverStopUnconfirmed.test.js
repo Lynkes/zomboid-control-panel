@@ -75,6 +75,8 @@ describe("POST /stop -- graceful RCON path no longer claims a confirmed stop", (
     await getHandler("/stop", "post")({ app, body: {} }, response);
 
     expect(response.status).not.toHaveBeenCalledWith(502);
+    expect(rconService.save).toHaveBeenCalledWith({ retryOnConnectionError: false });
+    expect(rconService.quit).toHaveBeenCalledWith({ retryOnConnectionError: false });
     expect(response.json).toHaveBeenCalledWith(
       expect.objectContaining({
         success: true,
@@ -146,8 +148,8 @@ describe("POST /stop -- graceful RCON path no longer claims a confirmed stop", (
   });
 });
 
-describe("POST /stop -- managed (Docker) path is unchanged, since it was never blind", () => {
-  it("still emits server:status, marks stopped, and notifies Discord immediately -- Docker's own stop API already confirms before returning success", async () => {
+describe("POST /stop -- managed (Docker) path is confirmed before returning success", () => {
+  it("marks stopped, asks the watchdog to publish the state, and notifies Discord immediately", async () => {
     runManagedLifecycleMock.mockResolvedValueOnce({
       handled: true,
       success: true,
@@ -164,11 +166,8 @@ describe("POST /stop -- managed (Docker) path is unchanged, since it was never b
     await getHandler("/stop", "post")({ app, body: {} }, response);
 
     expect(serverManager.markServerStopped).toHaveBeenCalledTimes(1);
-    expect(io.emit).toHaveBeenCalledWith("server:status", { running: false });
+    expect(checkServerStatusNow).toHaveBeenCalledWith("managed-stop");
     expect(discordBot.sendEventNotification).toHaveBeenCalledWith("serverStop", {});
-    // The managed path is confirmed, not a request -- it must not go through
-    // the RCON path's "ask the watchdog" nudge.
-    expect(checkServerStatusNow).not.toHaveBeenCalled();
     expect(response.json).toHaveBeenCalledWith(
       expect.objectContaining({ success: true, message: "Container stopping" }),
     );
@@ -201,8 +200,10 @@ describe("POST /stop -- managed Linux service", () => {
 
     expect(rconService.save).toHaveBeenCalledOnce();
     expect(rconService.quit).not.toHaveBeenCalled();
-    expect(serverManager.stopServer).toHaveBeenCalledWith(false);
-    expect(io.emit).toHaveBeenCalledWith("server:status", { running: false });
+    expect(serverManager.stopServer).toHaveBeenCalledWith(false, {
+      serverId: null,
+    });
+    expect(io.emit).not.toHaveBeenCalled();
     expect(response.json).toHaveBeenCalledWith(
       expect.objectContaining({ success: true, confirmed: true }),
     );

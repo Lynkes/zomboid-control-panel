@@ -2,23 +2,28 @@ import { useEffect, useState, type ReactNode } from 'react'
 import {
   assessBuildCompatibility,
   compiledBuildMetadata,
-  type BuildMetadata,
+  type BackendBuildMetadata,
 } from '../lib/buildCompatibility'
+import { isDemoMode } from '../lib/demo'
 
 type GateState =
   | { status: 'checking' | 'compatible' }
-  | { status: 'mismatch'; backend: Partial<BuildMetadata> }
+  | { status: 'mismatch'; backend: BackendBuildMetadata }
 
 export function BuildCompatibilityGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<GateState>({ status: 'checking' })
 
   useEffect(() => {
+    if (isDemoMode()) {
+      setState({ status: 'compatible' })
+      return
+    }
     const controller = new AbortController()
     const timer = window.setTimeout(() => controller.abort(), 8_000)
     fetch('/api/health', { signal: controller.signal, cache: 'no-store' })
       .then(async (response) => {
         if (!response.ok) throw new Error(`Health check returned ${response.status}`)
-        return response.json() as Promise<Partial<BuildMetadata>>
+        return response.json() as Promise<BackendBuildMetadata>
       })
       .then((backend) => {
         const result = assessBuildCompatibility(compiledBuildMetadata(), backend)
@@ -42,6 +47,7 @@ export function BuildCompatibilityGate({ children }: { children: ReactNode }) {
   }
   if (state.status === 'mismatch') {
     const frontend = compiledBuildMetadata()
+    const backendVersion = state.backend.panelVersion || state.backend.version || 'unknown'
     return (
       <main className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
         <section className="w-full max-w-xl rounded-lg border border-destructive/40 bg-card p-6 shadow-lg">
@@ -52,7 +58,7 @@ export function BuildCompatibilityGate({ children }: { children: ReactNode }) {
           </p>
           <dl className="mt-5 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
             <dt>Frontend</dt><dd className="font-mono">{frontend.panelVersion} ({frontend.buildSha.slice(0, 12)})</dd>
-            <dt>Backend</dt><dd className="font-mono">{state.backend.panelVersion || 'unknown'} ({String(state.backend.buildSha || 'unknown').slice(0, 12)})</dd>
+            <dt>Backend</dt><dd className="font-mono">{backendVersion} ({String(state.backend.buildSha || 'unknown').slice(0, 12)})</dd>
           </dl>
           <button className="mt-6 rounded-md bg-primary px-4 py-2 text-primary-foreground" onClick={() => window.location.reload()}>
             Check again
@@ -61,5 +67,5 @@ export function BuildCompatibilityGate({ children }: { children: ReactNode }) {
       </main>
     )
   }
-  return children
+  return <>{children}</>
 }

@@ -26,6 +26,7 @@ import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -68,6 +69,8 @@ import { DisabledReason } from '@/components/DisabledReason'
 import { HelpTip } from '@/components/HelpTip'
 import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
+
+const RESTART_WARNING_LOCALES = ['en', 'zh-CN', 'fr', 'de', 'es', 'ht'] as const
 
 interface ScheduledTask {
   id: number
@@ -291,7 +294,7 @@ function TimezonePicker({ id, value, onChange, disabled }: TimezonePickerProps) 
         data-tz-index={idx}
         onClick={() => handleSelect(zone)}
         className={cn(
-          'w-full px-3 py-1.5 text-left text-xs font-mono truncate motion-safe:transition-colors',
+          'w-full px-3 py-1.5 text-start text-xs font-mono truncate motion-safe:transition-colors',
           'hover:bg-accent/10',
           zone === value && 'bg-primary/10 text-primary',
           idx === highlightIndex && 'bg-accent/15'
@@ -305,7 +308,7 @@ function TimezonePicker({ id, value, onChange, disabled }: TimezonePickerProps) 
   return (
     <div ref={containerRef} className="relative">
       <div className="relative">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/50" aria-hidden="true" />
+        <Search className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/50" aria-hidden="true" />
         <Input
           id={id}
           role="combobox"
@@ -319,7 +322,7 @@ function TimezonePicker({ id, value, onChange, disabled }: TimezonePickerProps) 
           onFocus={(e) => { setOpen(true); setSearching(false); e.target.select() }}
           onKeyDown={handleKeyDown}
           placeholder="America/New_York"
-          className="font-mono pl-8 pr-8"
+          className="font-mono ps-8 pe-8"
           maxLength={100}
           disabled={disabled}
           autoComplete="off"
@@ -399,9 +402,15 @@ export default function Scheduler() {
     timezone?: string
     configuredTimezone?: string | null
     timezoneFallback?: { configured: string; effective: string } | null
+    restartWarning?: { locale: typeof RESTART_WARNING_LOCALES[number]; template: string }
+    restartWarningPresets?: Record<typeof RESTART_WARNING_LOCALES[number], string>
   } | null>(null)
   const [timezoneInput, setTimezoneInput] = useState('')
   const [timezoneSaving, setTimezoneSaving] = useState(false)
+  const [restartWarningLocale, setRestartWarningLocale] = useState<typeof RESTART_WARNING_LOCALES[number]>('en')
+  const [restartWarningTemplate, setRestartWarningTemplate] = useState('')
+  const [restartWarningSaving, setRestartWarningSaving] = useState(false)
+  const restartWarningDirtyRef = useRef(false)
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
   const [runningTaskId, setRunningTaskId] = useState<number | null>(null)
@@ -495,6 +504,13 @@ export default function Scheduler() {
     }
   }, [status?.configuredTimezone, timezoneInput])
 
+  useEffect(() => {
+    if (!restartWarningDirtyRef.current && status?.restartWarning) {
+      setRestartWarningLocale(status.restartWarning.locale)
+      setRestartWarningTemplate(status.restartWarning.template)
+    }
+  }, [status?.restartWarning])
+
   const handleSaveTimezone = async () => {
     const trimmed = timezoneInput.trim()
     if (!trimmed) return
@@ -515,6 +531,46 @@ export default function Scheduler() {
       })
     } finally {
       setTimezoneSaving(false)
+    }
+  }
+
+  const selectRestartWarningLocale = (locale: typeof RESTART_WARNING_LOCALES[number]) => {
+    restartWarningDirtyRef.current = true
+    setRestartWarningLocale(locale)
+    setRestartWarningTemplate(status?.restartWarningPresets?.[locale] || '')
+  }
+
+  const resetRestartWarningTemplate = () => {
+    restartWarningDirtyRef.current = true
+    setRestartWarningTemplate(status?.restartWarningPresets?.[restartWarningLocale] || '')
+  }
+
+  const handleSaveRestartWarning = async () => {
+    if (!restartWarningTemplate.trim()) return
+    setRestartWarningSaving(true)
+    try {
+      const result = await schedulerApi.setRestartWarning({
+        locale: restartWarningLocale,
+        template: restartWarningTemplate,
+      })
+      restartWarningDirtyRef.current = false
+      setRestartWarningTemplate(result.restartWarning.template)
+      setStatus((previous) => previous
+        ? { ...previous, restartWarning: result.restartWarning }
+        : previous)
+      toast({
+        title: t('toasts.successTitle'),
+        description: t('restartWarning.saved'),
+        variant: 'success' as const,
+      })
+    } catch (error) {
+      toast({
+        title: t('toasts.errorTitle'),
+        description: getUserErrorMessage(error, t('restartWarning.saveFailed')),
+        variant: 'destructive',
+      })
+    } finally {
+      setRestartWarningSaving(false)
     }
   }
 
@@ -936,7 +992,7 @@ export default function Scheduler() {
           <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <span className="min-w-0 break-words" dir="auto">{fetchError}</span>
             <Button variant="outline" size="sm" onClick={fetchData} className="self-start">
-              <RefreshCw className="mr-2 h-4 w-4" /> {t('fetchError.retry')}
+              <RefreshCw className="me-2 h-4 w-4" /> {t('fetchError.retry')}
             </Button>
           </AlertDescription>
         </Alert>
@@ -957,7 +1013,7 @@ export default function Scheduler() {
           actions={
             <DialogTrigger asChild>
               <Button variant="command" onClick={resetTaskForm}>
-                <Plus className="w-4 h-4 mr-2" />
+                <Plus className="w-4 h-4 me-2" />
                 {t('pageHeader.newTask')}
               </Button>
             </DialogTrigger>
@@ -1163,7 +1219,7 @@ export default function Scheduler() {
                     <Trans
                       i18nKey="dialog.bridgeFormatHint"
                       t={t}
-                      components={{ 1: <code className="text-foreground" />, 2: <code className="ml-1 text-foreground" /> }}
+                      components={{ 1: <code className="text-foreground" />, 2: <code className="ms-1 text-foreground" /> }}
                     />
                   </p>
                 )}
@@ -1238,13 +1294,75 @@ export default function Scheduler() {
               onClick={handleSaveTimezone}
               disabled={timezoneSaving || !timezoneInput.trim() || timezoneInput.trim() === status?.configuredTimezone}
             >
-              {timezoneSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              {timezoneSaving ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : null}
               {t('timezone.saveButton')}
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
             {t('timezone.currentlyEffective', { tz: status?.timezone || '...' })}
           </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="p-4 pb-3">
+          <div className="flex items-center gap-1.5">
+            <CardTitle className="text-base">{t('restartWarning.title')}</CardTitle>
+            <HelpTip label={t('restartWarning.title')}>{t('restartWarning.description')}</HelpTip>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3 p-4 pt-0">
+          <div className="grid gap-3 sm:grid-cols-[12rem_minmax(0,1fr)]">
+            <div className="space-y-1.5">
+              <Label htmlFor="restart-warning-language">{t('restartWarning.languageLabel')}</Label>
+              <Select
+                value={restartWarningLocale}
+                onValueChange={(locale: typeof RESTART_WARNING_LOCALES[number]) => selectRestartWarningLocale(locale)}
+                disabled={restartWarningSaving}
+              >
+                <SelectTrigger id="restart-warning-language">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {RESTART_WARNING_LOCALES.map((locale) => (
+                    <SelectItem key={locale} value={locale}>
+                      {t(`restartWarning.languages.${locale}`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="restart-warning-template">{t('restartWarning.templateLabel')}</Label>
+              <Textarea
+                id="restart-warning-template"
+                value={restartWarningTemplate}
+                onChange={(event) => {
+                  restartWarningDirtyRef.current = true
+                  setRestartWarningTemplate(event.target.value)
+                }}
+                maxLength={300}
+                disabled={restartWarningSaving}
+              />
+              <p className="text-xs text-muted-foreground">{t('restartWarning.templateHint')}</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={resetRestartWarningTemplate}
+              disabled={restartWarningSaving || !status?.restartWarningPresets?.[restartWarningLocale]}
+            >
+              {t('restartWarning.presetButton')}
+            </Button>
+            <Button
+              onClick={handleSaveRestartWarning}
+              disabled={restartWarningSaving || !restartWarningTemplate.trim()}
+            >
+              {restartWarningSaving ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}
+              {t('restartWarning.saveButton')}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -1330,7 +1448,7 @@ export default function Scheduler() {
                 // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Restart in 15 minutes with countdown warnings"); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                 title={t('manualRestart.restartIn15Title')}
               >
-                <Clock className="w-4 h-4 mr-2" />
+                <Clock className="w-4 h-4 me-2" />
                 {t('manualRestart.restartIn15')}
               </Button>
             </DisabledReason>
@@ -1343,7 +1461,7 @@ export default function Scheduler() {
                 // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Restart in 10 minutes with countdown warnings"); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                 title={t('manualRestart.restartIn10Title')}
               >
-                <Clock className="w-4 h-4 mr-2" />
+                <Clock className="w-4 h-4 me-2" />
                 {t('manualRestart.restartIn10')}
               </Button>
             </DisabledReason>
@@ -1356,7 +1474,7 @@ export default function Scheduler() {
                 // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Restart in 5 minutes with countdown warnings"); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                 title={t('manualRestart.restartIn5Title')}
               >
-                <Clock className="w-4 h-4 mr-2" />
+                <Clock className="w-4 h-4 me-2" />
                 {t('manualRestart.restartIn5')}
               </Button>
             </DisabledReason>
@@ -1370,7 +1488,7 @@ export default function Scheduler() {
                   // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Restart in 1 minute — short warning, requires confirmation", describing the action's own confirm-dialog behavior, not why it's disabled); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                   title={t('manualRestart.restartIn1Title')}
                 >
-                  <Clock className="w-4 h-4 mr-2" />
+                  <Clock className="w-4 h-4 me-2" />
                   {t('manualRestart.restartIn1')}
                 </Button>
               </AlertDialogTrigger>
@@ -1411,7 +1529,7 @@ export default function Scheduler() {
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button disabled={loading || !serverRunning || !Number.isFinite(restartMinutes) || !canRestartNow} variant="warning">
-                    <RotateCcw className="w-4 h-4 mr-2" />
+                    <RotateCcw className="w-4 h-4 me-2" />
                     {t('manualRestart.restartNow')}
                   </Button>
                 </AlertDialogTrigger>
@@ -1438,7 +1556,7 @@ export default function Scheduler() {
                   disabled={loading || !serverRunning || !Number.isFinite(restartMinutes) || !canRestartNow}
                   variant="warning"
                 >
-                  <RotateCcw className="w-4 h-4 mr-2" />
+                  <RotateCcw className="w-4 h-4 me-2" />
                   {t('manualRestart.restartNow')}
                 </Button>
               </DisabledReason>
@@ -1663,7 +1781,7 @@ export default function Scheduler() {
                 onClick={fetchData}
                 disabled={loading}
               >
-                <RefreshCw className="w-4 h-4 mr-1" />
+                <RefreshCw className="w-4 h-4 me-1" />
                 {t('executionHistory.refresh')}
               </Button>
               <AlertDialog>
@@ -1673,7 +1791,7 @@ export default function Scheduler() {
                     size="sm"
                     disabled={loading || history.length === 0}
                   >
-                    <Trash2 className="w-4 h-4 mr-1" />
+                    <Trash2 className="w-4 h-4 me-1" />
                     {t('executionHistory.clear')}
                   </Button>
                 </AlertDialogTrigger>
@@ -1721,7 +1839,7 @@ export default function Scheduler() {
                         <span className="sr-only">{entry.success ? t('executionHistory.succeeded') : t('executionHistory.failed')}</span>
                         <div>
                           <span className="font-medium">{entry.task_name}</span>
-                          <code className="ml-2 text-xs bg-muted px-1.5 py-0.5 rounded">
+                          <code className="ms-2 text-xs bg-muted px-1.5 py-0.5 rounded">
                             {entry.command}
                           </code>
                         </div>
@@ -1730,7 +1848,7 @@ export default function Scheduler() {
                         {new Date(entry.executed_at).toLocaleString(i18n.language)}
                       </span>
                     </div>
-                    <div className="mt-1 ml-6 text-sm">
+                    <div className="mt-1 ms-6 text-sm">
                       {entry.message && (
                         <p className={entry.success ? 'text-muted-foreground' : 'text-destructive'}>
                           {entry.message}

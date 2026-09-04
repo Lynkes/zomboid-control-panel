@@ -55,7 +55,30 @@ describe("computeInlineScriptCspHash — present and matching", () => {
     expect(match).not.toBeNull(); // the anti-FOUC script must still be there
 
     const result = computeInlineScriptCspHash(realDistPath);
-    expect(result).toBe(`'sha256-${sha256Base64(match[1])}'`);
+    const normalized = match[1].replace(/\r\n?/g, "\n");
+    expect(result).toBe(`'sha256-${sha256Base64(normalized)}'`);
+  });
+
+  it("normalizes CRLF/CR line endings before hashing, matching what a real browser computes", () => {
+    // Real CRLF bytes, not a JS "\n" escape (which is always LF and can
+    // never reproduce this) -- this is what a checkout with
+    // core.autocrlf=true actually produces for client/index.html, which has
+    // no .gitattributes rule pinning it to LF.
+    const scriptBodyCrlf = "\r\n      console.log('anti-fouc');\r\n    ";
+    writeIndexHtml(
+      `<!DOCTYPE html><html><head><script>${scriptBodyCrlf}</script></head></html>`,
+    );
+
+    const result = computeInlineScriptCspHash(tmpDir);
+
+    // The browser's CSP engine newline-normalizes CRLF/CR -> LF during HTML
+    // parsing before computing the script hash it enforces (spec-mandated).
+    // Hashing the raw CRLF bytes computes a DIFFERENT hash than what the
+    // browser actually checks against, so the allowed source never matches
+    // and the browser blocks the script with a CSP violation on every load.
+    const normalizedBody = scriptBodyCrlf.replace(/\r\n?/g, "\n");
+    const expectedHash = sha256Base64(normalizedBody);
+    expect(result).toBe(`'sha256-${expectedHash}'`);
   });
 
   it("does NOT match the module app-bundle script tag (has attributes) — only the bare inline one", () => {

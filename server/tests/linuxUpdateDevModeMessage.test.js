@@ -36,6 +36,9 @@ describe("dev-mode upgrade guidance branches on containerization", () => {
     expect(result.ok).toBe(false);
     expect(result.blockers[0]).toContain("pull the latest code with git");
     expect(result.blockers[0]).not.toContain("docker compose");
+    expect(result.blockerDetails).toEqual([
+      { key: "updates.preflight.packagedBuildGit", params: {} },
+    ]);
   });
 
   it("preflight() surfaces the docker compose instruction inside a plain container (no update sidecar)", async () => {
@@ -45,6 +48,9 @@ describe("dev-mode upgrade guidance branches on containerization", () => {
     expect(result.ok).toBe(false);
     expect(result.blockers[0]).toContain("docker compose pull");
     expect(result.blockers[0]).not.toContain("pull the latest code with git");
+    expect(result.blockerDetails).toEqual([
+      { key: "updates.preflight.packagedBuildDocker", params: {} },
+    ]);
   });
 
   it("does not change the refusal itself: still fail-closed (ok:false) either way", async () => {

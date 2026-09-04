@@ -5,7 +5,7 @@
 //   1. client/src/lib/__fixtures__/pzSandboxGroundTruth.json -- the single
 //      committed fixture serverConfigSchema.pzGroundTruth.test.ts diffs
 //      SANDBOX_SCHEMA against on every test run (the drift gate).
-//   2. client/src/locales/<lang>/sandboxPz.json for en/de/es/fr/ht/zh-CN --
+//   2. client/src/locales/<lang>/sandboxPz.json for en/de/es/fr/ht/zh-CN/zh-TW --
 //      the setting/option LABELS the panel actually renders, sourced from
 //      the exact same resolved data as the fixture above. One extractor,
 //      one resolved mapping, two outputs -- not two independent parsers
@@ -41,7 +41,7 @@ const LOCALES_DIR = path.join(CLIENT_ROOT, 'src/locales')
 // full sandboxPz.json (100% English-backfilled) because this repo's
 // localeParity test requires every registered locale to share the exact
 // same key set for any namespace that exists in any of them.
-const LANG_MAP = { en: 'EN', de: 'DE', es: 'ES', fr: 'FR', 'zh-CN': 'CN', ht: null }
+const LANG_MAP = { en: 'EN', de: 'DE', es: 'ES', fr: 'FR', 'zh-CN': 'CN', 'zh-TW': 'CH', ht: null }
 
 function loadSandboxJson(pzDir) {
   if (!pzDir) return {}
@@ -273,6 +273,7 @@ function main() {
         optionLabelsEs: 'media/lua/shared/Translate/ES/Sandbox.json',
         optionLabelsFr: 'media/lua/shared/Translate/FR/Sandbox.json',
         optionLabelsZhCN: 'media/lua/shared/Translate/CN/Sandbox.json',
+        optionLabelsZhTW: 'media/lua/shared/Translate/CH/Sandbox.json',
       },
       note:
         'Paths are relative to the PZ Steam install root. ht has no PZ translation and carries no per-language entry here. ' +

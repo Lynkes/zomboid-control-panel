@@ -7,6 +7,15 @@
 > list — nothing here needed re-derivation, only verification that the named commits are real and
 > still in effect. No LIVE or INVALID items.
 
+**status: FIXED — all 29 dead branches across all 9 commits, document-level verdict** (re-verified
+2026-09-02, HEAD `5f913567`; superseded the per-row status this file otherwise lacks). All 9 commits
+(`f234e77`, `99163ea`, `8bee6d8`, `1734625`, `ffb2e4b`, `0206bee`, `29fdcdd`, `247b50b`, `82d8695`)
+confirmed still ancestors of current HEAD via `git merge-base --is-ancestor`. This document is itself
+a retrospective ledger (every row already names its own fixing commit) rather than a set of open
+claims needing individual re-derivation — the 2026-08-24 fork's per-commit `git show` verification
+plus this pass's ancestry re-check is the appropriate depth of check for a table of already-landed,
+self-citing fixes.
+
 # Jim's Dead-Else-Branch Sweep — full reasoning
 
 Angela found the first instance of this bug class (an OIDC test-connection handler). God gave me

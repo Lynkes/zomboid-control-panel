@@ -163,6 +163,36 @@ describe("Scheduler timezone validation: an invalid IANA name is refused at save
   });
 });
 
+describe("Scheduler restart warning settings", () => {
+  it("persists a valid custom template and makes it effective immediately", async () => {
+    const scheduler = makeScheduler();
+    const restartWarning = await scheduler.setRestartWarning({
+      locale: "zh-CN",
+      template: "请在 {count}{unit} 内到安全地点",
+    });
+
+    expect(restartWarning).toEqual({
+      locale: "zh-CN",
+      template: "请在 {count}{unit} 内到安全地点",
+    });
+    expect(settingsStore.get("restartWarning")).toEqual(restartWarning);
+    expect(scheduler.getStatus().restartWarning).toEqual(restartWarning);
+  });
+
+  it("rejects invalid settings without overwriting the current warning", async () => {
+    const scheduler = makeScheduler();
+    await scheduler.setRestartWarning({ locale: "en", template: "Restart in {count} {unit}" });
+    setSetting.mockClear();
+
+    await expect(
+      scheduler.setRestartWarning({ locale: "en", template: "Restart in {minutes}" }),
+    ).rejects.toThrow(/placeholders/i);
+
+    expect(setSetting).not.toHaveBeenCalled();
+    expect(scheduler.getStatus().restartWarning.template).toBe("Restart in {count} {unit}");
+  });
+});
+
 describe("Scheduler timezone fallback: a stored zone that stops being valid fails LOUDLY and keeps running", () => {
   it("falls back to the process default, logs an error, and surfaces the mismatch on timezoneFallback -- does not refuse to start, does not silently substitute", async () => {
     // Simulates a restored db.json from a different machine, or tzdata

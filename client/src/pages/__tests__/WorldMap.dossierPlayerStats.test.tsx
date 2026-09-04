@@ -153,6 +153,60 @@ describe('WorldMap.tsx dossier: hunger/thirst/fatigue from getServerInfo are act
     })
   })
 
+  it('opens the dossier when the player marker itself is clicked', async () => {
+    await setUp([{ name: 'Kate', x: 10000, y: 10000, health: 82 }])
+
+    renderWorldMap()
+
+    const canvas = await screen.findByRole('img', { name: /world map/i })
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      top: 0,
+      right: 800,
+      bottom: 600,
+      width: 800,
+      height: 600,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    })
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 400, clientY: 300 })
+    fireEvent.mouseUp(canvas, { button: 0, clientX: 400, clientY: 300 })
+
+    expect(await screen.findByRole('button', { name: 'Heal' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'God' })).toBeInTheDocument()
+    expect(screen.getAllByText('Kate')).toHaveLength(2)
+    expect(screen.getByRole('link', { name: 'Open player controls' })).toHaveAttribute('href', '/players?player=Kate')
+  })
+
+  it('opens the dossier when the player marker is tapped without panning', async () => {
+    await setUp([{ name: 'Kate', x: 10000, y: 10000 }])
+
+    renderWorldMap()
+
+    const canvas = await screen.findByRole('img', { name: /world map/i })
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      top: 0,
+      right: 800,
+      bottom: 600,
+      width: 800,
+      height: 600,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    })
+    fireEvent.touchStart(canvas, {
+      touches: [{ clientX: 400, clientY: 300 }],
+    })
+    fireEvent.touchEnd(canvas, {
+      touches: [],
+      changedTouches: [{ clientX: 400, clientY: 300 }],
+    })
+
+    expect(await screen.findByRole('button', { name: 'Heal' })).toBeInTheDocument()
+  })
+
   it('shows no stat bars at all for a player the bridge sent no stats for (older bridge / unreadable Stats object)', async () => {
     await setUp([{ name: 'Kate', x: 10000, y: 10000 }])
 

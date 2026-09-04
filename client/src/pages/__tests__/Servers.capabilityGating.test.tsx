@@ -342,6 +342,9 @@ describe('Servers.tsx: capability gating', () => {
   it('enables every gated trigger once the role holds the matching capability', async () => {
     mockCan = () => true
     await setUpFixtures()
+    getStatus.mockResolvedValue({
+      servers: [{ id: '1', name: 'server-a', running: false, pid: null, isActive: false, stateUnknown: false }],
+    } as never)
     renderServers()
     await screen.findByText('server-a')
 

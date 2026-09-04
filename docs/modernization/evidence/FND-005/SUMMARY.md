@@ -102,3 +102,12 @@ the proof of a successful rollback.
 
 The contract was met with no production change, the two-sided falsifier held, the full gate is
 green, and the defect is demonstrably closed by the repeatability proof rather than by assertion.
+
+> **status: CONFIRMED — verified 2026-08-22, re-confirmed 2026-09-03 (kevin).** Independent
+> verification did complete with **PASS** (`VERIFICATION.md`), and `STATUS.md`'s Recent Accepted
+> Packages table lists FND-005 as accepted the same day (SHA `2ae02c4`). Re-checked today against
+> current HEAD (`761f41bc`) rather than trusting the 2026-08-27 record: `vitest.config.js` and
+> `server/tests/vitest.globalSetup.mjs` are both still present, and the `PANEL_PATHS_CONFIG_PATH`
+> mechanism `RISK-009` describes as the later hardening beyond this package's own conditional
+> isolation is also present in `server/utils/paths.js`. The fix is still in effect today, not just
+> on paper.

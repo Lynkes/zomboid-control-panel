@@ -26,6 +26,8 @@ Finding 1 (`server/services/permissions.js`, `server/routes/permissions.js`) are
 > the member/reassignment logic. The fix commit's own comment cites this finding by name and file.
 > Verified directly by reading current source (`permissions.js:743-754`).
 
+**status: FIXED** — re-verified 2026-09-02, HEAD `5f913567`. `commit 1594548` confirmed still an ancestor of HEAD.
+
 ## FINDING 1 (High — this is a security/data-integrity gap, not a wording issue): "Les rôles intégrés ne peuvent pas être supprimés depuis cet écran" is true only of the button — nothing on the server enforces it
 
 **WHERE:** `client/src/locales/fr/roles.json` `matrix.deleteSeededTooltip`, describing the disabled
@@ -79,6 +81,8 @@ losing access, since a role that doesn't exist can't be reassigned back either.
 > `describeError()` is gone from all three files. A `toasts.unknownError` fallback key was added to
 > each locale file for the true-no-message case. Verified by reading current source.
 
+**status: FIXED** — re-verified 2026-09-02, HEAD `5f913567`. `commit d5e8bce` confirmed still an ancestor of HEAD.
+
 ## FINDING 2 (Medium, systemic across all three screens): every unhandled error shows raw English, via three independently-reimplemented copies of the exact bug Toby already filed for `errorMessage.ts`
 
 **WHERE:** `Users.tsx:117-119`, `OidcSettings.tsx:90-92`, `RolesPermissions.tsx:147-149` — each
@@ -122,6 +126,8 @@ including the two newest ones (Users, OIDC) that didn't exist when the original 
 > appears before Client ID/Secret on screen, matching what a first-time operator needs. Verified by
 > reading the current JSX render order directly, not just the constant.
 
+**status: FIXED** — re-verified 2026-09-02, HEAD `5f913567` (same commit `d5e8bce` as Finding 2).
+
 ## FINDING 3 (Medium, usability — OIDC setup order): Client ID and Client Secret are asked for before the Redirect URI, but a first-time operator needs the Redirect URI *first*
 
 **WHERE:** `client/src/pages/OidcSettings.tsx:217-318` — field order top to bottom: Issuer URL,
@@ -157,6 +163,8 @@ being usable by someone who has never done this before.
 > fixes it via the honesty-note path the finding explicitly offered as the practical option since a
 > code-level fix isn't possible without knowing the operator's real deployment). Verified by reading
 > current source.
+
+**status: FIXED (mitigation, not the underlying trust-proxy mechanism)** — re-verified 2026-09-02, HEAD `5f913567` (same commit `d5e8bce`). The confirm-note honesty-path mitigation is in place; `req.protocol`'s trust-proxy dependency itself is unchanged by design (no code fix possible without knowing the operator's deployment).
 
 ## FINDING 4 (Medium, correctness — not a translation bug, but the French help text doesn't warn about it): the auto-suggested Redirect URI can be silently wrong for the most common self-hosted deployment shape
 

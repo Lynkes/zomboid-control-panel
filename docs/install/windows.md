@@ -62,13 +62,13 @@ default browser automatically — you don't need to type it in yourself.
 
 **If this goes wrong:**
 - The console prints `ERROR: No ZomboidControlPanel binary found in this
-  folder.` followed by `Expected one of: ZomboidControlPanel.exe, .exe.new,
-  .exe.new2` — you ran `Start.bat` from somewhere other than the folder you
-  extracted in Phase 1, or moved `Start.bat` without its sibling `.exe`.
-  Re-extract into one folder and run it from there.
+  folder.` followed by `Expected: ZomboidControlPanel.exe` — you ran
+  `Start.bat` from somewhere other than the folder you extracted in Phase 1,
+  or moved `Start.bat` without its sibling `.exe`. Re-extract into one folder
+  and run it from there.
 - The console prints `Port <n> is in use and PORT is explicitly set;
   refusing to choose a different port.` — see
-  [Phase 7](#phase-7-what-to-do-if-port-3001-is-already-taken) below. If you
+  [Phase 8](#phase-8-what-to-do-if-port-3001-is-already-taken) below. If you
   *haven't* set a `PORT` environment variable, you won't see this — the
   panel just quietly picks a different free port and tells you which one in
   the Ready box instead.
@@ -77,7 +77,7 @@ default browser automatically — you don't need to type it in yourself.
   `Start.bat` from there so the error stays on screen instead of closing
   with the window.
 
-Leave this console window open — closing it stops the panel. Phase 8 below
+Leave this console window open — closing it stops the panel. Phase 9 below
 covers making it start on its own so you don't have to.
 
 ---
@@ -172,26 +172,83 @@ The panel controls your PZ server over RCON — it won't connect without this.
    ```
 4. Save the file, then **restart the PZ server itself** (not the panel) —
    the game server only reads its `.ini` at startup.
-5. Back in the panel, enter the same `RCONPort` and `RCONPassword` when
-   adding the server (or under **Settings** for one you've already added),
-   then use **Test Connection** rather than just watching the dashboard.
 
-**You know it worked when:** **Test Connection** reports success, and the
-dashboard's RCON indicator shows connected.
+**You know it worked when:** the `.ini` file has your `RCONPort` and
+`RCONPassword` lines and the PZ server has been restarted since you saved
+them. There's nothing to test yet from the panel side — that happens once
+your server is actually added, in the next phase, since **Test Connection**
+lives in that dialog.
 
-**If this goes wrong:** `Test Connection` tells you exactly which half
-failed — `Unreachable: check host and port` means the PZ server isn't
-listening there at all (not running yet, `RCONPort` doesn't match what you
-typed, or a firewall between the panel and the PZ server is blocking it —
-this is separate from Phase 6's firewall step, which is about *other
-machines* reaching the *panel*, not the panel reaching PZ). `Authentication
-failed: check RCON password` means the panel reached the server fine but
-your typed password doesn't match `RCONPassword` in the `.ini` — retype it,
-don't guess it.
+**If this goes wrong:** if you can't find `%USERPROFILE%\Zomboid\Server\` at
+all, or it's empty, go back to [Phase 4](#phase-4-find-where-project-zomboid-actually-lives) —
+you likely haven't started the PZ server directly (outside the panel) even
+once yet, which is what creates this folder and file in the first place.
 
 ---
 
-## Phase 6: Open Windows Firewall for LAN access
+## Phase 6: Add your server to the panel
+
+The panel doesn't know your server exists yet — Phase 4 found the folders
+and Phase 5 turned on RCON, but nothing you did in either one told the panel
+about them. This phase connects the two.
+
+1. In the panel's left sidebar, click **My Servers**.
+2. Click **Add Existing Server** — not **Add Remote Server** or **Install
+   New Server**, which are for different situations (a PZ server on a
+   *different* machine — see [hosted.md](hosted.md) — or installing a brand
+   new PZ server through the panel's own wizard, neither of which is what
+   you just did in Phases 1-5). **Add Existing Server** opens already set to
+   **Local Server** mode, which is correct here since PZ runs on this same
+   PC.
+3. You'll see two ways to fill in the rest of the form — pick whichever is
+   easier for you, both end up in the same place:
+   - **Auto Detect Servers** (the default view): paste the **Zomboid data
+     folder** path from Phase 4 (`%USERPROFILE%\Zomboid`) into the scan box
+     and click **Scan**. Matching servers appear as clickable cards — click
+     yours to fill in the rest of the form automatically, including
+     importing the RCON password straight from the `.ini` you just edited
+     (you'll see **"leave blank to use it"** next to the password field —
+     that's the import working, not a missing field).
+   - **Manual Entry** (click the button in the top-right of that same box
+     to switch to it): paste the **Zomboid data folder** path
+     (`%USERPROFILE%\Zomboid`) into **Server Data Path**, and the **server
+     install folder** path from Phase 4 into **Server Install Path**. If a
+     matching `.ini` is found from the data path alone, the RCON fields
+     fill in the same way as Auto Detect above; if not, type the
+     `RCONPort`/`RCONPassword` from Phase 5 in yourself.
+4. Give the server a display name if it isn't already filled in, then click
+   **Test Connection** — this is your first real confirmation that Phase 5
+   actually worked, not just that the form is filled in correctly.
+5. Once **Test Connection** succeeds, click **Add Server**.
+
+**You know it worked when:** the dialog closes and your server appears as a
+card on the **My Servers** page, with its RCON indicator showing connected.
+
+**If this goes wrong:** the same two `Test Connection` failure messages
+apply here as anywhere else in the panel — `Unreachable: check host and
+port` means the PZ server isn't listening there at all yet (not running,
+wrong port, or something between the panel and PZ is blocking it — see
+[Phase 7](#phase-7-open-windows-firewall-for-lan-access) if that step
+applies to your setup); `Authentication failed: check RCON password` means
+the port is right but the password doesn't match what's in the `.ini` —
+retype it from Phase 5 rather than guessing. If **Auto Detect** finds
+nothing, double-check you pasted the **data** folder (`%USERPROFILE%\Zomboid`),
+not the install folder — the `.ini` files live under the data folder's
+`Server\` subfolder, not next to `ProjectZomboid64.exe`.
+
+**Test Connection succeeding here doesn't yet prove the panel can start
+this server** — it only checks RCON against a server that's already
+running (for example if you started it manually once, per Phase 4's own
+advice). If your install folder — Steam's own default location,
+`...\Program Files (x86)\Steam\steamapps\common\...`, qualifies — has a
+space anywhere in it, or one of `&` `(` `)` `^`, clicking **Start** from
+the panel can fail even though this step succeeded; see
+[Server process exited immediately after starting](troubleshooting.md#server-process-exited-immediately-after-starting-code1-signalnone--startup-failed)
+in troubleshooting.md.
+
+---
+
+## Phase 7: Open Windows Firewall for LAN access
 
 Skip this phase if you only ever open `http://localhost:3001` on the same
 PC the panel runs on. It's only needed so *other* devices on your network
@@ -231,7 +288,7 @@ that case.
 
 ---
 
-## Phase 7: What to do if port 3001 is already taken
+## Phase 8: What to do if port 3001 is already taken
 
 You don't necessarily need to do anything — check what the console actually
 says first.
@@ -261,7 +318,7 @@ and it loads in a browser.
 
 ---
 
-## Phase 8: Keep the panel running at boot (Task Scheduler)
+## Phase 9: Keep the panel running at boot (Task Scheduler)
 
 This makes the panel start automatically when the PC boots, without you
 needing to double-click `Start.bat` yourself every time.
@@ -308,10 +365,12 @@ though Task Scheduler itself reports the task as having run successfully.
 - [ ] Server install folder and `%USERPROFILE%\Zomboid` data folder both
       located and not confused with each other (Phase 4)
 - [ ] `RCONPort` / `RCONPassword` set in the server `.ini` and the PZ server
-      restarted; **Test Connection** succeeds in the panel (Phase 5)
+      restarted (Phase 5)
+- [ ] Server added in the panel (**My Servers → Add Existing Server**) and
+      **Test Connection** succeeds (Phase 6)
 - [ ] Windows Firewall allows port 3001, only if accessed from another
-      device (Phase 6)
+      device (Phase 7)
 - [ ] Port conflict, if any, resolved or the auto-picked port noted
-      (Phase 7)
+      (Phase 8)
 - [ ] Task Scheduler entry created and verified with an actual reboot,
-      only if you want the panel running without a console open (Phase 8)
+      only if you want the panel running without a console open (Phase 9)

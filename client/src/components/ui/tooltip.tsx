@@ -20,6 +20,10 @@ const TooltipContent = React.forwardRef<
       ref={ref}
       sideOffset={sideOffset}
       className={cn(
+        // RTL sweep (2026-09-04): data-[side=*] deliberately left physical
+        // -- Radix reports the side it ACTUALLY rendered on (its own
+        // collision detection, not text direction), so left<->right here
+        // is a self-consistent physical pairing regardless of dir.
         "z-50 overflow-hidden rounded-md border border-border bg-popover px-3 py-1.5 text-xs text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
         className
       )}

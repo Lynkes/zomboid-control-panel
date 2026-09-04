@@ -41,7 +41,7 @@ export function TemplateCard({ template, onPreview, onExport, onDelete, canManag
         <p className="text-xs text-muted-foreground">
           {t('settingsOverridden', { count: changeCount })}
           {template.mods.length > 0 && (
-            <span className="ml-1 inline-flex items-center gap-1">
+            <span className="ms-1 inline-flex items-center gap-1">
               <Package className="h-3 w-3" />
               {t('modsCount', { count: template.mods.length })}
             </span>

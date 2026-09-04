@@ -7,6 +7,117 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The panel is now available in Ukrainian.** Українська joins the other seven languages - every
+  screen, dialog, error message and health check.
+- **The panel now renders right-to-left, and Arabic is the first language that needs it.** العربية
+  (Modern Standard Arabic) joins the other eight languages, with the whole interface mirrored to
+  match - not just text, but layout, icons, and every interactive control. A browser reporting any
+  Arabic regional variant (Egypt, Saudi Arabia, Palestine, and others) is detected as Arabic
+  automatically, the same way the panel already detects regional variants of its other languages.
+- **The Server Config page is now fully translated, in every supported language, and its search box
+  now matches on the setting's translated label as well as its English name** - translation coverage
+  went from 330 of the page's 1,736 individual settings to all of them, and search previously only
+  ever matched English text regardless of your language.
+
+### Fixed
+
+- **A Windows server could fail to start with no visible error at all** if its install folder, or the
+  panel's own folder, contained a space or one of `&` `(` `)` `^` - including Steam's own default
+  install location. The panel would report "Server process exited immediately after starting" with
+  an empty (or misleading) launch log and nothing else to go on (#141).
+- **A custom start command containing a quoted value with a space (`-servername="My World"`) could
+  fail to start the server silently**, with no error and no log at all - worse than the bug above,
+  since nothing indicated a failure had even happened.
+- **A browser set to a region-specific language (`fr-FR`, `de-DE`, and similar) silently fell back to
+  English** on first load instead of detecting the base language.
+- **Two sandbox settings that take a comma-separated list (World Item Removal List, Loot Item Removal
+  List) silently turned every comma you typed or pasted into a period**, making the shipped default
+  value impossible to re-type through the settings page (#143).
+- **The "this change will not survive a server restart" warning for restoring or shutting off
+  power/water stopped appearing** after an earlier cleanup mistakenly treated it as dead code; it is
+  now shown again, with the reason when one is known.
+- **The Backups page gave no indication that a backup or restore was already running** if it was
+  started by the scheduler, from another open tab, or before the page was loaded - Create Backup and
+  every row's Restore button stayed clickable and would fail with no visible cause. The page now
+  reflects the server's own in-progress state.
+- **A failed panel self-update almost always reported "unknown" as the cause**, even when the real
+  reason (antivirus quarantine, a file locked by another process) was recorded in the update log.
+- **A failed automatic rollback after a self-update gave no signal about whether it would happen again
+  or what to do about it.** The panel now says plainly whether the same failure is likely to recur on
+  the next restart, and names the exact files to delete by hand to clear it.
+- **The Debug page's diagnostic bundle showed a wrong or nonexistent path for a server's install and
+  install-logs listings** when that server used a custom start script rather than the default
+  launcher.
+- **The Docker update-preflight check showed a "warning" every single time, regardless of your actual
+  setup**, training it to be ignored; the explanation is now shown as informational text instead.
+- **A "blocked by another operation" message when starting, stopping, or restarting a server didn't
+  say which operation or which server** - it now names both.
+
+## [1.2.15] - 2026-09-03
+
+### Fixed
+
+- **Clicking a player marker on the World Map could fail to open the player dossier**, especially
+  while the marker was moving or on touch devices; selection now follows the rendered marker and
+  exposes the player details and available actions consistently.
+- **The GitHub Pages demo crashed on the Templates route** because its fetch shim did not implement
+  the simulation-template list response; demo mode now supplies valid built-in templates and preview
+  data, while the page also handles malformed list payloads safely.
+
+### Added
+
+- **The panel is now available in Traditional Chinese.** 繁體中文 joins the other six languages -
+  every screen, dialog, error message and health check. The language picker remembers the choice in
+  your browser, and a browser already set to Taiwan, Hong Kong or Macau Traditional Chinese is
+  offered zh-TW instead of Simplified Chinese or English. Project Zomboid's own vocabulary is kept
+  where a player would expect it: mod IDs, Workshop IDs, chat tags and SteamCMD output stay as the
+  game prints them. Judgment calls versus the existing Simplified Chinese strings are listed in
+  `client/src/locales/GLOSSARY.zh-TW.md`.
+
+## [1.2.14] - 2026-09-02
+
+### Fixed
+
+- **Refreshing a client-side route in a standalone build could show “Page not available”** because
+  Express rejected the embedded frontend’s hidden parent directories; the SPA fallback now resolves
+  `index.html` relative to its configured client root.
+- **The diagnostics page warned that the server process was missing** when the panel and the game
+  server run in separate containers - it now says the check does not apply there.
+
+## [1.2.13] - 2026-09-02
+
+### Fixed
+
+- **A standalone executable could be paired with an older on-disk web interface** when users replaced only the raw binary or a supervisor handoff left `client/dist` behind; packaged binaries now carry and serve their matching frontend, and legacy mixed installs stop on an explicit recovery page instead of serving mismatched code.
+- **The AIO or updater image could inherit GHCR's moving `latest` tag** through Docker metadata's automatic semver flavor and replace the generic panel image; those image pipelines now publish only their explicit `aio-*` and `updater-*` tags.
+- **Build 42 vehicle polling could flood the dedicated log with `VehicleParts` `getClass` errors**, and World Map/Events kept polling vehicle details when that data was not needed; PanelBridge now avoids the invalid userdata probe, while both pages pause vehicle enumeration when hidden or inactive.
+- **A standalone release could still be assembled with a stale or drifted frontend**, even when its metadata claimed the right version; releases now embed the exact frontend, record every client-file hash, and refuse mismatched source or packaged trees.
+- **Linux release archives could lose executable permissions on Windows**, and an archive staged inside its own source tree could grow indefinitely; the build now stages outside `release/` and preserves explicit modes through the release script.
+- **The Servers page could offer Start while status was unknown or borrow a local process match for a Docker server**; lifecycle selection now respects the provider, preserves scan uncertainty, and fails closed while active status is unavailable.
+- **A late status response could be displayed for the wrong active server after switching profiles**; responses are now tied to the requesting server and invalidated on transitions.
+- **PanelBridge diagnostics and player cheat fallbacks could index Java userdata as a Lua table**, producing the same Build 42 Kahlua error outside vehicle polling; all dynamic probes now use the guarded invocation path.
+
+## [1.2.12] - 2026-09-01
+
+### Fixed
+
+- **The German system-status label translated a healthy server as “Gesund”**, which sounds like a
+  medical status; it now uses the operational wording “Betriebsbereit”.
+
+- **Server Configuration lifecycle help and path placeholders remained in English** in the German,
+  French, Spanish, Haitian Creole, and Simplified Chinese locales; the full profile-editing help
+  block is now translated while technical commands, paths, and identifiers remain unchanged.
+- **The panel update confirmation could show English preflight warnings inside a translated
+  dialog**, including the staged-update message; preflight messages now carry translation keys and
+  are localized across all supported panel languages.
+- **A deleted Workshop warning could remain after its ID was removed with the X action**, because
+  the cached Steam result outlived the tracking record; removed and ignored IDs are now excluded
+  from the warning while still-tracked deleted mods remain visible.
+
+## [1.2.11] - 2026-09-01
+
 ### Security
 
 - **A local user on the same machine could read fragments of files the panel can read**, by
@@ -16,8 +127,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Automatic restart warnings were fixed English strings with no operator control**, leaving
+  multilingual servers unable to communicate countdowns consistently; operators can now select
+  English, Chinese, French, German, Spanish, or Haitian Creole presets and safely customize the
+  countdown template with `{count}` and `{unit}` placeholders.
 - **Saving RCON, port or UPnP settings could rewrite an unrelated line of the server config** if
   its text happened to contain one of those setting names - each now matches only its own line.
+- **Discord reported the server as offline when the panel and the game server run in separate
+  containers** - and start, stop, restart and player commands all misjudged it the same way.
+- **Server Stop and Force Stop no longer wait through the RCON reconnect loop when the server
+  connection has already dropped**, and native Force Stop also terminates the detached launcher
+  process tree.
+- **Standalone builds now inject the same build SHA and API contract metadata into the frontend
+  and backend**, preventing a false update-recovery screen with an `unknown` backend.
+- **The Dashboard could keep reporting `Request failed, retrying` while a server was intentionally
+  stopping**, because its player poll started a second retry loop; dashboard player reads are now
+  single-attempt and the normal poll interval remains the retry mechanism.
+- **A supervised Linux panel restart could launch a second panel instead of letting `start.sh`
+  relaunch the newly activated binary**, leaving the staged `.new` file behind or causing a port
+  race; the supervisor now owns that relaunch.
+- **A fresh Build 42 world could start with no power even while its sandbox shutdown countdown
+  still allowed electricity**, leaving the Events toggle unable to repair the contradictory live
+  state; PanelBridge now restores startup hydro power only while that countdown remains active.
+- **Scheduled server messages stripped Chinese and other non-ASCII text before the UTF-8 RCON
+  transport could send it**, causing garbled or empty broadcasts; messages now preserve readable
+  Unicode while still removing command delimiters and control characters.
+- **Editing a server with no Docker container saved the JSON value `null` as the literal string
+  `"null"`**, making a native process look like an unavailable container; null is now preserved.
 
 ## [1.2.10] - 2026-08-31
 

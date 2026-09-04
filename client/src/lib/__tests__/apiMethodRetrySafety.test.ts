@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { apiFetch } from "../api";
+import { apiFetch, playersApi } from "../api";
 import { clearAccessToken, setAccessToken } from "../authToken";
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -65,6 +65,15 @@ describe("API retry method safety", () => {
     });
     await vi.advanceTimersByTimeAsync(20_000);
     await rejection;
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows a polling caller to opt out of transport retries", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const request = playersApi.getPlayers({ retries: 0 });
+    await expect(request).rejects.toMatchObject({ code: "NETWORK_ERROR" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

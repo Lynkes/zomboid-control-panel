@@ -45,6 +45,18 @@ own default 3001, no game server). Never collided in practice.
 > server/index.js code path for both platforms), just unfixed on the second platform. Sibling gap —
 > the exact pattern flagged by tonight's other hunt card.
 
+**status: FIXED (both platforms, confirmed 2026-09-02 at HEAD `5f913567`)** — the Linux gap this
+2026-08-24 note flagged as still-live is closed too. `build.js`'s `generateStartSh()` (now a
+rewritten supervisor, `PANEL_SUPERVISOR_V=2`) no longer prints any `localhost`/port banner at all —
+read the full function body end to end, the only `echo` lines are "Starting Zomboid Control
+Panel...", error/warning diagnostics (missing binary, missing `setsid`, glibc version, root warning),
+and crash/restart-loop messages. No hardcoded URL anywhere in current `start.sh` generation. (The
+two `grep` hits for "Open your browser to" left in `build.js` today are inside `writeReleaseReadme()`
+— a static `README.md` the release zip ships, documenting the *default* port as setup instructions,
+not a live console echo asserting the actual bound port the way Start.bat's banner did. Not the same
+bug: a README's default-case instructions are expected to say "3001"; the defect here was a runtime
+banner claiming to know the real port when it didn't.)
+
 ## Finding 1 — HIGH: Start.bat tells the operator the wrong URL whenever the panel falls back to a different port
 
 **WHERE:** `build.js:259-260` (generates Start.bat's banner) vs. `server/index.js:2734-2748`
@@ -106,6 +118,8 @@ sees.
 > not a platform-specific banner string, and start.sh's crash handling is a separate, simpler
 > `exit 1` on missing-binary rather than a backoff loop — not the same shape).
 
+**status: FIXED** — confirmed 2026-09-02, HEAD `5f913567` (see the RECONCILED note above for the full evidence: `c15231e` special-cases exit code 78, `server/index.js:2427` confirms pidLock's refusal emits that exact code).
+
 ## Finding 2 — HIGH: double-clicking the exe a second time (same install, already running) doesn't refuse cleanly — it crash-loops
 
 **WHERE:** the exe→Start.bat handoff (`server/index.js:75-109`) and Start.bat's own binary
@@ -162,6 +176,8 @@ from "the panel is broken," not "you already have one open."
 
 ---
 
+**status: NOT APPLICABLE — informational only, no defect claimed.** These are "confirmed working" notes, not findings needing a fix verdict.
+
 ## Finding 3 — confirmed working, worth stating so nobody "fixes" it blind
 
 - **exe → Start.bat auto-handoff** (`server/index.js:75-109`, the "double-click the .exe
@@ -181,6 +197,8 @@ from "the panel is broken," not "you already have one open."
   confirmation either way.)
 
 ---
+
+**status: NOT APPLICABLE — OS-level behavior, not a code defect** (the finding's own header says so). No fix possible in this repo short of code-signing, which is a cost/process decision, not tracked here.
 
 ## Finding 4 — real, but an OS-level fact of life, not a panel bug: SmartScreen blocks the exe outright when it carries Mark-of-the-Web
 

@@ -109,6 +109,32 @@ Every other claim I independently re-checked held up exactly as stated: baseline
 
 3. **[CRITICAL, but not specific to FND-001 — flagged here for completeness since I used this tool in round 1] The `check-owned-paths.ps1` guard silently discards its `-AllowedPath` argument when invoked with the plan's documented `-File ... -AllowedPath a,b` form.** I independently reproduced this myself (before reading the coordinator's DISC-002 writeup): `pwsh -File script.ps1 -AllowedPath a,b,c` binds one glued string (`elements=1`, `["a,b,c"]"`) instead of three elements, because `-File` argument tokens are not re-parsed by PowerShell's comma-array-literal grammar. **This means my round-1 `check-owned-paths.ps1` PASS for FND-001 was correct by luck, not by check** — my explicit `-AllowedPath docs/modernization/,scripts/modernization/` argument was silently discarded, and the PASS came entirely from the script's hardcoded `$initialHandoff`/`$globalAllowed` fallback lists, which happened to already cover every one of FND-001's actual paths. I re-ran it with the corrected form (`-Command "& '...' -AllowedPath @('docs/modernization/','scripts/modernization/')"`) against the current tree; results are recorded above and in `evidence/FND-005/VERIFICATION.md` in full. **I confirm the coordinator's DISC-002/RISK-007 analysis is accurate** — this is a real, critical, still-open program-wide tooling defect (already filed as RISK-007 in `RISK_REGISTER.md`), not something specific to or caused by FND-001, and not something I am asked to fix here.
 
+## Round 3 spot re-check (2026-09-03, kevin, part of the floor-wide FND-* reconciliation sweep)
+
+**Not a full re-verification — a targeted re-check of round 2's specific fix, against current
+`origin/main` (`761f41bc`), after roughly 300 commits and two point releases (v1.2.13, v1.2.14)
+since round 2 was written.** Re-read the defining files directly rather than trusting this
+document's own round-2 text:
+
+- `vitest.config.js` (repo root) — present.
+- `server/tests/vitest.globalSetup.mjs` — present.
+- `server/utils/paths.js` — `PANEL_PATHS_CONFIG_PATH` env override still implemented (the
+  mechanism `RISK-008`/`RISK-009` in `RISK_REGISTER.md` describe as the eventual hardening beyond
+  FND-005's own conditional isolation).
+- `server/database/init.js` — the module-load-time `mkdirSync` loop DISC-001 named as root cause is
+  still a bare top-level `for` loop today (now at a different line number, more error handling
+  added since), i.e. the underlying hazard this package's fix isolates against is still real and
+  still present in production code — the fix works by isolating the test run from it, not by
+  removing it, which is the correct scope boundary (removing it was never FND-001/FND-005's
+  contract).
+
+**Round 2's PASS verdict still holds as of 2026-09-03.** Did not re-run the full two-consecutive-
+`test:server`-then-`bootstrap-plan.ps1` repeatability proof (that would duplicate FND-005's own
+verification, not FND-001's) — code presence of all three load-bearing pieces is the evidence
+standard this same file already used for other re-confirmations (e.g. `RISK_REGISTER.md`'s "still
+true" notes), and I'm holding to that same bar here rather than inventing a stricter one for this
+pass alone.
+
 ## Verdict (round 2 — current)
 
 PASS

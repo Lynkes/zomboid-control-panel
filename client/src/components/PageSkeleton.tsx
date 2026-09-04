@@ -158,11 +158,11 @@ export function PageSkeleton({ variant = 'default', title, description, eyebrow,
           </div>
           <div className="relative min-h-[26rem] overflow-hidden rounded-xl border bg-card">
             <div className="absolute inset-0 opacity-40" style={{ backgroundImage: 'linear-gradient(hsl(var(--border)/0.55) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--border)/0.55) 1px, transparent 1px)', backgroundSize: '32px 32px' }} />
-            <div className="absolute left-4 top-4 flex gap-2">
+            <div className="absolute start-4 top-4 flex gap-2">
               <Skeleton className="h-9 w-24" />
               <Skeleton className="h-9 w-24" />
             </div>
-            <Skeleton className="absolute bottom-4 left-4 h-4 w-48" />
+            <Skeleton className="absolute bottom-4 start-4 h-4 w-48" />
           </div>
         </div>
       </div>

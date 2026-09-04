@@ -132,7 +132,7 @@ describe('WorkList', () => {
 
   it('renders each destination with its real live state and links to the real path', () => {
     const items: WorkItem[] = [
-      { to: '/backups', icon: Icon, label: 'Backups', state: '3 pending', tone: 'warning' },
+      { id: 'backups', to: '/backups', icon: Icon, label: 'Backups', state: '3 pending', tone: 'warning' },
     ]
     render(
       <MemoryRouter>
@@ -146,8 +146,8 @@ describe('WorkList', () => {
 
   it('a "bad" tone item is visually distinguished from a "good" one -- both cannot look the same', () => {
     const items: WorkItem[] = [
-      { to: '/a', icon: Icon, label: 'A', state: 'broken', tone: 'bad' },
-      { to: '/b', icon: Icon, label: 'B', state: 'fine', tone: 'good' },
+      { id: 'a', to: '/a', icon: Icon, label: 'A', state: 'broken', tone: 'bad' },
+      { id: 'b', to: '/b', icon: Icon, label: 'B', state: 'fine', tone: 'good' },
     ]
     render(
       <MemoryRouter>
@@ -156,5 +156,30 @@ describe('WorkList', () => {
     )
     expect(screen.getByText('broken')).toHaveClass('text-destructive')
     expect(screen.getByText('fine')).toHaveClass('text-success/80')
+  })
+
+  it('keeps rows with the same destination distinct across live sorting rerenders', () => {
+    const items: WorkItem[] = [
+      { id: 'console', to: '/console', icon: Icon, label: 'Console', state: 'rcon offline', tone: 'warning' },
+      { id: 'errors', to: '/console', icon: Icon, label: 'Errors', state: '2 logged', tone: 'default' },
+    ]
+    const duplicateKeyWarning = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { rerender } = render(
+      <MemoryRouter>
+        <WorkList items={items} />
+      </MemoryRouter>,
+    )
+
+    rerender(
+      <MemoryRouter>
+        <WorkList items={[items[1], items[0]]} />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getAllByRole('link')).toHaveLength(2)
+    expect(screen.getByText('Console')).toBeInTheDocument()
+    expect(screen.getByText('Errors')).toBeInTheDocument()
+    expect(duplicateKeyWarning).not.toHaveBeenCalledWith(expect.stringContaining('same key'))
+    duplicateKeyWarning.mockRestore()
   })
 })

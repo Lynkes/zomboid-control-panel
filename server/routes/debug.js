@@ -10,6 +10,7 @@ import { fileURLToPath } from "url";
 import archiver from "archiver";
 import { createLogger } from "../utils/logger.js";
 import { getDiskFree } from "../utils/diskSpace.js";
+import { resolveLaunchMode } from "../services/serverManager.js";
 const log = createLogger("API:Debug");
 import { getDataPaths, setDataPaths } from "../utils/paths.js";
 import {
@@ -54,6 +55,7 @@ import {
 } from "../utils/zomboidPaths.js";
 import { requirePermission, listRolesWithMemberCounts } from "../services/permissions.js";
 import { getDockerClient } from "../services/managedContainer.js";
+import { resolveProvider } from "../utils/serverStatusModel.js";
 import {
   getLifecycleServiceName,
   isManagedLifecycleProvider,
@@ -453,6 +455,9 @@ function createRedactingLogStream(knownSecrets) {
 }
 
 async function readPanelVersion() {
+  if (typeof PANEL_VERSION !== "undefined" && PANEL_VERSION) {
+    return String(PANEL_VERSION);
+  }
   const candidates = [
     path.join(__dirname, "..", "..", "package.json"),
     path.join(process.cwd(), "package.json"),
@@ -828,6 +833,28 @@ async function buildZomboidPaths(activeServer) {
   }
 
   const root = configured;
+
+  // 2026-09-04, god's finding in Charon's real bundle: installPath is not
+  // always a directory. "Custom launcher" mode (operator ruling 2026-08-27,
+  // custom-launcher-as-a-real-supported-mode-not-an-accident) legitimately
+  // stores a .bat/.sh/.exe FILE path in installPath -- resolveLaunchMode()
+  // is the shared, already-correct detector for this (serverManager.js's
+  // own launch-mode selection uses it). Joining "logs" straight onto a
+  // custom-launcher installPath produces a path like
+  // "...\StartServer_CharonWorld.bat\logs" (ENOENT, and listDir(installPath)
+  // itself would fail the same way trying to readdir a file) -- the
+  // install DIRECTORY for a custom launcher is the folder the script lives
+  // in, exactly the same relationship scanForPzPaths() already relies on
+  // (a discovered installPaths entry is the folder containing the launcher
+  // script it found alongside it).
+  const { mode: launchMode } = resolveLaunchMode({
+    installPath: activeServer?.installPath,
+  });
+  const installDir =
+    launchMode === "custom" && activeServer?.installPath
+      ? path.dirname(activeServer.installPath)
+      : activeServer?.installPath || null;
+
   return {
     configuredPath: configured,
     installPath: activeServer?.installPath || null,
@@ -849,11 +876,9 @@ async function buildZomboidPaths(activeServer) {
             recurseInto: ["default"],
           })
         : null,
-      install: activeServer?.installPath
-        ? await listDir(activeServer.installPath)
-        : null,
-      installLogs: activeServer?.installPath
-        ? await listDir(path.join(activeServer.installPath, "logs"))
+      install: installDir ? await listDir(installDir) : null,
+      installLogs: installDir
+        ? await listDir(path.join(installDir, "logs"))
         : null,
     },
   };
@@ -1856,6 +1881,38 @@ function diagSkip(id, label, message, extras = {}) {
   return { id, label, status: "skip", message, severity: "info", ...extras };
 }
 
+// GET /diagnostics's server.process check picks one of these 5 modes.
+// remoteRconOnly already treats "no local process is visible" as an
+// EXPECTED condition, not a fault, for a remote-SFTP server with no local
+// paths at all -- skip-with-note, not a warning. docker-local/docker-managed
+// is the same condition for the same underlying reason (GH#114 / 2026-09-01
+// Discord split-container report: PZ runs as PID 1 of a *different*
+// container, so this page's local scan can never see it either) -- the gap
+// was that the exemption enumerated one topology and not the other, not a
+// question of what the check should mean. The RCON/PanelBridge checks
+// elsewhere on this same page still run and reflect real, live status; this
+// row alone would otherwise show a false "Server process not running"
+// warning to precisely the operator troubleshooting that exact confusion.
+//
+// Pure decision only, no diagOk/diagWarn/diagSkip call inside -- those stay
+// literal, inline calls in the /diagnostics handler below (see this call
+// site's own comment), where diagnosticsCheckRegistry.test.js's
+// self-enforcing locale-completeness scanner needs to find them as such:
+// it regex-scans the route handler's own source text for
+// diag(Ok|Fail|Warn|Skip|Info)("server.process", ...) literals, so an id
+// registered as translated (KNOWN_TRANSLATED_IDS) whose calls moved behind
+// an opaque helper function reads to that scanner as REMOVED, not relocated.
+export function resolveServerProcessCheckMode({
+  remoteRconOnly,
+  dockerManagedProvider,
+  serverRunning,
+}) {
+  if (remoteRconOnly) return "remote";
+  if (dockerManagedProvider) return "docker";
+  if (serverRunning === null) return "unknown";
+  return serverRunning ? "running" : "stopped";
+}
+
 // Per-ID triage for the mods.resolved check below -- classifies WHY a single
 // Mods= entry doesn't resolve instead of leaving the operator with a bare
 // list. Levenshtein distance, standard DP over two rolling rows (no need to
@@ -2781,7 +2838,20 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
         !activeServer?.zomboidDataPath &&
         Boolean(activeServer?.rconHost || rconService?.config?.host);
 
-      if (remoteRconOnly) {
+      const dockerManagedProvider = ["docker-local", "docker-managed"].includes(
+        resolveProvider(activeServer),
+      );
+
+      // resolveServerProcessCheckMode() (defined above, near diagSkip) makes
+      // the decision; the actual diagOk/diagWarn/diagSkip("server.process",
+      // ...) calls stay literal and inline here on purpose -- see that
+      // function's own comment for why.
+      const serverProcessMode = resolveServerProcessCheckMode({
+        remoteRconOnly,
+        dockerManagedProvider,
+        serverRunning,
+      });
+      if (serverProcessMode === "remote") {
         checks.push(
           diagSkip(
             "server.process",
@@ -2790,7 +2860,16 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
             { category: "services" },
           ),
         );
-      } else if (serverRunning === null) {
+      } else if (serverProcessMode === "docker") {
+        checks.push(
+          diagSkip(
+            "server.process",
+            "Containerized server process",
+            "Runs in a separate Docker container this page cannot scan directly. RCON/PanelBridge checks below reflect real status.",
+            { category: "services" },
+          ),
+        );
+      } else if (serverProcessMode === "unknown") {
         checks.push(
           diagSkip(
             "server.process",
@@ -2799,7 +2878,7 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
             { category: "services" },
           ),
         );
-      } else if (serverRunning) {
+      } else if (serverProcessMode === "running") {
         checks.push(
           diagOk(
             "server.process",
@@ -6253,3 +6332,7 @@ export { summarizeRconRejections, buildRconCommandRejectionsCheck };
 // deadline behavior and its diagnostics-check decision -- see
 // server/tests/scanSaveStatsDeadline.test.js.
 export { scanSaveStats, buildStaleLocksCheck };
+// Exported for direct unit testing of the zomboid-paths.json bundle
+// section's custom-launcher installPath handling -- see
+// server/tests/zomboidPathsInstallLogs.test.js.
+export { buildZomboidPaths };

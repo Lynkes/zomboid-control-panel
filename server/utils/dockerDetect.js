@@ -5,8 +5,14 @@ import fs from "fs";
 // Docker sets /.dockerenv at the container root; Podman uses
 // /run/.containerenv. Falls back to a cgroup scan for runtimes (some CI
 // sandboxes, older Docker) that skip the marker file entirely.
-export function isContainerized() {
-  if (fs.existsSync("/.dockerenv") || fs.existsSync("/run/.containerenv")) {
+//
+// fileExists is injectable (defaults to the real fs.existsSync) so a
+// caller that already threads its own fileExists through for testability
+// -- routes/system.js's buildRuntimeInfo -- can pass it straight in
+// instead of the marker-file check silently going back to the real
+// filesystem underneath an otherwise-injected function.
+export function isContainerized(fileExists = fs.existsSync) {
+  if (fileExists("/.dockerenv") || fileExists("/run/.containerenv")) {
     return true;
   }
   try {

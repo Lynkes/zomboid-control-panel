@@ -160,6 +160,22 @@ async function setUp(players: Array<{ name: string; x: number; y: number }>) {
 }
 
 describe('WorldMap.tsx: healPlayer/setGodMode require players.gm_tools ALONE (2026-08-27 operator ruling reverses Jim c3083d5)', () => {
+  it('stops vehicle detail polling when the vehicle layer is hidden but keeps safehouse polling', async () => {
+    await setUp([])
+    renderWorldMap()
+
+    await waitFor(() => expect(sendCommand).toHaveBeenCalledWith('getVehiclesDetailed'))
+    const hideVehicles = await screen.findByRole('button', { name: /Hide vehicles/i })
+    sendCommand.mockClear()
+    mapVehicles.mockClear()
+
+    fireEvent.click(hideVehicles)
+
+    await waitFor(() => expect(sendCommand).toHaveBeenCalledWith('getSafehouses'))
+    expect(sendCommand).not.toHaveBeenCalledWith('getVehiclesDetailed')
+    expect(mapVehicles).not.toHaveBeenCalled()
+  })
+
   it('disables the dossier Heal and God buttons, and clicking them never calls the API, when the role lacks players.gm_tools even while holding bridge.command', async () => {
     mockCan = (capability) => capability !== 'players.gm_tools'
     await setUp([{ name: 'Kate', x: 10000, y: 10000 }])

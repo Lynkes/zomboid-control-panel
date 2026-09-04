@@ -53,7 +53,7 @@ import {
 import { RconService } from "./services/rcon.js";
 import { ServerManager } from "./services/serverManager.js";
 import { DockerClient } from "./services/dockerClient.js";
-import { setDockerClient, resolveDockerHostSignal } from "./services/managedContainer.js";
+import { setDockerClient } from "./services/managedContainer.js";
 import { ModChecker } from "./services/modChecker.js";
 import { Scheduler } from "./services/scheduler.js";
 import { DiscordBot } from "./services/discordBot.js";
@@ -88,10 +88,17 @@ import {
   compareModVersions,
   writeLuaAtomic,
 } from "./utils/embeddedLua.js";
-import { isServerObservedRunning } from "./utils/serverStatus.js";
-import { resolveProvider } from "./utils/serverStatusModel.js";
+import {
+  clientDistMatchesMetadata,
+  getEmbeddedClientDistPath,
+  readClientDistMetadata,
+  resolveClientDistPath,
+} from "./utils/embeddedClient.js";
+import { resolveObservedServerRunning } from "./utils/serverStatus.js";
 import { discoverMounts } from "./services/mountDiscovery.js";
 import { shouldAutoOpenBrowser } from "./utils/browserLaunch.js";
+import { isLinuxPanelSupervisor } from "./utils/restartSupervisor.js";
+import { acquireLifecycleLock } from "./services/lifecycleCoordinator.js";
 
 // === Supervisor bootstrap ===
 // If the .exe was double-clicked directly (no PANEL_SUPERVISOR_V env var) and
@@ -707,10 +714,17 @@ const httpsDetected =
 // further down this file) because CSP has to be registered before that
 // point — this is the one thing both need, computed early rather than
 // reordering the rest of the file around it.
-const cspClientDistPath =
+const externalClientDistPath =
   typeof process.pkg !== "undefined"
     ? path.join(path.dirname(process.execPath), "client", "dist")
     : path.join(__dirname, "../client/dist");
+const embeddedClientDistPath =
+  typeof process.pkg !== "undefined" ? getEmbeddedClientDistPath() : null;
+const cspClientDistPath = resolveClientDistPath({
+  packaged: typeof process.pkg !== "undefined",
+  embeddedPath: embeddedClientDistPath,
+  externalPath: externalClientDistPath,
+});
 // See utils/cspScriptHash.js: computed at startup by hashing the real
 // shipped file rather than a hardcoded hash, so this can never go stale.
 // Returns null if the script can't be found (dist not built, the tag
@@ -1631,6 +1645,7 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
     // Respawning ourselves under systemd causes a duplicate process; under
     // Docker (PID 1) the detached child dies with the container anyway.
     let orchestrated = false;
+    const linuxSupervisor = isLinuxPanelSupervisor();
     if (isPackaged) {
       try {
         if (process.env.INVOCATION_ID || process.env.NOTIFY_SOCKET)
@@ -1645,7 +1660,7 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
         /* best effort */
       }
 
-      if (!orchestrated) {
+      if (!orchestrated && !linuxSupervisor) {
         // Running as packaged exe standalone — spawn self, then exit.
         // On Linux, prefer the freshly-applied binary path (linuxRespawnPath)
         // since process.execPath may point at a .new slot we just renamed away.
@@ -1653,9 +1668,13 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
         // (the helper handles it), so process.execPath is safe.
         const respawnTarget = linuxRespawnPath || process.execPath;
         spawn(respawnTarget, [], { detached: true, stdio: "ignore" }).unref();
-      } else {
+      } else if (orchestrated) {
         log.info(
           "Running under orchestrator (systemd/Docker) — exiting for external restart",
+        );
+      } else {
+        log.info(
+          "Running under the Linux supervisor — exiting for start.sh to relaunch",
         );
       }
     }
@@ -1666,10 +1685,6 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
     // non-zero so `on-failure`/`always` units respawn us; Docker
     // `restart: unless-stopped`/`always` restart regardless of code, so this is
     // safe there too. Standalone (already self-respawned) exits 0 as normal.
-    const linuxSupervisor =
-      process.platform === "linux" &&
-      process.env.PANEL_SUPERVISOR_V === "2" &&
-      process.env.PANEL_PRESERVE_GAME_SERVERS === "1";
     process.exit(linuxSupervisor ? 75 : orchestrated ? 1 : 0);
   }, 1000);
 });
@@ -1840,30 +1855,69 @@ app.post(
 // Serve static files in production
 // Detect if running as packaged exe (pkg sets process.pkg)
 const isPackaged = typeof process.pkg !== "undefined";
-let clientDistPath;
+const clientDistPath = cspClientDistPath;
+const legacyClientMetadata =
+  isPackaged && !embeddedClientDistPath
+    ? readClientDistMetadata(clientDistPath)
+    : null;
+const legacyClientMismatch =
+  isPackaged &&
+  !embeddedClientDistPath &&
+  !clientDistMatchesMetadata(clientDistPath, _buildMetadata);
 
-if (isPackaged) {
-  // When packaged, client/dist is next to the exe
-  clientDistPath = path.join(path.dirname(process.execPath), "client", "dist");
-} else {
-  // Development mode
-  clientDistPath = path.join(__dirname, "../client/dist");
+function buildLegacyClientRecoveryPage() {
+  const escapeHtml = (value) =>
+    String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  const frontendMetadata = legacyClientMetadata || "unavailable";
+  return `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Panel update required</title></head>
+<body><main>
+<h1>Panel update required</h1>
+<p>The executable and web interface are from different releases.</p>
+<p>Executable: ${escapeHtml(`${_buildMetadata.panelVersion} / ${_buildMetadata.buildSha.slice(0, 12)}`)}</p>
+<p>Frontend: ${escapeHtml(typeof frontendMetadata === "string" ? frontendMetadata : `${frontendMetadata.panelVersion} / ${frontendMetadata.buildSha.slice(0, 12)}`)}</p>
+<p>Download the latest full package, extract it over this installation without replacing the <code>data</code> folder, then start the panel again.</p>
+<p><a href="https://github.com/fpsacha/zomboid-control-panel/releases/latest">Download the latest release</a></p>
+</main></body>
+</html>`;
+}
+
+if (legacyClientMismatch) {
+  log.error(
+    `Packaged frontend does not match executable ${_buildMetadata.panelVersion}/${_buildMetadata.buildSha}; serving recovery page instead of mixed client/dist`,
+  );
+  app.use((req, res, next) => {
+    if (req.method !== "GET" || req.path.startsWith("/api")) return next();
+    res.status(503).type("html").send(buildLegacyClientRecoveryPage());
+  });
 }
 
 log.debug(`Serving client from: ${clientDistPath}`);
 // Serve hashed assets with long cache, HTML with no-cache
-app.use(
-  express.static(clientDistPath, {
-    maxAge: "7d",
-    immutable: true,
-    setHeaders(res, filePath) {
-      // HTML must not be cached — it references hashed assets
-      if (filePath.endsWith(".html")) {
-        res.setHeader("Cache-Control", "no-cache");
-      }
-    },
-  }),
-);
+if (!legacyClientMismatch) {
+  app.use(
+    express.static(clientDistPath, {
+      maxAge: "7d",
+      immutable: true,
+      setHeaders(res, filePath) {
+        // HTML must not be cached — it references hashed assets
+        if (filePath.endsWith(".html")) {
+          res.setHeader("Cache-Control", "no-cache");
+        }
+      },
+    }),
+  );
+}
+
+export function sendClientIndex(res, clientDistPath, callback) {
+  return res.sendFile("index.html", { root: clientDistPath }, callback);
+}
 
 // Global API error handler — sanitize internal details from error responses
 // Must be defined before the catch-all route but after all API routes
@@ -1911,7 +1965,7 @@ app.use((req, res, next) => {
   if (req.path.startsWith("/api")) {
     res.status(404).json({ error: "API endpoint not found" });
   } else {
-    res.sendFile(path.join(clientDistPath, "index.html"), (err) => {
+    sendClientIndex(res, clientDistPath, (err) => {
       if (err) {
         log.error(`Failed to serve index.html: ${err.message}`);
         res.status(500).send("Page not available");
@@ -2452,49 +2506,13 @@ function stopPerfPolling() {
 let statusWatchdogInterval = null;
 let lastKnownRunning = null;
 
+// Thin, no-arg wrapper over utils/serverStatus.js's shared
+// resolveObservedServerRunning() -- see that function's own doc comment for
+// why the branching logic (remote / docker-local / docker-managed / local
+// process+RCON+bridge) lives there now instead of here: discordBot.js needed
+// the identical verdict and could not import this module (circular).
 export async function getObservedServerRunning() {
-  const activeServer = await getActiveServer();
-  if (activeServer?.isRemote) {
-    return isServerObservedRunning({
-      processRunning: false,
-      rconConnected: rconService.connected,
-      bridgeConnected: panelBridge.isModConnected(),
-    });
-  }
-
-  // docker-local/docker-managed: PZ runs as PID 1 of a *different*
-  // container, so the local process scan below can never see it (GH#114,
-  // same reasoning server/routes/serverStatus.js's dashboard badge already
-  // follows). Without this branch the watchdog always saw processRunning
-  // false/scanFailed for these providers and could never detect a
-  // transition -- a Docker container start/stop/crash/external `docker
-  // stop` got NO push, ever, only the client's own 10-15s polling. Reuses
-  // resolveDockerHostSignal so this and the dashboard badge can never
-  // disagree about what "Docker says running" means at the same moment.
-  const provider = resolveProvider(activeServer);
-  if (provider === "docker-local" || provider === "docker-managed") {
-    const dockerSignal = await resolveDockerHostSignal(activeServer, dockerClient);
-    return isServerObservedRunning({
-      processRunning: dockerSignal.running,
-      rconConnected: rconService.connected,
-      bridgeConnected: panelBridge.isModConnected(),
-      processScanFailed: dockerSignal.scanFailed,
-    });
-  }
-
-  const processDetails =
-    typeof serverManager.getServerProcessDetails === "function"
-      ? await serverManager.getServerProcessDetails()
-      : null;
-
-  // A systemd-launched local server can evade strict per-server ownership
-  // attribution. RCON and the bridge remain direct evidence that it is alive.
-  return isServerObservedRunning({
-    processRunning: processDetails?.running,
-    rconConnected: rconService.connected,
-    bridgeConnected: panelBridge.isModConnected(),
-    processScanFailed: !processDetails || processDetails.scanFailed,
-  });
+  return resolveObservedServerRunning(serverManager, rconService, dockerClient);
 }
 
 // One watchdog cycle: observe ground truth, and if it differs from what we
@@ -2999,88 +3017,102 @@ async function start() {
               );
               rconService.setServerStarting(false);
             } else {
-              log.info("Auto-start is enabled - starting PZ server...");
+              const lifecycleLock = acquireLifecycleLock(
+                "startup-auto-start",
+                activeServer?.name || activeServer?.serverName || null,
+              );
+              if (!lifecycleLock) {
+                log.warn(
+                  "Auto-start skipped because another lifecycle operation is in progress",
+                );
+                rconService.setServerStarting(false);
+              } else {
+                log.info("Auto-start is enabled - starting PZ server...");
 
-              // Set flag to prevent auto-reconnect from interfering
-              rconService.setServerStarting(true);
+                // Set flag to prevent auto-reconnect from interfering
+                rconService.setServerStarting(true);
 
-              try {
-                const startResult = await serverManager.startServer();
-                if (startResult.success) {
-                  log.info("PZ server auto-started successfully");
+                try {
+                  const startResult = await serverManager.startServer({
+                    serverId: activeServer?.id ?? null,
+                  });
+                  if (startResult.success) {
+                    log.info("PZ server auto-started successfully");
 
-                  // Wait for server to fully start before connecting RCON
-                  // Monitor the TCP port instead of hard waiting
-                  log.info("PZ server auto-started - Monitoring RCON port...");
+                    // Wait for server to fully start before connecting RCON
+                    // Monitor the TCP port instead of hard waiting
+                    log.info("PZ server auto-started - Monitoring RCON port...");
 
-                  await rconService.loadConfig(); // Ensure clean config
-                  const rconHost = rconService.config.host || "127.0.0.1";
-                  const rconPort = rconService.config.port || 27015;
+                    await rconService.loadConfig(); // Ensure clean config
+                    const rconHost = rconService.config.host || "127.0.0.1";
+                    const rconPort = rconService.config.port || 27015;
 
-                  const maxPollAttempts = 60; // 5 minutes max
+                    const maxPollAttempts = 60; // 5 minutes max
 
-                  for (let i = 0; i < maxPollAttempts; i++) {
-                    // Check port readiness
-                    const portOpen = await rconService.checkPortOpen(
-                      rconHost,
-                      rconPort,
-                    );
+                    for (let i = 0; i < maxPollAttempts; i++) {
+                      // Check port readiness
+                      const portOpen = await rconService.checkPortOpen(
+                        rconHost,
+                        rconPort,
+                      );
 
-                    if (!portOpen) {
-                      // Log every 30s
-                      if (i % 6 === 0) {
-                        log.debug(
-                          `Auto-start: Waiting for RCON port ${rconHost}:${rconPort}...`,
-                        );
+                      if (!portOpen) {
+                        // Log every 30s
+                        if (i % 6 === 0) {
+                          log.debug(
+                            `Auto-start: Waiting for RCON port ${rconHost}:${rconPort}...`,
+                          );
+                        }
+                        await new Promise((r) => setTimeout(r, 5000));
+                        continue;
                       }
-                      await new Promise((r) => setTimeout(r, 5000));
-                      continue;
-                    }
 
-                    // Port is open, try to connect
-                    log.info(`RCON port open! Attempting connection...`);
+                      // Port is open, try to connect
+                      log.info(`RCON port open! Attempting connection...`);
 
-                    try {
-                      await Promise.race([
-                        rconService.connect(),
-                        new Promise((_, reject) =>
-                          setTimeout(
-                            () => reject(new Error("RCON connection timeout")),
-                            15000,
+                      try {
+                        await Promise.race([
+                          rconService.connect(),
+                          new Promise((_, reject) =>
+                            setTimeout(
+                              () => reject(new Error("RCON connection timeout")),
+                              15000,
+                            ),
                           ),
-                        ),
-                      ]);
+                        ]);
 
-                      if (rconService.connected) {
-                        log.info(
-                          "RCON connected successfully after auto-start",
-                        );
-                        break;
-                      } else {
-                        // Port open but auth/handshake failed
+                        if (rconService.connected) {
+                          log.info(
+                            "RCON connected successfully after auto-start",
+                          );
+                          break;
+                        } else {
+                          // Port open but auth/handshake failed
+                          log.debug(
+                            "RCON port open but connection failed, retrying in 5s...",
+                          );
+                          await new Promise((r) => setTimeout(r, 5000));
+                        }
+                      } catch (e) {
                         log.debug(
-                          "RCON port open but connection failed, retrying in 5s...",
+                          `Auto-start RCON connection failed: ${e.message}`,
                         );
                         await new Promise((r) => setTimeout(r, 5000));
                       }
-                    } catch (e) {
-                      log.debug(
-                        `Auto-start RCON connection failed: ${e.message}`,
-                      );
-                      await new Promise((r) => setTimeout(r, 5000));
                     }
+                  } else {
+                    log.error(
+                      "Failed to auto-start PZ server:",
+                      startResult.error,
+                    );
                   }
-                } else {
-                  log.error(
-                    "Failed to auto-start PZ server:",
-                    startResult.error,
-                  );
+                } catch (e) {
+                  log.error("Error during auto-start:", e.message);
+                } finally {
+                  // Clear the flag so auto-reconnect can resume normally
+                  rconService.setServerStarting(false);
+                  lifecycleLock.release();
                 }
-              } catch (e) {
-                log.error("Error during auto-start:", e.message);
-              } finally {
-                // Clear the flag so auto-reconnect can resume normally
-                rconService.setServerStarting(false);
               }
             }
           }

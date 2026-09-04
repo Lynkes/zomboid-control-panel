@@ -7,6 +7,10 @@ import panelBridge from "./panelBridge.js";
 import { RconService } from "./rcon.js";
 import { ServerManager } from "./serverManager.js";
 import { runManagedLifecycle } from "./managedContainer.js";
+import {
+  acquireLifecycleLock,
+  lifecycleInProgressResponse,
+} from "./lifecycleCoordinator.js";
 import { createBackupIfChanged } from "../utils/configBackup.js";
 import {
   candidateIniPaths,
@@ -27,6 +31,15 @@ import {
   isSupportedFiveFieldCron,
   isValidIanaTimezone,
 } from "../utils/cronValidation.js";
+import {
+  defaultRestartWarningSettings,
+  formatRestartWarning,
+  getRestartWarningNotice,
+  getRestartWarningPresetTemplates,
+  normalizeRestartWarningSettings,
+  RESTART_WARNING_SETTING_KEY,
+  validateRestartWarningSettings,
+} from "../utils/restartWarning.js";
 
 // Settings-store key for the install-wide scheduler timezone (2026-08-29,
 // timezone-picker card). ONE zone for the whole install, not per-schedule --
@@ -167,6 +180,7 @@ export class Scheduler {
     this.effectiveTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     this.configuredTimezone = null; // the raw settings value, once resolved
     this.timezoneFallback = null; // {configured, effective} when the configured zone is invalid
+    this.restartWarning = defaultRestartWarningSettings();
   }
 
   setBackupService(backupService) {
@@ -298,10 +312,30 @@ export class Scheduler {
     return this.getStatus();
   }
 
+  async loadRestartWarningSettings() {
+    try {
+      this.restartWarning = normalizeRestartWarningSettings(
+        await getSetting(RESTART_WARNING_SETTING_KEY),
+      );
+    } catch (error) {
+      this.restartWarning = defaultRestartWarningSettings();
+      log.warn(`Could not load restart warning settings: ${error.message}`);
+    }
+    return this.restartWarning;
+  }
+
+  async setRestartWarning(settings) {
+    const normalized = validateRestartWarningSettings(settings);
+    await setSetting(RESTART_WARNING_SETTING_KEY, normalized);
+    this.restartWarning = normalized;
+    return this.restartWarning;
+  }
+
   async init() {
     // Resolve (and migrate, if needed) the timezone BEFORE anything is
     // scheduled -- every scheduling step below reads this.effectiveTimezone.
     await this.resolveTimezone();
+    await this.loadRestartWarningSettings();
 
     // Load saved scheduled tasks
     await this.loadScheduledTasks();
@@ -1067,6 +1101,7 @@ export class Scheduler {
       // genuinely unattended triggers (the AUTO_RESTART_CRON job, a
       // mod-update restart, a scheduled task's cron fire) keep the default.
       label = "Auto Restart",
+      lifecycleLock: providedLifecycleLock = null,
     } = {},
   ) {
     // Prevent concurrent restarts
@@ -1075,11 +1110,19 @@ export class Scheduler {
       return { success: false, message: "Restart already in progress" };
     }
 
+    const lifecycleLock =
+      providedLifecycleLock ||
+      acquireLifecycleLock("restart", serverManager?.serverName || null);
+    if (!lifecycleLock) {
+      return { success: false, ...lifecycleInProgressResponse() };
+    }
+
     this.restartInProgress = true;
     this.restartCancelled = false; // Allow cancellation
     const warningMinutes =
       warningMinutesParam ??
       (parseInt(process.env.RESTART_WARNING_MINUTES, 10) || 5);
+    const restartWarning = normalizeRestartWarningSettings(this.restartWarning);
     const restartStartTime = Date.now();
 
     // Pin the restart to the server it starts against. The shared
@@ -1174,7 +1217,9 @@ export class Scheduler {
         await refreshLaunchTargetBeforeStart(restartTarget, {
           managedHandled: false,
         });
-        const started = await serverManager.startServer();
+        const started = await serverManager.startServer({
+          serverId: pinnedServerId,
+        });
         if (!started?.success) {
           log.warn(
             `Auto-restart: start command reported failure: ${started?.error || started?.message || "unknown error"}`,
@@ -1276,15 +1321,14 @@ export class Scheduler {
           if (this.restartCancelled) {
             log.info("Auto-restart: Cancelled during countdown");
             await this._broadcastRestartMessage(
-              "[SERVER] Restart CANCELLED.",
+              getRestartWarningNotice(restartWarning, "cancelled"),
               rconService,
             );
             await this._notifyRestartCancelled();
             return { success: false, message: "Restart cancelled" };
           }
-          const minuteWord = i === 1 ? "MINUTE" : "MINUTES";
           await this._broadcastRestartMessage(
-            `[SERVER] *** RESTART IN ${i} ${minuteWord} ***`,
+            formatRestartWarning(restartWarning, i, "minute"),
             rconService,
           );
 
@@ -1299,39 +1343,42 @@ export class Scheduler {
         // +5s -> "5", +1s -> "4", +1s -> "3", +1s -> "2", +1s -> "1",
         // +1s -> "RESTARTING NOW".
         const finalTicks = [
-          { wait: 30000, msg: "[SERVER] *** RESTART IN 30 SECONDS ***" },
-          { wait: 20000, msg: "[SERVER] *** RESTART IN 10 SECONDS ***" },
-          { wait: 5000, msg: "[SERVER] 5..." },
-          { wait: 1000, msg: "[SERVER] 4..." },
-          { wait: 1000, msg: "[SERVER] 3..." },
-          { wait: 1000, msg: "[SERVER] 2..." },
-          { wait: 1000, msg: "[SERVER] 1..." },
+          { wait: 30000, count: 30 },
+          { wait: 20000, count: 10 },
+          { wait: 5000, count: 5 },
+          { wait: 1000, count: 4 },
+          { wait: 1000, count: 3 },
+          { wait: 1000, count: 2 },
+          { wait: 1000, count: 1 },
         ];
         for (const tick of finalTicks) {
           await this.sleep(tick.wait);
           if (this.restartCancelled) {
             log.info("Auto-restart: Cancelled during final countdown");
             await this._broadcastRestartMessage(
-              "[SERVER] Restart CANCELLED.",
+              getRestartWarningNotice(restartWarning, "cancelled"),
               rconService,
             );
             await this._notifyRestartCancelled();
             return { success: false, message: "Restart cancelled" };
           }
-          await this._broadcastRestartMessage(tick.msg, rconService);
+          await this._broadcastRestartMessage(
+            formatRestartWarning(restartWarning, tick.count, "second"),
+            rconService,
+          );
         }
 
         // One last second, then go.
         await this.sleep(1000);
         await this._broadcastRestartMessage(
-          "[SERVER] *** RESTARTING NOW - please reconnect in a few minutes ***",
+          getRestartWarningNotice(restartWarning, "restarting"),
           rconService,
         );
         await this.sleep(2000);
       } else {
         // Immediate restart - just a brief message
         await this._broadcastRestartMessage(
-          "[SERVER] *** RESTARTING NOW ***",
+          getRestartWarningNotice(restartWarning, "restarting"),
           rconService,
         );
         await this.sleep(2000);
@@ -1432,7 +1479,9 @@ export class Scheduler {
 
         // Force stop if needed
         if (processDetails.running) {
-          const forced = await serverManager.stopServer(false);
+          const forced = await serverManager.stopServer(false, {
+            serverId: pinnedServerId,
+          });
           if (!forced?.success || forced.confirmed === false) {
             const stopError =
               forced?.error || forced?.message || "unknown error";
@@ -1511,6 +1560,7 @@ export class Scheduler {
         await this._ensureRestartTarget(serverManager, pinnedServerId);
         const restarted = await serverManager.startServer({
           skipRunningCheck: true,
+          serverId: pinnedServerId,
         });
         if (!restarted?.success) {
           log.warn(
@@ -1703,6 +1753,7 @@ export class Scheduler {
       throw error;
     } finally {
       this.restartInProgress = false;
+      lifecycleLock.release();
     }
   }
 
@@ -1767,6 +1818,8 @@ export class Scheduler {
       timezone: this.effectiveTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
       configuredTimezone: this.configuredTimezone,
       timezoneFallback: this.timezoneFallback,
+      restartWarning: normalizeRestartWarningSettings(this.restartWarning),
+      restartWarningPresets: getRestartWarningPresetTemplates(),
     };
   }
 

@@ -123,14 +123,17 @@ import {
   getIniSettingLabel,
   getIniSettingDescription,
   getIniSettingOptionLabel,
+  getIniSettingSearchText,
   getIniCategoryLabel,
   getIniCategoryGroupLabel,
   getSandboxSettingLabel,
   getSandboxSettingDescription,
   getSandboxSettingOptionLabel,
+  getSandboxSettingSearchText,
   getSandboxCategoryLabel,
   getSandboxCategoryGroupLabel,
-  getUnrecognizedSandboxOptionWarning
+  getUnrecognizedSandboxOptionWarning,
+  formatRawConfigValue,
 } from '@/lib/serverConfigSchema'
 
 type EditorMode = 'structured' | 'raw'
@@ -283,8 +286,8 @@ const IniSettingRow = memo(({
   // Multiline settings
   if (setting.type === 'multiline') {
     return (
-      <div className={`perf-content-auto grid gap-2 rounded-md border-b py-3 pl-3 pr-4 transition-colors last:border-0 ${
-        isModified ? 'border-l-2 border-l-warning bg-warning/5' : 'border-l-2 border-l-transparent hover:bg-muted/20'
+      <div className={`perf-content-auto grid gap-2 rounded-md border-b py-3 ps-3 pe-4 transition-colors last:border-0 ${
+        isModified ? 'border-s-2 border-s-warning bg-warning/5' : 'border-s-2 border-s-transparent hover:bg-muted/20'
       }`}>
         <div className="flex items-center justify-between">
           <div>
@@ -293,7 +296,7 @@ const IniSettingRow = memo(({
           </div>
           {isModified && onReset && (
             <Button variant="ghost" size="sm" className="h-7 text-xs text-warning hover:text-warning" onClick={() => onReset(setting.key)}>
-              <Undo2 className="w-3 h-3 mr-1" /> {t('row.reset')}
+              <Undo2 className="w-3 h-3 me-1" /> {t('row.reset')}
             </Button>
           )}
         </div>
@@ -305,7 +308,7 @@ const IniSettingRow = memo(({
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <code className="bg-muted px-1 rounded">{setting.key}</code>
           {setting.default !== undefined && (
-            <span className={isDifferentFromDefault ? 'text-warning' : ''}>{t('row.defaultValue', { value: String(setting.default) })}</span>
+            <span className={isDifferentFromDefault ? 'text-warning' : ''}>{t('row.defaultValue', { value: formatRawConfigValue(setting.default) })}</span>
           )}
         </div>
       </div>
@@ -314,8 +317,8 @@ const IniSettingRow = memo(({
 
   // Standard settings
   return (
-    <div className={`perf-content-auto grid gap-2 rounded-md border-b py-3 pl-3 pr-4 transition-colors last:border-0 ${
-      isModified ? 'border-l-2 border-l-warning bg-warning/5' : 'border-l-2 border-l-transparent hover:bg-muted/20'
+    <div className={`perf-content-auto grid gap-2 rounded-md border-b py-3 ps-3 pe-4 transition-colors last:border-0 ${
+      isModified ? 'border-s-2 border-s-warning bg-warning/5' : 'border-s-2 border-s-transparent hover:bg-muted/20'
     }`}>
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
         <div className="flex-1 min-w-0">
@@ -373,10 +376,10 @@ const IniSettingRow = memo(({
                   min={setting.min}
                   max={setting.max}
                   aria-invalid={numberIsInvalid}
-                  className={`text-right ${isModified ? 'border-warning/40' : ''} ${numberIsInvalid ? 'border-destructive/70' : ''}`}
+                  className={`text-end ${isModified ? 'border-warning/40' : ''} ${numberIsInvalid ? 'border-destructive/70' : ''}`}
                 />
                 {(setting.min !== undefined || setting.max !== undefined) && (
-                  <div className="text-xs text-muted-foreground/60 text-right mt-0.5">
+                  <div className="text-xs text-muted-foreground/60 text-end mt-0.5">
                     {setting.min !== undefined && setting.max !== undefined
                       ? t('row.rangeMinMax', { min: setting.min, max: setting.max })
                       : setting.min !== undefined
@@ -442,7 +445,7 @@ const IniSettingRow = memo(({
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <code className="bg-muted px-1 rounded">{setting.key}</code>
         {setting.default !== undefined && (
-          <span className={isDifferentFromDefault ? 'text-warning' : ''}>{t('row.defaultValue', { value: String(setting.default) })}</span>
+          <span className={isDifferentFromDefault ? 'text-warning' : ''}>{t('row.defaultValue', { value: formatRawConfigValue(setting.default) })}</span>
         )}
       </div>
     </div>
@@ -483,8 +486,8 @@ export const SandboxSettingRow = memo(({
     !setting.options.some((o) => o.value === Number(value))
 
   return (
-    <div className={`perf-content-auto grid gap-2 rounded-md border-b py-3 pl-3 pr-4 transition-colors last:border-0 ${
-      isModified ? 'border-l-2 border-l-warning bg-warning/5' : 'border-l-2 border-l-transparent hover:bg-muted/20'
+    <div className={`perf-content-auto grid gap-2 rounded-md border-b py-3 ps-3 pe-4 transition-colors last:border-0 ${
+      isModified ? 'border-s-2 border-s-warning bg-warning/5' : 'border-s-2 border-s-transparent hover:bg-muted/20'
     }`}>
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
         <div className="min-w-0 flex-1">
@@ -498,7 +501,7 @@ export const SandboxSettingRow = memo(({
           <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
             <code className="bg-muted px-1 rounded">{setting.key}</code>
             {setting.default !== undefined && (
-              <span className={isDifferentFromDefault ? 'text-warning' : ''}>{t('row.defaultValue', { value: String(setting.default) })}</span>
+              <span className={isDifferentFromDefault ? 'text-warning' : ''}>{t('row.defaultValue', { value: formatRawConfigValue(setting.default) })}</span>
             )}
           </div>
         </div>
@@ -549,6 +552,22 @@ export const SandboxSettingRow = memo(({
                   </div>
                 )}
               </div>
+            ) : setting.type === 'string' ? (
+              // GH#143: a plain text input, no numeric coercion. This used
+              // to fall into the numeric branch below (the catch-all had no
+              // type === 'string' gate), so every comma the user typed into
+              // a comma-separated list (WorldItemRemovalList,
+              // LootItemRemovalList -- the only two sandbox settings with
+              // type: 'string') got silently turned into a period by
+              // normalizeNumericInput(), including on paste. A third string
+              // setting added later lands here too rather than silently
+              // inheriting the numeric branch.
+              <Input
+                type="text"
+                value={value !== undefined ? String(value) : ''}
+                onChange={(e) => onChange(setting, e.target.value)}
+                className={isModified ? 'border-warning/40' : ''}
+              />
             ) : (
               <div>
                 <Input
@@ -560,10 +579,10 @@ export const SandboxSettingRow = memo(({
                   max={setting.max}
                   step={setting.max && setting.max <= 1 ? 0.1 : 1}
                   aria-invalid={numberIsInvalid}
-                  className={`text-right ${isModified ? 'border-warning/40' : ''} ${numberIsInvalid ? 'border-destructive/70' : ''}`}
+                  className={`text-end ${isModified ? 'border-warning/40' : ''} ${numberIsInvalid ? 'border-destructive/70' : ''}`}
                 />
                 {(setting.min !== undefined || setting.max !== undefined) && (
-                  <div className="text-xs text-muted-foreground/60 text-right mt-0.5">
+                  <div className="text-xs text-muted-foreground/60 text-end mt-0.5">
                     {setting.min !== undefined && setting.max !== undefined
                       ? t('row.rangeMinMax', { min: setting.min, max: setting.max })
                       : setting.min !== undefined
@@ -778,12 +797,13 @@ export function resolveServerConfigDeepLink(searchParams: URLSearchParams) {
 
 export default function ServerConfig() {
   const { t, i18n } = useTranslation('serverconfig')
+  const searchLocale = i18n.resolvedLanguage || i18n.language
   const [searchParams] = useSearchParams()
   const initialDeepLink = resolveServerConfigDeepLink(searchParams)
   // List separator is a language property, not something a joined list of
   // translated setting labels can be assumed to want a Latin ", " for --
-  // zh-CN enumerates nouns with the ideographic comma instead.
-  const listSep = i18n.language === 'zh-CN' ? '、' : ', '
+  // zh-CN / zh-TW enumerates nouns with the ideographic comma instead.
+  const listSep = i18n.language.startsWith('zh') ? '、' : ', '
   const [activeTab, setActiveTab] = useState(initialDeepLink.tab)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -1672,34 +1692,26 @@ export default function ServerConfig() {
 
   // Filter settings by search + filter mode
   const filteredIniSettings = useMemo(() => {
-    const lower = deferredSearchQuery.toLowerCase()
+    const lower = deferredSearchQuery.toLocaleLowerCase(searchLocale)
     const filtered = INI_SCHEMA.filter(s => {
-      if (deferredSearchQuery && !(
-        s.key.toLowerCase().includes(lower) ||
-        getIniSettingLabel(s).toLowerCase().includes(lower) ||
-        getIniSettingDescription(s).toLowerCase().includes(lower)
-      )) return false
+      if (deferredSearchQuery && !getIniSettingSearchText(s).toLocaleLowerCase(searchLocale).includes(lower)) return false
       if (filterMode === 'modified' && !isIniNonDefault(s)) return false
       if (filterMode === 'nondefault' && !isIniModified(s)) return false
       return true
     })
     return groupByCategory(filtered)
-  }, [deferredSearchQuery, filterMode, isIniModified, isIniNonDefault, i18n.language])
+  }, [deferredSearchQuery, filterMode, isIniModified, isIniNonDefault, searchLocale])
 
   const filteredSandboxSettings = useMemo(() => {
-    const lower = deferredSearchQuery.toLowerCase()
+    const lower = deferredSearchQuery.toLocaleLowerCase(searchLocale)
     const filtered = SANDBOX_SCHEMA.filter(s => {
-      if (deferredSearchQuery && !(
-        s.key.toLowerCase().includes(lower) ||
-        getSandboxSettingLabel(s).toLowerCase().includes(lower) ||
-        getSandboxSettingDescription(s).toLowerCase().includes(lower)
-      )) return false
+      if (deferredSearchQuery && !getSandboxSettingSearchText(s).toLocaleLowerCase(searchLocale).includes(lower)) return false
       if (filterMode === 'modified' && !isSandboxNonDefault(s)) return false
       if (filterMode === 'nondefault' && !isSandboxModified(s)) return false
       return true
     })
     return groupByCategory(filtered)
-  }, [deferredSearchQuery, filterMode, isSandboxModified, isSandboxNonDefault, i18n.language])
+  }, [deferredSearchQuery, filterMode, isSandboxModified, isSandboxNonDefault, searchLocale])
 
   // Modified-count per category for rail badges
   const iniModifiedByCategory = useMemo(() => {
@@ -2144,7 +2156,7 @@ export default function ServerConfig() {
             <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <span className="min-w-0 break-words" dir="auto" title={loadError}>{loadError}</span>
               <Button variant="outline" size="sm" onClick={loadData} className="self-start">
-                <RefreshCw className="mr-2 h-4 w-4" /> {t('retry')}
+                <RefreshCw className="me-2 h-4 w-4" /> {t('retry')}
               </Button>
             </AlertDescription>
           </Alert>
@@ -2188,7 +2200,7 @@ export default function ServerConfig() {
           <div className="flex flex-wrap items-center gap-1.5">
             {(hasIniChanges || hasSandboxChanges) && (
               <Badge variant="warning" className="motion-safe:animate-pulse text-xs font-medium">
-                <AlertTriangle className="mr-1 h-3 w-3" />
+                <AlertTriangle className="me-1 h-3 w-3" />
                 {t('pageHeader.unsavedChanges')}
               </Badge>
             )}
@@ -2414,7 +2426,7 @@ export default function ServerConfig() {
                 <div className="flex flex-wrap items-center gap-1.5">
                   {hasIniChanges && (
                     <Badge variant="warning" className="h-5 px-1.5 py-0 font-mono text-[10px]">
-                      <AlertTriangle className="mr-1 h-3 w-3" />
+                      <AlertTriangle className="me-1 h-3 w-3" />
                       {changedIniCount}
                     </Badge>
                   )}
@@ -2525,13 +2537,13 @@ export default function ServerConfig() {
                   {/* Scoped search + filter mode — applies to all categories on this tab */}
                   <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
                     <div className="relative min-w-0 flex-1 sm:max-w-md">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
                         ref={iniSearchRef}
                         placeholder={t('search.settingsPlaceholder')}
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="h-8 bg-background/50 pl-9 pr-20"
+                        className="h-8 bg-background/50 ps-9 pe-20"
                         aria-label={t('search.aria')}
                         maxLength={128}
                       />
@@ -2552,7 +2564,7 @@ export default function ServerConfig() {
                         </div>
                       )}
                     </div>
-                    <div className="ml-auto flex items-center gap-2">
+                    <div className="ms-auto flex items-center gap-2">
                       <div className="inline-flex items-center rounded-md border border-border/60 bg-background/50 p-0.5" role="group" aria-label={t('search.filterAria')}>
                         {(['all','modified','nondefault'] as const).map(mode => (
                           <button
@@ -2573,7 +2585,7 @@ export default function ServerConfig() {
                   </div>
                   {searchQuery ? (
                     // Search mode: flat results across all categories, grouped by category label
-                    <ScrollArea className="h-[calc(100vh-420px)] min-h-[360px] pr-4">
+                    <ScrollArea className="h-[calc(100vh-420px)] min-h-[360px] pe-4">
                       {INI_CATEGORIES.map(category => {
                         const settings = filteredIniSettings[category.id] || []
                         if (settings.length === 0) return null
@@ -2611,10 +2623,10 @@ export default function ServerConfig() {
                     </ScrollArea>
                   ) : (
                     // Rail mode: vertical category nav (grouped) + single active category content
-                    <div className="grid gap-0 md:grid-cols-[252px_minmax(0,1fr)]">
+                    <div className="grid gap-0 md:grid-cols-[252px_minmax(0,1fr)] rtl:md:grid-cols-[minmax(0,1fr)_252px]">
                       <nav
                         aria-label={t('categoriesNav.iniAria')}
-                        className="-mx-2 flex flex-col gap-0.5 px-2 pb-2 md:mx-0 md:border-r md:border-border/50 md:pb-0 md:pr-3 md:pt-1 md:max-h-[calc(100vh-420px)] md:min-h-[360px] md:overflow-y-auto"
+                        className="-mx-2 flex flex-col gap-0.5 px-2 pb-2 md:mx-0 md:order-1 md:border-e md:border-border/50 md:pb-0 md:pe-3 md:pt-1 md:max-h-[calc(100vh-420px)] md:min-h-[360px] md:overflow-y-auto rtl:md:order-2"
                       >
                         <div className="hidden md:flex items-center justify-between px-3 pb-1">
                           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
@@ -2670,7 +2682,7 @@ export default function ServerConfig() {
                                     type="button"
                                     onClick={() => setActiveIniCategory(category.id)}
                                     aria-current={isActive ? 'page' : undefined}
-                                    className={`group relative flex shrink-0 items-center gap-2 whitespace-nowrap border-l-2 px-3 py-2 text-left text-sm transition-colors md:whitespace-normal ${
+                                    className={`group relative flex shrink-0 items-center gap-2 whitespace-nowrap border-s-2 px-3 py-2 text-start text-sm transition-colors md:whitespace-normal ${
                                       isActive
                                         ? 'border-primary bg-primary/10 text-primary'
                                         : 'border-transparent text-muted-foreground hover:border-primary/30 hover:bg-muted/40 hover:text-foreground'
@@ -2705,10 +2717,10 @@ export default function ServerConfig() {
                               type="button"
                               onClick={() => setActiveIniCategory('uncategorized')}
                               aria-current={isActive ? 'page' : undefined}
-                              className={`group relative mt-2 flex shrink-0 items-center gap-2 whitespace-nowrap border-l-2 px-3 py-2 text-left text-sm transition-colors md:mt-3 md:whitespace-normal md:border-t md:border-t-border/50 md:pt-3 ${
+                              className={`group relative mt-2 flex shrink-0 items-center gap-2 whitespace-nowrap border-s-2 px-3 py-2 text-start text-sm transition-colors md:mt-3 md:whitespace-normal md:border-t md:border-t-border/50 md:pt-3 ${
                                 isActive
-                                  ? 'border-l-amber-500 bg-amber-500/10 text-amber-500'
-                                  : 'border-l-transparent text-muted-foreground hover:border-l-amber-500/30 hover:bg-amber-500/5 hover:text-amber-500/80'
+                                  ? 'border-s-amber-500 bg-amber-500/10 text-amber-500'
+                                  : 'border-s-transparent text-muted-foreground hover:border-s-amber-500/30 hover:bg-amber-500/5 hover:text-amber-500/80'
                               }`}
                               title={t('categoriesNav.uncategorizedIniTitle')}
                             >
@@ -2722,7 +2734,7 @@ export default function ServerConfig() {
                           )
                         })()}
                       </nav>
-                      <ScrollArea className="h-[calc(100vh-420px)] min-h-[360px] md:pl-5 pr-4">
+                      <ScrollArea className="h-[calc(100vh-420px)] min-h-[360px] md:ps-5 pe-4 md:order-2 rtl:md:order-1">
                         {(() => {
                           if (activeIniCategory === 'uncategorized') {
                             if (uncategorizedIniKeys.length === 0) {
@@ -2835,7 +2847,7 @@ export default function ServerConfig() {
                 <div className="flex flex-wrap items-center gap-1.5">
                   {hasSandboxChanges && (
                     <Badge variant="warning" className="h-5 px-1.5 py-0 font-mono text-[10px]">
-                      <AlertTriangle className="mr-1 h-3 w-3" />
+                      <AlertTriangle className="me-1 h-3 w-3" />
                       {changedSandboxCount}
                     </Badge>
                   )}
@@ -2932,13 +2944,13 @@ export default function ServerConfig() {
                   {/* Scoped search — applies to all categories on this tab */}
                   <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
                     <div className="relative min-w-0 flex-1 sm:max-w-md">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
                         ref={sandboxSearchRef}
                         placeholder={t('search.sandboxPlaceholder')}
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="h-8 bg-background/50 pl-9 pr-20"
+                        className="h-8 bg-background/50 ps-9 pe-20"
                         aria-label={t('search.sandboxAria')}
                         maxLength={128}
                       />
@@ -2959,7 +2971,7 @@ export default function ServerConfig() {
                         </div>
                       )}
                     </div>
-                    <div className="ml-auto flex items-center gap-2">
+                    <div className="ms-auto flex items-center gap-2">
                       <div className="inline-flex items-center rounded-md border border-border/60 bg-background/50 p-0.5" role="group" aria-label={t('search.filterAria')}>
                         {(['all','modified','nondefault'] as const).map(mode => (
                           <button
@@ -2980,7 +2992,7 @@ export default function ServerConfig() {
                   </div>
                   {searchQuery ? (
                     // Search mode: flat, grouped by category label
-                    <ScrollArea className="h-[calc(100vh-420px)] min-h-[360px] pr-4">
+                    <ScrollArea className="h-[calc(100vh-420px)] min-h-[360px] pe-4">
                       {SANDBOX_CATEGORIES.map(category => {
                         const settings = filteredSandboxSettings[category.id] || []
                         if (settings.length === 0) return null
@@ -3017,10 +3029,10 @@ export default function ServerConfig() {
                     </ScrollArea>
                   ) : (
                     // Rail mode: vertical category nav (grouped) + single active category content
-                    <div className="grid gap-0 md:grid-cols-[252px_minmax(0,1fr)]">
+                    <div className="grid gap-0 md:grid-cols-[252px_minmax(0,1fr)] rtl:md:grid-cols-[minmax(0,1fr)_252px]">
                       <nav
                         aria-label={t('categoriesNav.sandboxAria')}
-                        className="-mx-2 flex flex-col gap-0.5 px-2 pb-2 md:mx-0 md:border-r md:border-border/50 md:pb-0 md:pr-3 md:pt-1 md:max-h-[calc(100vh-420px)] md:min-h-[360px] md:overflow-y-auto"
+                        className="-mx-2 flex flex-col gap-0.5 px-2 pb-2 md:mx-0 md:order-1 md:border-e md:border-border/50 md:pb-0 md:pe-3 md:pt-1 md:max-h-[calc(100vh-420px)] md:min-h-[360px] md:overflow-y-auto rtl:md:order-2"
                       >
                         <div className="hidden md:flex items-center justify-between px-3 pb-1">
                           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
@@ -3075,7 +3087,7 @@ export default function ServerConfig() {
                                     type="button"
                                     onClick={() => setActiveSandboxCategory(category.id)}
                                     aria-current={isActive ? 'page' : undefined}
-                                    className={`group relative flex shrink-0 items-center gap-2 whitespace-nowrap border-l-2 px-3 py-2 text-left text-sm transition-colors md:whitespace-normal ${
+                                    className={`group relative flex shrink-0 items-center gap-2 whitespace-nowrap border-s-2 px-3 py-2 text-start text-sm transition-colors md:whitespace-normal ${
                                       isActive
                                         ? 'border-primary bg-primary/10 text-primary'
                                         : 'border-transparent text-muted-foreground hover:border-primary/30 hover:bg-muted/40 hover:text-foreground'
@@ -3110,10 +3122,10 @@ export default function ServerConfig() {
                               type="button"
                               onClick={() => setActiveSandboxCategory('uncategorized')}
                               aria-current={isActive ? 'page' : undefined}
-                              className={`group relative mt-2 flex shrink-0 items-center gap-2 whitespace-nowrap border-l-2 px-3 py-2 text-left text-sm transition-colors md:mt-3 md:whitespace-normal md:border-t md:border-t-border/50 md:pt-3 ${
+                              className={`group relative mt-2 flex shrink-0 items-center gap-2 whitespace-nowrap border-s-2 px-3 py-2 text-start text-sm transition-colors md:mt-3 md:whitespace-normal md:border-t md:border-t-border/50 md:pt-3 ${
                                 isActive
-                                  ? 'border-l-amber-500 bg-amber-500/10 text-amber-500'
-                                  : 'border-l-transparent text-muted-foreground hover:border-l-amber-500/30 hover:bg-amber-500/5 hover:text-amber-500/80'
+                                  ? 'border-s-amber-500 bg-amber-500/10 text-amber-500'
+                                  : 'border-s-transparent text-muted-foreground hover:border-s-amber-500/30 hover:bg-amber-500/5 hover:text-amber-500/80'
                               }`}
                               title={t('categoriesNav.uncategorizedSandboxTitle')}
                             >
@@ -3127,7 +3139,7 @@ export default function ServerConfig() {
                           )
                         })()}
                       </nav>
-                      <ScrollArea className="h-[calc(100vh-420px)] min-h-[360px] md:pl-5 pr-4">
+                      <ScrollArea className="h-[calc(100vh-420px)] min-h-[360px] md:ps-5 pe-4 md:order-2 rtl:md:order-1">
                         {(() => {
                           if (activeSandboxCategory === 'uncategorized') {
                             if (uncategorizedSandboxKeys.length === 0) {
@@ -3166,7 +3178,7 @@ export default function ServerConfig() {
                                     const isModified = value !== origValue
                                     return (
                                       <div key={`${section}.${key}`} className={`flex items-center justify-between py-2 px-3 rounded-md transition-colors ${isModified ? 'bg-amber-500/10 border border-amber-500/20' : 'hover:bg-muted/50'}`}>
-                                        <div className="flex-1 min-w-0 mr-4">
+                                        <div className="flex-1 min-w-0 me-4">
                                           <div className="flex items-center gap-2 min-w-0">
                                             <span className="text-sm font-medium truncate" title={key}>{key}</span>
                                             {isModified && (
@@ -3498,7 +3510,7 @@ export default function ServerConfig() {
                                     setSpawnRegions(newRegions)
                                   }}
                                   placeholder={region.isServerFile ? t('spawnRegionsTab.serverFilePlaceholder') : t('spawnRegionsTab.mapFilePlaceholder')}
-                                  className={`h-9 font-mono text-xs ${region.isServerFile ? 'pr-20' : ''}`}
+                                  className={`h-9 font-mono text-xs ${region.isServerFile ? 'pe-20' : ''}`}
                                   maxLength={512}
                                   aria-label={region.isServerFile ? t('spawnRegionsTab.fileAriaServerFile', { index: index + 1 }) : t('spawnRegionsTab.fileAriaMapPath', { index: index + 1 })}
                                 />
@@ -3576,14 +3588,14 @@ export default function ServerConfig() {
               {modSettings && modSettingsGroups.length > 0 && (
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 min-w-[200px]">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <Input
                       ref={modSettingsSearchRef}
                       placeholder={t('modSettingsTab.searchPlaceholder')}
                       value={modSettingsSearch}
                       onChange={(e) => setModSettingsSearch(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Escape') { setModSettingsSearch(''); e.currentTarget.blur() } }}
-                      className="pl-9 pr-8"
+                      className="ps-9 pe-8"
                       maxLength={200}
                     />
                     {modSettingsSearch && (
@@ -3610,7 +3622,7 @@ export default function ServerConfig() {
                       <Filter className="w-3.5 h-3.5" />
                       {t('modSettingsTab.modifiedFilter')}
                       {modifiedModSettingsCount > 0 && (
-                        <Badge variant={modSettingsModifiedOnly ? 'secondary' : 'warning'} className="ml-0.5 h-4 px-1.5 py-0 text-xs">
+                        <Badge variant={modSettingsModifiedOnly ? 'secondary' : 'warning'} className="ms-0.5 h-4 px-1.5 py-0 text-xs">
                           {modifiedModSettingsCount}
                         </Badge>
                       )}
@@ -3682,7 +3694,7 @@ export default function ServerConfig() {
               )}
 
               {modSettings && modSettingsGroups.length > 0 && (
-                <ScrollArea className="h-[calc(100vh-440px)] min-h-[400px] pr-4">
+                <ScrollArea className="h-[calc(100vh-440px)] min-h-[400px] pe-4">
                   <div className="mb-3 flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
                     <Badge variant="secondary">
                       {modSettingsSearch || modSettingsModifiedOnly ? `${filteredModGroups.length} / ${modSettingsGroups.length}` : modSettingsGroups.length} {t('modSettingsTab.groupsBadge')}
@@ -3700,7 +3712,7 @@ export default function ServerConfig() {
                       </Badge>
                     )}
                     {modSettingsLastLoaded && (
-                      <span className="text-xs text-muted-foreground/60 ml-auto">
+                      <span className="text-xs text-muted-foreground/60 ms-auto">
                         {t('modSettingsTab.loadedAt', { time: modSettingsLastLoaded.toLocaleTimeString(i18n.language) })}
                       </span>
                     )}
@@ -3748,12 +3760,12 @@ export default function ServerConfig() {
                                 {t('modSettingsTab.groupModifiedBadge', { count: groupModifiedCount })}
                               </Badge>
                             )}
-                            <Badge variant={isExpanded ? "default" : "secondary"} className="ml-auto">
+                            <Badge variant={isExpanded ? "default" : "secondary"} className="ms-auto">
                               {filteredOpts.length}
                             </Badge>
                           </button>
                           {isExpanded && (
-                            <div className="mt-3 ml-4 space-y-1 pl-4">
+                            <div className="mt-3 ms-4 space-y-1 ps-4">
                               {filteredOpts.map((opt, idx) => {
                                 // Mods often expose an internal sandbox key as their
                                 // "translated" name. Format it before displaying it.
@@ -3838,7 +3850,7 @@ export default function ServerConfig() {
                                         <Input
                                           key={`${opt.name}-${displayValue}`}
                                           type="number"
-                                          className="h-7 w-full sm:w-[100px] text-xs font-mono text-right"
+                                          className="h-7 w-full sm:w-[100px] text-xs font-mono text-end"
                                           defaultValue={displayValue}
                                           min={opt.min}
                                           max={opt.max}
@@ -3897,14 +3909,14 @@ export default function ServerConfig() {
                                               onClick={() => opt.name && opt.default !== undefined && handleOptionChange(opt.name, opt.default, group.name)}
                                               disabled={isSaving}
                                               // eslint-disable-next-line local/no-dead-disabled-title -- pure hint naming the action + value; disables only transiently while a save is in flight (the adjacent spinner is the self-evident why). Triaged 2026-08-27. Note: the wrapping Radix Tooltip here has the same "no pointer/focus events on a disabled native button" limitation as this title, so its content is equally unreachable while isSaving -- out of scope for this rule (it only checks title+disabled), flagged here rather than fixed since isSaving is brief and self-evident.
-                                              title={t('modSettingsTab.resetToDefaultTitle', { value: opt.default })}
+                                              title={t('modSettingsTab.resetToDefaultTitle', { value: formatRawConfigValue(opt.default) })}
                                             >
                                               <Undo2 className="w-3 h-3" />
-                                              <span>{t('modSettingsTab.resetToDefaultLabel', { value: String(opt.default) })}</span>
+                                              <span>{t('modSettingsTab.resetToDefaultLabel', { value: formatRawConfigValue(opt.default) })}</span>
                                             </button>
                                           </TooltipTrigger>
                                           <TooltipContent side="left">
-                                            <p>{t('modSettingsTab.resetToDefaultTooltip', { value: String(opt.default) })}</p>
+                                            <p>{t('modSettingsTab.resetToDefaultTooltip', { value: formatRawConfigValue(opt.default) })}</p>
                                           </TooltipContent>
                                         </Tooltip>
                                       )}
@@ -4010,8 +4022,8 @@ export default function ServerConfig() {
 
           {/* Filter tabs */}
           <div className="flex items-center gap-2 border-b pb-3">
-            <span className="text-sm text-muted-foreground mr-2">
-              <Filter className="w-4 h-4 inline mr-1" />
+            <span className="text-sm text-muted-foreground me-2">
+              <Filter className="w-4 h-4 inline me-1" />
               {t('backupsDialog.filterLabel')}
             </span>
             {(['all', 'ini', 'sandbox', 'spawnpoints', 'spawnregions'] as const).map((filter) => (
@@ -4081,7 +4093,7 @@ export default function ServerConfig() {
                                   size="sm"
                                   onClick={() => handleRestoreBackup(backup.filename)}
                                 >
-                                  <Upload className="w-4 h-4 mr-1" />
+                                  <Upload className="w-4 h-4 me-1" />
                                   {t('backupsDialog.restore')}
                                 </Button>
                               </TooltipTrigger>
@@ -4145,7 +4157,7 @@ export default function ServerConfig() {
               {t('templatesDialog.savedCount', { count: templates.length })}
             </span>
             <Button onClick={() => setShowSaveTemplate(true)}>
-              <Plus className="w-4 h-4 mr-2" />
+              <Plus className="w-4 h-4 me-2" />
               {t('templatesDialog.saveCurrentAsTemplate')}
             </Button>
           </div>
@@ -4182,7 +4194,7 @@ export default function ServerConfig() {
                           </span>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 sm:ml-4 sm:self-start">
+                      <div className="flex items-center gap-2 sm:ms-4 sm:self-start">
                         <TooltipProvider>
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -4196,7 +4208,7 @@ export default function ServerConfig() {
                                   <Loader2 className="w-4 h-4 animate-spin" />
                                 ) : (
                                   <>
-                                    <FolderOpen className="w-4 h-4 mr-1" />
+                                    <FolderOpen className="w-4 h-4 me-1" />
                                     {t('templatesDialog.apply')}
                                   </>
                                 )}
@@ -4312,9 +4324,9 @@ export default function ServerConfig() {
               disabled={templateLoading || !newTemplateName.trim() || (!saveTemplateIni && !saveTemplateSandbox)}
             >
               {templateLoading ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                <Loader2 className="w-4 h-4 me-2 animate-spin" />
               ) : (
-                <Save className="w-4 h-4 mr-2" />
+                <Save className="w-4 h-4 me-2" />
               )}
               {t('saveTemplateDialog.save')}
             </Button>
@@ -4389,7 +4401,7 @@ export default function ServerConfig() {
                       }`}
                     >
                       <FileText className="w-4 h-4 text-primary shrink-0" />
-                      <span className="truncate flex-1 text-left">{file.name}</span>
+                      <span className="truncate flex-1 text-start">{file.name}</span>
                       <span className="text-xs text-muted-foreground shrink-0">{file.ext}</span>
                     </button>
                   )
@@ -4432,7 +4444,7 @@ export default function ServerConfig() {
               {t('fileBrowserDialog.cancel')}
             </Button>
             <Button onClick={confirmFileBrowserSelection} disabled={!fileBrowserSelected}>
-              <Check className="w-4 h-4 mr-2" />
+              <Check className="w-4 h-4 me-2" />
               {t('fileBrowserDialog.selectFile')}
             </Button>
           </DialogFooter>

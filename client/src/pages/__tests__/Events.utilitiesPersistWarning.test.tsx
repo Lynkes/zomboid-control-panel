@@ -6,16 +6,22 @@ import { ConfirmProvider } from '@/contexts/ConfirmContext'
 import Events from '../Events'
 import { playersApi, panelBridgeApi } from '@/lib/api'
 
-// 2026-08-30, panelbridge-total-audit-2026-08-30 (Finding C): Events.tsx used
-// to branch on `result?.persisted === false` / `result.persistReason` to show
-// a "won't survive a restart" warning toast. Neither restoreUtilities nor
-// shutOffUtilities has ever set either field (only an unstructured debug
-// string array), so `notPersisted` was permanently false and this warning
-// path could never fire in production -- it silently promised a check that
-// wasn't happening. This test proves the dead branch is gone: even if a
-// response somehow carries `persisted: false` (a malformed/future payload),
-// the client no longer special-cases it and falls through to the ordinary
-// success toast, matching what every real response has always produced.
+// 5aaf2c3e (2026-08-02) made panelBridge.js's /utilities/restore and
+// /utilities/shutoff routes merge persistUtilities()'s (Node-side, writes
+// SandboxVars.lua directly) `{ persisted, persistReason }` into the JSON
+// response alongside the Lua handler's own result -- so a real "this will
+// not survive a server restart" signal has been on the wire since then.
+// 2d7cca63 (2026-08-30, "Finding C") deleted the client's warning for this,
+// on an analysis that checked only the Lua handler's raw result object
+// (which indeed never carries these fields) instead of the route's merged
+// response the client actually receives -- right observation, wrong
+// producer -- and left behind a test asserting the field is ignored. That
+// test is Events.utilitiesPersistedDeadFieldRemoved.test.tsx, replaced by
+// this file. These fixtures use the ROUTE's real merged response shape
+// (Lua fields alongside persisted/persistReason, exactly as
+// `res.json({ ...result, ...(await persistUtilities(...)) })` produces it)
+// so a future audit that looks only at the Lua handler cannot conclude
+// again that this warning is unreachable.
 
 const toastSpy = vi.hoisted(() => vi.fn())
 vi.mock('@/components/ui/use-toast', () => ({
@@ -73,6 +79,11 @@ async function openUtilitiesSection() {
   await screen.findByText('power & water grid')
 }
 
+async function toggleFirstSwitch() {
+  const switches = await screen.findAllByRole('switch', { name: /power|water/i })
+  switches[0].click()
+}
+
 beforeEach(() => {
   getPlayers.mockReset().mockResolvedValue({ players: [] } as never)
   getStatus.mockReset().mockResolvedValue({ modConnected: true } as never)
@@ -85,9 +96,7 @@ beforeEach(() => {
   // are now a single Switch reflecting utilitiesStatus.powerOn/waterOn, and
   // the switch disables itself while that state is unknown -- so this test
   // (which only cares about the toast on the ACTION's own response) needs a
-  // real, resolved status here to make the switch interactable at all. This
-  // was `success: false` before the toggle conversion, when the click target
-  // was a plain always-enabled Button.
+  // real, resolved status here to make the switch interactable at all.
   getUtilitiesStatus.mockReset().mockResolvedValue({
     success: true,
     data: {
@@ -104,35 +113,83 @@ beforeEach(() => {
   } as never)
 })
 
-describe('Events -- the dead persisted/persistReason branch no longer influences the utilities toast (Finding C)', () => {
-  it('shows the ordinary success toast even when the response carries persisted: false', async () => {
+describe('Events -- the utilities persist-failure warning (restored, was wrongly deleted in 2d7cca63)', () => {
+  it('warns, with the reason, when the route reports persisted: false', async () => {
+    // Route's real merged shape: the Lua handler's own fields
+    // (success/message/power/water/hydroPowerOn/debug) plus persistUtilities()'s
+    // { persisted, persistReason } spread on top -- never a bare
+    // { persisted: false } by itself.
     shutOffUtilities.mockResolvedValue({
       success: true,
       message: 'Utilities shut off',
       power: true,
       water: false,
       hydroPowerOn: false, // matches the requested state -- no power mismatch
+      debug: ['FINAL isHydroPowerOn=false'],
       persisted: false,
       persistReason: 'SandboxVars write did not stick',
-      debug: ['FINAL isHydroPowerOn=false'],
     } as never)
 
     renderEvents()
     await openUtilitiesSection()
+    await toggleFirstSwitch()
 
-    // Power/Water are a single state-reflecting Switch each, not a
-    // Restore/Shut Off button pair (2026-08-31, paired-buttons operator
-    // request); powerOn is mocked true above, so the switch starts checked
-    // and clicking it fires a shut-off.
-    const switches = await screen.findAllByRole('switch', { name: /power|water/i })
-    switches[0].click()
+    await waitFor(() => expect(shutOffUtilities).toHaveBeenCalledWith(true, false))
+    await waitFor(() => {
+      expect(toastSpy).toHaveBeenCalled()
+      const call = toastSpy.mock.calls.at(-1)
+      expect(call?.[0].variant).toBe('default')
+      expect(call?.[0].description).toMatch(/SandboxVars write did not stick/)
+    })
+  })
+
+  it('falls back to an "unknown reason" copy when persistReason is missing', async () => {
+    shutOffUtilities.mockResolvedValue({
+      success: true,
+      message: 'Utilities shut off',
+      power: true,
+      water: false,
+      hydroPowerOn: false,
+      debug: ['FINAL isHydroPowerOn=false'],
+      persisted: false,
+      persistReason: null,
+    } as never)
+
+    renderEvents()
+    await openUtilitiesSection()
+    await toggleFirstSwitch()
+
+    await waitFor(() => expect(shutOffUtilities).toHaveBeenCalledWith(true, false))
+    await waitFor(() => {
+      expect(toastSpy).toHaveBeenCalled()
+      const call = toastSpy.mock.calls.at(-1)
+      expect(call?.[0].variant).toBe('default')
+      expect(call?.[0].description).toMatch(/unknown reason/i)
+    })
+  })
+
+  it('shows the ordinary success toast when the route reports persisted: true', async () => {
+    shutOffUtilities.mockResolvedValue({
+      success: true,
+      message: 'Utilities shut off',
+      power: true,
+      water: false,
+      hydroPowerOn: false,
+      debug: ['FINAL isHydroPowerOn=false'],
+      persisted: true,
+      persistReason: null,
+    } as never)
+
+    renderEvents()
+    await openUtilitiesSection()
+    await toggleFirstSwitch()
 
     await waitFor(() => expect(shutOffUtilities).toHaveBeenCalledWith(true, false))
     await waitFor(() => {
       expect(toastSpy).toHaveBeenCalled()
       const call = toastSpy.mock.calls.at(-1)
       expect(call?.[0].variant).toBe('success')
-      expect(call?.[0].description).not.toMatch(/SandboxVars write did not stick/)
+      expect(call?.[0].description).not.toMatch(/SandboxVars|persist/i)
     })
   })
 })

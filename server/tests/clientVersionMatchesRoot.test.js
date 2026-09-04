@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_PACKAGE_JSON = path.join(__dirname, "..", "..", "package.json");
+const ROOT_LOCKFILE = path.join(__dirname, "..", "..", "package-lock.json");
 const CLIENT_PACKAGE_JSON = path.join(__dirname, "..", "..", "client", "package.json");
 const CLIENT_LOCKFILE = path.join(__dirname, "..", "..", "client", "package-lock.json");
 
@@ -34,6 +35,12 @@ describe("client version stays in sync with root", () => {
 
   it("client/package-lock.json matches root in both places npm writes the version", () => {
     const lock = JSON.parse(fs.readFileSync(CLIENT_LOCKFILE, "utf8"));
+    expect(lock.version).toBe(rootVersion);
+    expect(lock.packages?.[""]?.version).toBe(rootVersion);
+  });
+
+  it("root package-lock.json matches root package.json in both places npm writes the version", () => {
+    const lock = JSON.parse(fs.readFileSync(ROOT_LOCKFILE, "utf8"));
     expect(lock.version).toBe(rootVersion);
     expect(lock.packages?.[""]?.version).toBe(rootVersion);
   });

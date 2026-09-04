@@ -588,6 +588,8 @@
     "bridgeFailedDesc": "{{message}}. Verifye koneksyon bridge/sèvè epi eseye ankò.",
     "commandFailedDesc": "{{message}}. Verifye paramèt kòmand yo epi eseye ankò.",
     "commandFailedFallback": "Kòmand echwe",
+    "notPersistedDesc": "Aplike sèlman sou mond k ap fonksyone a — SandboxVars.lua pa mete ajou ({{reason}}), kidonk yon redemaraj sèvè ap anile sa a.",
+    "notPersistedUnknownReason": "rezon enkoni",
     "bridgeCommandFailedFallback": "Kòmand bridge echwe.",
     "powerDidNotTakeEffectDesc": "Sèvè a rapòte kouran an toujou {{state}} — chanjman an pa t pran efè.",
     "noPlayersOnlineError": "Pa gen jwè anliy",

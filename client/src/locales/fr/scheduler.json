@@ -195,6 +195,25 @@
     "fallbackTitle": "Le fuseau horaire enregistré n'est plus valide",
     "fallbackDesc": "« {{configured}} » n'a pas pu être utilisé (il a peut-être été retiré de la base de données des fuseaux horaires, ou ce panneau a été restauré depuis une autre machine). Les planifications s'exécutent dans {{effective}} jusqu'à ce que ce soit corrigé."
   },
+  "restartWarning": {
+    "title": "Avertissements de redémarrage",
+    "description": "Messages du compte à rebours de redémarrage automatique envoyés à tous les joueurs connectés.",
+    "languageLabel": "Langue du message",
+    "templateLabel": "Modèle du compte à rebours",
+    "templateHint": "Utilisez {count} pour le nombre et {unit} pour les minutes ou secondes.",
+    "presetButton": "Utiliser le préréglage de langue",
+    "saveButton": "Enregistrer les avertissements",
+    "saved": "Avertissements de redémarrage enregistrés",
+    "saveFailed": "Échec de l'enregistrement des avertissements de redémarrage",
+    "languages": {
+      "en": "Anglais",
+      "zh-CN": "Chinois simplifié",
+      "fr": "Français",
+      "de": "Allemand",
+      "es": "Espagnol",
+      "ht": "Créole haïtien"
+    }
+  },
   "toasts": {
     "errorTitle": "Erreur",
     "successTitle": "Succès",

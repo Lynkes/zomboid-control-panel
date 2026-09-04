@@ -195,6 +195,25 @@
     "fallbackTitle": "已保存的时区不再有效",
     "fallbackDesc": "无法使用“{{configured}}”（可能已从时区数据库中移除，或此面板是从另一台机器恢复的）。在此问题解决之前，计划按 {{effective}} 运行。"
   },
+  "restartWarning": {
+    "title": "重启警告",
+    "description": "自动重启倒计时会向所有已连接玩家发送这些消息。",
+    "languageLabel": "消息语言",
+    "templateLabel": "倒计时模板",
+    "templateHint": "使用 {count} 表示数字，使用 {unit} 表示分钟或秒。",
+    "presetButton": "使用语言预设",
+    "saveButton": "保存警告",
+    "saved": "重启警告已保存",
+    "saveFailed": "保存重启警告失败",
+    "languages": {
+      "en": "英语",
+      "zh-CN": "简体中文",
+      "fr": "法语",
+      "de": "德语",
+      "es": "西班牙语",
+      "ht": "海地克里奥尔语"
+    }
+  },
   "toasts": {
     "errorTitle": "错误",
     "successTitle": "成功",

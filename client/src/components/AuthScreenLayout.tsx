@@ -71,12 +71,12 @@ export function AuthScreenLayout({
     <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
       <a
         href="#auth-content"
-        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground focus:text-sm"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:start-4 focus:z-50 focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground focus:text-sm"
       >
         {t('skipToContent')}
       </a>
 
-      <LanguageSwitcher className="absolute right-4 top-4 z-10" />
+      <LanguageSwitcher className="absolute end-4 top-4 z-10" />
 
       {/* Warm ember + moss radial wash */}
       <div
@@ -99,14 +99,14 @@ export function AuthScreenLayout({
       {/* Corner stamps — only signals that carry real information stay. */}
       <div
         aria-hidden="true"
-        className="absolute top-4 left-4 right-4 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.32em] text-muted-foreground/70 [contain:layout_style_paint]"
+        className="absolute top-4 inset-x-4 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.32em] text-muted-foreground/70 [contain:layout_style_paint]"
       >
         <span>// ZCP_CTRL</span>
         <span>node: {status === 'online' ? '01' : '--'}</span>
       </div>
       <div
         aria-hidden="true"
-        className="absolute bottom-4 left-4 right-4 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.32em] text-muted-foreground/55 [contain:layout_style_paint]"
+        className="absolute bottom-4 inset-x-4 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.32em] text-muted-foreground/55 [contain:layout_style_paint]"
       >
         <span>{version ? `build ${version}` : 'build ----'}</span>
         <span>sig: {status === 'online' ? 'ack' : status === 'checking' ? '...' : 'lost'}</span>

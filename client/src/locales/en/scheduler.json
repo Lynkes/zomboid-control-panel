@@ -195,6 +195,25 @@
     "fallbackTitle": "Saved timezone is no longer valid",
     "fallbackDesc": "\"{{configured}}\" could not be used (it may have been removed from the timezone database, or this panel was restored from a different machine). Schedules are running in {{effective}} until this is fixed."
   },
+  "restartWarning": {
+    "title": "Restart Warnings",
+    "description": "Automatic restart countdown messages sent to every connected player.",
+    "languageLabel": "Message language",
+    "templateLabel": "Countdown template",
+    "templateHint": "Use {count} for the number and {unit} for minutes or seconds.",
+    "presetButton": "Use language preset",
+    "saveButton": "Save warnings",
+    "saved": "Restart warnings saved",
+    "saveFailed": "Failed to save restart warnings",
+    "languages": {
+      "en": "English",
+      "zh-CN": "Chinese (Simplified)",
+      "fr": "French",
+      "de": "German",
+      "es": "Spanish",
+      "ht": "Haitian Creole"
+    }
+  },
   "toasts": {
     "errorTitle": "Error",
     "successTitle": "Success",

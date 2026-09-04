@@ -783,6 +783,8 @@
     "bridgeFailedDesc": "{{message}}. Verificar la conexión del bridge o del servidor e intentarlo de nuevo.",
     "commandFailedDesc": "{{message}}. Verificar la configuración del comando e intentarlo de nuevo.",
     "commandFailedFallback": "Comando fallido",
+    "notPersistedDesc": "Aplicado únicamente al mundo en ejecución — SandboxVars.lua no se actualizó ({{reason}}), por lo que un reinicio del servidor deshará este cambio.",
+    "notPersistedUnknownReason": "motivo desconocido",
     "bridgeCommandFailedFallback": "Comando del bridge fallido.",
     "powerDidNotTakeEffectDesc": "El servidor indica que la energía sigue {{state}} — el cambio no surtió efecto.",
     "noPlayersOnlineError": "No hay jugadores en línea",

@@ -64,6 +64,10 @@ jobs:
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: ghcr.io/${{ github.repository_owner }}/zomboid-panel
+          # metadata-action otherwise creates a moving `latest` tag for the
+          # semver source, which would let the AIO image overwrite the
+          # panel-only image consumed by the generic Compose installer.
+          flavor: latest=false
           tags: |
             type=raw,value=aio,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
             type=semver,pattern={{version}},prefix=aio-
@@ -74,6 +78,9 @@ jobs:
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: ghcr.io/${{ github.repository_owner }}/zomboid-panel
+          # The updater is published in the shared GHCR package, so it must
+          # never claim the package's generic `latest` tag.
+          flavor: latest=false
           tags: |
             type=raw,value=updater,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
             type=semver,pattern={{version}},prefix=updater-

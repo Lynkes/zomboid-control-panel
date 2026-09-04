@@ -44,13 +44,13 @@ export function PasswordInput({
         placeholder={placeholder}
         maxLength={maxLength}
         autoComplete={autoComplete}
-        className={cn('pr-10', className)}
+        className={cn('pe-10', className)}
       />
       <Button
         type="button"
         variant="ghost"
         size="sm"
-        className="absolute right-1 top-1 h-9 w-9 p-0"
+        className="absolute end-1 top-1 h-9 w-9 p-0"
         onClick={() => setVisible((v) => !v)}
         aria-label={visible ? t('hide', { label: resolvedLabel }) : t('show', { label: resolvedLabel })}
       >

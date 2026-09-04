@@ -17,6 +17,8 @@ Technique: `zombie/commands/serverCommands/*.class` carries `@CommandName`/`@Com
 > when targeting another player. All four commits (`f5f334a`, `effab99`, `fcc61a9`, `4e7933b`) exist
 > in history and their diffs match what's live today.
 
+**status: FIXED (all 3)** — re-verified 2026-09-02, HEAD `5f913567`; all 4 cited commits confirmed still ancestors of HEAD.
+
 **3 confirmed defects, fixed same night** (commits `f5f334a`, `effab99`, `fcc61a9`, `4e7933b` in this repo):
 
 1. `kickPlayer()`'s `reason` argument was accepted and logged by `server/routes/players.js` but never sent — the code's own comment claimed `kickuser` has "no reason flag supported." `KickUserCommand.class`'s real `@AltCommandArgs` declares a `-r` argName, the same shape `BanUserCommand`'s already correctly-used `-r` flag has. Comment was simply wrong.
@@ -46,12 +48,16 @@ After walking full chains: 47 false-not-founds became 14 genuine gaps, 4 of whic
 
 **4 findings, reported to Angela (owns the Lua, not fixed by me)**:
 
+**status: FIXED** (item 1, re-verified 2026-09-02, HEAD `5f913567`, commit `9991b34` confirmed still an ancestor of HEAD)
+
 1. **HIGH** — `getPlayerTraits()` (~line 3112) tries `desc:getTraitList()`, `desc:getTraits()`, `player:getTraits()` in sequence. None exist anywhere in the real B42 hierarchy. The real method is `getCharacterTraits()` on `IsoGameCharacter` (returns `zombie.characters.traits.CharacterTraits`), never attempted. Every player-trait lookup returns empty on B42, always.
 
    > **RECONCILED 2026-08-24 (fork):** FIXED at `9991b34` ("getPlayerTraits actually reaches B42's
    > real trait list"). Current `PanelBridge.lua:3180-3214` calls `getCharacterTraits()` first, exactly
    > the method this finding named, with a comment explicitly tracing why the three old attempts never
    > existed. Changelog (line 336) confirms: "Fixed B42 compatibility for getPlayerTraits."
+
+**status: PARTIALLY FIXED** (item 2, re-verified 2026-09-02, HEAD `5f913567` — see the RECONCILED note below for the exact split: the named symptom is fixed, a sibling dead-fallback call is not)
 
 2. **MEDIUM** — `opt:getIntValue()`/`targetOpt:getIntValue()` (`getAllSandboxOptions`, ~3627/3705) doesn't exist anywhere in the `SandboxOption`/`ConfigOption` hierarchy. Mostly harmless as a fallback (`getValue()` already works), but it's the *sole* mechanism for `info.selectedIndex` on enum-type options — always nil for every enum sandbox option this handler returns.
 
@@ -65,6 +71,8 @@ After walking full chains: 47 false-not-founds became 14 genuine gaps, 4 of whic
    > harmless today only because it's a fallback that never fires (`getValue()` already succeeds first
    > for every case observed), not because it was removed or fixed. Worth a one-line cleanup, not a
    > live functional bug.
+
+**status: RESOLVED DIFFERENTLY THAN THE NAIVE FIX (not a live bug, not a clean FIXED either)** (item 3, re-verified 2026-09-02, HEAD `5f913567` — see the RECONCILED note below)
 
 3. **MEDIUM** — `setNetworkTeleportEnabled` (`teleportPlayer`, ~3496/3525) confirmed absent across the entire `IsoPlayer` chain to `Object`. `teleportTo`+`setX`/`Y`/`Z` (both confirmed real) still physically move the player, but the anti-cheat "authorized teleport" flag and network broadcast step this specifically existed for never fires.
 
@@ -83,6 +91,8 @@ After walking full chains: 47 false-not-founds became 14 genuine gaps, 4 of whic
    > FIXED either — the honest verdict is that the code now matches its own (accurate) comments about
    > what is and isn't known.
 
+**status: FIXED** (item 4, re-verified 2026-09-02, HEAD `5f913567`)
+
 4. **LOW** — `item:getDelta()` (inventory serialization, ~3063) doesn't exist — real methods are `getJobDelta`/`getUseDelta`. `data.delta` is always nil in serialized item data.
 
    > **RECONCILED 2026-08-24 (fork):** FIXED. Current `PanelBridge.lua:3119-3131` sets
@@ -95,6 +105,8 @@ After walking full chains: 47 false-not-founds became 14 genuine gaps, 4 of whic
 Dead-but-harmless (confirmed nonexistent, but a working primary/earlier attempt already covers the feature — no live functional loss): `setGodMode` (comment literally says "not a typo," `setGodMod` already works), `setLx`/`setLy`/`setLz` (redundant after working `teleportTo`+`setX/Y/Z`), `sm.getAllVehicles` (fallback after working `getAllVehicleScripts`), vehicle/cell `removeVehicle` (fallback after working `permanentlyRemove`/`removeFromWorld`), `setRemainingFuelPercentage`/`setBatteryCharge` (explicit "B41 fallback" comments, real B42 primary paths confirmed working), `transmitVehicle`/`updateFlags` (extra sync attempts after working `transmitEngine`).
 
 ---
+
+**status: NOT APPLICABLE — methodology conclusion, not a defect finding.** No fix verdict needed.
 
 ## Pass 3 — can the jar settle which RCON responses are informative vs. bare acks?
 
@@ -115,6 +127,8 @@ The remaining 40 commands all showed "no loop evidence, double-digit incidental 
 **Provenance for this pass, stated up front per the operator's own bar ("a finding from a jar of unknown build is a finding with an invisible expiry date")**: `D:/SteamLibrary/steamapps/common/ProjectZomboid/projectzomboid.jar` (this machine's real Steam-installed copy, which also ships `ProjectZomboidServer.bat` alongside the client — same jar serves both), confirmed via `appmanifest_108600.acf` sitting next to it: **Steam buildid `24909800`**, same exact build the 2026-08-27 RCON-rejection fixture (`server/__fixtures__/pzRconRejectionStrings.json`) was already extracted from — this pass extends that SAME fixture rather than starting a second one at a different build. A human-readable "42.x.y" version string could not be found via a bounded search (jar `META-INF/MANIFEST.MF` has no version field; no `version.txt`/similar in the install directory; no class path containing "version" under `zombie/`) — the file itself is dated 2026-08-26. Per the operator's instruction, stamping with the buildid (precise, Steam-verified) and file date since a human label wasn't findable within a reasonable search.
 
 **Access-recovery note, since the access itself was reported lost earlier tonight**: the original hardcoded example path in `scripts/jar-audit/README.md` (`D:/Zomboid_dev_panel/ServerB42Files/java/projectzomboid.jar`) is genuinely gone from this machine. What actually unblocked this pass was checking the extraction script's own DEFAULT fallback path (`D:/SteamLibrary/steamapps/common/ProjectZomboid/projectzomboid.jar`, `scripts/jar-audit/extract-rcon-rejection-strings.mjs`'s `process.argv[2] ||` fallback) — it was there all along, newer than either of the two paths reported earlier tonight, and required zero backup-directory archaeology. Worth remembering: when a tool has a hardcoded default/fallback, check whether the default itself still resolves before treating a documented example path's absence as "access is gone."
+
+**status: FIXED** (re-verified 2026-09-02, HEAD `5f913567` — this Pass-4 material is dated 2026-08-29, AFTER the 2026-08-24 reconciliation sweep, so it had never been checked before this pass). Read `server/services/rcon.js`'s `KNOWN_RCON_REJECTIONS` array directly: all of the HIGH-confidence literals named below are present — both Steam-Relay ban-IP patterns, and `"A user with this name already exists"` — and both MEDIUM-confidence literals are also present: the distinct `"...is not in the whitelist, use /adduser first"` pattern (kept separate from the pre-existing longer variant, as recommended) and `"User {name} not found"`, plus `"You don't have capability to ban/unban users."` as a backstop pattern. All of Priority 1's recommended additions were applied.
 
 ### Priority 1 — banuser / unbanuser / adduser / removeuserfromwhitelist rejection text
 
@@ -138,11 +152,15 @@ Confirmed the operator's premise precisely: none of `BanUserCommand`, `UnbanUser
 
 **Not applied to `server/services/rcon.js`** — Pam owns that file and the `KNOWN_RCON_REJECTIONS` anchoring convention; these are handed off as raw findings for her/the operator to sequence, per this pass's explicit instruction.
 
+**status: CANNOT TELL (structural limit of the technique, not an open action item)** — this Priority explicitly could not be settled by static jar analysis (runtime/content data, not fixed engine structure); the original write-up already names this as the honest stopping point, not a pending fix. Nothing to re-verify against code — no claim was made that current code needs to change.
+
 ### Priority 2 — do real PZ saves ever contain negative-numbered map/X/Y.bin chunks?
 
 **Genuinely could not be settled by static analysis, and for the same structural reason the operator already ruled out boot-vs-live settings and the storm mechanism tonight: it's runtime/content data, not fixed engine structure.** Traced `zombie.iso.IsoChunk`'s own disk I/O (`Save`/`SafeWrite`/`SafeRead`/`LoadFromDisk`) far enough to find its filename-building bootstrap templates (`"\u0001.bin"`, `"\u0001\u0001\u0001.bin"`, `"\u0001\u0001\u0001\u0001\u0001.bin"` — string-concatenation of `Integer`-typed coordinate values into a filename) — these use ordinary signed-integer `String` formatting with **no offset, clamp, or `Math.abs()`-style normalization found anywhere in the chain**. Followed the actual coordinate-RANGE question one level further, to `zombie.worldMap.MapDefinitions` (the class that registers every installed map's playable coordinate bounds): its own constant pool is essentially empty of literals — bounds come from `initDefinitionsFromLua()`, i.e. each map (vanilla or modded) declares its own coordinate range via Lua data at load time, not a fixed Java constant this jar bakes in.
 
 **Net**: the engine's own chunk-file-naming code has nothing in it that would prevent a negative coordinate from being written as a real, valid filename (e.g. `-5.bin`) if a map's Lua-declared bounds ever produced one — this doesn't contradict my earlier finding (the panel's own `\d+`-only regexes would silently exclude such a file). But whether any REAL installed map (vanilla or the specific modded maps this operator runs) actually HAS negative-coordinate chunks is fixed at map-generation time by that Lua data, which this static jar read cannot see — same class of unresolvable-by-jar-alone question as the storm mechanism and boot-vs-live settings, for the identical reason (runtime/content configuration, not compiled structure). Reporting this as the honest limit reached, not pushing further per the operator's own "if not, say so and stop" instruction for exactly this kind of open-ended question.
+
+**status: FIXED** (re-verified 2026-09-02, HEAD `5f913567`). `server/utils/commands.js`'s `ACCESS_LEVELS` no longer contains `"overseer"` and now contains `"priority"` — fixed by commits `9f2bc9f1`/`5d174d32` ("fix(players): drop dead 'overseer' access level, add missing 'priority', cite jar evidence not a wiki"), both confirmed ancestors of HEAD. A dedicated drift-gate test now exists and pins the exact list: `server/tests/accessLevelsListParity.test.js` asserts `ACCESS_LEVELS` equals `["admin", "moderator", "gm", "observer", "priority", "user", "none"]` and explicitly asserts `.not.toContain("overseer")` / `.toContain("priority")`, citing this exact finding ("hunt-wave13-2026-08-30") in its own header comment.
 
 ### Priority 3 — does setaccesslevel's real accepted set match commands.js's ACCESS_LEVELS?
 

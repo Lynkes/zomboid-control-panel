@@ -19,6 +19,7 @@ jobs:
             artifact_name: windows-zip
             binary_artifact_name: windows-binary
             archive_file: ZomboidControlPanel-windows.zip
+            archive_path: ZomboidControlPanel-windows.zip
             binary_file: ZomboidControlPanel.exe
             build_arg: --windows
           # Keep the standalone Linux binary compatible with glibc 2.28+
@@ -27,6 +28,7 @@ jobs:
             artifact_name: linux-tarball
             binary_artifact_name: linux-binary
             archive_file: ZomboidControlPanel-linux.tar.gz
+            archive_path: release/ZomboidControlPanel-linux.tar.gz
             binary_file: ZomboidControlPanel
             build_arg: --linux
     runs-on: ${{ matrix.os }}
@@ -56,6 +58,10 @@ jobs:
 
       - name: Build
         run: node build.js ${{ matrix.build_arg }}
+
+      - name: Verify release version parity
+        if: startsWith(github.ref, 'refs/tags/')
+        run: node scripts/verify-release-version.mjs "${{ github.ref_name }}"
 
       - name: Verify Linux ABI compatibility
         if: runner.os == 'Linux'
@@ -90,7 +96,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.archive_file }}
+          path: ${{ matrix.archive_path }}
           if-no-files-found: error
           retention-days: 1
 
