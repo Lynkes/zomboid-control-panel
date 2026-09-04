@@ -589,6 +589,8 @@
     "commandFailedDesc": "{{message}}. Verify command settings and try again.",
     "commandFailedFallback": "Command failed",
     "bridgeCommandFailedFallback": "Bridge command failed.",
+    "notPersistedDesc": "Applied to the running world only — SandboxVars.lua was not updated ({{reason}}), so a server restart will undo this.",
+    "notPersistedUnknownReason": "unknown reason",
     "powerDidNotTakeEffectDesc": "The server reports power is still {{state}} — the change didn't take effect.",
     "noPlayersOnlineError": "No players online",
     "targetPlayerRequiredHorde": "Target player required for horde spawn",

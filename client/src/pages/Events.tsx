@@ -1708,28 +1708,28 @@ export default function Events() {
       // PanelBridge.lua's "Water has no Java flag like isHydroPowerOn()"
       // comment) -- only power's outcome can be verified this way.
       //
-      // 2026-08-30, panelbridge-total-audit-2026-08-30 (Finding C): a
-      // `result?.persisted === false` / `result.persistReason` warning used
-      // to live here, checking whether the SandboxVars write would survive a
-      // server restart. Neither handler has ever set either field -- the
-      // handlers only log "FINAL SandboxVars.*Modifier=..." into an
-      // unstructured debug string array, never a structured persisted
-      // boolean -- so the warning was permanently dead code that implied a
-      // check was happening when it wasn't. Removed rather than left as a
-      // silent no-op; reported to god (in-scope: PanelBridge.lua is off
-      // limits for this fix) that a real implementation needs the Lua
-      // handlers to compare their own already-computed FINAL
-      // SandboxVars.*Modifier value against the intended target and return
-      // that comparison as an actual field.
+      // `persisted`/`persistReason` are NOT Lua fields -- since 5aaf2c3e
+      // (2026-08-02) panelBridge.js's /utilities/restore and /utilities
+      // /shutoff routes call persistUtilities() (Node-side, writes
+      // SandboxVars.lua directly) and merge its { persisted, persistReason }
+      // into the JSON response alongside the Lua handler's own result. A
+      // 2026-08-30 audit ("Finding C") checked only the Lua handler's raw
+      // result -- which never carries these fields -- concluded the warning
+      // below was dead code, and deleted it in 2d7cca63. It was live: a
+      // false `persisted` here is a genuine "this will not survive a server
+      // restart" signal on the wire today. Restored 2026-09-04.
       const powerMismatch = power && typeof result?.hydroPowerOn === 'boolean' && result.hydroPowerOn !== on
+      const notPersisted = result?.persisted === false
       toast({
         title: powerMismatch ? t('toasts.actionFailedTitle', { action }) : successCopy.title,
         description: powerMismatch
           ? t('toasts.powerDidNotTakeEffectDesc', {
               state: result.hydroPowerOn ? t('utilities.statusOnline') : t('utilities.statusOffline'),
             })
-          : successCopy.description,
-        variant: powerMismatch ? 'destructive' : ('success' as const),
+          : notPersisted
+            ? t('toasts.notPersistedDesc', { reason: result.persistReason || t('toasts.notPersistedUnknownReason') })
+            : successCopy.description,
+        variant: powerMismatch ? 'destructive' : notPersisted ? 'default' : ('success' as const),
       })
       pushActivity(powerMismatch ? t('toasts.actionFailedTitle', { action }) : successCopy.title, !powerMismatch)
     } catch (error) {
