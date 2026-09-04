@@ -1869,21 +1869,37 @@ export class PanelUpdateChecker {
       );
     }
 
-    // Lingering .old from a prior apply.
+    // Lingering backup from a prior apply. The bundle-journal rewrite
+    // renamed this suffix from ".old" to ".bundle-previous" (see
+    // updateBundle.js's backupBinaryPath and build.js's BIN_BACKUP), but
+    // this probe was never updated to match -- it has been checking a
+    // filename nothing writes anymore since that rewrite landed, so it can
+    // never fire for the current mechanism. That silence reads as "nothing
+    // lingering" when the actual current risk (a .bundle-previous a failed
+    // or incomplete rollback left behind -- exactly the class of bug fixed
+    // in acb202b1) goes completely unchecked here. Checking both: the
+    // current suffix as the real signal, the legacy one only so a
+    // long-unapplied pre-rewrite install still gets a warning too.
     try {
-      const oldPath = exePath + ".old";
-      if (fs.existsSync(oldPath)) {
-        info.oldPath = oldPath;
+      const bundlePreviousPath = `${exePath}.bundle-previous`;
+      const legacyOldPath = `${exePath}.old`;
+      const lingeringPath = fs.existsSync(bundlePreviousPath)
+        ? bundlePreviousPath
+        : fs.existsSync(legacyOldPath)
+          ? legacyOldPath
+          : null;
+      if (lingeringPath) {
+        info.oldPath = lingeringPath;
         addPreflightMessage(
           warnings,
           warningDetails,
           "updates.preflight.previousBackup",
           {},
-          "A previous backup (.old) is present next to the exe. It will be cleaned up on the next successful apply.",
+          "A previous backup is present next to the exe. It will be cleaned up on the next successful apply.",
         );
       }
     } catch (err) {
-      log.debug(`.old probe failed: ${err.message}`);
+      log.debug(`Previous-backup probe failed: ${err.message}`);
     }
 
     return { ok: blockers.length === 0, blockers, warnings, blockerDetails, warningDetails, info };
