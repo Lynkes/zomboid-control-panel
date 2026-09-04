@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The panel is now available in Ukrainian.** Українська joins the other seven languages - every
+  screen, dialog, error message and health check.
+- **The Server Config page is now fully translated, in every supported language, and its search box
+  now matches on the setting's translated label as well as its English name** - translation coverage
+  went from 330 of the page's 1,736 individual settings to all of them, and search previously only
+  ever matched English text regardless of your language.
+
+### Fixed
+
+- **A Windows server could fail to start with no visible error at all** if its install folder, or the
+  panel's own folder, contained a space or one of `&` `(` `)` `^` - including Steam's own default
+  install location. The panel would report "Server process exited immediately after starting" with
+  an empty (or misleading) launch log and nothing else to go on (#141).
+- **A custom start command containing a quoted value with a space (`-servername="My World"`) could
+  fail to start the server silently**, with no error and no log at all - worse than the bug above,
+  since nothing indicated a failure had even happened.
+- **A browser set to a region-specific language (`fr-FR`, `de-DE`, and similar) silently fell back to
+  English** on first load instead of detecting the base language.
+- **Two sandbox settings that take a comma-separated list (World Item Removal List, Loot Item Removal
+  List) silently turned every comma you typed or pasted into a period**, making the shipped default
+  value impossible to re-type through the settings page (#143).
+- **The "this change will not survive a server restart" warning for restoring or shutting off
+  power/water stopped appearing** after an earlier cleanup mistakenly treated it as dead code; it is
+  now shown again, with the reason when one is known.
+- **The Backups page gave no indication that a backup or restore was already running** if it was
+  started by the scheduler, from another open tab, or before the page was loaded - Create Backup and
+  every row's Restore button stayed clickable and would fail with no visible cause. The page now
+  reflects the server's own in-progress state.
+- **A failed panel self-update almost always reported "unknown" as the cause**, even when the real
+  reason (antivirus quarantine, a file locked by another process) was recorded in the update log.
+- **A failed automatic rollback after a self-update gave no signal about whether it would happen again
+  or what to do about it.** The panel now says plainly whether the same failure is likely to recur on
+  the next restart, and names the exact files to delete by hand to clear it.
+- **The Debug page's diagnostic bundle showed a wrong or nonexistent path for a server's install and
+  install-logs listings** when that server used a custom start script rather than the default
+  launcher.
+- **The Docker update-preflight check showed a "warning" every single time, regardless of your actual
+  setup**, training it to be ignored; the explanation is now shown as informational text instead.
+- **A "blocked by another operation" message when starting, stopping, or restarting a server didn't
+  say which operation or which server** - it now names both.
+
 ## [1.2.15] - 2026-09-03
 
 ### Fixed
