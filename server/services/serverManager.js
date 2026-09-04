@@ -152,6 +152,39 @@ export function buildWindowsCmdLine(exePath, args, launchLogPath) {
   return `"${parts.join(" ")}"`;
 }
 
+// Splits a custom start command string into a command path and its
+// arguments. The regex glues an unquoted run and an adjacent quoted run
+// together with nothing between them into ONE token (so `-servername="My
+// World"` stays a single argument, not two) -- which means a quote can land
+// anywhere inside a token, not just at its edges.
+//
+// 2026-09-04, carded during the P0 review, pre-existing (not a regression):
+// the previous de-quoting step stripped only a LEADING and a TRAILING quote
+// (`/^"|"$/g`), which assumes every quote sits at a token boundary. For
+// `-servername="My World"` the first character is `-` (leading strip is a
+// no-op) but the last character IS the closing quote (stripped) -- leaving
+// the unbalanced `-servername="My World`, one stray unpaired quote. Handed
+// to buildWindowsCmdLine, that stray quote makes the /c line's total quote
+// count odd, corrupting cmd's parse WORSE than the spaced-path P0: cmd
+// exits 0 and server-launch.log is never created -- no error signal
+// anywhere, silently misfiled as a recurrence of that bug. Reproduced
+// directly against real cmd.exe before this fix, confirmed exit 0/no log.
+//
+// Fix: strip EVERY quote character from a token, not just the outermost
+// pair. Every quote this regex matched is grouping syntax it introduced
+// itself (`"[^"]*"` already captured the space-containing content between a
+// pair as the group's payload), never literal data, so removing all of
+// them recovers the intended bare value regardless of where in the token
+// they land.
+export function parseCustomStartCommand(startCommand) {
+  const parts = startCommand.match(/(?:[^\s"]+|"[^"]*")+/g) || [
+    startCommand,
+  ];
+  const cmd = parts[0].replace(/"/g, "");
+  const args = parts.slice(1).map((a) => a.replace(/"/g, ""));
+  return { cmd, args };
+}
+
 // Locates the actual JVM executable inside a PZ install directory (jre64 for
 // 64-bit installs, jre for older/32-bit ones -- same directories buildLdLibraryPath
 // already knows about). Returns null if neither exists so callers can treat
@@ -1433,12 +1466,10 @@ export class ServerManager {
           throw new Error(`Invalid start command: ${validation.reason}`);
         }
 
-        // Custom start command — split into command and arguments
-        const parts = this.startCommand.match(/(?:[^\s"]+|"[^"]*")+/g) || [
-          this.startCommand,
-        ];
-        const cmd = parts[0].replace(/^"|"$/g, "");
-        const args = parts.slice(1).map((a) => a.replace(/^"|"$/g, ""));
+        // Custom start command — split into command and arguments (see
+        // parseCustomStartCommand's comment for the carded quote-stripping
+        // fix this went through on 2026-09-04).
+        const { cmd, args } = parseCustomStartCommand(this.startCommand);
         const cwd = this.serverPath || path.dirname(path.resolve(cmd));
 
         // Validate the command file extension is allowed

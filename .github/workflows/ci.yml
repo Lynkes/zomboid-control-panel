@@ -224,7 +224,7 @@ jobs:
       # job that actually runs on that platform reads as coverage in the
       # tree but provides none.
       - name: Exercise bundle transaction and generated supervisor
-        run: npx vitest run server/tests/panelUpdateBundle.test.js server/tests/supervisor-restart.test.js server/tests/serverManagerSpacedPathCmdQuoting.test.js server/tests/serverManagerWindowsSpawnFixes.test.js
+        run: npx vitest run server/tests/panelUpdateBundle.test.js server/tests/supervisor-restart.test.js server/tests/serverManagerSpacedPathCmdQuoting.test.js server/tests/serverManagerWindowsSpawnFixes.test.js server/tests/serverManagerCustomStartCommandQuoting.test.js
 
       - name: Build packaged Windows executable
         run: node build.js --windows
