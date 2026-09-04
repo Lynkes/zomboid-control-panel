@@ -14,7 +14,17 @@ const { PanelUpdateChecker } = await import("../services/panelUpdateChecker.js")
 const { DockerUpdateProxy } = await import("../services/dockerUpdateProxy.js");
 
 describe("preflight() no longer reports a fabricated clean bill of health for docker mode", () => {
-  it("stays ok:true (no known blocker) but adds an honest 'not checked' warning instead of an empty list", async () => {
+  it("stays ok:true (no known blocker), keeps the honest checksPerformed:false, and explains why via an informational field -- not the warnings channel", async () => {
+    // 2026-09-04, god's review of 2b043928: checksPerformed:false is the
+    // honest, machine-readable core of the fix and must stay. But a sentence
+    // that fires on EVERY docker preflight forever, regardless of the
+    // operator's actual setup, isn't a warning -- it's a label, and it
+    // spends the one channel meant for telling a docker operator something
+    // is actually wrong. So the explanation moved out of warnings/
+    // warningDetails into info.dockerNotChecked, in the same {key, params,
+    // message} shape the client's translatePanelUpdateMessages already
+    // knows how to translate, without permanently occupying the warnings
+    // array.
     const checker = new PanelUpdateChecker();
     checker.dockerUpdateProxy = { enabled: true, mode: "docker" };
 
@@ -22,10 +32,14 @@ describe("preflight() no longer reports a fabricated clean bill of health for do
 
     expect(result.ok).toBe(true);
     expect(result.info.checksPerformed).toBe(false);
-    expect(result.warnings.length).toBeGreaterThan(0);
-    expect(result.warnings[0]).toMatch(/does not run its own preflight checks/i);
-    expect(result.warningDetails).toContainEqual(
-      expect.objectContaining({ key: "updates.preflight.dockerNotChecked" }),
+    expect(result.warnings).toEqual([]);
+    expect(result.warningDetails).toEqual([]);
+    expect(result.info.dockerNotChecked).toEqual(
+      expect.objectContaining({
+        key: "updates.preflight.dockerNotChecked",
+        params: {},
+        message: expect.stringMatching(/does not run its own preflight checks/i),
+      }),
     );
   });
 

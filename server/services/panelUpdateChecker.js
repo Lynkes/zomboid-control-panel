@@ -1636,19 +1636,28 @@ export class PanelUpdateChecker {
       // controller container does the build/health-check/rollback for
       // docker mode. Returning bare ok:true with empty warnings used to
       // look identical to "we checked, you are fine" when the truth is "we
-      // cannot check this from here" -- an honest warning instead of a
-      // silently clean list, rather than inventing docker-side checks this
-      // process has no way to actually perform. ok stays true: there is no
-      // known blocker, so a docker update should still be allowed to
-      // proceed.
+      // cannot check this from here" -- checksPerformed:false is the
+      // honest, machine-readable core of that fix and must stay true for
+      // every docker preflight, not just failing ones.
+      //
+      // The explanation text is informational, not a warning: it is the
+      // SAME sentence on every single docker preflight, forever, regardless
+      // of the operator's actual setup -- god's 2026-09-04 review call on
+      // 2b043928. A `warnings` entry that always fires isn't a warning, it's
+      // a label, and it spends the one channel we'll need later to tell a
+      // docker operator something is actually wrong with their install (by
+      // which point they'll have been trained for months that this screen's
+      // warnings are furniture). Kept out of `warnings`/`warningDetails` on
+      // purpose; surfaced instead as a self-contained informational field in
+      // the same {key, params, message} shape translatePanelUpdateMessages
+      // already knows how to translate, for whenever the client wants it.
       info.checksPerformed = false;
-      addPreflightMessage(
-        warnings,
-        warningDetails,
-        "updates.preflight.dockerNotChecked",
-        {},
-        "Docker updates are applied by a separate update controller container. The panel does not run its own preflight checks (disk space, permissions, etc.) for this mode -- those are the controller's responsibility.",
-      );
+      info.dockerNotChecked = {
+        key: "updates.preflight.dockerNotChecked",
+        params: {},
+        message:
+          "Docker updates are applied by a separate update controller container. The panel does not run its own preflight checks (disk space, permissions, etc.) for this mode -- those are the controller's responsibility.",
+      };
       return { ok: true, blockers, warnings, blockerDetails, warningDetails, info };
     }
 
