@@ -1679,7 +1679,25 @@ router.post("/:id/activate", requirePermission("servers.manage"), async (req, re
     }
 
     const io = req.app.get("io");
-    await reloadServicesForNewActiveServer(req, server);
+    // Best-effort, same posture as DELETE /:id's own call to this exact
+    // function (see that route and reloadServicesForNewActiveServer's own
+    // comment): the database record IS active at this point regardless of
+    // what happens next, so a reload failure here must not turn a
+    // successful activation into a 500 -- that would report failure for a
+    // request that actually succeeded, and skip the activeServerChanged
+    // broadcast below entirely, leaving connected clients unaware the
+    // active server changed at all.
+    const reloadWarnings = [];
+    try {
+      await reloadServicesForNewActiveServer(req, server);
+    } catch (reloadErr) {
+      log.warn(
+        `Failed to reload services after activating server: ${reloadErr.message}`,
+      );
+      reloadWarnings.push(
+        "Server activated, but live services could not be fully reloaded; restart the panel or reconnect RCON before relying on the new settings",
+      );
+    }
 
     // Emit to clients that active server changed
     if (io) {
@@ -1690,6 +1708,7 @@ router.post("/:id/activate", requirePermission("servers.manage"), async (req, re
     res.json({
       server: sanitizeServerResponse(server),
       message: `Now managing: ${server.name}`,
+      ...(reloadWarnings.length > 0 ? { warnings: reloadWarnings } : {}),
     });
   } catch (error) {
     log.error(`Failed to activate server: ${error.message}`);
