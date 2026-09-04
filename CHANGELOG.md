@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The panel is now available in Ukrainian.** Українська joins the other seven languages - every
   screen, dialog, error message and health check.
+- **The panel now renders right-to-left, and Arabic is the first language that needs it.** العربية
+  (Modern Standard Arabic) joins the other eight languages, with the whole interface mirrored to
+  match - not just text, but layout, icons, and every interactive control. A browser reporting any
+  Arabic regional variant (Egypt, Saudi Arabia, Palestine, and others) is detected as Arabic
+  automatically, the same way the panel already detects regional variants of its other languages.
 - **The Server Config page is now fully translated, in every supported language, and its search box
   now matches on the setting's translated label as well as its English name** - translation coverage
   went from 330 of the page's 1,736 individual settings to all of them, and search previously only
