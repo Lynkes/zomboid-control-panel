@@ -460,7 +460,7 @@ export function WorkshopCollectionPanel() {
             </div>
             <Button asChild size="sm" variant="outline">
               <Link to="/settings?tab=mods">
-                <SettingsIcon className="w-3.5 h-3.5 mr-2" />
+                <SettingsIcon className="w-3.5 h-3.5 me-2" />
                 {t('openSettings')}
               </Link>
             </Button>
@@ -547,12 +547,12 @@ export function WorkshopCollectionPanel() {
               // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, same text as the visible label; disables only transiently while re-reading is in flight (the spinning icon is the self-evident why). Triaged 2026-08-27.
               title={t('rereadTitle')}
             >
-              <RefreshCw className={cn('w-3.5 h-3.5 mr-1.5', diffLoading && 'animate-spin')} />
+              <RefreshCw className={cn('w-3.5 h-3.5 me-1.5', diffLoading && 'animate-spin')} />
               {t('refresh')}
             </Button>
             <Button asChild variant="ghost" size="sm" className="h-8 px-2 text-xs text-muted-foreground">
               <Link to="/settings?tab=mods">
-                <SettingsIcon className="w-3.5 h-3.5 mr-1.5" />
+                <SettingsIcon className="w-3.5 h-3.5 me-1.5" />
                 {t('configure')}
               </Link>
             </Button>
@@ -576,7 +576,7 @@ export function WorkshopCollectionPanel() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setCookieDialogOpen(false)} disabled={cookieSaving}>{t('cancel')}</Button>
             <Button onClick={saveCookies} disabled={cookieSaving || !cookiePaste.trim()}>
-              {cookieSaving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+              {cookieSaving && <Loader2 className="me-1.5 h-3.5 w-3.5 animate-spin" />}
               {t('save')}
             </Button>
           </DialogFooter>
@@ -668,7 +668,7 @@ export function WorkshopCollectionPanel() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t('searchPlaceholder')}
-              className="h-8 w-full pl-7 pr-7 text-xs"
+              className="h-8 w-full ps-7 pe-7 text-xs"
             />
             {search && (
               <button
@@ -698,7 +698,7 @@ export function WorkshopCollectionPanel() {
               onClick={() => runBulk('add')}
               disabled={!!bulkBusy || !credsConfigured || tokenExpired}
             >
-              {bulkBusy === 'add' ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Plus className="w-3 h-3 mr-1" />}
+              {bulkBusy === 'add' ? <Loader2 className="w-3 h-3 me-1 animate-spin" /> : <Plus className="w-3 h-3 me-1" />}
               {t('addToCollection')}
             </Button>
             <Button
@@ -708,7 +708,7 @@ export function WorkshopCollectionPanel() {
               onClick={() => runBulk('remove')}
               disabled={!!bulkBusy || !credsConfigured || tokenExpired}
             >
-              {bulkBusy === 'remove' ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Minus className="w-3 h-3 mr-1" />}
+              {bulkBusy === 'remove' ? <Loader2 className="w-3 h-3 me-1 animate-spin" /> : <Minus className="w-3 h-3 me-1" />}
               {t('removeFromCollection')}
             </Button>
             <span className="text-muted-foreground/40">|</span>
@@ -719,7 +719,7 @@ export function WorkshopCollectionPanel() {
               onClick={() => runBulk('track')}
               disabled={!!bulkBusy || !canBulkTrack}
             >
-              {bulkBusy === 'track' ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <BookmarkPlus className="w-3 h-3 mr-1" />}
+              {bulkBusy === 'track' ? <Loader2 className="w-3 h-3 me-1 animate-spin" /> : <BookmarkPlus className="w-3 h-3 me-1" />}
               {t('trackLocally')}
             </Button>
             <Button
@@ -729,7 +729,7 @@ export function WorkshopCollectionPanel() {
               onClick={() => runBulk('untrack')}
               disabled={!!bulkBusy || !canBulkUntrack}
             >
-              {bulkBusy === 'untrack' ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Bookmark className="w-3 h-3 mr-1" />}
+              {bulkBusy === 'untrack' ? <Loader2 className="w-3 h-3 me-1 animate-spin" /> : <Bookmark className="w-3 h-3 me-1" />}
               {t('untrack')}
             </Button>
             <Button
@@ -741,16 +741,16 @@ export function WorkshopCollectionPanel() {
               // eslint-disable-next-line local/no-dead-disabled-title -- hint describing the button's purpose/use-case ("after they were removed from Steam"), not an instruction tied to canBulkRemoveServer or bulkBusy -- doesn't tell the user what to do to enable it. Read as pure hint, not a disabled-reason. Triaged 2026-08-27.
               title={t('removeServerBulkTitle')}
             >
-              {bulkBusy === 'remove-server' ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Minus className="w-3 h-3 mr-1" />}
+              {bulkBusy === 'remove-server' ? <Loader2 className="w-3 h-3 me-1 animate-spin" /> : <Minus className="w-3 h-3 me-1" />}
               {t('removeFromServer')}
             </Button>
             <Button
               size="sm"
               variant="ghost"
-              className="h-7 px-2 text-[11px] ml-auto"
+              className="h-7 px-2 text-[11px] ms-auto"
               onClick={clearSelection}
             >
-              <X className="w-3 h-3 mr-1" />
+              <X className="w-3 h-3 me-1" />
               {t('clear')}
             </Button>
           </div>
@@ -761,7 +761,7 @@ export function WorkshopCollectionPanel() {
           <div className="max-h-[520px] overflow-auto">
             {diffLoading && !diff ? (
               <div className="px-3 py-10 text-center text-xs text-muted-foreground">
-                <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
+                <Loader2 className="w-4 h-4 animate-spin inline me-2" />
                 {t('readingCollection')}
               </div>
             ) : filtered.length === 0 ? (
@@ -781,7 +781,7 @@ export function WorkshopCollectionPanel() {
             ) : (
               <table className="w-full text-xs">
                 <thead className="sticky top-0 bg-muted/80 backdrop-blur z-10">
-                  <tr className="text-left text-muted-foreground border-b border-border/50">
+                  <tr className="text-start text-muted-foreground border-b border-border/50">
                     <th className="font-medium px-3 py-2 w-[36px]">
                       <Checkbox
                         checked={allVisibleSelected ? true : someVisibleSelected ? 'indeterminate' : false}
@@ -791,7 +791,7 @@ export function WorkshopCollectionPanel() {
                     </th>
                     <th className="font-medium px-3 py-2 w-[150px]">{t('columnStatus')}</th>
                     <th className="font-medium px-3 py-2">{t('columnMod')}</th>
-                    <th className="font-medium px-3 py-2 w-[320px] text-right">{t('columnActions')}</th>
+                    <th className="font-medium px-3 py-2 w-[320px] text-end">{t('columnActions')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -867,7 +867,7 @@ export function WorkshopCollectionPanel() {
               <AlertDialogDescription asChild>
                 <div className="space-y-2">
                   <p>{t('purgeIntro')}</p>
-                  <ul className="list-disc pl-5 space-y-0.5">
+                  <ul className="list-disc ps-5 space-y-0.5">
                     <li>{t('purgeListCollection')}</li>
                     <li>
                       <Trans
@@ -937,7 +937,7 @@ function StatTile({
       type={interactive ? 'button' : undefined}
       onClick={onClick}
       className={cn(
-        'group rounded-md border px-3 py-2.5 text-left transition-colors',
+        'group rounded-md border px-3 py-2.5 text-start transition-colors',
         accentCls[accent],
         interactive && 'hover:bg-current/10 cursor-pointer'
       )}
@@ -1035,7 +1035,7 @@ function Row({
               title={t('removeFromServerTitle')}
             >
               {busy === 'remove-server' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Server className="w-3 h-3" />}
-              <span className="ml-1 hidden sm:inline">{t('removeFromServer')}</span>
+              <span className="ms-1 hidden sm:inline">{t('removeFromServer')}</span>
             </Button>
           ) : (
             <Button
@@ -1048,7 +1048,7 @@ function Row({
               title={t('addToServerTitle')}
             >
               {busy === 'add-server' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Server className="w-3 h-3" />}
-              <span className="ml-1 hidden sm:inline">{t('addToServer')}</span>
+              <span className="ms-1 hidden sm:inline">{t('addToServer')}</span>
             </Button>
           )}
           {item.inCollection ? (
@@ -1064,7 +1064,7 @@ function Row({
                 aria-label={tokenExpired ? t('sessionExpiredShort') : !credsConfigured ? t('needCookiesShort') : undefined}
               >
                 {busy === 'remove' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Minus className="w-3 h-3" />}
-                <span className="ml-1 hidden sm:inline">{t('remove')}</span>
+                <span className="ms-1 hidden sm:inline">{t('remove')}</span>
               </Button>
             </DisabledReason>
           ) : (
@@ -1080,7 +1080,7 @@ function Row({
                 aria-label={tokenExpired ? t('sessionExpiredShort') : !credsConfigured ? t('needCookiesShort') : undefined}
               >
                 {busy === 'add' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
-                <span className="ml-1 hidden sm:inline">{t('add')}</span>
+                <span className="ms-1 hidden sm:inline">{t('add')}</span>
               </Button>
             </DisabledReason>
           )}
@@ -1095,7 +1095,7 @@ function Row({
               title={t('untrackAndUnsyncTitle')}
             >
               {busy === 'untrack' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Bookmark className="w-3 h-3" />}
-              <span className="ml-1 hidden sm:inline">{t('untrack')}</span>
+              <span className="ms-1 hidden sm:inline">{t('untrack')}</span>
             </Button>
           ) : (
             <Button
@@ -1108,7 +1108,7 @@ function Row({
               title={t('trackLocallyTitle')}
             >
               {busy === 'track' ? <Loader2 className="w-3 h-3 animate-spin" /> : <BookmarkPlus className="w-3 h-3" />}
-              <span className="ml-1 hidden sm:inline">{t('track')}</span>
+              <span className="ms-1 hidden sm:inline">{t('track')}</span>
             </Button>
           )}
           <DropdownMenu>
@@ -1134,7 +1134,7 @@ function Row({
                   rel="noreferrer"
                   className="cursor-pointer"
                 >
-                  <ExternalLink className="w-3.5 h-3.5 mr-2" />
+                  <ExternalLink className="w-3.5 h-3.5 me-2" />
                   {t('openOnSteam')}
                 </a>
               </DropdownMenuItem>
@@ -1151,7 +1151,7 @@ function Row({
                   })
                 }}
               >
-                <Library className="w-3.5 h-3.5 mr-2" />
+                <Library className="w-3.5 h-3.5 me-2" />
                 {t('copyWorkshopId')}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -1159,7 +1159,7 @@ function Row({
                 className="text-destructive focus:text-destructive"
                 onClick={() => onAction('purge')}
               >
-                <Trash2 className="w-3.5 h-3.5 mr-2" />
+                <Trash2 className="w-3.5 h-3.5 me-2" />
                 {t('removeEverywhere')}
               </DropdownMenuItem>
             </DropdownMenuContent>

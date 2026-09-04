@@ -13,6 +13,11 @@ export interface LanguageDef {
   // would need adding to every OTHER locale's files, which is exactly the
   // one-more-file-per-language trap this registry exists to avoid.
   nativeName: string
+  // Text direction. Omitted (rather than defaulted to 'ltr' here) so a
+  // reader scanning this list sees directionality only where it's actually
+  // non-default -- directionOf() below is what supplies the 'ltr' default
+  // everywhere that isn't the registry itself.
+  dir?: 'ltr' | 'rtl'
 }
 
 export const LANGUAGES: LanguageDef[] = [
@@ -31,3 +36,14 @@ export const LANGUAGES: LanguageDef[] = [
 export const SOURCE_LANGUAGE = 'en'
 
 export const LANGUAGE_CODES = LANGUAGES.map((l) => l.code)
+
+// A free function over a LanguageDef, not a method or a lookup-by-code, so
+// it's trivially testable against a synthetic RTL fixture without needing
+// an actual RTL row in LANGUAGES above (there isn't one yet).
+export function directionOf(lang: LanguageDef | undefined): 'ltr' | 'rtl' {
+  return lang?.dir === 'rtl' ? 'rtl' : 'ltr'
+}
+
+export function isRTL(code: string): boolean {
+  return directionOf(LANGUAGES.find((l) => l.code === code)) === 'rtl'
+}

@@ -1594,13 +1594,13 @@ export default function Servers() {
               </Button>
             </DisabledReason>
             <Button variant="outline" onClick={() => { setAddMode('remote'); setShowAddDialog(true) }}>
-              <Globe className="w-4 h-4 mr-2" /> {t('pageHeader.addRemote')}
+              <Globe className="w-4 h-4 me-2" /> {t('pageHeader.addRemote')}
             </Button>
             <Button variant="outline" onClick={() => { setAddMode('local'); setShowAddDialog(true) }}>
-              <FolderOpen className="w-4 h-4 mr-2" /> {t('pageHeader.addExisting')}
+              <FolderOpen className="w-4 h-4 me-2" /> {t('pageHeader.addExisting')}
             </Button>
             <Button variant="command" onClick={() => navigate('/server-setup')}>
-              <Download className="w-4 h-4 mr-2" /> {t('pageHeader.installNew')}
+              <Download className="w-4 h-4 me-2" /> {t('pageHeader.installNew')}
             </Button>
           </div>
         }
@@ -1613,7 +1613,7 @@ export default function Servers() {
           <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <span className="min-w-0 break-words" dir="auto">{fetchError}</span>
             <Button variant="outline" size="sm" onClick={fetchServers} className="self-start">
-              <RefreshCw className="mr-2 h-4 w-4" /> {t('fetchError.retry')}
+              <RefreshCw className="me-2 h-4 w-4" /> {t('fetchError.retry')}
             </Button>
           </AlertDescription>
         </Alert>
@@ -1660,7 +1660,7 @@ export default function Servers() {
                     {t('emptyState.addLocalDesc')}
                   </p>
                   <Button variant="outline" className="onboarding-cta mt-4 w-full" onClick={() => { setAddMode('local'); setShowAddDialog(true) }}>
-                    <FolderOpen className="mr-2 h-4 w-4" />
+                    <FolderOpen className="me-2 h-4 w-4" />
                     {t('pageHeader.addExisting')}
                   </Button>
                 </div>
@@ -1674,7 +1674,7 @@ export default function Servers() {
                     {t('emptyState.installDesc')}
                   </p>
                   <Button className="onboarding-cta mt-4 w-full" onClick={() => navigate('/server-setup')}>
-                    <Download className="mr-2 h-4 w-4" />
+                    <Download className="me-2 h-4 w-4" />
                     {t('pageHeader.installNew')}
                   </Button>
                 </div>
@@ -1688,7 +1688,7 @@ export default function Servers() {
                     {t('emptyState.connectRemoteDesc')}
                   </p>
                   <Button variant="secondary" className="onboarding-cta mt-4 w-full" onClick={() => { setAddMode('remote'); setShowAddDialog(true) }}>
-                    <Globe className="mr-2 h-4 w-4" />
+                    <Globe className="me-2 h-4 w-4" />
                     {t('pageHeader.addRemote')}
                   </Button>
                 </div>
@@ -1726,10 +1726,10 @@ export default function Servers() {
             >
               {/* Active indicator bar — thicker gradient stripe when active */}
               {server.isActive && (
-                <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-primary via-primary/80 to-primary/40" aria-hidden="true" />
+                <div className="absolute top-0 inset-x-0 h-[3px] bg-gradient-to-r from-primary via-primary/80 to-primary/40" aria-hidden="true" />
               )}
               {hasUpdate && !server.isActive && (
-                <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-warning via-warning/80 to-warning/40" aria-hidden="true" />
+                <div className="absolute top-0 inset-x-0 h-[3px] bg-gradient-to-r from-warning via-warning/80 to-warning/40" aria-hidden="true" />
               )}
 
               <CardHeader className="pb-3">
@@ -1739,7 +1739,7 @@ export default function Servers() {
                       <span className="truncate">{server.name}</span>
                       {server.isActive ? (
                         <Badge variant="default" className="text-xs">
-                          <Check className="w-3 h-3 mr-1" /> {t('card.selected')}
+                          <Check className="w-3 h-3 me-1" /> {t('card.selected')}
                         </Badge>
                       ) : (
                         <Badge variant="outline" className="text-xs text-muted-foreground">
@@ -1796,12 +1796,12 @@ export default function Servers() {
                       })()}
                       {server.isRemote && (
                         <Badge variant="outline" className="text-xs">
-                          <Globe className="w-3 h-3 mr-1" /> {t('card.remote')}
+                          <Globe className="w-3 h-3 me-1" /> {t('card.remote')}
                         </Badge>
                       )}
                       {hasUpdate && (
                         <Badge variant="warning" className="text-xs">
-                          <RefreshCw className="w-3 h-3 mr-1" /> {t('card.updateAvailable')}
+                          <RefreshCw className="w-3 h-3 me-1" /> {t('card.updateAvailable')}
                         </Badge>
                       )}
                     </CardTitle>
@@ -1818,12 +1818,12 @@ export default function Servers() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onClick={() => setEditingServer({ ...server })}>
-                        <Edit2 className="w-4 h-4 mr-2" /> {t('card.edit')}
+                        <Edit2 className="w-4 h-4 me-2" /> {t('card.edit')}
                       </DropdownMenuItem>
                       {!server.isActive && (
                         <DisabledReason reason={!canServersManage ? t('card.noPermissionManage') : null} className="w-full">
                           <DropdownMenuItem onClick={() => handleActivateServer(server)} disabled={activating !== null || !canServersManage}>
-                            <Power className="w-4 h-4 mr-2" /> {t('card.setActive')}
+                            <Power className="w-4 h-4 me-2" /> {t('card.setActive')}
                           </DropdownMenuItem>
                         </DisabledReason>
                       )}
@@ -1831,10 +1831,10 @@ export default function Servers() {
                         <>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem onClick={() => openSteamOperation(server, 'update')}>
-                            <RefreshCw className="w-4 h-4 mr-2" /> {t('card.updateServer')}
+                            <RefreshCw className="w-4 h-4 me-2" /> {t('card.updateServer')}
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => openSteamOperation(server, 'verify')}>
-                            <ShieldCheck className="w-4 h-4 mr-2" /> {t('card.verifyFiles')}
+                            <ShieldCheck className="w-4 h-4 me-2" /> {t('card.verifyFiles')}
                           </DropdownMenuItem>
                         </>
                       )}
@@ -1843,7 +1843,7 @@ export default function Servers() {
                         onClick={() => setDeleteServer(server)}
                         className="text-destructive focus:text-destructive"
                       >
-                        <Trash2 className="w-4 h-4 mr-2" /> {t('card.removeFromPanel')}
+                        <Trash2 className="w-4 h-4 me-2" /> {t('card.removeFromPanel')}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -2045,7 +2045,7 @@ export default function Servers() {
                             disabled
                             title={t('card.statusUnavailable')}
                           >
-                            <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> {t('card.start')}
+                            <Loader2 className="w-4 h-4 me-1.5 animate-spin" /> {t('card.start')}
                           </Button>
                         </DisabledReason>
                       )
@@ -2061,9 +2061,9 @@ export default function Servers() {
                           title={t('card.stopThisServer')}
                         >
                           {stopPending ? (
-                            <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> {t('card.stopping')}</>
+                            <><Loader2 className="w-4 h-4 me-1.5 animate-spin" /> {t('card.stopping')}</>
                           ) : (
-                            <><Square className="w-4 h-4 mr-1.5" /> {t('card.stop')}</>
+                            <><Square className="w-4 h-4 me-1.5" /> {t('card.stop')}</>
                           )}
                         </Button>
                       </DisabledReason>
@@ -2078,9 +2078,9 @@ export default function Servers() {
                           title={server.isActive ? t('card.startThisServer') : t('card.switchAndStart')}
                         >
                           {startPending ? (
-                            <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> {t('card.starting')}</>
+                            <><Loader2 className="w-4 h-4 me-1.5 animate-spin" /> {t('card.starting')}</>
                           ) : (
-                            <><Play className="w-4 h-4 mr-1.5" /> {t('card.start')}</>
+                            <><Play className="w-4 h-4 me-1.5" /> {t('card.start')}</>
                           )}
                         </Button>
                       </DisabledReason>
@@ -2097,7 +2097,7 @@ export default function Servers() {
                           // eslint-disable-next-line local/no-dead-disabled-title -- pure hint describing what the button does; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                           title={t('card.configureSftpTitle')}
                         >
-                          <Link className="w-4 h-4 mr-1.5" /> {t('card.configureSftp')}
+                          <Link className="w-4 h-4 me-1.5" /> {t('card.configureSftp')}
                         </Button>
                       </DisabledReason>
                       <HelpTip label={t('card.configureSftp')}>{t('card.configureSftpTip')}</HelpTip>
@@ -2109,7 +2109,7 @@ export default function Servers() {
                       variant="warning"
                       onClick={() => openSteamOperation(server, 'update')}
                     >
-                      <RefreshCw className="w-4 h-4 mr-1.5" /> {t('card.updateNow')}
+                      <RefreshCw className="w-4 h-4 me-1.5" /> {t('card.updateNow')}
                     </Button>
                   )}
                   {!server.isActive && (
@@ -2122,9 +2122,9 @@ export default function Servers() {
                         disabled={activating === server.id || !canServersManage}
                       >
                         {activating === server.id ? (
-                          <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> {t('card.activating')}</>
+                          <><Loader2 className="w-4 h-4 me-1.5 animate-spin" /> {t('card.activating')}</>
                         ) : (
-                          <><Power className="w-4 h-4 mr-1.5" /> {t('card.switchToThisServer')}</>
+                          <><Power className="w-4 h-4 me-1.5" /> {t('card.switchToThisServer')}</>
                         )}
                       </Button>
                     </DisabledReason>
@@ -2187,7 +2187,7 @@ export default function Servers() {
               }`}
             >
               <Monitor className={`w-5 h-5 ${addMode === 'local' ? 'text-primary' : 'text-muted-foreground'}`} />
-              <div className="text-left">
+              <div className="text-start">
                 <p className="text-sm font-medium">{t('addDialog.modeLocalTitle')}</p>
                 <p className="text-xs text-muted-foreground">{t('addDialog.modeLocalDesc')}</p>
               </div>
@@ -2201,7 +2201,7 @@ export default function Servers() {
               }`}
             >
               <Globe className={`w-5 h-5 ${addMode === 'remote' ? 'text-primary' : 'text-muted-foreground'}`} />
-              <div className="text-left">
+              <div className="text-start">
                 <p className="text-sm font-medium">{t('addDialog.modeRemoteTitle')}</p>
                 <p className="text-xs text-muted-foreground">{t('addDialog.modeRemoteDesc')}</p>
               </div>
@@ -2315,7 +2315,7 @@ export default function Servers() {
                         {autoScanning ? (
                           <Loader2 className="w-4 h-4 animate-spin" />
                         ) : (
-                          <><Search className="w-4 h-4 mr-1" /> {t('localForm.scan')}</>
+                          <><Search className="w-4 h-4 me-1" /> {t('localForm.scan')}</>
                         )}
                       </Button>
                     </DisabledReason>
@@ -2332,7 +2332,7 @@ export default function Servers() {
                           <button
                             type="button"
                             key={config.serverName || idx}
-                            className="w-full text-left p-3 rounded border bg-background hover:bg-accent cursor-pointer transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                            className="w-full text-start p-3 rounded border bg-background hover:bg-accent cursor-pointer transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                             onClick={() => handleSelectScannedConfig(config, autoScanResult.installPaths[0])}
                             aria-label={t('localForm.selectScannedConfigAria', { name: config.publicName || config.serverName })}
                           >
@@ -2404,7 +2404,7 @@ export default function Servers() {
                       {detecting ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
                       ) : (
-                        <><Search className="w-4 h-4 mr-1" /> {t('localForm.detect')}</>
+                        <><Search className="w-4 h-4 me-1" /> {t('localForm.detect')}</>
                       )}
                     </Button>
                   </DisabledReason>
@@ -2604,9 +2604,9 @@ export default function Servers() {
                 disabled={addingServer || !canServersManage || (addMode === 'local' ? (!selectedServerConfig || (!newServer.rconPassword && !importIniFrom)) : (!newServer.name || !newServer.rconHost || !newServer.rconPassword))}
               >
                 {addingServer ? (
-                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {t('addDialog.adding')}</>
+                  <><Loader2 className="w-4 h-4 me-2 animate-spin" /> {t('addDialog.adding')}</>
                 ) : (
-                  <><Plus className="w-4 h-4 mr-2" /> {t('addDialog.addServer')}</>
+                  <><Plus className="w-4 h-4 me-2" /> {t('addDialog.addServer')}</>
                 )}
               </Button>
             </DisabledReason>
@@ -2743,9 +2743,9 @@ export default function Servers() {
                         onClick={() => handleDownloadLifecycleTemplate(editingServer)}
                       >
                         {lifecyclePending ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          <Loader2 className="me-2 h-4 w-4 animate-spin" />
                         ) : (
-                          <Download className="mr-2 h-4 w-4" />
+                          <Download className="me-2 h-4 w-4" />
                         )}
                         {t('editDialog.lifecycleDownloadTemplate')}
                       </Button>
@@ -2759,7 +2759,7 @@ export default function Servers() {
                         disabled={lifecyclePending || !canServersManage}
                         onClick={() => handleActivateLifecycleProvider(editingServer)}
                       >
-                        {lifecyclePending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        {lifecyclePending && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
                         {t('editDialog.lifecycleActivate')}
                       </Button>
                     )}
@@ -2928,7 +2928,7 @@ export default function Servers() {
             </Button>
             <DisabledReason reason={!canServersManage ? t('editDialog.noPermission') : null}>
               <Button onClick={handleSaveEdit} disabled={savingEdit || !canServersManage}>
-                <Check className="w-4 h-4 mr-2" /> {savingEdit ? t('editDialog.saving') : t('editDialog.saveChanges')}
+                <Check className="w-4 h-4 me-2" /> {savingEdit ? t('editDialog.saving') : t('editDialog.saveChanges')}
               </Button>
             </DisabledReason>
           </DialogFooter>
@@ -3018,7 +3018,7 @@ export default function Servers() {
                 className={deleteFiles ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : ""}
               >
                 {deleting ? (
-                  <><Loader2 className="w-4 h-4 animate-spin mr-2" />{t('deleteDialog.removing')}</>
+                  <><Loader2 className="w-4 h-4 animate-spin me-2" />{t('deleteDialog.removing')}</>
                 ) : deleteFiles ? t('deleteDialog.deleteEverything') : t('deleteDialog.removeFromPanel')}
               </Button>
             </DisabledReason>
@@ -3078,7 +3078,7 @@ export default function Servers() {
                     setConfirmClearInstall(true)
                   }}
                 >
-                  <Trash2 className="w-3.5 h-3.5 mr-2" /> {t('steamDialog.clearFolderButton')}
+                  <Trash2 className="w-3.5 h-3.5 me-2" /> {t('steamDialog.clearFolderButton')}
                 </Button>
               </DisabledReason>
               <p className="text-xs text-muted-foreground">
@@ -3087,7 +3087,7 @@ export default function Servers() {
             </div>
 
             <div className="space-y-2">
-              <Label>{t('steamDialog.branchLabel')} {loadingBranches && <Loader2 className="inline-block w-3 h-3 ml-1 animate-spin" />}</Label>
+              <Label>{t('steamDialog.branchLabel')} {loadingBranches && <Loader2 className="inline-block w-3 h-3 ms-1 animate-spin" />}</Label>
               <Select
                 value={steamOperation?.branch || 'public'}
                 onValueChange={(value) => steamOperation && setSteamOperation({ ...steamOperation, branch: value })}
@@ -3163,11 +3163,11 @@ export default function Servers() {
                   disabled={steamRunning || !steamcmdPath.trim() || !canServerInstall}
                 >
                   {steamRunning ? (
-                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {t('steamDialog.running')}</>
+                    <><Loader2 className="w-4 h-4 me-2 animate-spin" /> {t('steamDialog.running')}</>
                   ) : steamOperation?.type === 'verify' ? (
-                    <><ShieldCheck className="w-4 h-4 mr-2" /> {t('steamDialog.startVerify')}</>
+                    <><ShieldCheck className="w-4 h-4 me-2" /> {t('steamDialog.startVerify')}</>
                   ) : (
-                    <><RefreshCw className="w-4 h-4 mr-2" /> {t('steamDialog.startUpdate')}</>
+                    <><RefreshCw className="w-4 h-4 me-2" /> {t('steamDialog.startUpdate')}</>
                   )}
                 </Button>
               </DisabledReason>
@@ -3177,7 +3177,7 @@ export default function Servers() {
                 variant="default"
                 onClick={() => setSteamOperation(null)}
               >
-                <CheckCircle2 className="w-4 h-4 mr-2" /> {t('steamDialog.done')}
+                <CheckCircle2 className="w-4 h-4 me-2" /> {t('steamDialog.done')}
               </Button>
             )}
             {steamCompleted === 'error' && (
@@ -3186,7 +3186,7 @@ export default function Servers() {
                   onClick={() => { setSteamCompleted(null); handleStartSteamOperation(); }}
                   disabled={!steamcmdPath.trim() || !canServerInstall}
                 >
-                  <RefreshCw className="w-4 h-4 mr-2" /> {t('steamDialog.retry')}
+                  <RefreshCw className="w-4 h-4 me-2" /> {t('steamDialog.retry')}
                 </Button>
               </DisabledReason>
             )}
@@ -3216,9 +3216,9 @@ export default function Servers() {
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               >
                 {clearingInstall ? (
-                  <><Loader2 className="w-4 h-4 animate-spin mr-2" />{t('clearInstallDialog.clearing')}</>
+                  <><Loader2 className="w-4 h-4 animate-spin me-2" />{t('clearInstallDialog.clearing')}</>
                 ) : (
-                  <><Trash2 className="w-4 h-4 mr-2" />{t('clearInstallDialog.clearFolder')}</>
+                  <><Trash2 className="w-4 h-4 me-2" />{t('clearInstallDialog.clearFolder')}</>
                 )}
               </Button>
             </DisabledReason>

@@ -44,7 +44,7 @@ export function PasswordInput({
         placeholder={placeholder}
         maxLength={maxLength}
         autoComplete={autoComplete}
-        className={cn('pr-10', className)}
+        className={cn('pe-10', className)}
       />
       <Button
         type="button"

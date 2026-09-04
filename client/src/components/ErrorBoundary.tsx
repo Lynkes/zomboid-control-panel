@@ -82,7 +82,7 @@ class ErrorBoundaryBase extends React.Component<Props, State> {
               )}
               <div className="flex flex-wrap gap-2">
                 <Button onClick={() => window.location.reload()}>
-                  <RefreshCw className="w-4 h-4 mr-2" />
+                  <RefreshCw className="w-4 h-4 me-2" />
                   {t('refreshPage')}
                 </Button>
                 <Button variant="outline" onClick={this.handleReset}>

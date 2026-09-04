@@ -294,7 +294,7 @@ function TimezonePicker({ id, value, onChange, disabled }: TimezonePickerProps) 
         data-tz-index={idx}
         onClick={() => handleSelect(zone)}
         className={cn(
-          'w-full px-3 py-1.5 text-left text-xs font-mono truncate motion-safe:transition-colors',
+          'w-full px-3 py-1.5 text-start text-xs font-mono truncate motion-safe:transition-colors',
           'hover:bg-accent/10',
           zone === value && 'bg-primary/10 text-primary',
           idx === highlightIndex && 'bg-accent/15'
@@ -322,7 +322,7 @@ function TimezonePicker({ id, value, onChange, disabled }: TimezonePickerProps) 
           onFocus={(e) => { setOpen(true); setSearching(false); e.target.select() }}
           onKeyDown={handleKeyDown}
           placeholder="America/New_York"
-          className="font-mono pl-8 pr-8"
+          className="font-mono ps-8 pe-8"
           maxLength={100}
           disabled={disabled}
           autoComplete="off"
@@ -992,7 +992,7 @@ export default function Scheduler() {
           <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <span className="min-w-0 break-words" dir="auto">{fetchError}</span>
             <Button variant="outline" size="sm" onClick={fetchData} className="self-start">
-              <RefreshCw className="mr-2 h-4 w-4" /> {t('fetchError.retry')}
+              <RefreshCw className="me-2 h-4 w-4" /> {t('fetchError.retry')}
             </Button>
           </AlertDescription>
         </Alert>
@@ -1013,7 +1013,7 @@ export default function Scheduler() {
           actions={
             <DialogTrigger asChild>
               <Button variant="command" onClick={resetTaskForm}>
-                <Plus className="w-4 h-4 mr-2" />
+                <Plus className="w-4 h-4 me-2" />
                 {t('pageHeader.newTask')}
               </Button>
             </DialogTrigger>
@@ -1219,7 +1219,7 @@ export default function Scheduler() {
                     <Trans
                       i18nKey="dialog.bridgeFormatHint"
                       t={t}
-                      components={{ 1: <code className="text-foreground" />, 2: <code className="ml-1 text-foreground" /> }}
+                      components={{ 1: <code className="text-foreground" />, 2: <code className="ms-1 text-foreground" /> }}
                     />
                   </p>
                 )}
@@ -1294,7 +1294,7 @@ export default function Scheduler() {
               onClick={handleSaveTimezone}
               disabled={timezoneSaving || !timezoneInput.trim() || timezoneInput.trim() === status?.configuredTimezone}
             >
-              {timezoneSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              {timezoneSaving ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : null}
               {t('timezone.saveButton')}
             </Button>
           </div>
@@ -1359,7 +1359,7 @@ export default function Scheduler() {
               onClick={handleSaveRestartWarning}
               disabled={restartWarningSaving || !restartWarningTemplate.trim()}
             >
-              {restartWarningSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {restartWarningSaving ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}
               {t('restartWarning.saveButton')}
             </Button>
           </div>
@@ -1448,7 +1448,7 @@ export default function Scheduler() {
                 // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Restart in 15 minutes with countdown warnings"); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                 title={t('manualRestart.restartIn15Title')}
               >
-                <Clock className="w-4 h-4 mr-2" />
+                <Clock className="w-4 h-4 me-2" />
                 {t('manualRestart.restartIn15')}
               </Button>
             </DisabledReason>
@@ -1461,7 +1461,7 @@ export default function Scheduler() {
                 // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Restart in 10 minutes with countdown warnings"); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                 title={t('manualRestart.restartIn10Title')}
               >
-                <Clock className="w-4 h-4 mr-2" />
+                <Clock className="w-4 h-4 me-2" />
                 {t('manualRestart.restartIn10')}
               </Button>
             </DisabledReason>
@@ -1474,7 +1474,7 @@ export default function Scheduler() {
                 // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Restart in 5 minutes with countdown warnings"); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                 title={t('manualRestart.restartIn5Title')}
               >
-                <Clock className="w-4 h-4 mr-2" />
+                <Clock className="w-4 h-4 me-2" />
                 {t('manualRestart.restartIn5')}
               </Button>
             </DisabledReason>
@@ -1488,7 +1488,7 @@ export default function Scheduler() {
                   // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Restart in 1 minute — short warning, requires confirmation", describing the action's own confirm-dialog behavior, not why it's disabled); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                   title={t('manualRestart.restartIn1Title')}
                 >
-                  <Clock className="w-4 h-4 mr-2" />
+                  <Clock className="w-4 h-4 me-2" />
                   {t('manualRestart.restartIn1')}
                 </Button>
               </AlertDialogTrigger>
@@ -1529,7 +1529,7 @@ export default function Scheduler() {
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button disabled={loading || !serverRunning || !Number.isFinite(restartMinutes) || !canRestartNow} variant="warning">
-                    <RotateCcw className="w-4 h-4 mr-2" />
+                    <RotateCcw className="w-4 h-4 me-2" />
                     {t('manualRestart.restartNow')}
                   </Button>
                 </AlertDialogTrigger>
@@ -1556,7 +1556,7 @@ export default function Scheduler() {
                   disabled={loading || !serverRunning || !Number.isFinite(restartMinutes) || !canRestartNow}
                   variant="warning"
                 >
-                  <RotateCcw className="w-4 h-4 mr-2" />
+                  <RotateCcw className="w-4 h-4 me-2" />
                   {t('manualRestart.restartNow')}
                 </Button>
               </DisabledReason>
@@ -1781,7 +1781,7 @@ export default function Scheduler() {
                 onClick={fetchData}
                 disabled={loading}
               >
-                <RefreshCw className="w-4 h-4 mr-1" />
+                <RefreshCw className="w-4 h-4 me-1" />
                 {t('executionHistory.refresh')}
               </Button>
               <AlertDialog>
@@ -1791,7 +1791,7 @@ export default function Scheduler() {
                     size="sm"
                     disabled={loading || history.length === 0}
                   >
-                    <Trash2 className="w-4 h-4 mr-1" />
+                    <Trash2 className="w-4 h-4 me-1" />
                     {t('executionHistory.clear')}
                   </Button>
                 </AlertDialogTrigger>
@@ -1839,7 +1839,7 @@ export default function Scheduler() {
                         <span className="sr-only">{entry.success ? t('executionHistory.succeeded') : t('executionHistory.failed')}</span>
                         <div>
                           <span className="font-medium">{entry.task_name}</span>
-                          <code className="ml-2 text-xs bg-muted px-1.5 py-0.5 rounded">
+                          <code className="ms-2 text-xs bg-muted px-1.5 py-0.5 rounded">
                             {entry.command}
                           </code>
                         </div>
@@ -1848,7 +1848,7 @@ export default function Scheduler() {
                         {new Date(entry.executed_at).toLocaleString(i18n.language)}
                       </span>
                     </div>
-                    <div className="mt-1 ml-6 text-sm">
+                    <div className="mt-1 ms-6 text-sm">
                       {entry.message && (
                         <p className={entry.success ? 'text-muted-foreground' : 'text-destructive'}>
                           {entry.message}

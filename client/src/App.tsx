@@ -266,10 +266,10 @@ function AuthScreenLoader() {
       {/* Center stage */}
       <div className="relative w-full max-w-[520px]">
         {/* Corner brackets */}
-        <span aria-hidden="true" className="pointer-events-none absolute -left-2 -top-2 h-5 w-5 border-l-2 border-t-2 border-primary/45" />
-        <span aria-hidden="true" className="pointer-events-none absolute -right-2 -top-2 h-5 w-5 border-r-2 border-t-2 border-primary/45" />
-        <span aria-hidden="true" className="pointer-events-none absolute -bottom-2 -left-2 h-5 w-5 border-b-2 border-l-2 border-primary/45" />
-        <span aria-hidden="true" className="pointer-events-none absolute -bottom-2 -right-2 h-5 w-5 border-b-2 border-r-2 border-primary/45" />
+        <span aria-hidden="true" className="pointer-events-none absolute -start-2 -top-2 h-5 w-5 border-s-2 border-t-2 border-primary/45" />
+        <span aria-hidden="true" className="pointer-events-none absolute -end-2 -top-2 h-5 w-5 border-e-2 border-t-2 border-primary/45" />
+        <span aria-hidden="true" className="pointer-events-none absolute -bottom-2 -start-2 h-5 w-5 border-b-2 border-s-2 border-primary/45" />
+        <span aria-hidden="true" className="pointer-events-none absolute -bottom-2 -end-2 h-5 w-5 border-b-2 border-e-2 border-primary/45" />
 
         <div className="relative rounded-md border border-border/60 bg-card/70 px-6 py-7 backdrop-blur-sm shadow-[0_30px_80px_-50px_hsl(var(--foreground)/0.6)]">
           {/* Header strip */}
@@ -330,12 +330,12 @@ function AuthScreenLoader() {
                   </span>
                   <span className="truncate">{step.label}</span>
                   {isCurrent && (
-                    <span className="ml-auto text-[10px] uppercase tracking-[0.2em] text-primary/80">
+                    <span className="ms-auto text-[10px] uppercase tracking-[0.2em] text-primary/80">
                       …
                     </span>
                   )}
                   {isDone && (
-                    <span className="ml-auto text-[10px] uppercase tracking-[0.2em] text-emerald-500/70">
+                    <span className="ms-auto text-[10px] uppercase tracking-[0.2em] text-emerald-500/70">
                       OK
                     </span>
                   )}

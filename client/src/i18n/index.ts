@@ -1,8 +1,8 @@
 import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
-import { LANGUAGE_CODES, SOURCE_LANGUAGE } from './languages'
+import { LANGUAGE_CODES, SOURCE_LANGUAGE, isRTL } from './languages'
 
-export { LANGUAGES, SOURCE_LANGUAGE, LANGUAGE_CODES } from './languages'
+export { LANGUAGES, SOURCE_LANGUAGE, LANGUAGE_CODES, isRTL, directionOf } from './languages'
 export type { LanguageDef } from './languages'
 export type SupportedLanguage = string
 
@@ -78,15 +78,34 @@ function detectInitialLanguage(): SupportedLanguage {
   return SOURCE_LANGUAGE
 }
 
+// Keeps <html dir>/<html lang> in sync with the active language -- on
+// first load AND on every runtime switch (the switcher is a live control,
+// not a boot-time setting). Applied synchronously before i18next's own
+// init resolves so the very first paint is already correct rather than
+// flashing ltr and then flipping; the 'languageChanged' subscription below
+// covers every change after that, including setLanguage()'s own
+// i18n.changeLanguage() call. For all six languages registered today this
+// is a no-op every time (isRTL() is false for all of them) -- there is no
+// RTL row in LANGUAGES yet.
+function applyDocumentDirection(lang: string): void {
+  document.documentElement.dir = isRTL(lang) ? 'rtl' : 'ltr'
+  document.documentElement.lang = lang
+}
+
+const initialLanguage = detectInitialLanguage()
+applyDocumentDirection(initialLanguage)
+
 i18n.use(initReactI18next).init({
   resources,
-  lng: detectInitialLanguage(),
+  lng: initialLanguage,
   fallbackLng: SOURCE_LANGUAGE,
   ns: namespaces,
   defaultNS: 'shell',
   interpolation: { escapeValue: false }, // React already escapes interpolated values
   returnEmptyString: false,
 })
+
+i18n.on('languageChanged', applyDocumentDirection)
 
 export function setLanguage(lang: SupportedLanguage): void {
   void i18n.changeLanguage(lang)

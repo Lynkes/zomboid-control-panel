@@ -674,7 +674,7 @@ export default function Backups() {
           <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <span>{loadError}</span>
             <Button variant="outline" size="sm" onClick={refreshAll} className="self-start sm:self-auto">
-              <RefreshCw className="mr-2 h-4 w-4" />
+              <RefreshCw className="me-2 h-4 w-4" />
               {t('alerts.retry')}
             </Button>
           </AlertDescription>
@@ -856,7 +856,7 @@ export default function Backups() {
               </div>
               <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : null}>
                 <Button onClick={handleSaveSettings} disabled={savingSettings || !canManageBackups} size="sm" className="h-10 gap-2 self-start sm:self-auto">
-                  {savingSettings && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  {savingSettings && <Loader2 className="w-4 h-4 me-2 animate-spin" />}
                   {t('settingsPanel.saveButton')}
                 </Button>
               </DisabledReason>
@@ -1010,7 +1010,7 @@ export default function Backups() {
 
               {/* Backup List */}
               <ScrollArea className="h-[300px] sm:h-[400px]">
-                <div className="space-y-2 pr-4">
+                <div className="space-y-2 pe-4">
                   {backups.map((backup, idx) => {
                     const isSelected = selectedBackups.has(backup.name)
                     const isRestoring = restoringBackup === backup.name

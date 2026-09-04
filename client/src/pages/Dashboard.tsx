@@ -227,7 +227,7 @@ function ConnLine({
     <div className="flex min-w-0 items-center gap-2.5 py-1.5">
       <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', dot)} aria-hidden="true" />
       <span className="shrink-0 font-mono text-[11px] font-medium text-foreground/70">{label}</span>
-      <span className={cn('min-w-0 flex-1 truncate text-right font-mono text-[11px] tabular-nums', valueTone)}>
+      <span className={cn('min-w-0 flex-1 truncate text-end font-mono text-[11px] tabular-nums', valueTone)}>
         {value ?? (state === 'on' ? t('connLine.connected') : state === 'wait' ? t('connLine.pending') : t('connLine.offline'))}
       </span>
       {hint && <span className="shrink-0 font-mono text-[10px] text-muted-foreground/50">{hint}</span>}
@@ -937,7 +937,7 @@ export default function Dashboard() {
         level: 'warning',
         headline: t('verdict.rconDisconnected'),
         headlineHelp: (
-          <HelpTip label={t('verdict.rconHelpLabel')} className="ml-1.5 align-[-2px]">
+          <HelpTip label={t('verdict.rconHelpLabel')} className="ms-1.5 align-[-2px]">
             {t('verdict.rconHelpTip')}
           </HelpTip>
         ),
@@ -1212,7 +1212,7 @@ export default function Dashboard() {
           </div>
 
           {/* primary controls — right-aligned */}
-          <div className="order-2 ml-auto flex flex-wrap justify-end gap-1">
+          <div className="order-2 ms-auto flex flex-wrap justify-end gap-1">
           {!online ? (
             <DisabledReason reason={
               !hasServer ? t('actions.addServerFirst')
@@ -1317,13 +1317,13 @@ export default function Dashboard() {
                 onClick={() => handleAction('Create backup', () => backupApi.createBackup({ includeDb: true }).then(() => fetchMaintenance()))}
                 disabled={!hasServer || loading !== null || activeServer?.isRemote}
               >
-                <Archive className="mr-2 h-4 w-4" /> {t('actions.createBackup')}
+                <Archive className="me-2 h-4 w-4" /> {t('actions.createBackup')}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={fetchStatus}>
-                <RefreshCw className="mr-2 h-4 w-4" /> {t('actions.refreshStatus')}
+                <RefreshCw className="me-2 h-4 w-4" /> {t('actions.refreshStatus')}
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link to="/settings" className="flex items-center"><Server className="mr-2 h-4 w-4" /> {t('actions.bridgeSettings')}</Link>
+                <Link to="/settings" className="flex items-center"><Server className="me-2 h-4 w-4" /> {t('actions.bridgeSettings')}</Link>
               </DropdownMenuItem>
               {!rconConnected && (
                 <DisabledReason
@@ -1337,7 +1337,7 @@ export default function Dashboard() {
                   }
                 >
                   <DropdownMenuItem onClick={handleConnect} disabled={!hasServer || loading !== null || (!activeServer?.isRemote && !hostRunning)}>
-                    <Wifi className="mr-2 h-4 w-4" /> {t('actions.connectRcon')}
+                    <Wifi className="me-2 h-4 w-4" /> {t('actions.connectRcon')}
                   </DropdownMenuItem>
                 </DisabledReason>
               )}
@@ -1370,7 +1370,7 @@ export default function Dashboard() {
                   disabled={!hasServer || !online || loading !== null || activeServer?.isRemote || !canControlServer}
                   className="text-destructive focus:text-destructive"
                 >
-                  <Zap className="mr-2 h-4 w-4" /> {t('actions.restartNow')}
+                  <Zap className="me-2 h-4 w-4" /> {t('actions.restartNow')}
                 </DropdownMenuItem>
               </DisabledReason>
               <DisabledReason
@@ -1399,7 +1399,7 @@ export default function Dashboard() {
                   disabled={!hasServer || online || loading !== null || activeServer?.isRemote || !canWipeServer}
                   className="text-destructive focus:text-destructive"
                 >
-                  <Trash2 className="mr-2 h-4 w-4" /> {t('actions.wipeServer')}
+                  <Trash2 className="me-2 h-4 w-4" /> {t('actions.wipeServer')}
                 </DropdownMenuItem>
               </DisabledReason>
             </DropdownMenuContent>
@@ -1429,7 +1429,7 @@ export default function Dashboard() {
           <div
             role="status"
             className={cn(
-              'mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border py-2 pl-3 pr-2',
+              'mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border py-2 ps-3 pe-2',
               lastFailed
                 ? 'border-destructive/35 bg-destructive/[0.05] shadow-[inset_2px_0_0_hsl(var(--destructive))]'
                 : 'border-primary/35 bg-primary/[0.04] shadow-[inset_2px_0_0_hsl(var(--primary))]',
@@ -1453,7 +1453,7 @@ export default function Dashboard() {
                 </span>
               )}
             </div>
-            <div className="ml-auto flex items-center gap-1">
+            <div className="ms-auto flex items-center gap-1">
               <Button
                 size="sm"
                 variant="ghost"
@@ -1505,7 +1505,7 @@ export default function Dashboard() {
               onClick={dismiss}
               aria-label={t('updateCheckError.dismissAria')}
               title={t('updateCheckError.dismissTooltip')}
-              className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground/60 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+              className="ms-auto shrink-0 rounded p-0.5 text-muted-foreground/60 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
             >
               <X className="h-3 w-3" />
             </button>
@@ -1517,7 +1517,7 @@ export default function Dashboard() {
       {fetchError && (
         <div
           role="alert"
-          className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-destructive/40 bg-destructive/[0.05] py-2 pl-3 pr-2 shadow-[inset_2px_0_0_hsl(var(--destructive))]"
+          className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-destructive/40 bg-destructive/[0.05] py-2 ps-3 pe-2 shadow-[inset_2px_0_0_hsl(var(--destructive))]"
         >
           <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
           <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5">
@@ -1528,7 +1528,7 @@ export default function Dashboard() {
               {fetchError}{t('connectionError.suffix')}
             </span>
           </div>
-          <Button variant="outline" size="sm" onClick={fetchStatus} className="ml-auto h-7 gap-1.5 px-2.5 text-xs">
+          <Button variant="outline" size="sm" onClick={fetchStatus} className="ms-auto h-7 gap-1.5 px-2.5 text-xs">
             <RefreshCw className="h-3 w-3" /> {t('connectionError.retry')}
           </Button>
         </div>
@@ -1542,7 +1542,7 @@ export default function Dashboard() {
       {status && !status.serverPathConfigured && !activeServer?.isRemote && (
         <Link
           to="/server-setup"
-          className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-warning/40 bg-warning/[0.04] py-2 pl-3 pr-2 shadow-[inset_2px_0_0_hsl(var(--warning))] transition-colors hover:bg-warning/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+          className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-warning/40 bg-warning/[0.04] py-2 ps-3 pe-2 shadow-[inset_2px_0_0_hsl(var(--warning))] transition-colors hover:bg-warning/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
         >
           <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warning" />
           <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5">
@@ -1553,7 +1553,7 @@ export default function Dashboard() {
               {t('notConfigured.description')}
             </span>
           </div>
-          <span className="ml-auto text-xs font-medium text-warning/85">{t('notConfigured.openSetup')}</span>
+          <span className="ms-auto text-xs font-medium text-warning/85">{t('notConfigured.openSetup')}</span>
         </Link>
       )}
 
@@ -1579,10 +1579,10 @@ export default function Dashboard() {
             ].map(([n, title, body]) => (
               <li key={n} className="rounded-md border border-border/50 bg-background/40 p-3">
                 <p className="text-sm font-semibold text-foreground">
-                  <span className="mr-1.5 inline-flex h-4 w-4 items-center justify-center rounded text-[10px] font-bold bg-primary/15 text-primary" aria-hidden="true">{n}</span>
+                  <span className="me-1.5 inline-flex h-4 w-4 items-center justify-center rounded text-[10px] font-bold bg-primary/15 text-primary" aria-hidden="true">{n}</span>
                   {title}
                 </p>
-                <p className="mt-1 pl-[1.4rem] text-xs leading-5 text-muted-foreground">{body}</p>
+                <p className="mt-1 ps-[1.4rem] text-xs leading-5 text-muted-foreground">{body}</p>
               </li>
             ))}
           </ol>
@@ -1776,7 +1776,7 @@ export default function Dashboard() {
                 >
                   <RefreshCw className={cn('h-3 w-3', loading ? 'animate-spin' : '')} />
                   {t('maintenance.refreshStatus')}
-                  <span className="ml-auto font-mono text-[10px] text-muted-foreground/65">
+                  <span className="ms-auto font-mono text-[10px] text-muted-foreground/65">
                     {lastUpdated ? lastUpdated.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' }) : '—'}
                   </span>
                 </Button>
@@ -1995,7 +1995,7 @@ export default function Dashboard() {
                   } finally { setWipeLoading(false) }
                 }}
               >
-                {wipeLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {wipeLoading ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}
                 {t('wipeDialog.preview')}
               </Button>
             ) : (
@@ -2021,7 +2021,7 @@ export default function Dashboard() {
                   } finally { setWipeLoading(false); setWipeBackupProgress(null) }
                 }}
               >
-                {wipeLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                {wipeLoading ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <Trash2 className="me-2 h-4 w-4" />}
                 {t('wipeDialog.wipeNow')}
               </Button>
             )}

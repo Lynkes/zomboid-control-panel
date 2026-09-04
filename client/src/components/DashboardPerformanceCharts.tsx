@@ -236,7 +236,7 @@ function DashboardPerformanceCharts({
               )}
             </div>
 
-            <span className="text-right font-mono text-[11px] tabular-nums text-muted-foreground/50">
+            <span className="text-end font-mono text-[11px] tabular-nums text-muted-foreground/50">
               {m.key === 'pzMem' ? t('normal') : pct != null && m.unit !== '%' ? `${Math.round(pct)}%` : ''}
             </span>
           </div>

@@ -57,7 +57,7 @@ export function MountDiscoveryBanner({ mount, onConnect }: MountDiscoveryBannerP
           <X className="h-4 w-4" />
         </Button>
         <Button variant="outline" size="sm" onClick={() => onConnect(mount)}>
-          <Plus className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" /> {t('add')}
+          <Plus className="me-1.5 h-3.5 w-3.5" aria-hidden="true" /> {t('add')}
         </Button>
       </div>
     </div>

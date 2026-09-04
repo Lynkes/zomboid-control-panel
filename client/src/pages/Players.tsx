@@ -289,7 +289,7 @@ function ActionTile({
   return (
     <div
       className={cn(
-        'group flex w-full items-center gap-3 rounded-md border text-left transition-colors',
+        'group flex w-full items-center gap-3 rounded-md border text-start transition-colors',
         compact ? 'px-2.5 py-2' : 'px-3 py-2.5',
         e.base,
         disabled ? 'opacity-50' : '',
@@ -333,7 +333,7 @@ function VitalBar({ label, value, goodWhenLow }: { label: string; value: number;
         <div className="h-1.5 flex-1 overflow-hidden rounded-sm bg-muted/60 ring-1 ring-black/20">
           <div className="h-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
         </div>
-        <span className="w-8 shrink-0 text-right font-mono text-xs tabular-nums text-foreground/85">{Math.round(pct)}%</span>
+        <span className="w-8 shrink-0 text-end font-mono text-xs tabular-nums text-foreground/85">{Math.round(pct)}%</span>
       </div>
     </div>
   )
@@ -1369,7 +1369,7 @@ export default function Players() {
               }}
               className="self-start"
             >
-              <RefreshCw className="mr-2 h-4 w-4" /> {t('errorBanner.retry')}
+              <RefreshCw className="me-2 h-4 w-4" /> {t('errorBanner.retry')}
             </Button>
           </AlertDescription>
         </Alert>
@@ -1403,7 +1403,7 @@ export default function Players() {
             type="button"
             onClick={() => setUnbanSteamIdDialogOpen(true)}
             disabled={!canModerate}
-            className="group relative flex flex-1 items-center gap-3 overflow-hidden rounded-md border border-border/55 bg-card/70 px-4 py-3 text-left shadow-sm transition-colors hover:border-destructive/45 hover:bg-destructive/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="group relative flex flex-1 items-center gap-3 overflow-hidden rounded-md border border-border/55 bg-card/70 px-4 py-3 text-start shadow-sm transition-colors hover:border-destructive/45 hover:bg-destructive/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 disabled:opacity-50 disabled:cursor-not-allowed"
             aria-label={t('summary.bannedAria', { count: bannedSteamIds.length })}
           >
             <span aria-hidden="true" className="absolute inset-y-0 left-0 w-[2px] bg-destructive/60" />
@@ -1512,7 +1512,7 @@ export default function Players() {
                 }
                 value={playerSearchFilter}
                 onChange={(e) => setPlayerSearchFilter(e.target.value)}
-                className="pl-9"
+                className="ps-9"
                 aria-label={t('roster.searchAria')}
               />
             </div>
@@ -1534,7 +1534,7 @@ export default function Players() {
                     </p>
                     {offlineRoster.length > 0 && (
                       <Button variant="ghost" size="sm" className="mt-4 text-xs text-muted-foreground" onClick={() => setRosterTab('roster')}>
-                        <Users className="mr-1.5 h-3.5 w-3.5" />
+                        <Users className="me-1.5 h-3.5 w-3.5" />
                         {t('roster.seePreviouslySeen', { count: offlineRoster.length })}
                       </Button>
                     )}
@@ -1545,7 +1545,7 @@ export default function Players() {
                         className="mt-1 text-xs text-muted-foreground"
                         onClick={() => setRosterTab('banned')}
                       >
-                        <Ban className="mr-1.5 h-3.5 w-3.5" />
+                        <Ban className="me-1.5 h-3.5 w-3.5" />
                         {t('roster.reviewBanned', { count: bannedSteamIds.length })}
                       </Button>
                     )}
@@ -1566,7 +1566,7 @@ export default function Players() {
                         <button
                           key={player.name}
                           type="button"
-                          className={`group w-full text-left p-3 rounded-lg border cursor-pointer transition-[background-color,border-color,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 ${
+                          className={`group w-full text-start p-3 rounded-lg border cursor-pointer transition-[background-color,border-color,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 ${
                             isSelected
                               ? 'bg-primary/10 border-primary shadow-sm'
                               : 'hover:bg-muted/50 border-transparent hover:border-border'
@@ -1597,7 +1597,7 @@ export default function Players() {
                               {vitals && typeof vitals.health === 'number' && (
                                 <span
                                   className={cn(
-                                    'flex items-center gap-0.5 text-xs font-mono tabular-nums mr-1',
+                                    'flex items-center gap-0.5 text-xs font-mono tabular-nums me-1',
                                     vitals.health >= 60 ? 'text-emerald-500' : vitals.health >= 30 ? 'text-amber-500' : 'text-destructive',
                                   )}
                                   title={t('roster.rosterHealthTooltip', { health: Math.round(vitals.health) })}
@@ -1607,10 +1607,10 @@ export default function Players() {
                                 </span>
                               )}
                               {vitals?.isInfected && (
-                                <Skull className="w-3 h-3 text-destructive mr-1" aria-label={t('vitals.infected')} />
+                                <Skull className="w-3 h-3 text-destructive me-1" aria-label={t('vitals.infected')} />
                               )}
                               {stat && (
-                                <span className="text-xs text-muted-foreground mr-1">
+                                <span className="text-xs text-muted-foreground me-1">
                                   {formatPlaytime(stat.total_playtime_seconds)}
                                 </span>
                               )}
@@ -1668,7 +1668,7 @@ export default function Players() {
                         <button
                           key={name}
                           type="button"
-                          className={`w-full text-left p-3 rounded-lg border transition-[background-color,border-color,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 ${
+                          className={`w-full text-start p-3 rounded-lg border transition-[background-color,border-color,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 ${
                             isSelected
                               ? 'bg-primary/10 border-primary shadow-sm'
                               : 'hover:bg-muted/50 border-transparent hover:border-border'
@@ -1686,7 +1686,7 @@ export default function Players() {
                                 </Badge>
                               )}
                             </div>
-                            <div className="flex flex-col items-end text-right">
+                            <div className="flex flex-col items-end text-end">
                               <span className="text-xs text-muted-foreground">
                                 {formatPlaytime(stat.total_playtime_seconds)}
                               </span>
@@ -1804,7 +1804,7 @@ export default function Players() {
                               // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Remove {username} from whitelist"); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                               title={t('roster.removeTitle', { username: account.username })}
                             >
-                              <UserMinus className="mr-1.5 h-3.5 w-3.5" />
+                              <UserMinus className="me-1.5 h-3.5 w-3.5" />
                               {t('roster.removeButton')}
                             </Button>
                             </DisabledReason>
@@ -1833,7 +1833,7 @@ export default function Players() {
                     />
                     <DisabledReason reason={!canModerate ? t('permissions.noModerate') : null}>
                     <Button onClick={handleAddAllowedSteamId} disabled={loading || !canModerate || allowedSteamIdInput.length !== 17} size="sm" className="shrink-0">
-                      <Plus className="mr-1.5 h-3.5 w-3.5" /> {t('roster.addButton')}
+                      <Plus className="me-1.5 h-3.5 w-3.5" /> {t('roster.addButton')}
                     </Button>
                     </DisabledReason>
                   </div>
@@ -1850,7 +1850,7 @@ export default function Players() {
                         // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Remove allowed Steam ID {steamId}"); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                         title={t('roster.removeAllowedTitle', { steamId })}
                       >
-                        <Trash2 className="mr-1 h-3.5 w-3.5" /> {t('roster.removeAllowedButton')}
+                        <Trash2 className="me-1 h-3.5 w-3.5" /> {t('roster.removeAllowedButton')}
                       </Button>
                       </DisabledReason>
                     </div>
@@ -1906,10 +1906,10 @@ export default function Players() {
                   return (
                     <div className="relative overflow-hidden rounded-md border border-border/50 bg-gradient-to-br from-muted/30 via-card to-card p-4">
                       {/* Corner ticks */}
-                      <span aria-hidden="true" className="pointer-events-none absolute -left-px -top-px h-3 w-3 border-l-2 border-t-2 border-primary/40" />
-                      <span aria-hidden="true" className="pointer-events-none absolute -right-px -top-px h-3 w-3 border-r-2 border-t-2 border-primary/40" />
-                      <span aria-hidden="true" className="pointer-events-none absolute -left-px -bottom-px h-3 w-3 border-b-2 border-l-2 border-primary/40" />
-                      <span aria-hidden="true" className="pointer-events-none absolute -right-px -bottom-px h-3 w-3 border-b-2 border-r-2 border-primary/40" />
+                      <span aria-hidden="true" className="pointer-events-none absolute -left-px -top-px h-3 w-3 border-s-2 border-t-2 border-primary/40" />
+                      <span aria-hidden="true" className="pointer-events-none absolute -right-px -top-px h-3 w-3 border-e-2 border-t-2 border-primary/40" />
+                      <span aria-hidden="true" className="pointer-events-none absolute -left-px -bottom-px h-3 w-3 border-b-2 border-s-2 border-primary/40" />
+                      <span aria-hidden="true" className="pointer-events-none absolute -right-px -bottom-px h-3 w-3 border-b-2 border-e-2 border-primary/40" />
                       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
@@ -2020,19 +2020,19 @@ export default function Players() {
                             <DropdownMenuContent align="end">
                               <DisabledReason className="w-full" reason={!canGmTools ? t('permissions.noGmTools') : (!bridgeConnected ? t('powers.bridgeRequiredTooltip') : null)}>
                                 <DropdownMenuItem onClick={() => { if (!canGmTools) return; handleGodMode(!selectedPlayerPowers?.godMode) }} disabled={loading || !bridgeConnected || !canGmTools}>
-                                  <Ghost className="w-4 h-4 mr-2" />
+                                  <Ghost className="w-4 h-4 me-2" />
                                   {selectedPlayerPowers?.godMode ? t('dossier.disableGodMode') : t('dossier.enableGodMode')}
                                 </DropdownMenuItem>
                               </DisabledReason>
                               <DisabledReason className="w-full" reason={!canGmTools ? t('permissions.noGmTools') : (!bridgeConnected ? t('powers.bridgeRequiredTooltip') : null)}>
                                 <DropdownMenuItem onClick={() => { if (!canGmTools) return; handleInvisible(!selectedPlayerPowers?.invisible) }} disabled={loading || !bridgeConnected || !canGmTools}>
-                                  <Eye className="w-4 h-4 mr-2" />
+                                  <Eye className="w-4 h-4 me-2" />
                                   {selectedPlayerPowers?.invisible ? t('dossier.disableInvisible') : t('dossier.enableInvisible')}
                                 </DropdownMenuItem>
                               </DisabledReason>
                               <DisabledReason className="w-full" reason={!canGmTools ? t('permissions.noGmTools') : (!bridgeConnected ? t('powers.bridgeRequiredTooltip') : null)}>
                                 <DropdownMenuItem onClick={() => { if (!canGmTools) return; handleNoclip(!selectedPlayerPowers?.noclip) }} disabled={loading || !bridgeConnected || !canGmTools}>
-                                  <Layers className="w-4 h-4 mr-2" />
+                                  <Layers className="w-4 h-4 me-2" />
                                   {selectedPlayerPowers?.noclip ? t('dossier.disableNoclip') : t('dossier.enableNoclip')}
                                 </DropdownMenuItem>
                               </DisabledReason>
@@ -2047,7 +2047,7 @@ export default function Players() {
                                 }}
                                 disabled={loading || !canModerate}
                               >
-                                <UserPlus className="w-4 h-4 mr-2" />
+                                <UserPlus className="w-4 h-4 me-2" />
                                 {t('dossier.addToWhitelist')}
                               </DropdownMenuItem>
                               </DisabledReason>
@@ -2056,7 +2056,7 @@ export default function Players() {
                                 onClick={() => { if (!canModerate) return; handleAction(t('actions.removeFromWhitelist'), () => playersApi.removeFromWhitelist(selectedPlayer), () => { void fetchWhitelist() }) }}
                                 disabled={loading || !canModerate || selectedPlayerConfirmedNotWhitelisted}
                               >
-                                <UserMinus className="w-4 h-4 mr-2" />
+                                <UserMinus className="w-4 h-4 me-2" />
                                 {t('dossier.removeFromWhitelist')}
                               </DropdownMenuItem>
                               </DisabledReason>
@@ -2066,7 +2066,7 @@ export default function Players() {
                                   onClick={() => { if (!canGmTools) return; setImportExportOpen(true) }}
                                   disabled={!bridgeConnected || !canGmTools}
                                 >
-                                  <Download className="w-4 h-4 mr-2" />
+                                  <Download className="w-4 h-4 me-2" />
                                   {t('dossier.importExportCharacter')}
                                 </DropdownMenuItem>
                               </DisabledReason>
@@ -2080,10 +2080,10 @@ export default function Players() {
               </>
             ) : (
               <div className="relative overflow-hidden rounded-md border border-dashed border-border/50 bg-muted/10 px-6 py-10 text-center">
-                <span aria-hidden="true" className="pointer-events-none absolute -left-px -top-px h-3 w-3 border-l-2 border-t-2 border-border/60" />
-                <span aria-hidden="true" className="pointer-events-none absolute -right-px -top-px h-3 w-3 border-r-2 border-t-2 border-border/60" />
-                <span aria-hidden="true" className="pointer-events-none absolute -left-px -bottom-px h-3 w-3 border-b-2 border-l-2 border-border/60" />
-                <span aria-hidden="true" className="pointer-events-none absolute -right-px -bottom-px h-3 w-3 border-b-2 border-r-2 border-border/60" />
+                <span aria-hidden="true" className="pointer-events-none absolute -left-px -top-px h-3 w-3 border-s-2 border-t-2 border-border/60" />
+                <span aria-hidden="true" className="pointer-events-none absolute -right-px -top-px h-3 w-3 border-e-2 border-t-2 border-border/60" />
+                <span aria-hidden="true" className="pointer-events-none absolute -left-px -bottom-px h-3 w-3 border-b-2 border-s-2 border-border/60" />
+                <span aria-hidden="true" className="pointer-events-none absolute -right-px -bottom-px h-3 w-3 border-b-2 border-e-2 border-border/60" />
                 <p className="font-mono text-[10px] uppercase tracking-[0.32em] text-muted-foreground/70">
                   {t('dossier.noTargetTitle')}
                 </p>
@@ -2251,7 +2251,7 @@ export default function Players() {
                   <DisabledReason className="w-full" reason={selectedPlayer && !canModerate ? t('permissions.noModerate') : null}>
                   <Dialog open={kickDialogOpen} onOpenChange={setKickDialogOpen}>
                     <DialogTrigger asChild>
-                      <button type="button" disabled={!selectedPlayer || !canModerate} className="block h-auto w-full p-0 text-left">
+                      <button type="button" disabled={!selectedPlayer || !canModerate} className="block h-auto w-full p-0 text-start">
                         <ActionTile icon={<UserX className="w-4 h-4" />} label={t('dossier.kickButton')} description={t('actionTiles.kickDesc')} disabled={!selectedPlayer || !canModerate} emphasis="warning" />
                       </button>
                     </DialogTrigger>
@@ -2275,7 +2275,7 @@ export default function Players() {
                       </div>
                       <DialogFooter>
                         <Button variant="destructive" onClick={handleKick} disabled={loading}>
-                          {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                          {loading ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : null}
                           {t('kickDialog.submit')}
                         </Button>
                       </DialogFooter>
@@ -2287,7 +2287,7 @@ export default function Players() {
                   <DisabledReason className="w-full" reason={selectedPlayer && !canModerate ? t('permissions.noModerate') : null}>
                   <Dialog open={banDialogOpen} onOpenChange={setBanDialogOpen}>
                     <DialogTrigger asChild>
-                      <button type="button" disabled={!selectedPlayer || !canModerate} className="block h-auto w-full p-0 text-left">
+                      <button type="button" disabled={!selectedPlayer || !canModerate} className="block h-auto w-full p-0 text-start">
                         <ActionTile icon={<Ban className="w-4 h-4" />} label={t('dossier.banButton')} description={t('actionTiles.banDesc')} disabled={!selectedPlayer || !canModerate} emphasis="danger" />
                       </button>
                     </DialogTrigger>
@@ -2354,7 +2354,7 @@ export default function Players() {
                           onClick={(e) => { e.preventDefault(); handleBan() }}
                           className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                         >
-                          {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                          {loading ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : null}
                           {t('banConfirm.confirm')}
                         </AlertDialogAction>
                       </AlertDialogFooter>
@@ -2365,7 +2365,7 @@ export default function Players() {
                   <DisabledReason className="w-full" reason={selectedPlayer && !canModerate ? t('permissions.noModerate') : null}>
                   <Dialog>
                     <DialogTrigger asChild>
-                      <button type="button" disabled={!selectedPlayer || !canModerate} className="block h-auto w-full p-0 text-left">
+                      <button type="button" disabled={!selectedPlayer || !canModerate} className="block h-auto w-full p-0 text-start">
                         <ActionTile icon={<Shield className="w-4 h-4" />} label={t('actionTiles.accessLevelLabel')} description={t('actionTiles.accessLevelDesc')} disabled={!selectedPlayer || !canModerate} emphasis="primary" />
                       </button>
                     </DialogTrigger>
@@ -2408,7 +2408,7 @@ export default function Players() {
                     if (open && !teleportTarget) setTeleportTarget(selectedPlayer)
                   }}>
                     <DialogTrigger asChild>
-                      <button type="button" disabled={!canGmTools} className="block h-auto w-full p-0 text-left">
+                      <button type="button" disabled={!canGmTools} className="block h-auto w-full p-0 text-start">
                         <ActionTile icon={<MapPin className="w-4 h-4" />} label={t('actionTiles.teleportLabel')} description={t('actionTiles.teleportDesc')} />
                       </button>
                     </DialogTrigger>
@@ -2499,7 +2499,7 @@ export default function Players() {
                           onClick={() => handleTeleport(teleportTarget || selectedPlayer)}
                           disabled={loading || !teleportX || !teleportY || !(teleportTarget || selectedPlayer)}
                         >
-                          {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                          {loading ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : null}
                           {t('teleportDialog.submit')}
                         </Button>
                       </DialogFooter>
@@ -2522,7 +2522,7 @@ export default function Players() {
                   <Dialog open={voiceBanDialogOpen} onOpenChange={setVoiceBanDialogOpen}>
                     <DialogTrigger asChild>
                       {/* eslint-disable-next-line local/no-dead-disabled-title -- pure hint (explains what voice-banning does); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27. */}
-                      <button type="button" disabled={!canModerate} title={t('actionTiles.voiceBanTooltip')} className="block h-auto w-full p-0 text-left">
+                      <button type="button" disabled={!canModerate} title={t('actionTiles.voiceBanTooltip')} className="block h-auto w-full p-0 text-start">
                         <ActionTile icon={<MicOff className="w-4 h-4" />} label={t('actionTiles.voiceBanLabel')} compact />
                       </button>
                     </DialogTrigger>
@@ -2567,11 +2567,11 @@ export default function Players() {
                           }}
                           disabled={loading || (!voiceBanUsername && !selectedPlayer)}
                         >
-                          {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                          {loading ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : null}
                           {voiceBanEnabled ? (
-                            <><MicOff className="w-4 h-4 mr-2" /> {t('voiceBanDialog.muteButton')}</>
+                            <><MicOff className="w-4 h-4 me-2" /> {t('voiceBanDialog.muteButton')}</>
                           ) : (
-                            <><Mic className="w-4 h-4 mr-2" /> {t('voiceBanDialog.unmuteButton')}</>
+                            <><Mic className="w-4 h-4 me-2" /> {t('voiceBanDialog.unmuteButton')}</>
                           )}
                         </Button>
                       </DialogFooter>
@@ -2584,7 +2584,7 @@ export default function Players() {
                   <Dialog open={steamIdBanDialogOpen} onOpenChange={setSteamIdBanDialogOpen}>
                     <DialogTrigger asChild>
                       {/* eslint-disable-next-line local/no-dead-disabled-title -- pure hint (explains what SteamID banning does); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27. */}
-                      <button type="button" disabled={!canModerate} title={t('actionTiles.steamIdBanTooltip')} className="block h-auto w-full p-0 text-left">
+                      <button type="button" disabled={!canModerate} title={t('actionTiles.steamIdBanTooltip')} className="block h-auto w-full p-0 text-start">
                         <ActionTile icon={<Ban className="w-4 h-4" />} label={t('actionTiles.steamIdBanLabel')} emphasis="danger" compact />
                       </button>
                     </DialogTrigger>
@@ -2625,7 +2625,7 @@ export default function Players() {
                           onClick={handleSteamIdBan}
                           disabled={loading || banSteamId.length !== 17}
                         >
-                          {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                          {loading ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : null}
                           {t('steamIdBanDialog.submit')}
                         </Button>
                       </DialogFooter>
@@ -2638,7 +2638,7 @@ export default function Players() {
                   <Dialog open={addUserDialogOpen} onOpenChange={setAddUserDialogOpen}>
                     <DialogTrigger asChild>
                       {/* eslint-disable-next-line local/no-dead-disabled-title -- pure hint (explains what adding a user does); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27. */}
-                      <button type="button" disabled={!canModerate} title={t('actionTiles.addUserTooltip')} className="block h-auto w-full p-0 text-left">
+                      <button type="button" disabled={!canModerate} title={t('actionTiles.addUserTooltip')} className="block h-auto w-full p-0 text-start">
                         <ActionTile icon={<UserPlus className="w-4 h-4" />} label={t('actionTiles.addUserLabel')} compact />
                       </button>
                     </DialogTrigger>
@@ -2678,7 +2678,7 @@ export default function Players() {
                           onClick={handleAddUser}
                           disabled={loading || !addUserUsername.trim() || (addUserPassword.length > 0 && addUserPassword.length < 4)}
                         >
-                          {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                          {loading ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : null}
                           {t('addUserDialog.submit')}
                         </Button>
                       </DialogFooter>
@@ -2691,7 +2691,7 @@ export default function Players() {
                   <Dialog open={unbanDialogOpen} onOpenChange={setUnbanDialogOpen}>
                     <DialogTrigger asChild>
                       {/* eslint-disable-next-line local/no-dead-disabled-title -- pure hint (explains what unbanning by username does); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27. */}
-                      <button type="button" disabled={!canModerate} title={t('actionTiles.unbanTooltip')} className="block h-auto w-full p-0 text-left">
+                      <button type="button" disabled={!canModerate} title={t('actionTiles.unbanTooltip')} className="block h-auto w-full p-0 text-start">
                         <ActionTile icon={<UserPlus className="w-4 h-4" />} label={t('actionTiles.unbanLabel')} compact />
                       </button>
                     </DialogTrigger>
@@ -2726,7 +2726,7 @@ export default function Players() {
                   }}>
                     <DialogTrigger asChild>
                       {/* eslint-disable-next-line local/no-dead-disabled-title -- pure hint (explains what lifting a SteamID ban does); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27. */}
-                      <button type="button" disabled={!canModerate} title={t('actionTiles.unbanSteamIdTooltip')} className="block h-auto w-full p-0 text-left">
+                      <button type="button" disabled={!canModerate} title={t('actionTiles.unbanSteamIdTooltip')} className="block h-auto w-full p-0 text-start">
                         <ActionTile icon={<UserPlus className="w-4 h-4" />} label={t('actionTiles.unbanSteamIdLabel')} compact />
                       </button>
                     </DialogTrigger>
@@ -2746,7 +2746,7 @@ export default function Players() {
                                 {bannedSteamIds.map((ban) => (
                                   <SelectItem key={ban.steamId} value={ban.steamId}>
                                     {ban.steamId}
-                                    {ban.banned_at && <span className="ml-2 text-xs text-muted-foreground">{new Date(ban.banned_at).toLocaleDateString(i18n.language)}</span>}
+                                    {ban.banned_at && <span className="ms-2 text-xs text-muted-foreground">{new Date(ban.banned_at).toLocaleDateString(i18n.language)}</span>}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
@@ -2783,7 +2783,7 @@ export default function Players() {
                   onClick={() => setItemBrowserOpen(true)}
                   disabled={!selectedPlayer || loading || !canGmTools}
                   className={cn(
-                    'group w-full rounded-xl border bg-card/50 p-4 text-left',
+                    'group w-full rounded-xl border bg-card/50 p-4 text-start',
                     'motion-safe:transition-all duration-150',
                     'border-border/60',
                     selectedPlayer && !loading && 'hover:border-primary/50 hover:bg-card/80 hover:shadow-sm',
@@ -2855,7 +2855,7 @@ export default function Players() {
                   onClick={() => setVehicleBrowserOpen(true)}
                   disabled={loading || !canGmTools}
                   className={cn(
-                    'group w-full rounded-xl border bg-card/50 p-4 text-left',
+                    'group w-full rounded-xl border bg-card/50 p-4 text-start',
                     'motion-safe:transition-all duration-150',
                     'border-border/60',
                     !loading && 'hover:border-primary/50 hover:bg-card/80 hover:shadow-sm',
@@ -2952,7 +2952,7 @@ export default function Players() {
                       size="sm"
                       className="shrink-0 sm:min-w-[100px]"
                     >
-                      <TrendingUp className="w-4 h-4 mr-2" />
+                      <TrendingUp className="w-4 h-4 me-2" />
                       {t('spawn.giveXpButton')}
                     </Button>
                     </DisabledReason>
@@ -3209,12 +3209,12 @@ export default function Players() {
                       </Label>
                       <div className="flex flex-wrap gap-2 min-h-[32px]">
                         {currentTags.map(tag => (
-                          <Badge key={tag} variant="secondary" className="gap-1 pr-1">
+                          <Badge key={tag} variant="secondary" className="gap-1 pe-1">
                             {tag}
                             <button
                               type="button"
                               onClick={() => removeTag(tag)}
-                              className="ml-1 rounded p-1.5 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                              className="ms-1 rounded p-1.5 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                               aria-label={t('notes.removeTagAria', { tag })}
                             >
                               <X className="w-3.5 h-3.5" />
@@ -3254,7 +3254,7 @@ export default function Players() {
                           <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                             <span className="min-w-0 break-words">{notesError}</span>
                             <Button variant="outline" size="sm" onClick={() => fetchNotesAndStats()} className="self-start">
-                              <RefreshCw className="mr-2 h-4 w-4" /> {t('notes.retry')}
+                              <RefreshCw className="me-2 h-4 w-4" /> {t('notes.retry')}
                             </Button>
                           </AlertDescription>
                         </Alert>
@@ -3290,7 +3290,7 @@ export default function Players() {
                             disabled={savingNote || !canModerate}
                             className="text-destructive hover:text-destructive"
                           >
-                            <Trash2 className="w-4 h-4 mr-1" />
+                            <Trash2 className="w-4 h-4 me-1" />
                             {t('notes.deleteButton')}
                           </Button>
                           </DisabledReason>
@@ -3310,7 +3310,7 @@ export default function Players() {
                                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                                 onClick={(e) => { e.preventDefault(); void handleDeleteNote() }}
                               >
-                                {savingNote ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
+                                {savingNote ? <Loader2 className="w-4 h-4 me-1 animate-spin" /> : null}
                                 {t('notes.deleteConfirmConfirm')}
                               </AlertDialogAction>
                             </AlertDialogFooter>
@@ -3322,7 +3322,7 @@ export default function Players() {
                           onClick={handleSaveNote}
                           disabled={savingNote || !canModerate || (!currentNote.trim() && currentTags.length === 0)}
                         >
-                          {savingNote ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Save className="w-4 h-4 mr-1" />}
+                          {savingNote ? <Loader2 className="w-4 h-4 me-1 animate-spin" /> : <Save className="w-4 h-4 me-1" />}
                           {t('notes.saveButton')}
                         </Button>
                         </DisabledReason>
@@ -3346,7 +3346,7 @@ export default function Players() {
                       <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <span className="min-w-0 break-words">{logsError}</span>
                         <Button variant="outline" size="sm" onClick={() => fetchActivityLogs(logPlayerFilter || undefined)} className="self-start">
-                          <RefreshCw className="mr-2 h-4 w-4" /> {t('notes.retry')}
+                          <RefreshCw className="me-2 h-4 w-4" /> {t('notes.retry')}
                         </Button>
                       </AlertDescription>
                     </Alert>
@@ -3361,7 +3361,7 @@ export default function Players() {
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') fetchActivityLogs(logPlayerFilter || undefined)
                         }}
-                        className="pl-9"
+                        className="ps-9"
                         aria-label={t('notes.filterAria')}
                       />
                     </div>
@@ -3380,10 +3380,10 @@ export default function Players() {
                     <table className="w-full text-sm">
                       <thead className="bg-muted/50 sticky top-0">
                         <tr>
-                          <th className="text-left p-2 font-medium text-xs">{t('notes.tableTime')}</th>
-                          <th className="text-left p-2 font-medium text-xs">{t('notes.tablePlayer')}</th>
-                          <th className="text-left p-2 font-medium text-xs">{t('notes.tableAction')}</th>
-                          <th className="text-left p-2 font-medium text-xs hidden sm:table-cell">{t('notes.tableDetails')}</th>
+                          <th className="text-start p-2 font-medium text-xs">{t('notes.tableTime')}</th>
+                          <th className="text-start p-2 font-medium text-xs">{t('notes.tablePlayer')}</th>
+                          <th className="text-start p-2 font-medium text-xs">{t('notes.tableAction')}</th>
+                          <th className="text-start p-2 font-medium text-xs hidden sm:table-cell">{t('notes.tableDetails')}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y">
@@ -3510,9 +3510,9 @@ export default function Players() {
                 className="w-full"
               >
                 {exporting ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  <Loader2 className="w-4 h-4 me-2 animate-spin" />
                 ) : (
-                  <Download className="w-4 h-4 mr-2" />
+                  <Download className="w-4 h-4 me-2" />
                 )}
                 {t('importExport.exportButton', { player: selectedPlayer || t('importExport.exportButtonFallback') })}
               </Button>
@@ -3555,7 +3555,7 @@ export default function Players() {
                       URL.revokeObjectURL(url)
                     }}
                   >
-                    <Download className="w-4 h-4 mr-2" />
+                    <Download className="w-4 h-4 me-2" />
                     {t('importExport.downloadFileButton')}
                   </Button>
                 </div>
@@ -3597,16 +3597,16 @@ export default function Players() {
                   className="flex-1"
                 >
                   {importing ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    <Loader2 className="w-4 h-4 me-2 animate-spin" />
                   ) : (
-                    <Upload className="w-4 h-4 mr-2" />
+                    <Upload className="w-4 h-4 me-2" />
                   )}
                   {t('importExport.applyButton')}
                 </Button>
                 <label className="cursor-pointer">
                   <Button variant="outline" size="sm" asChild>
                     <span>
-                      <Upload className="w-4 h-4 mr-1" />
+                      <Upload className="w-4 h-4 me-1" />
                       {t('importExport.fileButton')}
                     </span>
                   </Button>
@@ -3672,8 +3672,8 @@ export default function Players() {
                       <div key={`${exp.username}-${exp.filename}`} className="flex items-center justify-between gap-2 rounded-md border border-border/40 px-3 py-1.5 text-xs">
                         <div className="min-w-0 flex-1">
                           <span className="font-medium">{exp.username}</span>
-                          <span className="text-muted-foreground ml-2">{new Date(exp.timestamp).toLocaleString(i18n.language)}</span>
-                          <span className="text-muted-foreground ml-2">{t('importExport.sizeKb', { size: (exp.size / 1024).toFixed(1) })}</span>
+                          <span className="text-muted-foreground ms-2">{new Date(exp.timestamp).toLocaleString(i18n.language)}</span>
+                          <span className="text-muted-foreground ms-2">{t('importExport.sizeKb', { size: (exp.size / 1024).toFixed(1) })}</span>
                         </div>
                         <div className="flex gap-1 shrink-0">
                           <Button
@@ -3748,7 +3748,7 @@ export default function Players() {
               onClick={(e) => { e.preventDefault(); if (pendingImportData) runCharacterImport(pendingImportData) }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {importing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              {importing ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : null}
               {t('importConfirm.confirm')}
             </AlertDialogAction>
           </AlertDialogFooter>

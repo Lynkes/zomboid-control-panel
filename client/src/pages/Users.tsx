@@ -391,12 +391,12 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border/60 bg-muted/40 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <tr className="border-b border-border/60 bg-muted/40 text-start text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     <th className="px-4 py-2.5">{t('table.account')}</th>
                     <th className="px-4 py-2.5">{t('table.role')}</th>
                     <th className="px-4 py-2.5">{t('table.created')}</th>
                     <th className="px-4 py-2.5">{t('table.lastSignIn')}</th>
-                    <th className="relative px-4 py-2.5 text-right">
+                    <th className="relative px-4 py-2.5 text-end">
                       <span className="sr-only">{t('table.actions')}</span>
                     </th>
                   </tr>
@@ -417,10 +417,10 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
                         <td className="px-4 py-2.5 text-muted-foreground">
                           {user.lastLogin ? new Date(user.lastLogin).toLocaleString(i18n.language) : t('table.never')}
                         </td>
-                        <td className="px-4 py-2.5 text-right">
+                        <td className="px-4 py-2.5 text-end">
                           {!isSelf && (
                             deleting ? (
-                              <Loader2 className="ml-auto h-4 w-4 animate-spin text-muted-foreground" />
+                              <Loader2 className="ms-auto h-4 w-4 animate-spin text-muted-foreground" />
                             ) : (
                               <Button
                                 ref={(el) => {

@@ -423,7 +423,7 @@ export default function Login() {
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder={t('recovery.newPasswordPlaceholder')}
-                    className="pr-10 text-sm"
+                    className="pe-10 text-sm"
                     disabled={loading}
                     required
                     minLength={6}
@@ -470,7 +470,7 @@ export default function Login() {
                 className="w-full text-muted-foreground hover:text-foreground"
                 onClick={() => { setResetMode(false); setError(''); setResetSuccess('') }}
               >
-                <ArrowLeft className="mr-1.5 h-4 w-4" />
+                <ArrowLeft className="me-1.5 h-4 w-4" />
                 {t('recovery.back')}
               </Button>
             </form>
@@ -551,7 +551,7 @@ export default function Login() {
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder={t('signIn.passwordLabel')}
                     autoComplete="current-password"
-                    className="pr-10 text-sm"
+                    className="pe-10 text-sm"
                     disabled={loading}
                     aria-describedby={errorId}
                     aria-invalid={error ? true : undefined}

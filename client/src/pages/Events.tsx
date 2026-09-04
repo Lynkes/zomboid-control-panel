@@ -775,12 +775,12 @@ function BridgeResultDisplay({ result, loading, onInlineAction, players }: Bridg
         <div className="overflow-x-auto -mx-1 pb-1 [mask-image:linear-gradient(to_right,transparent,black_12px,black_calc(100%-12px),transparent)] [-webkit-mask-image:linear-gradient(to_right,transparent,black_12px,black_calc(100%-12px),transparent)]">
           <table className="w-full min-w-max text-sm">
             <thead>
-              <tr className="border-b border-border/60 text-left">
-                <th className="pb-2 pr-3 text-xs font-medium text-muted-foreground">{t('resultDisplay.idHeader')}</th>
-                <th className="pb-2 pr-3 text-xs font-medium text-muted-foreground">{t('resultDisplay.typeHeader')}</th>
-                <th className="pb-2 pr-3 text-xs font-medium text-muted-foreground">{t('resultDisplay.locationHeader')}</th>
-                <th className="pb-2 pr-3 text-xs font-medium text-muted-foreground">{t('resultDisplay.batteryHeader')}</th>
-                <th className="pb-2 pr-3 text-xs font-medium text-muted-foreground">{t('resultDisplay.statusHeader')}</th>
+              <tr className="border-b border-border/60 text-start">
+                <th className="pb-2 pe-3 text-xs font-medium text-muted-foreground">{t('resultDisplay.idHeader')}</th>
+                <th className="pb-2 pe-3 text-xs font-medium text-muted-foreground">{t('resultDisplay.typeHeader')}</th>
+                <th className="pb-2 pe-3 text-xs font-medium text-muted-foreground">{t('resultDisplay.locationHeader')}</th>
+                <th className="pb-2 pe-3 text-xs font-medium text-muted-foreground">{t('resultDisplay.batteryHeader')}</th>
+                <th className="pb-2 pe-3 text-xs font-medium text-muted-foreground">{t('resultDisplay.statusHeader')}</th>
                 <th className="pb-2 text-xs font-medium text-muted-foreground">{t('resultDisplay.actionsHeader')}</th>
               </tr>
             </thead>
@@ -796,15 +796,15 @@ function BridgeResultDisplay({ result, loading, onInlineAction, players }: Bridg
                 const trunkLocked = Boolean(v.trunkLocked)
                 return (
                   <tr key={vid} className="border-b border-border/30 last:border-0">
-                    <td className="py-2.5 pr-3 font-mono text-xs text-foreground/80">{vid}</td>
-                    <td className="py-2.5 pr-3 text-xs">{script || '—'}</td>
-                    <td className="py-2.5 pr-3 font-mono text-xs text-foreground/70">{vx}, {vy}</td>
-                    <td className="py-2.5 pr-3">
+                    <td className="py-2.5 pe-3 font-mono text-xs text-foreground/80">{vid}</td>
+                    <td className="py-2.5 pe-3 text-xs">{script || '—'}</td>
+                    <td className="py-2.5 pe-3 font-mono text-xs text-foreground/70">{vx}, {vy}</td>
+                    <td className="py-2.5 pe-3">
                       <span className={cn('text-xs font-medium', battery > 50 ? 'text-success' : battery > 20 ? 'text-warning' : 'text-destructive')}>
                         {battery}%
                       </span>
                     </td>
-                    <td className="py-2.5 pr-3">
+                    <td className="py-2.5 pe-3">
                       <div className="flex flex-wrap gap-1">
                         {alarmed && <Badge variant="outline" className="h-5 text-[10px] px-1.5 text-warning border-warning/30">{t('resultDisplay.alarmBadge')}</Badge>}
                         {sirening && <Badge variant="outline" className="h-5 text-[10px] px-1.5 text-info border-info/30">{t('resultDisplay.sirenBadge')}</Badge>}
@@ -2312,7 +2312,7 @@ export default function Events() {
               onChange={(e) => setSectionQuery(e.target.value)}
               placeholder={t('sidebar.searchPlaceholder')}
               aria-label={t('sidebar.searchAria')}
-              className="h-9 min-w-0 pl-8 text-sm"
+              className="h-9 min-w-0 ps-8 text-sm"
             />
           </div>
 
@@ -2337,7 +2337,7 @@ export default function Events() {
                         }}
                         aria-current={isActive ? 'true' : undefined}
                         className={cn(
-                          'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm transition-colors',
+                          'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-start text-sm transition-colors',
                           isActive
                             ? 'bg-primary text-primary-foreground'
                             : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'

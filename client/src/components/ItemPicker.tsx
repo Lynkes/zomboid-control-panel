@@ -318,7 +318,7 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
             className="shrink-0"
           >
             {scanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-            <span className="ml-1.5 hidden sm:inline">{t('scan')}</span>
+            <span className="ms-1.5 hidden sm:inline">{t('scan')}</span>
           </Button>
         </div>
         {scanError ? (
@@ -364,7 +364,7 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
           <span className="flex-1 min-w-0 truncate">
             <span className="font-medium">{selectedItem.name || selectedItem.id}</span>
             {typeof selectedItem.weight === 'number' && selectedItem.weight > 0 && (
-              <span className="text-muted-foreground ml-1.5 text-xs">{fmtWeight(selectedItem.weight)}</span>
+              <span className="text-muted-foreground ms-1.5 text-xs">{fmtWeight(selectedItem.weight)}</span>
             )}
           </span>
         ) : value ? (
@@ -376,7 +376,7 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
           <button
             type="button"
             onClick={e => { e.stopPropagation(); handleClear() }}
-            className="-mr-1 flex items-center justify-center w-6 h-6 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring shrink-0 motion-safe:transition-colors"
+            className="-me-1 flex items-center justify-center w-6 h-6 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring shrink-0 motion-safe:transition-colors"
             aria-label={t('clearSelectionAria')}
           >
             <X className="w-3.5 h-3.5" />
@@ -439,7 +439,7 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
           {/* Category sidebar + item list */}
           <div className="flex" style={{ maxHeight: 'min(520px, 60vh)' }}>
             {/* Sidebar */}
-            <div className="w-[210px] shrink-0 border-r border-border/50 overflow-y-auto overscroll-contain py-1.5">
+            <div className="w-[210px] shrink-0 border-e border-border/50 overflow-y-auto overscroll-contain py-1.5">
               <button
                 type="button"
                 onClick={() => setActiveCategory(null)}
@@ -447,8 +447,8 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
                   'w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px]',
                   'motion-safe:transition-colors duration-100',
                   !activeCategory
-                    ? 'bg-primary/12 text-primary border-l-[3px] border-primary'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-accent/8 border-l-[3px] border-transparent'
+                    ? 'bg-primary/12 text-primary border-s-[3px] border-primary'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-accent/8 border-s-[3px] border-transparent'
                 )}
               >
                 <LayoutGrid className="w-4 h-4 shrink-0" />
@@ -469,8 +469,8 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
                       'w-full flex items-center gap-2.5 px-3 py-2 text-[13px]',
                       'motion-safe:transition-colors duration-100',
                       activeCategory === cat.raw
-                        ? 'bg-primary/12 text-primary border-l-[3px] border-primary'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-accent/8 border-l-[3px] border-transparent'
+                        ? 'bg-primary/12 text-primary border-s-[3px] border-primary'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-accent/8 border-s-[3px] border-transparent'
                     )}
                   >
                     <CatIcon className="w-4 h-4 shrink-0 opacity-70" />
@@ -487,7 +487,7 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
               <div className="sticky top-0 z-10 flex items-center gap-2.5 px-4 py-2 bg-muted/80 backdrop-blur-sm border-b border-border/30">
                 <ActiveIcon className="w-3.5 h-3.5 text-muted-foreground/70" />
                 <span className="text-xs font-semibold text-muted-foreground tracking-wide uppercase">{activeCategoryLabel}</span>
-                <span className="text-xs text-muted-foreground/40 tabular-nums ml-auto">{totalFiltered.toLocaleString(i18n.language)} items</span>
+                <span className="text-xs text-muted-foreground/40 tabular-nums ms-auto">{totalFiltered.toLocaleString(i18n.language)} items</span>
               </div>
 
               {totalFiltered === 0 ? (
@@ -521,7 +521,7 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
                         data-item-index={idx}
                         onClick={() => handleSelect(item.id)}
                         className={cn(
-                          'w-full flex items-start gap-3 px-4 py-2.5 text-left group',
+                          'w-full flex items-start gap-3 px-4 py-2.5 text-start group',
                           'motion-safe:transition-colors duration-75',
                           'hover:bg-accent/10',
                           item.id === value && 'bg-primary/10',
@@ -576,7 +576,7 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
               <span>{t('closeHint')}</span>
             </div>
             {scannedAt && (
-              <span className="text-right opacity-40 tabular-nums">
+              <span className="text-end opacity-40 tabular-nums">
                 {new Date(scannedAt).toLocaleDateString(i18n.language)}
               </span>
             )}

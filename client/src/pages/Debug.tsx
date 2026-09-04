@@ -2999,7 +2999,7 @@ export default function Debug() {
                   variant={
                     diagnostics.summary.fail > 0 ? "destructive" : "outline"
                   }
-                  className="ml-1 h-5 px-1.5 text-[10px]"
+                  className="ms-1 h-5 px-1.5 text-[10px]"
                 >
                   {diagnostics.summary.fail + diagnostics.summary.warn}
                 </Badge>
@@ -3015,7 +3015,7 @@ export default function Debug() {
                   variant={
                     worldMapDiag.summary.fail > 0 ? "destructive" : "outline"
                   }
-                  className="ml-1 h-5 px-1.5 text-[10px]"
+                  className="ms-1 h-5 px-1.5 text-[10px]"
                 >
                   {worldMapDiag.summary.fail + worldMapDiag.summary.warn}
                 </Badge>
@@ -3049,7 +3049,7 @@ export default function Debug() {
             <AlertCircle className="w-4 h-4" />
             {t("tabs.crashes")}
             {crashLogs.length > 0 && (
-              <Badge variant="outline" className="ml-1 h-5 px-1.5 text-[10px]">
+              <Badge variant="outline" className="ms-1 h-5 px-1.5 text-[10px]">
                 {crashLogsTotalCount > crashLogs.length ? `${crashLogs.length}+` : crashLogs.length}
               </Badge>
             )}
@@ -3076,9 +3076,9 @@ export default function Debug() {
             Settings.tsx's sub-tab strip and RolesPermissions.tsx's matrix. */}
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-y-0 right-0 flex w-10 items-center justify-end rounded-r-lg bg-gradient-to-l from-muted to-transparent pr-1.5"
+          className="pointer-events-none absolute inset-y-0 end-0 flex w-10 items-center justify-end rounded-e-lg bg-gradient-to-l rtl:bg-gradient-to-r from-muted to-transparent pe-1.5"
         >
-          <ChevronRight className="h-4 w-4 text-muted-foreground/80" />
+          <ChevronRight className="h-4 w-4 text-muted-foreground/80 rtl:-scale-x-100" />
         </div>
         </div>
 
@@ -3105,7 +3105,7 @@ export default function Debug() {
                   >
                     <RefreshCw
                       className={cn(
-                        "w-4 h-4 mr-2",
+                        "w-4 h-4 me-2",
                         refreshingDiagnostics && "animate-spin",
                       )}
                     />
@@ -3208,7 +3208,7 @@ export default function Debug() {
                           )}
                         </div>
                       )}
-                      <div className="flex items-center gap-2 ml-2">
+                      <div className="flex items-center gap-2 ms-2">
                         <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
                           <Checkbox
                             checked={diagnosticsHideOk}
@@ -3224,7 +3224,7 @@ export default function Debug() {
                         >
                           <RefreshCw
                             className={cn(
-                              "w-4 h-4 mr-2",
+                              "w-4 h-4 me-2",
                               refreshingDiagnostics && "animate-spin",
                             )}
                           />
@@ -3404,7 +3404,7 @@ export default function Debug() {
                                       >
                                         {fixingDiagnosticsCheckId ===
                                           check.id && (
-                                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                          <Loader2 className="w-3 h-3 me-1 animate-spin" />
                                         )}
                                         {fixAction.label}
                                       </Button>
@@ -3568,7 +3568,7 @@ export default function Debug() {
                 type="button"
                 onClick={() => copyPath(label, value)}
                 title={t("worldMapTab.copyPathTitle", { label: label.toLowerCase() })}
-                className="group inline-flex items-center gap-1.5 max-w-full text-left"
+                className="group inline-flex items-center gap-1.5 max-w-full text-start"
               >
                 <code className="font-mono text-[11px] break-all group-hover:text-primary transition-colors">
                   {value}
@@ -3646,7 +3646,7 @@ export default function Debug() {
                         >
                           <RefreshCw
                             className={cn(
-                              "w-4 h-4 mr-2",
+                              "w-4 h-4 me-2",
                               refreshingWorldMap && "animate-spin",
                             )}
                           />
@@ -3689,7 +3689,7 @@ export default function Debug() {
                                     variant="outline"
                                     className="bg-primary/10 border-primary/30 text-primary"
                                   >
-                                    <CheckCircle className="w-3 h-3 mr-1" />{" "}
+                                    <CheckCircle className="w-3 h-3 me-1" />{" "}
                                     {t("worldMapTab.okCount", { count: wm.summary.ok })}
                                   </Badge>
                                   {wm.summary.warn > 0 && (
@@ -3697,13 +3697,13 @@ export default function Debug() {
                                       variant="outline"
                                       className="bg-warning/10 border-warning/30 text-warning"
                                     >
-                                      <AlertTriangle className="w-3 h-3 mr-1" />{" "}
+                                      <AlertTriangle className="w-3 h-3 me-1" />{" "}
                                       {t("worldMapTab.warnCount", { count: wm.summary.warn })}
                                     </Badge>
                                   )}
                                   {wm.summary.fail > 0 && (
                                     <Badge variant="destructive">
-                                      <AlertCircle className="w-3 h-3 mr-1" />{" "}
+                                      <AlertCircle className="w-3 h-3 me-1" />{" "}
                                       {t("worldMapTab.failCount", { count: wm.summary.fail })}
                                     </Badge>
                                   )}
@@ -3733,7 +3733,7 @@ export default function Debug() {
                           <div className="flex items-center gap-2 flex-wrap">
                             <Button variant="outline" size="sm" asChild>
                               <Link to="/world-map">
-                                <ExternalLink className="w-4 h-4 mr-2" />
+                                <ExternalLink className="w-4 h-4 me-2" />
                                 {t("worldMapTab.openWorldMap")}
                               </Link>
                             </Button>
@@ -3743,7 +3743,7 @@ export default function Debug() {
                               onClick={copyReport}
                               disabled={!wm}
                             >
-                              <Copy className="w-4 h-4 mr-2" />
+                              <Copy className="w-4 h-4 me-2" />
                               {t("worldMapTab.copyReport")}
                             </Button>
                             <Button
@@ -3754,7 +3754,7 @@ export default function Debug() {
                             >
                               <RefreshCw
                                 className={cn(
-                                  "w-4 h-4 mr-2",
+                                  "w-4 h-4 me-2",
                                   refreshingWorldMap && "animate-spin",
                                 )}
                               />
@@ -3904,7 +3904,7 @@ export default function Debug() {
                                 setWorldMapTilePreviewKey((k) => k + 1);
                               }}
                             >
-                              <RefreshCw className="w-3 h-3 mr-1" /> {t("common.refresh")}
+                              <RefreshCw className="w-3 h-3 me-1" /> {t("common.refresh")}
                             </Button>
                           </div>
                           {(() => {
@@ -4186,9 +4186,9 @@ export default function Debug() {
                             className="shrink-0"
                           >
                             {probeLoading ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                              <Loader2 className="w-3.5 h-3.5 animate-spin me-1.5" />
                             ) : (
-                              <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                              <RefreshCw className="w-3.5 h-3.5 me-1.5" />
                             )}
                             {t("worldMapTab.probeAll")}
                           </Button>
@@ -4298,12 +4298,12 @@ export default function Debug() {
                                             @ {p.x}, {p.y}
                                           </span>
                                           {p.alive === false && (
-                                            <span className="text-destructive ml-1">
+                                            <span className="text-destructive ms-1">
                                               {t("worldMapTab.deadSuffix")}
                                             </span>
                                           )}
                                           {p.access && p.access !== "None" && (
-                                            <span className="text-warning ml-1">
+                                            <span className="text-warning ms-1">
                                               · {p.access}
                                             </span>
                                           )}
@@ -4340,7 +4340,7 @@ export default function Debug() {
                                 ) : (
                                   <RefreshCw className="w-3.5 h-3.5" />
                                 )}
-                                <span className="ml-1.5">{t("worldMapTab.probeButton")}</span>
+                                <span className="ms-1.5">{t("worldMapTab.probeButton")}</span>
                               </Button>
                             </div>
                           );
@@ -4396,7 +4396,7 @@ export default function Debug() {
                                     {firstPlayerCoords.y}
                                   </span>
                                   {!firstPlayerCoords.alive && (
-                                    <span className="text-destructive ml-1">
+                                    <span className="text-destructive ms-1">
                                       {t("worldMapTab.deadSuffix")}
                                     </span>
                                   )}
@@ -4483,9 +4483,9 @@ export default function Debug() {
                                   }
                                 >
                                   {actionLoading === "airdrop" ? (
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin me-1.5" />
                                   ) : (
-                                    <Package className="w-3.5 h-3.5 mr-1.5" />
+                                    <Package className="w-3.5 h-3.5 me-1.5" />
                                   )}
                                   {armedAction === "airdrop"
                                     ? t("worldMapTab.clickAgainToConfirm")
@@ -4536,9 +4536,9 @@ export default function Debug() {
                                 }
                               >
                                 {actionLoading === "gunshot" ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin me-1.5" />
                                 ) : (
-                                  <Volume2 className="w-3.5 h-3.5 mr-1.5" />
+                                  <Volume2 className="w-3.5 h-3.5 me-1.5" />
                                 )}
                                 {armedAction === "gunshot"
                                   ? t("worldMapTab.clickAgainToConfirm")
@@ -4593,9 +4593,9 @@ export default function Debug() {
                                 }
                               >
                                 {actionLoading === "lightning" ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin me-1.5" />
                                 ) : (
-                                  <Zap className="w-3.5 h-3.5 mr-1.5" />
+                                  <Zap className="w-3.5 h-3.5 me-1.5" />
                                 )}
                                 {armedAction === "lightning"
                                   ? t("worldMapTab.clickAgainToConfirm")
@@ -4852,7 +4852,7 @@ export default function Debug() {
                           e.currentTarget.blur();
                         }
                       }}
-                      className="w-full sm:w-[200px] h-8 pl-7 pr-7"
+                      className="w-full sm:w-[200px] h-8 ps-7 pe-7"
                       maxLength={200}
                       aria-label={t("activityTab.searchAria")}
                     />
@@ -4976,7 +4976,7 @@ export default function Debug() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="ml-auto h-6 gap-1 px-2 text-xs"
+                      className="ms-auto h-6 gap-1 px-2 text-xs"
                       onClick={() => {
                         const allExpanded = filteredActivityEntries.every((e) =>
                           expandedActivity.has(e.id),
@@ -5007,7 +5007,7 @@ export default function Debug() {
                     <span
                       className={cn(
                         "text-[11px]",
-                        filteredActivityEntries.length > 0 ? "" : "ml-auto",
+                        filteredActivityEntries.length > 0 ? "" : "ms-auto",
                         activityPaused
                           ? "text-warning"
                           : "text-muted-foreground/70",
@@ -5156,7 +5156,7 @@ export default function Debug() {
                             )}
                           </div>
                           {isExpanded && (
-                            <div className="ml-[72px] px-3 py-2 bg-muted/30 rounded text-xs mb-1 break-all">
+                            <div className="ms-[72px] px-3 py-2 bg-muted/30 rounded text-xs mb-1 break-all">
                               {entry.args &&
                                 Object.keys(entry.args).length > 0 && (
                                   <div className="mb-1">
@@ -5317,7 +5317,7 @@ export default function Debug() {
                       <Terminal className="w-5 h-5" />
                       {t("logsTab.applicationLogsTitle")}
                       {paused && (
-                        <Badge variant="secondary" className="ml-2">
+                        <Badge variant="secondary" className="ms-2">
                           {t("logsTab.pausedBadge")}
                         </Badge>
                       )}
@@ -5327,7 +5327,7 @@ export default function Debug() {
                         shown: filteredLogs.length,
                         total: logs.length,
                       })}
-                      <span className="ml-2 text-xs">
+                      <span className="ms-2 text-xs">
                         {t("logsTab.keyboardHint")}
                       </span>
                     </CardDescription>
@@ -5387,7 +5387,7 @@ export default function Debug() {
                       }}
                     >
                       <SelectTrigger className="w-full sm:w-[160px]">
-                        <Download className="w-4 h-4 mr-2" />
+                        <Download className="w-4 h-4 me-2" />
                         {t("logsTab.exportTrigger")}
                       </SelectTrigger>
                       <SelectContent>
@@ -5433,7 +5433,7 @@ export default function Debug() {
                       placeholder={t("logsTab.searchLogsPlaceholder")}
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-9 pr-8"
+                      className="ps-9 pe-8"
                       aria-label={t("logsTab.searchLogsAria")}
                       maxLength={128}
                     />
@@ -5488,7 +5488,7 @@ export default function Debug() {
                     onValueChange={(v) => setTimeFormat(v as TimeFormat)}
                   >
                     <SelectTrigger className="w-full sm:w-[140px]">
-                      <Clock className="w-4 h-4 mr-2" />
+                      <Clock className="w-4 h-4 me-2" />
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -5585,7 +5585,7 @@ export default function Debug() {
                               e.stopPropagation();
                               copyLogEntry(log);
                             }}
-                            className="sm:order-last ml-auto shrink-0 rounded p-1 opacity-0 transition-opacity hover:bg-muted/50 group-hover:opacity-100"
+                            className="sm:order-last ms-auto shrink-0 rounded p-1 opacity-0 transition-opacity hover:bg-muted/50 group-hover:opacity-100"
                           >
                             <Copy className="w-3 h-3 text-muted-foreground" />
                           </button>
@@ -5608,7 +5608,7 @@ export default function Debug() {
           {logFiles.length > 0 && (
             <Card className="relative overflow-hidden">
               <div
-                className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-primary via-primary/70 to-primary/20"
+                className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-primary via-primary/70 to-primary/20"
                 aria-hidden="true"
               />
               <CardHeader className="pb-3">
@@ -5661,7 +5661,7 @@ export default function Debug() {
                 <div>
                   <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                     {t("logsTab.individualFiles")}{" "}
-                    <span className="ml-1 font-mono tabular-nums normal-case tracking-normal text-muted-foreground/70">
+                    <span className="ms-1 font-mono tabular-nums normal-case tracking-normal text-muted-foreground/70">
                       · {logFiles.length}
                     </span>
                   </p>
@@ -5728,7 +5728,7 @@ export default function Debug() {
                       />
                       {t("crashesTab.crashLogsTitle")}
                       {crashLogs.length > 0 && (
-                        <Badge variant="destructive" className="ml-1">
+                        <Badge variant="destructive" className="ms-1">
                           {crashLogsTotalCount > crashLogs.length
                             ? t("crashesTab.crashLogsCountTruncated", {
                                 shown: crashLogs.length,
@@ -5768,7 +5768,7 @@ export default function Debug() {
                   />
                 ) : (
                   <ScrollArea className="max-h-[45vh] lg:h-[calc(100vh-360px)] lg:max-h-none min-h-[160px] lg:min-h-[300px]">
-                    <div className="space-y-2 pr-2">
+                    <div className="space-y-2 pe-2">
                       {[...crashLogs]
                         .sort(
                           (a, b) =>
@@ -5784,7 +5784,7 @@ export default function Debug() {
                               type="button"
                               key={log.name}
                               className={cn(
-                                "w-full text-left p-3 rounded-lg border transition-colors",
+                                "w-full text-start p-3 rounded-lg border transition-colors",
                                 selectedCrashLog === log.name
                                   ? "bg-primary/10 border-primary"
                                   : "hover:bg-muted/50",
@@ -5939,7 +5939,7 @@ export default function Debug() {
                   className="w-[132px] h-8"
                   aria-label={t("performanceTab.timeRangeAria")}
                 >
-                  <Clock className="w-3.5 h-3.5 mr-1" />
+                  <Clock className="w-3.5 h-3.5 me-1" />
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -6223,7 +6223,7 @@ export default function Debug() {
                   >
                     <RefreshCw
                       className={cn(
-                        "w-4 h-4 mr-2",
+                        "w-4 h-4 me-2",
                         refreshingHealth && "animate-spin",
                       )}
                     />
@@ -6419,7 +6419,7 @@ export default function Debug() {
                 >
                   <RefreshCw
                     className={cn(
-                      "w-4 h-4 mr-2",
+                      "w-4 h-4 me-2",
                       refreshingHealth && "animate-spin",
                     )}
                   />
@@ -6444,7 +6444,7 @@ export default function Debug() {
                           ? "default"
                           : "destructive"
                       }
-                      className="ml-auto"
+                      className="ms-auto"
                     >
                       {healthStatus?.services?.rcon?.connected
                         ? t("common.connected")
@@ -6471,7 +6471,7 @@ export default function Debug() {
                           ? "default"
                           : "secondary"
                       }
-                      className="ml-auto"
+                      className="ms-auto"
                     >
                       {healthStatus?.services?.server?.running
                         ? t("common.running")
@@ -6496,7 +6496,7 @@ export default function Debug() {
                           ? "default"
                           : "secondary"
                       }
-                      className="ml-auto"
+                      className="ms-auto"
                     >
                       {healthStatus?.services?.modChecker?.running
                         ? t("common.active")
@@ -6847,7 +6847,7 @@ export default function Debug() {
                       ) : (
                         <RefreshCw className="w-3.5 h-3.5" />
                       )}
-                      <span className="ml-1.5">{t("common.refresh")}</span>
+                      <span className="ms-1.5">{t("common.refresh")}</span>
                     </Button>
                   </div>
                 </CardHeader>
@@ -7008,7 +7008,7 @@ export default function Debug() {
                                   ) : (
                                     <Trash2 className="w-3.5 h-3.5" />
                                   )}
-                                  <span className="ml-1.5">
+                                  <span className="ms-1.5">
                                     {t("bridgeTab.clearErrorsButton")}
                                   </span>
                                 </Button>
@@ -7073,7 +7073,7 @@ export default function Debug() {
                       ) : (
                         <PlayCircle className="w-3.5 h-3.5" />
                       )}
-                      <span className="ml-1.5">{t("bridgeTab.checkApiRunButton")}</span>
+                      <span className="ms-1.5">{t("bridgeTab.checkApiRunButton")}</span>
                     </Button>
                   </div>
 
@@ -7158,7 +7158,7 @@ export default function Debug() {
                       ) : (
                         <RefreshCw className="w-3.5 h-3.5" />
                       )}
-                      <span className="ml-1.5">{t("bridgeTab.handlersRunButton")}</span>
+                      <span className="ms-1.5">{t("bridgeTab.handlersRunButton")}</span>
                     </Button>
                   </div>
                 </CardHeader>
@@ -7271,7 +7271,7 @@ export default function Debug() {
                       ) : (
                         <PlayCircle className="w-3.5 h-3.5" />
                       )}
-                      <span className="ml-1.5">{t("bridgeTab.debugLogRunButton")}</span>
+                      <span className="ms-1.5">{t("bridgeTab.debugLogRunButton")}</span>
                     </Button>
                   </div>
 
@@ -7365,7 +7365,7 @@ export default function Debug() {
                       ) : (
                         <PlayCircle className="w-3.5 h-3.5" />
                       )}
-                      <span className="ml-1.5">{t("bridgeTab.selfTestRunButton")}</span>
+                      <span className="ms-1.5">{t("bridgeTab.selfTestRunButton")}</span>
                     </Button>
                   </div>
                 </CardHeader>
@@ -7383,7 +7383,7 @@ export default function Debug() {
                       <table className="w-full text-xs border-collapse">
                         <thead>
                           <tr className="border-b">
-                            <th className="text-left p-1.5 font-medium">
+                            <th className="text-start p-1.5 font-medium">
                               {t("bridgeTab.selfTestItemColumn")}
                             </th>
                             {[
@@ -7399,7 +7399,7 @@ export default function Debug() {
                             ].map((m) => (
                               <th
                                 key={m}
-                                className="text-left p-1.5 font-mono font-medium whitespace-nowrap"
+                                className="text-start p-1.5 font-mono font-medium whitespace-nowrap"
                               >
                                 {m}
                               </th>

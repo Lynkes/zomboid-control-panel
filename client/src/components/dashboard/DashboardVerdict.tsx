@@ -244,14 +244,14 @@ export function WorkList({ items }: { items: WorkItem[] }) {
         <Link
           key={id}
           to={to}
-          className="group flex items-center gap-3 py-2.5 pl-1 pr-1.5 transition-colors hover:bg-muted/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+          className="group flex items-center gap-3 py-2.5 ps-1 pe-1.5 transition-colors hover:bg-muted/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
         >
           <Icon className="h-3.5 w-3.5 shrink-0 text-foreground/35 transition-colors group-hover:text-foreground/70" aria-hidden="true" />
           <span className="shrink-0 text-sm text-foreground/85 transition-colors group-hover:text-foreground">{label}</span>
           {state && (
             <span
               className={cn(
-                'ml-auto min-w-0 truncate text-right font-mono text-[11px] tabular-nums',
+                'ms-auto min-w-0 truncate text-end font-mono text-[11px] tabular-nums',
                 WORK_STATE_TONE[tone ?? 'default'],
               )}
             >
@@ -261,7 +261,7 @@ export function WorkList({ items }: { items: WorkItem[] }) {
           <ChevronRight
             className={cn(
               'h-3 w-3 shrink-0 text-foreground/20 transition-colors group-hover:text-foreground/50',
-              !state && 'ml-auto',
+              !state && 'ms-auto',
             )}
             aria-hidden="true"
           />

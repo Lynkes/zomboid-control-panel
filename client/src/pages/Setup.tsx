@@ -116,7 +116,7 @@ export default function Setup() {
       cardTitle={t('cardTitle')}
       cardDescription={t('cardDescription')}
       footer={
-        <span className="inline-flex items-start gap-1.5 text-left">
+        <span className="inline-flex items-start gap-1.5 text-start">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning/80" aria-hidden="true" />
           <span>{t('footer')}</span>
         </span>
@@ -384,7 +384,7 @@ export default function Setup() {
           ) : (
             <>
               {t('submit')}
-              <ArrowRight className="ml-1 h-4 w-4" aria-hidden="true" />
+              <ArrowRight className="ms-1 h-4 w-4" aria-hidden="true" />
             </>
           )}
         </Button>

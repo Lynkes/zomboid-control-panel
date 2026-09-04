@@ -94,14 +94,14 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
               {options?.description}
             </AlertDialogDescription>
             {options?.items && options.items.length > 0 && (
-              <ul className="mt-1 max-h-48 list-disc space-y-0.5 overflow-y-auto rounded-md border border-border/50 bg-muted/30 p-3 pl-7 text-sm text-muted-foreground">
+              <ul className="mt-1 max-h-48 list-disc space-y-0.5 overflow-y-auto rounded-md border border-border/50 bg-muted/30 p-3 ps-7 text-sm text-muted-foreground">
                 {options.items.map((item) => (
                   <li key={item} className="truncate">{item}</li>
                 ))}
               </ul>
             )}
             {options?.requireTypedConfirmation && (
-              <div className="space-y-1.5 pt-1 text-left">
+              <div className="space-y-1.5 pt-1 text-start">
                 <Label htmlFor="confirm-dialog-typed-input" className="text-xs font-medium text-muted-foreground">
                   {options.requireTypedConfirmation.label}
                 </Label>

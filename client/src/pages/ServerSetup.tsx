@@ -1119,7 +1119,7 @@ export default function ServerSetup() {
         </div>
 
         {resumeMarker && (
-          <Alert variant="warning" className="text-left">
+          <Alert variant="warning" className="text-start">
             <AlertTriangle className="w-4 h-4" />
             <AlertTitle>{t("resumeBanner.title")}</AlertTitle>
             <AlertDescription className="space-y-3">
@@ -1161,7 +1161,7 @@ export default function ServerSetup() {
                 onKeyDown={(event) => handleCardKeyDown(event, activate)}
               >
                 <div
-                  className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-primary via-primary/80 to-primary/40"
+                  className="absolute top-0 inset-x-0 h-[3px] bg-gradient-to-r from-primary via-primary/80 to-primary/40"
                   aria-hidden="true"
                 />
                 <div className="absolute right-3 top-3">
@@ -1429,12 +1429,12 @@ export default function ServerSetup() {
                     >
                       {downloadingSteamCmd ? (
                         <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          <Loader2 className="w-4 h-4 me-2 animate-spin" />
                           {steamCmdStatus || t("full.step1.installingButton")}
                         </>
                       ) : (
                         <>
-                          <Download className="w-4 h-4 mr-2" />
+                          <Download className="w-4 h-4 me-2" />
                           {t("full.step1.installButton")}
                         </>
                       )}
@@ -1478,9 +1478,9 @@ export default function ServerSetup() {
                         )
                       }
                     >
-                      <Download className="w-4 h-4 mr-2" />
+                      <Download className="w-4 h-4 me-2" />
                       {t("full.step1.downloadButton")}
-                      <ExternalLink className="w-3 h-3 ml-2" />
+                      <ExternalLink className="w-3 h-3 ms-2" />
                     </Button>
                   </div>
 
@@ -1693,7 +1693,7 @@ export default function ServerSetup() {
                 <FolderOpen className="w-4 h-4" />
                 <span>{t("full.step2.customDataLocation")}</span>
                 {useCustomDataPath && zomboidDataPath && (
-                  <Badge variant="secondary" className="ml-2">
+                  <Badge variant="secondary" className="ms-2">
                     {t("full.step2.setBadge")}
                   </Badge>
                 )}
@@ -1765,7 +1765,7 @@ export default function ServerSetup() {
           <div className="flex items-center gap-2">
             <Shield className="w-5 h-5 text-primary" />
             <CardTitle className="text-lg">{t("full.step3.rconTitle")}</CardTitle>
-            <Badge className="ml-auto">{t("common.requiredBadge")}</Badge>
+            <Badge className="ms-auto">{t("common.requiredBadge")}</Badge>
           </div>
           <CardDescription>
             {t("full.step3.rconDesc")}
@@ -1784,7 +1784,7 @@ export default function ServerSetup() {
                     type={showRconPassword ? "text" : "password"}
                     value={rconPassword}
                     onChange={(e) => setRconPassword(e.target.value)}
-                    className="pr-10 font-mono"
+                    className="pe-10 font-mono"
                   />
                   <Button
                     type="button"
@@ -1871,7 +1871,7 @@ export default function ServerSetup() {
           <div className="flex items-center gap-2">
             <Shield className="w-5 h-5 text-primary" />
             <CardTitle className="text-lg">{t("common.adminPasswordLabel")}</CardTitle>
-            <Badge className="ml-auto">{t("common.requiredBadge")}</Badge>
+            <Badge className="ms-auto">{t("common.requiredBadge")}</Badge>
           </div>
           <CardDescription>{t("common.adminPasswordHelp")}</CardDescription>
         </CardHeader>
@@ -1882,7 +1882,7 @@ export default function ServerSetup() {
               value={adminPassword}
               onChange={(e) => setAdminPassword(e.target.value)}
               placeholder={t("common.adminPasswordPlaceholder")}
-              className="pr-10"
+              className="pe-10"
               maxLength={128}
             />
             <Button
@@ -1940,7 +1940,7 @@ export default function ServerSetup() {
                   min={1}
                   max={64}
                   value={minMemory}
-                  className="h-8 w-20 bg-background text-right font-mono"
+                  className="h-8 w-20 bg-background text-end font-mono"
                   clamp={n => Math.min(64, Math.max(1, n))}
                   onChange={value => {
                     setMinMemory(value)
@@ -1969,7 +1969,7 @@ export default function ServerSetup() {
                   min={1}
                   max={128}
                   value={maxMemory}
-                  className="h-8 w-20 bg-background text-right font-mono"
+                  className="h-8 w-20 bg-background text-end font-mono"
                   clamp={n => Math.min(128, Math.max(1, n))}
                   onChange={value => {
                     setMaxMemory(value)
@@ -2088,7 +2088,7 @@ export default function ServerSetup() {
           <div className="grid gap-3 text-sm">
             <div className="flex justify-between gap-3 py-2 border-b">
               <span className="text-muted-foreground shrink-0">{t("full.step4.summaryInstallPath")}</span>
-              <span className="font-mono text-right min-w-0 flex-1 truncate" title={installPath}>
+              <span className="font-mono text-end min-w-0 flex-1 truncate" title={installPath}>
                 {installPath}
               </span>
             </div>
@@ -2148,12 +2148,12 @@ export default function ServerSetup() {
         >
           {installing ? (
             <>
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              <Loader2 className="w-4 h-4 me-2 animate-spin" />
               {t("full.step4.installingButton")}
             </>
           ) : (
             <>
-              <Download className="w-4 h-4 mr-2" />
+              <Download className="w-4 h-4 me-2" />
               {t("full.step4.installButton")}
             </>
           )}
@@ -2176,7 +2176,7 @@ export default function ServerSetup() {
             <span className="font-mono">
               {installProgress.percent.toFixed(0)}%
               {installProgress.downloaded && installProgress.total && (
-                <span className="text-muted-foreground ml-2">
+                <span className="text-muted-foreground ms-2">
                   ({installProgress.downloaded} / {installProgress.total})
                 </span>
               )}
@@ -2251,12 +2251,12 @@ export default function ServerSetup() {
                 >
                   {startingServer ? (
                     <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />{" "}
+                      <Loader2 className="w-4 h-4 me-2 animate-spin" />{" "}
                       {t("common.startingButton")}
                     </>
                   ) : (
                     <>
-                      <Play className="w-4 h-4 mr-2" /> {t("common.startServerButton")}
+                      <Play className="w-4 h-4 me-2" /> {t("common.startServerButton")}
                     </>
                   )}
                 </Button>
@@ -2378,7 +2378,7 @@ export default function ServerSetup() {
             <div className="flex items-center gap-2">
               <Shield className="w-5 h-5 text-primary" />
               <CardTitle className="text-lg">{t("quick.step2.rconTitle")}</CardTitle>
-              <Badge className="ml-auto">{t("common.requiredBadge")}</Badge>
+              <Badge className="ms-auto">{t("common.requiredBadge")}</Badge>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -2394,7 +2394,7 @@ export default function ServerSetup() {
                       type={showRconPassword ? "text" : "password"}
                       value={rconPassword}
                       onChange={(e) => setRconPassword(e.target.value)}
-                      className="pr-10 font-mono"
+                      className="pe-10 font-mono"
                       maxLength={128}
                     />
                     <Button
@@ -2484,7 +2484,7 @@ export default function ServerSetup() {
             <div className="flex items-center gap-2">
               <Shield className="w-5 h-5 text-primary" />
               <CardTitle className="text-lg">{t("common.adminPasswordLabel")}</CardTitle>
-              <Badge className="ml-auto">{t("common.requiredBadge")}</Badge>
+              <Badge className="ms-auto">{t("common.requiredBadge")}</Badge>
             </div>
             <CardDescription>{t("common.adminPasswordHelp")}</CardDescription>
           </CardHeader>
@@ -2495,7 +2495,7 @@ export default function ServerSetup() {
                 value={adminPassword}
                 onChange={(e) => setAdminPassword(e.target.value)}
                 placeholder={t("common.adminPasswordPlaceholder")}
-                className="pr-10"
+                className="pe-10"
                 maxLength={128}
               />
               <Button
@@ -2553,7 +2553,7 @@ export default function ServerSetup() {
                     min={1}
                     max={64}
                     value={minMemory}
-                    className="h-8 w-20 bg-background text-right font-mono"
+                    className="h-8 w-20 bg-background text-end font-mono"
                     clamp={n => Math.min(64, Math.max(1, n))}
                     onChange={value => {
                       setMinMemory(value)
@@ -2582,7 +2582,7 @@ export default function ServerSetup() {
                     min={1}
                     max={128}
                     value={maxMemory}
-                    className="h-8 w-20 bg-background text-right font-mono"
+                    className="h-8 w-20 bg-background text-end font-mono"
                     clamp={n => Math.min(128, Math.max(1, n))}
                     onChange={value => {
                       setMaxMemory(value)
@@ -2741,7 +2741,7 @@ export default function ServerSetup() {
           <div className="grid gap-3 text-sm">
             <div className="flex justify-between gap-3 py-2 border-b">
               <span className="text-muted-foreground shrink-0">{t("quick.step3.summaryServerFiles")}</span>
-              <span className="font-mono text-right min-w-0 flex-1 truncate" title={installPath}>
+              <span className="font-mono text-end min-w-0 flex-1 truncate" title={installPath}>
                 {installPath}
               </span>
             </div>
@@ -2777,12 +2777,12 @@ export default function ServerSetup() {
       >
         {installing ? (
           <>
-            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            <Loader2 className="w-4 h-4 me-2 animate-spin" />
             {t("quick.step3.creatingButton")}
           </>
         ) : (
           <>
-            <Plus className="w-4 h-4 mr-2" />
+            <Plus className="w-4 h-4 me-2" />
             {t("quick.step3.createButton")}
           </>
         )}
@@ -2844,12 +2844,12 @@ export default function ServerSetup() {
                 >
                   {startingServer ? (
                     <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />{" "}
+                      <Loader2 className="w-4 h-4 me-2 animate-spin" />{" "}
                       {t("common.startingButton")}
                     </>
                   ) : (
                     <>
-                      <Play className="w-4 h-4 mr-2" /> {t("common.startServerButton")}
+                      <Play className="w-4 h-4 me-2" /> {t("common.startServerButton")}
                     </>
                   )}
                 </Button>
@@ -2961,7 +2961,7 @@ export default function ServerSetup() {
                   }
                 }}
               >
-                <ChevronLeft className="w-4 h-4 mr-2" />
+                <ChevronLeft className="w-4 h-4 me-2" />
                 {currentStep === 1 ? t("common.chooseSetupType") : t("common.backButton")}
               </Button>
 
@@ -2970,7 +2970,7 @@ export default function ServerSetup() {
                 disabled={!canProceed}
               >
                 {t("common.nextStepButton")}
-                <ChevronRight className="w-4 h-4 ml-2" />
+                <ChevronRight className="w-4 h-4 ms-2" />
               </Button>
             </div>
 
@@ -2988,7 +2988,7 @@ export default function ServerSetup() {
               variant="outline"
               onClick={() => setCurrentStep((s) => s - 1)}
             >
-              <ChevronLeft className="w-4 h-4 mr-2" />
+              <ChevronLeft className="w-4 h-4 me-2" />
               {t("common.backButton")}
             </Button>
           </div>

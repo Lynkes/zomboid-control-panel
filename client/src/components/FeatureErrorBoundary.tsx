@@ -70,7 +70,7 @@ class FeatureErrorBoundaryBase extends React.Component<FeatureErrorBoundaryProps
               <span className="font-medium">{t('compactMessage', { featureName })}</span>
             </div>
             <Button size="sm" variant="outline" onClick={this.handleReset}>
-              <RefreshCw className="w-3 h-3 mr-1" />
+              <RefreshCw className="w-3 h-3 me-1" />
               {t('retry')}
             </Button>
           </div>
@@ -104,12 +104,12 @@ class FeatureErrorBoundaryBase extends React.Component<FeatureErrorBoundaryProps
             )}
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" onClick={this.handleReset}>
-                <RefreshCw className="w-4 h-4 mr-2" />
+                <RefreshCw className="w-4 h-4 me-2" />
                 {t('tryAgain')}
               </Button>
               <Button variant="ghost" asChild>
                 <Link to="/">
-                  <Home className="w-4 h-4 mr-2" />
+                  <Home className="w-4 h-4 me-2" />
                   {t('dashboard')}
                 </Link>
               </Button>

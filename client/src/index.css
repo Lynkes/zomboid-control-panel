@@ -210,8 +210,19 @@ input[type="number"] {
     hsl(var(--primary) / 0.28) 0%,
     hsl(var(--accent) / 0.18) 100%
   );
-  border-left: 2px solid hsl(var(--primary) / 0.8);
+  border-inline-start: 2px solid hsl(var(--primary) / 0.8);
   box-shadow: inset 0 0 14px hsl(var(--primary) / 0.06);
+}
+
+/* linear-gradient() has no logical angle keyword -- these mirror the
+   asymmetric (start-heavy, fading toward the end) fades above and below
+   by hand for RTL. border-inline-start above needs no such override; it
+   resolves from the element's own computed direction automatically. */
+[dir="rtl"] .theme-survival .nav-item-active {
+  background: linear-gradient(270deg,
+    hsl(var(--primary) / 0.28) 0%,
+    hsl(var(--accent) / 0.18) 100%
+  );
 }
 
 /* Custom scrollbar for survival theme */
@@ -222,7 +233,7 @@ input[type="number"] {
 
 .theme-survival ::-webkit-scrollbar-track {
   background: hsl(var(--background));
-  border-left: 1px solid hsl(var(--border) / 0.6);
+  border-inline-start: 1px solid hsl(var(--border) / 0.6);
 }
 
 .theme-survival ::-webkit-scrollbar-thumb {
@@ -593,6 +604,10 @@ input[type="number"] {
   box-shadow: 0 1px 6px hsl(var(--warning) / 0.18);
 }
 
+/* RTL sweep (2026-09-04): deliberately left physical. A decorative
+   sci-fi-HUD corner bracket on the brand strip, aria-hidden, carrying no
+   reading-direction meaning -- the same "genuinely physical, like a chart
+   axis" exception as a fixed visual flourish, not a fix. */
 .brand-strip__corner {
   position: absolute;
   top: 6px;
@@ -669,8 +684,10 @@ input[type="number"] {
 .brand-strip__version {
   letter-spacing: 0.04em;
   font-size: 9px;
-  padding-left: 2px;
-  border-left: 1px solid hsl(var(--border) / 0.6);
+  /* padding-left: 2px removed 2026-09-04 -- dead: the padding-inline-start
+     below already won this cascade (same rule, later declaration, equal
+     specificity), so the physical line was never actually applied. */
+  border-inline-start: 1px solid hsl(var(--border) / 0.6);
   padding-inline-start: 6px;
   margin-inline-start: 2px;
 }
@@ -690,7 +707,7 @@ input[type="number"] {
 
 .active-server-strip__edge {
   position: absolute;
-  left: 0;
+  inset-inline-start: 0;
   top: 0;
   bottom: 0;
   width: 2px;
@@ -1180,6 +1197,10 @@ input[type="number"] {
   position: absolute;
   inset: 0;
   width: 50%;
+  /* RTL sweep (2026-09-04): deliberately left physical -- transparent to
+     color and back to transparent is symmetric, so the 90deg angle reads
+     identically swept from either edge; there's no start/end asymmetry
+     here to get backwards. */
   background: linear-gradient(90deg, transparent, hsl(var(--primary) / 0.6), transparent);
   animation: scanSweep 1.5s cubic-bezier(0.25, 1, 0.5, 1) infinite;
 }
@@ -1261,11 +1282,11 @@ input[type="number"] {
 }
 
 .diff-line-add {
-  border-left: 2px solid hsl(var(--success) / 0.35);
+  border-inline-start: 2px solid hsl(var(--success) / 0.35);
 }
 
 .diff-line-remove {
-  border-left: 2px solid hsl(var(--destructive) / 0.3);
+  border-inline-start: 2px solid hsl(var(--destructive) / 0.3);
 }
 
 .diff-gutter {
@@ -1662,6 +1683,14 @@ tr:hover td {
   );
 }
 
+[dir="rtl"] .theme-survival .nav-item-active {
+  background: linear-gradient(270deg,
+    hsl(var(--primary) / 0.22) 0%,
+    hsl(var(--accent) / 0.14) 56%,
+    transparent 100%
+  );
+}
+
 /* Nav scroll area — thinner scrollbar */
 .nav-scroll::-webkit-scrollbar {
   width: 4px;
@@ -2006,7 +2035,7 @@ tr:hover td {
 
   /* Nav active indicator: use system highlight */
   .nav-item-active {
-    border-left: 3px solid Highlight;
+    border-inline-start: 3px solid Highlight;
   }
 
   /* Alert/toast destructive borders */
@@ -2070,7 +2099,7 @@ tr:hover td {
 /* Radio/broadcast styling */
 .theme-survival .broadcast-message {
   background: linear-gradient(180deg, hsl(30 18% 8%), hsl(28 14% 6%));
-  border-left: 3px solid hsl(34 72% 45%);
+  border-inline-start: 3px solid hsl(34 72% 45%);
   font-family: 'Courier New', monospace;
   letter-spacing: 0.3px;
 }
@@ -2226,7 +2255,14 @@ tr:hover td {
     hsl(var(--primary) / 0.14) 0%,
     hsl(var(--primary) / 0.06) 100%
   );
-  border-left: 2px solid hsl(var(--primary) / 0.7);
+  border-inline-start: 2px solid hsl(var(--primary) / 0.7);
+}
+
+[dir="rtl"] .theme-light .nav-item-active {
+  background: linear-gradient(270deg,
+    hsl(var(--primary) / 0.14) 0%,
+    hsl(var(--primary) / 0.06) 100%
+  );
 }
 
 /* Sidebar header */
