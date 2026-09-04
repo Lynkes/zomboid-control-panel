@@ -479,9 +479,23 @@ export class UpdateChecker {
           // Emit to all connected clients
           this.io.emit("server:updateAvailable", updateInfo);
         }
-        if (!wasAvailable) {
-          await this.scheduleAutoUpdate(updateInfo);
-        }
+        // Deliberately NOT gated on !wasAvailable (unlike the emit above,
+        // which is purely about notification spam). scheduleAutoUpdate()
+        // itself is the re-entrancy guard (this.autoUpdateRunning ||
+        // this.autoUpdateTimer, both reset once a warning/run cycle
+        // finishes), so calling it on every periodic check while an update
+        // is outstanding is a safe no-op once one is already scheduled or
+        // running -- but it's what actually lets two real cases work:
+        // (1) the operator enables serverAutoUpdate AFTER an update was
+        // already detected while it was off (previously silently ignored
+        // that update forever, since wasAvailable was already true by the
+        // time the setting flipped on); (2) a scheduled auto-update FAILS
+        // (SteamCMD error, stop timeout, build didn't advance) -- the old
+        // once-per-availability-episode gate meant it never retried until
+        // a NEWER build shipped, indistinguishable from "auto-update is
+        // silently broken" to an operator watching it happen once and never
+        // again.
+        await this.scheduleAutoUpdate(updateInfo);
       } else {
         log.debug(
           `Server is up to date (build ${installed.buildId}, ${installed.branch} branch)`,
