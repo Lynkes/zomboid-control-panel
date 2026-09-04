@@ -3330,7 +3330,13 @@ export interface PanelUpdateApplyResult {
     | "rename_locked"
     | "permission"
     | "no_helper_log"
+    | "rollback_failed"
     | "unknown";
+  // Only meaningful when likelyCause is "rollback_failed" -- see
+  // isRollbackRetryLikely()'s doc comment in panelUpdateChecker.js. Absent
+  // for every other cause (this question doesn't apply to them), not a
+  // stale false.
+  rollbackRetryLikely?: boolean;
   canRetryApply?: boolean;
   panelFolder?: string;
 }

@@ -3075,6 +3075,57 @@ export default function Settings() {
                               {t("updates.noHelperLogDesc")}
                             </div>
                           )}
+                          {panelUpdateStatus.lastApplyResult.likelyCause ===
+                            "rollback_failed" && runtimeInfo?.family === "windows" && (
+                            <div className="rounded-md border border-destructive/40 bg-background/50 p-2 text-xs leading-relaxed">
+                              <strong className="text-destructive-foreground">
+                                {t("updates.likelyCauseLabel")}
+                              </strong>{" "}
+                              {panelUpdateStatus.lastApplyResult
+                                .rollbackRetryLikely
+                                ? t("updates.rollbackFailedRetryWarning", {
+                                    defaultValue:
+                                      "the automatic rollback did not fully complete. The panel is likely to retry this exact update again on the next restart and fail the same way, until this is cleared by hand.",
+                                  })
+                                : t("updates.rollbackFailedCosmetic", {
+                                    defaultValue:
+                                      "the update rolled back successfully. One leftover file could not be removed automatically and is safe to delete by hand.",
+                                  })}
+                              {panelUpdateStatus.lastApplyResult
+                                .panelFolder && (
+                                <div className="mt-1">
+                                  <strong>
+                                    {t("updates.rollbackFailedRecoveryLabel", {
+                                      defaultValue: "Files to delete:",
+                                    })}
+                                  </strong>{" "}
+                                  {panelUpdateStatus.lastApplyResult
+                                    .rollbackRetryLikely
+                                    ? t("updates.rollbackFailedRecoveryNote", {
+                                        defaultValue:
+                                          "close this panel first, then delete these three files from the install folder below:",
+                                      })
+                                    : t(
+                                        "updates.rollbackFailedRecoveryNoteCosmetic",
+                                        {
+                                          defaultValue:
+                                            "delete this file from the install folder below:",
+                                        },
+                                      )}
+                                  <pre className="mt-1 rounded bg-background/70 p-1 text-[11px]">
+                                    {panelUpdateStatus.lastApplyResult
+                                      .rollbackRetryLikely
+                                      ? ".update-pending\n.update-applying\nupdate-bundle.json"
+                                      : "update-bundle.json"}
+                                  </pre>
+                                  <div className="mt-1 text-[11px] opacity-80">
+                                    {panelUpdateStatus.lastApplyResult
+                                      .panelFolder}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
                           {panelApplyLog && (
                             <details className="mt-1 text-xs">
                               <summary className="cursor-pointer font-medium">
