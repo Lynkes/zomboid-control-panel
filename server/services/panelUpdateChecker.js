@@ -2216,15 +2216,75 @@ export class PanelUpdateChecker {
     if (!helperLog) return "no_helper_log";
     const l = helperLog.toLowerCase();
 
+    // 2026-09-04, Dwight's finding + god's follow-up: readMostRecentApplyLog()
+    // prefers supervisor.log (build.js's generateStartBat(), "Supervisor v2")
+    // whenever it exists, and only falls back to panel-update-last.log (the
+    // spawnWindowsApplyHelper() .cmd helper -- itself dead code, never called
+    // in production) for an un-upgraded pre-v1.0.21 install. Checked, by
+    // grepping build.js for every phrase in the prose lists below: NONE of
+    // them occur in it, so none of these branches can ever fire against a
+    // real current install's log.
+    //
+    // Only the [pre-spawn]/"apply helper started" pair genuinely matches
+    // spawnWindowsApplyHelper()'s own wording. The rest of the prose below
+    // (av_quarantine/permission/rename_locked) matches nothing currently in
+    // this repository, including that dead function -- `git log -S"quarantined
+    // by av"` shows it was introduced once, at v1.0.14, and never touched
+    // since, through two later apply-mechanism rewrites. Whatever wrote that
+    // wording at v1.0.14 is gone; the classifier was never updated either
+    // time its producer changed underneath it. That's why Dwight saw
+    // "unknown" while the log plainly said `staged binary missing or
+    // quarantined [av_quarantine]`: the classifier was entirely keyed to
+    // wording nothing has written in at least two apply-mechanism
+    // generations.
+    //
+    // Supervisor v2 already stamps a stable bracketed code on every FAILURE
+    // line it writes (see build.js's `:apply_update`/`:rollback_update`
+    // labels) -- exactly the "producer emits a code, classifier matches the
+    // code" shape that should have existed from the start. Checked first,
+    // ahead of the legacy prose fallbacks below, because it's the current,
+    // most specific, most authoritative signal when present. Only the last
+    // occurrence is used: a real log can carry an earlier informational tag
+    // from an unrelated prior step, and the final stamped line is the one
+    // that actually ended the run (`goto :eof` follows every one of these).
+    //
+    // Only two of Supervisor v2's codes get mapped to an EXISTING,
+    // client-recognised cause here -- av_quarantine (exact name match,
+    // Dwight's actual case) and binary_swap_failed (both of its trigger
+    // lines are a failed `ren` on the live/staged exe, which is precisely
+    // what 'rename_locked' already means per this function's own doc
+    // comment above). The remaining codes Supervisor v2 emits --
+    // version_mismatch, startup_handshake_failed, frontend_swap_failed,
+    // bundle_apply_failed, rollback_failed -- have no existing bucket that
+    // honestly describes them, and client/src/lib/api.ts's likelyCause union
+    // type doesn't know about them; inventing new values here would just
+    // move this exact defect shape (a value nothing on the other end
+    // consumes) to the client instead of fixing it. Left unmapped on
+    // purpose -- they fall through to 'unknown' below, exactly like today,
+    // not a regression -- as a named, deliberate gap for a follow-up that
+    // extends the client-side vocabulary, not a silent one.
+    const supervisorTags = [
+      ...helperLog.matchAll(
+        /\[(av_quarantine|version_mismatch|startup_handshake_failed|frontend_swap_failed|binary_swap_failed|bundle_apply_failed|rollback_failed)\]/gi,
+      ),
+    ].map((m) => m[1].toLowerCase());
+    const lastSupervisorTag = supervisorTags[supervisorTags.length - 1];
+    if (lastSupervisorTag === "av_quarantine") return "av_quarantine";
+    if (lastSupervisorTag === "binary_swap_failed") return "rename_locked";
+
     // Helper was blocked from running at all (ASR / AV / Group Policy).
     // The PRE-SPAWN sentinel line written by the main panel is there, but
     // no lines from the helper itself. Unique signature of the v1.0.21+
-    // helper framework — we can tell the user exactly what to do.
+    // helper framework — we can tell the user exactly what to do. Legacy
+    // path: spawnWindowsApplyHelper() is dead in production (see above),
+    // kept here only in case an un-upgraded pre-v1.0.21 install is still
+    // writing panel-update-last.log.
     if (l.includes("[pre-spawn]") && !l.includes("apply helper started")) {
       return "helper_blocked";
     }
 
-    // AV / Controlled Folder Access — file vanished between helper steps.
+    // Legacy AV / Controlled Folder Access wording (see the class-level
+    // comment above): file vanished between helper steps.
     // Patterns cover: post-place verify failure, rollback copy wiped, staged
     // gone before we started, and the Windows "cannot find" messages that
     // surface as Move-Item failures when the source was deleted mid-apply.
