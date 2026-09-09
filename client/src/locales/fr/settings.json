@@ -110,6 +110,11 @@
     "description": "Vous avez des modifications en attente. Enregistrez-les pour les appliquer au panneau en direct.",
     "saveButton": "Enregistrer les modifications"
   },
+  "restartWait": {
+    "failedTitle": "The panel hasn't come back",
+    "failedDescription": "It's been a few minutes since the restart and the panel still isn't responding. It may still be starting (this can take longer than usual right after an update), or it may have failed to start. Check the panel's console/log output for errors before trying again.",
+    "checkAgain": "Check Again"
+  },
   "saveButton": {
     "saving": "Enregistrement...",
     "save": "Enregistrer les paramètres",
@@ -207,7 +212,9 @@
     "expectedVersion": " Attendu : v{{version}}.",
     "stagedStillPresent": " Le fichier téléchargé est toujours sur le disque ; vous pouvez retenter le redémarrage.",
     "stagedGone": " Le binaire préparé a disparu — retéléchargez la mise à jour avant de réessayer.",
+    "stagedGoneAfterHandshakeFailure": " The staged update was applied, then automatically rolled back — re-downloading the same version will very likely fail the same way.",
     "likelyCauseLabel": "Cause probable :",
+    "startupHandshakeFailed": "the update applied successfully (the new version launched) but it exited before finishing startup, so the panel automatically rolled back to the previous version. This is not a missing or corrupted download — see the log below for the exact reason the new version exited.",
     "avQuarantine": "l'antivirus ou l'accès contrôlé aux dossiers a supprimé le nouveau binaire après son placement.",
     "avExclusionHint": "Ajoutez ce dossier à vos exclusions antivirus et réessayez :",
     "windowsDefenderLabel": "Windows Defender :",
@@ -219,6 +226,13 @@
     "helperBlockedRecoveryNote": "Start.bat choisit automatiquement le binaire le plus récent, donc la mise à jour s'appliquera. Pour éviter cela à l'avenir, ajoutez le dossier du panneau aux exclusions antivirus.",
     "noHelperLogTitle": "Aucun journal d'aide n'a été écrit.",
     "noHelperLogDesc": "Le script d'aide a peut-être été bloqué par la stratégie d'exécution ou l'antivirus. Vérifiez l'historique de protection de Windows Defender.",
+    "rollbackFailedRetryWarning": "the automatic rollback did not fully complete. The panel is likely to retry this exact update again on the next restart and fail the same way, until this is cleared by hand.",
+    "rollbackFailedCosmetic": "the update rolled back successfully. One leftover file could not be removed automatically and is safe to delete by hand.",
+    "rollbackFailedRecoveryLabel": "Files to delete:",
+    "rollbackFailedRecoveryNote": "close this panel first, then delete these three files from the install folder below:",
+    "rollbackFailedRecoveryNoteCosmetic": "delete this file from the install folder below:",
+    "unknownCauseTitle": "Cause could not be determined automatically.",
+    "unknownCauseDesc": "The helper log doesn't match a known failure signature. See the log below for detail.",
     "showHelperLog": "Afficher le journal d'aide",
     "refreshLog": "Actualiser le journal",
     "couldNotReadLog": {
@@ -230,19 +244,23 @@
     "preflight": {
       "packagedBuildGit": "La mise à jour automatique est disponible uniquement dans les versions packagées. En mode développement, récupérez le dernier code avec git.",
       "packagedBuildDocker": "La mise à jour automatique est disponible uniquement dans les versions packagées. Récupérez la nouvelle image et recréez le conteneur : docker compose pull && docker compose up -d.",
+      "dockerNotChecked": "Docker updates are applied by a separate update controller container. The panel does not run its own preflight checks (disk space, permissions, etc.) for this mode -- those are the controller's responsibility.",
       "noReleaseInfo": "Aucune information de version n'est encore en cache. Cliquez d'abord sur Rechercher les mises à jour.",
-      "databaseUnreadable": "La base de données du panneau ne peut pas être lue avant la mise à jour : {{error}}.",
+      "databaseUnreadable": "La base de données du panneau ne peut pas être lue avant la mise à jour : {{error}}. Redémarrez d'abord le panneau : il tente automatiquement de récupérer db.json à partir de ses propres sauvegardes dans data/backups au démarrage.",
       "databaseMissing": "Aucun fichier data/db.json n'a été trouvé à côté du panneau en cours d'exécution. Cela ressemble à une nouvelle installation ; vérifiez le dossier de données avant d'appliquer la mise à jour.",
       "binaryMissing": "Aucun binaire {{platform}} n'a été trouvé dans la dernière version.",
       "folderNotWritableWindows": "Le dossier du panneau n'est pas accessible en écriture pour ce processus : {{detail}}. Essayez de lancer le panneau en tant qu'administrateur ou déplacez-le hors d'un dossier protégé.",
       "folderNotWritableLinux": "Le dossier du panneau n'est pas accessible en écriture pour ce processus : {{detail}}. Vérifiez que l'utilisateur du service possède le dossier d'installation et peut y écrire.",
       "folderNotWritableOther": "Le dossier du panneau n'est pas accessible en écriture pour ce processus : {{detail}}. Vérifiez les permissions du dossier d'installation pour le compte qui exécute le panneau.",
+      "exeNotRenameable": "Windows ne permet pas à ce processus de renommer son propre fichier programme. Essayez de lancer le panneau en tant qu'administrateur ou déplacez-le hors d'un dossier protégé.",
       "diskSpace": "Espace disque libre insuffisant. Environ {{neededMb}} Mo sont nécessaires, {{freeMb}} Mo sont disponibles.",
+      "diskSpaceUnknown": "Could not determine free disk space before update. Proceeding without this check -- verify you have enough free space manually if the apply fails partway through.",
       "oneDrive": "Le panneau se trouve dans un dossier synchronisé par OneDrive. La synchronisation peut brièvement verrouiller l'exécutable pendant son remplacement. Mettez OneDrive en pause avant d'appliquer la mise à jour ou déplacez le panneau vers un emplacement non synchronisé (par exemple C:\\ZomboidPanel).",
       "syncSuspect": "Le panneau se trouve sur le Bureau ou dans Documents. Si vous utilisez la sauvegarde OneDrive ou Known Folder Move, ce dossier est synchronisé et peut verrouiller l'exécutable pendant l'application. Envisagez de déplacer le panneau vers un emplacement non synchronisé.",
       "programFiles": "Le panneau est installé dans Program Files. Windows exige des droits d'administrateur pour y remplacer des fichiers. Si l'application échoue, relancez le panneau en tant qu'administrateur.",
       "previousUpdateStaged": "Une mise à jour précédente (v{{version}}) est déjà préparée et prête à être appliquée au prochain redémarrage.",
-      "previousBackup": "Une sauvegarde précédente (.old) est présente à côté de l'exécutable. Elle sera supprimée après la prochaine application réussie."
+      "previousBackup": "Une sauvegarde précédente (.old) est présente à côté de l'exécutable. Elle sera supprimée après la prochaine application réussie.",
+      "downloadHostUnreachable": "Impossible de joindre {{host}}, l'hôte depuis lequel le binaire de mise à jour est téléchargé. Un pare-feu ou un proxy qui autorise la vérification des mises à jour mais bloque cet hôte fera échouer le téléchargement même si cette vérification a réussi."
     },
     "checkForUpdates": "Vérifier les mises à jour",
     "applyingDockerUpdate": "Application de la mise à jour Docker...",
@@ -272,6 +290,7 @@
     "footerAutoUpdateDevMode": "La mise à jour automatique fonctionne uniquement pour les versions packagées. En mode développement, mettez à jour depuis git. Exécution dans Docker sans contrôleur de mise à jour configuré ? Mettez à jour avec docker compose pull && docker compose up -d.",
     "permissionDeniedWindows": "accès refusé lors de l'écriture dans le dossier du panneau. Relancez le panneau en tant qu'Administrateur ou déplacez-le hors de Program Files.",
     "permissionDeniedPosix": "accès refusé lors de l'écriture dans le dossier du panneau. Vérifiez le propriétaire et les permissions d'écriture de l'utilisateur du service du panneau.",
+    "powershellUnavailable": "PowerShell semble être bloqué sur cette machine (stratégie d'exécution, AppLocker ou stratégie de groupe). Le mécanisme de mise à jour en dépend pour vérifier et appliquer les fichiers préparés. Demandez à votre administrateur d'autoriser powershell.exe pour cette application.",
     "helperLogHintWindows": "Si la nouvelle version ne revient pas en ligne en une minute, consultez <code>{{path}}</code>. Les anciens helpers peuvent aussi avoir des journaux sous <code>%TEMP%</code>.",
     "helperLogHintPosix": "Si la nouvelle version ne revient pas en ligne en une minute, consultez <code>{{path}}</code>. Pour les installations systemd, consultez aussi <code>journalctl -u zomboid-panel</code>.",
     "logPathUnavailable": "le répertoire des journaux du panneau",
@@ -526,7 +545,8 @@
     "copiesKeptHelp": "Les exports les plus anciens sont supprimés une fois ce nombre dépassé par un joueur. Restaurez-les depuis la page Joueurs.",
     "loadFailedTitle": "Impossible de charger les sauvegardes",
     "loadFailedDescription": "Il ne s'agit pas forcément d'une liste vide — la requête a échoué. Rouvrez cette page pour réessayer.",
-    "statusLoadFailed": "Impossible de vérifier si les sauvegardes planifiées sont actives — ce commutateur est désactivé tant que le chargement n’a pas abouti. Rouvrez cette page pour réessayer."
+    "statusLoadFailed": "Impossible de vérifier si les sauvegardes planifiées sont actives — ce commutateur est désactivé tant que le chargement n’a pas abouti. Rouvrez cette page pour réessayer.",
+    "backupsStored_many": "{{count}} sauvegardes stockées"
   },
   "security": {
     "cardTitle": "Sécurité et authentification",
@@ -800,7 +820,8 @@
       "cookiesFirstError": "Ajoutez d'abord les cookies Steam pour écrire dans la collection.",
       "sessionExpiredError": "Session Steam expirée. Collez de nouveaux cookies ci-dessus et réessayez.",
       "failedToReadCollection": "Échec de la lecture de la collection"
-    }
+    },
+    "inSync_many": "Synchronisé — {{count}} éléments"
   },
   "toasts": {
     "recoveryCodesGenerated": {

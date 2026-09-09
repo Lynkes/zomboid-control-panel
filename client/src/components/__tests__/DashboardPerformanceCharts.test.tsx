@@ -121,3 +121,98 @@ describe('DashboardPerformanceCharts -- swap row', () => {
     expect(row.querySelector('.bg-destructive')).toBeInTheDocument()
   })
 })
+
+// bug-hunt-2026-09-08 (operator screenshot, Arabic UI): "23.8 / 31.3"
+// rendered as "31.3 / 23.8" -- the Unicode bidi algorithm treats
+// `number space slash space number` as a run of neutrals inside an RTL
+// paragraph and lays the pair out right-to-left. jsdom does not implement
+// bidi visual reordering at all (it is a text-shaping behaviour, not
+// something exposed on the DOM), so this cannot assert the actual on-screen
+// order the way a real browser would render it -- what it CAN and must
+// assert is the mechanism real browsers use to prevent the reorder: the
+// used/total text is isolated inside a <bdi> element, in used-then-total
+// source order. A test that only checked getByText('23.8 / 31.3') exists
+// would keep passing even if someone silently dropped the <bdi> wrapper
+// (or swapped the args to `used / total`) -- this asserts the wrapper
+// AND the order together, which is the actual contract.
+describe('DashboardPerformanceCharts -- RTL bidi isolation on used/total values', () => {
+  it('wraps the host memory used/total value in <bdi>, used before total', () => {
+    render(
+      <DashboardPerformanceCharts
+        performanceHistory={[point({ hostMemUsedGB: 2.3, hostMemTotalGB: 16 })]}
+      />
+    )
+    const row = screen.getByText('Host memory').closest('div')!
+    const bdi = row.querySelector('bdi')
+    expect(bdi).toBeInTheDocument()
+    expect(bdi).toHaveTextContent('2.3 / 16')
+  })
+
+  it('wraps the disk used/total value in <bdi>, used before total', () => {
+    render(
+      <DashboardPerformanceCharts
+        performanceHistory={[point({ hostDiskUsedGB: 24, hostDiskTotalGB: 31 })]}
+      />
+    )
+    const row = screen.getByText('Disk').closest('div')!
+    const bdi = row.querySelector('bdi')
+    expect(bdi).toBeInTheDocument()
+    expect(bdi).toHaveTextContent('24 / 31')
+  })
+
+  it('wraps the swap used/total value in <bdi>, used before total', () => {
+    render(<DashboardPerformanceCharts performanceHistory={[point({ hostSwapUsedGB: 1.5, hostSwapTotalGB: 4 })]} />)
+    const row = screen.getByText('Host swap').closest('div')!
+    const bdi = row.querySelector('bdi')
+    expect(bdi).toBeInTheDocument()
+    expect(bdi).toHaveTextContent('1.5 / 4')
+  })
+
+  it('wraps the PZ memory used/ceiling value in <bdi>, used before ceiling', () => {
+    render(
+      <DashboardPerformanceCharts
+        performanceHistory={[point({ pzMemMB: 2048 })]}
+        maxMemoryGB={8}
+      />
+    )
+    const bdi = screen.getByText('2.0 / 8').closest('bdi')
+    expect(bdi).toBeInTheDocument()
+  })
+})
+
+// bug-hunt-2026-09-08 (Arabic render pass, dwight): "% 29" / "GB 28.9 / 31.9"
+// instead of "29%" / "28.9 / 31.9 GB" -- a DIFFERENT mechanism from the <bdi>
+// tests above. The value and unit were two separate flex-item siblings of a
+// div that inherits dir=rtl; flexbox maps main-start to the writing mode's
+// inline-start, so under RTL the first DOM child (value) lands on the right
+// and the second (unit) on the left. <bdi> only isolates text INSIDE one
+// node -- it cannot reorder two sibling ELEMENTS, which is why the existing
+// <bdi> coverage above never caught this. jsdom does not run real flex
+// layout any more than it runs real bidi shaping, so this cannot assert the
+// on-screen order either -- what it CAN and must assert is the mechanism
+// that forces the order in a real browser: value and unit share one
+// dir="ltr" ancestor, value first in source order.
+describe('DashboardPerformanceCharts -- flex sibling order for value+unit under RTL', () => {
+  it('wraps the CPU value and its % unit in one dir="ltr" element, value before unit', () => {
+    render(<DashboardPerformanceCharts performanceHistory={[point({ cpuPercent: 42 })]} />)
+    const ltrWrap = cpuRow().querySelector('[dir="ltr"]')
+    expect(ltrWrap).toBeInTheDocument()
+    expect(ltrWrap!.children).toHaveLength(2)
+    expect(ltrWrap!.children[0]).toHaveTextContent('42')
+    expect(ltrWrap!.children[1]).toHaveTextContent('%')
+  })
+
+  it('wraps the host memory value and its GB unit in one dir="ltr" element, value before unit', () => {
+    render(
+      <DashboardPerformanceCharts
+        performanceHistory={[point({ hostMemUsedGB: 2.3, hostMemTotalGB: 16 })]}
+      />
+    )
+    const row = screen.getByText('Host memory').closest('div')!
+    const ltrWrap = row.querySelector('[dir="ltr"]')
+    expect(ltrWrap).toBeInTheDocument()
+    expect(ltrWrap!.children).toHaveLength(2)
+    expect(ltrWrap!.children[0]).toHaveTextContent('2.3 / 16')
+    expect(ltrWrap!.children[1]).toHaveTextContent('GB')
+  })
+})

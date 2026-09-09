@@ -8,6 +8,7 @@ import {
   acquireLifecycleLock,
   lifecycleInProgressResponse,
 } from "../services/lifecycleCoordinator.js";
+import { resolveDockerHostSignal } from "../services/managedContainer.js";
 
 const router = express.Router();
 
@@ -73,9 +74,20 @@ router.get("/stats", requirePermission("docker.manage"), async (req, res) => {
 });
 
 router.post("/containers/:id/:action", requirePermission("docker.manage"), async (req, res) => {
+  // normalize-lifecycle-lock-server-identifier, 2026-09-08: req.params.id is
+  // the Docker CONTAINER id, a third, unrelated namespace from the server DB
+  // id every other call site now standardizes on -- req.body.serverId (the
+  // actual server DB id, verified against this exact container a few lines
+  // below) is what belongs here instead. Read directly off the body rather
+  // than moving the verified `server` lookup above the lock: the top-level
+  // try/finally already releases this lock on every early return, including
+  // the "container is not mapped to this server" 403 below, so a request
+  // that lies about serverId just gets a lock briefly tagged with an id the
+  // 403 immediately rejects and releases -- never an id that ends up
+  // attached to a real operation it doesn't belong to.
   const lifecycleLock = acquireLifecycleLock(
     `docker-${req.params.action}`,
-    req.params.id || null,
+    req.body?.serverId || null,
   );
   if (!lifecycleLock) {
     return res.status(409).json(lifecycleInProgressResponse());
@@ -105,14 +117,36 @@ router.post("/containers/:id/:action", requirePermission("docker.manage"), async
         code: ErrorCode.CONTAINER_NOT_MAPPED,
       });
     }
-    const container = await dockerClient.inspectManagedContainer(req.params.id);
-    if (!container) {
+    // wrapper-bypass class sweep, 2026-09-08: this used to call
+    // dockerClient.inspectManagedContainer() directly and treat any null
+    // result as "not managed" -- but that raw call collapses a genuine
+    // "exists, unlabeled" answer and a transient Docker API failure into the
+    // exact same null. Routed through resolveDockerHostSignal() (the same
+    // wrapper serverStatus.js's dashboard badge and index.js's watchdog
+    // already use) so a daemon hiccup reads as scanFailed, not a confident
+    // "not managed" -- those are different operator actions (retry/check the
+    // daemon vs. fix the mapping) and conflating them sent an operator to
+    // re-map a container that was never broken.
+    const dockerSignal = await resolveDockerHostSignal(server, dockerClient);
+    if (dockerSignal.scanFailed) {
+      // dockerClient.lastError is set by inspectManagedContainer() (called
+      // internally by resolveDockerHostSignal above) only when the request
+      // itself failed to complete -- cleared on any call that actually
+      // reached the daemon, labeled or not. Read immediately, before any
+      // other await, since it's a field shared with other Docker calls.
+      if (dockerClient.lastError) {
+        return res.status(503).json({
+          success: false,
+          error: `Can't verify the container's state — the Docker API call itself failed: ${sanitizeError(dockerClient.lastError)}. Check that the Docker daemon is reachable and try again.`,
+          code: ErrorCode.SERVER_STATE_UNKNOWN,
+        });
+      }
       return res.status(403).json({
         error: "Container is not managed by this panel",
         code: ErrorCode.CONTAINER_NOT_MANAGED,
       });
     }
-    if (["stop", "restart"].includes(req.params.action) && container.State?.Running) {
+    if (["stop", "restart"].includes(req.params.action) && dockerSignal.running) {
       rconService = new RconService();
       await rconService.loadConfig(server.id);
       if (!(await rconService.connect())) {

@@ -36,6 +36,7 @@
     "inactive": "Inactivo",
     "remote": "Remoto",
     "updateAvailable": "Actualización disponible",
+    "updateStatusUnknown": "Update status unknown",
     "optionsAria": "Opciones para {{name}}",
     "edit": "Editar",
     "setActive": "Establecer como activo",
@@ -189,7 +190,8 @@
     "selectScannedConfigAria": "Usar el servidor detectado {{name}}",
     "discoverNoPermission": "Detectar o buscar servidores requiere el permiso servers.discover, del cual este rol no dispone.",
     "installPathPlaceholderWindows": "Ruta a la carpeta del servidor de PZ que contiene StartServer64.bat",
-    "installPathPlaceholderPosix": "Ruta a la carpeta del servidor de PZ que contiene start-server.sh"
+    "installPathPlaceholderPosix": "Ruta a la carpeta del servidor de PZ que contiene start-server.sh",
+    "foundServers_many": "Se encontraron {{count}} servidores. Haz clic para seleccionar:"
   },
   "editDialog": {
     "lifecycleProviderLabel": "Proveedor del ciclo de vida",
@@ -297,7 +299,9 @@
     "startUpdate": "Iniciar actualización",
     "done": "Hecho",
     "retry": "Reintentar",
-    "noPermission": "Actualizar o verificar los archivos del servidor requiere el permiso server.install, del cual este rol no dispone."
+    "noPermission": "Actualizar o verificar los archivos del servidor requiere el permiso server.install, del cual este rol no dispone.",
+    "stalledMessage": "This is taking longer than expected and the panel hasn't heard back from SteamCMD. It may still be running in the background. You can close this dialog and check the server status separately.",
+    "closeAnyway": "Close Anyway"
   },
   "clearInstallDialog": {
     "title": "¿Vaciar carpeta de instalación?",
@@ -386,6 +390,7 @@
     "serverAddedTitle": "Servidor añadido",
     "serverAddedDesc": "«{{name}}» añadido al panel",
     "addServerFailed": "No se pudo añadir el servidor",
-    "detectionFailed": "Error de detección"
+    "detectionFailed": "Error de detección",
+    "serversFoundCount_many": "{{count}} servidores encontrados"
   }
 }

@@ -209,6 +209,98 @@ async function assertNoRecoveryLockout(userId, currentCapabilities, nextCapabili
   }
 }
 
+// Per-capability "no escalation through a second door" rule. Same policy
+// this codebase already enforces for Discord's own authorization tiers
+// (ErrorCode.DISCORD_PERMISSIONS_CAPABILITY_REQUIRED, routes/discord.js's
+// PUT /permissions): "Setting a Discord tier is handing out an authority
+// through a second, unaudited door; you cannot hand out one you do not
+// hold yourself in the panel." Role ASSIGNMENT (createUser/
+// changeUserRoleById below) is the PRIMARY door for that exact same
+// authority -- there was never a reason the primary door should be less
+// guarded than a secondary one layered on top of it. Without this, a
+// users.manage holder (a capability an operator can delegate to a custom
+// role via the roles.manage-gated matrix, same as any other) could create
+// or reassign a user into ANY role, including one carrying capabilities --
+// up to and including roles.manage/users.manage themselves, i.e. full
+// admin -- the caller doesn't hold, with zero admin cooperation. Deliberately
+// per-capability, not special-cased to RECOVERY_CAPABILITIES the way
+// assertNoRecoveryLockout above is: this rule is about not handing out MORE
+// than you have at all, not just the two "keys to the kingdom" capabilities
+// -- the same subset check that keeps someone from granting roles.manage
+// they don't hold also stops them granting server.control or rcon.execute
+// they don't hold, matching how the Discord precedent works per-command,
+// not just for its own most-sensitive tier.
+//
+// actingUserId, not a pre-resolved actingUser object: matches
+// deleteUser(userId, { actingUserId })'s existing signature rather than
+// inventing a second shape, and re-reads the acting user's role fresh from
+// the DB itself rather than trusting whatever the caller passed in, same
+// discipline as every other capability check in this file.
+async function assertNoCapabilityEscalation(actingUserId, targetCapabilities) {
+  if (!actingUserId) return; // no caller context (e.g. first-user setup bootstrap) -- nothing to compare against, nothing to guard
+  const db = await getDb();
+  const users = db.data.users || [];
+  const actingUser = users.find((u) => String(u.id) === String(actingUserId));
+  if (!actingUser) return; // acting user's own row not found -- not this check's job to invent a refusal for that
+  const actingRole = actingUser.roleId
+    ? await getRoleById(actingUser.roleId)
+    : await getRoleByName(actingUser.role);
+  const actingCapabilities = actingRole?.capabilities || [];
+  const missing = (targetCapabilities || []).filter(
+    (capability) => !actingCapabilities.includes(capability),
+  );
+  if (missing.length > 0) {
+    // `params.detail` is deliberately JUST the joined capability list, not
+    // a full sentence -- same shape as DISCORD_PERMISSIONS_CAPABILITY_REQUIRED's
+    // own `detail` param (routes/discord.js), which is the precedent this
+    // whole guard follows. Keeping the variable part isolated to `detail`
+    // and the surrounding sentence in the locale template, rather than
+    // baking the full sentence into `detail` itself, is what lets that
+    // template exist in 9 languages instead of only English leaking
+    // through untranslated. `message` (the thrown Error's own .message,
+    // used server-side in logs) stays the full English sentence --
+    // only `params.detail` needs to match the template's {{detail}} shape.
+    const detail = missing.join(", ");
+    const message = `Cannot grant a role that holds ${detail} without already holding ${
+      missing.length === 1 ? "it" : "them"
+    } yourself.`;
+    throw makeRoleError(
+      ErrorCode.ROLE_GRANT_EXCEEDS_CALLER_CAPABILITIES,
+      message,
+      403,
+      { detail, missing },
+    );
+  }
+}
+
+// Session-revocation event bus. Socket.IO connections authenticate once at
+// handshake (index.js's io.use middleware) and are never re-validated per
+// event, so the tokenGen/secret/role/deletion checks below -- all of which
+// authenticateAccessToken and refreshAccessToken re-run on every HTTP
+// request -- are otherwise no-ops for any socket that connected before the
+// change. This lets index.js's Socket.IO layer evict live sockets when one
+// of those paths fires, without auth.js importing the `io` instance
+// (circular). Same shape as utils/logger.js's onLog.
+const sessionRevocationCallbacks = [];
+
+export function onSessionRevoked(callback) {
+  sessionRevocationCallbacks.push(callback);
+  return () => {
+    const index = sessionRevocationCallbacks.indexOf(callback);
+    if (index > -1) sessionRevocationCallbacks.splice(index, 1);
+  };
+}
+
+function emitSessionRevoked(event) {
+  sessionRevocationCallbacks.forEach((cb) => {
+    try {
+      cb(event);
+    } catch (error) {
+      log.warn(`Session-revocation callback failed: ${error.message}`);
+    }
+  });
+}
+
 class AuthService {
   constructor() {
     this.jwtSecret = null;
@@ -245,6 +337,25 @@ class AuthService {
         return Number.isNaN(expiresAt) || expiresAt > now;
       })
       .slice(-MAX_REFRESH_SESSIONS);
+
+    // sweep-round4 (2026-09-07): tombstones for sessions dropped by
+    // createRefreshSession() to stay under MAX_REFRESH_SESSIONS -- see that
+    // method's own comment for why this exists and why it records only
+    // "capacity", never the security reasons. Bounded and expired the same
+    // way refreshSessions itself is, immediately above: a tombstone that
+    // outlives the token it describes is a leak, not a record, so it is
+    // capped at MAX_REFRESH_SESSIONS entries and pruned the instant the
+    // session it describes would itself have expired -- never later.
+    if (!Array.isArray(user.evictedRefreshSessions)) {
+      user.evictedRefreshSessions = [];
+    }
+    user.evictedRefreshSessions = user.evictedRefreshSessions
+      .filter((tombstone) => tombstone && typeof tombstone.id === "string")
+      .filter((tombstone) => {
+        const expiresAt = Date.parse(tombstone.expiresAt || "");
+        return Number.isNaN(expiresAt) || expiresAt > now;
+      })
+      .slice(-MAX_REFRESH_SESSIONS);
   }
 
   createRefreshSession(user) {
@@ -260,7 +371,26 @@ class AuthService {
 
     user.refreshSessions.push(session);
     if (user.refreshSessions.length > MAX_REFRESH_SESSIONS) {
-      user.refreshSessions = user.refreshSessions.slice(-MAX_REFRESH_SESSIONS);
+      // A capacity eviction is the one case where the thing doing the
+      // dropping (here) is also the only thing that will ever know *why* --
+      // findRefreshSession() later sees nothing but a missing id, same as it
+      // would for an expired, revoked, or forged one. Record the reason at
+      // this single site rather than let a caller downstream guess it: a
+      // guess can be wrong, and a false "just capacity" told to a genuinely
+      // compromised user is strictly worse than today's silence.
+      const overflow = user.refreshSessions.length - MAX_REFRESH_SESSIONS;
+      const evicted = user.refreshSessions.splice(0, overflow);
+      user.evictedRefreshSessions.push(
+        ...evicted.map((evictedSession) => ({
+          id: evictedSession.id,
+          reason: "capacity",
+          expiresAt: evictedSession.expiresAt,
+        })),
+      );
+      if (user.evictedRefreshSessions.length > MAX_REFRESH_SESSIONS) {
+        user.evictedRefreshSessions =
+          user.evictedRefreshSessions.slice(-MAX_REFRESH_SESSIONS);
+      }
     }
 
     return session;
@@ -271,6 +401,21 @@ class AuthService {
     return (
       user.refreshSessions.find((session) => session.id === sessionId) || null
     );
+  }
+
+  // Returns "capacity" if `sessionId` is missing from refreshSessions
+  // *because* it was evicted to enforce MAX_REFRESH_SESSIONS, or null for
+  // every other reason a session can be missing (expired, revoked by a
+  // security action, or simply never existed / forged). Callers must treat
+  // null as "say nothing more than usual" -- it is the only response that
+  // does not tell a forged-token holder whether the id it guessed was ever
+  // real.
+  findCapacityEvictionReason(user, sessionId) {
+    this.ensureUserAuthState(user);
+    const tombstone = user.evictedRefreshSessions.find(
+      (entry) => entry.id === sessionId,
+    );
+    return tombstone && tombstone.reason === "capacity" ? "capacity" : null;
   }
 
   revokeRefreshSession(user, sessionId) {
@@ -384,6 +529,7 @@ class AuthService {
         "existing access and refresh token is now invalid — every user, on " +
         "every device, must log in again.",
     );
+    emitSessionRevoked({ scope: "all" });
     return { path: secretPath };
   }
 
@@ -421,7 +567,7 @@ class AuthService {
    * defaulting it to a low-privilege role is a decision that belongs to the
    * caller, not this function.
    */
-  async createUser(username, password, role) {
+  async createUser(username, password, role, { actingUserId } = {}) {
     return this._withMutex(async () => {
       if (!username || !password) {
         throw new Error("Username and password are required");
@@ -459,6 +605,15 @@ class AuthService {
           throw new Error(`role must be one of: ${USER_ROLES.join(", ")}`);
         }
         resolvedRole = role;
+      }
+
+      // No-op on first-user bootstrap: isFirstUser forces admin
+      // unconditionally above (there's no OTHER role to escalate to, and no
+      // actingUserId exists yet either -- assertNoCapabilityEscalation
+      // returns early on that alone regardless).
+      if (!isFirstUser) {
+        const targetRole = await getRoleByName(resolvedRole);
+        await assertNoCapabilityEscalation(actingUserId, targetRole?.capabilities || []);
       }
 
       // Check for duplicate username
@@ -513,7 +668,7 @@ class AuthService {
    * acquires it, and this method's own async work above that call is
    * read-only lookups, not a write that needs serializing.
    */
-  async changeUserRole(userId, newRole) {
+  async changeUserRole(userId, newRole, { actingUserId } = {}) {
     if (!USER_ROLES.includes(newRole)) {
       throw new Error(`role must be one of: ${USER_ROLES.join(", ")}`);
     }
@@ -525,7 +680,7 @@ class AuthService {
       );
     }
 
-    return this.changeUserRoleById(userId, targetRole.id);
+    return this.changeUserRoleById(userId, targetRole.id, { actingUserId });
   }
 
   /**
@@ -550,9 +705,37 @@ class AuthService {
    * different count (excluding one user, not one role) because moving a
    * single user between two EXISTING roles doesn't change what either role
    * grants to anyone else.
+   *
+   * Self-change: refused unconditionally, no override — independent of and
+   * not redundant with the escalation check below. Same reasoning
+   * deleteUser's own self-delete refusal already states for itself: there's
+   * no routine reason an operator needs to change their own role while
+   * signed in as it, and another admin doing it instead is a deliberate
+   * two-party action, not a one-click accident. This closes a real
+   * structural asymmetry (sweep-round2, 2026-09-06) — deleteUser had this
+   * check and changeUserRoleById didn't — not just a gap the escalation
+   * rule below happens to leave: an actual admin (who by definition already
+   * holds every capability, so the escalation check never refuses them)
+   * could still move themselves to a different role with zero cooperation,
+   * exactly the one-click-accident shape deleteUser's own comment already
+   * rejected for account deletion.
+   *
+   * Escalation: refuses assigning ANYONE — self or otherwise — a role whose
+   * capabilities aren't a subset of the caller's own
+   * (assertNoCapabilityEscalation above). This is the check that stops a
+   * users.manage-only caller promoting a DIFFERENT account to admin, which
+   * the self-change block above has nothing to say about.
    */
-  async changeUserRoleById(userId, roleId) {
+  async changeUserRoleById(userId, roleId, { actingUserId } = {}) {
     return this._withMutex(async () => {
+      if (actingUserId && String(actingUserId) === String(userId)) {
+        throw makeRoleError(
+          ErrorCode.USER_SELF_ROLE_CHANGE_REFUSED,
+          "You cannot change your own role. Ask another administrator to do it instead.",
+          400,
+        );
+      }
+
       const targetRole = await getRoleById(roleId);
       if (!targetRole) {
         throw makeRoleError(
@@ -576,6 +759,7 @@ class AuthService {
       const nextCapabilities = targetRole.capabilities || [];
 
       await assertNoRecoveryLockout(userId, currentCapabilities, nextCapabilities);
+      await assertNoCapabilityEscalation(actingUserId, nextCapabilities);
 
       user.role = targetRole.name;
       user.roleId = targetRole.id;
@@ -584,6 +768,7 @@ class AuthService {
       log.info(
         `Role changed for user ${user.username}: ${user.role} (roleId: ${user.roleId})`,
       );
+      emitSessionRevoked({ scope: "user", userId: user.id });
       return {
         id: user.id,
         username: user.username,
@@ -614,13 +799,16 @@ class AuthService {
    * neither roles.manage nor users.manage). Refuses to delete the last
    * user able to manage roles or manage users.
    *
-   * Sessions: deleting the row is the whole mechanism — no separate
-   * tokenGen bump or session-revocation step is needed. Both
-   * authenticateAccessToken (every authenticated request) and
-   * refreshAccessToken look the user up by id fresh, every call, and
-   * already refuse when no row matches; there is nothing left to check
-   * once the row is gone. Takes effect on the deleted user's very next
-   * request, not at their access token's natural expiry.
+   * Sessions: deleting the row is the whole mechanism for HTTP — no
+   * separate tokenGen bump is needed. Both authenticateAccessToken (every
+   * authenticated request) and refreshAccessToken look the user up by id
+   * fresh, every call, and already refuse when no row matches; there is
+   * nothing left to check once the row is gone. Takes effect on the deleted
+   * user's very next request, not at their access token's natural expiry.
+   * Socket.IO connections authenticate once at handshake and never re-run
+   * that lookup, so a live socket opened before the delete would otherwise
+   * keep working forever with the deleted user's stale identity/rooms —
+   * emitSessionRevoked below closes that gap by evicting it.
    */
   async deleteUser(userId, { actingUserId } = {}) {
     return this._withMutex(async () => {
@@ -650,6 +838,7 @@ class AuthService {
       await commitNow();
 
       log.info(`Deleted user: ${user.username} (${user.id})`);
+      emitSessionRevoked({ scope: "user", userId: user.id });
       return { id: user.id, username: user.username };
     });
   }
@@ -826,6 +1015,16 @@ class AuthService {
       }
 
       if (!this.findRefreshSession(user, payload.sessionId)) {
+        // sweep-round4: distinguish "kicked for capacity" from every other
+        // reason this id could be missing (expired / revoked / forged) --
+        // see findCapacityEvictionReason()'s own comment for why those three
+        // stay indistinguishable from each other on purpose.
+        const reason = this.findCapacityEvictionReason(user, payload.sessionId);
+        if (reason === "capacity") {
+          const capacityError = new Error("Refresh token session was evicted for capacity");
+          capacityError.refreshFailureReason = "capacity";
+          throw capacityError;
+        }
         throw new Error("Refresh token session is no longer active");
       }
 
@@ -843,6 +1042,14 @@ class AuthService {
         refreshToken: newRefreshToken,
       };
     } catch (error) {
+      // Every failure returns null (the pre-existing, deliberately
+      // uninformative contract for the security cases) EXCEPT a capacity
+      // eviction, which is a product fact, not a security one -- see
+      // createRefreshSession()'s tombstone comment. Only that one reason is
+      // allowed to leave this method distinguishable from the rest.
+      if (error.refreshFailureReason === "capacity") {
+        return { refreshFailureReason: "capacity" };
+      }
       return null;
     }
   }
@@ -881,6 +1088,7 @@ class AuthService {
     await commitNow();
 
     log.info(`Password changed for user: ${user.username}`);
+    emitSessionRevoked({ scope: "user", userId: user.id });
     return true;
   }
 
@@ -1095,6 +1303,37 @@ class AuthService {
     return { id: user.id, username: user.username, role: user.role };
   }
 
+  /**
+   * Sessions: logout is the one revocation trigger that isn't reached by
+   * searching for "what invalidates a credential" -- it doesn't bump
+   * tokenGen or touch the password, it just removes one refresh session
+   * (single-device, by design; see the class comment above this method's
+   * neighbors for why a full-fleet wipe belongs to changePassword/
+   * regenerateJwtSecret instead). That's exactly why it was missing from
+   * the socket-eviction bus (sweep-round2, c0017c7b) until now: every one
+   * of the five triggers that bus already covered was found by asking
+   * "where does this file invalidate a credential" -- logout ends a
+   * session WITHOUT touching one. A socket opened before logout kept its
+   * rooms (including rcon-live, which carries RCON whitelist passwords)
+   * indefinitely, with nothing server-side enforcing the disconnect --
+   * only the web client's own cleanup (client/src/App.tsx's socket
+   * useEffect closes the socket when isAuthenticated flips false), which
+   * is incidental client behavior, not something the server can rely on
+   * for a security boundary (a different client, a modified bundle, or a
+   * crash before that cleanup runs would all skip it).
+   *
+   * Scope tradeoff, deliberate: emits scope:"user" (every socket for this
+   * user, all devices), not scope tied to just the one refresh session
+   * that was revoked -- sockets authenticate off the access token, whose
+   * payload carries userId/role/tokenGen but no sessionId, so there is no
+   * per-device room to target more narrowly without a bigger change to
+   * what the access token carries. A user logging out on device A briefly
+   * disconnects device B's socket too, but device B's access/refresh
+   * tokens are untouched, so socketAuth.ts's reconnect-with-fresh-token
+   * flow (same mechanism c0017c7b's own comment already relies on) picks
+   * it back up immediately and transparently. Same shape and same
+   * tradeoff every one of the other four triggers already accepts.
+   */
   async logout(refreshToken) {
     if (!refreshToken) {
       return false;
@@ -1132,6 +1371,7 @@ class AuthService {
       const revoked = this.revokeRefreshSession(user, payload.sessionId);
       if (revoked) {
         await commitNow();
+        emitSessionRevoked({ scope: "user", userId: user.id });
       }
 
       return revoked;
@@ -1170,6 +1410,7 @@ class AuthService {
     await commitNow();
 
     log.info(`Password reset for user: ${user.username}`);
+    emitSessionRevoked({ scope: "user", userId: user.id });
     return { username: user.username };
   }
 

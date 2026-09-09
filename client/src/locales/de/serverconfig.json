@@ -8,6 +8,10 @@
     "title_other": "{{count}} Einstellungen kommen in dieser Konfigurationsdatei mehr als einmal vor: {{keys}}",
     "desc": "Dieser Editor liest die letzte Kopie, die Mods-Seite liest die erste — daher können beide unterschiedliche Werte für dieselbe Einstellung anzeigen."
   },
+  "serverChangedBanner": {
+    "title": "Active server changed",
+    "desc": "The active server changed while this page was open. The settings below are still from the previous server -- reload before saving, or the save would overwrite the new active server's config."
+  },
   "loading": "Konfiguration wird geladen…",
   "loadErrorTitle": "Konfigurationsdaten konnten nicht vollständig geladen werden",
   "retry": "Erneut versuchen",
@@ -333,6 +337,7 @@
   "toasts": {
     "error": "Fehler",
     "loadConfigFailed": "Laden der Serverkonfiguration fehlgeschlagen.",
+    "serverChangedSinceLoad": "The active server changed since this page loaded. Reload before saving to avoid overwriting the wrong server.",
     "invalidIniTitle": "Ungültige Servereinstellungen",
     "invalidSandboxTitle": "Ungültige Sandbox-Werte",
     "fixSettings": "Beheben: {{settings}}",
@@ -362,6 +367,8 @@
     "worldSaveFailedDesc": "{{option}} wurde angewendet, aber das Speichern der Spielwelt ist fehlgeschlagen ({{reason}}) -- die Änderung übersteht daher möglicherweise den nächsten Neustart nicht.",
     "notPersistedDesc": "{{option}} ist nicht in SandboxVars.lua enthalten und wird daher beim Neustart des Servers zurückgesetzt.",
     "willResetFallback": "{{option}} wird beim Neustart des Servers zurückgesetzt.",
+    "someSandboxKeysNotSavedTitle": "Einige Einstellungen nicht gespeichert",
+    "someSandboxKeysNotSavedDesc": "Der Rest wurde gespeichert, aber diese konnten nicht geschrieben werden und werden beim Neustart des Servers zurückgesetzt: {{keys}}",
     "failedToUpdateTitle": "Aktualisierung fehlgeschlagen",
     "unknownError": "Unbekannter Fehler",
     "setOptionFailed": "Setzen der Option fehlgeschlagen",
@@ -377,6 +384,8 @@
     "applyTemplateFailed": "Anwenden der gespeicherten Konfiguration fehlgeschlagen.",
     "applyTemplatePartialTitle": "Teilweise angewendet",
     "applyTemplatePartialDesc": "{{applied}}-Einstellungen wurden vor diesem Fehler auf die Festplatte geschrieben: {{error}} Der Rest der gespeicherten Konfiguration wurde nicht angewendet.",
+    "applyTemplateBackupWarningTitle": "Angewendet, aber nicht gesichert",
+    "applyTemplateBackupWarningDesc": "{{warnings}}",
     "saveTemplateFailed": "Speichern der Konfiguration fehlgeschlagen.",
     "deletedTitle": "Gelöscht",
     "templateDeletedDesc": "Gespeicherte Konfiguration „{{name}}“ gelöscht",

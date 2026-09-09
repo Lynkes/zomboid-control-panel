@@ -12,6 +12,7 @@ import {
   lifecycleInProgressResponse,
 } from "./lifecycleCoordinator.js";
 import { createBackupIfChanged } from "../utils/configBackup.js";
+import { resolveServerPhase } from "../utils/serverStatus.js";
 import {
   candidateIniPaths,
   refreshLaunchTargetBeforeStart,
@@ -30,6 +31,8 @@ import {
   isCronTooFrequent,
   isSupportedFiveFieldCron,
   isValidIanaTimezone,
+  isRawOffsetTimezone,
+  dstFallBackWarning,
 } from "../utils/cronValidation.js";
 import {
   defaultRestartWarningSettings,
@@ -157,6 +160,53 @@ export function requiredCapabilityForScheduledCommand(command) {
   return "rcon.execute"; // kind === "raw"
 }
 
+// 2026-09-05, host-suspend-resume audit: node-cron 4.6.0 (node_modules/
+// node-cron/dist/_shared.js, Runner.planBeat/beat) already detects a missed
+// tick by comparing the expected fire time against the real clock at the
+// next heartbeat -- exactly the case a host suspend/resume, or any long
+// blocking I/O/CPU stall, produces (one or more scheduled slots pass while
+// nothing was running to notice). It even names the cause in its own
+// message: "missed execution... Possible blocking IO or high CPU". The gap
+// is visibility, not detection: InlineScheduledTask's DEFAULT reaction is a
+// bare `console.warn` through node-cron's OWN internal logger (verified by
+// reading _shared.js's defaultLogger -- it is not routed through this
+// app's winston logger at all), which on a packaged, console-less install
+// (a Windows service, `pm2`, any process manager without an attached
+// terminal) is very likely never seen by anyone. A missed scheduled
+// restart or backup was, before this, indistinguishable from one that
+// simply never got configured -- both produce total silence.
+//
+// Attaching our OWN 'execution:missed' listener on the returned task
+// SUPPRESSES node-cron's own default warning (see InlineScheduledTask's
+// own onMissedExecution: it checks `emitter.listenerCount('execution:
+// missed') > 0` before logging) -- so this handler takes over that
+// responsibility completely rather than adding a second, differently-
+// worded message alongside it.
+//
+// `taskId` is null for the two "system" schedules (auto-restart, backup)
+// exactly like their own real-run logScheduleExecution() calls already do
+// elsewhere in this file -- Schedule History conflates them by command
+// string, not taskId, for those two (see getLatestScheduleExecutionByCommand's
+// own comment in database/init.js).
+function onScheduleMissed(taskId, label, command, context) {
+  const missedAt =
+    context?.dateLocalIso ||
+    (context?.date instanceof Date ? context.date.toISOString() : String(context?.date ?? "an unknown time"));
+  log.warn(
+    `Scheduled ${label ? `"${label}"` : "task"} (${command}) missed its run at ${missedAt} -- the panel likely was not running or was blocked at that moment (host suspend/resume, a restart, or sustained CPU/IO load).`,
+  );
+  logScheduleExecution(
+    taskId,
+    label,
+    command,
+    false,
+    `Missed scheduled run at ${missedAt} -- the panel was not running or was blocked at that moment`,
+    0,
+  ).catch((err) =>
+    log.debug(`Could not record missed-execution history: ${err.message}`),
+  );
+}
+
 export class Scheduler {
   constructor(rconService, serverManager) {
     this.rconService = rconService;
@@ -215,9 +265,15 @@ export class Scheduler {
   // here, so there is nothing left for that function to verify -- but see
   // its own header comment for why every OTHER "did state change" decision
   // still funnels through it alone.
-  _emitVerifiedTransition(running) {
+  // `phase` defaults to deriving straight from `running` (stopped/running)
+  // for the common case; the restart-start transition below passes an
+  // explicit 'starting' or 'unresponsive' from resolveServerPhase() instead
+  // -- see that function's own comment for why "the new instance is up" and
+  // "RCON is ready" are different claims (2026-09-07 STARTING-state fix).
+  // Display-only, same as everywhere else this phase is threaded through.
+  _emitVerifiedTransition(running, phase = running ? "running" : "stopped") {
     if (typeof this.io?.emit === "function") {
-      this.io.emit("server:status", { running });
+      this.io.emit("server:status", { running, phase });
     }
   }
 
@@ -272,8 +328,18 @@ export class Scheduler {
     this.configuredTimezone = stored;
 
     if (!isValidIanaTimezone(stored)) {
+      // 2026-09-05, scheduler-time-audit: a bare offset like "-05:00" used
+      // to pass isValidIanaTimezone() and get silently kept forever (it
+      // never becomes invalid on its own -- there's no tzdata entry to
+      // remove). Now that the validator rejects it, an install that already
+      // had one saved needs a message that says so specifically, not the
+      // generic "deprecated name / restored database" one, which would be
+      // actively misleading here: nothing was removed or restored, this
+      // value was never a real zone to begin with.
       log.error(
-        `Configured scheduler timezone "${stored}" is not a valid IANA zone (tzdata may have removed a deprecated name, or this database was restored from a different machine) -- falling back to ${processDefault} so schedules keep firing. Fix this in Scheduler settings.`,
+        isRawOffsetTimezone(stored)
+          ? `Configured scheduler timezone "${stored}" is a fixed UTC offset, not a real timezone -- it never observes daylight saving, so every schedule on this install has been silently drifting by an hour from the operator's actual local time across each DST transition. Falling back to ${processDefault} so schedules keep firing. Pick a real zone (e.g. "America/New_York") in Scheduler settings.`
+          : `Configured scheduler timezone "${stored}" is not a valid IANA zone (tzdata may have removed a deprecated name, or this database was restored from a different machine) -- falling back to ${processDefault} so schedules keep firing. Fix this in Scheduler settings.`,
       );
       this.timezoneFallback = { configured: stored, effective: processDefault };
       this.effectiveTimezone = processDefault;
@@ -394,11 +460,24 @@ export class Scheduler {
     const job = cron.schedule(task.cron_expression, () => this.runTaskNow(task), {
       timezone: this.effectiveTimezone,
     });
+    job.on("execution:missed", (context) => onScheduleMissed(task.id, task.name, task.command, context));
 
     this.jobs.set(task.id, job);
     this.jobLabels.set(task.id, task.name || task.command || "task");
     log.info(`Scheduled task: ${task.name} (${task.cron_expression})`);
-    return true;
+
+    // 2026-09-05, scheduler-time-audit: nothing silent -- log it server-side
+    // now, and hand it back so the create/update route can surface it in
+    // the API response (Scheduler.tsx reading that field is carded
+    // separately). Non-null return is still truthy/`!== false`, so this
+    // does not change either existing caller's success/failure check.
+    const dstWarning = dstFallBackWarning(
+      task.cron_expression,
+      this.effectiveTimezone,
+      task.name,
+    );
+    if (dstWarning) log.warn(dstWarning);
+    return { scheduled: true, dstWarning };
   }
 
   // Runs a task through the same dispatch as its cron trigger (restart/save/
@@ -514,12 +593,33 @@ export class Scheduler {
           rconService,
           serverManager,
         });
-        // If restart was skipped (already in progress), throw to mark task as failed
-        if (
-          !result.success &&
-          result.message === "Restart already in progress"
-        ) {
-          throw new Error("Restart skipped - already in progress");
+        // scheduler-logscheduleexecution-callers-may-pass-unverified-outcomes,
+        // god-dispatched 2026-09-09: used to only throw for the one
+        // "Restart already in progress" message, letting every OTHER
+        // performRestart() failure (RCON unreachable, process scan failed,
+        // container restart failed, old server never confirmed stopped, the
+        // new one never came back up, the lifecycle lock already held by a
+        // different in-flight operation, ...) fall through here silently.
+        // With no throw, this function returns normally and runTaskNow()
+        // below unconditionally logs success:true "Completed successfully"
+        // -- exactly the 63a32640 shape (a confident, unverified verdict
+        // written to the audit trail) god named this hunt after, except
+        // here it's worse: for most of those failures performRestart()
+        // ALREADY wrote its own true `false` entry to Schedule History
+        // moments earlier, so the record for one execution would show a
+        // real failure immediately followed by a fabricated success. And
+        // the lifecycle-lock-busy guard specifically returns `error`, not
+        // `message` (see lifecycleInProgressResponse()) -- the old
+        // string-equality check could never have matched it even by
+        // accident, so that path had NO failure entry at all, only the
+        // fabricated success. Throwing on any `!result.success` guarantees
+        // runTaskNow's catch logs a false entry every time -- occasionally
+        // a harmless duplicate of one performRestart() already wrote, never
+        // a contradiction of one.
+        if (!result.success) {
+          throw new Error(
+            result.message || result.error || "Restart failed",
+          );
         }
       } else if (commandKind === "save") {
         const saved = await rconService.save({ skipLog: true });
@@ -957,8 +1057,21 @@ export class Scheduler {
           log.error(`Scheduled backup error: ${error.message}`);
         }
       }, { timezone: this.effectiveTimezone });
+      this.backupJob.on("execution:missed", (context) =>
+        onScheduleMissed(null, "Scheduled Backup", "backup", context),
+      );
 
       log.info(`Backup schedule configured: ${settings.schedule} (timezone: ${this.effectiveTimezone})`);
+
+      // The backup settings save route (routes/backup.js, not this fence)
+      // isn't touched here -- log only, same reasoning as setupAutoRestart's
+      // own warning above.
+      const dstWarning = dstFallBackWarning(
+        settings.schedule,
+        this.effectiveTimezone,
+        "backup",
+      );
+      if (dstWarning) log.warn(dstWarning);
     } catch (error) {
       log.error(`Failed to setup backup schedule: ${error.message}`);
     }
@@ -1013,8 +1126,20 @@ export class Scheduler {
         log.error(`Auto-restart cron tick failed: ${err.message}`);
       }
     }, { timezone: this.effectiveTimezone });
+    this.autoRestartJob.on("execution:missed", (context) =>
+      onScheduleMissed(null, "Auto Restart", "restart", context),
+    );
 
     log.info(`Auto-restart scheduled: ${cronExpression} (timezone: ${this.effectiveTimezone})`);
+
+    // Boot-time / env-driven, not a create/update API call -- log only,
+    // same as the reasoning on scheduleTask()'s own warning above.
+    const dstWarning = dstFallBackWarning(
+      cronExpression,
+      this.effectiveTimezone,
+      "auto restart",
+    );
+    if (dstWarning) log.warn(dstWarning);
   }
 
   /**
@@ -1110,9 +1235,28 @@ export class Scheduler {
       return { success: false, message: "Restart already in progress" };
     }
 
+    // normalize-lifecycle-lock-server-identifier, 2026-09-08: deliberately
+    // NOT the fuller pinnedServerId resolution below (which falls back to an
+    // async getActiveServer() read when serverManager._serverId is null) --
+    // that read would have to happen before this point to feed the lock,
+    // and inserting an await between the restartInProgress check above and
+    // the this.restartInProgress = true below would reopen exactly the
+    // checked-then-set race /wipe's own wipeInProgress guard was fixed
+    // against (a second concurrent performRestart() call, e.g. the
+    // AUTO_RESTART_CRON job firing at the same moment as a "Restart Now"
+    // click, could pass the check while the first call is still awaiting).
+    // Using only the synchronous serverManager._serverId here -- already
+    // populated for a throwaway ServerManager the Scheduler pointed at a
+    // specific non-active server (see loadConfig()'s own comment), null for
+    // the common case of the shared singleton -- still replaces
+    // serverManager?.serverName (a display name, possibly stale if
+    // serverManager hadn't loaded any config yet) with a real server DB id
+    // wherever one is synchronously known, without widening that race. The
+    // full resolution (including the async fallback) still runs immediately
+    // below, unmoved, for the restart logic that actually needs it.
     const lifecycleLock =
       providedLifecycleLock ||
-      acquireLifecycleLock("restart", serverManager?.serverName || null);
+      acquireLifecycleLock("restart", serverManager._serverId ?? null);
     if (!lifecycleLock) {
       return { success: false, ...lifecycleInProgressResponse() };
     }
@@ -1479,7 +1623,7 @@ export class Scheduler {
 
         // Force stop if needed
         if (processDetails.running) {
-          const forced = await serverManager.stopServer(false, {
+          const forced = await serverManager.stopServer({
             serverId: pinnedServerId,
           });
           if (!forced?.success || forced.confirmed === false) {
@@ -1613,8 +1757,21 @@ export class Scheduler {
       // (managed.handled branch above), or the process/RCON poll just
       // confirmed it natively. RCON itself may still take another 60-240s
       // below, but the host/container signal is real now; no reason to make
-      // clients wait for that too.
-      this._emitVerifiedTransition(true);
+      // clients wait for that too. Phase is 'starting', not a bare
+      // running:true -- serverStarting is still true and RCON isn't
+      // connected yet at this exact point (see the RCON-wait loop right
+      // below), so a plain boolean here would be the identical premature-
+      // green-dot lie POST /start used to tell (2026-09-07 STARTING-state
+      // fix). The corresponding running/unresponsive correction is emitted
+      // once that wait settles, a few lines down.
+      this._emitVerifiedTransition(
+        true,
+        resolveServerPhase({
+          running: true,
+          serverStarting: rconService.serverStarting,
+          rconConnected: rconService.connected,
+        }),
+      );
 
       // Wait for RCON to be ready (PZ server takes 60-180s to fully initialize)
       // Keep serverStarting=true the whole time to block auto-reconnect
@@ -1693,6 +1850,23 @@ export class Scheduler {
       } else {
         rconService.serverStarting = false;
       }
+
+      // The starting-grace window is over: correct the phase the emit above
+      // left the client on. If RCON connected, this is the running
+      // confirmation the "starting" dot has been waiting for. If it never
+      // did, this is the "started but not responding" state god's guard
+      // named directly ("starting forever is the same lie wearing a
+      // different colour") -- an honest terminal state instead of leaving
+      // clients on 'starting' indefinitely (checkServerStatusNow's own
+      // watchdog can't be relied on to catch this: it only re-emits when ITS
+      // last-known phase differs, and a restart that returns to the exact
+      // phase it started from looks like no change from that function's
+      // point of view, since these _emitVerifiedTransition calls don't feed
+      // its lastKnownPhase -- see that function's own comment on why not).
+      this._emitVerifiedTransition(
+        true,
+        resolveServerPhase({ running: true, serverStarting: false, rconConnected }),
+      );
 
       const restartDuration = Date.now() - restartStartTime;
 

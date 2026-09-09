@@ -390,10 +390,31 @@ export default function Servers() {
   const [steamLogs, setSteamLogs] = useState<string[]>([])
   const [steamRunning, setSteamRunning] = useState(false)
   const [steamCompleted, setSteamCompleted] = useState<'success' | 'error' | null>(null)
+  // bug-hunt-2026-09-06: steamRunning is only ever cleared by the
+  // steam:complete socket event (or a launch-request-level catch) -- never
+  // on success from the awaited serversApi.steamVerify/steamUpdate call,
+  // which only confirms steamcmd was LAUNCHED, not that it finished. If
+  // that event is dropped (the same "nobody's listening" shape as tonight's
+  // server uploadStream crash, just silent instead of fatal here), this
+  // dialog's own onOpenChange and Close button are BOTH disabled while
+  // steamRunning -- there was no way to close it short of a page reload.
+  // steamStalled is the escape hatch: true once STEAM_STALL_MS has passed
+  // with no steam:log/steam:start activity, and re-enables closing the
+  // dialog without fabricating a success/failure result.
+  const [steamStalled, setSteamStalled] = useState(false)
+  const steamLastActivityRef = useRef<number>(0)
   const [clearingInstall, setClearingInstall] = useState(false)
   const [confirmClearInstall, setConfirmClearInstall] = useState(false)
   const [steamcmdPath, setSteamcmdPath] = useState('')
   const [updateInfo, setUpdateInfo] = useState<UpdateStatus | null>(null)
+  // 2026-09-08: does the game-update checker have ANY real answer on record?
+  // Derived from getStatus()'s own updateAvailable field being non-null --
+  // see api.ts's UpdateCheckerStatus comment for why that field, not
+  // lastCheck, is the one that's success-only. Kept as its own state rather
+  // than derived from updateInfo at render time so it can't accidentally
+  // regress if updateInfo's own null-vs-populated rules ever change again.
+  const [updateCheckEverSucceeded, setUpdateCheckEverSucceeded] = useState(false)
+  const [updateCheckLastError, setUpdateCheckLastError] = useState<string | null>(null)
   const [gameVersion, setGameVersion] = useState<string | null>(null)
   const [availableBranches, setAvailableBranches] = useState<Array<{name: string, description: string, buildId?: string | null, timeUpdated?: string | null}>>([
     { name: 'public', description: t('branches.public') },
@@ -424,10 +445,21 @@ export default function Servers() {
 
 
   // Fetch servers
-  const fetchServers = useCallback(async () => {
+  //
+  // 2026-09-08 (retry-stacking sweep): `manual` distinguishes a human
+  // clicking the Retry button below from every other caller (the mount
+  // effect, post-mutation refreshes, socket-triggered reloads) -- the
+  // machine-initiated callers keep the default automatic retry (it's the
+  // right tolerance for a transient blip nobody is watching), while a
+  // manual retry passes {retries:0} because the human IS already the retry:
+  // stacking a silent ~7s automatic one underneath their click just makes
+  // the button look dead. Same shape as Dashboard.tsx's fetchStatus, which
+  // solved this for its own polling by passing {retries:0} at the call site
+  // rather than baking it into the shared function.
+  const fetchServers = useCallback(async (opts?: { manual?: boolean }) => {
     setFetchError(null)
     try {
-      const data = await serversApi.getAll()
+      const data = await serversApi.getAll(opts?.manual ? { retries: 0 } : undefined)
       setServers(data.servers || [])
       setManagedLifecycleSupported(data.lifecycleCapabilities?.supported === true)
     } catch (error) {
@@ -511,6 +543,12 @@ export default function Servers() {
         description: getUserErrorMessage(error, t('toasts.containerActionFailedFallback')),
         variant: 'destructive',
       })
+      // bug-hunt-2026-09-08 (start/stop reconcile audit): same reasoning as
+      // Servers.tsx's inline start/stop catch blocks -- a client-side
+      // error doesn't mean the container's real state matches what's still
+      // on screen. Refetch immediately instead of leaving that gap open
+      // for the existing 10s periodic poll to close later.
+      void fetchDockerState()
     } finally {
       setDockerActionPending(null)
     }
@@ -569,9 +607,22 @@ export default function Servers() {
     }).catch(e => reportClientWarning('Failed to load settings.', e))
     // Load update status
     updateApi.getStatus().then(status => {
-      if (status.updateAvailable?.updateAvailable) {
+      // 2026-09-08 (widening the badge's third-state fix to a sibling
+      // collapse): a REAL "checked, no update" result is just as much a
+      // confirmed answer as a REAL "yes, update available" one -- both carry
+      // the same installed/latest branch+build data the panel below renders.
+      // Gating this on the inner updateAvailable boolean threw away that
+      // data whenever the confirmed answer happened to be "no," so a clean,
+      // successful mount-time check on an up-to-date server rendered
+      // identically to "we have no idea" (no Branch & Build Info panel
+      // either way). Store the object whenever one exists, regardless of
+      // which way its own updateAvailable reads -- hasUpdate below already
+      // reads that inner boolean correctly either way.
+      if (status.updateAvailable) {
         setUpdateInfo(status.updateAvailable)
       }
+      setUpdateCheckEverSucceeded(status.updateAvailable != null)
+      setUpdateCheckLastError(status.lastError ?? null)
       if (status.gameVersion) {
         setGameVersion(status.gameVersion)
       }
@@ -598,6 +649,16 @@ export default function Servers() {
     }
   }, [activeServerId, fetchActiveStatus])
 
+  // Deliberately scoped to activeServerId, not broadened to every server row:
+  // every server-side io.emit("server:status", ...) call site (routes/server.js,
+  // index.js's checkServerStatusNow watchdog, scheduler.js's performRestart)
+  // carries no server id in its payload and is driven off module-level
+  // singleton state (lastKnownRunning/lastKnownPhase, rconService.serverStarting)
+  // -- this backend tracks exactly one "the server" (the active one) at a
+  // time, never several concurrently. There is no server id to route a push
+  // to any other row with, so attributing it to activeServerId is the only
+  // safe reading; writing it to every row would misattribute the active
+  // server's transition onto unrelated, unmanaged configs.
   useEffect(() => {
     if (!socket || activeServerId === null) return
 
@@ -652,18 +713,46 @@ export default function Servers() {
   useEffect(() => {
     if (!socket) return
 
+    // Both events are only ever emitted from checkForUpdates()'s success
+    // path (server/services/updateChecker.js) -- receiving either one here
+    // is itself proof a check just succeeded, independent of whether THIS
+    // particular result says an update is available. Store the payload
+    // as-is rather than nulling it out on a false updateAvailable: a clean
+    // "checked, no update" result is a real confirmed answer carrying the
+    // same installed/latest branch+build data the Branch & Build Info panel
+    // renders, not the absence of one -- same sibling collapse as the mount
+    // fetch above, fixed the same way. hasUpdate's own read of
+    // updateInfo?.updateAvailable is unaffected either way.
     const handleUpdateAvailable = (data: UpdateStatus) => {
-      setUpdateInfo(data.updateAvailable ? data : null)
+      setUpdateInfo(data)
+      setUpdateCheckEverSucceeded(true)
+      setUpdateCheckLastError(null)
     }
     const handleUpdateCheck = (data: UpdateStatus) => {
-      setUpdateInfo(data.updateAvailable ? data : null)
+      setUpdateInfo(data)
+      setUpdateCheckEverSucceeded(true)
+      setUpdateCheckLastError(null)
+    }
+    // ec0c8453 (server): the 5 failure returns in checkForUpdates() now emit
+    // this live, on its own event name -- reusing the two above would have
+    // made a live FAILURE set updateCheckEverSucceeded(true), the opposite
+    // of what happened. Deliberately does NOT touch updateCheckEverSucceeded
+    // here: a live failure after a prior success must keep showing the
+    // stale-but-real result (880d14ff's succeeded-then-failed state), not
+    // regress to the unknown badge. updateStatusUnknown's existing
+    // derivation (server.isActive && !updateCheckEverSucceeded) already
+    // covers both cases correctly once lastError alone is updated.
+    const handleUpdateCheckFailed = (data: { lastError: string }) => {
+      setUpdateCheckLastError(data.lastError)
     }
 
     socket.on('server:updateAvailable', handleUpdateAvailable)
     socket.on('server:updateCheck', handleUpdateCheck)
+    socket.on('server:updateCheckFailed', handleUpdateCheckFailed)
     return () => {
       socket.off('server:updateAvailable', handleUpdateAvailable)
       socket.off('server:updateCheck', handleUpdateCheck)
+      socket.off('server:updateCheckFailed', handleUpdateCheckFailed)
     }
   }, [socket])
 
@@ -760,17 +849,22 @@ export default function Servers() {
     if (!socket) return
 
     const handleSteamStart = (data: { type: string; message: string; progressCode?: string; params?: Record<string, string | number> }) => {
+      steamLastActivityRef.current = Date.now()
       setSteamRunning(true)
+      setSteamStalled(false)
       setSteamLogs([getInstallProgressMessage(data, data.message)])
     }
 
     const handleSteamLog = (data: { type: string; text: string; progressCode?: string; params?: Record<string, string | number> }) => {
+      steamLastActivityRef.current = Date.now()
+      setSteamStalled(false)
       setSteamLogs(prev => [...prev.slice(-200), getInstallProgressMessage(data, data.text)]) // Keep last 200 lines
     }
 
     const handleSteamComplete = (data: { success: boolean; message: string; progressCode?: string; params?: Record<string, string | number> }) => {
       const displayMessage = getInstallProgressMessage(data, data.message)
       setSteamRunning(false)
+      setSteamStalled(false)
       setSteamCompleted(data.success ? 'success' : 'error')
       setSteamLogs(prev => [...prev, '', data.success ? '✓ ' + displayMessage : '✗ ' + displayMessage])
       toast({
@@ -790,6 +884,22 @@ export default function Servers() {
       socket.off('steam:complete', handleSteamComplete)
     }
   }, [socket, toast, t])
+
+  // Watchdog for the steam:complete-never-arrives case above: if no
+  // steam:start/steam:log activity has landed in STEAM_STALL_MS, treat the
+  // dialog as stalled rather than trusting steamRunning to resolve on its
+  // own. Doesn't fabricate a success/failure -- just restores the user's
+  // ability to close the dialog and check actual server status another way.
+  useEffect(() => {
+    if (!steamRunning) return
+    const STEAM_STALL_MS = 3 * 60 * 1000
+    const interval = setInterval(() => {
+      if (Date.now() - steamLastActivityRef.current >= STEAM_STALL_MS) {
+        setSteamStalled(true)
+      }
+    }, 15000)
+    return () => clearInterval(interval)
+  }, [steamRunning])
 
   // Detect server settings from data path
   const handleDetectServer = async () => {
@@ -994,7 +1104,16 @@ export default function Servers() {
       (serverStatus) => {
         setServerStatuses(prev => ({
           ...prev,
-          [String(serverStatus.id)]: { running: serverStatus.running, pid: serverStatus.pid },
+          // stateUnknown must survive this write -- dropping it here reset the
+          // flag to falsy on every poll tick during an inline start/stop
+          // action, so a mid-transition "the scan couldn't tell" response
+          // still displayed as a confident running/stopped card the instant
+          // it landed (2026-09-08 three-state audit).
+          [String(serverStatus.id)]: {
+            running: serverStatus.running,
+            pid: serverStatus.pid,
+            stateUnknown: serverStatus.stateUnknown === true,
+          },
         }))
       },
     )
@@ -1024,6 +1143,19 @@ export default function Servers() {
         description: getUserErrorMessage(error, t('toasts.unknownError')),
         variant: 'destructive',
       })
+      // bug-hunt-2026-09-08 (start/stop reconcile audit): a client-side
+      // error here (network drop, a real 4xx/5xx) does NOT mean the
+      // server's actual running state matches what's still on screen --
+      // this is the same "operation may have succeeded despite a client-
+      // observed failure" shape the timeout-class sweep found tonight.
+      // Without this, the card shows stale state in the seconds right
+      // after the click, which is exactly when an operator is watching
+      // and most likely to click Start a second time against a server
+      // whose real state neither side agrees on. The 15s periodic poll
+      // would eventually correct it either way; this closes the gap
+      // immediately instead of leaving the wrong state on screen at the
+      // moment it does the most damage.
+      void Promise.allSettled([fetchServers(), fetchServerStatuses()])
     } finally {
       setServerActionPending(null)
     }
@@ -1065,6 +1197,11 @@ export default function Servers() {
         description: getUserErrorMessage(error, t('toasts.unknownError')),
         variant: 'destructive',
       })
+      // bug-hunt-2026-09-08 (start/stop reconcile audit): same reasoning as
+      // handleInlineStart's catch above -- refetch immediately rather than
+      // leave stale (possibly wrong) state on screen right when the
+      // operator is watching and most likely to click Stop again.
+      void Promise.allSettled([fetchServers(), fetchServerStatuses()])
     } finally {
       setServerActionPending(null)
     }
@@ -1326,6 +1463,8 @@ export default function Servers() {
 
     setSteamLogs([])
     setSteamRunning(true)
+    setSteamStalled(false)
+    steamLastActivityRef.current = Date.now()
     setSteamCompleted(null)
 
     try {
@@ -1336,6 +1475,7 @@ export default function Servers() {
       }
     } catch (error) {
       setSteamRunning(false)
+      setSteamStalled(false)
       toast({
         title: t('toasts.error'),
         description: getUserErrorMessage(error, t('toasts.startOperationFailed')),
@@ -1397,6 +1537,7 @@ export default function Servers() {
     setSteamOperation({ server, type, branch: initialBranch })
     setSteamLogs([])
     setSteamRunning(false)
+    setSteamStalled(false)
     setSteamCompleted(null)
 
     // Load steamcmd path from settings if not already set
@@ -1612,7 +1753,7 @@ export default function Servers() {
           <AlertTitle>{t('fetchError.title')}</AlertTitle>
           <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <span className="min-w-0 break-words" dir="auto">{fetchError}</span>
-            <Button variant="outline" size="sm" onClick={fetchServers} className="self-start">
+            <Button variant="outline" size="sm" onClick={() => fetchServers({ manual: true })} className="self-start">
               <RefreshCw className="me-2 h-4 w-4" /> {t('fetchError.retry')}
             </Button>
           </AlertDescription>
@@ -1715,6 +1856,14 @@ export default function Servers() {
         <div className="grid gap-4 md:grid-cols-2 stagger-in">
           {servers.map(server => {
             const hasUpdate = updateInfo?.updateAvailable && server.isActive
+            // Never-succeeded is scoped to the active server, same as
+            // hasUpdate above -- there is exactly one UpdateChecker instance
+            // server-side, tracking whichever server is currently active.
+            // Deliberately independent of lastError: a check that has never
+            // run yet (both fields still at their initial null/false) must
+            // read the same as one that has actively failed -- either way,
+            // there is no real answer to show.
+            const updateStatusUnknown = server.isActive && !updateCheckEverSucceeded
             return (
             <Card
               key={server.id}
@@ -1780,8 +1929,17 @@ export default function Servers() {
                             : { status: dockerHostStatus, label: t('card.statusContainer') }
                         } else {
                           const status = serverStatuses[String(server.id)]
+                          // stateUnknown (server/routes/servers.js's GET /status,
+                          // see the ServerStatusEntry comment in lib/serverStatus.ts)
+                          // must not collapse into a confident running/stopped here
+                          // -- this is the exact "the server said unknown, the badge
+                          // said stopped" gap resolveServerCardRunning below already
+                          // guards for button enablement; the badge had its own,
+                          // separate collapse (2026-09-08 three-state audit).
                           host = status
-                            ? { status: status.running ? 'running' : 'stopped', label: t('card.statusProcess') }
+                            ? status.stateUnknown
+                              ? { status: 'unknown', label: t('card.statusProcess'), detail: t('card.statusUnavailable') }
+                              : { status: status.running ? 'running' : 'stopped', label: t('card.statusProcess') }
                             : undefined
                         }
                         const rconStatus = rconStatuses[String(server.id)]
@@ -1802,6 +1960,15 @@ export default function Servers() {
                       {hasUpdate && (
                         <Badge variant="warning" className="text-xs">
                           <RefreshCw className="w-3 h-3 me-1" /> {t('card.updateAvailable')}
+                        </Badge>
+                      )}
+                      {updateStatusUnknown && (
+                        <Badge
+                          variant="outline"
+                          className="text-xs text-muted-foreground"
+                          title={updateCheckLastError ?? undefined}
+                        >
+                          <AlertCircle className="w-3 h-3 me-1" /> {t('card.updateStatusUnknown')}
                         </Badge>
                       )}
                     </CardTitle>
@@ -1981,7 +2148,11 @@ export default function Servers() {
                       </div>
                       <div className="min-w-0">
                         <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t('card.memory')}</p>
-                        <p className="font-mono text-xs text-foreground/90 tabular-nums">{server.minMemory}–{server.maxMemory} GB</p>
+                        {/* bug-hunt-2026-09-08 (Arabic render pass): confirmed
+                            reversed in a real render (a 2-4 GB server showed
+                            "4-2") -- bdi isolates the min-max pair regardless
+                            of locale. */}
+                        <p className="font-mono text-xs text-foreground/90 tabular-nums"><bdi>{server.minMemory}–{server.maxMemory} GB</bdi></p>
                       </div>
                     </div>
                   )}
@@ -3027,7 +3198,7 @@ export default function Servers() {
       </AlertDialog>
 
       {/* Steam Update/Verify Dialog */}
-      <Dialog open={!!steamOperation} onOpenChange={(open) => !open && !steamRunning && setSteamOperation(null)}>
+      <Dialog open={!!steamOperation} onOpenChange={(open) => !open && (!steamRunning || steamStalled) && setSteamOperation(null)}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -3146,15 +3317,21 @@ export default function Servers() {
                 </div>
               </div>
             )}
+
+            {steamStalled && (
+              <div className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-warning-foreground">
+                {t('steamDialog.stalledMessage')}
+              </div>
+            )}
           </div>
 
           <DialogFooter>
             <Button
               variant="outline"
               onClick={() => setSteamOperation(null)}
-              disabled={steamRunning}
+              disabled={steamRunning && !steamStalled}
             >
-              {steamRunning ? t('steamDialog.running') : steamCompleted ? t('steamDialog.close') : t('steamDialog.cancel')}
+              {steamStalled ? t('steamDialog.closeAnyway') : steamRunning ? t('steamDialog.running') : steamCompleted ? t('steamDialog.close') : t('steamDialog.cancel')}
             </Button>
             {!steamCompleted && (
               <DisabledReason reason={!canServerInstall ? t('steamDialog.noPermission') : null}>

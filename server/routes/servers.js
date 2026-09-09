@@ -39,6 +39,7 @@ import { GAME_PORT_MAX, applyUpnpToIni } from "./server.js";
 import {
   resolveLaunchMode,
   ServerManager,
+  scoreServerProcessOwnership,
 } from "../services/serverManager.js";
 import {
   buildLifecycleTemplate,
@@ -594,10 +595,10 @@ router.get("/", async (req, res) => {
 });
 
 // Per-server running status. Scans the host once for all PZ server processes
-// and attributes each match to a configured server by comparing its install
-// path against the process command line. Servers with no matching process
-// are reported as not running. The active server's state is reported by
-// serverManager directly so it stays consistent with /api/server/status.
+// and attributes each match to a configured server via the same
+// scoreServerProcessOwnership() rules serverManager.js uses for its own
+// server (-servername/-cachedir first, install path only as a fallback).
+// Servers with no matching process are reported as not running.
 router.get("/status", async (req, res) => {
   try {
     const serverManager = req.app.get("serverManager");
@@ -605,29 +606,26 @@ router.get("/status", async (req, res) => {
     const activeServer = await getActiveServer();
     const activeId = activeServer?.id || null;
 
+    // A throwaway instance, not the shared `serverManager` singleton:
+    // scanHostForServerProcesses() (via the private scan it wraps) writes
+    // `this.isRunning` as a side effect, and that value means something
+    // different here -- "some PZ process exists somewhere on the host" --
+    // than what the shared instance's cached isRunning is supposed to mean
+    // ("MY configured server is running"), which server.js's start/stop
+    // polling and the fallback below both still read.
     let matched = [];
     let detectionError = null;
-    if (serverManager?.getServerProcessDetails) {
-      try {
-        const result = await serverManager.getServerProcessDetails();
-        matched = Array.isArray(result?.matched) ? result.matched : [];
-        if (result?.scanFailed) {
-          detectionError = result.error || "Process detection failed";
-        }
-      } catch (err) {
-        detectionError = err.message;
-        log.debug(`Per-server status detection failed: ${err.message}`);
+    try {
+      const scanner = new ServerManager();
+      const scan = await scanner.scanHostForServerProcesses();
+      matched = Array.isArray(scan?.matched) ? scan.matched : [];
+      if (scan?.scanFailed) {
+        detectionError = scan.error || "Process detection failed";
       }
+    } catch (err) {
+      detectionError = err.message;
+      log.debug(`Per-server status detection failed: ${err.message}`);
     }
-
-    // Normalise install paths for comparison: lowercase + forward slashes.
-    // Windows command lines may double-quote the path or use backslashes;
-    // the substring check below covers both.
-    const norm = (p) =>
-      String(p || "")
-        .toLowerCase()
-        .replace(/\\/g, "/")
-        .trim();
 
     const statuses = await Promise.all(servers.map(async (server) => {
       if (isManagedLifecycleProvider(server.lifecycleProvider)) {
@@ -658,24 +656,65 @@ router.get("/status", async (req, res) => {
           };
         }
       }
-      const installPathNorm = norm(server.installPath);
+      // Same ownership scorer serverManager.js uses for the active server's
+      // own detection (-servername/-cachedir first, install-path substring
+      // only as a fallback for a stock launch with no identifying args) --
+      // using a second, weaker, ad-hoc match here would let this list and
+      // the active server's own status disagree about the same process.
+      const descriptor = {
+        serverName: server.serverName,
+        savePath: server.zomboidDataPath,
+        serverPath: server.serverPath || server.installPath,
+      };
       let running = false;
       let pid;
-      if (installPathNorm) {
-        for (const m of matched) {
-          if (norm(m.cmd).includes(installPathNorm)) {
-            running = true;
-            pid = m.pid;
-            break;
-          }
+      for (const m of matched) {
+        if (scoreServerProcessOwnership(m.cmd, descriptor) > 0) {
+          running = true;
+          pid = m.pid;
+          break;
         }
       }
       // Fallback: the active server's running state is authoritative even
-      // when the install path doesn't appear in the command line (e.g. when
-      // the process was started outside the panel and uses a different
-      // working directory).
-      if (!running && server.id === activeId && serverManager?.isRunning) {
-        running = true;
+      // when nothing in the host-wide scan above can be attributed to it
+      // (e.g. when the process was started outside the panel and uses a
+      // different working directory, with no -servername/-cachedir either).
+      //
+      // is-running-enumeration sweep, 2026-09-08: this used to read
+      // serverManager.isRunning directly -- a cached field with no bound on
+      // its own age, refreshed only as a SIDE EFFECT of something unrelated
+      // elsewhere happening to call getServerProcessDetails() on the shared
+      // instance. Convention A (getServerProcessDetails() itself) exposes
+      // scanFailed precisely so a caller never mistakes "haven't checked
+      // recently" for "confirmed" -- this fallback had no such capability.
+      // Servers.tsx's waitForActionState() polls exactly this endpoint to
+      // confirm both Start and Stop, so a stale-true cached flag broke both
+      // directions: STOP could never see running:false and burned its full
+      // timeout reporting "not confirmed" on a server that HAD actually
+      // stopped, and START could report success off a flag startServer()
+      // sets synchronously at spawn time, before anything had actually
+      // observed the process. Calling getServerProcessDetails() fresh here
+      // -- the same call every other convention-A site already makes --
+      // keeps the grace window (its JVM-shape/zomboid-adjacent matching is
+      // deliberately more permissive than scoreServerProcessOwnership's
+      // descriptor-based scoring above, which is what let it catch a stock,
+      // argument-less launch in the first place) while replacing an
+      // unbounded-age field read with an actual observation, and gives this
+      // row the same "don't know yet" signal every other site already has
+      // instead of forcing a confident guess.
+      let activeFallbackUnknown = false;
+      if (!running && server.id === activeId && typeof serverManager?.getServerProcessDetails === "function") {
+        try {
+          const activeDetails = await serverManager.getServerProcessDetails();
+          if (activeDetails.scanFailed) {
+            activeFallbackUnknown = true;
+          } else if (activeDetails.running) {
+            running = true;
+          }
+        } catch (err) {
+          activeFallbackUnknown = true;
+          log.debug(`Active-server fallback detection failed: ${err.message}`);
+        }
       }
       return {
         id: server.id,
@@ -684,7 +723,7 @@ router.get("/status", async (req, res) => {
         pid: pid || null,
         isActive: server.id === activeId,
         provider: "direct",
-        stateUnknown: Boolean(detectionError),
+        stateUnknown: Boolean(detectionError) || activeFallbackUnknown,
       };
     }));
 
@@ -1326,11 +1365,17 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
           ? updates.isRemote
           : Boolean((await getServer(serverId))?.isRemote);
       if (!effectiveIsRemote) {
+        // SECURITY (2026-09-05, env-var-expansion-oracle): normalizeUserPath()
+        // expands %VAR%/${VAR}/$VAR from request input. `resolved` is that
+        // EXPANDED value -- it must never appear in a response, or a caller
+        // who can PUT a server reads process-environment secrets one request
+        // at a time via zomboidDataPath="%JWT_SECRET%". Errors below always
+        // echo the caller's raw literal (updates.zomboidDataPath) instead.
         const normalized = normalizeUserPath(updates.zomboidDataPath);
         const resolved = normalized ? path.resolve(normalized) : null;
         if (!resolved || !fs.existsSync(resolved)) {
           return res.status(400).json({
-            error: `Zomboid data path does not exist: ${resolved || updates.zomboidDataPath}. Check for typos and verify the panel has read access to this folder.`,
+            error: `Zomboid data path does not exist: ${updates.zomboidDataPath}. Check for typos and verify the panel has read access to this folder.`,
           });
         }
         let isDir = false;
@@ -1341,7 +1386,7 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
         }
         if (!isDir) {
           return res.status(400).json({
-            error: `Zomboid data path is not a directory: ${resolved}`,
+            error: `Zomboid data path is not a directory: ${updates.zomboidDataPath}`,
           });
         }
         const verdict = inspectZomboidPath(resolved);
@@ -1617,8 +1662,9 @@ router.delete("/:id", requirePermission("servers.manage"), async (req, res) => {
   }
 });
 
-// Reload the live in-memory services (serverManager, RCON, PanelBridge) to
-// match `server` becoming the active one. Shared by POST /:id/activate and
+// Reload the live in-memory services (serverManager, RCON, PanelBridge,
+// LogTailer) to match `server` becoming the active one. Shared by
+// POST /:id/activate and
 // DELETE /:id below -- deleteServer() silently promotes another server to
 // active in the database when the deleted one was active, and without this
 // call the live services stayed pointed at the just-deleted server's stale
@@ -1635,6 +1681,20 @@ async function reloadServicesForNewActiveServer(req, server) {
 
   await refreshWorkshopCheckerIfAvailable(req);
 
+  // discordBot is the only handle routes have on the shared LogTailer
+  // instance (it is never registered on the app directly). Without this,
+  // deaths/chat kept flowing from the server that was active before the
+  // switch -- see this function's own header comment.
+  const discordBot = req.app.get("discordBot");
+  if (discordBot && discordBot.logTailer && discordBot.logTailer.reloadConfig) {
+    try {
+      await discordBot.logTailer.reloadConfig();
+      log.info(`LogTailer repointed for server: ${server.name}`);
+    } catch (logTailerErr) {
+      log.warn(`Failed to repoint LogTailer for new server: ${logTailerErr.message}`);
+    }
+  }
+
   if (rconService && rconService.isConnected()) {
     await rconService.disconnect();
   }
@@ -1646,6 +1706,28 @@ async function reloadServicesForNewActiveServer(req, server) {
       log.info(`RCON reconnected for server: ${server.name}`);
     } catch (rconErr) {
       log.warn(`Failed to connect RCON for new server: ${rconErr.message}`);
+    }
+  }
+
+  // panelBridge is the third shared singleton this function repoints, next
+  // to serverManager and rconService above -- previously the only thing
+  // that repointed it was rconService's own "connected" event indirectly
+  // re-triggering tryStartPanelBridge(), which only fires when the RCON
+  // reconnect above actually runs (i.e. only when `server.rconPassword` is
+  // set). A server managed via PanelBridge/SFTP only, or one that simply
+  // hasn't had a password set yet, left panelBridge silently still pointed
+  // at whatever server it last served -- not a display-only bug:
+  // sendCommand() writes to the stale bridgePath's commands.json, so a
+  // command the operator believes targets the newly active server is
+  // actually delivered to, and executed by, the previous one. Explicit now,
+  // not dependent on RCON reconnecting for an unrelated reason.
+  const resyncPanelBridge = req.app.get("resyncPanelBridgeForActiveServer");
+  if (typeof resyncPanelBridge === "function") {
+    try {
+      await resyncPanelBridge("active-server-changed");
+      log.info(`PanelBridge repointed for server: ${server.name}`);
+    } catch (bridgeErr) {
+      log.warn(`Failed to repoint PanelBridge for new server: ${bridgeErr.message}`);
     }
   }
 

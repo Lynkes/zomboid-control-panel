@@ -216,6 +216,19 @@ interface CorsDiagnostics {
 const MAX_CORS_ALLOWED_ORIGINS = 100;
 const MAX_CORS_ORIGIN_LENGTH = 256;
 
+// How long to keep polling for the panel to come back after a restart before
+// giving up and saying so. Matches this codebase's STALL_MS convention for
+// "may still be running" watchdogs elsewhere (Servers.tsx/uploadBackup)
+// rather than inventing a new number -- a Windows binary swap can
+// legitimately take a while (AV scanning the new .exe, see index.js's own
+// comments on that), so this must read as "hasn't come back yet," not
+// "failed," until it genuinely gives up.
+const RESTART_RECONNECT_TIMEOUT_MS = 3 * 60 * 1000;
+const RESTART_RECONNECT_POLL_INTERVAL_MS = 2000;
+// Give the OLD process a moment to actually exit before the first poll --
+// otherwise the first request or two just race a socket that's mid-close.
+const RESTART_RECONNECT_INITIAL_DELAY_MS = 3000;
+
 // Settings written by other pages are persisted as raw strings, so a stored
 // "false" would otherwise read as truthy here.
 function toSettingBoolean(value: unknown, fallback: boolean): boolean {
@@ -346,6 +359,13 @@ export default function Settings() {
   const [testingRcon, setTestingRcon] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const restartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restartPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // bug-hunt-2026-09-07 (client silent-failure lane, update-failure-states
+  // pass): set only when the reconnect poll below gives up -- distinct from
+  // `restarting` (which just drives the button spinner) so the page can show
+  // a persistent, actionable message instead of leaving the user staring at
+  // a spinner tied to a navigation that already silently gave up.
+  const [restartWaitFailed, setRestartWaitFailed] = useState(false);
   const [panelUpdateStatus, setPanelUpdateStatus] =
     useState<PanelUpdateStatus | null>(null);
   const [panelUpdateStatusError, setPanelUpdateStatusError] = useState<
@@ -679,10 +699,11 @@ export default function Settings() {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [isDirty]);
 
-  // Clean up restart redirect timer on unmount
+  // Clean up restart redirect timer/poll on unmount
   useEffect(
     () => () => {
       if (restartTimeoutRef.current) clearTimeout(restartTimeoutRef.current);
+      if (restartPollRef.current) clearInterval(restartPollRef.current);
     },
     [],
   );
@@ -757,20 +778,6 @@ export default function Settings() {
       .then((data) => setNetworkInterfaces(data.interfaces || []))
       .catch(() => setNetworkInterfaces([]));
   }, []);
-
-  // Reload settings when active server changes
-  useEffect(() => {
-    if (!socket) return;
-
-    const handleActiveServerChanged = () => {
-      fetchSettings();
-    };
-
-    socket.on("activeServerChanged", handleActiveServerChanged);
-    return () => {
-      socket.off("activeServerChanged", handleActiveServerChanged);
-    };
-  }, [socket, fetchSettings]);
 
   const fetchPanelUpdateStatus = useCallback(async () => {
     try {
@@ -1078,9 +1085,72 @@ export default function Settings() {
     }
   };
 
+  // Shared by the initial post-restart wait and the manual "Check again"
+  // retry below -- kept as one implementation so the two can't drift the way
+  // a second hand-copied poll loop always eventually does.
+  //
+  // bug-hunt-2026-09-07 (client silent-failure lane, update-failure-states
+  // pass -- this is the exact incident this was written for, Charon/Discord,
+  // v1.2.16, invalid_bundle/exit 76): triggering the restart only confirms
+  // the OLD process accepted the request -- server/index.js sends that
+  // response and THEN exits (Windows: exit 75 for the Start.bat v2
+  // supervisor; Linux: overwrite-in-place then respawn). Whether the NEW
+  // process actually comes back up, as opposed to crash-looping on a bad
+  // bundle, used to be unknown to this code: it just navigated after a flat
+  // 3s delay regardless. When the new process never came back, that sent the
+  // browser straight into a connection-refused wall with zero indication
+  // anything was wrong -- the panel's own UI was gone, replaced by the
+  // browser's native error page, at the exact moment the user most needed to
+  // know what happened. Polling first means "it didn't come back" is
+  // something this page can tell the user, in-app, instead of something
+  // they're left to discover by staring at a dead tab.
+  const pollForPanelReconnect = useCallback(
+    // expectedVersion: only meaningful for the update-apply caller. Passing
+    // it means "don't treat the OLD process still answering during the
+    // handoff window as success" -- without it, any 200 from /api/health is
+    // enough (the plain "Restart Panel" button has no version to compare
+    // against, and doesn't need one).
+    (expectedVersion?: string | null) => {
+      const newPort = normalizePort(settings.panelPort);
+      const origin = `${window.location.protocol}//${window.location.hostname}:${newPort}`;
+      const newUrl = `${origin}${window.location.pathname}${window.location.search}${window.location.hash}`;
+      const deadline = Date.now() + RESTART_RECONNECT_TIMEOUT_MS;
+
+      if (restartPollRef.current) clearInterval(restartPollRef.current);
+      const poll = async () => {
+        if (Date.now() > deadline) {
+          if (restartPollRef.current) clearInterval(restartPollRef.current);
+          restartPollRef.current = null;
+          setRestarting(false);
+          setRestartWaitFailed(true);
+          return;
+        }
+        try {
+          const res = await fetch(`${origin}/api/health`, { cache: "no-store" });
+          if (!res.ok) return;
+          const data = await res.json().catch(() => null);
+          if (expectedVersion && data?.version !== expectedVersion) return;
+          if (restartPollRef.current) clearInterval(restartPollRef.current);
+          restartPollRef.current = null;
+          window.location.href = newUrl;
+        } catch {
+          // Not up yet (or, if the panel port genuinely changed, possibly
+          // blocked by CORS from the old origin) -- keep polling either way.
+          // Worst case this degrades to the same honest "hasn't come back"
+          // message at the deadline; it never regresses to the old
+          // blind-navigate behavior.
+        }
+      };
+      restartPollRef.current = setInterval(poll, RESTART_RECONNECT_POLL_INTERVAL_MS);
+      poll();
+    },
+    [settings.panelPort],
+  );
+
   const restartPanelWithReconnect = useCallback(
-    async (description: string) => {
+    async (description: string, expectedVersion?: string | null) => {
       setRestarting(true);
+      setRestartWaitFailed(false);
       try {
         await serverApi.restartPanel();
         toast({
@@ -1089,11 +1159,10 @@ export default function Settings() {
         });
 
         if (restartTimeoutRef.current) clearTimeout(restartTimeoutRef.current);
-        restartTimeoutRef.current = setTimeout(() => {
-          const newPort = normalizePort(settings.panelPort);
-          const newUrl = `${window.location.protocol}//${window.location.hostname}:${newPort}${window.location.pathname}${window.location.search}${window.location.hash}`;
-          window.location.href = newUrl;
-        }, 3000);
+        restartTimeoutRef.current = setTimeout(
+          () => pollForPanelReconnect(expectedVersion),
+          RESTART_RECONNECT_INITIAL_DELAY_MS,
+        );
       } catch (err) {
         setRestarting(false);
         // Apply-in-progress (409): another tab/client already triggered the
@@ -1113,8 +1182,21 @@ export default function Settings() {
         });
       }
     },
-    [settings.panelPort, toast, t],
+    [toast, t, pollForPanelReconnect],
   );
+
+  // "Check again" on the hasn't-come-back message: does NOT re-POST
+  // /api/panel/restart (that would trigger a second, redundant restart) --
+  // it just resumes waiting with a fresh deadline. `expectedVersion` is
+  // intentionally not re-threaded here (there is no staged-update state left
+  // to compare against once the message is showing -- the page doesn't know
+  // which flow led here); a plain "did anything answer" check is the right
+  // relaxation for a manual, user-initiated retry.
+  const retryRestartReconnectWait = useCallback(() => {
+    setRestartWaitFailed(false);
+    setRestarting(true);
+    pollForPanelReconnect();
+  }, [pollForPanelReconnect]);
 
   const handleCheckPanelUpdate = async () => {
     setCheckingPanelUpdate(true);
@@ -1122,6 +1204,22 @@ export default function Settings() {
     try {
       const status = await panelUpdateApi.check();
       setPanelUpdateStatus(status);
+
+      // Preflight only auto-refreshes when hasActionablePanelUpdate/
+      // stagedPanelUpdatePath actually CHANGE (see the effect a few lines
+      // up) -- if an update was already available before this check and
+      // still is after it, those deps are unchanged and the effect won't
+      // refire. Without this, a preflight block (disk full, no write
+      // permission) that gets resolved outside the panel has no way back:
+      // Download/Restart-and-Apply are themselves disabled by the stale
+      // `preflight.ok === false`, so the only buttons left that could
+      // trigger a fresh preflight check are the ones the stale check is
+      // blocking. "Check for Updates" is never preflight-gated, so it's the
+      // one button a blocked user can still press -- make it also clear the
+      // block once the real-world condition is fixed.
+      if (status.updateAvailable || status.stagedUpdate) {
+        fetchPanelUpdatePreflight();
+      }
 
       if (status.updateAvailable) {
         toast({
@@ -1362,7 +1460,18 @@ export default function Settings() {
   };
 
   // Panel Bridge functions
+  // sweep-round5 (2026-09-07): GET /panel-bridge/status now requires
+  // bridge.setup OR bridge.diagnostics (it returns bridgePath and
+  // statusFile.path, both genuinely rendered further down this file) --
+  // skip the fetch (and its recursive polling below) entirely for a role
+  // holding neither, rather than let it 3s/10s-poll into a guaranteed 403
+  // forever. can() fails OPEN while capabilities are still loading, same
+  // as every other capability check in this file (see the users/roles/sso
+  // tab-hiding above) -- so this only stops polling once we genuinely know
+  // the answer is no, never on a transient "haven't loaded yet."
+  const canViewBridgeStatus = can("bridge.setup") || can("bridge.diagnostics");
   const fetchBridgeStatus = useCallback(async () => {
+    if (!canViewBridgeStatus) return;
     try {
       const status = await panelBridgeApi.getStatus();
       setBridgeStatus(status);
@@ -1373,7 +1482,7 @@ export default function Settings() {
         getUserErrorMessage(error, t("bridge.statusFetchFailedFallback")),
       );
     }
-  }, [t]);
+  }, [t, canViewBridgeStatus]);
 
   // Fetch servers list for install dropdown
   const fetchServers = useCallback(async () => {
@@ -1391,6 +1500,31 @@ export default function Settings() {
       setServersLoadError(true);
     }
   }, [selectedInstallServerId]);
+
+  // bug-hunt-2026-09-04: this listener used to reload the wrong state and
+  // never reload the right one. configApi.getAppSettings()/PUT app-settings
+  // (server/routes/config.js) is a flat GLOBAL key/value store with no
+  // server-id resolution anywhere -- switching servers can never make it
+  // stale, so refetching it unconditionally only risked discarding a user's
+  // in-progress typing (isDirty, tracked above) for no reason. What DOES go
+  // stale on a switch -- activeServer's rconHost/rconPort/name, shown in the
+  // PanelBridge card below -- was never refreshed at all; fetchServers() has
+  // no dirty-tracking of its own (read-only display), so it's safe to
+  // reload unconditionally, same as the other four pages' own
+  // activeServerChanged handlers.
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleActiveServerChanged = () => {
+      fetchServers();
+      if (!isDirty) fetchSettings();
+    };
+
+    socket.on("activeServerChanged", handleActiveServerChanged);
+    return () => {
+      socket.off("activeServerChanged", handleActiveServerChanged);
+    };
+  }, [socket, fetchSettings, fetchServers, isDirty]);
 
   // Install PanelBridge mod to selected server
   const handleInstallMod = async () => {
@@ -2339,6 +2473,36 @@ export default function Settings() {
         </div>
       )}
 
+      {/* bug-hunt-2026-09-07 (client silent-failure lane, update-failure-
+          states pass): the one thing this whole lane exists to prevent --
+          restarting the panel and it never coming back, with nothing in-app
+          to show for it. Placed at the top of the page, independent of which
+          section is active, since a dead-panel wait isn't scoped to the
+          Updates card -- the plain "Restart Panel" button in General can
+          trigger this exact state too. */}
+      {restartWaitFailed && (
+        /* aria-live only -- Alert itself already sets role="alert" below; a
+           second role="alert" here just makes the two ambiguous to any
+           role-based query (assistive tech and tests alike). */
+        <div aria-live="assertive" className="mb-5">
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>{t("restartWait.failedTitle")}</AlertTitle>
+            <AlertDescription className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <span className="break-words">{t("restartWait.failedDescription")}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={retryRestartReconnectWait}
+                className="self-start"
+              >
+                {t("restartWait.checkAgain")}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        </div>
+      )}
+
       <PageHeader
         title={t("pageHeader.title")}
         description={
@@ -2373,12 +2537,12 @@ export default function Settings() {
       <Tabs
         value={activeSection}
         onValueChange={handleTabChange}
-        className="mt-6 lg:grid lg:grid-cols-[14.5rem_minmax(0,1fr)] rtl:lg:grid-cols-[minmax(0,1fr)_14.5rem] lg:items-start lg:gap-7"
+        className="mt-6 lg:grid lg:grid-cols-[14.5rem_minmax(0,1fr)] lg:items-start lg:gap-7"
       >
         <div className="relative lg:contents">
           <TabsList
             aria-label={t("ariaLabel")}
-            className="mb-4 flex h-auto w-full max-w-full justify-start gap-1 overflow-x-auto rounded-md border border-border/50 bg-muted/30 p-1 lg:sticky lg:top-4 lg:order-1 lg:mb-0 lg:flex-col lg:items-stretch lg:gap-px lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0 rtl:lg:order-2"
+            className="mb-4 flex h-auto w-full max-w-full justify-start gap-1 overflow-x-auto rounded-md border border-border/50 bg-muted/30 p-1 lg:sticky lg:top-4 lg:order-1 lg:mb-0 lg:flex-col lg:items-stretch lg:gap-px lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0"
           >
             {settingsGroups.map((group) => (
               <React.Fragment key={group.name}>
@@ -2423,7 +2587,7 @@ export default function Settings() {
         </div>
 
         {/* Tab Content */}
-        <div className="space-y-5 lg:order-2 rtl:lg:order-1">
+        <div className="space-y-5 lg:order-2">
           <TabsContent value="general" className="mt-0">
             {/* Panel Settings */}
             <Card id="settings-general">
@@ -2990,7 +3154,10 @@ export default function Settings() {
                             {panelUpdateStatus.lastApplyResult
                               .stagedStillPresent
                               ? t("updates.stagedStillPresent")
-                              : t("updates.stagedGone")}
+                              : panelUpdateStatus.lastApplyResult
+                                    .likelyCause === "startup_handshake_failed"
+                                ? t("updates.stagedGoneAfterHandshakeFailure")
+                                : t("updates.stagedGone")}
                           </span>
                           {panelUpdateStatus.lastApplyResult.likelyCause ===
                             "av_quarantine" && runtimeInfo?.family === "windows" && (
@@ -3042,6 +3209,15 @@ export default function Settings() {
                             </div>
                           )}
                           {panelUpdateStatus.lastApplyResult.likelyCause ===
+                            "powershell_unavailable" && (
+                            <div className="rounded-md border border-destructive/40 bg-background/50 p-2 text-xs leading-relaxed">
+                              <strong className="text-destructive-foreground">
+                                {t("updates.likelyCauseLabel")}
+                              </strong>{" "}
+                              {t("updates.powershellUnavailable")}
+                            </div>
+                          )}
+                          {panelUpdateStatus.lastApplyResult.likelyCause ===
                             "helper_blocked" && runtimeInfo?.family === "windows" && (
                             <div className="rounded-md border border-destructive/40 bg-background/50 p-2 text-xs leading-relaxed">
                               <strong className="text-destructive-foreground">
@@ -3067,7 +3243,7 @@ export default function Settings() {
                             </div>
                           )}
                           {panelUpdateStatus.lastApplyResult.likelyCause ===
-                            "no_helper_log" && (
+                            "no_helper_log" && runtimeInfo?.family === "windows" && (
                             <div className="rounded-md border border-destructive/40 bg-background/50 p-2 text-xs leading-relaxed">
                               <strong className="text-destructive-foreground">
                                 {t("updates.noHelperLogTitle")}
@@ -3083,35 +3259,18 @@ export default function Settings() {
                               </strong>{" "}
                               {panelUpdateStatus.lastApplyResult
                                 .rollbackRetryLikely
-                                ? t("updates.rollbackFailedRetryWarning", {
-                                    defaultValue:
-                                      "the automatic rollback did not fully complete. The panel is likely to retry this exact update again on the next restart and fail the same way, until this is cleared by hand.",
-                                  })
-                                : t("updates.rollbackFailedCosmetic", {
-                                    defaultValue:
-                                      "the update rolled back successfully. One leftover file could not be removed automatically and is safe to delete by hand.",
-                                  })}
+                                ? t("updates.rollbackFailedRetryWarning")
+                                : t("updates.rollbackFailedCosmetic")}
                               {panelUpdateStatus.lastApplyResult
                                 .panelFolder && (
                                 <div className="mt-1">
                                   <strong>
-                                    {t("updates.rollbackFailedRecoveryLabel", {
-                                      defaultValue: "Files to delete:",
-                                    })}
+                                    {t("updates.rollbackFailedRecoveryLabel")}
                                   </strong>{" "}
                                   {panelUpdateStatus.lastApplyResult
                                     .rollbackRetryLikely
-                                    ? t("updates.rollbackFailedRecoveryNote", {
-                                        defaultValue:
-                                          "close this panel first, then delete these three files from the install folder below:",
-                                      })
-                                    : t(
-                                        "updates.rollbackFailedRecoveryNoteCosmetic",
-                                        {
-                                          defaultValue:
-                                            "delete this file from the install folder below:",
-                                        },
-                                      )}
+                                    ? t("updates.rollbackFailedRecoveryNote")
+                                    : t("updates.rollbackFailedRecoveryNoteCosmetic")}
                                   <pre className="mt-1 rounded bg-background/70 p-1 text-[11px]">
                                     {panelUpdateStatus.lastApplyResult
                                       .rollbackRetryLikely
@@ -3124,6 +3283,24 @@ export default function Settings() {
                                   </div>
                                 </div>
                               )}
+                            </div>
+                          )}
+                          {panelUpdateStatus.lastApplyResult.likelyCause ===
+                            "startup_handshake_failed" && runtimeInfo?.family === "windows" && (
+                            <div className="rounded-md border border-destructive/40 bg-background/50 p-2 text-xs leading-relaxed">
+                              <strong className="text-destructive-foreground">
+                                {t("updates.likelyCauseLabel")}
+                              </strong>{" "}
+                              {t("updates.startupHandshakeFailed")}
+                            </div>
+                          )}
+                          {panelUpdateStatus.lastApplyResult.likelyCause ===
+                            "unknown" && (
+                            <div className="rounded-md border border-destructive/40 bg-background/50 p-2 text-xs leading-relaxed">
+                              <strong className="text-destructive-foreground">
+                                {t("updates.unknownCauseTitle")}
+                              </strong>{" "}
+                              {t("updates.unknownCauseDesc")}
                             </div>
                           )}
                           {panelApplyLog && (
@@ -3407,6 +3584,7 @@ export default function Settings() {
                             onClick={() =>
                               restartPanelWithReconnect(
                                 t("updates.applyingDownloadedToast"),
+                                panelUpdateStatus?.stagedUpdate?.version,
                               )
                             }
                           >
@@ -6413,9 +6591,9 @@ function WorkshopCollectionSyncCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-7">
-        <div className="grid gap-6 border-b border-border/40 pb-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,.8fr)] rtl:lg:grid-cols-[minmax(18rem,.8fr)_minmax(0,1fr)]">
+        <div className="grid gap-6 border-b border-border/40 pb-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,.8fr)]">
         {/* Collection ID */}
-        <div className="space-y-2 lg:order-1 rtl:lg:order-2">
+        <div className="space-y-2 lg:order-1">
           <Label htmlFor="ws-collection-id" className="text-base">
             {t("workshopSync.collectionIdLabel")}
           </Label>
@@ -6436,7 +6614,7 @@ function WorkshopCollectionSyncCard({
 
         {/* Auto-sync toggle */}
         <div
-          className={`flex items-start justify-between gap-4 lg:order-2 lg:border-s lg:border-border/40 lg:ps-6 rtl:lg:order-1 ${
+          className={`flex items-start justify-between gap-4 lg:order-2 lg:border-s lg:border-border/40 lg:ps-6 ${
             autoSyncOn && !credsConfigured
               ? "text-warning"
               : ""

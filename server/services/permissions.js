@@ -430,6 +430,82 @@ export function requirePermission(capability) {
 }
 
 /**
+ * sweep-round5 (2026-09-07): requireAnyPermission(...capabilities) -- the
+ * missing "or" in this file's authorization vocabulary. Grants access if
+ * the caller's role holds ANY ONE of the listed capabilities, not all of
+ * them. Built specifically because its absence was the root cause of a
+ * real hole, not preemptively: backup.js's GET /status, /list, /history
+ * had NO capability check at all, because no single capability describes
+ * "may see what backups exist" -- that's legitimately true of anyone
+ * holding backups.manage, backups.download, OR backups.restore, and
+ * requirePermission() can only express exactly one. Gating on
+ * backups.manage alone would have broken a download-only or restore-only
+ * custom role's ability to even see what to act on (the UI needs /list
+ * before it can call /download/:name or /restore/:name) -- a legitimate
+ * role suddenly unable to use a capability it holds is a bug whose
+ * predictable fix is someone widening the role, which is worse than
+ * where this started. Leaving the route ungated was the path of least
+ * resistance BECAUSE the language had no way to say the true thing about
+ * it. This closes that gap for every future route of the same shape, not
+ * just these three.
+ *
+ * Same fail-closed discipline as requirePermission() above -- every
+ * failure path refuses, there is no branch that falls through to next()
+ * on anything other than a confirmed grant.
+ */
+export function requireAnyPermission(...capabilities) {
+  const unknown = capabilities.filter((c) => !isKnownCapability(c));
+  if (capabilities.length === 0 || unknown.length > 0) {
+    // Programming error at the call site -- same posture as
+    // requirePermission()'s own unregistered-capability guard: fail
+    // closed for every request rather than crash the whole route file.
+    log.error(
+      unknown.length > 0
+        ? `requireAnyPermission() called with an unregistered capability: "${unknown[0]}" -- refusing every request to this route until fixed.`
+        : "requireAnyPermission() called with no capabilities -- refusing every request to this route until fixed.",
+    );
+    return (req, res) => {
+      res.status(403).json({
+        error: "Insufficient permissions",
+        code: ErrorCode.PERMISSION_DENIED,
+      });
+    };
+  }
+
+  return async (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({
+        error: "Authentication required",
+        code: ErrorCode.AUTH_REQUIRED,
+      });
+    }
+
+    try {
+      const role = await getRoleByName(req.user.role);
+      if (!role || !Array.isArray(role.capabilities)) {
+        return res.status(403).json({
+          error: "Insufficient permissions",
+          code: ErrorCode.PERMISSION_DENIED,
+        });
+      }
+      if (!capabilities.some((capability) => role.capabilities.includes(capability))) {
+        return res.status(403).json({
+          error: "Insufficient permissions",
+          code: ErrorCode.PERMISSION_DENIED,
+        });
+      }
+      return next();
+    } catch (error) {
+      log.error(`requireAnyPermission(${capabilities.join(", ")}) failed: ${error.message}`);
+      return res.status(403).json({
+        error: "Insufficient permissions",
+        code: ErrorCode.PERMISSION_DENIED,
+      });
+    }
+  };
+}
+
+/**
  * A role's effective capabilities, for a client-side UX check (e.g. "should
  * this tab be visible") -- NOT an access-control decision. requirePermission()
  * above remains the only thing that actually enforces anything server-side;
@@ -540,7 +616,7 @@ export async function listRolesWithMemberCounts() {
   return withCounts;
 }
 
-export async function createRole({ name, capabilities }) {
+export async function createRole({ name, capabilities }, { actingUser } = {}) {
   if (typeof name !== "string" || !name.trim()) {
     throw makeError(null, "name is required", 400);
   }
@@ -554,6 +630,8 @@ export async function createRole({ name, capabilities }) {
       capError.capability !== undefined ? { capability: capError.capability } : undefined,
     );
   }
+
+  await assertNoRoleEditEscalation(actingUser, [], capabilities);
 
   const existingRoles = await getRoles();
   if (existingRoles.some((r) => r.name === trimmedName)) {
@@ -574,6 +652,49 @@ export async function createRole({ name, capabilities }) {
   };
   await insertRole(role);
   return role;
+}
+
+// sweep-round5 (2026-09-07): mirrors services/auth.js's
+// assertNoCapabilityEscalation() (ff17ee11), for the OTHER path into the
+// same hole. That guard stops a roles.manage holder from ASSIGNING a user
+// to a role that grants more than the acting user holds themselves -- it
+// says nothing about EDITING a role's own capabilities array directly. A
+// caller who holds only roles.manage (no users.manage, nothing else)
+// could PUT /roles/:id their own role, or any role, and add every
+// capability in the catalogue, with nothing here checking whether they
+// already held any of it -- requirePermission() re-resolves a role's
+// capabilities fresh from the DB on every request, so their very next
+// call is granted under the expanded list. This fully bypasses BOTH
+// assertNoCapabilityEscalation() (never called -- no user record is
+// touched) and changeUserRoleById's self-role-change refusal (a
+// different code path entirely: nobody's role MEMBERSHIP changes here,
+// only what the role itself grants).
+//
+// Deliberately a DELTA check, not a full-list check like the assignment
+// guard: only capabilities being newly ADDED by this edit need to be
+// within the acting user's own reach. A role that already held more than
+// the acting user's own capabilities before this edit (an admin created
+// a role wider than a roles.manage-only caller could ever grant) is a
+// pre-existing state, not something THIS edit escalates -- narrowing,
+// renaming, or leaving that role's existing over-reach untouched must
+// stay legal for anyone holding roles.manage, or role management itself
+// breaks for every non-admin roles.manage holder.
+async function assertNoRoleEditEscalation(actingUser, existingCapabilities, nextCapabilities) {
+  if (!actingUser) return; // no caller context (e.g. first-user setup) -- nothing to compare against
+  const actingCapabilities = (await getCapabilitiesForRole(actingUser.role)) || [];
+  const existing = new Set(existingCapabilities || []);
+  const added = (nextCapabilities || []).filter((capability) => !existing.has(capability));
+  const missing = added.filter((capability) => !actingCapabilities.includes(capability));
+  if (missing.length === 0) return;
+  const detail = missing.join(", ");
+  throw makeError(
+    ErrorCode.ROLE_GRANT_EXCEEDS_CALLER_CAPABILITIES,
+    `Cannot add ${detail} to a role without already holding ${
+      missing.length === 1 ? "it" : "them"
+    } yourself.`,
+    403,
+    { detail, missing },
+  );
 }
 
 /**
@@ -692,6 +813,8 @@ export async function updateRole(
       );
     }
     nextCapabilities = [...new Set(capabilities)];
+
+    await assertNoRoleEditEscalation(actingUser, existing.capabilities, nextCapabilities);
 
     await checkLockoutRulesForCapabilityChange({
       roleId: id,

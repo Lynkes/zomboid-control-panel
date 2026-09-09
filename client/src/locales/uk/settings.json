@@ -1,4 +1,10 @@
 {
+  "__pendingPluralForms": [
+    "backups.backupsStored_few",
+    "backups.backupsStored_many",
+    "workshopSync.inSync_few",
+    "workshopSync.inSync_many"
+  ],
   "ariaLabels": {
     "allowPrivateLan": "Дозволити приватні та LAN джерела",
     "enablePublicIp": "Увімкнути визначення публічної IP-адреси",
@@ -110,6 +116,11 @@
     "description": "У вас є незастосовані зміни. Збережіть їх, щоб застосувати до активної панелі.",
     "saveButton": "Зберегти зміни"
   },
+  "restartWait": {
+    "failedTitle": "The panel hasn't come back",
+    "failedDescription": "It's been a few minutes since the restart and the panel still isn't responding. It may still be starting (this can take longer than usual right after an update), or it may have failed to start. Check the panel's console/log output for errors before trying again.",
+    "checkAgain": "Check Again"
+  },
   "saveButton": {
     "saving": "Збереження...",
     "save": "Зберегти налаштування",
@@ -207,7 +218,9 @@
     "expectedVersion": " Очікувалася v{{version}}.",
     "stagedStillPresent": " Завантажений файл усе ще на диску; ви можете повторити перезапуск.",
     "stagedGone": " Підготовленого файлу більше немає — завантажте оновлення ще раз, перш ніж повторювати.",
+    "stagedGoneAfterHandshakeFailure": " The staged update was applied, then automatically rolled back — re-downloading the same version will very likely fail the same way.",
     "likelyCauseLabel": "Ймовірна причина:",
+    "startupHandshakeFailed": "the update applied successfully (the new version launched) but it exited before finishing startup, so the panel automatically rolled back to the previous version. This is not a missing or corrupted download — see the log below for the exact reason the new version exited.",
     "avQuarantine": "антивірус або контрольований доступ до папок видалив новий виконуваний файл після його розміщення.",
     "avExclusionHint": "Додайте цю теку до винятків антивіруса та повторіть спробу:",
     "windowsDefenderLabel": "Windows Defender:",
@@ -215,12 +228,20 @@
     "permissionDenied": "відмовлено в доступі під час запису до теки панелі. Перевірте дозволи облікового запису, від імені якого працює панель.",
     "permissionDeniedWindows": "відмовлено в доступі під час запису до теки панелі. Перезапустіть панель від імені адміністратора або перемістіть її з Program Files.",
     "permissionDeniedPosix": "відмовлено в доступі під час запису до теки панелі. Перевірте власника та права запису для користувача служби панелі.",
+    "powershellUnavailable": "Схоже, PowerShell заблоковано на цьому комп'ютері (політика виконання, AppLocker або групова політика). Механізм оновлення залежить від нього для перевірки та застосування підготовлених файлів. Попросіть адміністратора дозволити powershell.exe для цього застосунку.",
     "helperBlocked": "скрипту-помічнику оновлення заборонено запускатися (Windows Defender ASR, AppLocker або групова політика). Підготовлений файл усе ще на диску.",
     "helperBlockedRecoveryLabel": "Відновлення:",
     "helperBlockedRecovery": "закрийте цю панель і двічі клацніть <code>Start.bat</code> у:",
     "helperBlockedRecoveryNote": "Start.bat автоматично обирає найновіший виконуваний файл, тож оновлення застосується. Щоб такого не сталося надалі, додайте теку панелі до винятків антивіруса.",
     "noHelperLogTitle": "Журнал помічника не було записано.",
     "noHelperLogDesc": "Скрипт-помічник міг бути заблокований політикою виконання або антивірусом. Перевірте історію захисту Windows Defender.",
+    "rollbackFailedRetryWarning": "the automatic rollback did not fully complete. The panel is likely to retry this exact update again on the next restart and fail the same way, until this is cleared by hand.",
+    "rollbackFailedCosmetic": "the update rolled back successfully. One leftover file could not be removed automatically and is safe to delete by hand.",
+    "rollbackFailedRecoveryLabel": "Files to delete:",
+    "rollbackFailedRecoveryNote": "close this panel first, then delete these three files from the install folder below:",
+    "rollbackFailedRecoveryNoteCosmetic": "delete this file from the install folder below:",
+    "unknownCauseTitle": "Cause could not be determined automatically.",
+    "unknownCauseDesc": "The helper log doesn't match a known failure signature. See the log below for detail.",
     "showHelperLog": "Показати журнал помічника",
     "refreshLog": "Оновити журнал",
     "couldNotReadLog": {
@@ -232,19 +253,23 @@
     "preflight": {
       "packagedBuildGit": "Самооновлення доступне лише у зібраних пакунках. У режимі розробки отримайте найновіший код через git.",
       "packagedBuildDocker": "Самооновлення доступне лише у зібраних пакунках. Завантажте новіший образ і перестворіть контейнер: docker compose pull && docker compose up -d.",
+      "dockerNotChecked": "Docker updates are applied by a separate update controller container. The panel does not run its own preflight checks (disk space, permissions, etc.) for this mode -- those are the controller's responsibility.",
       "noReleaseInfo": "Дані про випуск ще не кешовано — спершу натисніть «Перевірити оновлення».",
-      "databaseUnreadable": "Не вдається прочитати базу даних панелі перед оновленням: {{error}}.",
+      "databaseUnreadable": "Не вдається прочитати базу даних панелі перед оновленням: {{error}}. Спершу перезапустіть панель — під час запуску вона автоматично намагається відновити db.json із власних резервних копій у data/backups.",
       "databaseMissing": "Поруч із запущеною панеллю не знайдено data/db.json. Схоже на нове встановлення; перевірте теку даних, перш ніж застосовувати оновлення.",
       "binaryMissing": "У найновішому випуску не знайдено виконуваного файлу для {{platform}}.",
       "folderNotWritableWindows": "Цей процес не може писати в теку панелі: {{detail}}. Спробуйте запустити її від імені адміністратора або перемістіть панель із захищеної теки.",
       "folderNotWritableLinux": "Цей процес не може писати в теку панелі: {{detail}}. Перевірте, що користувач служби панелі володіє текою встановлення й може в неї писати.",
       "folderNotWritableOther": "Цей процес не може писати в теку панелі: {{detail}}. Перевірте дозволи теки встановлення для облікового запису, від імені якого працює панель.",
+      "exeNotRenameable": "Windows не дозволяє цьому процесу перейменувати власний файл програми. Спробуйте запустити панель від імені адміністратора або перемістіть її із захищеної теки.",
       "diskSpace": "Недостатньо вільного місця на диску. Потрібно близько {{neededMb}} МБ, доступно {{freeMb}} МБ.",
+      "diskSpaceUnknown": "Could not determine free disk space before update. Proceeding without this check -- verify you have enough free space manually if the apply fails partway through.",
       "oneDrive": "Панель лежить у теці, яку синхронізує OneDrive. Синхронізація може ненадовго заблокувати виконуваний файл під час його заміни. Призупиніть OneDrive, перш ніж натискати «Перезапустити та застосувати», або перемістіть панель у несинхронізоване місце (наприклад, C:\\ZomboidPanel).",
       "syncSuspect": "Панель лежить на робочому столі або в «Документах». Якщо ви користуєтеся резервним копіюванням OneDrive або Known Folder Move, ця тека синхронізується й може заблокувати виконуваний файл під час застосування. Варто перемістити панель у несинхронізоване місце.",
       "programFiles": "Панель встановлено в Program Files. Windows вимагає прав адміністратора, щоб замінювати там файли. Якщо застосувати не вдасться, перезапустіть панель від імені адміністратора.",
       "previousUpdateStaged": "Попереднє оновлення (v{{version}}) уже підготовлено й буде застосовано під час наступного перезапуску.",
-      "previousBackup": "Поруч із виконуваним файлом є попередня резервна копія (.old). Її буде прибрано після наступного успішного застосування."
+      "previousBackup": "Поруч із виконуваним файлом є попередня резервна копія (.old). Її буде прибрано після наступного успішного застосування.",
+      "downloadHostUnreachable": "Не вдалося з'єднатися з {{host}} — хостом, з якого завантажується бінарний файл оновлення. Брандмауер або проксі, який дозволяє перевірку оновлень, але блокує цей хост, призведе до збою завантаження, навіть якщо ця перевірка пройшла успішно."
     },
     "checkForUpdates": "Перевірити оновлення",
     "applyingDockerUpdate": "Застосування оновлення Docker...",
@@ -526,7 +551,9 @@
     "autoExportLabel": "Експортувати персонажа, коли гравець заходить на сервер",
     "autoExportDesc": "Виконується приблизно через десять секунд після завантаження гравця, щоб одного персонажа можна було відновити без відкату всього світу. Потрібне підключення PanelBridge.",
     "copiesKeptLabel": "Кількість копій на гравця",
-    "copiesKeptHelp": "Найстаріші експорти видаляються, коли гравець перевищує цю кількість. Відновлюйте їх на сторінці «Гравці»."
+    "copiesKeptHelp": "Найстаріші експорти видаляються, коли гравець перевищує цю кількість. Відновлюйте їх на сторінці «Гравці».",
+    "backupsStored_few": "{{count}} резервних копій",
+    "backupsStored_many": "{{count}} резервних копій"
   },
   "security": {
     "cardTitle": "Безпека та автентифікація",
@@ -800,7 +827,9 @@
       "cookiesFirstError": "Спершу додайте кукі Steam, щоб писати в колекцію.",
       "sessionExpiredError": "Сесія Steam завершилася. Вставте нові кукі вище й спробуйте ще раз.",
       "failedToReadCollection": "Не вдалося прочитати колекцію"
-    }
+    },
+    "inSync_few": "Синхронізовано — {{count}} елементів",
+    "inSync_many": "Синхронізовано — {{count}} елементів"
   },
   "toasts": {
     "recoveryCodesGenerated": {

@@ -143,17 +143,56 @@ describe("panelBridge.js: POST /command stays admin-only (unchanged, whitelist-f
   });
 });
 
-describe("panelBridge.js: /status, /ping, /commands stay outside the matrix entirely", () => {
-  const TRULY_UNGATED = [
-    ["/status", "get"],
-    ["/ping", "get"],
-    ["/commands", "get"],
-  ];
-
-  it.each(TRULY_UNGATED)("%s %s has no requirePermission gate ahead of its handler", async (routePath, method) => {
+// sweep-round5 (2026-09-07) FOLLOW-UP: this describe block used to be
+// titled "/status, /ping, /commands stay outside the matrix entirely" and
+// asserted all three had no gate, on one shared judgement written by one
+// author at one time. That judgement was wrong for /status: it returned
+// cachePath/remotePath/remoteDirectories (host and remote-server
+// filesystem paths) to any authenticated session regardless of role
+// (7ead08e0). /status is now gated with requireAnyPermission("bridge.setup",
+// "bridge.diagnostics") -- removed from this list entirely (a route that's
+// actually gated belongs in a "has a gate" test, not a "has no gate" one);
+// see panelBridgeStatusRouteCapability.test.js and
+// routeAuthorizationCoverage.test.js for its coverage.
+//
+// The other two members of that original judgement were re-checked against
+// source, not re-inherited, once the first one turned out wrong:
+describe("panelBridge.js: /commands stays outside the matrix -- static API documentation only", () => {
+  it("GET /commands has no requirePermission gate ahead of its handler -- confirmed safe: every field is a literal in the handler, nothing derived from req/DB/per-install state", async () => {
     const { default: router } = await import("../routes/panelBridge.js");
     const layer = router.stack.find(
-      (entry) => entry.route?.path === routePath && entry.route.methods[method],
+      (entry) => entry.route?.path === "/commands" && entry.route.methods.get,
+    );
+    expect(layer.route.stack.length).toBe(1);
+  });
+});
+
+// /ping was NOT confirmed safe when first re-checked: bridge.ping() spread
+// the FULL this.modStatus into its response, so modStatus.path (the mod's
+// own base path on the game server) and modStatus.filePath (the panel's
+// local path to the status file -- for a remote/SFTP server, the local
+// mirror directory) leaked the same class of unmasked filesystem paths
+// /status had, and modStatus.players -- a live online-username list with no
+// players.view check, unlike every other route that exposes player
+// presence -- leaked THIRD-PARTY data (the players, not the operator).
+// That distinction (not the operator's own data) is why god reversed the
+// initial "ship the path leak tomorrow" call specifically for this route
+// and had it fixed same-day instead of deferred.
+//
+// Fixed in services/panelBridge.js: ping() now merges an explicit
+// allow-listed pingModStatusView() (serverName only -- the one field
+// Settings.tsx's handlePingMod actually reads) into its response instead
+// of the raw modStatus object. The route itself is still, correctly,
+// ungated -- there is nothing left in the response worth gating. See
+// panelBridgePingModStatusLeak.test.js for the dedicated regression: it
+// asserts players/path/filePath/stats/queue are explicitly ABSENT, not
+// just that serverName is present, so a field re-added to modStatus later
+// can't silently ride back through unnoticed the way this one did.
+describe("panelBridge.js: /ping stays outside the matrix -- response is now allow-listed, nothing left to gate", () => {
+  it("GET /ping has no requirePermission gate ahead of its handler -- correct now that its response no longer carries modStatus.players/path/filePath (see panelBridgePingModStatusLeak.test.js)", async () => {
+    const { default: router } = await import("../routes/panelBridge.js");
+    const layer = router.stack.find(
+      (entry) => entry.route?.path === "/ping" && entry.route.methods.get,
     );
     expect(layer.route.stack.length).toBe(1);
   });

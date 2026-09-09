@@ -15,6 +15,7 @@ import {
   Pencil,
   Loader2,
   AlertCircle,
+  AlertTriangle,
   ChevronDown,
   HelpCircle,
   Search,
@@ -62,6 +63,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useToast } from '@/components/ui/use-toast'
 import { schedulerApi, rconApi, serverApi, serversApi, ScheduleHistoryEntry, ServerInstance } from '@/lib/api'
+import { resolveServerRunning } from '@/lib/serverStatus'
 import { EmptyState } from '@/components/EmptyState'
 import { NumberInput } from '@/components/NumberInput'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -434,6 +436,16 @@ export default function Scheduler() {
   const [newTaskServerId, setNewTaskServerId] = useState<string>('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<ScheduledTask | null>(null)
+  // scheduler-time-audit follow-up (06f07d66 landed the server half: POST
+  // /tasks and PUT /tasks/:id now return a non-null dstWarning whenever the
+  // saved schedule is sub-hourly in a DST-observing zone -- node-cron's own
+  // documented limitation is that the repeated hour during a fall-back only
+  // fires once, silently dropping one occurrence a year. The server string
+  // is plain English, not a translation key -- it's assembled from the
+  // schedule's own interval/timezone data, not a fixed message a translator
+  // could pre-author. Held here (not cleared by the toast+close a normal
+  // save does) so it survives long enough to actually be read.
+  const [dstWarning, setDstWarning] = useState<string | null>(null)
 
   // Advisory-only preview of the custom cron field via POST /validate-cron --
   // never gates Save. The server re-validates independently and is the real
@@ -454,7 +466,13 @@ export default function Scheduler() {
   const [restartMinutes, setRestartMinutes] = useState(5)
   const [serverRunning, setServerRunning] = useState<boolean>(false)
 
-  const fetchData = useCallback(async () => {
+  // 2026-09-08 (retry-stacking sweep): `manual` distinguishes a human
+  // pressing Retry or the Execution History card's Refresh button (both
+  // call this function directly) from the mount effect and every
+  // post-action refetch elsewhere on this page -- see Servers.tsx's
+  // fetchServers() for the full reasoning.
+  const fetchData = useCallback(async (opts?: { manual?: boolean }) => {
+    const retries = opts?.manual ? { retries: 0 } : undefined
     setFetchError(null)
     try {
       // Only getTasks() is allowed to fail the whole load -- it's the one
@@ -464,11 +482,11 @@ export default function Scheduler() {
       // away a perfectly good task list, replacing it with an empty-state
       // "no tasks scheduled" even though real tasks existed and loaded fine.
       const [tasksData, presetsData, statusData, historyData, serversData] = await Promise.all([
-        schedulerApi.getTasks(),
-        schedulerApi.getCronPresets().catch(() => ({ presets: [] as CronPreset[] })),
-        schedulerApi.getStatus().catch(() => null),
-        schedulerApi.getHistory(EXECUTION_HISTORY_FETCH_LIMIT).catch(() => ({ history: [] as ScheduleHistoryEntry[] })),
-        serversApi.getAll().catch(() => ({ servers: [] as ServerInstance[] })),
+        schedulerApi.getTasks(retries),
+        schedulerApi.getCronPresets(retries).catch(() => ({ presets: [] as CronPreset[] })),
+        schedulerApi.getStatus(retries).catch(() => null),
+        schedulerApi.getHistory(EXECUTION_HISTORY_FETCH_LIMIT, undefined, retries).catch(() => ({ history: [] as ScheduleHistoryEntry[] })),
+        serversApi.getAll(retries).catch(() => ({ servers: [] as ServerInstance[] })),
       ])
       setTasks(tasksData.tasks || [])
       setPresets(presetsData.presets || [])
@@ -610,21 +628,33 @@ export default function Scheduler() {
 
   // Poll server status so Manual Restart / Quick Broadcasts stay accurate.
   // Skipped while the tab is hidden to avoid pointless work in background tabs.
+  //
+  // GH#114-shaped (2026-09-08, Angela's is-running enumeration): this used
+  // to trust serverApi.getStatus()'s raw local process scan unconditionally,
+  // which can only ever see a process on THIS host -- a docker-managed
+  // server's process runs in a different container the scan can't see at
+  // all, and a remote-sftp server isn't on this host to begin with. Either
+  // one would leave serverRunning permanently false, disabling Manual
+  // Restart and Quick Broadcasts on a server that is genuinely up -- a
+  // legitimate-action-blocked bug, the mirror image of the Stop-button
+  // version of this same defect. resolveServerRunning() shares
+  // ServerConfig.tsx's provider-aware fix; null (indeterminate) is treated
+  // as "may be running" (`!== false`, same collapse ServerConfig.tsx's own
+  // serverMayBeRunning uses) rather than disabling these non-destructive
+  // actions on an uncertain read -- restarting an already-stopped server or
+  // broadcasting to an unconnected RCON just fails cleanly server-side.
   useEffect(() => {
     let cancelled = false
     const pull = async () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-      try {
-        const s = await serverApi.getStatus()
-        if (!cancelled) setServerRunning(!!s?.running)
-      } catch {
-        if (!cancelled) setServerRunning(false)
-      }
+      const activeServer = servers.find((s) => s.isActive) ?? null
+      const running = await resolveServerRunning(activeServer, serverApi.getStatus, serversApi.getComposedStatus)
+      if (!cancelled) setServerRunning(running !== false)
     }
     pull()
     const id = setInterval(pull, 15000)
     return () => { cancelled = true; clearInterval(id) }
-  }, [])
+  }, [servers])
 
   // Resolve a task's target server name for display — "Unknown server" if
   // it was deleted since the task was created, "This server" (no badge
@@ -701,8 +731,9 @@ export default function Scheduler() {
 
     setLoading(true)
     try {
+      let result: { dstWarning?: string | null } | undefined
       if (editingTask) {
-        await schedulerApi.updateTask(
+        result = await schedulerApi.updateTask(
           editingTask.id,
           newTaskName,
           cronToUse,
@@ -711,16 +742,24 @@ export default function Scheduler() {
           newTaskServerId || undefined,
         )
       } else {
-        await schedulerApi.createTask(newTaskName, cronToUse, newTaskCommand, newTaskServerId || undefined)
+        result = await schedulerApi.createTask(newTaskName, cronToUse, newTaskCommand, newTaskServerId || undefined)
       }
       toast({
         title: t('toasts.successTitle'),
         description: editingTask ? t('toasts.taskUpdated') : t('toasts.taskCreated'),
         variant: 'success' as const,
       })
-      resetTaskForm()
-      setDialogOpen(false)
       fetchData()
+      if (result?.dstWarning) {
+        // Leave the dialog open so the warning is actually seen next to the
+        // schedule that triggered it -- the task IS already saved (the
+        // toast above and fetchData() both already reflect that), this is
+        // purely "here's a caveat," not a reason to block or retry.
+        setDstWarning(result.dstWarning)
+      } else {
+        resetTaskForm()
+        setDialogOpen(false)
+      }
     } catch (error) {
       toast({
         title: t('toasts.errorTitle'),
@@ -734,6 +773,7 @@ export default function Scheduler() {
 
   const resetTaskForm = () => {
     setEditingTask(null)
+    setDstWarning(null)
     setNewTaskName('')
     setNewTaskCron('')
     setNewTaskCommand('')
@@ -791,6 +831,7 @@ export default function Scheduler() {
 
   const handleEditTask = (task: ScheduledTask) => {
     setEditingTask(task)
+    setDstWarning(null)
     setNewTaskName(task.name)
     setNewTaskCommand(task.command)
     setNewTaskServerId(task.server_id != null ? String(task.server_id) : '')
@@ -991,7 +1032,7 @@ export default function Scheduler() {
           <AlertTitle>{t('fetchError.title')}</AlertTitle>
           <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <span className="min-w-0 break-words" dir="auto">{fetchError}</span>
-            <Button variant="outline" size="sm" onClick={fetchData} className="self-start">
+            <Button variant="outline" size="sm" onClick={() => fetchData({ manual: true })} className="self-start">
               <RefreshCw className="me-2 h-4 w-4" /> {t('fetchError.retry')}
             </Button>
           </AlertDescription>
@@ -1190,6 +1231,28 @@ export default function Scheduler() {
                   </TabsContent>
                 </Tabs>
               </div>
+              {dstWarning && (
+                <Alert variant="warning">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertTitle>{t('dialog.dstWarningTitle')}</AlertTitle>
+                  <AlertDescription className="flex flex-col gap-2">
+                    {/* dir="auto": the server's own English sentence, not a
+                        translation key -- wrong to force it LTR inside an
+                        RTL dialog the way a translated string's own
+                        direction would already be handled. */}
+                    <span dir="auto">{dstWarning}</span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="self-start"
+                      onClick={() => { resetTaskForm(); setDialogOpen(false) }}
+                    >
+                      {t('dialog.dstWarningDismiss')}
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+              )}
               <div>
                 <div className="flex items-center gap-1.5">
                   <Label>{t('dialog.commandLabel')}</Label>
@@ -1778,7 +1841,7 @@ export default function Scheduler() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={fetchData}
+                onClick={() => fetchData({ manual: true })}
                 disabled={loading}
               >
                 <RefreshCw className="w-4 h-4 me-1" />

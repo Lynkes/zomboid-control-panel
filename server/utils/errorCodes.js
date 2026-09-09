@@ -23,8 +23,8 @@
  *   - The 10 codes added most recently (auth.js, serverFiles.js,
  *     configMutationGuard.js) use the constant name as the wire value
  *     unchanged: ErrorCode.AUTH_REQUIRED === "AUTH_REQUIRED".
- *   - The 8 older codes (chunks.js, index.js, dockerUpdateProxy.js,
- *     panelUpdateChecker.js) ship a lower_snake_case wire value that
+ *   - The 15 older codes (chunks.js, index.js, dockerUpdateProxy.js,
+ *     panelUpdateChecker.js, updateBundle.js) ship a lower_snake_case wire value that
  *     client code already compares against with `===` today
  *     (client/src/pages/ChunkCleaner.tsx checks `err.code ===
  *     "server_running"`; client/src/pages/Settings.tsx checks
@@ -360,6 +360,18 @@ export const ErrorCode = Object.freeze({
    * delete button is disabled for it -- this closes that gap in the
    * service itself, not just the one screen that happened to check first. */
   ROLE_IS_SEEDED: "ROLE_IS_SEEDED",
+  /** server/services/auth.js -- createUser()/changeUserRoleById()'s
+   * assertNoCapabilityEscalation(): the caller tried to create or reassign
+   * a user into a role whose capabilities aren't a subset of their own.
+   * Same policy as DISCORD_PERMISSIONS_CAPABILITY_REQUIRED below (routes/
+   * discord.js), applied to role assignment -- the PRIMARY door for the
+   * same authority Discord's tiers hand out through a secondary one.
+   * Carries {{detail}}, the comma-joined list of capability keys the
+   * target role grants that the caller doesn't hold -- same shape as
+   * DISCORD_PERMISSIONS_CAPABILITY_REQUIRED's own detail param (a
+   * pre-joined list, not a single capability key to relabel via
+   * CAPABILITY_KEY_PARAM_NAMES). */
+  ROLE_GRANT_EXCEEDS_CALLER_CAPABILITIES: "ROLE_GRANT_EXCEEDS_CALLER_CAPABILITIES",
   /** server/services/auth.js -- DELETE /api/auth/users/:id, the caller
    * targeted their own account. Hard refusal, no override: unlike editing
    * your own role's capabilities (ROLE_SELF_CAPABILITY_LOSS_CONFIRM, which
@@ -369,6 +381,13 @@ export const ErrorCode = Object.freeze({
    * admin can delete the account instead, which is a deliberate two-party
    * action rather than a one-click accident. */
   USER_SELF_DELETE_REFUSED: "USER_SELF_DELETE_REFUSED",
+  /** server/services/auth.js -- changeUserRoleById(), the caller targeted
+   * their own account. Hard refusal, no override, same reasoning as
+   * USER_SELF_DELETE_REFUSED above: no routine reason an operator needs to
+   * change their own role while signed in as it, and another admin doing
+   * it instead is a deliberate two-party action, not a one-click
+   * accident. */
+  USER_SELF_ROLE_CHANGE_REFUSED: "USER_SELF_ROLE_CHANGE_REFUSED",
   /** server/index.js -- Docker-update apply path ONLY: server is running
    * and RCON isn't connected, so the panel can't stop it automatically
    * before applying the update. Split out from SERVER_RUNNING_LEGACY
@@ -495,6 +514,12 @@ export const ErrorCode = Object.freeze({
   /** server/routes/backup.js -- POST /api/backup/upload, a backup with the
    * resolved target filename already exists on disk. */
   BACKUP_UPLOAD_NAME_CONFLICT: "BACKUP_UPLOAD_NAME_CONFLICT",
+  /** server/routes/backup.js -- POST /api/backup/upload, streamed body
+   * exceeded MAX_UPLOAD_BYTES. Added 2026-09-05 alongside the switch from
+   * express.raw() (fully buffered) to streamUploadToFile() (streamed) --
+   * the limit itself is unchanged, just enforced while streaming instead
+   * of after the whole body was already buffered in memory. */
+  BACKUP_UPLOAD_TOO_LARGE: "BACKUP_UPLOAD_TOO_LARGE",
   /** server/routes/backup.js -- POST /api/backup/upload, getBackupsPath()
    * returned nothing. Distinct code/status(500) from BACKUPS_FOLDER_NOT_
    * FOUND (download path, status 404) -- different route, different wording. */
@@ -622,9 +647,6 @@ export const ErrorCode = Object.freeze({
   /** server/routes/server.js -- POST /api/server/steam-update, missing
    * steamcmdPath/installPath. */
   STEAM_UPDATE_MISSING_FIELDS: "STEAM_UPDATE_MISSING_FIELDS",
-  /** server/routes/server.js -- POST /api/server/steam-update, the target
-   * server process is currently running. */
-  STEAM_UPDATE_SERVER_RUNNING: "STEAM_UPDATE_SERVER_RUNNING",
   /** server/routes/server.js -- POST /api/server/steam-update, another Steam
    * operation already running for this server. See STEAM_OPERATION_IN_
    * PROGRESS_PATH above for why this stays a separate code. */
@@ -829,6 +851,16 @@ export const ErrorCode = Object.freeze({
    * /delete-region, GET /stats/:saveName) -- the resolved save directory
    * doesn't exist. Identical wording/meaning all three, shared code. */
   CHUNKS_SAVE_NOT_FOUND: "CHUNKS_SAVE_NOT_FOUND",
+  /** server/routes/chunks.js (2 sites: POST /delete-chunks, POST
+   * /delete-region) -- the request's `expectedServerId` (stamped by GET
+   * /chunks/:saveName's own `resolvedServerId` when the scan was made)
+   * doesn't match the CURRENT active server, or was never sent at all.
+   * Means the active server changed since the operator scanned -- without
+   * this check the delete silently targets whatever server is active NOW,
+   * not the one shown on screen (bug-hunt-2026-09-06). Skipped when the
+   * delete itself uses customPath (not server-scoped). Identical
+   * wording/meaning both sites, shared code. */
+  CHUNKS_STALE_SERVER_SCAN: "CHUNKS_STALE_SERVER_SCAN",
   /** server/routes/chunks.js -- POST /delete-region, `saveName` missing or
    * one of minX/maxX/minY/maxY missing. */
   DELETE_REGION_FIELDS_REQUIRED: "DELETE_REGION_FIELDS_REQUIRED",
@@ -870,6 +902,10 @@ export const ErrorCode = Object.freeze({
   MODS_ADD_TO_INI_CONFIG_PATH_NOT_SET: "MODS_ADD_TO_INI_CONFIG_PATH_NOT_SET",
   /** server/routes/mods.js -- POST /auto-restart, `enabled` not a boolean. */
   MODS_AUTO_RESTART_ENABLED_REQUIRED: "MODS_AUTO_RESTART_ENABLED_REQUIRED",
+  /** server/routes/mods.js -- POST /batch-delete-disk-mods, workshopIds.length exceeds 500. Same cap
+   * and reasoning as MODS_BATCH_REMOVE_TOO_MANY below -- own code since this
+   * route deletes real files on disk, not just an INI/DB edit. */
+  MODS_BATCH_DELETE_DISK_MODS_TOO_MANY: "MODS_BATCH_DELETE_DISK_MODS_TOO_MANY",
   /** server/routes/mods.js -- POST /batch-remove, iniEditApplied came back false from the batch removal
    * helper -- own wording ("...no mods were removed."), a 200-status response
    * with success:iniEditApplied and this error attached. Distinct from
@@ -903,6 +939,15 @@ export const ErrorCode = Object.freeze({
    * MODS_RESTART_CHECK_INTERVAL_INVALID below (that route's field is named
    * checkInterval) -- kept separate. */
   MODS_CHECK_INTERVAL_INVALID: "MODS_CHECK_INTERVAL_INVALID",
+  /** server/services/modChecker.js checkForUpdates() -- no Workshop ACF file exists at the
+   * configured/detected path when POST /check-updates runs. Distinct from MODS_START_ACF_PATH_NOT_SET
+   * (that one is "never configured a path at all"): this is a 200-status, non-throwing result
+   * carrying `error` (kept verbatim for logs) + this code, sent whenever the ACF genuinely isn't
+   * there -- which is the normal, permanent state for a non-Steam/GOG install (GitHub #148) and is
+   * ALSO indistinguishable from a legitimate SteamCMD install that has never had a Workshop mod
+   * downloaded. Client uses this to show an informational, non-destructive message instead of a
+   * red "Update Check Failed" error, without claiming to know which of those two cases it is. */
+  MODS_CHECK_UPDATES_ACF_NOT_FOUND: "MODS_CHECK_UPDATES_ACF_NOT_FOUND",
   /** server/routes/mods.js -- (4 sites: POST/DELETE /collection/items(+/:id), /collection/sync,
    * /collection/test) -- workshopCollectionId setting not set. Identical
    * wording, shared code. */
@@ -1067,6 +1112,10 @@ export const ErrorCode = Object.freeze({
    * dependencies provided") -- different route, different phrasing, kept
    * separate. */
   MODS_RESOLVE_DEPS_ARRAY_REQUIRED: "MODS_RESOLVE_DEPS_ARRAY_REQUIRED",
+  /** server/routes/mods.js -- POST /resolve-orphan-workshop, workshopIds.length exceeds 500. Same
+   * cap and reasoning as MODS_BATCH_REMOVE_TOO_MANY above -- own code, per
+   * this file's per-call-site convention. */
+  MODS_RESOLVE_ORPHAN_WORKSHOP_TOO_MANY: "MODS_RESOLVE_ORPHAN_WORKSHOP_TOO_MANY",
   /** server/routes/mods.js -- PUT /restart-options, checkInterval outside the same 60000-7200000ms range
    * as /check-interval above but through a differently-named field and its own
    * wording -- own code, not merged. */
@@ -1159,6 +1208,48 @@ export const ErrorCode = Object.freeze({
   SAVE_FAILED_LEGACY: "save_failed",
   /** server/index.js -- Docker-update apply path, server wouldn't shut down. */
   STOP_FAILED_LEGACY: "stop_failed",
+  /** server/services/updateBundle.js (many sites: staging/apply path
+   * validation -- bad journal paths, corrupt/missing journal, journal not
+   * matching its install directory, transaction/metadata/state changed
+   * before startup acknowledgement) -- wire value "invalid_bundle", the
+   * update's staged bundle or journal failed a structural check. Reachable
+   * on the wire via panelUpdateChecker.js's downloadUpdate() catch, same
+   * forwarding errorCodeReachability.test.js already covers for sibling
+   * codes here. Registered without touching any of updateBundle.js's 22
+   * throw sites or updateBundle.js itself -- see
+   * errorCodeThrownVsRegistered.test.js. */
+  INVALID_BUNDLE_LEGACY: "invalid_bundle",
+  /** server/services/updateBundle.js -- validateBuildCompatibility() found
+   * the frontend and backend build metadata (version/build SHA/API contract
+   * version) don't match, checked both at stage time and again right before
+   * apply/acknowledge. */
+  VERSION_MISMATCH_LEGACY: "version_mismatch",
+  /** server/services/updateBundle.js -- a staged update file is missing
+   * (stageUpdateBundle(), immediately after being placed) or its hash no
+   * longer matches what was recorded at staging time (applyUpdateBundle()).
+   * Distinct from HASH_UNVERIFIABLE_LEGACY below: this means the file WAS
+   * read and a genuine mismatch was computed, not that reading/hashing it
+   * failed outright -- see that code's own entry for why the two are kept
+   * apart. */
+  AV_QUARANTINE_LEGACY: "av_quarantine",
+  /** server/services/updateBundle.js -- applyUpdateBundle() could not hash
+   * the staged binary or staged client bundle at all (permission denied, a
+   * mid-read I/O error, etc.) -- split out from AV_QUARANTINE_LEGACY
+   * (2026-09-05) so "I could not even check this file" no longer gets
+   * misreported to the operator as "antivirus corrupted this file" when the
+   * real cause is a transient environment issue. */
+  HASH_UNVERIFIABLE_LEGACY: "hash_unverifiable",
+  /** server/services/updateBundle.js -- applyUpdateBundle(), renaming the
+   * staged frontend into place over the live client folder failed. */
+  FRONTEND_SWAP_FAILED_LEGACY: "frontend_swap_failed",
+  /** server/services/updateBundle.js -- applyUpdateBundle(), renaming the
+   * staged binary into place over the live binary failed. */
+  BINARY_SWAP_FAILED_LEGACY: "binary_swap_failed",
+  /** server/services/updateBundle.js -- rollback() could not fully restore
+   * the pre-update binary/client from their backups after a failed apply or
+   * a failed startup handshake; the panel may be left in a partially-updated
+   * state needing manual recovery. */
+  ROLLBACK_FAILED_LEGACY: "rollback_failed",
 
   // --- server/routes/panelBridge.js ---
 
@@ -1967,13 +2058,6 @@ export const ErrorCode = Object.freeze({
   /** server/routes/templates.js -- POST /:id/apply, the target is the
    * active server and it's confirmed running. */
   SIM_TEMPLATE_APPLY_SERVER_RUNNING: "SIM_TEMPLATE_APPLY_SERVER_RUNNING",
-  /** server/routes/templates.js -- POST /:id/apply, the target is a
-   * configured-but-not-active server. serverManager only tracks the active
-   * server's process, so there's no way to check a different server's
-   * running state -- refused rather than assumed stopped. See 2026-08-24
-   * conv-template-privesc. */
-  SIM_TEMPLATE_APPLY_INACTIVE_SERVER_UNVERIFIABLE:
-    "SIM_TEMPLATE_APPLY_INACTIVE_SERVER_UNVERIFIABLE",
   /** server/services/templateService.js -- applyTemplate(), the target
    * server has `isRemote: true`. */
   SIM_TEMPLATE_APPLY_REMOTE_UNSUPPORTED: "SIM_TEMPLATE_APPLY_REMOTE_UNSUPPORTED",

@@ -24,7 +24,7 @@
     "modIdsTooltip": "{{count}} Mod-IDs in Mods= (manche Mods registrieren mehrere IDs)",
     "updatesCount_one": "{{count}} Aktualisierung",
     "updatesCount_other": "{{count}} Aktualisierungen",
-    "workshopPathMissing": "Workshop-Pfad fehlt",
+    "workshopPathMissing": "Keine Workshop-Daten",
     "fixPath": "Pfad korrigieren",
     "sync": "Synchronisieren",
     "syncTooltip": "Erfasste Mods aus der Server-INI-Konfiguration synchronisieren",
@@ -527,6 +527,8 @@
     "remove": "Entfernen"
   },
   "toasts": {
+    "serverChangedSinceLoadTitle": "Active server changed",
+    "serverChangedSinceLoadDesc": "The active server changed while you had an unsaved mod order. Discard or keep editing -- saving now would write it to the wrong server.",
     "noActiveServerTitle": "Kein aktiver Server",
     "noActiveServerDesc": "Wähle einen lokalen Server aus, bevor du einen Workshop-Ordner auswählst.",
     "remoteServerTitle": "Remote-Server",
@@ -577,6 +579,7 @@
     "presetDeleteFailedTitle": "Preset-Löschung fehlgeschlagen",
     "presetDeleteFailedFallback": "Preset konnte nicht gelöscht werden",
     "updateCheckFailedTitle": "Update-Prüfung fehlgeschlagen",
+    "workshopDataUnavailableTitle": "Workshop-Daten nicht verfügbar",
     "updateCheckSkippedTitle": "Update-Prüfung übersprungen",
     "updateCheckSkippedDesc": "Eine Prüfung läuft bereits.",
     "updatesCheckedTitle": "Updates geprüft",

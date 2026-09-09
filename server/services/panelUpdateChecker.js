@@ -12,7 +12,7 @@ import os from "os";
 import path from "path";
 import https from "https";
 import crypto from "crypto";
-import { spawn } from "child_process";
+import { spawn, execFile } from "child_process";
 import { createLogger } from "../utils/logger.js";
 import { getSetting, setSetting } from "../database/init.js";
 import { getDataPaths } from "../utils/paths.js";
@@ -29,6 +29,15 @@ const GITHUB_API_TIMEOUT_MS = 15000;
 const DOWNLOAD_TIMEOUT_MS = 60000;
 const MAX_GITHUB_RETRIES = 3;
 const MAX_DOWNLOAD_REDIRECTS = 5;
+// Add-Type compiles the P/Invoke shim fresh in every new powershell.exe
+// process (no cross-process cache) -- generous on purpose. This only runs
+// from preflight(), never a hot path, and already sits next to a GitHub
+// network round-trip that takes longer than this on a bad connection.
+const EXE_DELETE_PROBE_TIMEOUT_MS = 8000;
+// Short on purpose: this is a HEAD reachability check, not a real download
+// wait. A slow-but-working connection should time out into "inconclusive"
+// (null) well before an operator would call the panel itself hung.
+const DOWNLOAD_HOST_PROBE_TIMEOUT_MS = 8000;
 
 export function getPanelFolderPermissionGuidance(platform, detail) {
   const prefix = `Panel folder is not writable by this process: ${detail}.`;
@@ -119,7 +128,20 @@ export function createUpdateDataBackup(dataPaths, version, fsModule = fs) {
   const dbPath = dataPaths?.dbPath;
   if (!dbPath || !fsModule.existsSync(dbPath)) return null;
   const safeVersion = String(version || "unknown").replace(/[^a-zA-Z0-9._-]/g, "_");
-  const backupPath = `${dbPath}.pre-update-${safeVersion}-${Date.now()}`;
+  const baseBackupPath = `${dbPath}.pre-update-${safeVersion}-${Date.now()}`;
+  // Same collision-suffix convention as every other timestamp-named backup
+  // in this codebase (configBackup.js, autoExportPlayer, world backups,
+  // the pre-import snapshot). Date.now() is millisecond-resolution, and
+  // this function's only caller (POST /api/panel/restart, server/index.js)
+  // runs it BEFORE checker.isApplying is set -- a double-submit of that
+  // request (the exact trigger already guarded against for the pre-import
+  // snapshot elsewhere in this codebase) can reach this twice before either
+  // request's copy completes, computing the identical path both times. The
+  // second renameSync would otherwise silently replace the first snapshot.
+  let backupPath = baseBackupPath;
+  for (let collision = 2; fsModule.existsSync(backupPath); collision++) {
+    backupPath = `${baseBackupPath}-${collision}`;
+  }
   const tempPath = `${backupPath}.tmp`;
   fsModule.copyFileSync(dbPath, tempPath);
   try {
@@ -151,7 +173,23 @@ export function createUpdateDataBackup(dataPaths, version, fsModule = fs) {
 export function restorePreUpdateDataBackup(dataPaths, backupPath, fsModule = fs) {
   const dbPath = dataPaths?.dbPath;
   if (!dbPath || !backupPath || !fsModule.existsSync(backupPath)) return false;
-  fsModule.copyFileSync(backupPath, dbPath);
+  // Same shape as createUpdateDataBackup() above: copy to a temp name first,
+  // then rename into place, instead of overwriting dbPath directly. A direct
+  // copyFileSync(backupPath, dbPath) has no atomicity -- a crash or kill
+  // partway through leaves dbPath half-written, and the OLD binary this
+  // restore exists to hand back to (see server/index.js's version-mismatch
+  // catch, which calls this right before its own process exits) would find
+  // an unparsable database on its very next startup. The rename makes dbPath
+  // always either the pre-restore content or the fully-restored snapshot,
+  // never a partial file.
+  const tempPath = `${dbPath}.restoring-${process.pid}`;
+  fsModule.copyFileSync(backupPath, tempPath);
+  try {
+    fsModule.renameSync(tempPath, dbPath);
+  } catch (error) {
+    try { fsModule.unlinkSync(tempPath); } catch { /* best effort */ }
+    throw error;
+  }
   return true;
 }
 
@@ -241,6 +279,16 @@ export class PanelUpdateChecker {
       this.cleanupOrphanPartials();
     } catch (err) {
       log.debug(`Orphan partial cleanup failed: ${err.message}`);
+    }
+
+    // Sweep orphaned client-staging directories a rollback left behind on
+    // either platform (see cleanupOrphanStagedClientDirs()'s own comment).
+    // Runs after reconcilePendingUpdate() above, so any journal state that
+    // reconciliation itself changes on this same boot is what gets read.
+    try {
+      this.cleanupOrphanStagedClientDirs();
+    } catch (err) {
+      log.debug(`Orphan staged client-dir cleanup failed: ${err.message}`);
     }
 
     // Initial check after 30 seconds
@@ -378,6 +426,21 @@ export class PanelUpdateChecker {
       };
 
       const req = https.get(options, (res) => {
+        // Both branches below only ever resolve/reject from res's own
+        // "data"/"end" events -- if the connection dies mid-body-read (the
+        // response already exists, only its body is incomplete) in a way
+        // Node surfaces on `res` rather than re-propagating to `req`'s own
+        // "error" listener below, neither branch's "end" fires and this
+        // promise never settles. checkForUpdate()'s try/finally only resets
+        // isChecking once its `await` on this actually settles, so an
+        // unsettled promise here latches isChecking true forever and no
+        // later scheduled check ever runs. Settling is idempotent (a
+        // Promise only honors its first resolve/reject), so this is safe to
+        // wire unconditionally alongside the two branches' own resolve/reject
+        // calls without an extra guard flag.
+        res.on("error", reject);
+        res.on("aborted", () => reject(new Error("GitHub response aborted")));
+
         const statusCode = res.statusCode || 0;
 
         if (statusCode === 404) {
@@ -483,10 +546,22 @@ export class PanelUpdateChecker {
    */
   async downloadUpdate() {
     if (this.isDownloading) {
+      // See "Should the download request be held open at all?" (Pam's
+      // 0924a187, god-dispatched 2026-09-07): POST /panel/update-download
+      // still blocks the whole HTTP request for the full transfer today, so
+      // this branch is reachable only from a second, overlapping click. The
+      // client is not wired to treat this as "still going" yet -- that's a
+      // client-contract change for whoever picks up the fire-and-poll
+      // redesign, not something to do unilaterally from this side. What IS
+      // safe to add here, additively, without changing any existing field:
+      // downloadProgress, so a retry click at least carries live progress
+      // instead of a bare "already in progress" the client can only treat
+      // as an error today.
       return {
         success: false,
         error: "Download already in progress",
         code: "already_downloading",
+        downloadProgress: this.downloadProgress,
       };
     }
     if (this.isApplying) {
@@ -506,10 +581,27 @@ export class PanelUpdateChecker {
       };
     }
 
+    // Claim the guard NOW, before the first `await` below, not after it.
+    // preflight() is async (real disk/permission checks), so the old code
+    // left a TOCTOU window open from here until whichever branch first set
+    // isDownloading further down: a second call arriving during that await
+    // sees isDownloading still false and passes this same guard too.
+    // Confirmed reachable, not theoretical: two near-simultaneous downloadUpdate()
+    // calls (e.g. a double-click) both got past the guard and both proceeded
+    // into asset lookup / the real download in a repro. With the SAME pid,
+    // a second binary download would target the identical
+    // `${stagedPath}.partial.${process.pid}` temp path as the first, so both
+    // writes interleave into one corrupted file. Every return below that
+    // does NOT go on to actually download resets isDownloading before
+    // returning, mirroring the finally-based reset the real download itself
+    // already used only for its own errors.
+    this.isDownloading = true;
+
     // Preflight gates the download — we refuse to stage anything if we already
     // know the apply step will fail (no write permission, no disk space, etc).
     const pre = await this.preflight();
     if (!pre.ok) {
+      this.isDownloading = false;
       return {
         success: false,
         error: pre.blockers[0] || "Preflight check failed",
@@ -519,7 +611,6 @@ export class PanelUpdateChecker {
 
     if (this.dockerUpdateProxy.enabled) {
       const version = this.latestRelease.version;
-      this.isDownloading = true;
       try {
         return await this.dockerUpdateProxy.apply(version);
       } catch (error) {
@@ -534,6 +625,7 @@ export class PanelUpdateChecker {
     const isPackaged = typeof process.pkg !== "undefined";
 
     if (!isPackaged) {
+      this.isDownloading = false;
       return {
         success: false,
         error: `Self-update is only available for standalone exe/binary builds. ${getDevModeUpgradeInstruction()}`,
@@ -565,6 +657,7 @@ export class PanelUpdateChecker {
     }
 
     if (!asset) {
+      this.isDownloading = false;
       return {
         success: false,
         error: `No ${isWindows ? "Windows" : "Linux"} binary found in release (looked for ${assetName})`,
@@ -578,13 +671,13 @@ export class PanelUpdateChecker {
       (candidate) => candidate.name === archiveName,
     );
     if (!clientArchive) {
+      this.isDownloading = false;
       return {
         success: false,
         error: `Release is missing ${archiveName}, required to update the web interface safely.`,
       };
     }
 
-    this.isDownloading = true;
     this.downloadProgress = 0;
     this.lastError = null;
 
@@ -1370,15 +1463,20 @@ export class PanelUpdateChecker {
         fs.rmSync(backup, { force: true });
         fs.copyFileSync(source, staged);
         fs.chmodSync(staged, file.mode);
-        if (fs.existsSync(target)) fs.renameSync(target, backup);
-        try {
-          fs.renameSync(staged, target);
-        } catch (error) {
-          if (fs.existsSync(backup) && !fs.existsSync(target)) {
-            fs.renameSync(backup, target);
-          }
-          throw error;
-        }
+        // state-machine sweep, 2026-09-07: backing up via COPY (not the
+        // rename-then-rename-back this used to do) means `target` is never
+        // absent from disk even for an instant -- a crash right here still
+        // leaves the OLD file in place, not a gap. The final
+        // fs.renameSync(staged, target) is a same-directory rename onto an
+        // EXISTING destination, which POSIX guarantees is atomic: the
+        // directory entry flips from old to new in one operation, so
+        // `target` is always either the old file or the new one, never
+        // neither -- unlike applyUpdateBundle()'s binary swap (fix
+        // 03431c65), which has to remove the live file first because it is
+        // swapping between two DIFFERENT directory entries it must
+        // reconcile via a temporary backup name.
+        if (fs.existsSync(target)) fs.copyFileSync(target, backup);
+        fs.renameSync(staged, target);
         swapped.push({ target, backup });
       }
     } catch (error) {
@@ -1416,11 +1514,32 @@ export class PanelUpdateChecker {
   downloadFile(url, destPath, expectedSize, expectedKind = "binary") {
     return new Promise((resolve, reject) => {
       let settled = false;
+      // Assigned once the response arrives and the write stream is opened;
+      // referenced here (outer scope) so fail() -- reachable from a
+      // timeout/abort that fires mid-download, before or after that point --
+      // can actually close it.
+      let file = null;
 
       const fail = (error) => {
         if (settled) return;
         settled = true;
-        fs.unlink(destPath, () => {});
+        // On a timeout/abort partway through, the piped write stream was
+        // never told the source died -- pipe() only auto-ends a destination
+        // on a normal source end, never on a source error -- so it stayed
+        // open, holding the file descriptor. Deleting the file first and
+        // leaving the stream running left destPath potentially still
+        // writable by an orphaned handle, and on Windows an unlink against
+        // a still-open handle can silently fail (the callback below
+        // swallows the error), leaving the corrupt partial download on disk
+        // for a later attempt to trip over. Destroy the stream and wait for
+        // its own close before unlinking, so the delete has an actual
+        // chance to succeed.
+        if (file && !file.destroyed) {
+          file.once("close", () => fs.unlink(destPath, () => {}));
+          file.destroy();
+        } else {
+          fs.unlink(destPath, () => {});
+        }
         reject(error);
       };
 
@@ -1497,7 +1616,7 @@ export class PanelUpdateChecker {
               10,
             );
             let receivedBytes = 0;
-            const file = fs.createWriteStream(destPath);
+            file = fs.createWriteStream(destPath);
 
             let lastEmittedProgress = -1;
             res.on("data", (chunk) => {
@@ -1713,7 +1832,17 @@ export class PanelUpdateChecker {
           blockerDetails,
           "updates.preflight.databaseUnreadable",
           { error: err.message },
-          `Panel database cannot be read before update: ${err.message}.`,
+          // Every other blocker in this function names a concrete operator
+          // action; this one used to just dump the raw parse error with
+          // nothing to do about it. Restarting is the real, verified fix:
+          // getDb() (database/init.js) only attempts recovery from the
+          // backup ring once, on the FIRST call after process start (guarded
+          // by `if (!db)`) -- a corruption discovered here, mid-run, by this
+          // preflight check's own fresh read has never gone through that
+          // path yet, so a restart is not a generic "have you tried turning
+          // it off and on again" but the one action that actually invokes
+          // the recovery this codebase already has.
+          `Panel database cannot be read before update: ${err.message}. Restart the panel first -- it automatically tries to recover db.json from its own backups in data/backups on startup.`,
         );
       }
     } else {
@@ -1758,6 +1887,39 @@ export class PanelUpdateChecker {
       );
     } else {
       info.asset = { name: asset.name, size: asset.size };
+
+      // Gap #2 (god-dispatched, 2026-09-08): the GitHub API round-trip that
+      // populated this.latestRelease only proves api.github.com was
+      // reachable -- it says nothing about asset.downloadUrl, which
+      // resolves to a different host. See probeDownloadHostReachable's own
+      // comment for the tri-state discipline; only a DEFINITIVE DNS/connect
+      // failure becomes a warning, and it can never block.
+      if (asset.downloadUrl) {
+        try {
+          info.downloadHostReachable = await this.probeDownloadHostReachable(
+            asset.downloadUrl,
+          );
+        } catch (err) {
+          info.downloadHostReachable = null;
+          log.debug(`Download-host reachability probe failed: ${err.message}`);
+        }
+        if (info.downloadHostReachable === false) {
+          const downloadHost = (() => {
+            try {
+              return new URL(asset.downloadUrl).hostname;
+            } catch {
+              return "the download host";
+            }
+          })();
+          addPreflightMessage(
+            warnings,
+            warningDetails,
+            "updates.preflight.downloadHostUnreachable",
+            { host: downloadHost },
+            `Could not reach ${downloadHost}, the host the update binary downloads from. A firewall or proxy that allows checking for updates but blocks this host will cause the download to fail even though this check passed.`,
+          );
+        }
+      }
     }
 
     // Write permission probe — try to create + remove a test file next to the exe.
@@ -1795,12 +1957,29 @@ export class PanelUpdateChecker {
     }
 
     // Free disk space check — need ~2x asset size (staged + rename buffer).
+    // 2026-09-04, Dwight's finding: `free !== null && free < needed` reads as
+    // careful, but the other half of that condition is silent -- a null free
+    // (statfs unsupported, or getFreeDiskSpace's own try/catch swallowing a
+    // real error) or a thrown error here both fell through with NO warning
+    // at all, same as no check had ever run. That is the exact shape the
+    // Docker preflight path was deliberately built NOT to have
+    // (checksPerformed:false, an honest "we did not check" rather than a
+    // bare ok:true) -- this check just never got the same treatment. Now an
+    // unknown free-space result surfaces as a warning instead of silence.
     if (asset?.size) {
       try {
         const free = await this.getFreeDiskSpace(exeDir);
         info.freeBytes = free;
         const needed = asset.size * 2;
-        if (free !== null && free < needed) {
+        if (free === null) {
+          addPreflightMessage(
+            warnings,
+            warningDetails,
+            "updates.preflight.diskSpaceUnknown",
+            {},
+            "Could not determine free disk space before update. Proceeding without this check — verify you have enough free space manually if the apply fails partway through.",
+          );
+        } else if (free < needed) {
           const neededMb = (needed / 1024 / 1024).toFixed(0);
           const freeMb = (free / 1024 / 1024).toFixed(0);
           addPreflightMessage(
@@ -1812,6 +1991,14 @@ export class PanelUpdateChecker {
           );
         }
       } catch (err) {
+        info.freeBytes = null;
+        addPreflightMessage(
+          warnings,
+          warningDetails,
+          "updates.preflight.diskSpaceUnknown",
+          {},
+          "Could not determine free disk space before update. Proceeding without this check — verify you have enough free space manually if the apply fails partway through.",
+        );
         log.debug(`Free-space check failed: ${err.message}`);
       }
     }
@@ -1844,7 +2031,31 @@ export class PanelUpdateChecker {
       }
 
       const inProgramFiles = /^c:\\program files/i.test(exeDir);
-      if (inProgramFiles) {
+
+      // Precise version of the path-string heuristic below: does DELETE
+      // actually resolve against the live exe's own ACL, rather than
+      // guessing from where it happens to be installed. See
+      // probeExeDeleteAccess()'s own comment for why this checks DELETE,
+      // not WRITE, and why it can never mutate the file.
+      info.exeDeleteAccess = await this.probeExeDeleteAccess(exePath);
+
+      if (info.exeDeleteAccess === false) {
+        // A verified denial is a strictly stronger signal than the path
+        // guess below -- and fires regardless of path, catching a per-file
+        // AV/ACL block anywhere, not only under Program Files.
+        addPreflightMessage(
+          blockers,
+          blockerDetails,
+          "updates.preflight.exeNotRenameable",
+          {},
+          "Windows will not let this process rename its own program file. Try running as Administrator, or move the panel out of a protected folder.",
+        );
+      } else if (inProgramFiles && info.exeDeleteAccess !== true) {
+        // Fall back to the original heads-up ONLY when the probe couldn't
+        // give a real verdict (blocked/unavailable) -- unchanged behavior
+        // for that case. A verified `true` means we KNOW this install is
+        // fine despite the path, so keeping the generic "might need admin"
+        // warning would be actively wrong information, not caution.
         addPreflightMessage(
           warnings,
           warningDetails,
@@ -1903,6 +2114,184 @@ export class PanelUpdateChecker {
     }
 
     return { ok: blockers.length === 0, blockers, warnings, blockerDetails, warningDetails, info };
+  }
+
+  /**
+   * Windows-only. Answers "can this process rename its own binary" WITHOUT
+   * mutating it -- deliberately not a write-open, and deliberately not a
+   * rename-there-and-back dance.
+   *
+   * Not a write-open: exePath is process.execPath, the CURRENTLY EXECUTING
+   * binary. Windows refuses to open any mapped-for-execution .exe for WRITE
+   * no matter the ACL or elevation -- an image-section lock, not a
+   * permission check -- so an fs.open(path, 'r+') probe here would report
+   * "denied" on every install, healthy or not. That would be worse than not
+   * checking at all: a diagnostic that always fires trains the operator to
+   * ignore it. build.js's generateStartBat() renames the live exe
+   * successfully every day without ever opening it for write, because
+   * rename doesn't need WRITE -- it needs DELETE (Windows rename = remove-
+   * directory-entry, gated by the DELETE right on the source file), and
+   * DELETE is enforced independently of the execution lock. So this probes
+   * exactly that: open a handle requesting ONLY DELETE, then close it
+   * immediately. Succeeds -> the right is granted, and nothing was ever
+   * renamed, deleted, or written -- the handle is just closed. Fails ->
+   * confirmed denied, same non-effect. Dies between the two calls -> the OS
+   * releases the handle on process exit; the file's name and content were
+   * never touched in either branch.
+   *
+   * Node's fs module has no delete-only open, so this shells to PowerShell
+   * (same execFile('powershell.exe', ...) pattern as diskSpace.js/
+   * swapInfo.js, not a new native dependency) for a small inline C#
+   * CreateFile/CloseHandle P/Invoke.
+   *
+   * Returns:
+   *   true  -- DELETE granted (renameable).
+   *   false -- DELETE explicitly denied by the OS (ERROR_ACCESS_DENIED,
+   *            code 5). The only value that may become a preflight BLOCKER.
+   *   null  -- inconclusive: wrong platform, powershell.exe missing/
+   *            blocked/timed out, the probe script itself threw, or any
+   *            other error code. This is the environments-with-AV-and-
+   *            policy case the probe exists to help diagnose ALSO restrict
+   *            the tool used to ask -- so "could not ask" must read as
+   *            unknown, never as a confident false. Never treated as a
+   *            blocker or a warning (same "checksPerformed:false" posture
+   *            as the Docker preflight branch above: a signal nothing can
+   *            act on must stay silent, not become furniture the operator
+   *            learns to ignore).
+   *
+   * An instance method (not a bare export) so tests can vi.spyOn(checker,
+   * "probeExeDeleteAccess") the way every other preflight()-called probe in
+   * this class already is (see getFreeDiskSpace below) -- preflight() calls
+   * it unconditionally on Windows, and this repo's own test machine IS
+   * Windows, so an unmocked run would really shell out to powershell.exe on
+   * every single preflight() test.
+   */
+  async probeExeDeleteAccess(exePath) {
+    if (process.platform !== "win32") return null;
+    const escaped = String(exePath).replace(/'/g, "''");
+    const script = `
+$ErrorActionPreference = 'Stop'
+try {
+  Add-Type -Namespace DwightExeProbe -Name Native -MemberDefinition @'
+[DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+public static extern System.IntPtr CreateFile(string lpFileName, uint dwDesiredAccess, uint dwShareMode, System.IntPtr lpSecurityAttributes, uint dwCreationDisposition, uint dwFlagsAndAttributes, System.IntPtr hTemplateFile);
+[DllImport("kernel32.dll", SetLastError = true)]
+public static extern bool CloseHandle(System.IntPtr hObject);
+'@
+  $DELETE = 0x00010000
+  $shareAll = 0x1 -bor 0x2 -bor 0x4
+  $handle = [DwightExeProbe.Native]::CreateFile('${escaped}', $DELETE, $shareAll, [System.IntPtr]::Zero, 3, 0, [System.IntPtr]::Zero)
+  if ($handle.ToInt64() -eq -1) {
+    $errCode = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+    Write-Output "DENIED:$errCode"
+  } else {
+    [DwightExeProbe.Native]::CloseHandle($handle) | Out-Null
+    Write-Output "GRANTED"
+  }
+} catch {
+  Write-Output "PROBE_ERROR"
+}
+`;
+    const result = await new Promise((resolve) => {
+      try {
+        execFile(
+          "powershell.exe",
+          ["-NoProfile", "-NonInteractive", "-Command", script],
+          { timeout: EXE_DELETE_PROBE_TIMEOUT_MS, windowsHide: true },
+          (err, stdout) => resolve({ ok: !err, stdout: stdout || "" }),
+        );
+      } catch {
+        resolve({ ok: false, stdout: "" });
+      }
+    });
+    const out = result.stdout.trim();
+    if (!result.ok || !out) return null;
+    if (out === "GRANTED") return true;
+    if (out.startsWith("DENIED:")) {
+      // ERROR_ACCESS_DENIED = 5. Anything else (file vanished mid-probe =
+      // 2, a sharing violation = 32, etc.) isn't a permission verdict.
+      const code = parseInt(out.slice("DENIED:".length), 10);
+      return code === 5 ? false : null;
+    }
+    return null;
+  }
+
+  /**
+   * Preflight already proves api.github.com was reachable, at the LAST
+   * check-for-updates call -- it never proves the actual binary download
+   * host is. GitHub serves release assets from a different host
+   * (objects.githubusercontent.com, or another *.githubusercontent.com),
+   * and a firewall/proxy that allowlists the API host but not the CDN
+   * passes preflight clean and only fails once Restart and Apply actually
+   * tries to fetch the binary -- the worst possible place to discover it.
+   *
+   * Same tri-state discipline as probeExeDeleteAccess above, and for the
+   * same reason: a connectivity probe that can misfire on a slow proxy or
+   * a captive portal trains the operator to ignore it, so this can only
+   * ever become a WARNING, never a blocker, and only on a truly definitive
+   * failure -- everything else, including a timeout, must read as unknown.
+   *
+   * Returns:
+   *   true  -- the host accepted a TCP connection and returned an HTTP
+   *            response (any status). This only asks "is the host
+   *            reachable," not "does it serve this exact file."
+   *   false -- DNS resolution or the connection was definitively refused
+   *            (ENOTFOUND, ECONNREFUSED). The only value that may become a
+   *            preflight warning.
+   *   null  -- inconclusive: untrusted/non-HTTPS URL, timeout, reset, or
+   *            any other error code. Never surfaced.
+   *
+   * An instance method (not a bare export) so tests can vi.spyOn(checker,
+   * "probeDownloadHostReachable") the same way every other network-hitting
+   * preflight() probe in this class already is -- an unmocked run would
+   * really hit the network on every preflight() test otherwise.
+   */
+  async probeDownloadHostReachable(downloadUrl) {
+    let parsed;
+    try {
+      parsed = new URL(downloadUrl);
+    } catch {
+      return null;
+    }
+    if (parsed.protocol !== "https:") return null;
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+      let req;
+      try {
+        req = https.request(
+          downloadUrl,
+          {
+            method: "HEAD",
+            headers: { "User-Agent": `ZomboidControlPanel/${this.currentVersion}` },
+          },
+          (res) => {
+            res.resume();
+            finish(true);
+          },
+        );
+      } catch {
+        finish(null);
+        return;
+      }
+      req.on("error", (err) => {
+        if (err && (err.code === "ENOTFOUND" || err.code === "ECONNREFUSED")) {
+          finish(false);
+        } else {
+          finish(null);
+        }
+      });
+      req.setTimeout(DOWNLOAD_HOST_PROBE_TIMEOUT_MS, () => {
+        req.destroy();
+        finish(null);
+      });
+      req.end();
+    });
   }
 
   /**
@@ -2228,6 +2617,15 @@ export class PanelUpdateChecker {
    *   'permission'    — access denied on move/copy
    *   'no_helper_log' — no log found at all
    *   'unknown'       — log exists but doesn't match a known pattern
+   *   'powershell_unavailable' — a hash-check step got no output at all, and
+   *                     a follow-up probe confirmed PowerShell itself won't
+   *                     run (execution policy / AppLocker / Group Policy)
+   *   'startup_handshake_failed' — the swap itself succeeded (exe + client
+   *                     dist both activated) but the new binary exited
+   *                     before acknowledging startup -- version_mismatch,
+   *                     invalid_bundle, or an unrelated crash all look
+   *                     identical to Start.bat, so this names ONLY that it
+   *                     rolled back cleanly, not why the new binary exited
    *
    * Order matters: check permission before lock, and check AV signatures
    * first because "cannot find path" / "system cannot find the file" can
@@ -2289,13 +2687,44 @@ export class PanelUpdateChecker {
     // extends the client-side vocabulary, not a silent one.
     const supervisorTags = [
       ...helperLog.matchAll(
-        /\[(av_quarantine|version_mismatch|startup_handshake_failed|frontend_swap_failed|binary_swap_failed|bundle_apply_failed|rollback_failed)\]/gi,
+        /\[(av_quarantine|version_mismatch|startup_handshake_failed|frontend_swap_failed|binary_swap_failed|bundle_apply_failed|rollback_failed|powershell_unavailable)\]/gi,
       ),
     ].map((m) => m[1].toLowerCase());
     const lastSupervisorTag = supervisorTags[supervisorTags.length - 1];
     if (lastSupervisorTag === "av_quarantine") return "av_quarantine";
-    if (lastSupervisorTag === "binary_swap_failed") return "rename_locked";
+    if (lastSupervisorTag === "binary_swap_failed") {
+      return this.classifyBinarySwapFailure(helperLog);
+    }
     if (lastSupervisorTag === "rollback_failed") return "rollback_failed";
+    // 2026-09-08, god-dispatched fix: generateStartBat()'s hash checks used
+    // to stamp [av_quarantine] unconditionally whenever the powershell hash
+    // command produced no output at all -- indistinguishable from a real
+    // hash mismatch, so an operator whose PowerShell is blocked (execution
+    // policy / AppLocker / Group Policy -- the exact v1.0.20 ASR/Defender
+    // shape spawnWindowsApplyHelper()'s own history documents, never
+    // revisited when the supervisor's outer script moved to cmd.exe) got
+    // sent at AV exclusions instead of the actual fix. The supervisor now
+    // probes with a trivial PowerShell command, ONLY after that refusal has
+    // already happened, and stamps this distinct tag when the probe ALSO
+    // comes back empty -- same refusal either way, precise reported cause.
+    if (lastSupervisorTag === "powershell_unavailable") return "powershell_unavailable";
+    // GH#149, 2026-09-08 (god-dispatched, reported-shape-first): the swap
+    // itself can succeed completely (exe backed up, exe renamed, client dist
+    // activated -- every :stamp on the happy path present) and the panel
+    // still exit before acknowledging startup, for reasons ranging from a
+    // real version_mismatch/invalid_bundle throw (inspectPendingPanelUpdate(),
+    // server/index.js) to an unrelated crash. Start.bat's own :run_loop
+    // cannot tell those apart -- it only knows the marker was still
+    // ".update-applying" when the child exited -- so it stamps this ONE tag
+    // for all of them. Giving it its own bucket rather than folding it into
+    // av_quarantine/rename_locked/rollback_failed (none of which are true
+    // here) means the UI stops saying "unknown" when the log names the exact
+    // condition three lines away, without CLAIMING to know the underlying
+    // throw code it genuinely doesn't have (see readMostRecentApplyLog()'s
+    // own error.log tail below for the closest this function gets to that).
+    if (lastSupervisorTag === "startup_handshake_failed") {
+      return "startup_handshake_failed";
+    }
 
     // Helper was blocked from running at all (ASR / AV / Group Policy).
     // The PRE-SPAWN sentinel line written by the main panel is there, but
@@ -2364,6 +2793,51 @@ export class PanelUpdateChecker {
   }
 
   /**
+   * Sub-classify a "binary_swap_failed" bracket tag into "permission" vs the
+   * default "rename_locked". god-dispatched, 2026-09-08: both of build.js's
+   * binary_swap_failed sites (the backup-rename of the live exe, and the
+   * activation-rename of the staged exe) redirect the `ren` command's own
+   * stderr into the log via `>>"%LOG_FILE%" 2>&1` on the line immediately
+   * BEFORE the `call :stamp` line that writes the bracket tag -- so the
+   * discriminating cmd.exe text (8f939c1b) sits in a small window right
+   * before the tag, not scattered across the whole log. Mirrors
+   * isRollbackRetryLikely()'s established pattern below: a SECONDARY check
+   * run in ADDITION to the primary bracket match in classifyApplyFailure(),
+   * scoped to the LAST occurrence of this one specific tag, never replacing
+   * the primary match for any other tag or changing behaviour for a log
+   * where this sub-check finds neither string.
+   *
+   * NOTE this asymmetry is deliberate, not an oversight: frontend_swap_failed
+   * has no equivalent early return in classifyApplyFailure() -- it already
+   * falls through to the legacy whole-log prose checks below, which already
+   * discriminate permission vs rename_locked for it. Only binary_swap_failed
+   * short-circuited past that discrimination, which is the actual bug.
+   *
+   * Never throws.
+   */
+  classifyBinarySwapFailure(helperLog) {
+    const lines = helperLog.split(/\r?\n/);
+    let lastTagIndex = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (/\[binary_swap_failed\]/i.test(lines[i])) lastTagIndex = i;
+    }
+    if (lastTagIndex === -1) return "rename_locked";
+
+    const window = lines
+      .slice(Math.max(0, lastTagIndex - 3), lastTagIndex)
+      .join(" ")
+      .toLowerCase();
+    if (
+      window.includes("access is denied") ||
+      window.includes("access denied") ||
+      window.includes("unauthorized")
+    ) {
+      return "permission";
+    }
+    return "rename_locked";
+  }
+
+  /**
    * For a "rollback_failed" apply, whether the operator should expect the
    * SAME failure to recur automatically on a later restart/relaunch, as
    * opposed to a fully-recovered state with only a harmless leftover
@@ -2403,10 +2877,59 @@ export class PanelUpdateChecker {
   }
 
   /**
+   * GH#149, 2026-09-08 (god-dispatched, item 2 of the shape report): the
+   * bracket tag Start.bat stamps on a startup-handshake failure (or any
+   * other Supervisor v2 tag) is the most SPECIFIC signal supervisor.log
+   * carries, but it is not the MOST INFORMATIVE one available on disk --
+   * index.js's own `log.error("Update startup validation failed [<code>]:
+   * <message>")` (the real inspectPendingPanelUpdate() throw, naming the
+   * exact version_mismatch/invalid_bundle variant) lands in logs/error.log
+   * via the panel's winston logger, never in supervisor.log, and
+   * readMostRecentApplyLog() below never looked there. Appending its tail
+   * gives the classifier's consumers (the "Show Helper Log" UI, any future
+   * support triage) a chance at the real cause even though classifyApplyFailure()
+   * itself still only trusts the bracket tag -- best-effort, same posture as
+   * every other read in this file: a missing/unreadable error.log is not an
+   * error, it just means this function returns what it already had.
+   */
+  readErrorLogTail(maxBytes = 4 * 1024) {
+    try {
+      const errorLogPath = path.join(getDataPaths().logsDir, "error.log");
+      if (!fs.existsSync(errorLogPath)) return null;
+      const stat = fs.statSync(errorLogPath);
+      if (stat.size === 0) return null;
+      if (stat.size <= maxBytes) {
+        const content = fs.readFileSync(errorLogPath, "utf8");
+        return content.trim() ? content : null;
+      }
+      const fd = fs.openSync(errorLogPath, "r");
+      try {
+        const buf = Buffer.alloc(maxBytes);
+        fs.readSync(fd, buf, 0, maxBytes, stat.size - maxBytes);
+        return `... (truncated, tail only)\n${buf.toString("utf8")}`;
+      } finally {
+        fs.closeSync(fd);
+      }
+    } catch (err) {
+      log.debug(`readErrorLogTail failed: ${err.message}`);
+      return null;
+    }
+  }
+
+  /**
    * Read the most recent Windows apply-helper log from TEMP, if any.
-   * Returns up to 8KB of log text or null.
+   * Returns up to 8KB of log text (plus, when available, a bounded tail of
+   * the panel's own logs/error.log -- see readErrorLogTail() above) or null.
    */
   readMostRecentApplyLog() {
+    const primary = this._readSupervisorApplyLog();
+    const errorTail = this.readErrorLogTail();
+    if (!errorTail) return primary;
+    if (!primary) return `--- Panel error.log (tail) ---\n${errorTail}`;
+    return `${primary}\n\n--- Panel error.log (tail) ---\n${errorTail}`;
+  }
+
+  _readSupervisorApplyLog() {
     // Start.bat v2 writes apply diagnostics to supervisor.log. Older helper
     // versions (pre-v1.0.21) used panel-update-last.log or timestamped
     // files under logsDir, so those fallbacks are retained for upgraded
@@ -2609,7 +3132,34 @@ export class PanelUpdateChecker {
   /**
    * Remove orphan .partial.<pid> files left behind by interrupted downloads.
    * Called at start() — at that moment no download can be in progress, so
-   * everything matching the partial pattern is safe to delete.
+   * everything matching either partial pattern is safe to delete.
+   *
+   * Two distinct naming shapes, both written by downloadAndStageUpdate():
+   *   - the staged binary download: `<stagedPath>.partial.<pid>` (no further
+   *     suffix -- matches partialPattern below).
+   *   - the client archive download: `.client-dist-<version>.partial.<pid>.zip`
+   *     (or `.tar.gz` on Linux) -- did NOT match partialPattern (its `$`
+   *     anchor requires the digits to be the last characters in the name,
+   *     but the archive extension follows them), so a process crash between
+   *     a successful client-archive download and its own happy-path unlink
+   *     (anywhere inside stageClientDist(), or the gap before line ~714's
+   *     cleanup) left one of these behind on every exeDir readdirSync scan
+   *     forever -- an accumulating, never-swept leak matching only the
+   *     unlucky half of "interrupted download", not both halves.
+   *
+   * 2026-09-08, god-dispatched (harden-updater-fileops #2, destructive):
+   * the staged-binary pattern was `/\.partial\.\d+$/` with NO prefix
+   * requirement at all -- it matched ANY file in exeDir ending in
+   * ".partial.<digits>", not only ones this code created. exeDir is
+   * wherever the operator installed the panel (Desktop, a shared tools
+   * folder, anywhere), not a directory this process owns exclusively; any
+   * unrelated file sharing that suffix shape (another tool's own partial-
+   * write convention, or literally a file the operator happened to name
+   * that way) was silently deleted on every single start(). Anchored to
+   * require the panel's own exe basename + ".new"/".new2" prefix, matching
+   * exactly what downloadAndStageUpdate() actually names its own file and
+   * nothing else -- same fix shape as the client-archive pattern below,
+   * which was already correctly prefix-anchored.
    */
   cleanupOrphanPartials() {
     if (typeof process.pkg === "undefined") return;
@@ -2620,15 +3170,91 @@ export class PanelUpdateChecker {
     } catch {
       return;
     }
-    const partialPattern = /\.partial\.\d+$/;
+    const exeBaseName = path.basename(this.getExeBasePath());
+    const escapedBaseName = exeBaseName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const partialPatterns = [
+      new RegExp(`^${escapedBaseName}\\.new2?\\.partial\\.\\d+$`),
+      /^\.client-dist-.+\.partial\.\d+\.(?:zip|tar\.gz)$/,
+    ];
     for (const name of entries) {
-      if (!partialPattern.test(name)) continue;
+      if (!partialPatterns.some((pattern) => pattern.test(name))) continue;
       const fp = path.join(exeDir, name);
       try {
         fs.unlinkSync(fp);
         log.info(`Removed orphan download partial: ${name}`);
       } catch (err) {
         log.debug(`Could not remove orphan partial ${fp}: ${err.message}`);
+      }
+    }
+  }
+
+  /**
+   * god-dispatched, 2026-09-08 (harden-updater-fileops #1 follow-up):
+   * stageUpdateBundle() (updateBundle.js) copies the verified client bundle
+   * into `client/dist.new-<version>` -- a fresh, version-named directory
+   * every time, never reusing a prior one. Neither rollback() (Linux) nor
+   * build.js's :rollback_update (Windows) ever cleans this up on a failed
+   * apply -- both only restore the LIVE binary/client from their backups.
+   * Confirmed unreachable-by-construction before writing this: downloadUpdate()
+   * always starts a fresh download+stage cycle (its own comment: "Clear any
+   * prior staged file so we always download fresh"), and getStagedUpdate()
+   * -- the ONLY gate anything uses to find a stageable update -- requires a
+   * valid, currently-referencing journal. Once rollback deletes the journal
+   * (or a crash happens before one was ever written), nothing in this
+   * codebase can discover or re-apply the orphaned directory again; it is
+   * pure wasted disk, not a retry path being thrown away. Unlike the staged
+   * BINARY (a fixed .new/.new2 slot that self-recycles on the very next
+   * download attempt regardless of version -- see getStageSlotPath()), this
+   * is namespaced by version and therefore unbounded: a different future
+   * release's dist.new-<version> never touches a stale one.
+   *
+   * Reads the CURRENT journal's paths.stagedClient (if any, whatever its
+   * phase) and never removes that exact directory, matching
+   * cleanupOrphanPartials()'s "an inconclusive signal never authorises a
+   * destructive action" philosophy: an unreadable/missing journal means
+   * sweep nothing conditioned on it existing at all is impossible to prove,
+   * so a corrupt journal fails toward keeping everything rather than
+   * guessing which directory it might still be protecting.
+   */
+  cleanupOrphanStagedClientDirs() {
+    if (typeof process.pkg === "undefined") return;
+    const exeDir = path.dirname(this.getExeBasePath());
+    const clientDir = path.join(exeDir, "client");
+    let entries;
+    try {
+      entries = fs.readdirSync(clientDir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    const journalPath = path.join(exeDir, "update-bundle.json");
+    let keepPath = null;
+    if (fs.existsSync(journalPath)) {
+      try {
+        const journal = JSON.parse(fs.readFileSync(journalPath, "utf8"));
+        if (journal?.paths?.stagedClient) {
+          keepPath = path.resolve(journal.paths.stagedClient);
+        }
+      } catch (err) {
+        log.debug(
+          `Could not read update-bundle.json for orphan client-dir sweep, skipping this pass: ${err.message}`,
+        );
+        return;
+      }
+    }
+    const stagedClientDirPattern = /^dist\.new-.+$/;
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !stagedClientDirPattern.test(entry.name)) {
+        continue;
+      }
+      const fullPath = path.join(clientDir, entry.name);
+      if (keepPath && path.resolve(fullPath) === keepPath) continue;
+      try {
+        fs.rmSync(fullPath, { recursive: true, force: true });
+        log.info(`Removed orphaned staged client bundle: ${entry.name}`);
+      } catch (err) {
+        log.debug(
+          `Could not remove orphaned staged client bundle ${fullPath}: ${err.message}`,
+        );
       }
     }
   }

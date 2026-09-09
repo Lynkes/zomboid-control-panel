@@ -377,9 +377,15 @@ export function generateStartBat() {
   // different attempt each time, against possibly-changed external
   // conditions (an AV scan finishing, OneDrive releasing a lock), naturally
   // rate-limited to once per restart, a human-paced action. Retention here
-  // is deliberately unbounded and untouched by this change -- Dwight proved
-  // it rescues a real transient failure (a relaunch completed his pending
-  // update once he released a file lock).
+  // was originally unbounded, deliberately -- Dwight proved it rescues a
+  // real transient failure (a relaunch completed his pending update once
+  // he released a file lock). It is now bounded at MAX_PENDING_APPLY_ATTEMPTS
+  // (see "Pending-apply retry cap" further down): Dwight separately found
+  // that "unbounded" also means a GENUINELY permanent failure (a lock that
+  // never releases, a staged binary AV has already deleted for good) retries
+  // silently forever, once per restart, with nothing to show for it but a
+  // supervisor.log line -- the same disease as .update-applying's, just at a
+  // slower, restart-paced cadence instead of a relaunch-paced one.
   //
   // .update-applying is different in kind, not just in which file survives.
   // It only exists once :apply_update has ALREADY succeeded and the new
@@ -455,7 +461,50 @@ set "MAX_ROLLBACK_RETRIES=2"
 set "ROLLBACK_RETRY_COUNT=0"
 if defined PANEL_SUPERVISOR_MAX_ROLLBACK_RETRIES set "MAX_ROLLBACK_RETRIES=%PANEL_SUPERVISOR_MAX_ROLLBACK_RETRIES%"
 
+rem === Pending-apply retry cap (Dwight's finding, god-dispatched 2026-09-07 ===
+rem === as part of hardening the Windows updater state machine). ===
+rem === .update-pending is DELIBERATELY unbounded through most of          ===
+rem === :apply_update -- an AV scan finishing or a lock releasing between  ===
+rem === restarts is a genuinely different attempt each time, and every     ===
+rem === validation branch below (missing journal, missing staged binary,   ===
+rem === a hash mismatch) already deletes the marker itself, so those never ===
+rem === loop at all. Two shapes do not: the running executable can never   ===
+rem === be renamed away (still locked by a scanner, or blocked by          ===
+rem === Controlled Folder Access) -- nothing was touched yet, so there is  ===
+rem === nothing for :rollback_update to undo, and the marker survives to   ===
+rem === trigger the identical attempt on every future restart, forever,    ===
+rem === with nothing but a line in supervisor.log to show for it. A failed ===
+rem === :rollback_update ("journal retained for recovery") has the same    ===
+rem === shape -- the marker survives that too, and ROLLBACK_RETRY_COUNT    ===
+rem === above does not cover it: that counter only guards the loop AFTER a ===
+rem === swap has already succeeded (the "%APPLYING%" check in run_loop),   ===
+rem === and these failures happen BEFORE the marker ever becomes APPLYING. ===
+rem === PENDING_ATTEMPTS_FILE is persisted on disk -- unlike               ===
+rem === ROLLBACK_RETRY_COUNT, it must survive a full process exit, not     ===
+rem === just a relaunch inside one supervisor run -- and is checked at the ===
+rem === very top of :apply_update, before any file operation runs, so it   ===
+rem === bounds both shapes in one place: past the cap, stop retrying and   ===
+rem === keep running whatever build is currently in place instead of       ===
+rem === trying forever.                                                    ===
+set "PENDING_ATTEMPTS_FILE=%INSTALL_DIR%.update-pending-attempts"
+set "MAX_PENDING_APPLY_ATTEMPTS=3"
+if defined PANEL_SUPERVISOR_MAX_PENDING_APPLY_ATTEMPTS set "MAX_PENDING_APPLY_ATTEMPTS=%PANEL_SUPERVISOR_MAX_PENDING_APPLY_ATTEMPTS%"
+
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" >nul 2>&1
+if not exist "%LOG_DIR%" (
+  rem mkdir above failed silently (a permission-restricted install folder, a
+  rem read-only mount, or similar) and LOG_FILE below would redirect into a
+  rem directory that still doesn't exist -- every :stamp call for the rest
+  rem of this run would then fail too, leaving supervisor.log completely
+  rem dark for whatever ELSE goes wrong this session. Not the same
+  rem condition preflight's write-probe already catches: that probe writes
+  rem a throwaway FILE directly in the install folder, which is a different
+  rem permission than creating a NEW subdirectory inside it. Fall back to
+  rem logging directly in the install folder instead of going dark for the
+  rem whole run -- an uglier location beats no diagnostic trail at all.
+  echo WARNING: could not create the logs folder at "%LOG_DIR%" -- logging to the install folder instead.
+  set "LOG_FILE=%INSTALL_DIR%supervisor.log"
+)
 
 call :stamp "Supervisor v2 starting"
 
@@ -484,17 +533,87 @@ echo.
   call :stamp "Launching !TARGET!"
   echo Launching !TARGET!
   echo.
-  "%INSTALL_DIR%!TARGET!"
-  set "EXITCODE=!ERRORLEVEL!"
-  call :stamp "Panel exited with code !EXITCODE!"
-
+  rem start-bat-never-captures-the-launched-panels-own-output, god-dispatched
+  rem 2026-09-08 (GH#149 item 2, the writer half -- Dwight's d9b014b5 widened
+  rem the READER, readMostRecentApplyLog(), to also surface logs/error.log's
+  rem tail; nothing captured the panel's own console output into
+  rem supervisor.log itself before this). index.js's "Update startup
+  rem handshake failed [<code>]: <message>" line goes through winston, which
+  rem (see server/utils/logger.js) prints EVERY level including error to
+  rem STDOUT via its Console transport (no stderrLevels configured) -- so
+  rem tee-ing this launch's stdout into %LOG_FILE% puts the exact
+  rem version_mismatch/invalid_bundle code and message right next to the
+  rem "Launching"/"Panel exited" stamps bracketing it, with zero changes
+  rem needed on the Node side.
+  rem
+  rem Scoped to ONLY the update-apply handshake window (an "%APPLYING%"
+  rem marker present at launch -- this iteration's own :apply_update just
+  rem set it, or a previous attempt's handshake never cleared it) rather
+  rem than every ordinary launch: a panel that starts cleanly runs for days
+  rem as a long-lived server, and tee-ing its ENTIRE lifetime of console
+  rem chatter (RCON activity, scheduled tasks, ...) would be unbounded
+  rem memory growth in the wrapping powershell.exe AND would bloat
+  rem supervisor.log on every single restart, not just update-related ones
+  rem -- disproportionate to what this card actually asked for ("a panel
+  rem that exits 76 DURING APPLY"). An ordinary launch keeps the exact bare
+  rem invocation this file has always used, unchanged, zero added risk.
+  rem
+  rem Verified empirically under real Windows (csc.exe stub, not reasoned
+  rem from the PowerShell docs alone -- several of the choices below only
+  rem surfaced by actually running it):
+  rem   - Piping through Tee-Object (or anything) in CMD ITSELF would hand
+  rem     %ERRORLEVEL% to the pipe's LAST command, not the panel -- exactly
+  rem     the risk god flagged. The pipe instead lives ENTIRELY inside one
+  rem     powershell -Command invocation, using $LASTEXITCODE (which native-
+  rem     command invocation sets and Tee-Object/ForEach-Object do not
+  rem     disturb), then 'exit $LASTEXITCODE' so the OUTER cmd.exe capture
+  rem     (this file's own existing 'set EXITCODE=!ERRORLEVEL!' below) sees
+  rem     the real panel exit code untouched. Confirmed byte-identical for
+  rem     0/75/76/78 and an ordinary crash code.
+  rem   - A launch that never starts at all (corrupt/blocked exe) leaves
+  rem     $LASTEXITCODE UNSET, which 'exit $LASTEXITCODE' turns into 0 --
+  rem     silently reads as "clean shutdown" and never relaunches. Wrapped
+  rem     in try/catch with an explicit '$code = 1' fallback so this matches
+  rem     cmd's own baseline (a direct invocation of the same broken exe
+  rem     also yields ERRORLEVEL 1) instead of a false "exited cleanly".
+  rem   - Merging stderr into the pipe (2>&1, PowerShell's own operator, not
+  rem     cmd's) makes PowerShell wrap every native stderr LINE as an
+  rem     ErrorRecord and print an ugly multi-line "NativeCommandError"
+  rem     block for it, on the live console too -- worse UX than today for
+  rem     any stderr output at all. Left unmerged: stdout is tee'd (where
+  rem     the winston message actually is), stderr still passes straight
+  rem     through to the real console exactly as before, unredirected.
+  rem   - Tee-Object on Windows PowerShell 5.1 (the "powershell" this file
+  rem     has always invoked, NOT the newer "pwsh") has no -Encoding
+  rem     parameter at all -- its fixed default is UTF-16, which corrupts
+  rem     when interleaved into supervisor.log's existing single-byte
+  rem     content from :stamp's plain 'echo >>'. Captured into a bounded
+  rem     queue instead and written with a single explicit
+  rem     'Add-Content -Encoding ASCII' call, matching :stamp's own bytes.
+  rem   - '$capturedLines = & exe | Tee-Object ...' (assigning the whole
+  rem     pipeline) suppresses PowerShell's own default host display --
+  rem     the user's console would go SILENT for the entire launch,
+  rem     including the "ready" URL line this file promises above. Left the
+  rem     pipeline's own output unassigned (ForEach-Object side-effects into
+  rem     the queue instead) so it still auto-displays live, confirmed by
+  rem     polling the capture file's line count while a slow-printing stub
+  rem     ran and seeing it grow incrementally, not all at once at exit.
+  rem   - Bounded to the last 200 lines (a Queue, not a growing list) so
+  rem     even an update whose freshly-swapped binary happens to run for a
+  rem     long time before finally failing does not turn this into an
+  rem     unbounded capture -- supervisor.log itself still has no rotation
+  rem     of its own (unchanged; matching it, not inventing a new policy),
+  rem     but this new per-launch contribution is capped regardless.
   if exist "%APPLYING%" (
-    if !ROLLBACK_RETRY_COUNT! GEQ !MAX_ROLLBACK_RETRIES! goto rollback_retry_exhausted
-    set /a ROLLBACK_RETRY_COUNT+=1
-    call :stamp "Apply: startup handshake failed; rolling back bundle, retry !ROLLBACK_RETRY_COUNT! of !MAX_ROLLBACK_RETRIES! [startup_handshake_failed]"
-    call :rollback_update
-    goto run_loop
+    set "LAUNCH_TARGET=%INSTALL_DIR%!TARGET!"
+    set "CAPTURE_LOG=%LOG_FILE%"
+    powershell -NoProfile -Command "$q = New-Object System.Collections.Generic.Queue[string]; try { & $env:LAUNCH_TARGET | ForEach-Object { $_; $q.Enqueue([string]$_); if ($q.Count -gt 200) { [void]$q.Dequeue() } }; $code = $LASTEXITCODE } catch { $code = 1 }; try { if ($q.Count -gt 0) { Add-Content -Path $env:CAPTURE_LOG -Value ($q -join [Environment]::NewLine) -Encoding ASCII } } catch { }; exit $code"
+    set "EXITCODE=!ERRORLEVEL!"
+  ) else (
+    "%INSTALL_DIR%!TARGET!"
+    set "EXITCODE=!ERRORLEVEL!"
   )
+  call :stamp "Panel exited with code !EXITCODE!"
 
   rem Exit code 75 = panel requested restart-for-update.
   if "!EXITCODE!"=="75" (
@@ -509,11 +628,27 @@ echo.
   rem retrying is guaranteed to fail identically every time, so this stops
   rem here instead of entering the crash-loop backoff -- retrying (and
   rem eventually "giving up") would misrepresent a working refusal as a
-  rem string of crashes.
+  rem string of crashes. Checked BEFORE the "%APPLYING%" handshake check
+  rem below on purpose (2026-09-08, windows-presence-check-precedes-exit-
+  rem code-branches): a stale/orphaned lock can coincide with an update
+  rem window, and a lock refusal says NOTHING about whether the just-swapped
+  rem binary is broken. The old order treated exit 78 as a failed handshake
+  rem and rolled back a perfectly good update -- which does not even clear
+  rem the lock, so the relaunched (rolled-back) binary would hit the exact
+  rem same refusal AND the update would be lost for nothing. Mirrors
+  rem Start.sh's equivalent ordering (see its own comment on this).
   if "!EXITCODE!"=="78" (
     echo.
     pause
     exit /b 78
+  )
+
+  if exist "%APPLYING%" (
+    if !ROLLBACK_RETRY_COUNT! GEQ !MAX_ROLLBACK_RETRIES! goto rollback_retry_exhausted
+    set /a ROLLBACK_RETRY_COUNT+=1
+    call :stamp "Apply: startup handshake failed; rolling back bundle, retry !ROLLBACK_RETRY_COUNT! of !MAX_ROLLBACK_RETRIES! [startup_handshake_failed]"
+    call :rollback_update
+    goto run_loop
   )
 
   rem If a marker appeared during runtime (panel wrote it but then crashed
@@ -608,7 +743,29 @@ rem  - Backs up current .exe and client\\dist under fixed transaction names.
 rem  - Keeps both backups until the new backend acknowledges listener startup.
 rem ============================================================
 :apply_update
-  call :stamp "Apply: marker present, beginning swap"
+  rem See "Pending-apply retry cap" above. Checked before anything else in
+  rem this label runs -- a give-up here must not attempt any further file
+  rem operation against a state nothing has changed about.
+  set "PENDING_ATTEMPTS=0"
+  if exist "%PENDING_ATTEMPTS_FILE%" set /p PENDING_ATTEMPTS=<"%PENDING_ATTEMPTS_FILE%"
+  if not defined PENDING_ATTEMPTS set "PENDING_ATTEMPTS=0"
+  set /a PENDING_ATTEMPTS+=1
+  if !PENDING_ATTEMPTS! GTR !MAX_PENDING_APPLY_ATTEMPTS! (
+    call :stamp "Apply: giving up after !PENDING_ATTEMPTS! attempts to apply this update [pending_apply_exhausted]"
+    echo.
+    echo ERROR: The staged update could not be applied after multiple attempts,
+    echo most likely because an antivirus scan or backup tool is holding a
+    echo file open. The panel will keep running its CURRENT version.
+    echo To retry, download the update again from Settings, or delete
+    echo .update-pending and update-bundle.json from this folder to give up
+    echo permanently.
+    echo.
+    del /f /q "%MARKER%" "%PENDING_ATTEMPTS_FILE%" >nul 2>&1
+    goto :eof
+  )
+  > "%PENDING_ATTEMPTS_FILE%" echo !PENDING_ATTEMPTS!
+
+  call :stamp "Apply: marker present, beginning swap (attempt !PENDING_ATTEMPTS! of !MAX_PENDING_APPLY_ATTEMPTS!)"
   rem See "Rollback false-positive fix" above. Reset per attempt -- these
   rem must never carry a stale value into a later :rollback_update call.
   set "EXE_BACKUP_MADE=0"
@@ -616,7 +773,7 @@ rem ============================================================
 
   if not exist "%JOURNAL%" (
     call :stamp "Apply: update-bundle.json missing [version_mismatch]"
-    del /f /q "%MARKER%" >nul 2>&1
+    del /f /q "%MARKER%" "%PENDING_ATTEMPTS_FILE%" >nul 2>&1
     goto :eof
   )
 
@@ -625,7 +782,7 @@ rem ============================================================
 
   if not defined STAGED_NAME (
     call :stamp "Apply: staged binary missing or quarantined [av_quarantine]"
-    del /f /q "%MARKER%" >nul 2>&1
+    del /f /q "%MARKER%" "%PENDING_ATTEMPTS_FILE%" >nul 2>&1
     goto :eof
   )
 
@@ -638,12 +795,70 @@ rem ============================================================
   rem (applyUpdateBundle()) already verifies against it before touching
   rem anything. This mirrors that check on Windows, with the same
   rem [av_quarantine] failure code Linux uses for a hash mismatch.
+  rem main-is-red, 2026-09-05: on a clean, unprivileged GitHub windows-2022
+  rem runner, Get-FileHash is not recognized at all -- Windows PowerShell
+  rem 5.1's module autoload for it silently fails there (confirmed via a
+  rem two-round diagnostic: round 1 logged [MISMATCH] with no detail; round
+  rem 2 carried the actual/expected hashes or the exception text, and it
+  rem came back "The term 'Get-FileHash' is not recognized...", 5/5 times,
+  rem never once locally). That silent MISMATCH conflated "I computed a
+  rem hash and it differs" with "I could not compute a hash at all" and
+  rem stamped both [av_quarantine] -- a real user whose PowerShell can't
+  rem load that module, or whose AV holds the staged file, would have every
+  rem update refused forever with a label that blames corruption instead of
+  rem environment. Fixed at the root by computing SHA256 via the .NET types
+  rem directly ([System.Security.Cryptography.SHA256], File.ReadAllBytes)
+  rem instead of the Get-FileHash cmdlet -- these are always available
+  rem regardless of PSModulePath/autoload state, the same way ConvertFrom-
+  rem Json above never had this problem. Still wrapped in try/catch: a
+  rem locked/unreadable file is a real possibility this doesn't remove, and
+  rem now reports UNVERIFIABLE with the actual exception text instead of
+  rem being misread as MISMATCH. The exception message has its own parens
+  rem defensively stripped to brackets, same as the client check's own
+  rem diagnostic text below -- a literal ")" inside a delayed-expansion
+  rem value used within an "if (...) ( ... )" block PREMATURELY CLOSES that
+  rem block at runtime, taking the rest of the line as a new command.
+  rem cmd.exe's block parser does not know or care that the paren only
+  rem exists inside what will become a quoted string argument -- confirmed
+  rem the hard way while building the client check's own diagnostic below
+  rem (a "(...)"-wrapped file list broke it with "is not recognized as an
+  rem internal or external command").
   set "STAGED_HASH_STATUS="
-  for /f "usebackq delims=" %%F in (\`powershell -NoProfile -Command "$j = Get-Content -LiteralPath $env:JOURNAL -Raw | ConvertFrom-Json; $expected = $j.hashes.binarySha256; if (-not $expected) { 'NOHASH' } else { $actual = (Get-FileHash -LiteralPath $env:STAGED_NAME -Algorithm SHA256).Hash; if ($actual -ieq $expected) { 'OK' } else { 'MISMATCH' } }"\`) do set "STAGED_HASH_STATUS=%%F"
+  for /f "usebackq delims=" %%F in (\`powershell -NoProfile -Command "$j = Get-Content -LiteralPath $env:JOURNAL -Raw | ConvertFrom-Json; $expected = $j.hashes.binarySha256; if (-not $expected) { 'NOHASH' } else { try { $actual = [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash([System.IO.File]::ReadAllBytes($env:STAGED_NAME))).Replace('-','').ToLowerInvariant(); if ($actual -ieq $expected) { 'OK' } else { 'MISMATCH actual=' + $actual + ' expected=' + $expected } } catch { 'UNVERIFIABLE ' + $_.Exception.Message.Replace('(','[').Replace(')',']').Replace('|',':') } }"\`) do set "STAGED_HASH_STATUS=%%F"
 
   if not "!STAGED_HASH_STATUS!"=="OK" (
-    call :stamp "Apply: staged binary hash check [!STAGED_HASH_STATUS!] -- refusing to apply [av_quarantine]"
-    del /f /q "%MARKER%" >nul 2>&1
+    if "!STAGED_HASH_STATUS!"=="" (
+      rem Empty means the powershell INVOCATION ITSELF produced no output --
+      rem the script's own try/catch already turns every OTHER failure (a
+      rem missing file, an unreadable journal, a real hash mismatch) into a
+      rem non-empty string, so empty specifically means "powershell did not
+      rem run", not "ran and found nothing". This used to fall straight into
+      rem the generic else below and get stamped [av_quarantine] regardless
+      rem -- same refusal, wrong reported cause, sending the operator at AV
+      rem exclusions instead of the actual fix. Probe with a trivial command,
+      rem ONLY here, AFTER the refusal has already happened on empty output:
+      rem this can only ever REFINE why we refused, never CAUSE a refusal,
+      rem so on a healthy install where powershell works fine this line
+      rem never runs at all. (The v1.0.20 ASR/Defender incident that made
+      rem spawnWindowsApplyHelper() switch its OUTER script to cmd.exe never
+      rem revisited the INNER powershell calls this supervisor still makes
+      rem -- this is that gap.)
+      set "PS_PROBE_RESULT="
+      for /f "usebackq delims=" %%Q in (\`powershell -NoProfile -Command "'PS_PROBE_OK'"\`) do set "PS_PROBE_RESULT=%%Q"
+      if "!PS_PROBE_RESULT!"=="PS_PROBE_OK" (
+        rem PowerShell itself works -- inconclusive why THIS specific
+        rem command returned nothing. Do not guess a more specific answer
+        rem than the existing, already-correct default.
+        call :stamp "Apply: staged binary hash check produced no output; a trivial PowerShell probe succeeded, so the cause is inconclusive -- refusing to apply [av_quarantine]"
+      ) else (
+        call :stamp "Apply: staged binary hash check produced no output, and a trivial PowerShell probe ALSO produced none -- PowerShell itself appears blocked (execution policy / AppLocker / Group Policy) -- refusing to apply [powershell_unavailable]"
+      )
+    ) else if "!STAGED_HASH_STATUS:~0,12!"=="UNVERIFIABLE" (
+      call :stamp "Apply: staged binary hash check [!STAGED_HASH_STATUS!] -- refusing to apply [hash_unverifiable]"
+    ) else (
+      call :stamp "Apply: staged binary hash check [!STAGED_HASH_STATUS!] -- refusing to apply [av_quarantine]"
+    )
+    del /f /q "%MARKER%" "%PENDING_ATTEMPTS_FILE%" >nul 2>&1
     goto :eof
   )
 
@@ -653,28 +868,174 @@ rem ============================================================
     call :stamp "Apply: staged frontend path missing from journal [version_mismatch]"
     goto :eof
   )
+  rem main-is-red, 2026-09-05, stagedclient-trailing-separator-breaks-move:
+  rem confirmed separately from the hash check's own TrimEnd (Get-Item
+  rem tolerates a trailing separator fine) that cmd.exe's move does NOT --
+  rem reproduced locally with move "C:\\...\\dist.new\\" "C:\\...\\dist"
+  rem failing "The system cannot find the file specified" even though the
+  rem directory genuinely exists, purely because of the trailing "\\" on
+  rem the quoted source. STAGED_CLIENT is used raw as that move's source
+  rem below, so trim it here, once, immediately after reading it from the
+  rem journal -- every downstream use (this existence probe, the hash
+  rem check's env var, and the move) then agrees on the same exact path.
+  if "!STAGED_CLIENT:~-1!"=="\\" set "STAGED_CLIENT=!STAGED_CLIENT:~0,-1!"
+  if "!STAGED_CLIENT:~-1!"=="/" set "STAGED_CLIENT=!STAGED_CLIENT:~0,-1!"
   if not exist "!STAGED_CLIENT!\\index.html" (
     call :stamp "Apply: staged frontend missing index.html [frontend_swap_failed]"
     goto :eof
   )
 
-  if exist "%BIN_BACKUP%" del /f /q "%BIN_BACKUP%" >nul 2>&1
-  if exist "%CLIENT_BACKUP%" rmdir /s /q "%CLIENT_BACKUP%" >nul 2>&1
+  rem Mirrors the staged-binary hash check above, for the frontend bundle.
+  rem Content integrity here was never checked on either platform (only the
+  rem binary was ever hashed) -- confirmed while researching this: the
+  rem journal.hashes.clientFiles map that looked like a ready-made answer is
+  rem a *different* artifact (release-manifest.json, for GitHub releases,
+  rem read by release.ps1), never written into this runtime journal.
+  rem journal.hashes.clientSha256 is a single combined hash over every staged
+  rem client file (relative path + per-file sha256, ordinal-sorted, then
+  rem hashed together) computed by stageUpdateBundle() (updateBundle.js) and
+  rem verified there before every apply on Linux; this reproduces the exact
+  rem same value on Windows, same posture as the binary. Per-file hashing
+  rem uses the .NET SHA256 type directly rather than Get-FileHash, for the
+  rem same reason the binary check above does now -- see its comment.
+  rem main-is-red, 2026-09-05: the SECOND, genuine (not Get-FileHash-
+  rem related) mismatch this raised on the same clean runner -- reproduced
+  rem locally once the diagnostic showed a relative path missing its
+  rem leading character ("ndex.html" instead of "index.html"). Cause:
+  rem journal.paths.stagedClient can carry a trailing separator (confirmed
+  rem by deliberately feeding one in a test), and Resolve-Path's .Path does
+  rem NOT strip it -- so $root.Length was one character too long, and
+  rem Substring($root.Length + 1) on Get-ChildItem's own FullName (which
+  rem has no such redundant separator) cut one character too many.
+  rem TrimEnd() on both possible separator characters closes this
+  rem regardless of which form (or none) the journal path arrives in.
+  rem main-is-red, 2026-09-05: a THIRD, still-genuine mismatch, once the
+  rem trailing-separator fix above was already on the runner --
+  rem journal.paths.stagedClient there resolved through Resolve-Path to an
+  rem 8.3 SHORT NAME (C:\Users\RUNNER~1\... for the "runneradmin" account),
+  rem while Get-ChildItem's own FullName for each child came back LONG-form
+  rem -- $root ends up SHORTER than the prefix it's meant to strip, so
+  rem Substring($root.Length + 1) cuts too FEW characters this time, and a
+  rem fragment of the real directory name survives as a bogus leading path
+  rem segment (observed: "st/index.html" instead of "index.html", the
+  rem tail of "dist.new-test" leaking through). Never fires locally --
+  rem dev machine temp paths have no short-name component to begin with,
+  rem which is exactly why this is a REAL USER BUG and not a CI quirk: any
+  rem install whose temp or install path has one (a username over 8
+  rem characters, one with a space, a redirected TEMP under PROGRA~1) gets
+  rem every update refused as [av_quarantine] forever, forever misreporting
+  rem environment as corruption. Get-Item -LiteralPath, not Resolve-Path,
+  rem for $root: it comes from the SAME FileSystemInfo family Get-ChildItem
+  rem uses for its children, so both resolve to the same long/short form
+  rem consistently instead of two different cmdlets independently choosing
+  rem how to spell the same path. Defended further with a runtime check:
+  rem if a child's FullName ever does not actually start with $root (this
+  rem exact class of bug, or a future one nobody has found yet), that's an
+  rem UNVERIFIABLE with both strings in the log, not a silently wrong
+  rem relative path -- the assertion that would have turned every one of
+  rem tonight's confusing timeouts into one readable line the first time.
+  set "STAGED_CLIENT_HASH_STATUS="
+  for /f "usebackq delims=" %%F in (\`powershell -NoProfile -Command "$j = Get-Content -LiteralPath $env:JOURNAL -Raw | ConvertFrom-Json; $expected = $j.hashes.clientSha256; if (-not $expected) { 'NOHASH' } else { try { $root = (Get-Item -LiteralPath $env:STAGED_CLIENT).FullName.TrimEnd([char]92,[char]47); $pairs = @(Get-ChildItem -LiteralPath $root -Recurse -File | ForEach-Object { if (-not $_.FullName.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) { throw 'root prefix mismatch: root=' + $root + ' fullname=' + $_.FullName }; $rel = $_.FullName.Substring($root.Length + 1).Replace([char]92,[char]47); $h = [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash([System.IO.File]::ReadAllBytes($_.FullName))).Replace('-','').ToLowerInvariant(); $rel + ':' + $h }); [System.Array]::Sort($pairs, [System.StringComparer]::Ordinal); $nul = [char]0; $nl = [char]10; $combined = ($pairs | ForEach-Object { $p = $_.Split(':',2); $p[0] + $nul + $p[1] + $nl }) -join ''; $bytes = [System.Text.Encoding]::UTF8.GetBytes($combined); $actual = [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash($bytes)).Replace('-','').ToLowerInvariant(); if ($actual -ieq $expected) { 'OK' } else { 'MISMATCH actual=' + $actual + ' expected=' + $expected + ' root=' + $root + ' pairs={' + ($pairs -join ';') + '}' } } catch { 'UNVERIFIABLE ' + $_.Exception.Message.Replace('(','[').Replace(')',']').Replace('|',':') } }"\`) do set "STAGED_CLIENT_HASH_STATUS=%%F"
 
-  if not exist "%BASE_EXE%" goto :do_rename
-
-  call :stamp "Apply: backing up %BASE_EXE% to %BIN_BACKUP%"
-  ren "%BASE_EXE%" "%BIN_BACKUP%" >nul 2>&1
-  if errorlevel 1 (
-    call :stamp "Apply: could not back up running executable [binary_swap_failed]"
-    echo ERROR: could not rename %BASE_EXE% — is the panel still running?
+  if not "!STAGED_CLIENT_HASH_STATUS!"=="OK" (
+    if "!STAGED_CLIENT_HASH_STATUS!"=="" (
+      rem Same reasoning as the staged-binary hash check above: empty means
+      rem powershell itself produced no output, not "ran and found nothing"
+      rem -- probe with a trivial command, only after the refusal already
+      rem happened, so this can only refine the reported cause, never cause
+      rem a refusal on a healthy install.
+      set "PS_PROBE_RESULT="
+      for /f "usebackq delims=" %%Q in (\`powershell -NoProfile -Command "'PS_PROBE_OK'"\`) do set "PS_PROBE_RESULT=%%Q"
+      if "!PS_PROBE_RESULT!"=="PS_PROBE_OK" (
+        call :stamp "Apply: staged frontend hash check produced no output; a trivial PowerShell probe succeeded, so the cause is inconclusive -- refusing to apply [av_quarantine]"
+      ) else (
+        call :stamp "Apply: staged frontend hash check produced no output, and a trivial PowerShell probe ALSO produced none -- PowerShell itself appears blocked (execution policy / AppLocker / Group Policy) -- refusing to apply [powershell_unavailable]"
+      )
+    ) else if "!STAGED_CLIENT_HASH_STATUS:~0,12!"=="UNVERIFIABLE" (
+      call :stamp "Apply: staged frontend hash check [!STAGED_CLIENT_HASH_STATUS!] -- refusing to apply [hash_unverifiable]"
+    ) else (
+      call :stamp "Apply: staged frontend hash check [!STAGED_CLIENT_HASH_STATUS!] -- refusing to apply [av_quarantine]"
+    )
+    del /f /q "%MARKER%" "%PENDING_ATTEMPTS_FILE%" >nul 2>&1
     goto :eof
   )
-  set "EXE_BACKUP_MADE=1"
+
+  rem 2026-09-08, god-dispatched fix for the most serious finding of the
+  rem night: this cleanup used to run UNCONDITIONALLY, before ever checking
+  rem whether %BASE_EXE% currently exists. A stale backup is only safe to
+  rem discard when the CURRENT live exe already exists -- that is what
+  rem proves the backup is orphaned from a fully-resolved PRIOR cycle, not
+  rem the only surviving copy from an attempt (this run's own earlier
+  rem try, or an interrupted prior supervisor invocation) that hasn't
+  rem finished yet. When %BASE_EXE% is missing, the backup is
+  rem presumptively the only copy: if the supervisor is killed (reboot,
+  rem AV, task manager) right after the ren of %BASE_EXE% to %BIN_BACKUP%
+  rem succeeds below but before the rest of the swap completes, %BASE_EXE% is gone
+  rem and %BIN_BACKUP% holds the only working copy of the old binary --
+  rem the very next automatic retry (triggered by the still-present
+  rem .update-pending marker) used to delete that backup here as routine
+  rem cleanup, before this attempt's own EXE_BACKUP_MADE was even set, so
+  rem a LATER unrelated failure on that same retry then had :rollback_update
+  rem claim (see :rollback_binary_skip below) that the executable was
+  rem "untouched" -- false, with nothing left to recover from. Gating the
+  rem whole block (cleanup AND the backup-rename attempt) on %BASE_EXE%
+  rem existing closes this: either it exists and this attempt safely
+  rem clears any stale backup before making its own, or it doesn't and
+  rem NEITHER the cleanup nor a fresh backup attempt runs, leaving whatever
+  rem is already on disk (a survivor from an earlier attempt, most likely)
+  rem untouched for :rollback_update to actually find. Same reasoning for
+  rem the client-dist line.
+  if exist "%BASE_EXE%" (
+    if exist "%BIN_BACKUP%" del /f /q "%BIN_BACKUP%" >nul 2>&1
+    if exist "%CLIENT_BACKUP%" rmdir /s /q "%CLIENT_BACKUP%" >nul 2>&1
+
+    call :stamp "Apply: backing up %BASE_EXE% to %BIN_BACKUP%"
+    rem god-dispatched, 2026-09-08 (harden-updater-fileops #3): was >nul 2>&1,
+    rem discarding cmd.exe's own error text ("The process cannot access the
+    rem file because it is being used by another process" vs "Access is
+    rem denied" -- different operator actions, close the thing holding it or
+    rem fix permissions) so every failure here looked identical in
+    rem supervisor.log. Mirrors the client-activation move three lines below,
+    rem which already appends both streams to %LOG_FILE% -- that pattern
+    rem already proved itself in production tonight, not a new variant.
+    ren "%BASE_EXE%" "%BIN_BACKUP%" >>"%LOG_FILE%" 2>&1
+    if errorlevel 1 (
+      call :stamp "Apply: could not back up running executable [binary_swap_failed]"
+      echo ERROR: could not rename %BASE_EXE% — is the panel still running?
+      goto :eof
+    )
+    set "EXE_BACKUP_MADE=1"
+  )
 
 :do_rename
   if exist "%CLIENT_LIVE%" (
-    move "%CLIENT_LIVE%" "%CLIENT_BACKUP%" >nul 2>&1
+    rem start-bat-never-captures-the-launched-panels-own-output, god-
+    rem dispatched 2026-09-08 (item B, "cost me an hour personally"): this
+    rem step and the activation move below used to stamp ONLY on failure --
+    rem so a supervisor.log read on the happy path shows nothing between
+    rem step 1's "Apply: backing up %BASE_EXE%..." and step 4's "Apply:
+    rem renaming !STAGED_NAME!..." stamps, exactly matching step 1/4's own
+    rem style (a stamp naming the step BEFORE attempting it) so this step's
+    rem presence in the log no longer depends on it having failed. A log
+    rem silent on success cannot be used to prove a step ran, and someone
+    rem WILL try -- god did, within the hour, misread the silence as "the
+    rem client dist was never swapped," and had to be corrected by
+    rem 'git show v1.2.15:build.js'. Message text deliberately does NOT
+    rem interpolate %CLIENT_LIVE%/%CLIENT_BACKUP%/!STAGED_CLIENT! themselves
+    rem (unlike this step's own move command two lines below, which must)
+    rem -- those are arbitrary, operator-controlled full paths (INSTALL_DIR
+    rem plus whatever the journal names), and step 1/4's own stamps only
+    rem ever interpolate short, fixed literal filenames (BASE_EXE,
+    rem BIN_BACKUP, STAGED_NAME) for exactly this reason: an install path
+    rem containing a cmd.exe metacharacter, once %-expanded, is re-parsed
+    rem by cmd rather than treated as an opaque string, which could break
+    rem this stamp's own quoting. A fixed, generic message names the step
+    rem just as unambiguously without that risk.
+    call :stamp "Apply: backing up live frontend to its previous-version backup"
+    rem god-dispatched, 2026-09-08 (harden-updater-fileops #3): same fix as
+    rem the exe backup above -- was >nul 2>&1, now mirrors the staged-client
+    rem activation move below.
+    move "%CLIENT_LIVE%" "%CLIENT_BACKUP%" >>"%LOG_FILE%" 2>&1
     if errorlevel 1 (
       call :stamp "Apply: could not back up live frontend [frontend_swap_failed]"
       call :rollback_update
@@ -682,7 +1043,8 @@ rem ============================================================
     )
     set "CLIENT_BACKUP_MADE=1"
   )
-  move "!STAGED_CLIENT!" "%CLIENT_LIVE%" >nul 2>&1
+  call :stamp "Apply: activating staged frontend"
+  move "!STAGED_CLIENT!" "%CLIENT_LIVE%" >>"%LOG_FILE%" 2>&1
   if errorlevel 1 (
     call :stamp "Apply: could not activate staged frontend [frontend_swap_failed]"
     call :rollback_update
@@ -690,7 +1052,11 @@ rem ============================================================
   )
 
   call :stamp "Apply: renaming !STAGED_NAME! to %BASE_EXE%"
-  ren "!STAGED_NAME!" "%BASE_EXE%" >nul 2>&1
+  rem god-dispatched, 2026-09-08 (harden-updater-fileops #3): same fix as
+  rem the two backup-renames above -- was >nul 2>&1, now mirrors the
+  rem staged-client activation move above, the one site that already got
+  rem this right.
+  ren "!STAGED_NAME!" "%BASE_EXE%" >>"%LOG_FILE%" 2>&1
   if errorlevel 1 (
     call :stamp "Apply: executable activation failed [binary_swap_failed]"
     echo ERROR: could not rename !STAGED_NAME! to %BASE_EXE%.
@@ -712,8 +1078,11 @@ rem ============================================================
   rem A fresh, successfully-activated bundle is a new incident, not a
   rem continuation of whatever handshake failures a PREVIOUS bundle may have
   rem hit -- reset here so an old, already-resolved retry count can never
-  rem count against an unrelated later update.
+  rem count against an unrelated later update. Same reasoning for the
+  rem pending-apply attempt count: this attempt succeeded, so a FUTURE
+  rem update (a different transaction entirely) must start counting fresh.
   set "ROLLBACK_RETRY_COUNT=0"
+  del /f /q "%PENDING_ATTEMPTS_FILE%" >nul 2>&1
   call :stamp "Apply: bundle activated; waiting for backend startup acknowledgement"
 goto :eof
 
@@ -747,7 +1116,33 @@ goto :eof
   goto :rollback_binary_done
 
 :rollback_binary_skip
-  call :stamp "Apply: binary restore skipped; backup step never ran, executable untouched"
+  rem 2026-09-08, god-dispatched: EXE_BACKUP_MADE=0 only proves THIS
+  rem attempt's own backup step never ran -- it does NOT prove the
+  rem executable is still there. Before the cleanup-ordering fix above, a
+  rem PRIOR interrupted attempt could leave %BASE_EXE% genuinely missing
+  rem with nothing left to restore from, and this branch claimed
+  rem "untouched" unconditionally anyway -- the worst instance of tonight's
+  rem through-line (the panel telling the user something untrue), because
+  rem it is the exact sentence that stops an operator from looking for the
+  rem staged .exe.new that might still be sitting there. Check reality
+  rem before claiming anything about it.
+  if exist "%BASE_EXE%" (
+    call :stamp "Apply: binary restore skipped; backup step never ran, executable untouched"
+  ) else (
+    call :stamp "Apply: binary restore skipped, but %BASE_EXE% does not exist [rollback_failed]"
+    echo ERROR: no working %BASE_EXE% was found in this folder.
+    if exist "%BIN_BACKUP%" (
+      echo A previous backup exists at %BIN_BACKUP% -- rename it to
+      echo %BASE_EXE% by hand to recover.
+    ) else if exist "!STAGED_NAME!" (
+      echo A staged update binary is still present at !STAGED_NAME! -- you
+      echo may be able to recover by renaming it to %BASE_EXE% by hand.
+    ) else (
+      echo No backup or staged update binary remains to recover from
+      echo either. A manual reinstall may be required.
+    )
+    set "BINARY_RESTORE_OK=0"
+  )
 
 :rollback_binary_done
   if "!BINARY_RESTORE_OK!"=="0" set "ROLLBACK_FAILED=1"
@@ -785,11 +1180,22 @@ goto :eof
 
   if "!ROLLBACK_FAILED!"=="1" (
     call :stamp "Apply: rollback incomplete; journal retained for recovery [rollback_failed]"
+    rem 2026-09-08, god-dispatched: this used to stop at one bare sentence
+    rem while :rollback_retry_exhausted (below) gives the exact same
+    rem "operator must intervene manually" situation a full recipe naming
+    rem all three files. Two messages for one situation, one of them
+    rem useless, was a bug in its own right -- give them the same recipe.
     echo ERROR: update rollback was incomplete. Recovery files were retained.
+    echo.
+    echo To recover manually, delete these files from this folder, then run
+    echo Start.bat again:
+    echo   .update-pending
+    echo   .update-applying
+    echo   update-bundle.json
     goto :eof
   )
 
-  del /f /q "%MARKER%" "%APPLYING%" >nul 2>&1
+  del /f /q "%MARKER%" "%APPLYING%" "%PENDING_ATTEMPTS_FILE%" >nul 2>&1
   if exist "%MARKER%" (
     call :stamp "Apply: rollback cleanup incomplete; pending marker remains, journal retained [rollback_failed]"
     goto :eof
@@ -828,6 +1234,7 @@ export PANEL_PRESERVE_GAME_SERVERS=1
 PANEL_PID=""
 STOPPING=0
 CRASH_COUNT=0
+SUPERVISOR_PIDFILE="./.supervisor.pid"
 MAX_RAPID_CRASHES="\${PANEL_SUPERVISOR_MAX_CRASHES:-5}"
 # 2026-09-04, Dwight's finding: this used to be a flat BACKOFF_SECONDS
 # (default 2, no escalation), while Start.bat's crash-loop protection has
@@ -841,6 +1248,15 @@ MAX_RAPID_CRASHES="\${PANEL_SUPERVISOR_MAX_CRASHES:-5}"
 MIN_STABLE_SECONDS="\${PANEL_SUPERVISOR_MIN_STABLE_SECONDS:-60}"
 BACKOFF_BASE_SECONDS="\${PANEL_SUPERVISOR_BACKOFF_BASE_SECONDS:-2}"
 BACKOFF_CAP_SECONDS="\${PANEL_SUPERVISOR_BACKOFF_CAP_SECONDS:-30}"
+RECLAIM_TIMEOUT_SECONDS="\${PANEL_SUPERVISOR_RECLAIM_TIMEOUT_SECONDS:-15}"
+
+# Presence-based update-rollback net (god's dispatch, 2026-09-08,
+# "harden-updater" Q3): mirrors Start.bat's \`.update-applying\`-presence
+# check, but with a genuinely different bound than the ordinary crash-loop
+# above -- see rollback_failed_update() and its call site below for the
+# full reasoning, including why this is NOT just MAX_RAPID_CRASHES reused.
+ROLLBACK_RETRY_COUNT=0
+MAX_ROLLBACK_RETRIES="\${PANEL_SUPERVISOR_MAX_ROLLBACK_RETRIES:-2}"
 
 stop_panel() {
   STOPPING=1
@@ -853,9 +1269,195 @@ stop_panel() {
 
 trap 'stop_panel TERM' TERM
 trap 'stop_panel INT' INT
+# Deliberately NOT trapping in reclaim_or_refuse_if_already_running() or the
+# main loop's own logic -- this fires on every ordinary exit (explicit
+# "exit N", or falling off the end), cleaning up SUPERVISOR_PIDFILE so a
+# later, unrelated invocation never finds a stale record. It does NOT fire
+# on SIGKILL (nothing can trap that) -- which is exactly what makes this
+# safe rather than self-defeating: if THIS wrapper is SIGKILLed mid-run
+# (the scenario the guard below exists for), the pidfile deliberately
+# survives, so the next invocation's guard can still find and reclaim the
+# orphaned child it left running. A trap that fired unconditionally would
+# erase the one piece of evidence that made reclaiming possible.
+trap 'rm -f "$SUPERVISOR_PIDFILE"' EXIT
+
+# 2026-09-08, god's dispatch (Q6, generateStartSh() enumeration): KillMode=process
+# in the bundled unit is deliberate and correct -- it exists so systemd's own
+# stop/restart signal never reaches the detached Project Zomboid child, which
+# must survive a panel restart. It works exactly as intended under SIGTERM:
+# the trap above forwards it to just the panel's own process group. But
+# SIGKILL can never be trapped by any process, by any process, ever -- and a
+# shutdown slow enough to hit systemd's TimeoutStopSec escalates to exactly
+# that. When it does, THIS wrapper dies instantly with no chance to signal
+# anything, the already-detached panel child (setsid, below) survives as an
+# orphan, and systemd's Restart=on-failure then launches a brand-new
+# wrapper+child pair a few seconds later -- two panel processes against one
+# data directory, each believing it is authoritative. Nothing about KillMode
+# needed to change to fix this (it isn't the defect); what was missing is
+# that nothing on a fresh launch ever checked whether a previous instance
+# was still alive. This does, once, before the main loop starts.
+reclaim_or_refuse_if_already_running() {
+  if [ ! -f "$SUPERVISOR_PIDFILE" ]; then
+    return 0
+  fi
+  local existing_pid
+  existing_pid=$(cat "$SUPERVISOR_PIDFILE" 2>/dev/null)
+  if [ -z "$existing_pid" ] || ! kill -0 "$existing_pid" 2>/dev/null; then
+    # No live process at that PID (already exited, or the file is stale/
+    # corrupt) -- nothing to reclaim.
+    rm -f "$SUPERVISOR_PIDFILE"
+    return 0
+  fi
+
+  # A live process exists at that PID number, but PIDs are recycled by the
+  # kernel -- a bare number match is not proof it's actually still the
+  # panel (same discipline as tonight's earlier OpenRC fix: never trust a
+  # PID alone). /proc/<pid>/comm truncates to 15 bytes, too short for
+  # "ZomboidControlPanel" (19) to survive intact, so this checks the full
+  # cmdline instead.
+  local cmdline
+  cmdline=$(tr '\\0' ' ' < "/proc/$existing_pid/cmdline" 2>/dev/null)
+  case "$cmdline" in
+    *ZomboidControlPanel*) ;;
+    *)
+      # Live PID, but not us -- the real panel already exited and something
+      # else now holds that number. Stale record, not a running instance.
+      rm -f "$SUPERVISOR_PIDFILE"
+      return 0
+      ;;
+  esac
+
+  echo "WARNING: a panel instance (PID $existing_pid) already appears to be running against this install; attempting to stop it before starting another."
+  # Same primitive stop_panel() already uses, tested safe against the
+  # detached game server -- reusing it rather than writing a second kill
+  # path that could disagree with the first.
+  kill -TERM -- "-$existing_pid" 2>/dev/null || kill -TERM "$existing_pid" 2>/dev/null || true
+
+  local waited=0
+  while kill -0 "$existing_pid" 2>/dev/null && [ "$waited" -lt "$RECLAIM_TIMEOUT_SECONDS" ]; do
+    sleep 1
+    waited=$((waited + 1))
+  done
+
+  if kill -0 "$existing_pid" 2>/dev/null; then
+    # Refusing to start is the only safe option here: two live panels
+    # against one data directory is worse than zero, so this must fail
+    # loudly and stop -- not crash-loop silently retrying the same reclaim.
+    echo "ERROR: an existing panel instance (PID $existing_pid) is still running and did not stop within $RECLAIM_TIMEOUT_SECONDS seconds."
+    echo "Refusing to start a second instance against the same data directory -- running two at once would corrupt shared state."
+    echo "If PID $existing_pid is not actually the panel, delete $SUPERVISOR_PIDFILE and run Start.sh again."
+    echo "Otherwise, stop it manually first (for example: kill $existing_pid), then run Start.sh again."
+    exit 1
+  fi
+
+  echo "Previous instance (PID $existing_pid) stopped; continuing."
+  rm -f "$SUPERVISOR_PIDFILE"
+}
+
+reclaim_or_refuse_if_already_running
 
 echo "Starting Zomboid Control Panel..."
 echo ""
+
+# Self-heal an interrupted self-update. updateBundle.js's applyUpdateBundle()
+# runs IN-PROCESS, while this panel is the thing being replaced: it renames
+# the live binary to ZomboidControlPanel.bundle-previous, then (a few
+# filesystem operations later) renames the staged replacement into place.
+# A crash, OOM-kill, or power loss anywhere in that window leaves NOTHING at
+# ./ZomboidControlPanel for setsid to exec below -- and without this check,
+# that exact symptom would repeat on every restart this loop attempts (each
+# one just fails to exec and burns another try from MAX_RAPID_CRASHES), then
+# again on every restart systemd attempts after this script gives up and
+# exits non-zero, forever, because nothing here ever looks at
+# ZomboidControlPanel.bundle-previous. Restoring it is always safe: the
+# rename dance never leaves both the live binary and its backup on disk at
+# once by construction (the backup is created FROM the live file, and the
+# live file is deleted -- see applyUpdateBundle()'s rollback()/rename
+# sequence), so seeing both here can only mean a successful apply's own
+# backup cleanup (acknowledgeUpdateBundle(), on the FIRST successful start
+# after the swap) simply has not run yet -- restoring in that case would
+# overwrite the live binary with an identical-or-newer file, not a
+# regression. Checked at the top of every loop iteration, not just once
+# before it, because the crash THIS loop is about to retry from could be the
+# very interruption this is recovering from.
+restore_interrupted_update() {
+  if [ ! -f "./ZomboidControlPanel" ] && [ -f "./ZomboidControlPanel.bundle-previous" ]; then
+    echo "WARNING: ./ZomboidControlPanel is missing but a pre-update backup exists -- restoring it (an update apply was likely interrupted)."
+    mv "./ZomboidControlPanel.bundle-previous" "./ZomboidControlPanel"
+    chmod +x "./ZomboidControlPanel" 2>/dev/null || true
+  fi
+  if [ ! -d "./client/dist" ] && [ -d "./client/dist.previous" ]; then
+    echo "WARNING: ./client/dist is missing but a pre-update backup exists -- restoring it (an update apply was likely interrupted)."
+    mv "./client/dist.previous" "./client/dist"
+  fi
+}
+
+# Presence-based failed-update rollback (god's dispatch, 2026-09-08,
+# "harden-updater" Q3): mirrors Start.bat's .update-applying-presence check
+# -- ANY exit reason counts, not just the two specific journal error codes
+# (version_mismatch/invalid_bundle) inspectPendingPanelUpdate() already
+# auto-rolls-back at Node startup -- using the exact same fixed-path signal
+# restore_interrupted_update() above already trusts, deliberately without a
+# JSON parser: update-bundle.json only survives past a successful ack
+# (acknowledgeUpdateBundle(), shared Node code, deletes it after a real
+# listen()) or a successful rollback (this function or Node's own
+# recoverInterruptedUpdateBundle()); ZomboidControlPanel.bundle-previous is
+# created STRICTLY at apply time (stageUpdateBundle() only ever writes the
+# journal) -- so the two-file test cannot true-positive on a
+# downloaded-but-not-yet-applied update sitting idle during an unrelated
+# crash loop, and cannot re-fire after an update that already proved
+# itself once, no matter how much later an unrelated crash happens.
+#
+# See the call site (below, in the main loop) for why this runs AFTER the
+# exit==75/78 checks. Start.bat's equivalent (the "%APPLYING%" check in
+# run_loop) used to run BEFORE those checks -- fixed 2026-09-08
+# (windows-presence-check-precedes-exit-code-branches) once this Linux
+# ordering exposed it as a real, if rare, defect: an exit-78 lock refusal
+# during an update window was being misread as a failed startup handshake
+# and rolling back a perfectly good update.
+rollback_failed_update() {
+  echo "Update never completed its startup handshake; rolling back to the previous build."
+  local restore_ok=1
+  if [ -f "./ZomboidControlPanel.bundle-previous" ]; then
+    rm -f "./ZomboidControlPanel"
+    mv "./ZomboidControlPanel.bundle-previous" "./ZomboidControlPanel"
+    chmod +x "./ZomboidControlPanel" 2>/dev/null || true
+    if [ ! -f "./ZomboidControlPanel" ] || [ -f "./ZomboidControlPanel.bundle-previous" ]; then
+      restore_ok=0
+    fi
+  elif [ ! -f "./ZomboidControlPanel" ]; then
+    # No backup to restore from AND nothing currently runnable either --
+    # genuinely unrecoverable by this function; let the halt path below
+    # report it honestly instead of claiming success.
+    restore_ok=0
+  fi
+  if [ -d "./client/dist.previous" ]; then
+    rm -rf "./client/dist"
+    mv "./client/dist.previous" "./client/dist"
+    if [ ! -d "./client/dist" ] || [ -d "./client/dist.previous" ]; then
+      restore_ok=0
+    fi
+  fi
+  if [ "$restore_ok" = "1" ]; then
+    # Best-effort, durable operator-visible record of what just happened --
+    # god's addition to Q3: a SILENT successful rollback still leaves the
+    # operator running an older version than the one they installed with
+    # nothing telling them why -- they retry the same update and hit the
+    # same regression. cp (not mv) deliberately needs no JSON parsing
+    # here: it preserves every journal field (version, appliedAt, ...) for
+    # the Node-side diagnostics check (buildUpdateRollbackNoticeCheck(),
+    # server/routes/debug.js) to read and render on the Diagnostics page.
+    # A failed copy must never block the rollback itself from completing.
+    cp -f "./update-bundle.json" "./.update-rollback-notice.json" 2>/dev/null || true
+    rm -f "./update-bundle.json"
+    echo "Rollback complete; the previous build will be relaunched."
+    return 0
+  fi
+  echo "ERROR: automatic rollback did not fully complete. update-bundle.json retained for recovery."
+  return 1
+}
+
+restore_interrupted_update
 
 if [ ! -f "./ZomboidControlPanel" ]; then
   echo "ERROR: ./ZomboidControlPanel was not found in this folder."
@@ -891,9 +1493,12 @@ while true; do
     exit 0
   fi
 
+  restore_interrupted_update
+
   PANEL_STARTED_AT=$(date +%s)
   setsid ./ZomboidControlPanel &
   PANEL_PID=$!
+  echo "$PANEL_PID" > "$SUPERVISOR_PIDFILE"
   wait "$PANEL_PID"
   EXIT_CODE=$?
   PANEL_PID=""
@@ -912,6 +1517,52 @@ while true; do
   if [ "$EXIT_CODE" = "75" ]; then
     CRASH_COUNT=0
     echo "Panel requested a supervised restart."
+    continue
+  fi
+
+  # Exit code 78 = the panel's own application-level single-instance lock
+  # (utils/pidLock.js's acquireLock(), cross-platform, checked before it
+  # ever binds the HTTP port) refused to start because another live
+  # instance already holds it -- the panel already logged exactly which PID
+  # and what to do about it. Same reasoning as Start.bat's identical check
+  # for the same exit code: retrying is guaranteed to fail identically
+  # every time (the lock will still be held), so this stops here instead of
+  # entering the crash-loop backoff below -- looping it would misrepresent
+  # a working refusal as a string of crashes, and eventually "giving up"
+  # would name the wrong problem entirely. Does not attempt to reclaim
+  # anything here -- that already happened, if it was going to, at this
+  # invocation's own startup (see reclaim_or_refuse_if_already_running()
+  # above); if the lock is STILL held after that, retrying inside this same
+  # run cannot help. Exiting lets Restart=on-failure decide the next step,
+  # and that next invocation's guard gets another chance.
+  if [ "$EXIT_CODE" = "78" ]; then
+    echo "Another panel instance already holds the lock; not retrying (see the panel's own log for which PID)."
+    exit 78
+  fi
+
+  # Presence-based failed-update rollback -- see rollback_failed_update()
+  # above for the full reasoning (why file-existence-only is deliberate and
+  # safe, why exit==75/78 above must run first). ANY exit reason reaching
+  # this point (a real regression, not just the two journal error codes
+  # Node's own inspectPendingPanelUpdate() already auto-rolls-back) counts
+  # -- checked BEFORE the ordinary crash-loop counter below on purpose, so
+  # a broken update is reverted within MAX_ROLLBACK_RETRIES attempts
+  # instead of burning the full MAX_RAPID_CRASHES budget against a binary
+  # that can never succeed while a good backup sits unused.
+  if [ -f "./update-bundle.json" ] && [ -f "./ZomboidControlPanel.bundle-previous" ]; then
+    if [ "$ROLLBACK_RETRY_COUNT" -ge "$MAX_ROLLBACK_RETRIES" ]; then
+      echo "ERROR: automatic rollback is capped at $MAX_ROLLBACK_RETRIES attempt(s); refusing to retry the same failing operation further."
+      echo "To recover manually, delete these files from this folder, then run Start.sh again:"
+      echo "  update-bundle.json"
+      echo "  ZomboidControlPanel.bundle-previous"
+      echo "  client/dist.previous"
+      exit 1
+    fi
+    ROLLBACK_RETRY_COUNT=$((ROLLBACK_RETRY_COUNT + 1))
+    if rollback_failed_update; then
+      ROLLBACK_RETRY_COUNT=0
+      CRASH_COUNT=0
+    fi
     continue
   fi
 

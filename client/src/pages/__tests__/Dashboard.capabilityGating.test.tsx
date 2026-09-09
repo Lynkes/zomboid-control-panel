@@ -255,6 +255,15 @@ describe('Dashboard.tsx: Start is gated on server.control at BOTH of its entry p
     // the header's. waitFor to the final, stable count instead.
     await waitFor(() => expect(screen.getAllByRole('button', { name: 'Start' })).toHaveLength(2))
     for (const button of screen.getAllByRole('button', { name: 'Start' })) expect(button).not.toBeDisabled()
+
+    // bug-hunt-2026-09-08 (gate-not-destination sweep): this test used to
+    // stop at not.toBeDisabled() for both buttons -- neither was ever
+    // clicked, so a regression that broke the header button's own onClick
+    // wiring (as opposed to its disabled expression) would have sat green.
+    // Start has no confirm dialog (unlike Stop/Force Stop/Restart), so a
+    // click reaches serverApi.start() directly.
+    fireEvent.click(screen.getAllByRole('button', { name: 'Start' })[0])
+    await waitFor(() => expect(start).toHaveBeenCalledTimes(1))
   })
 })
 
@@ -334,6 +343,36 @@ describe('Dashboard.tsx: Stop/Force Stop/Restart/Save share server.control, gate
     fireEvent.click(within(dialog).getByRole('button', { name: /stop server/i }))
 
     await waitFor(() => expect(stop).toHaveBeenCalledTimes(1))
+  })
+
+  // bug-hunt-2026-09-08 (gate-not-destination sweep): the test above only
+  // proved Stop reaches the API -- Force Stop and Save were asserted
+  // not.toBeDisabled() and never clicked, so a regression that broke either
+  // one's actual handler (as opposed to its disabled expression) would sit
+  // green. Force Stop shares Stop's AlertDialogAction execution point (see
+  // that dialog's own comment) but is staged by a DIFFERENT button with a
+  // different confirmAction.action, so proving Stop reaches it does not
+  // prove Force Stop's own wiring is correct. Save has no confirm dialog at
+  // all (saveWorld() calls handleAction directly), a third distinct shape.
+  it('holding server.control: Force Stop reaches serverApi.forceStop through its own confirm dialog, and Save reaches serverApi.save directly', async () => {
+    mockCanControl = true
+    await setUpCommon()
+    await setUpOnlineServer()
+
+    renderDashboard()
+
+    const forceStopButton = await screen.findByRole('button', { name: /force stop/i })
+    expect(forceStopButton).not.toBeDisabled()
+    fireEvent.click(forceStopButton)
+    const forceStopDialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(forceStopDialog).getByRole('button', { name: /force stop server/i }))
+    await waitFor(() => expect(forceStop).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+
+    const saveButton = screen.getByRole('button', { name: 'Save' })
+    expect(saveButton).not.toBeDisabled()
+    fireEvent.click(saveButton)
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
   })
 
   // bug-hunt-2026-08-27: Pam found DisabledReason-inside-Trigger-asChild

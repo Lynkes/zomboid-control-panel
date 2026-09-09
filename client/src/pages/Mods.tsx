@@ -72,6 +72,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { reportClientError, reportClientWarning } from '@/lib/client-errors'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
 import {
   Dialog,
   DialogContent,
@@ -298,6 +299,18 @@ export default function Mods() {
   const [orderedModIds, setOrderedModIds] = useState<string[]>([])
   const [selectedActiveWsId, setSelectedActiveWsId] = useState<string | null>(null)
   const [savingModOrder, setSavingModOrder] = useState(false)
+  // bug-hunt-2026-09-04/05: modsApi.saveModOrder(orderedModIds) takes no
+  // server id -- it resolves the active server fresh server-side per
+  // request, same pattern as ServerConfig's ini/sandbox routes. This page
+  // never listened for activeServerChanged at all (mount-only, see
+  // initializeData below), so the concrete scenario the overnight sweep
+  // confirmed was real: reorder mods on server A, switch to server B
+  // elsewhere, hit "Save Order" -- server A's list gets written into
+  // server B's real INI. Scoped to the confirmed Save Load Order path for
+  // now; the page's other write actions (writeToIni, batchRemove,
+  // deleteDiskMod, toggleModId, etc.) share the same no-server-id shape and
+  // are a flagged follow-up, not covered by this flag yet.
+  const [serverChangedSinceLoad, setServerChangedSinceLoad] = useState(false)
   const [autoSortPreview, setAutoSortPreview] = useState<AutoSortResult | null>(null)
   const [draggedModIndex, setDraggedModIndex] = useState<number | null>(null)
   // Expand/collapse states
@@ -510,16 +523,24 @@ export default function Mods() {
     modSearchTimerRef.current = setTimeout(() => setDeferredModManagerSearch(value), 300)
   }, [])
 
-  const fetchData = useCallback(async () => {
+  // 2026-09-08 (retry-stacking sweep): `manual` distinguishes the Retry
+  // button (a human already watching this exact failure) from every other
+  // caller of this function -- mount, socket-triggered refreshes, and the
+  // ~30 post-action refetches elsewhere in this file all keep the default
+  // automatic retry, which is the right tolerance for a transient blip
+  // nobody is staring at. Same shape as Servers.tsx's fetchServers(); see
+  // its own comment for the full reasoning.
+  const fetchData = useCallback(async (opts?: { manual?: boolean }) => {
+    const retries = opts?.manual ? { retries: 0 } : undefined
     setFetchError(null)
     try {
       // Use allSettled so one failure doesn't break everything
       const results = await Promise.allSettled([
-        modsApi.getTrackedMods(),
-        modsApi.getStatus(),
-        modsApi.getCurrentConfig(),
-        modsApi.getIgnoredMods(),
-        modsApi.getIgnoredModPairs()
+        modsApi.getTrackedMods(retries),
+        modsApi.getStatus(retries),
+        modsApi.getCurrentConfig(retries),
+        modsApi.getIgnoredMods(retries),
+        modsApi.getIgnoredModPairs(retries)
       ])
 
       // mods.js gates every one of these five behind mods.manage as a
@@ -1110,7 +1131,24 @@ export default function Mods() {
       const count =
         (Array.isArray(result?.mods) ? result.mods.length : 0) ||
         (typeof result?.updatesFound === 'number' ? result.updatesFound : 0)
-      if (result?.error) {
+      // MODS_CHECK_UPDATES_ACF_NOT_FOUND is the normal, permanent state for a
+      // non-Steam/GOG install (GitHub #148) -- there is no Workshop ACF file
+      // to find, ever, and that's not a failure the operator caused or can
+      // "fix". It's also indistinguishable server-side from a legitimate
+      // SteamCMD install that has never downloaded a Workshop mod, so this
+      // shows an accurate, non-alarming explanation instead of the raw
+      // "Workshop ACF file not found" string in a red error toast.
+      const workshopAcfNotFoundMessage =
+        result?.code === 'MODS_CHECK_UPDATES_ACF_NOT_FOUND'
+          ? resolveRegisteredTranslation('errors', result.code, undefined)
+          : null
+      if (workshopAcfNotFoundMessage) {
+        toast({
+          title: t('toasts.workshopDataUnavailableTitle'),
+          description: workshopAcfNotFoundMessage,
+          variant: 'default',
+        })
+      } else if (result?.error) {
         toast({
           title: t('toasts.updateCheckFailedTitle'),
           description: String(result.error),
@@ -1907,6 +1945,14 @@ export default function Mods() {
 
   const handleSaveModOrder = async () => {
     if (busyRef.current || !canManageMods) return
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.serverChangedSinceLoadTitle'),
+        description: t('toasts.serverChangedSinceLoadDesc'),
+        variant: 'destructive',
+      })
+      return
+    }
     busyRef.current = true
     try {
       setSavingModOrder(true)
@@ -1980,6 +2026,45 @@ export default function Mods() {
     if (orderedModIds.length !== iniConfig.modIds.length) return true // Different count = changed
     return orderedModIds.some((id, i) => id !== iniConfig.modIds[i])
   }, [orderedModIds, iniConfig?.modIds])
+
+  // See serverChangedSinceLoad's own comment above. Unlike the other
+  // mods:* socket events above (which always just refetch), fetchData()
+  // unconditionally overwrites orderedModIds from the server's real list --
+  // safe when there's no pending reorder, but a silent discard of the
+  // user's unsaved work if hasModOrderChanged is true. Mirrors Settings.tsx's
+  // dirty-guard shape for the reload itself, ServerConfig's block-and-warn
+  // shape for the save action above.
+  useEffect(() => {
+    if (!socket) return
+    const handleActiveServerChanged = () => {
+      if (hasModOrderChanged) {
+        setServerChangedSinceLoad(true)
+        toast({
+          title: t('toasts.serverChangedSinceLoadTitle'),
+          description: t('toasts.serverChangedSinceLoadDesc'),
+          variant: 'destructive',
+        })
+        return
+      }
+      fetchData()
+    }
+    socket.on('activeServerChanged', handleActiveServerChanged)
+    return () => {
+      socket.off('activeServerChanged', handleActiveServerChanged)
+    }
+  }, [socket, fetchData, hasModOrderChanged, toast, t])
+
+  // Once the user discards the stale reorder (the "Reset" button sets
+  // orderedModIds back to iniConfig.modIds, making hasModOrderChanged
+  // false again), the block above no longer applies -- clear it and pick
+  // up the new server's real data, same as the safe branch above would
+  // have done immediately if there'd been nothing to protect.
+  useEffect(() => {
+    if (serverChangedSinceLoad && !hasModOrderChanged) {
+      setServerChangedSinceLoad(false)
+      fetchData()
+    }
+  }, [serverChangedSinceLoad, hasModOrderChanged, fetchData])
 
   const removeFromInstallList = (workshopId: string) => {
     setModsToInstall(prev => prev.filter(m => m.workshopId !== workshopId))
@@ -2494,7 +2579,7 @@ export default function Mods() {
             <AlertTitle>{t('fetchError.title')}</AlertTitle>
             <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <span className="min-w-0 break-words" dir="auto">{fetchError}</span>
-              <Button variant="outline" size="sm" onClick={fetchData} className="self-start">
+              <Button variant="outline" size="sm" onClick={() => fetchData({ manual: true })} className="self-start">
                 <RefreshCw className="me-2 h-4 w-4" /> {t('fetchError.retry')}
               </Button>
             </AlertDescription>
@@ -2554,18 +2639,27 @@ export default function Mods() {
             </>
           )}
 
-          {/* Workshop ACF Status */}
+          {/* Workshop ACF Status -- an install with no Workshop ACF file is
+              NOT necessarily broken: it's the normal, permanent state for a
+              non-Steam/GOG install (GitHub #148), and is indistinguishable
+              from a legitimate SteamCMD install that just hasn't downloaded
+              a Workshop mod yet. Neutral/informational styling on purpose --
+              this used to render as a persistent destructive/red banner
+              implying a misconfiguration the operator needed to "fix",
+              which is actively misleading for the non-Steam case. The
+              "Fix path" action stays for the operator who genuinely does
+              use Workshop mods and has the path wrong. */}
           {!status?.workshopAcfConfigured && (
             <>
               <Separator orientation="vertical" className="h-4" />
-              <div className="flex min-w-0 items-center gap-2 text-destructive" role="status">
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              <div className="flex min-w-0 items-center gap-2 text-muted-foreground" role="status">
+                <Info className="w-3.5 h-3.5 shrink-0" />
                 <span className="text-xs">{t('statusBar.workshopPathMissing')}</span>
                 <DisabledReason reason={!canManageServers ? t('permissions.noServersManage') : null}>
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-7 border-destructive/30 px-2 text-xs text-foreground hover:bg-destructive/10"
+                    className="h-7 px-2 text-xs"
                     onClick={handleOpenWorkshopBrowser}
                     disabled={savingWorkshopPath || !canManageServers}
                   >
@@ -2658,14 +2752,6 @@ export default function Mods() {
               <Clock className="w-5 h-5 animate-pulse text-warning" />
               <div>
                 <p className="font-medium text-warning">{t('restartPending.title')}</p>
-
-            <FolderBrowser
-              open={workshopBrowserOpen}
-              onOpenChange={setWorkshopBrowserOpen}
-              onSelect={handleWorkshopFolderSelected}
-              initialPath={workshopBrowserInitialPath}
-              title={t('folderBrowser.title')}
-            />
                 <p className="text-xs text-muted-foreground">
                   {t('restartPending.waiting', { minutes: status.maxDelayMinutes })}
                 </p>
@@ -4568,6 +4654,19 @@ export default function Mods() {
                                           <div className="flex flex-wrap gap-1">
                                             {(() => {
                                               const groupSiblings = siblingConflictsMap.get(g.wsId)
+                                              // bug-hunt-2026-09-08 (three-state collapse residual sweep): `conflicts`
+                                              // is null until a scan has ever run (fresh install, or a cleared
+                                              // server-side cache) -- siblingConflictsMap is then empty for every
+                                              // group, and every mod fell through to the SAME bg-success/bg-muted
+                                              // pair a genuinely scanned-and-cleared mod gets. No text ever claimed
+                                              // "clean" (the pill only ever showed mod.id), but the color did --
+                                              // an operator who never opens the Conflicts tab could not tell "nobody
+                                              // has scanned this" from "this is fine". Reusing the file's own
+                                              // existing neutral-for-unverified language (WorkshopThumb's
+                                              // !mod.last_checked tone, the dashed/muted "Unchecked" badge a few
+                                              // hundred lines up) rather than inventing a new one -- this is the
+                                              // removal of a false claim, not a new claim, so it needed no new copy.
+                                              const scanned = conflicts !== null
                                               const enabledSet = new Set(g.mods.filter(m => m.enabled).map(m => m.id))
                                               const scanClashing = new Set<string>()
                                               if (groupSiblings) {
@@ -4598,15 +4697,24 @@ export default function Mods() {
                                                 ].filter(Boolean).join('\n')
                                                 // Colour priority: confirmed clash > known overlap > duplicate > normal.
                                                 // Heuristics alone never earn red — many multi-ID mods are legit bundles.
+                                                // The final fallback only reads as "clean" once a scan has actually
+                                                // run (`scanned`) -- unscanned gets the file's existing dashed/muted
+                                                // "unverified" treatment instead, still varying by enabled state
+                                                // (same intensity trick the clean branch already uses) so the
+                                                // toggle's on/off signal isn't lost, just no longer painted green.
                                                 const styleClass = isScanClashing
                                                   ? (mod.enabled ? 'bg-destructive/20 text-destructive hover:bg-destructive/30 ring-1 ring-destructive/50' : 'bg-destructive/5 text-destructive/60 hover:bg-destructive/10 ring-1 ring-destructive/20')
                                                   : hasScanOverlap
                                                     ? (mod.enabled ? 'bg-success/15 text-success hover:bg-success/25 ring-1 ring-warning/30' : 'bg-muted/15 text-muted-foreground/75 hover:text-muted-foreground hover:bg-muted/25 ring-1 ring-warning/20')
                                                     : isDupe
                                                       ? (mod.enabled ? 'bg-warning/15 text-warning hover:bg-warning/25 ring-1 ring-warning/30' : 'bg-warning/5 text-warning/50 hover:bg-warning/10 ring-1 ring-warning/20')
-                                                      : (mod.enabled
-                                                        ? 'bg-success/15 text-success hover:bg-success/25'
-                                                        : 'bg-muted/15 text-muted-foreground/75 hover:text-muted-foreground hover:bg-muted/25')
+                                                      : !scanned
+                                                        ? (mod.enabled
+                                                          ? 'border border-dashed border-muted-foreground/40 bg-transparent text-muted-foreground/70 hover:bg-muted/15'
+                                                          : 'border border-dashed border-muted-foreground/25 bg-transparent text-muted-foreground/40 hover:bg-muted/10')
+                                                        : (mod.enabled
+                                                          ? 'bg-success/15 text-success hover:bg-success/25'
+                                                          : 'bg-muted/15 text-muted-foreground/75 hover:text-muted-foreground hover:bg-muted/25')
                                                 return (
                                                   <DisabledReason key={mod.id} reason={!canManageMods ? t('permissions.noModsManage') : null}>
                                                   <button
@@ -5214,7 +5322,7 @@ export default function Mods() {
                           <span className="text-[11px] text-warning">{t('loadOrder.unsavedChanges')}</span>
                           <div className="flex gap-2">
                             <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setAutoSortPreview(null); setOrderedModIds(iniConfig.modIds) }}>{t('loadOrder.reset')}</Button>
-                            <Button size="sm" className="h-8 text-xs" onClick={handleSaveModOrder} disabled={savingModOrder || !canManageMods}>
+                            <Button size="sm" className="h-8 text-xs" onClick={handleSaveModOrder} disabled={savingModOrder || !canManageMods || serverChangedSinceLoad}>
                               {savingModOrder ? <Loader2 className="w-3 h-3 me-1 animate-spin" /> : <Save className="w-3 h-3 me-1" />}
                               {t('loadOrder.saveOrder')}
                             </Button>
@@ -5893,6 +6001,24 @@ export default function Mods() {
         </>
         )}
       </div>
+
+      {/* bug-hunt-2026-09-07 (Discord report: "when pressing fix path nothing
+          happens"): this was nested inside the pendingRestart-only banner
+          above, several hundred lines from here -- FolderBrowser only ever
+          MOUNTED while a mod change was awaiting a restart, so for anyone
+          NOT in that specific state (the overwhelming majority of "Fix
+          path" clicks, including the reporting user's) handleOpenWorkshopBrowser
+          ran fine and called setWorkshopBrowserOpen(true), but there was no
+          component anywhere in the tree to open -- an offered action that
+          could never succeed. Always mounted here now, matching every other
+          page-level dialog's placement. */}
+      <FolderBrowser
+        open={workshopBrowserOpen}
+        onOpenChange={setWorkshopBrowserOpen}
+        onSelect={handleWorkshopFolderSelected}
+        initialPath={workshopBrowserInitialPath}
+        title={t('folderBrowser.title')}
+      />
 
       {/* Single mod remove confirmation */}
       <AlertDialog open={!!confirmRemoveMod} onOpenChange={(open) => { if (!open) setConfirmRemoveMod(null) }}>

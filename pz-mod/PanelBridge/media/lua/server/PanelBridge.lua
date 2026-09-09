@@ -1,10 +1,36 @@
 ---@diagnostic disable: undefined-global, deprecated
 --[[
     PanelBridge - Server-side mod for Zomboid Control Panel
-    Version: 1.7.51
+    Version: 1.7.57
 
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
+
+                v1.7.55 Changes:
+                - Fix: two wall-clock markers (tryResyncInboxCursor's
+                    stuck-inbox detector, and the read-only command cache's
+                    TTL check) trusted a timestamp that a backward clock jump
+                    (an admin changing the game server's clock) can make
+                    impossible -- a marker from the future can't describe
+                    something that already happened. The inbox self-heal
+                    read that as "still waiting" and could stay disabled
+                    forever; the cache read it as "still fresh" and could
+                    serve stale getServerInfo/getWeather/getGameTime results
+                    forever, silently. Both now detect an impossible marker
+                    and fail toward doing the work again instead of trusting
+                    it: the self-heal check runs immediately, and the cache
+                    is treated as expired.
+
+                v1.7.54 Changes:
+                - Fix: readJSON() called json.decode with no pcall protection,
+                    while processQueuedCommands wrapped the identical decode
+                    500 lines away specifically because a malformed file
+                    can't be allowed to throw. Same risk on all four readJSON
+                    callers (queue state load, inbox resync self-heal, and
+                    both legacy commands.json reads) is now closed the same
+                    way: a decode failure returns nil (treated as absent
+                    state, not empty) instead of crashing the mod's update
+                    tick.
 
                 v1.7.49 Changes:
                 - Fix: Build 42 exposes VehicleParts as Java userdata;
@@ -479,7 +505,7 @@
 local json
 
 local PanelBridge = {
-    VERSION = "1.7.51",
+    VERSION = "1.7.57",
     PROTOCOL_VERSION = "queue-v1",
     CHECK_INTERVAL = 250, -- milliseconds (fast command polling)
     lastCheck = 0,
@@ -1452,7 +1478,23 @@ function PanelBridge.readJSON(filename)
     if not content or content == "" then
         return nil
     end
-    return json.decode(content)
+    -- pcall-protect json.decode so a malformed/torn file can't throw here --
+    -- same precedent as processQueuedCommands' inline decode below, applied
+    -- to every readJSON caller instead of just the one that already had it.
+    -- All four current callers (readQueueState, tryResyncInboxCursor, the
+    -- legacy commands.json intake x2) already treat a nil return as "no
+    -- data yet" and fall back to their own defaults, so returning nil here
+    -- on a decode failure is "absent", not "empty" -- it re-derives state
+    -- from scratch rather than proceeding as if the file said nothing.
+    local decodeOk, decoded = pcall(json.decode, content)
+    if not decodeOk then
+        PanelBridge.warn("Failed to decode JSON file, treating as absent", {
+            file = filename,
+            parseError = tostring(decoded)
+        })
+        return nil
+    end
+    return decoded
 end
 
 function PanelBridge.writeJSON(filename, data)
@@ -1742,7 +1784,17 @@ local function processSingleCommand(cmd)
         local cacheTtl = cacheConfig and cacheConfig.ttl
         if cacheTtl then
             local cached = readOnlyCache[cmd.action]
-            if cached and (getTimestampMs() - cached.at) < cacheTtl then
+            -- age < 0 means the wall clock moved BACKWARD since this entry was
+            -- cached (getTimestampMs() falls back to os.time()*1000, and an
+            -- admin can change the game server's clock) -- an impossible
+            -- marker, not a fresh one. `age < cacheTtl` alone would treat a
+            -- negative age as trivially "still fresh", serving this cached
+            -- result forever with no way to age back out. Requiring age >= 0
+            -- makes an impossible marker fall through to a live refetch
+            -- instead: worst case one extra bridge round-trip, never a
+            -- silent-stale-forever cache (god's ruling, 2026-09-07).
+            local age = cached and (getTimestampMs() - cached.at)
+            if cached and age >= 0 and age < cacheTtl then
                 PanelBridge.stats.commandsSucceeded = PanelBridge.stats.commandsSucceeded + 1
                 PanelBridge.debug("Command served from cache: " .. tostring(cmd.action), { id = cmd.id })
                 PanelBridge.sendResult(cmd.id, cached.ok, cached.data, cached.err)
@@ -1857,6 +1909,25 @@ local function tryResyncInboxCursor(nextSeq)
         stuck.since = now
         stuck.nextCheckAt = now + INBOX_RESYNC_STUCK_MS
         return false
+    end
+
+    -- A wall-clock jump backward (getTimestampMs() falls back to
+    -- os.time()*1000, and an admin can change the game server's clock) makes
+    -- `stuck.nextCheckAt` an impossible marker: a timestamp recorded earlier
+    -- can never be later than "now" unless the clock moved. `now <
+    -- stuck.nextCheckAt` alone can't tell that apart from an ordinary
+    -- still-waiting tick -- both read identically from inside that one
+    -- comparison -- so detect it against `since` instead, where "now
+    -- earlier than when we started waiting" is only reachable via a
+    -- backward jump. Recovery: let the self-heal check run on THIS call
+    -- rather than re-arm another wait, since leaving nextCheckAt as-is would
+    -- disable the self-heal until real time catches back up to whatever it
+    -- jumped past -- possibly forever (god's ruling, 2026-09-07; same
+    -- failure shape as af76e383: the safety mechanism disabled by exactly
+    -- the condition it exists to catch).
+    if now < stuck.since then
+        stuck.since = now
+        stuck.nextCheckAt = now
     end
     if now < stuck.nextCheckAt then
         return false

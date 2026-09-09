@@ -1,4 +1,14 @@
 {
+  "__pendingPluralForms": [
+    "backups.backupsStored_few",
+    "backups.backupsStored_many",
+    "backups.backupsStored_two",
+    "backups.backupsStored_zero",
+    "workshopSync.inSync_few",
+    "workshopSync.inSync_many",
+    "workshopSync.inSync_two",
+    "workshopSync.inSync_zero"
+  ],
   "ariaLabels": {
     "allowPrivateLan": "السماح بالأصول الخاصة وأصول الشبكة المحلية",
     "enablePublicIp": "تفعيل البحث عن عنوان IP العام",
@@ -110,6 +120,11 @@
     "description": "لديك تعديلات معلَّقة. احفظ التغييرات لتطبيقها على اللوحة المباشرة.",
     "saveButton": "حفظ التغييرات"
   },
+  "restartWait": {
+    "failedTitle": "The panel hasn't come back",
+    "failedDescription": "It's been a few minutes since the restart and the panel still isn't responding. It may still be starting (this can take longer than usual right after an update), or it may have failed to start. Check the panel's console/log output for errors before trying again.",
+    "checkAgain": "Check Again"
+  },
   "saveButton": {
     "saving": "جارٍ الحفظ...",
     "save": "حفظ الإعدادات",
@@ -207,7 +222,9 @@
     "expectedVersion": " الإصدار المتوقع v{{version}}.",
     "stagedStillPresent": " الملف المُنزَّل ما زال على القرص؛ ويمكنك إعادة محاولة إعادة التشغيل.",
     "stagedGone": " الملف الثنائي المُجهَّز لم يعد موجودًا — أعد تنزيل التحديث قبل المحاولة من جديد.",
+    "stagedGoneAfterHandshakeFailure": " The staged update was applied, then automatically rolled back — re-downloading the same version will very likely fail the same way.",
     "likelyCauseLabel": "السبب المرجَّح:",
+    "startupHandshakeFailed": "the update applied successfully (the new version launched) but it exited before finishing startup, so the panel automatically rolled back to the previous version. This is not a missing or corrupted download — see the log below for the exact reason the new version exited.",
     "avQuarantine": "حذف برنامج مكافحة الفيروسات أو ميزة الوصول المتحكَّم به إلى المجلدات الملفَ الثنائي الجديد بعد وضعه.",
     "avExclusionHint": "أضف هذا المجلد إلى استثناءات مكافح الفيروسات وأعد المحاولة:",
     "windowsDefenderLabel": "Windows Defender:",
@@ -215,12 +232,20 @@
     "permissionDenied": "رُفض الوصول عند الكتابة إلى مجلد اللوحة. تحقق من صلاحيات الحساب الذي يشغّل اللوحة.",
     "permissionDeniedWindows": "رُفض الوصول عند الكتابة إلى مجلد اللوحة. أعد تشغيل اللوحة بصلاحيات المسؤول أو انقلها خارج Program Files.",
     "permissionDeniedPosix": "رُفض الوصول عند الكتابة إلى مجلد اللوحة. تحقق من الملكية وصلاحيات الكتابة لمستخدم خدمة اللوحة.",
+    "powershellUnavailable": "يبدو أن PowerShell محظور على هذا الجهاز (سياسة التنفيذ، أو AppLocker، أو نهج المجموعة). تعتمد آلية التحديث عليه للتحقق من الملفات المُجهَّزة وتطبيقها. اطلب من المسؤول السماح لـ powershell.exe بالعمل لهذا التطبيق.",
     "helperBlocked": "مُنع تشغيل سكربت التحديث المساعد (Windows Defender ASR أو AppLocker أو نهج المجموعة). الملف الثنائي المُجهَّز ما زال على القرص.",
     "helperBlockedRecoveryLabel": "الاسترداد:",
     "helperBlockedRecovery": "أغلق هذه اللوحة وانقر نقرًا مزدوجًا على <code>Start.bat</code> في:",
     "helperBlockedRecoveryNote": "يختار Start.bat أحدث ملف ثنائي تلقائيًا، لذا سيُطبَّق التحديث. ولمنع تكرار ذلك مستقبلًا، أضف مجلد اللوحة إلى استثناءات مكافح الفيروسات.",
     "noHelperLogTitle": "لم يُكتب أي سجل للبرنامج المساعد.",
     "noHelperLogDesc": "ربما مُنع السكربت المساعد بسبب نهج التنفيذ أو مكافح الفيروسات. راجع سجل الحماية في Windows Defender.",
+    "rollbackFailedRetryWarning": "the automatic rollback did not fully complete. The panel is likely to retry this exact update again on the next restart and fail the same way, until this is cleared by hand.",
+    "rollbackFailedCosmetic": "the update rolled back successfully. One leftover file could not be removed automatically and is safe to delete by hand.",
+    "rollbackFailedRecoveryLabel": "Files to delete:",
+    "rollbackFailedRecoveryNote": "close this panel first, then delete these three files from the install folder below:",
+    "rollbackFailedRecoveryNoteCosmetic": "delete this file from the install folder below:",
+    "unknownCauseTitle": "Cause could not be determined automatically.",
+    "unknownCauseDesc": "The helper log doesn't match a known failure signature. See the log below for detail.",
     "showHelperLog": "عرض سجل البرنامج المساعد",
     "refreshLog": "تحديث السجل",
     "couldNotReadLog": {
@@ -232,19 +257,23 @@
     "preflight": {
       "packagedBuildGit": "التحديث الذاتي متاح في الإصدارات المحزَّمة فقط. في وضع التطوير، اسحب أحدث شيفرة باستخدام git.",
       "packagedBuildDocker": "التحديث الذاتي متاح في الإصدارات المحزَّمة فقط. اسحب الصورة الأحدث وأعد إنشاء الحاوية: docker compose pull && docker compose up -d.",
+      "dockerNotChecked": "Docker updates are applied by a separate update controller container. The panel does not run its own preflight checks (disk space, permissions, etc.) for this mode -- those are the controller's responsibility.",
       "noReleaseInfo": "لا توجد معلومات إصدار مخزَّنة بعد — انقر على \"التحقق من التحديثات\" أولًا.",
-      "databaseUnreadable": "تعذّرت قراءة قاعدة بيانات اللوحة قبل التحديث: {{error}}.",
+      "databaseUnreadable": "تعذّرت قراءة قاعدة بيانات اللوحة قبل التحديث: {{error}}. أعد تشغيل اللوحة أولًا — فهي تحاول تلقائيًا استعادة db.json من نسخها الاحتياطية في data/backups عند بدء التشغيل.",
       "databaseMissing": "لم يُعثر على data/db.json بجوار اللوحة العاملة. يبدو هذا تثبيتًا جديدًا؛ تحقق من مجلد البيانات قبل تطبيق التحديث.",
       "binaryMissing": "لم يُعثر على ملف ثنائي لنظام {{platform}} في أحدث إصدار.",
       "folderNotWritableWindows": "لا تستطيع هذه العملية الكتابة في مجلد اللوحة: {{detail}}. جرّب التشغيل بصلاحيات المسؤول، أو انقل اللوحة خارج مجلد محمي.",
       "folderNotWritableLinux": "لا تستطيع هذه العملية الكتابة في مجلد اللوحة: {{detail}}. تأكد من أن مستخدم خدمة اللوحة يملك دليل التثبيت ويستطيع الكتابة فيه.",
       "folderNotWritableOther": "لا تستطيع هذه العملية الكتابة في مجلد اللوحة: {{detail}}. تحقق من صلاحيات دليل التثبيت للحساب الذي يشغّل اللوحة.",
+      "exeNotRenameable": "لا يسمح Windows لهذه العملية بإعادة تسمية ملف برنامجها الخاص. جرّب التشغيل بصلاحيات المسؤول، أو انقل اللوحة خارج مجلد محمي.",
       "diskSpace": "لا توجد مساحة قرص حرة كافية. المطلوب نحو {{neededMb}} ميغابايت، والمتوفر {{freeMb}} ميغابايت.",
+      "diskSpaceUnknown": "Could not determine free disk space before update. Proceeding without this check -- verify you have enough free space manually if the apply fails partway through.",
       "oneDrive": "اللوحة موجودة داخل مجلد تتم مزامنته عبر OneDrive. وقد تقفل المزامنة الملف التنفيذي للحظات أثناء استبداله. أوقف OneDrive مؤقتًا قبل النقر على \"إعادة التشغيل والتطبيق\"، أو انقل اللوحة إلى موقع غير متزامن (مثل C:\\ZomboidPanel).",
       "syncSuspect": "اللوحة موجودة على سطح المكتب أو في مجلد Documents. إذا كنت تستخدم النسخ الاحتياطي في OneDrive أو نقل المجلدات المعروفة، فهذا المجلد مرتبط بالمزامنة وقد يقفل الملف التنفيذي أثناء التطبيق. ففكّر في نقل اللوحة إلى موقع غير متزامن.",
       "programFiles": "اللوحة مثبَّتة داخل Program Files. ويتطلب Windows صلاحيات المسؤول لاستبدال الملفات هناك. إذا فشل التطبيق، فأعد تشغيل اللوحة بصلاحيات المسؤول.",
       "previousUpdateStaged": "هناك تحديث سابق (v{{version}}) مُجهَّز بالفعل وجاهز للتطبيق عند إعادة التشغيل التالية.",
-      "previousBackup": "توجد نسخة احتياطية سابقة (.old) بجوار الملف التنفيذي. وستُنظَّف عند أول عملية تطبيق ناجحة."
+      "previousBackup": "توجد نسخة احتياطية سابقة (.old) بجوار الملف التنفيذي. وستُنظَّف عند أول عملية تطبيق ناجحة.",
+      "downloadHostUnreachable": "تعذّر الوصول إلى {{host}}، وهو المضيف الذي يُنزَّل منه الملف التنفيذي للتحديث. أي جدار حماية أو وكيل يسمح بالتحقق من التحديثات لكنه يحظر هذا المضيف سيؤدي إلى فشل التنزيل رغم اجتياز هذا الفحص."
     },
     "checkForUpdates": "التحقق من التحديثات",
     "applyingDockerUpdate": "جارٍ تطبيق تحديث Docker...",
@@ -526,7 +555,11 @@
     "autoExportLabel": "تصدير الشخصية عند انضمام لاعب",
     "autoExportDesc": "يعمل بعد نحو عشر ثوانٍ من تحميل اللاعب، فيمكن استعادة شخصية واحدة دون إرجاع العالم كله. ويتطلب اتصال PanelBridge.",
     "copiesKeptLabel": "عدد النسخ المحفوظة لكل لاعب",
-    "copiesKeptHelp": "تُحذف أقدم عمليات التصدير عندما يتجاوز اللاعب هذا العدد. واستعدها من صفحة اللاعبين."
+    "copiesKeptHelp": "تُحذف أقدم عمليات التصدير عندما يتجاوز اللاعب هذا العدد. واستعدها من صفحة اللاعبين.",
+    "backupsStored_zero": "النسخ الاحتياطية المخزَّنة: {{count}}",
+    "backupsStored_two": "النسخ الاحتياطية المخزَّنة: {{count}}",
+    "backupsStored_few": "النسخ الاحتياطية المخزَّنة: {{count}}",
+    "backupsStored_many": "النسخ الاحتياطية المخزَّنة: {{count}}"
   },
   "security": {
     "cardTitle": "الأمان والمصادقة",
@@ -800,7 +833,11 @@
       "cookiesFirstError": "أضف ملفات تعريف ارتباط Steam أولًا للكتابة إلى المجموعة.",
       "sessionExpiredError": "انتهت جلسة Steam. الصق ملفات تعريف ارتباط جديدة أعلاه وحاول من جديد.",
       "failedToReadCollection": "فشلت قراءة المجموعة"
-    }
+    },
+    "inSync_zero": "متزامن — العناصر: {{count}}",
+    "inSync_two": "متزامن — العناصر: {{count}}",
+    "inSync_few": "متزامن — العناصر: {{count}}",
+    "inSync_many": "متزامن — العناصر: {{count}}"
   },
   "toasts": {
     "recoveryCodesGenerated": {

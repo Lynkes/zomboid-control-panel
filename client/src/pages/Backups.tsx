@@ -63,7 +63,12 @@ interface BackupProgress {
 }
 
 export default function Backups() {
-  const { t, i18n } = useTranslation('backups')
+  // 'settings' loaded alongside 'backups' only to reuse settings.json's
+  // existing backups.statusLoadFailed copy (see the badge/switch block
+  // below) -- Settings.tsx's own scheduled-backups toggle already shipped
+  // that exact "couldn't check, disabled until it loads" string in all 9
+  // locales; reusing it here needed no new translation.
+  const { t, i18n } = useTranslation(['backups', 'settings'])
   const { toast } = useToast()
   const socket = useSocket()
   const { can } = useAuth()
@@ -80,6 +85,14 @@ export default function Backups() {
 
   // State
   const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null)
+  // bug-hunt-2026-09-08 (honest-unknown class, GH#149 siblings sweep):
+  // backupStatus is null both before the first fetch resolves AND after one
+  // fails -- the status card's badge/switch below used to read
+  // `backupStatus?.enabled` as a bare boolean either way, so a slow or
+  // failed status fetch rendered a confident "Off, no scheduled backups"
+  // with the toggle still clickable. Same shape as Settings.tsx's own
+  // scheduled-backups toggle had before it was fixed with this exact flag.
+  const [backupStatusLoadError, setBackupStatusLoadError] = useState(false)
   const [backups, setBackups] = useState<ServerBackupArchive[]>([])
   // Set once fetchBackups() itself has settled (success or failure), distinct
   // from the shared `loading` flag below which only clears once ALL THREE of
@@ -93,6 +106,17 @@ export default function Backups() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [creatingBackup, setCreatingBackup] = useState(false)
+  // bug-hunt-2026-09-06: fetchBackupStatus below only ever sets this TRUE
+  // (see its own comment) when it detects a backup already running
+  // elsewhere at mount/refresh -- if that backup's terminal backup:progress
+  // event never reaches THIS session, nothing else was polling
+  // backupInProgress to correct it, so creatingBackup could stay stuck true
+  // indefinitely (Create/Restore disabled, no error, page still navigable
+  // but silently wrong). ownBackupInFlightRef distinguishes that path from
+  // THIS session's own handleCreateBackup call, which already has its own
+  // finally clearing creatingBackup regardless of the socket -- the
+  // watchdog below must never interfere with that one.
+  const ownBackupInFlightRef = useRef(false)
   const [restoringBackup, setRestoringBackup] = useState<string | null>(null)
   const [deletingBackups, setDeletingBackups] = useState(false)
   const [backupProgress, setBackupProgress] = useState<BackupProgress | null>(null)
@@ -101,12 +125,30 @@ export default function Backups() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Active server context — backups don't apply to remote servers because
-  // the panel can't reach the remote filesystem. We fetch this on mount
-  // and refresh when the server-changed socket event fires (handled via
-  // socket effect below) so the banner / button-disable stays accurate.
+  // the panel can't reach the remote filesystem. Fetched on mount and
+  // refreshed by the activeServerChanged socket effect below.
   const [activeServerRemote, setActiveServerRemote] = useState(false)
   const [activeServerId, setActiveServerId] = useState<string | number | null>(null)
   const [history, setHistory] = useState<BackupHistoryRecord[]>([])
+  // bug-hunt-2026-09-04: the comment on activeServerRemote/activeServerId
+  // above CLAIMED this already refreshed on the server-changed socket event
+  // "via socket effect below" -- it didn't; only backup:progress was ever
+  // subscribed. createBackup()/restoreBackup(name)/deleteBackup(name) all
+  // resolve the active server fresh server-side per-request (same pattern
+  // as ServerConfig's ini/sandbox routes), so a stale display here isn't
+  // just cosmetic: restoreBackup is a live-world overwrite. True only for
+  // the brief window between the switch and refreshAll() landing, and used
+  // to also close any destructive dialog left open across a switch, since
+  // its own local state (a specific backup name) doesn't update just
+  // because the list behind it refreshed.
+  const [serverChangedSinceLoad, setServerChangedSinceLoad] = useState(false)
+  // Named in the restore confirmation itself, read fresh at the moment the
+  // dialog opens -- not from activeServerId/mount state -- because the
+  // named confirm is meant to protect every path to an accidental restore,
+  // including ones the switch-then-click banner above doesn't cover. The
+  // last thing a user reads before an irreversible world overwrite should
+  // never be able to lie about which world that is.
+  const [restoreTargetServerName, setRestoreTargetServerName] = useState<string | null>(null)
 
   // Selection state
   const [selectedBackups, setSelectedBackups] = useState<Set<string>>(new Set())
@@ -139,6 +181,7 @@ export default function Backups() {
       setBackupSchedule(status.schedule)
       setBackupMaxCount(status.maxBackups)
       setLoadError(null)
+      setBackupStatusLoadError(false)
       // The server's own backupInProgress mutex (backupService.js) is the
       // one source of truth for whether a backup is actually running --
       // including one this browser session didn't start (the scheduler, a
@@ -154,6 +197,7 @@ export default function Backups() {
       if (status.backupInProgress) setCreatingBackup(true)
     } catch (error) {
       setLoadError(getUserErrorMessage(error, t('toasts.loadStatusFailed')))
+      setBackupStatusLoadError(true)
     }
   }, [t])
 
@@ -249,6 +293,50 @@ export default function Backups() {
     }
   }, [socket, fetchBackups, fetchBackupStatus])
 
+  // Watchdog for the externally-started-backup case ownBackupInFlightRef
+  // documents above: independently re-checks the server's actual
+  // backupInProgress state rather than trusting the socket event to
+  // eventually arrive. Never runs while THIS session's own
+  // handleCreateBackup is in flight -- that path already self-corrects via
+  // its own finally regardless of this effect.
+  useEffect(() => {
+    if (!creatingBackup || ownBackupInFlightRef.current) return
+    const interval = setInterval(async () => {
+      if (ownBackupInFlightRef.current) return
+      try {
+        const status = await backupApi.getStatus()
+        if (!status.backupInProgress) {
+          setCreatingBackup(false)
+          setBackupProgress(null)
+          fetchBackups()
+        }
+      } catch {
+        // Transient -- next tick tries again.
+      }
+    }, 10000)
+    return () => clearInterval(interval)
+  }, [creatingBackup, fetchBackups])
+
+  // See serverChangedSinceLoad's own comment above for why this exists.
+  useEffect(() => {
+    if (!socket) return
+    const handleActiveServerChanged = () => {
+      setServerChangedSinceLoad(true)
+      // A dialog's own local state (a specific backup name/list) doesn't
+      // update just because the data behind it refreshes -- close it rather
+      // than let a confirm click resolve against whichever server the
+      // backend considers active now, not whichever one the dialog was
+      // opened against.
+      setRestoreDialog({ open: false, backupName: null })
+      setDeleteDialog({ open: false, names: [] })
+      refreshAll().finally(() => setServerChangedSinceLoad(false))
+    }
+    socket.on('activeServerChanged', handleActiveServerChanged)
+    return () => {
+      socket.off('activeServerChanged', handleActiveServerChanged)
+    }
+  }, [socket, refreshAll])
+
   // Actions
   const handleCreateBackup = async () => {
     // Function-level guard, not just the button's `disabled` -- the button
@@ -256,6 +344,14 @@ export default function Backups() {
     // assert the action is unreachable, don't just make the control look
     // disabled (Angela's Console.tsx Enter-key bypass finding).
     if (!canManageBackups) return
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.serverChangedSinceLoadTitle'),
+        description: t('toasts.serverChangedSinceLoadDesc'),
+        variant: 'destructive',
+      })
+      return
+    }
     // A PRIOR backup's 'complete'/'error' socket handler (or this
     // function's own catch block, below) may have scheduled an auto-clear
     // timeout that hasn't fired yet -- e.g. a second click within its 2-3s
@@ -265,6 +361,7 @@ export default function Backups() {
       clearTimeout(progressTimeoutRef.current)
       progressTimeoutRef.current = null
     }
+    ownBackupInFlightRef.current = true
     setCreatingBackup(true)
     setBackupProgress({ phase: 'preparing', percent: 0, message: t('progress.startingFallback') })
     try {
@@ -298,6 +395,7 @@ export default function Backups() {
       progressTimeoutRef.current = setTimeout(() => setBackupProgress(null), 3000)
     } finally {
       setCreatingBackup(false)
+      ownBackupInFlightRef.current = false
     }
   }
 
@@ -306,6 +404,14 @@ export default function Backups() {
   // alongside scheduled backups; the user then clicks Restore to apply it.
   const handleUploadFile = async (file: File) => {
     if (!canManageBackups) return
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.serverChangedSinceLoadTitle'),
+        description: t('toasts.serverChangedSinceLoadDesc'),
+        variant: 'destructive',
+      })
+      return
+    }
     if (!file) return
     if (activeServerRemote) {
       toast({ title: t('toasts.notAvailableRemoteTitle'), description: t('toasts.notAvailableRemoteDesc'), variant: 'destructive' })
@@ -350,8 +456,27 @@ export default function Backups() {
     }
   }
 
+  // Fetches the CURRENT active server name at the moment the dialog opens
+  // (not from mount-time state) so the confirmation can name the real
+  // target -- see restoreTargetServerName's own comment above.
+  const openRestoreDialog = (name: string) => {
+    setRestoreDialog({ open: true, backupName: name })
+    setRestoreTargetServerName(null)
+    serversApi.getResolvedActive()
+      .then((d) => setRestoreTargetServerName(d.server?.name || d.server?.serverName || null))
+      .catch(() => setRestoreTargetServerName(null))
+  }
+
   const handleRestoreBackup = async (name: string) => {
     if (!canRestoreBackups) return
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.serverChangedSinceLoadTitle'),
+        description: t('toasts.serverChangedSinceLoadDesc'),
+        variant: 'destructive',
+      })
+      return
+    }
     setRestoreDialog({ open: false, backupName: null })
     setRestoringBackup(name)
     try {
@@ -393,6 +518,14 @@ export default function Backups() {
 
   const handleDeleteBackups = async (names: string[]) => {
     if (!canManageBackups) return
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.serverChangedSinceLoadTitle'),
+        description: t('toasts.serverChangedSinceLoadDesc'),
+        variant: 'destructive',
+      })
+      return
+    }
     setDeleteDialog({ open: false, names: [] })
     setDeletingBackups(true)
     try {
@@ -555,6 +688,12 @@ export default function Backups() {
   const lastScheduledAttemptFailed = Boolean(
     backupStatus?.enabled && backupStatus?.lastScheduledBackupAttempt && !backupStatus.lastScheduledBackupAttempt.success
   )
+  // bug-hunt-2026-09-08 (honest-unknown class): backupStatus is null both
+  // before the first fetch resolves and after a confirmed failure -- only
+  // the latter gets this treatment (matching Settings.tsx's own scheduled-
+  // backups toggle), so a fast, uneventful mount still shows the plain
+  // "on schedule" copy rather than flashing "couldn't check" for a moment.
+  const statusUnknown = !backupStatus && backupStatusLoadError
 
   // Translate the small set of cron presets we expose into a human label.
   // Falls back to the raw cron string for anything custom so the user
@@ -606,7 +745,7 @@ export default function Backups() {
             <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : activeServerRemote ? t('pageHeader.remoteDisabledTitle') : null}>
               <Button
                 onClick={handleCreateBackup}
-                disabled={creatingBackup || restoringBackup !== null || restoreInProgressElsewhere || !backupStatus?.savesExists || activeServerRemote || !canManageBackups}
+                disabled={creatingBackup || restoringBackup !== null || restoreInProgressElsewhere || !backupStatus?.savesExists || activeServerRemote || !canManageBackups || serverChangedSinceLoad}
                 className="gap-2"
               >
                 {creatingBackup ? (
@@ -631,7 +770,7 @@ export default function Backups() {
               <Button
                 variant="outline"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={uploadingBackup || restoringBackup !== null || restoreInProgressElsewhere || activeServerRemote || !canManageBackups}
+                disabled={uploadingBackup || restoringBackup !== null || restoreInProgressElsewhere || activeServerRemote || !canManageBackups || serverChangedSinceLoad}
                 className="gap-2"
                 // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Upload an existing world_backup_*.zip from another machine"); the actual disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                 title={t('pageHeader.uploadTitleLocal')}
@@ -759,9 +898,16 @@ export default function Backups() {
             <div className="flex-1 min-w-0">
               <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t('statusCards.autoBackup')}</p>
               <p className={cn('text-sm font-semibold leading-tight mt-0.5 truncate', backupStatus?.enabled ? 'text-foreground' : 'text-muted-foreground')}>
-                {backupStatus?.enabled ? t('statusCards.on') : t('statusCards.off')}
+                {/* Bare "-" placeholder, same convention Debug.tsx already
+                    uses for a value that hasn't resolved yet -- not On or
+                    Off, since we don't actually know which. */}
+                {statusUnknown ? '-' : backupStatus?.enabled ? t('statusCards.on') : t('statusCards.off')}
               </p>
-              {lastScheduledAttemptFailed ? (
+              {statusUnknown ? (
+                <p className="text-[11px] text-muted-foreground/80 truncate">
+                  {t('backups.statusLoadFailed', { ns: 'settings' })}
+                </p>
+              ) : lastScheduledAttemptFailed ? (
                 <p
                   className="text-[11px] text-amber-600 dark:text-amber-400 truncate"
                   title={backupStatus?.lastScheduledBackupAttempt?.message || ''}
@@ -779,11 +925,11 @@ export default function Backups() {
                 </p>
               )}
             </div>
-            <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : null}>
+            <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : statusUnknown ? t('backups.statusLoadFailed', { ns: 'settings' }) : null}>
               <Switch
                 checked={backupStatus?.enabled || false}
                 onCheckedChange={toggleBackupEnabled}
-                disabled={!canManageBackups}
+                disabled={!canManageBackups || statusUnknown}
                 aria-label={t('statusCards.toggleAria')}
               />
             </DisabledReason>
@@ -935,7 +1081,7 @@ export default function Backups() {
                     variant="destructive"
                     size="sm"
                     onClick={() => setDeleteDialog({ open: true, names: Array.from(selectedBackups) })}
-                    disabled={deletingBackups || !canManageBackups}
+                    disabled={deletingBackups || !canManageBackups || serverChangedSinceLoad}
                     className="h-10 gap-2"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -1088,8 +1234,8 @@ export default function Backups() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => setRestoreDialog({ open: true, backupName: backup.name })}
-                              disabled={isRestoring || restoringBackup !== null || restoreInProgressElsewhere || creatingBackup || !canRestoreBackups}
+                              onClick={() => openRestoreDialog(backup.name)}
+                              disabled={isRestoring || restoringBackup !== null || restoreInProgressElsewhere || creatingBackup || !canRestoreBackups || serverChangedSinceLoad}
                               className="h-9 w-9 text-warning hover:text-warning hover:bg-warning/10"
                               aria-label={t('mainCard.restoreAria', { name: backup.name })}
                               // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, same text as the aria-label; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
@@ -1121,7 +1267,7 @@ export default function Backups() {
                               variant="ghost"
                               size="sm"
                               onClick={() => setDeleteDialog({ open: true, names: [backup.name] })}
-                              disabled={deletingBackups || !canManageBackups}
+                              disabled={deletingBackups || !canManageBackups || serverChangedSinceLoad}
                               className="h-9 w-9 text-destructive hover:text-destructive hover:bg-destructive/10"
                               aria-label={t('mainCard.deleteAria', { name: backup.name })}
                               // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, same text as the aria-label; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
@@ -1200,8 +1346,15 @@ export default function Backups() {
                 <Trans
                   i18nKey="restoreDialog.description"
                   t={t}
-                  values={{ name: restoreDialog.backupName }}
-                  components={{ 1: <strong />, 2: <span className="font-medium text-destructive" /> }}
+                  values={{
+                    name: restoreDialog.backupName,
+                    serverName: restoreTargetServerName || t('restoreDialog.unknownServerFallback'),
+                  }}
+                  components={{
+                    1: <strong />,
+                    2: <span className="font-medium text-destructive" />,
+                    3: <strong className="text-destructive" />,
+                  }}
                 />
               </p>
               <ul className="list-disc list-inside text-sm space-y-1 mt-2">

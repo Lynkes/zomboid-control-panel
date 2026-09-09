@@ -605,7 +605,32 @@ function createBackup(label = "") {
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const suffix = label ? `-${label}` : "";
-    const backupFile = path.join(backupDir, `db-${timestamp}${suffix}.json`);
+    // Same collision-suffix convention as utils/configBackup.js's
+    // createBackup() (2026-08-27/29 fix, "backups: the pruner still deletes
+    // the newest backup on Linux") -- toISOString() is millisecond-
+    // resolution, and several backups created in a tight loop (an
+    // automation script, or simply no real disk latency between calls) can
+    // land in the exact same millisecond. Without this, that collision
+    // produces the IDENTICAL filename and fs.copyFileSync silently
+    // OVERWRITES the earlier backup -- reported success:true on both calls,
+    // no error, no warning, earlier backup unrecoverably gone. This exact
+    // ring never got the fix configBackup.js's already did: reproduced live
+    // (2026-09-05, backup-restore-round-trip hunt), a plain sequential
+    // 8-call loop with no concurrency at all collided repeatedly on real
+    // Linux (WSL/ext4), losing several of the 8 backups before pruning ever
+    // ran. -2, -3, ... on an actual collision; the first backup at a given
+    // (timestamp, label) keeps the old, unsuffixed name. pruneBackups()/
+    // listBackupsNewestFirst() below are updated to parse and sort by this
+    // suffix too -- a raw string sort would put "-2.json" before ".json"
+    // ('-' < '.'), the same misordering configBackup.js's pruner had before
+    // its own fix.
+    let backupFile = path.join(backupDir, `db-${timestamp}${suffix}.json`);
+    for (let collision = 2; fs.existsSync(backupFile); collision++) {
+      backupFile = path.join(
+        backupDir,
+        `db-${timestamp}${suffix}-${collision}.json`,
+      );
+    }
 
     fs.copyFileSync(dbPath, backupFile);
     // Backups contain the same secrets as db.json — tighten perms.
@@ -622,13 +647,40 @@ function createBackup(label = "") {
   }
 }
 
+// Same (timestampKey, collisionSuffix)-parsing convention as
+// utils/configBackup.js's listBackupsFor()/parseBackupName() -- see
+// createBackup()'s own comment above for why a raw filename string sort
+// isn't safe here: "-2.json" sorts BEFORE ".json" ('-' < '.'), which would
+// treat a collision's later duplicate as older than the original it
+// collided with. Collision suffixes are always digits and neither the
+// timestamp (always ends in literal "Z") nor any real label
+// (auto/manual/startup/shutdown, always alphabetic) can produce a trailing
+// all-digit segment, so a plain trailing "-<digits>" is unambiguous.
+const BACKUP_COLLISION_SUFFIX_RE = /^(.*)-(\d+)$/;
+
+function sortBackupFilenamesNewestFirst(filenames) {
+  return filenames
+    .map((name) => {
+      const withoutExt = name.slice(0, -".json".length);
+      const match = withoutExt.match(BACKUP_COLLISION_SUFFIX_RE);
+      return match
+        ? { name, key: match[1], suffix: parseInt(match[2], 10) }
+        : { name, key: withoutExt, suffix: 1 };
+    })
+    .sort((a, b) => {
+      if (a.key !== b.key) return a.key < b.key ? 1 : -1; // newest first
+      return b.suffix - a.suffix; // higher collision suffix = created later
+    })
+    .map((c) => c.name);
+}
+
 function pruneBackups() {
   try {
-    const files = fs
-      .readdirSync(backupDir)
-      .filter((f) => f.startsWith("db-") && f.endsWith(".json"))
-      .sort()
-      .reverse();
+    const files = sortBackupFilenamesNewestFirst(
+      fs
+        .readdirSync(backupDir)
+        .filter((f) => f.startsWith("db-") && f.endsWith(".json")),
+    );
 
     for (const file of files.slice(MAX_BACKUPS)) {
       fs.unlinkSync(path.join(backupDir, file));
@@ -644,12 +696,12 @@ function pruneBackups() {
 // mean the whole ring is abandoned.
 function listBackupsNewestFirst() {
   try {
-    return fs
+    const files = fs
       .readdirSync(backupDir)
-      .filter((f) => f.startsWith("db-") && f.endsWith(".json"))
-      .sort()
-      .reverse()
-      .map((f) => path.join(backupDir, f));
+      .filter((f) => f.startsWith("db-") && f.endsWith(".json"));
+    return sortBackupFilenamesNewestFirst(files).map((f) =>
+      path.join(backupDir, f),
+    );
   } catch {
     log.debug(`No backups found to list`);
     return [];
@@ -658,7 +710,16 @@ function listBackupsNewestFirst() {
 
 function startBackupSchedule() {
   if (_backupTimer) clearInterval(_backupTimer);
-  _backupTimer = setInterval(() => {
+  _backupTimer = setInterval(async () => {
+    // Flush any pending debounced write first -- createBackup() copies
+    // whatever is CURRENTLY ON DISK via fs.copyFileSync, which does not see
+    // an in-memory change until scheduleWrite()'s up-to-500ms (or longer,
+    // under write-retry backoff) debounce actually lands. Without this, an
+    // auto-backup landing inside that window silently omits the change that
+    // triggered it -- see createDatabaseBackup()'s identical fix below and
+    // its comment for the full reasoning (2026-09-05, backup-restore-round-trip
+    // hunt: proven with vi.setSystemTime(), not just read).
+    await flushWrites();
     createBackup("auto");
   }, BACKUP_INTERVAL_MS);
   if (_backupTimer.unref) _backupTimer.unref();
@@ -738,7 +799,7 @@ function registerShutdownHandlers() {
  * Validate and repair the database structure.
  * Ensures all collections exist and have the correct type.
  */
-function validateData(data) {
+export function validateData(data) {
   const repaired = { ...defaultData };
   // Collections that existed but had the WRONG TYPE (not merely absent) get
   // silently replaced with an empty default below. Since db.json is
@@ -777,10 +838,26 @@ function validateData(data) {
       `DB validation found wrong-typed collection(s) and replaced them with empty defaults, discarding their contents: ${replacedKeys.join(", ")}`,
     );
     try {
-      const snapshotPath = path.join(
+      const baseSnapshotPath = path.join(
         backupDir,
         `pre-repair-${new Date().toISOString().replace(/[:.]/g, "-")}.json`,
       );
+      // This writer is currently unreachable twice in the same millisecond
+      // -- getDb()'s `if (!db)` guard means the whole init sequence this
+      // sits inside runs at most once per process, and nothing in this file
+      // ever resets `db` back to null to re-enter it. Defense-in-depth
+      // anyway, same counter-suffix convention as every other timestamped
+      // backup in this codebase: this snapshot is forensic evidence of the
+      // FIRST corruption, taken specifically because something already went
+      // wrong. A collision here would silently destroy the one thing a
+      // future repair path (a retry, an admin-triggered re-validation) or a
+      // careless refactor of the guard above could still make reachable --
+      // and unlike an ordinary backup, there is no other copy of what this
+      // one recorded.
+      let snapshotPath = baseSnapshotPath;
+      for (let collision = 2; fs.existsSync(snapshotPath); collision++) {
+        snapshotPath = baseSnapshotPath.replace(/\.json$/, `-${collision}.json`);
+      }
       fs.writeFileSync(snapshotPath, JSON.stringify(data, null, 2), {
         encoding: "utf-8",
         mode: 0o600,
@@ -866,6 +943,28 @@ function compactData(data) {
   return data;
 }
 
+// Shared by both getDb() recovery triggers below (a corrupt-read AND a
+// missing-file-beside-an-intact-ring) so the newest-first candidate walk
+// exists in exactly one place. Assumes `db` is already constructed and
+// mutates `db.data` in place via db.read() on success, same as its two
+// former inline copies did.
+async function attemptRecoveryFromBackups(backups) {
+  for (const backup of backups) {
+    log.warn(`Attempting recovery from ${path.basename(backup)}...`);
+    try {
+      fs.copyFileSync(backup, dbPath);
+      await db.read();
+      log.info(`Database recovery successful from ${path.basename(backup)}!`);
+      return true;
+    } catch (recoverErr) {
+      log.error(
+        `Recovery from ${path.basename(backup)} failed: ${recoverErr.message}`,
+      );
+    }
+  }
+  return false;
+}
+
 export async function getDb() {
   if (!db) {
     // Sweep secret-bearing tmp files orphaned by a prior crash before doing
@@ -898,6 +997,13 @@ export async function getDb() {
     const adapter = new JSONFile(dbPath);
     db = new Low(adapter, defaultData);
 
+    // Checked BEFORE db.read() -- a missing file and a genuinely-corrupt
+    // one both need the recovery path below, but db.read() only THROWS for
+    // the latter (lowdb's JSONFile adapter returns null for a missing file
+    // and Low.read() quietly substitutes defaultData, no exception). See
+    // the dbPathExistedBeforeRead check after the try/catch.
+    const dbPathExistedBeforeRead = fs.existsSync(dbPath);
+
     let loadedCleanly = false;
     try {
       await db.read();
@@ -928,6 +1034,42 @@ export async function getDb() {
         // fallback for that case.
       }
 
+      // Preserve the corrupt file for forensics ONCE, before trying any
+      // candidate or giving up entirely -- OUTSIDE the rotation ring so
+      // pruneBackups never touches it. Runs regardless of whether a backup
+      // ring exists to recover from -- it used to run only inside the
+      // `backups.length > 0` branch below, so a corrupt db.json next to an
+      // EMPTY ring hit the "no backup found" branch and had its only copy
+      // silently overwritten by the fresh empty database a few lines down,
+      // with zero forensic trace left anywhere (bug hunt 2026-09-05, sweep
+      // item #4).
+      try {
+        const baseCorruptPath = path.join(
+          backupDir,
+          `corrupt-${new Date().toISOString().replace(/[:.]/g, "-")}.json`,
+        );
+        // Same defense-in-depth reasoning as validateData()'s pre-repair
+        // snapshot above: unreachable twice per process today (this whole
+        // block runs at most once, guarded by getDb()'s `if (!db)`), but
+        // this is the ONLY surviving evidence of the FIRST corruption -- a
+        // collision would silently destroy exactly the record a user asking
+        // "what happened to my database" needs, so it gets the same
+        // counter-suffix convention as every other timestamped backup here
+        // rather than relying on that guard never changing.
+        let corruptPath = baseCorruptPath;
+        for (let collision = 2; fs.existsSync(corruptPath); collision++) {
+          corruptPath = baseCorruptPath.replace(/\.json$/, `-${collision}.json`);
+        }
+        fs.copyFileSync(dbPath, corruptPath);
+        try {
+          fs.chmodSync(corruptPath, 0o600);
+        } catch (_) {
+          /* best-effort */
+        }
+      } catch (_) {
+        /* best-effort */
+      }
+
       // Attempt recovery from backup, newest first, falling through to the
       // next-older candidate if one is also unreadable. A single corrupted
       // "latest" backup must not mean the whole ring is abandoned in favour
@@ -937,48 +1079,9 @@ export async function getDb() {
       // version fell straight to defaultData -- discarding every setting,
       // server and user -- the moment that one backup also failed to read,
       // even when an older good one was sitting right next to it).
-      //
-      // Do NOT snapshot the corrupt file first — that would poison the
-      // backup ring (pruneBackups keeps newest 5 and could evict the last
-      // known-good backup) AND make listBackupsNewestFirst() return the
-      // corrupt copy as a candidate.
       const backups = listBackupsNewestFirst();
       if (backups.length > 0) {
-        // Preserve the corrupt file for forensics ONCE, before trying any
-        // candidate, OUTSIDE the rotation ring so pruneBackups never touches
-        // it.
-        try {
-          const corruptPath = path.join(
-            backupDir,
-            `corrupt-${new Date().toISOString().replace(/[:.]/g, "-")}.json`,
-          );
-          fs.copyFileSync(dbPath, corruptPath);
-          try {
-            fs.chmodSync(corruptPath, 0o600);
-          } catch (_) {
-            /* best-effort */
-          }
-        } catch (_) {
-          /* best-effort */
-        }
-
-        let recovered = false;
-        for (const backup of backups) {
-          log.warn(`Attempting recovery from ${path.basename(backup)}...`);
-          try {
-            fs.copyFileSync(backup, dbPath);
-            await db.read();
-            log.info(
-              `Database recovery successful from ${path.basename(backup)}!`,
-            );
-            recovered = true;
-            break;
-          } catch (recoverErr) {
-            log.error(
-              `Recovery from ${path.basename(backup)} failed: ${recoverErr.message}`,
-            );
-          }
-        }
+        const recovered = await attemptRecoveryFromBackups(backups);
         if (!recovered) {
           log.error("All backups failed to recover — starting fresh");
           db.data = { ...defaultData };
@@ -986,6 +1089,31 @@ export async function getDb() {
       } else {
         log.warn("No backup found, starting with fresh database.");
         db.data = { ...defaultData };
+      }
+    }
+
+    // A missing db.json is NOT a fresh install if an intact backup ring
+    // exists right next to it. db.read() above does not throw for a
+    // missing file (see dbPathExistedBeforeRead's comment), so this used to
+    // look identical to a genuine first boot and silently keep empty
+    // defaultData -- the "startup" snapshot a few lines below then
+    // persisted that empty state into the SAME backup ring, and
+    // pruneBackups() eventually rotated the real, recoverable backups out
+    // in favour of it. bug hunt 2026-09-05 (sweep item #3): the recovery
+    // path destroyed what it should have recovered from. Reaches the exact
+    // same newest-first candidate walk the corrupt-read branch above uses,
+    // just triggered by a different signal (file absent, not unreadable).
+    if (loadedCleanly && !dbPathExistedBeforeRead) {
+      const backups = listBackupsNewestFirst();
+      if (backups.length > 0) {
+        log.warn(
+          "db.json is missing but an existing backup ring was found — recovering from backup instead of starting fresh.",
+        );
+        const recovered = await attemptRecoveryFromBackups(backups);
+        if (!recovered) {
+          log.error("All backups failed to recover — starting fresh");
+          db.data = { ...defaultData };
+        }
       }
     }
 
@@ -1085,6 +1213,17 @@ export async function getDatabaseStats() {
 }
 
 export async function createDatabaseBackup() {
+  // createBackup() copies whatever is CURRENTLY ON DISK (fs.copyFileSync) --
+  // it has no visibility into db.data or the pending debounced write
+  // scheduleWrite() may have queued (WRITE_DEBOUNCE_MS=500, longer under
+  // retry backoff). Proven live (2026-09-05, backup-restore-round-trip
+  // hunt): setSetting() then an immediate createDatabaseBackup() call, with
+  // no flush between them, snapshotted db.json with settings STILL EMPTY --
+  // reported success:true, with no warning that the change just made wasn't
+  // in it. flushForShutdown()'s shutdown handler already gets this right
+  // (flushes before its own createBackup("shutdown") call, see
+  // registerShutdownHandlers above); this path never did.
+  await flushWrites();
   const file = createBackup("manual");
   return file
     ? { success: true, file: path.basename(file) }
@@ -1787,6 +1926,23 @@ export async function getServers() {
   return (db.data.servers || []).map(normalizeServerMemory);
 }
 
+// Synchronous, best-effort peek at a server's display name for a spot that
+// cannot await a DB read -- lifecycleInProgressResponse() (lifecycleCoordinator.js)
+// needs to turn a held lock's server DB id back into a name at MESSAGE-BUILD
+// time, and that function's 13 read call sites (every lifecycle route's 409
+// refusal) can't all go async for it. Reads the module-level `db` directly,
+// not through getDb() -- by the time any lifecycle lock can exist, the app
+// has already booted and touched the DB many times, so `db` is populated;
+// if it somehow isn't (or the id matches no server, e.g. a deleted one),
+// returns null and the caller falls back to its existing generic wording.
+// Never triggers the lazy first-load getDb() does -- this is a peek at
+// whatever is already in memory, not a read.
+export function peekServerDisplayName(serverId) {
+  if (!serverId || !db?.data?.servers) return null;
+  const server = db.data.servers.find((s) => String(s.id) === String(serverId));
+  return server?.name || server?.serverName || null;
+}
+
 export async function getServer(id) {
   const db = await getDb();
   return normalizeServerMemory(
@@ -2137,6 +2293,19 @@ export async function getPlayerStat(playerName) {
   );
 }
 
+// 2026-09-06, host-suspend-resume sweep (operator-decided shape): this used
+// to compute duration as pure wall clock (`sessionEnd - sessionStart`), so a
+// host suspend (laptop sleep, VM pause) while a player was connected got the
+// entire suspended window credited to them as playtime on their next real
+// disconnect -- distinct from a genuine game-server crash/offline (which
+// panelBridge.js's handleStatusFailure()/stop() already close out via a
+// synthetic disconnect). PanelBridge's own heartbeat (checkHeartbeat())
+// detects a suspend by the wall-clock gap between its ticks and calls
+// applySuspendGapToInFlightSessions() below, which shifts every currently
+// open session's start forward by the detected gap -- so THIS function's own
+// `sessionEnd - sessionStart` arithmetic naturally excludes the suspended
+// time once the player eventually disconnects. The session row stays one
+// contiguous session; only its computed duration is corrected.
 export async function recordPlayerSession(playerName, action) {
   const db = await getDb();
   if (!db.data.player_stats) db.data.player_stats = [];
@@ -2157,6 +2326,7 @@ export async function recordPlayerSession(playerName, action) {
       last_seen: now,
       last_session_start: null,
       sessions: [],
+      pending_suspend_adjustment_seconds: 0,
     };
     db.data.player_stats.push(playerStat);
   }
@@ -2165,6 +2335,7 @@ export async function recordPlayerSession(playerName, action) {
     playerStat.last_session_start = now;
     playerStat.last_seen = now;
     playerStat.session_count++;
+    playerStat.pending_suspend_adjustment_seconds = 0;
   } else if (action === "disconnect" && playerStat.last_session_start) {
     const sessionStart = new Date(playerStat.last_session_start);
     const sessionEnd = new Date(now);
@@ -2174,10 +2345,17 @@ export async function recordPlayerSession(playerName, action) {
     playerStat.last_seen = now;
 
     if (!playerStat.sessions) playerStat.sessions = [];
+    // suspended_seconds is a diagnostic annotation only -- sessionDuration
+    // above is already correct on its own, because applySuspendGapToInFlightSessions()
+    // shifted last_session_start forward at detection time. This just makes
+    // that correction visible on the session row instead of a duration that
+    // looks unremarkable but silently excludes a multi-hour gap.
+    const suspendedSeconds = playerStat.pending_suspend_adjustment_seconds || 0;
     playerStat.sessions.unshift({
       start: playerStat.last_session_start,
       end: now,
       duration_seconds: sessionDuration,
+      ...(suspendedSeconds > 0 ? { suspended_seconds: suspendedSeconds } : {}),
     });
     if (playerStat.sessions.length > RETENTION.player_sessions) {
       playerStat.sessions = playerStat.sessions.slice(
@@ -2187,10 +2365,42 @@ export async function recordPlayerSession(playerName, action) {
     }
 
     playerStat.last_session_start = null;
+    playerStat.pending_suspend_adjustment_seconds = 0;
   }
 
   scheduleWrite();
   return playerStat;
+}
+
+// Called by PanelBridge's heartbeat (checkHeartbeat()) the moment it detects
+// a host suspend/pause -- shifts every currently-open session's start
+// forward by the detected gap so the eventual disconnect's own
+// `sessionEnd - sessionStart` naturally excludes the suspended window,
+// rather than crediting it as playtime. Applies to EVERY in-flight session
+// at once (not just one), since a host suspend freezes the whole process,
+// every connected player alike. The session row itself is never split --
+// only its future duration computation is affected, plus a diagnostic
+// `suspended_seconds` annotation recorded on it at disconnect (see
+// recordPlayerSession() above).
+export async function applySuspendGapToInFlightSessions(gapMs) {
+  if (!(gapMs > 0)) return { adjustedPlayers: [] };
+
+  const db = await getDb();
+  if (!db.data.player_stats) return { adjustedPlayers: [] };
+
+  const adjustedPlayers = [];
+  const gapSeconds = Math.round(gapMs / 1000);
+  for (const playerStat of db.data.player_stats) {
+    if (!playerStat.last_session_start) continue;
+    const shifted = new Date(playerStat.last_session_start).getTime() + gapMs;
+    playerStat.last_session_start = new Date(shifted).toISOString();
+    playerStat.pending_suspend_adjustment_seconds =
+      (playerStat.pending_suspend_adjustment_seconds || 0) + gapSeconds;
+    adjustedPlayers.push(playerStat.player_name);
+  }
+
+  if (adjustedPlayers.length > 0) scheduleWrite();
+  return { adjustedPlayers };
 }
 
 // ============================================

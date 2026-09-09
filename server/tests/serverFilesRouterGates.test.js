@@ -113,18 +113,26 @@ describe("serverFiles.js router.use layers beyond the requirePermission gate", (
   });
 
   describe("layer[2] (line 88): remote-mirror gate", () => {
+    // 2026-09-08 quadruple-read sweep: layer[2] now reads req.activeServerContext
+    // instead of calling getActiveServer() itself -- populated once by layer[1]
+    // (the unconfigured-server gate, now also the single per-request read
+    // point). Run layer[1] first, on the SAME req, exactly as Express's real
+    // chain would, rather than hand-building the context here.
+    async function runLayer1Then2(req) {
+      const [, layer1, layer2] = getUseLayers();
+      await layer1(req, createResponse(), () => {});
+      return runLayer(layer2, req);
+    }
+
     it("a local active server -- passes straight through, no SFTP anything touched", async () => {
-      getActiveServer.mockResolvedValue({ isRemote: false });
-      const [, , layer88] = getUseLayers();
-      const { nextCalledWith } = await runLayer(layer88, fakeReq());
+      getActiveServer.mockResolvedValue({ isRemote: false, serverName: "S", serverConfigPath: "/srv/S" });
+      const { nextCalledWith } = await runLayer1Then2(fakeReq());
       expect(nextCalledWith).toBe("called");
     });
 
     it("a remote active server on a local-filesystem-only path (/browse-files) -- refused, not mirrored", async () => {
-      getActiveServer.mockResolvedValue({ isRemote: true });
-      const [, , layer88] = getUseLayers();
-      const { res, nextCalledWith } = await runLayer(
-        layer88,
+      getActiveServer.mockResolvedValue({ isRemote: true, serverName: "S", serverConfigPath: "/srv/S" });
+      const { res, nextCalledWith } = await runLayer1Then2(
         fakeReq({ path: "/browse-files" }),
       );
       expect(res.getStatusCode()).toBe(400);
@@ -133,10 +141,9 @@ describe("serverFiles.js router.use layers beyond the requirePermission gate", (
     });
 
     it("a remote active server with SFTP not configured -- refused with REMOTE_CONFIG_NOT_CONFIGURED, no mirror session attempted", async () => {
-      getActiveServer.mockResolvedValue({ isRemote: true });
+      getActiveServer.mockResolvedValue({ isRemote: true, serverName: "S", serverConfigPath: "/srv/S" });
       isRemoteConfigConfigured.mockReturnValue(false);
-      const [, , layer88] = getUseLayers();
-      const { res, nextCalledWith } = await runLayer(layer88, fakeReq({ path: "/ini" }));
+      const { res, nextCalledWith } = await runLayer1Then2(fakeReq({ path: "/ini" }));
       expect(res.getStatusCode()).toBe(400);
       expect(res.getJson()).toMatchObject({ code: "REMOTE_CONFIG_NOT_CONFIGURED" });
       expect(nextCalledWith).toBe("not-called");
@@ -146,7 +153,15 @@ describe("serverFiles.js router.use layers beyond the requirePermission gate", (
   describe("layer[3] (line 238): wholesale-overwrite vs ordinary-edit routing -- 238's requireStoppedForLocalConfigMutation branch has fail-open history (92d2772)", () => {
     function stubManager(details) {
       return {
-        get: (key) => (key === "serverManager" ? { getServerProcessDetails: async () => details } : undefined),
+        get: (key) =>
+          key === "serverManager"
+            ? {
+                // split-derivation sweep, 2026-09-07: both guards now force
+                // a real reload before trusting getServerProcessDetails().
+                reloadConfig: async () => {},
+                getServerProcessDetails: async () => details,
+              }
+            : undefined,
       };
     }
     // getServerProcessDetails(), not checkServerRunning() -- matching the
@@ -159,7 +174,10 @@ describe("serverFiles.js router.use layers beyond the requirePermission gate", (
       return {
         get: (key) =>
           key === "serverManager"
-            ? { getServerProcessDetails: async () => ({ running, scanFailed: false }) }
+            ? {
+                reloadConfig: async () => {},
+                getServerProcessDetails: async () => ({ running, scanFailed: false }),
+              }
             : undefined,
       };
     }

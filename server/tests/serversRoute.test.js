@@ -537,6 +537,32 @@ describe("PUT /api/servers/:id", () => {
       expect(updateServer).not.toHaveBeenCalled();
     });
 
+    // SECURITY (2026-09-05, env-var-expansion-oracle): zomboidDataPath goes
+    // through normalizeUserPath(), which expands %VAR%/${VAR}/$VAR from
+    // process.env. Before the fix, the 400's error string embedded that
+    // EXPANDED value -- any caller who can PUT a server (no admin needed)
+    // could read a process-environment secret one request at a time via
+    // zomboidDataPath="%SOME_SECRET%". The error must echo the caller's raw
+    // literal instead.
+    it("an env-var-shaped zomboidDataPath never echoes the EXPANDED secret back in the error", async () => {
+      process.env.ZCP_TEST_LEAK_SECRET = "super-secret-value-should-not-leak";
+      try {
+        const response = createResponse();
+        await getUpdateHandler()(
+          { params: { id: "1" }, body: { zomboidDataPath: "%ZCP_TEST_LEAK_SECRET%" } },
+          response,
+        );
+
+        expect(response.status).toHaveBeenCalledWith(400);
+        expect(updateServer).not.toHaveBeenCalled();
+        const [[body]] = response.json.mock.calls;
+        expect(body.error).toContain("%ZCP_TEST_LEAK_SECRET%");
+        expect(body.error).not.toContain("super-secret-value-should-not-leak");
+      } finally {
+        delete process.env.ZCP_TEST_LEAK_SECRET;
+      }
+    });
+
     it("rejects a real directory that does not look like a Zomboid data folder (the exact 'structurally valid but wrong' case the card describes)", async () => {
       const response = createResponse();
 
@@ -1016,5 +1042,144 @@ describe("POST /api/servers/:id/activate: a live-service reload failure must not
     expect(response.status).not.toHaveBeenCalledWith(500);
     const [payload] = response.json.mock.calls[0];
     expect(payload.warnings).toBeUndefined();
+  });
+});
+
+// reloadServicesForNewActiveServer reloaded serverManager/workshop/RCON on a
+// server switch but never touched the LogTailer, which
+// resolves its watched paths once and only rescans for a NEWER file inside
+// the basePath it already has -- so it kept faithfully tailing the OLD
+// server's log rotations forever, showing every sign of health (still
+// updating, still finding "new" chat/user logs) while every death and chat
+// line reaching Discord/history actually belonged to the server the
+// operator switched away from. The routes never held a LogTailer reference
+// directly -- discordBot.logTailer is the only handle available to them.
+describe("POST /api/servers/:id/activate: switching the active server must repoint the LogTailer", () => {
+  let io;
+  let discordBot;
+
+  function buildReq(id) {
+    return {
+      params: { id },
+      user: { role: "admin" },
+      app: {
+        get: (key) => ({ io, modChecker: null, discordBot })[key],
+      },
+    };
+  }
+
+  beforeEach(() => {
+    setActiveServer.mockReset();
+    io = { emit: vi.fn() };
+  });
+
+  it("calls logTailer.reloadConfig() via discordBot when activating a different server", async () => {
+    setActiveServer.mockResolvedValue({ id: "2", name: "Server B" });
+    const reloadConfig = vi.fn(async () => {});
+    discordBot = { logTailer: { reloadConfig } };
+
+    const response = createResponse();
+    await runRoute("/:id/activate", "post", buildReq("2"), response);
+
+    expect(reloadConfig).toHaveBeenCalledTimes(1);
+    expect(response.status).not.toHaveBeenCalledWith(500);
+  });
+
+  it("does not crash activation when discordBot or its logTailer is unavailable", async () => {
+    setActiveServer.mockResolvedValue({ id: "2", name: "Server B" });
+    discordBot = null;
+
+    const response = createResponse();
+    await runRoute("/:id/activate", "post", buildReq("2"), response);
+
+    expect(response.status).not.toHaveBeenCalledWith(500);
+  });
+
+  it("still reports success when logTailer.reloadConfig() throws (best-effort, same posture as the other reloads)", async () => {
+    setActiveServer.mockResolvedValue({ id: "2", name: "Server B" });
+    const reloadConfig = vi.fn(async () => {
+      throw new Error("disk unavailable");
+    });
+    discordBot = { logTailer: { reloadConfig } };
+
+    const response = createResponse();
+    await runRoute("/:id/activate", "post", buildReq("2"), response);
+
+    expect(reloadConfig).toHaveBeenCalledTimes(1);
+    expect(response.status).not.toHaveBeenCalledWith(500);
+  });
+});
+
+// server-running-determination-convention sweep, 2026-09-08: panelBridge is
+// a shared singleton, exactly like serverManager and rconService above, but
+// nothing here ever explicitly repointed it on a switch. The only thing
+// that used to save it was rconService's own "connected" event indirectly
+// re-triggering tryStartPanelBridge() in index.js -- which only fires when
+// the RCON reconnect a few lines up actually runs, i.e. only when the newly
+// active server has an RCON password configured. A server managed via
+// PanelBridge/SFTP only, or one that simply hasn't had a password set yet,
+// left panelBridge silently still pointed at whatever server it last
+// served -- and unlike a stale badge, that is not display-only:
+// sendCommand() writes every PanelBridge-routed action (weather, player
+// details, world stats, safehouses, vehicles) to the stale bridgePath's own
+// commands.json, so a command the operator believes targets the newly
+// active server is actually delivered to, and executed by, the previous
+// one. reloadServicesForNewActiveServer() now calls
+// resyncPanelBridgeForActiveServer() (registered on the app by index.js)
+// explicitly, unconditionally, the same way it already handles serverManager
+// and rconService.
+describe("POST /api/servers/:id/activate: switching the active server must repoint PanelBridge", () => {
+  let io;
+  let resyncPanelBridgeForActiveServer;
+
+  function buildReq(id) {
+    return {
+      params: { id },
+      user: { role: "admin" },
+      app: {
+        get: (key) =>
+          ({ io, modChecker: null, discordBot: null, resyncPanelBridgeForActiveServer })[key],
+      },
+    };
+  }
+
+  beforeEach(() => {
+    setActiveServer.mockReset();
+    io = { emit: vi.fn() };
+  });
+
+  it("calls resyncPanelBridgeForActiveServer when activating a different server", async () => {
+    setActiveServer.mockResolvedValue({ id: "2", name: "Server B" });
+    resyncPanelBridgeForActiveServer = vi.fn(async () => true);
+
+    const response = createResponse();
+    await runRoute("/:id/activate", "post", buildReq("2"), response);
+
+    expect(resyncPanelBridgeForActiveServer).toHaveBeenCalledTimes(1);
+    expect(resyncPanelBridgeForActiveServer).toHaveBeenCalledWith("active-server-changed");
+    expect(response.status).not.toHaveBeenCalledWith(500);
+  });
+
+  it("does not crash activation when resyncPanelBridgeForActiveServer is unavailable", async () => {
+    setActiveServer.mockResolvedValue({ id: "2", name: "Server B" });
+    resyncPanelBridgeForActiveServer = undefined;
+
+    const response = createResponse();
+    await runRoute("/:id/activate", "post", buildReq("2"), response);
+
+    expect(response.status).not.toHaveBeenCalledWith(500);
+  });
+
+  it("still reports success when resyncPanelBridgeForActiveServer throws (best-effort, same posture as the other reloads)", async () => {
+    setActiveServer.mockResolvedValue({ id: "2", name: "Server B" });
+    resyncPanelBridgeForActiveServer = vi.fn(async () => {
+      throw new Error("bridge folder unreadable");
+    });
+
+    const response = createResponse();
+    await runRoute("/:id/activate", "post", buildReq("2"), response);
+
+    expect(resyncPanelBridgeForActiveServer).toHaveBeenCalledTimes(1);
+    expect(response.status).not.toHaveBeenCalledWith(500);
   });
 });

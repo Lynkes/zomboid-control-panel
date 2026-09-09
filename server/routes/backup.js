@@ -4,17 +4,44 @@ import fs from "fs";
 import { createLogger } from "../utils/logger.js";
 import { sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
 import { getActiveServer } from "../database/init.js";
-import { requirePermission } from "../services/permissions.js";
+import { requirePermission, requireAnyPermission } from "../services/permissions.js";
 import { listBackupRecords } from "../services/backupRecords.js";
+import {
+  acquireLifecycleLock,
+  lifecycleInProgressResponse,
+} from "../services/lifecycleCoordinator.js";
+import { hasActiveSteamOperation } from "../services/activeSteamOperations.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import {
   isCronTooFrequent,
   isSupportedFiveFieldCron,
 } from "../utils/cronValidation.js";
 import { parseClampedInteger } from "../utils/queryNumbers.js";
+import {
+  streamUploadToFile,
+  UPLOAD_TOO_LARGE_CODE,
+  UPLOAD_BAD_SIGNATURE_CODE,
+} from "../utils/uploadStream.js";
 const log = createLogger("API:Backup");
 
 const router = express.Router();
+
+// sweep-round5 (2026-09-07): GET /status, /list and /history had no
+// capability check at all -- no single capability describes "may see
+// what backups exist and where," since that's legitimately true of
+// anyone holding backups.manage, backups.download, OR backups.restore.
+// The responses carry savesPath/backupsPath (absolute host filesystem
+// paths, not just backup filenames), so leaving them open to any signed-in
+// user is the same class of disclosure this floor already closed twice
+// tonight (5e3e2bcd, c19f351f) -- metadata-is-not-secret is defensible for
+// a filename, not for host layout. Gating on backups.manage alone would
+// break a download-only or restore-only custom role's ability to see what
+// to act on before calling /download/:name or /restore/:name.
+const requireAnyBackupCapability = requireAnyPermission(
+  "backups.manage",
+  "backups.download",
+  "backups.restore",
+);
 
 function parseBackupBoolean(value) {
   if (typeof value === "boolean") return value;
@@ -36,7 +63,7 @@ function parseBackupMaxCount(value) {
 }
 
 // Get backup status and settings
-router.get("/status", async (req, res) => {
+router.get("/status", requireAnyBackupCapability, async (req, res) => {
   try {
     const backupService = req.app.get("backupService");
     const status = await backupService.getStatus();
@@ -60,7 +87,7 @@ router.get("/info", async (req, res) => {
 });
 
 // Get list of backups
-router.get("/list", async (req, res) => {
+router.get("/list", requireAnyBackupCapability, async (req, res) => {
   try {
     const backupService = req.app.get("backupService");
     const backups = await backupService.listBackups();
@@ -71,7 +98,7 @@ router.get("/list", async (req, res) => {
   }
 });
 
-router.get("/history", async (req, res) => {
+router.get("/history", requireAnyBackupCapability, async (req, res) => {
   try {
     const limit =
       req.query.limit === undefined
@@ -288,8 +315,29 @@ router.get("/download/:name", requirePermission("backups.download"), async (req,
 // standing in it -- a decision about other people's time, not routine server
 // operation, and invisible to the admin until someone complains.
 router.post("/restore/:name", requirePermission("backups.restore"), async (req, res) => {
+  // Fetched before acquiring the lock (a pure DB read, no lock needed for
+  // it) purely so a refusal from a concurrent operation can name which
+  // server it's for -- see lifecycleCoordinator.js's comment.
+  const activeServerForLock = await getActiveServer();
+  // bug hunt 2026-09-05 (backup-restore-round-trip sweep, item #2): this
+  // route's own stopped-check above, and restoreBackup()'s own internal
+  // one, only ever prove the server was NOT running at the instant they
+  // ran. Nothing stood between that instant and the destructive rename
+  // swap deep inside restoreBackup() -- a Start (manual, Discord, or a
+  // scheduler tick) landing in that window raced the live JVM against the
+  // extraction/swap. Same process-wide lock /start, /stop, /force-stop and
+  // /restart already take for the identical reason (see their own comment
+  // in routes/server.js) -- not a new mechanism, held for the whole
+  // restore, not just the check.
+  const lifecycleLock = acquireLifecycleLock(
+    "restore",
+    activeServerForLock?.id ?? null,
+  );
+  if (!lifecycleLock) {
+    return res.status(409).json(lifecycleInProgressResponse());
+  }
   try {
-    const activeServer = await getActiveServer();
+    const activeServer = activeServerForLock;
     if (activeServer?.isRemote) {
       return res
         .status(400)
@@ -307,6 +355,30 @@ router.post("/restore/:name", requirePermission("backups.restore"), async (req, 
     const safeName = path.basename(req.params.name);
     if (!safeName.endsWith(".zip")) {
       return res.status(400).json({ error: "Invalid backup file", code: ErrorCode.BACKUP_INVALID_FILE });
+    }
+
+    // sweep6-lifecycle-lock-completeness: this route never checked for an
+    // in-progress SteamCMD operation before extracting an archive over
+    // zomboidDataPath. A default install keeps zomboidDataPath OUTSIDE
+    // installPath, so this is normally a non-issue -- but nothing stops an
+    // operator from nesting it inside installPath instead, and when that's
+    // the configuration, a restore running while POST /install or POST
+    // /steam-update is actively writing into that same tree extracts over
+    // files SteamCMD has open. Same guard /wipe already claims for the
+    // identical shape (2cb3ac75) and /install/steam-update claim before
+    // spawning, reused here rather than a new lock -- activeSteamOperations
+    // is already scoped per install path.
+    if (activeServer?.installPath) {
+      const normalizedRestoreTargetPath = path
+        .normalize(activeServer.installPath)
+        .toLowerCase();
+      if (hasActiveSteamOperation(normalizedRestoreTargetPath)) {
+        return res.status(409).json({
+          error:
+            "A Steam operation is already in progress for this path. Please wait for it to complete.",
+          code: ErrorCode.STEAM_OPERATION_IN_PROGRESS_PATH,
+        });
+      }
     }
 
     // Check if server is running. checkServerRunning() collapses a FAILED
@@ -372,6 +444,8 @@ router.post("/restore/:name", requirePermission("backups.restore"), async (req, 
   } catch (error) {
     log.error(`Failed to restore backup: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
+  } finally {
+    lifecycleLock.release();
   }
 });
 
@@ -420,8 +494,18 @@ const MAX_UPLOAD_BYTES = 4 * 1024 * 1024 * 1024; // 4 GB ceiling
 router.post(
   "/upload",
   requirePermission("backups.manage"),
-  express.raw({ type: "application/zip", limit: MAX_UPLOAD_BYTES }),
   async (req, res) => {
+    // bug hunt 2026-09-05 (backup-restore-round-trip sweep, item #5): this
+    // used to be express.raw({ limit: MAX_UPLOAD_BYTES }), which buffers
+    // the ENTIRE request body into one in-process Buffer before this
+    // handler ever runs -- an ordinary multi-GB world backup upload could
+    // hold that many bytes resident at once on a host sized for a game
+    // server, not for buffering its own backups. streamUploadToFile()
+    // writes straight to the .tmp file as bytes arrive and enforces the
+    // same signature/size checks while streaming instead of after fully
+    // receiving the body -- see its own comment for why the signature
+    // check can't just look at the first `data` event.
+    let tmpPath = null;
     try {
       const activeServer = await getActiveServer();
       if (activeServer?.isRemote) {
@@ -433,7 +517,8 @@ router.post(
           });
       }
 
-      if (!req.body || !Buffer.isBuffer(req.body) || req.body.length === 0) {
+      const contentType = String(req.headers["content-type"] || "");
+      if (!contentType.includes("application/zip")) {
         return res
           .status(400)
           .json({
@@ -441,15 +526,6 @@ router.post(
               "No file uploaded. Send the zip body with Content-Type: application/zip.",
             code: ErrorCode.BACKUP_UPLOAD_NO_FILE,
           });
-      }
-
-      // Quick sanity check: zip files start with the local-file-header
-      // signature 0x504B0304 ("PK\x03\x04"). Catches accidental uploads
-      // of completely different file types early.
-      if (req.body.length < 4 || req.body[0] !== 0x50 || req.body[1] !== 0x4b) {
-        return res
-          .status(400)
-          .json({ error: "File does not look like a valid .zip archive.", code: ErrorCode.BACKUP_UPLOAD_INVALID_ZIP_SIGNATURE });
       }
 
       const rawName = String(
@@ -498,20 +574,98 @@ router.post(
           });
       }
 
-      // Atomic write: write to .tmp first, then rename. A crash during
+      // Atomic write: stream to .tmp first, then rename. A crash during
       // upload won't leave a half-written .zip in the listing.
-      const tmpPath = `${targetPath}.tmp`;
-      fs.writeFileSync(tmpPath, req.body);
-      fs.renameSync(tmpPath, targetPath);
+      //
+      // The .tmp path itself is given a pid+random suffix (same convention
+      // as utils/fileWriteQueue.js), not just `${targetPath}.tmp` -- two
+      // uploads racing the SAME x-backup-filename both pass the
+      // existsSync(targetPath) check above (neither has finished yet), and
+      // a plain `${targetPath}.tmp` would then be one shared path both
+      // streamUploadToFile() calls write into concurrently, corrupting
+      // whichever "wins". The upload can run for minutes on a multi-GB
+      // world backup, which is a much larger collision window than the
+      // millisecond one this codebase already knows to guard timestamped
+      // filenames against.
+      tmpPath = `${targetPath}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+      const totalBytes = await streamUploadToFile(req, tmpPath, MAX_UPLOAD_BYTES);
 
-      log.info(`POST /upload — stored ${finalName} (${req.body.length} bytes)`);
+      if (totalBytes === 0) {
+        // An empty body isn't a signature or size violation to
+        // streamUploadToFile() (nothing arrived to check), so it leaves
+        // the empty tmp file in place -- this is the one success-shaped
+        // outcome that still needs its own cleanup here.
+        fs.unlink(tmpPath, () => {});
+        tmpPath = null;
+        return res
+          .status(400)
+          .json({
+            error:
+              "No file uploaded. Send the zip body with Content-Type: application/zip.",
+            code: ErrorCode.BACKUP_UPLOAD_NO_FILE,
+          });
+      }
+
+      // Land the file with fs.linkSync + unlink instead of a plain rename.
+      // A rename would silently overwrite targetPath if the OTHER half of
+      // a same-name race finished and landed its own file there while this
+      // one was still streaming (the earlier existsSync check only ruled
+      // that out at request start, not at this point). linkSync() fails
+      // atomically with EEXIST if targetPath already exists -- no
+      // check-then-act window at all, unlike a fresh existsSync check
+      // immediately before the rename would still leave.
+      // Land the file with fs.linkSync + unlink instead of a plain rename.
+      // A rename would silently overwrite targetPath if the OTHER half of
+      // a same-name race finished and landed its own file there while this
+      // one was still streaming (the earlier existsSync check only ruled
+      // that out at request start, not at this point). linkSync() fails
+      // atomically with EEXIST if targetPath already exists -- no
+      // check-then-act window at all, unlike a fresh existsSync check
+      // immediately before the rename would still leave.
+      try {
+        fs.linkSync(tmpPath, targetPath);
+      } catch (linkErr) {
+        if (linkErr.code === "EEXIST") {
+          fs.unlink(tmpPath, () => {});
+          tmpPath = null;
+          return res
+            .status(409)
+            .json({
+              error: `A backup named "${finalName}" already exists. Delete it first or rename the upload.`,
+              code: ErrorCode.BACKUP_UPLOAD_NAME_CONFLICT,
+              params: sanitizeErrorParams({ name: finalName }),
+            });
+        }
+        throw linkErr;
+      }
+      fs.unlinkSync(tmpPath);
+      tmpPath = null;
+
+      log.info(`POST /upload — stored ${finalName} (${totalBytes} bytes)`);
       res.json({
         success: true,
         name: finalName,
-        size: req.body.length,
+        size: totalBytes,
         message: `Uploaded backup saved as ${finalName}. Use Restore to apply it.`,
       });
     } catch (error) {
+      if (tmpPath) fs.unlink(tmpPath, () => {});
+      if (error.code === UPLOAD_BAD_SIGNATURE_CODE) {
+        return res
+          .status(400)
+          .json({
+            error: "File does not look like a valid .zip archive.",
+            code: ErrorCode.BACKUP_UPLOAD_INVALID_ZIP_SIGNATURE,
+          });
+      }
+      if (error.code === UPLOAD_TOO_LARGE_CODE) {
+        return res
+          .status(413)
+          .json({
+            error: `Upload exceeds the ${Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024 * 1024))} GB limit.`,
+            code: ErrorCode.BACKUP_UPLOAD_TOO_LARGE,
+          });
+      }
       log.error(`Failed to upload backup: ${error.message}`);
       res.status(500).json({ error: sanitizeError(error.message) });
     }

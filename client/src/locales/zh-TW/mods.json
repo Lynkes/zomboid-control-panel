@@ -24,7 +24,7 @@
     "modIdsTooltip": "Mods= 中有 {{count}} 個 Mod ID（部分模組會註冊多個 ID）",
     "updatesCount_one": "{{count}} 個更新",
     "updatesCount_other": "{{count}} 個更新",
-    "workshopPathMissing": "創意工坊路徑缺失",
+    "workshopPathMissing": "無創意工坊資料",
     "fixPath": "修復路徑",
     "sync": "同步",
     "syncTooltip": "從伺服器 INI 設定同步已追蹤的模組",
@@ -527,6 +527,8 @@
     "remove_other": "移除 {{count}} 個模組"
   },
   "toasts": {
+    "serverChangedSinceLoadTitle": "Active server changed",
+    "serverChangedSinceLoadDesc": "The active server changed while you had an unsaved mod order. Discard or keep editing -- saving now would write it to the wrong server.",
     "noActiveServerTitle": "沒有活動伺服器",
     "noActiveServerDesc": "請先選擇本地伺服器，再選擇創意工坊資料夾。",
     "remoteServerTitle": "遠端伺服器",
@@ -577,6 +579,7 @@
     "presetDeleteFailedTitle": "預設刪除失敗",
     "presetDeleteFailedFallback": "刪除預設失敗",
     "updateCheckFailedTitle": "更新檢查失敗",
+    "workshopDataUnavailableTitle": "創意工坊資料不可用",
     "updateCheckSkippedTitle": "更新檢查已跳過",
     "updateCheckSkippedDesc": "已有一次檢查正在進行。",
     "updatesCheckedTitle": "更新檢查完成",

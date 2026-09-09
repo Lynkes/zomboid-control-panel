@@ -56,6 +56,7 @@ const KNOWN_TRANSLATED_IDS = new Set([
   "db.exists",
   "db.writable",
   "db.backup",
+  "storage.lockProtection",
   "logs.writable",
   "disk.free",
   "storage.saveSize",
@@ -70,6 +71,7 @@ const KNOWN_TRANSLATED_IDS = new Set([
   "update.steamApi",
   "update.panel",
   "update.mods",
+  "update.rollback",
   "updates.error",
   // Batch 6: PanelBridge IPC
   "bridge.configured",

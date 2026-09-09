@@ -18,6 +18,15 @@ export class ApiError extends Error {
    * from the chunk-cleanup endpoints (issue #5).
    */
   data?: unknown;
+  /**
+   * Seconds the server said to wait before retrying (parsed from the
+   * response's `Retry-After` header), when the failing response carried
+   * one. Every rate limiter in this app (express-rate-limit with
+   * standardHeaders: true) already sends this on a 429 -- undefined here
+   * previously meant the client discarded it, not that the server never
+   * sent it, so "try again later" never said when.
+   */
+  retryAfterSeconds?: number;
 
   constructor(
     message: string,
@@ -28,6 +37,7 @@ export class ApiError extends Error {
       isTimeout?: boolean;
       isNetworkError?: boolean;
       data?: unknown;
+      retryAfterSeconds?: number;
     },
   ) {
     super(message);
@@ -38,6 +48,7 @@ export class ApiError extends Error {
     this.isTimeout = Boolean(options?.isTimeout);
     this.isNetworkError = Boolean(options?.isNetworkError);
     this.data = options?.data;
+    this.retryAfterSeconds = options?.retryAfterSeconds;
   }
 }
 
@@ -228,7 +239,36 @@ async function parseResponseBody(response: Response): Promise<unknown> {
   }
 }
 
-function buildResponseError(response: Response, payload?: unknown): ApiError {
+// `Retry-After` is either delta-seconds (the shape express-rate-limit's
+// standardHeaders mode sends) or an HTTP-date (the other RFC 7231-permitted
+// form, used by some infra like nginx/Cloudflare in front of the panel).
+// Returns null when absent or unparseable rather than 0 -- 0 would read as
+// "retry immediately," a false claim we have no basis for making.
+function parseRetryAfterSeconds(response: Response): number | null {
+  const header = response.headers.get("retry-after");
+  if (!header) return null;
+  const asDeltaSeconds = Number(header);
+  if (Number.isFinite(asDeltaSeconds) && asDeltaSeconds >= 0) {
+    return Math.round(asDeltaSeconds);
+  }
+  const dateMs = Date.parse(header);
+  if (!Number.isNaN(dateMs)) {
+    return Math.max(0, Math.round((dateMs - Date.now()) / 1000));
+  }
+  return null;
+}
+
+function formatRetryAfter(seconds: number): string {
+  if (seconds <= 0) return "a moment";
+  if (seconds < 60) return `${seconds} second${seconds === 1 ? "" : "s"}`;
+  const minutes = Math.ceil(seconds / 60);
+  return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+}
+
+// Exported for its own regression test only (Retry-After parsing/formatting)
+// -- not part of this module's public surface for callers, who should keep
+// going through apiFetch/the *Api objects.
+export function buildResponseError(response: Response, payload?: unknown): ApiError {
   const messageFromPayload =
     payload &&
     typeof payload === "object" &&
@@ -244,6 +284,19 @@ function buildResponseError(response: Response, payload?: unknown): ApiError {
           ? payload.trim()
           : getStatusMessage(response.status);
 
+  // Every rate limiter in this app sends Retry-After on a 429
+  // (express-rate-limit, standardHeaders: true) -- previously discarded
+  // here, so "too many requests, try again later" never said how long
+  // later. The server-provided message (messageFromPayload, above) already
+  // says WHAT happened; this appends WHEN, rather than replacing either
+  // that message or getStatusMessage's own generic fallback -- both keep
+  // meaning what they already meant, just completed.
+  const retryAfterSeconds = parseRetryAfterSeconds(response);
+  const message =
+    retryAfterSeconds !== null
+      ? `${messageFromPayload} Try again in ${formatRetryAfter(retryAfterSeconds)}.`
+      : messageFromPayload;
+
   // Prefer the server-provided `code` over a generic HTTP_<status> tag so
   // callers can switch on application-level codes like `server_running`.
   const codeFromPayload =
@@ -254,7 +307,7 @@ function buildResponseError(response: Response, payload?: unknown): ApiError {
       ? (payload as { code: string }).code
       : `HTTP_${response.status}`;
 
-  return new ApiError(messageFromPayload, {
+  return new ApiError(message, {
     status: response.status,
     code: codeFromPayload,
     isRetryable:
@@ -262,6 +315,7 @@ function buildResponseError(response: Response, payload?: unknown): ApiError {
       response.status === 429 ||
       response.status === 408,
     data: payload,
+    retryAfterSeconds: retryAfterSeconds ?? undefined,
   });
 }
 
@@ -403,7 +457,13 @@ export function apiFetch(endpoint: string, options?: RequestInit) {
   return fetchWithRetry(`${API_BASE}${endpoint}`, options);
 }
 
-async function handleResponse<T = any>(response: Response): Promise<T> {
+// Exported so AuthContext.tsx/Login.tsx's pre-auth calls (login, setup,
+// password reset -- routes with no token yet, so every other *Api object's
+// own convenience wrapper doesn't apply) can go through the same envelope
+// (buildResponseError's classification, Retry-After parsing, the fetchWithRetry
+// timeout/replay logic) instead of hand-rolling ApiError construction after a
+// raw fetch(), as they did before 2026-09-08's auth-transport-parity fix.
+export async function handleResponse<T = any>(response: Response): Promise<T> {
   const data = await parseResponseBody(response);
   if (!response.ok) {
     throw buildResponseError(response, data);
@@ -456,13 +516,14 @@ function apiGet<T = any>(
 function apiPost<T = any>(
   endpoint: string,
   body?: unknown,
-  options?: { signal?: AbortSignal },
+  options?: { signal?: AbortSignal; timeout?: number },
 ): Promise<T> {
   return fetchWithRetry(`${API_BASE}${endpoint}`, {
     method: "POST",
     headers: body ? { "Content-Type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
     signal: options?.signal,
+    timeout: options?.timeout,
   }).then((response) => handleResponse<T>(response));
 }
 
@@ -576,8 +637,21 @@ export const serverApi = {
     interfaces: { name: string; address: string }[];
   }> => apiGet("/server/network-interfaces"),
   start: () => apiPost("/server/start"),
-  stop: () => apiPost("/server/stop"),
-  forceStop: () => apiPost("/server/force-stop"),
+  // Unlike /server/start and /server/restart (both explicitly "return
+  // immediately, progress via socket/poll" -- see their own server-side
+  // comments), POST /server/stop and /server/force-stop hold the request
+  // open for the full graceful-shutdown chain: RCON save (rcon.js's own
+  // commandTimeout is 10s), then either RCON quit (another ~10s) or, for a
+  // Docker-managed server, dockerClient.js's lifecycleTimeoutMs -- the
+  // container's configured StopTimeout (10s default, but operator-set,
+  // uncapped here) plus a 30s grace period before Docker escalates to
+  // SIGKILL. A Docker-managed stop can legitimately take 40s+ even on a
+  // default config. Same STALL_MS-class timeout as the rest of this file's
+  // "waits on the game server" endpoints, not a blanket bump -- /start and
+  // /restart stay on the generic default because they're genuinely fast.
+  stop: () => apiPost("/server/stop", undefined, { timeout: 3 * 60 * 1000 }),
+  forceStop: () =>
+    apiPost("/server/force-stop", undefined, { timeout: 3 * 60 * 1000 }),
   restart: (warningMinutes?: number) =>
     apiPost("/server/restart", { warningMinutes }),
   restartNow: () => apiPost("/server/restart", { warningMinutes: 0 }),
@@ -587,8 +661,16 @@ export const serverApi = {
   // Wipe
   wipePreview: (targets: string[]) =>
     apiPost("/server/wipe/preview", { targets }),
+  // POST /wipe awaits a full pre-wipe backup (server/routes/server.js's own
+  // comment calls it "the multi-minute pre-wipe backup") before the
+  // destructive delete even starts -- same held-open-request shape as
+  // backupApi.createBackup below, just reached through a different route.
   wipe: (targets: string[], createBackup: boolean = true) =>
-    apiPost("/server/wipe", { targets, confirm: true, createBackup }) as Promise<{
+    apiPost(
+      "/server/wipe",
+      { targets, confirm: true, createBackup },
+      { timeout: 10 * 60 * 1000 },
+    ) as Promise<{
       success: boolean;
       backupCreated: boolean;
       backupName: string | null;
@@ -710,7 +792,7 @@ export const serverApi = {
 export const playersApi = {
   getPlayers: (options?: { retries?: number }) =>
     apiGet("/players", undefined, options?.retries),
-  getWhitelist: () => apiGet<{
+  getWhitelist: (options?: { retries?: number }) => apiGet<{
     success: boolean
     available: boolean
     accounts: Array<{
@@ -726,7 +808,7 @@ export const playersApi = {
     allowedSteamIds: string[]
     reason?: string
     server?: { id: string | number; name: string }
-  }>("/players/whitelist"),
+  }>("/players/whitelist", undefined, options?.retries),
   kick: (username: string, reason?: string) =>
     apiPost("/players/kick", { username, reason }),
   ban: (username: string, banIp?: boolean, reason?: string) =>
@@ -775,7 +857,8 @@ export const playersApi = {
   setNoclip: (username: string | null, enabled: boolean) =>
     apiPost("/players/noclip", { username, enabled }),
   getVehicles: () => apiGet("/players/vehicles"),
-  getPerks: () => apiGet("/players/perks"),
+  getPerks: (options?: { retries?: number }) =>
+    apiGet("/players/perks", undefined, options?.retries),
   getAccessLevels: () => apiGet("/players/access-levels"),
   // Ban/unban by SteamID
   banSteamId: (steamId: string, reason?: string) =>
@@ -791,12 +874,15 @@ export const playersApi = {
   // Add all connected to whitelist
   addAllToWhitelist: () => apiPost("/players/whitelist/addall"),
   // Activity logs
-  getActivityLogs: (player?: string, limit?: number) =>
+  getActivityLogs: (player?: string, limit?: number, options?: { retries?: number }) =>
     apiGet(
       `/players/activity?${player ? `player=${encodeURIComponent(player)}&` : ""}limit=${limit || 100}`,
+      undefined,
+      options?.retries,
     ),
   // Player Notes
-  getNotes: () => apiGet("/players/notes"),
+  getNotes: (options?: { retries?: number }) =>
+    apiGet("/players/notes", undefined, options?.retries),
   getNote: (playerName: string) =>
     apiGet(`/players/notes/${encodeURIComponent(playerName)}`),
   saveNote: (playerName: string, note: string, tags: string[]) =>
@@ -804,7 +890,8 @@ export const playersApi = {
   deleteNote: (playerName: string) =>
     apiDelete(`/players/notes/${encodeURIComponent(playerName)}`),
   // Player Stats (playtime tracking)
-  getStats: () => apiGet("/players/stats"),
+  getStats: (options?: { retries?: number }) =>
+    apiGet("/players/stats", undefined, options?.retries),
   getStat: (playerName: string) =>
     apiGet(`/players/stats/${encodeURIComponent(playerName)}`),
   // Character export history
@@ -870,8 +957,10 @@ export interface SchedulerStatus {
 }
 
 export const schedulerApi = {
-  getStatus: () => apiGet("/scheduler/status") as Promise<SchedulerStatus>,
-  getTasks: () => apiGet("/scheduler/tasks"),
+  getStatus: (options?: { retries?: number }) =>
+    apiGet("/scheduler/status", undefined, options?.retries) as Promise<SchedulerStatus>,
+  getTasks: (options?: { retries?: number }) =>
+    apiGet("/scheduler/tasks", undefined, options?.retries),
   createTask: (
     name: string,
     cronExpression: string,
@@ -902,19 +991,24 @@ export const schedulerApi = {
       message: string;
       warningMinutes: number;
     }>,
-  getCronPresets: () => apiGet("/scheduler/cron-presets"),
+  getCronPresets: (options?: { retries?: number }) =>
+    apiGet("/scheduler/cron-presets", undefined, options?.retries),
   validateCron: (cronExpression: string) =>
     apiPost("/scheduler/validate-cron", { cronExpression }) as Promise<{
       valid: boolean;
       error?: string;
       code?: string;
     }>,
-  getHistory: (limit?: number, taskId?: number) => {
+  getHistory: (limit?: number, taskId?: number, options?: { retries?: number }) => {
     const params = new URLSearchParams();
     if (limit) params.set("limit", limit.toString());
     if (taskId) params.set("taskId", taskId.toString());
     const query = params.toString();
-    return apiGet(`/scheduler/history${query ? `?${query}` : ""}`) as Promise<{
+    return apiGet(
+      `/scheduler/history${query ? `?${query}` : ""}`,
+      undefined,
+      options?.retries,
+    ) as Promise<{
       history: ScheduleHistoryEntry[];
     }>;
   },
@@ -935,19 +1029,22 @@ export const schedulerApi = {
 
 // Mods API
 export const modsApi = {
-  getStatus: (options?: RequestInit) => apiGet("/mods/status", options),
-  getTrackedMods: (options?: RequestInit) => apiGet("/mods/tracked", options),
+  getStatus: (options?: { retries?: number }) =>
+    apiGet("/mods/status", undefined, options?.retries),
+  getTrackedMods: (options?: { retries?: number }) =>
+    apiGet("/mods/tracked", undefined, options?.retries),
   trackMod: (workshopId: string) => apiPost("/mods/track", { workshopId }),
   untrackMod: (workshopId: string) => apiDelete(`/mods/track/${workshopId}`),
 
   // Ignored mods (prevent auto-re-tracking)
-  getIgnoredMods: () => apiGet("/mods/ignored"),
+  getIgnoredMods: (options?: { retries?: number }) =>
+    apiGet("/mods/ignored", undefined, options?.retries),
   unignoreMod: (workshopId: string) => apiDelete(`/mods/ignored/${workshopId}`),
   clearAllIgnoredMods: () => apiDelete("/mods/ignored"),
 
   // Ignored mod-conflict pairs (false positives on the variant detector)
-  getIgnoredModPairs: () =>
-    apiGet("/mods/ignored-pairs") as Promise<
+  getIgnoredModPairs: (options?: { retries?: number }) =>
+    apiGet("/mods/ignored-pairs", undefined, options?.retries) as Promise<
       Array<{
         mod_a: string;
         mod_b: string;
@@ -1001,7 +1098,8 @@ export const modsApi = {
   ) => apiPost("/mods/write-to-ini", { mods, mapFolders }),
 
   // Get current mod configuration from .ini file
-  getCurrentConfig: () => apiGet("/mods/current-config"),
+  getCurrentConfig: (options?: { retries?: number }) =>
+    apiGet("/mods/current-config", undefined, options?.retries),
 
   // Add a single mod to server .ini file (appends to existing)
   addToIni: (workshopId: string, modId?: string) =>
@@ -1417,6 +1515,10 @@ export const chunksApi = {
       `/chunks/stats/${encodeURIComponent(saveName)}${customPath ? `?customPath=${encodeURIComponent(customPath)}` : ""}`,
       { timeout: 60000 },
     ),
+  // expectedServerId: the resolvedServerId GET /chunks/:saveName returned
+  // when this scan was made (null if the scan used customPath). Lets the
+  // server refuse the delete if the active server moved out from under the
+  // scan in between -- see chunks.js's CHUNKS_STALE_SERVER_SCAN.
   deleteChunks: (
     saveName: string,
     chunks: Array<{
@@ -1431,6 +1533,7 @@ export const chunksApi = {
     customPath?: string,
     deleteVehicles: boolean = false,
     force: boolean = false,
+    expectedServerId: string | null = null,
   ) =>
     apiPost("/chunks/delete-chunks", {
       saveName,
@@ -1439,6 +1542,7 @@ export const chunksApi = {
       customPath,
       deleteVehicles,
       force,
+      expectedServerId,
     }),
   deleteRegion: (
     saveName: string,
@@ -1451,6 +1555,7 @@ export const chunksApi = {
     customPath?: string,
     deleteVehicles: boolean = false,
     force: boolean = false,
+    expectedServerId: string | null = null,
   ) =>
     apiPost("/chunks/delete-region", {
       saveName,
@@ -1463,6 +1568,7 @@ export const chunksApi = {
       customPath,
       deleteVehicles,
       force,
+      expectedServerId,
     }),
   browse: (browsePath?: string) =>
     apiGet(
@@ -1670,15 +1776,16 @@ export interface ComposedServerStatus {
 
 // Servers API (multi-server management)
 export const serversApi = {
-  getAll: () => apiGet("/servers") as Promise<{
-    servers: ServerInstance[];
-    lifecycleCapabilities?: {
-      supported: boolean;
-      platform: string;
-      containerized: boolean;
-      providers: Array<"direct" | "systemd" | "openrc">;
-    };
-  }>,
+  getAll: (options?: { retries?: number }) =>
+    apiGet("/servers", undefined, options?.retries) as Promise<{
+      servers: ServerInstance[];
+      lifecycleCapabilities?: {
+        supported: boolean;
+        platform: string;
+        containerized: boolean;
+        providers: Array<"direct" | "systemd" | "openrc">;
+      };
+    }>,
   getActive: () =>
     apiGet("/servers/active") as Promise<{ server: ServerInstance }>,
   getComposedStatus: (options?: { retries?: number }) =>
@@ -1940,8 +2047,8 @@ export interface ConfigTemplateDetail extends ConfigTemplate {
 
 export const serverFilesApi = {
   // Paths
-  getPaths: () =>
-    apiGet("/server-files/paths") as Promise<{
+  getPaths: (options?: { retries?: number }) =>
+    apiGet("/server-files/paths", undefined, options?.retries) as Promise<{
       configPath: string;
       serverName: string;
       files: {
@@ -1959,8 +2066,8 @@ export const serverFilesApi = {
     }>,
 
   // INI
-  getIni: () =>
-    apiGet("/server-files/ini") as Promise<{
+  getIni: (options?: { retries?: number }) =>
+    apiGet("/server-files/ini", undefined, options?.retries) as Promise<{
       settings: Record<string, string>;
       path: string;
       serverName: string;
@@ -1976,8 +2083,8 @@ export const serverFilesApi = {
     }>,
 
   // Sandbox
-  getSandbox: () =>
-    apiGet("/server-files/sandbox") as Promise<{
+  getSandbox: (options?: { retries?: number }) =>
+    apiGet("/server-files/sandbox", undefined, options?.retries) as Promise<{
       sandbox: SandboxData;
       path: string;
       serverName: string;
@@ -1988,6 +2095,7 @@ export const serverFilesApi = {
       created: boolean;
       message: string;
       path: string;
+      unpersistedKeys?: string[];
       restartRequired?: boolean;
     }>,
   validateSandbox: () =>
@@ -2007,8 +2115,8 @@ export const serverFilesApi = {
     }>,
 
   // Spawn Points (keyed by profession)
-  getSpawnPoints: () =>
-    apiGet("/server-files/spawnpoints") as Promise<{
+  getSpawnPoints: (options?: { retries?: number }) =>
+    apiGet("/server-files/spawnpoints", undefined, options?.retries) as Promise<{
       spawnpoints: SpawnPointsByProfession;
       path: string;
     }>,
@@ -2016,8 +2124,8 @@ export const serverFilesApi = {
     apiPut("/server-files/spawnpoints", { spawnpoints }),
 
   // Spawn Regions
-  getSpawnRegions: () =>
-    apiGet("/server-files/spawnregions") as Promise<{
+  getSpawnRegions: (options?: { retries?: number }) =>
+    apiGet("/server-files/spawnregions", undefined, options?.retries) as Promise<{
       spawnregions: SpawnRegion[];
       path: string;
     }>,
@@ -2081,6 +2189,7 @@ export const serverFilesApi = {
       success: boolean;
       applied: string[];
       message: string;
+      backupWarnings?: string[];
     }>,
   updateTemplate: (id: string, data: { name?: string; description?: string }) =>
     apiPut(`/server-files/templates/${id}`, data),
@@ -2250,6 +2359,25 @@ export interface BridgeCommandResult<T = Record<string, unknown>> {
   error?: string;
 }
 
+// Server-side sendCommand() (server/services/panelBridge.js) gives up on a
+// pending bridge command and deletes its own bookkeeping at commandTimeoutMs
+// -- 15000ms normally, but 60000ms once a server is configured over SFTP
+// (panelBridge.js:134/188/216). Whichever deadline fires first decides what
+// the user sees: our own abort produces a generic, false "check your
+// connection" (toApiError's AbortError branch); the SERVER'S OWN timeout
+// produces an honest 504 naming the real actor ("no response from mod") that
+// reaches the user via buildResponseError's payload.error. So this client
+// timeout must sit comfortably ABOVE the WORST-CASE server-side ceiling
+// (60000ms, the SFTP case) for every action whose Lua handler can plausibly
+// run long -- not just above the common 15000ms local case, which today
+// loses this race almost every time purely from network/routing latency
+// even though both numbers are nominally equal. Raising this alone does not
+// make the underlying work faster or wait longer in practice: the server
+// still gives up at its own ceiling and answers with the honest failure at
+// that point, this constant only ensures that answer is the one the user
+// actually sees instead of our own earlier, misleading guess.
+export const BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS = 75000;
+
 // Panel Bridge API (for direct Lua mod communication)
 export const panelBridgeApi = {
   // Get bridge status
@@ -2265,7 +2393,6 @@ export const panelBridgeApi = {
       transport?: {
         type: "local" | "sftp";
         running: boolean;
-        cachePath?: string | null;
         lastSyncAt?: number | null;
         lastLatencyMs?: number | null;
         lastError?: string | null;
@@ -2479,8 +2606,13 @@ export const panelBridgeApi = {
   sendCommand: <T = Record<string, unknown>>(
     action: string,
     args?: Record<string, unknown>,
+    options?: { timeout?: number },
   ) =>
-    apiPost<BridgeCommandResult<T>>("/panel-bridge/command", { action, args }),
+    apiPost<BridgeCommandResult<T>>(
+      "/panel-bridge/command",
+      { action, args },
+      options,
+    ),
 
   // Server-wide helicopter event (2026-08-30). Zero-arg, no dedicated route
   // -- same generic-passthrough shape trigger already used before this
@@ -3049,7 +3181,13 @@ export const backupApi = {
   ): Promise<{ success: boolean; settings: BackupSettings }> =>
     apiPost("/backup/settings", settings),
 
-  // Create a manual backup
+  // Create a manual backup. POST /backup/create awaits the full archive
+  // (server/routes/backup.js -> backupService.createBackup()) before
+  // responding -- socket `backup:progress` events give the UI live
+  // feedback, but the HTTP request itself stays open for the whole walk +
+  // zip of the save directory. Same held-open-request shape as
+  // panelUpdateApi.download; a big/modded world can easily exceed the
+  // generic 15s default.
   createBackup: (options?: {
     includeDb?: boolean;
   }): Promise<{
@@ -3057,7 +3195,7 @@ export const backupApi = {
     backup?: ServerBackupArchive;
     duration?: number;
     message?: string;
-  }> => apiPost("/backup/create", options || {}),
+  }> => apiPost("/backup/create", options || {}, { timeout: 10 * 60 * 1000 }),
 
   // Delete a backup
   deleteBackup: (
@@ -3069,7 +3207,10 @@ export const backupApi = {
       handleResponse<{ success: boolean; message?: string }>(response),
     ),
 
-  // Restore a backup
+  // Restore a backup. Same held-open shape as createBackup above --
+  // POST /backup/restore/:name awaits backupService.restoreBackup()
+  // (extract + swap the save directory, plus its own pre-restore safety
+  // backup) before responding.
   restoreBackup: (
     name: string,
     options?: { createPreRestoreBackup?: boolean },
@@ -3077,7 +3218,12 @@ export const backupApi = {
     success: boolean;
     message?: string;
     duration?: number;
-  }> => apiPost(`/backup/restore/${encodeURIComponent(name)}`, options || {}),
+  }> =>
+    apiPost(
+      `/backup/restore/${encodeURIComponent(name)}`,
+      options || {},
+      { timeout: 10 * 60 * 1000 },
+    ),
 
   // Delete backups older than X days
   deleteOlderThan: (
@@ -3117,6 +3263,24 @@ export const backupApi = {
     // server/services/auth.js's own comment on why 15m), and a user
     // returning after being idle that long would otherwise see a raw 401
     // instead of a transparent refresh-and-retry like everywhere else.
+    // bug-hunt-2026-09-06 (client silent-failure lane, lib/ pass): raw XHR
+    // gets none of fetchWithRetry's protections for free, and this one was
+    // missing one more than the 401-replay above -- no timeout at all. If
+    // the connection is accepted but the server (or a proxy) never
+    // responds, none of onload/onerror/onabort ever fires, this Promise
+    // never settles, and the caller's await hangs forever: upload button
+    // stuck disabled, percent frozen, zero error, indefinitely. Same
+    // "nobody's listening for the outcome" shape as the Servers.tsx/
+    // ServerSetup.tsx socket watchdogs, on a raw XHR instead of a socket.
+    //
+    // Unlike those cases, an aborted upload here is safe to report as a
+    // genuine failure rather than an honest "may still be running": the
+    // server streams straight to a .tmp file in lockstep with the request
+    // body (server/routes/backup.js's streamUploadToFile) with no
+    // decoupled background job, so an aborted connection means the
+    // server-side write stops too and cleans up -- there is no SteamCMD-
+    // style child process still working after the client walks away.
+    const STALL_MS = 3 * 60 * 1000;
     const sendOnce = (
       token: string | null,
     ): Promise<{ status: number; payload: any }> =>
@@ -3126,13 +3290,21 @@ export const backupApi = {
         if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
         xhr.setRequestHeader("Content-Type", "application/zip");
         xhr.setRequestHeader("X-Backup-Filename", file.name);
-        if (onProgress) {
-          xhr.upload.onprogress = (e) => {
-            if (e.lengthComputable)
-              onProgress(Math.round((e.loaded / e.total) * 100));
-          };
-        }
+        let lastActivity = Date.now();
+        let timedOut = false;
+        xhr.upload.onprogress = (e) => {
+          lastActivity = Date.now();
+          if (onProgress && e.lengthComputable)
+            onProgress(Math.round((e.loaded / e.total) * 100));
+        };
+        const stallCheck = setInterval(() => {
+          if (Date.now() - lastActivity >= STALL_MS) {
+            timedOut = true;
+            xhr.abort();
+          }
+        }, 15000);
         xhr.onload = () => {
+          clearInterval(stallCheck);
           let payload: any = null;
           try {
             payload = JSON.parse(xhr.responseText);
@@ -3141,8 +3313,20 @@ export const backupApi = {
           }
           resolve({ status: xhr.status, payload });
         };
-        xhr.onerror = () => reject(new Error("Network error during upload"));
-        xhr.onabort = () => reject(new Error("Upload aborted"));
+        xhr.onerror = () => {
+          clearInterval(stallCheck);
+          reject(new Error("Network error during upload"));
+        };
+        xhr.onabort = () => {
+          clearInterval(stallCheck);
+          reject(
+            timedOut
+              ? new Error(
+                  "The upload stalled with no response from the server and was cancelled. Check your connection and try again.",
+                )
+              : new Error("Upload aborted"),
+          );
+        };
         xhr.send(file);
       });
 
@@ -3288,6 +3472,15 @@ export interface UpdateCheckerStatus {
   updateAvailable: UpdateStatus | null;
   gameVersion: string | null;
   lastCheck: string | null;
+  // Set on every checkForUpdates() failure path, cleared on any check that
+  // reaches a real answer -- see updateChecker.js's own comment. Paired with
+  // updateAvailable (which is written ONLY on success, so it retains the
+  // last real result across a later failure) to derive three states without
+  // a fourth field: updateAvailable === null -> never succeeded;
+  // updateAvailable !== null && lastError !== null -> succeeded, then a
+  // later attempt failed (keep showing the stale-but-real result);
+  // updateAvailable !== null && lastError === null -> succeeded cleanly.
+  lastError: string | null;
   intervalMinutes: number;
   isChecking: boolean;
   lastAutoUpdateResult: AutoUpdateResult | null;
@@ -3331,6 +3524,8 @@ export interface PanelUpdateApplyResult {
     | "permission"
     | "no_helper_log"
     | "rollback_failed"
+    | "powershell_unavailable"
+    | "startup_handshake_failed"
     | "unknown";
   // Only meaningful when likelyCause is "rollback_failed" -- see
   // isRollbackRetryLikely()'s doc comment in panelUpdateChecker.js. Absent
@@ -3362,6 +3557,10 @@ export interface PanelUpdatePreflight {
     exeDir?: string;
     asset?: { name: string; size: number };
     writable?: boolean;
+    // true = confirmed renameable, false = confirmed denied (blocks the
+    // update), null = could not verify (probe unavailable/blocked -- never
+    // treated as a denial). Windows-only; always undefined/null elsewhere.
+    exeDeleteAccess?: boolean | null;
     freeBytes?: number | null;
     oneDrive?: boolean;
     syncSuspect?: boolean;
@@ -3444,8 +3643,20 @@ export const panelUpdateApi = {
   getStatus: (): Promise<PanelUpdateStatus> => apiGet("/panel/update-status"),
   preflight: (): Promise<PanelUpdatePreflight> =>
     apiGet("/panel/update-preflight"),
+  // POST /panel/update-download awaits the FULL binary + client-dist archive
+  // download (server/index.js's handlePanelUpdateDownload -> checker.
+  // downloadUpdate()) before responding at all -- there is no "kicked off,
+  // poll for completion" split the way restart/apply has. The default 15s
+  // fetchWithRetry timeout is sized for a normal API call, not a real
+  // multi-file network transfer; on a slow connection it fires while the
+  // server is still legitimately downloading, aborts the client's view of
+  // the request, and surfaces a false "Download failed" even though the
+  // server keeps going and stages the update successfully moments later
+  // (the next click then hits the server's own "already downloading" guard
+  // instead of a clean retry). Matches this codebase's STALL_MS convention
+  // (Servers.tsx/ServerSetup.tsx/chunksApi) for genuinely long operations.
   download: (confirm: boolean = false): Promise<PanelUpdateActionResult> =>
-    apiPost("/panel/update-download", { confirm }),
+    apiPost("/panel/update-download", { confirm }, { timeout: 5 * 60 * 1000 }),
   getApplyLog: (): Promise<{ log: string | null; logPath: string }> =>
     apiGet("/panel/update-apply-log"),
 };
@@ -3458,6 +3669,12 @@ export interface DiskSpaceStatus {
   usedPercent: number;
   warning: boolean;
   critical: boolean;
+  // false means the server couldn't verify this reading right now
+  // (unreachable mount, permission error, no path configured) -- warning
+  // and critical are both forced false on that path (see diskMonitor.js's
+  // computeDiskStatus()), NOT a verified "everything is fine". Callers
+  // must not treat that as a real all-clear.
+  ok: boolean;
 }
 
 export interface DiskSpaceReport {

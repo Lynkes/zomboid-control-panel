@@ -3,7 +3,12 @@ import { createLogger } from "../utils/logger.js";
 import { sanitizeError } from "../utils/sanitize.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { requirePermission } from "../services/permissions.js";
-import { getActiveServer } from "../database/init.js";
+import { getActiveServer, getServer } from "../database/init.js";
+import {
+  acquireLifecycleLock,
+  lifecycleInProgressResponse,
+} from "../services/lifecycleCoordinator.js";
+import { checkSpecificServerStopped } from "./server.js";
 import {
   listTemplates,
   listHiddenBuiltinTemplates,
@@ -112,6 +117,30 @@ router.post("/:id/preview", async (req, res) => {
 });
 
 router.post("/:id/apply", requirePermission("templates.manage"), async (req, res) => {
+  // lifecycle-lock-set sweep, 2026-09-07: the active-server branch below
+  // checks getServerProcessDetails() once, then applyTemplate() does real
+  // config-file I/O with no lock held. A concurrent /start landing in that
+  // window launches the JVM reading a partially-written config. Same fix
+  // as /wipe, /delete-files, and chunks.js's delete-chunks/delete-region:
+  // take the process-wide lifecycleCoordinator lock for the whole handler.
+  // The non-active-server branch below always fails closed unconditionally
+  // regardless of this lock (it never reaches applyTemplate()), so holding
+  // the lock for that branch too is harmless, just a brief no-op hold.
+  //
+  // normalize-lifecycle-lock-server-identifier, 2026-09-08: unlike
+  // /delete-files, this route's target server DB id (req.body.serverId) is
+  // already fully available the instant the handler starts -- Express has
+  // already parsed the body by then -- so read it directly rather than
+  // leaving this a third null site. Read here, not moved above alongside a
+  // restructure: the actual `!serverId` validation below is unchanged, this
+  // is purely an extra peek for the lock's own identity.
+  const lifecycleLock = acquireLifecycleLock(
+    "template-apply",
+    req.body?.serverId || null,
+  );
+  if (!lifecycleLock) {
+    return res.status(409).json(lifecycleInProgressResponse());
+  }
   try {
     const { serverId, options } = req.body || {};
     if (!serverId) {
@@ -130,6 +159,17 @@ router.post("/:id/apply", requirePermission("templates.manage"), async (req, res
         });
       }
       try {
+        // split-derivation sweep, 2026-09-07 (same class as /wipe's
+        // pre-fix bug, 5c2e73e9): the ID-equality check above reads
+        // activeServer fresh, but serverManager.getServerProcessDetails()
+        // internally calls the GUARDED loadConfig() -- a no-op once
+        // serverManager has loaded ANY server's config -- so passing the
+        // equality check does not guarantee serverManager's own cached
+        // identity actually matches activeServer yet (e.g. immediately
+        // after a /activate switch). Force a real reload first so the
+        // running-check below examines the same server the ID check just
+        // verified, not whatever serverManager was last pointed at.
+        await serverManager.reloadConfig();
         // getServerProcessDetails(), not checkServerRunning() -- the latter
         // discards the scan's own scanFailed flag and returns a plain
         // boolean, so a scan that completed but couldn't determine the
@@ -159,24 +199,42 @@ router.post("/:id/apply", requirePermission("templates.manage"), async (req, res
         });
       }
     } else {
-      // Fail closed, not open. This branch used to be nothing -- the whole
-      // running-state guard above only exists inside the "target IS the
-      // active server" arm, so applying to any OTHER configured server
-      // skipped it entirely. serverManager is bound to one server by name
-      // and has no way to probe a different, non-active server's process
-      // state, so there's no check to run here -- but "can't check" must
-      // fail the same way it does everywhere else in this codebase, not be
-      // read as "must be stopped." A normal two-profile workflow (server A
+      // is-running-enumeration sweep, 2026-09-08: this branch used to refuse
+      // outright for any non-active server (2026-08-24, conv-template-privesc)
+      // because no cross-server process detection existed yet -- serverManager
+      // is bound to one server by name and has no way to probe a different,
+      // non-active server's process state on its own. That capability now
+      // exists: checkSpecificServerStopped() (routes/server.js) does a
+      // host-wide scan and attributes it to a SPECIFIC target server via
+      // scoreServerProcessOwnership(), exactly the same convention already
+      // used to fix /delete-files' identical cross-server gap. Reuses it
+      // here rather than duplicating it -- and still fails closed exactly
+      // like before on anything it can't confirm (SERVER_STATE_UNKNOWN),
+      // just no longer refuses a normal two-profile workflow (server A
       // running and active, template applied to configured-but-inactive
-      // server B) would otherwise silently overwrite B's live .ini while
-      // its own process holds the file open. Real cross-server process
-      // detection is a separate feature; refusing is the fix for tonight.
-      // See 2026-08-24 conv-template-privesc.
-      return res.status(409).json({
-        error:
-          "Can't verify this server's running state — the panel can only check the currently active server. Switch to this server first, then apply the template.",
-        code: ErrorCode.SIM_TEMPLATE_APPLY_INACTIVE_SERVER_UNVERIFIABLE,
-      });
+      // server B) that IS safe to verify.
+      const targetServer = await getServer(serverId);
+      if (!targetServer) {
+        return res.status(404).json({
+          error: "Server not found",
+          code: ErrorCode.SIM_TEMPLATE_SERVER_NOT_FOUND,
+        });
+      }
+      const notStoppedError = await checkSpecificServerStopped(
+        targetServer,
+        "applying a template to it",
+      );
+      if (notStoppedError) {
+        const isRunningConflict = notStoppedError.body?.code === ErrorCode.WIPE_SERVER_RUNNING;
+        return res.status(isRunningConflict ? 409 : notStoppedError.status).json({
+          error: isRunningConflict
+            ? "Stop the server before applying a template"
+            : notStoppedError.body.error,
+          code: isRunningConflict
+            ? ErrorCode.SIM_TEMPLATE_APPLY_SERVER_RUNNING
+            : ErrorCode.SIM_TEMPLATE_APPLY_STATE_UNKNOWN,
+        });
+      }
     }
 
     const result = await applyTemplate(req.params.id, serverId, options || {});
@@ -185,6 +243,8 @@ router.post("/:id/apply", requirePermission("templates.manage"), async (req, res
   } catch (error) {
     log.error(`Failed to apply template: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
+  } finally {
+    lifecycleLock.release();
   }
 });
 

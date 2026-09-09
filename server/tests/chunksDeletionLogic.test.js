@@ -35,6 +35,9 @@ vi.mock("../database/init.js", () => ({
 
 const { getActiveServer, getServers, getSetting } = await import("../database/init.js");
 const { default: router } = await import("../routes/chunks.js");
+const { acquireLifecycleLock, LIFECYCLE_IN_PROGRESS_CODE } = await import(
+  "../services/lifecycleCoordinator.js"
+);
 
 // ── sql.js setup for a real vehicles.db fixture ────────────────────────────
 let sqlPromise = null;
@@ -137,10 +140,22 @@ async function runRoute(routePath, method, req) {
   return res;
 }
 
+// expectedServerId defaults to "server-1" -- matches beforeEach's own
+// getActiveServer mock below. bug-hunt-2026-09-06: delete-chunks/
+// delete-region now refuse (CHUNKS_STALE_SERVER_SCAN) unless this matches
+// the CURRENT active server, so every test here that relies on the active
+// server (i.e. doesn't pass its own customPath) needs it to agree with the
+// mock or it never reaches the deletion logic these tests actually target.
 function postAs(routePath, body) {
   return runRoute(routePath, "post", {
     user: { role: "technician" },
-    body: { force: true, createBackup: false, deleteVehicles: false, ...body },
+    body: {
+      force: true,
+      createBackup: false,
+      deleteVehicles: false,
+      expectedServerId: "server-1",
+      ...body,
+    },
   });
 }
 
@@ -495,7 +510,13 @@ function postAsWithServerManager(routePath, body, serverManager) {
   return runRoute(routePath, "post", {
     user: { role: "technician" },
     app: { get: (key) => (key === "serverManager" ? serverManager : null) },
-    body: { force: false, createBackup: false, deleteVehicles: false, ...body },
+    body: {
+      force: false,
+      createBackup: false,
+      deleteVehicles: false,
+      expectedServerId: "server-1",
+      ...body,
+    },
   });
 }
 
@@ -899,5 +920,293 @@ describe("delete-region: chunkdata deletion prunes vehicles across the WHOLE cel
     const remaining = await readVehicleIds(dbPath);
     expect(remaining).toHaveLength(1);
     expect(remaining[0]).toEqual(expect.objectContaining({ x: 500, y: 500 }));
+  });
+});
+
+// bug-hunt-2026-09-06: ChunkCleaner.tsx has no server id of its own on any
+// of its 5 routes -- delete-chunks/delete-region resolve whatever server is
+// active AT REQUEST TIME. Scan server A, switch the active server to B
+// elsewhere in the panel, hit Delete: without this check, the route deletes
+// server B's REAL chunk file, not A's -- worse than an overwritable INI
+// field (Mods.tsx's saveModOrder, same underlying shape), because there is
+// no undo. `expectedServerId` is the resolvedServerId GET /chunks/:saveName
+// stamped the scan with; the two servers below are both real temp dirs with
+// their own real chunk file at the same coordinate, so "the file survives"
+// here means an actual fs.existsSync check on disk, not a mock call count.
+describe("delete-chunks/delete-region: CHUNKS_STALE_SERVER_SCAN refuses a delete whose scan was made against a server that is no longer active", () => {
+  let dataRootB;
+  let savePathB;
+
+  beforeEach(() => {
+    dataRootB = fs.mkdtempSync(path.join(os.tmpdir(), "chunks-deletion-serverB-"));
+    savePathB = path.join(dataRootB, "Saves", "Multiplayer", SAVE_NAME);
+    fs.mkdirSync(savePathB, { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(dataRootB, { recursive: true, force: true });
+  });
+
+  it("delete-chunks: refuses with 409 and leaves server B's real chunk on disk when expectedServerId still names server A", async () => {
+    const chunkOnA = path.join(savePath, "map", "0", "0.bin");
+    writeFileDeep(chunkOnA, "a");
+    const chunkOnB = path.join(savePathB, "map", "0", "0.bin");
+    writeFileDeep(chunkOnB, "b");
+
+    // The operator's scan happened against server-1 (A) -- postAs' own
+    // default. The active server has since switched to server-2 (B),
+    // elsewhere in the panel, without this request knowing.
+    getActiveServer.mockReset().mockResolvedValue({
+      id: "server-2",
+      zomboidDataPath: dataRootB,
+      isRemote: false,
+    });
+
+    const res = await postAs("/delete-chunks", {
+      saveName: SAVE_NAME,
+      chunks: [{ file: "0/0.bin", x: 0, y: 0 }],
+      expectedServerId: "server-1",
+    });
+
+    expect(res.getStatusCode()).toBe(409);
+    expect(res.getBody()?.code).toBe("CHUNKS_STALE_SERVER_SCAN");
+    // This is the file the route would actually have deleted (it resolves
+    // whatever server is active NOW) -- it must survive untouched.
+    expect(fs.existsSync(chunkOnB)).toBe(true);
+    expect(fs.existsSync(chunkOnA)).toBe(true);
+  });
+
+  it("delete-region: same refusal, same file-survival proof", async () => {
+    const chunkOnB = path.join(savePathB, "map", "0", "0.bin");
+    writeFileDeep(chunkOnB, "b");
+
+    getActiveServer.mockReset().mockResolvedValue({
+      id: "server-2",
+      zomboidDataPath: dataRootB,
+      isRemote: false,
+    });
+
+    const res = await postAs("/delete-region", {
+      saveName: SAVE_NAME,
+      minX: 0,
+      maxX: 5,
+      minY: 0,
+      maxY: 5,
+      expectedServerId: "server-1",
+    });
+
+    expect(res.getStatusCode()).toBe(409);
+    expect(res.getBody()?.code).toBe("CHUNKS_STALE_SERVER_SCAN");
+    expect(fs.existsSync(chunkOnB)).toBe(true);
+  });
+
+  it("is NOT bypassed by force:true -- force only overrides the running-server check, not server identity", async () => {
+    const chunkOnB = path.join(savePathB, "map", "0", "0.bin");
+    writeFileDeep(chunkOnB, "b");
+
+    getActiveServer.mockReset().mockResolvedValue({
+      id: "server-2",
+      zomboidDataPath: dataRootB,
+      isRemote: false,
+    });
+
+    const res = await postAs("/delete-chunks", {
+      saveName: SAVE_NAME,
+      chunks: [{ file: "0/0.bin", x: 0, y: 0 }],
+      expectedServerId: "server-1",
+      force: true,
+    });
+
+    expect(res.getStatusCode()).toBe(409);
+    expect(fs.existsSync(chunkOnB)).toBe(true);
+  });
+
+  it("succeeds normally when expectedServerId matches the current active server -- no false positive on the ordinary path", async () => {
+    const chunk = path.join(savePath, "map", "0", "0.bin");
+    writeFileDeep(chunk, "a");
+
+    // No switch happened -- postAs' default expectedServerId ("server-1")
+    // still matches beforeEach's own getActiveServer mock.
+    const res = await postAs("/delete-chunks", {
+      saveName: SAVE_NAME,
+      chunks: [{ file: "0/0.bin", x: 0, y: 0 }],
+    });
+
+    expect(res.getStatusCode()).toBe(200);
+    expect(fs.existsSync(chunk)).toBe(false);
+  });
+
+  it("is skipped entirely for a customPath delete -- not server-scoped, so a mismatched expectedServerId doesn't matter", async () => {
+    const chunk = path.join(savePath, "map", "0", "0.bin");
+    writeFileDeep(chunk, "a");
+
+    // Active server switched to B, AND expectedServerId still names A --
+    // both would fail the check above, but customPath bypasses it entirely
+    // (matches getZomboidDataPath()'s own customPath bypass). getServers
+    // must list dataRoot as a known root or assertKnownSaveRoot rejects the
+    // customPath itself before this check is ever reached (see the
+    // "customPath must resolve to a location the panel already recognizes"
+    // suite above).
+    getActiveServer.mockReset().mockResolvedValue({
+      id: "server-2",
+      zomboidDataPath: dataRootB,
+      isRemote: false,
+    });
+    getServers.mockResolvedValue([{ id: "server-1", zomboidDataPath: dataRoot }]);
+
+    const res = await postAs("/delete-chunks", {
+      saveName: SAVE_NAME,
+      chunks: [{ file: "0/0.bin", x: 0, y: 0 }],
+      customPath: dataRoot,
+      expectedServerId: "server-1",
+    });
+
+    expect(res.getStatusCode()).toBe(200);
+    expect(fs.existsSync(chunk)).toBe(false);
+  });
+});
+
+// bug hunt 2026-09-07 (uniqueness-generator sweep, Kevin): backupPath used
+// to be `${sanitizedSaveName}_chunks_${Date.now()}` / `${sanitizedSaveName}_
+// region_${Date.now()}` with no collision guard -- at the time this was
+// written, no lock serialized these two routes the way /wipe and
+// restoreBackup() were (see server.js's wipeInProgress / backupService.js's
+// restoreInProgress), so two concurrent requests for the SAME save landing
+// in the same millisecond (a double-submit, or two operators acting on the
+// same save at once) computed the IDENTICAL backup directory. The random
+// suffix fixed that collision.
+//
+// lifecycle-lock-set sweep, 2026-09-07 (Angela, same day, god's ruling):
+// that premise is no longer true. delete-chunks/delete-region now take the
+// same process-wide lifecycleCoordinator lock /wipe and /delete-files do
+// (see chunks.js's own comment on the fix), so two concurrent requests
+// through these HTTP routes can no longer both reach the naming code at
+// all -- the second is refused with 409 before it gets there. That does
+// NOT make the naming generator's own uniqueness irrelevant: the lock
+// protects these two ROUTES, not the naming code itself, which a future
+// caller (a retry path, an internal reuse, a test) could still reach twice
+// without going through the lock. Per god's explicit instruction: keep
+// Kevin's uniqueness proof (two calls with a frozen clock still produce
+// distinct directories) as defence-in-depth, re-expressed SEQUENTIALLY so
+// it no longer depends on concurrency the lock now forecloses, and add the
+// lock's own guarantee (concurrent request #2 refused, #1 untouched)
+// alongside it rather than in place of it -- a test deleted because a
+// later fix made its scenario unreachable is how a guarantee quietly stops
+// being checked; if the lock is ever removed for a good-sounding reason,
+// Kevin's collision must still be able to fail.
+describe("backup directory naming: unique even without concurrency, AND the routes now serialize", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    // Best-effort: don't let a failed assertion mid-test leak the real
+    // process-wide lock into a later test in this file or another.
+    const stray = acquireLifecycleLock("test-cleanup");
+    if (stray) stray.release();
+  });
+
+  function listBackupDirsMatching(pattern) {
+    const backupsRoot = path.join(dataRoot, "backups");
+    if (!fs.existsSync(backupsRoot)) return [];
+    return fs.readdirSync(backupsRoot).filter((name) => pattern.test(name));
+  }
+
+  it("delete-chunks: two SEQUENTIAL same-millisecond backups for the same save still get two distinct backup directories", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+
+    writeFileDeep(path.join(savePath, "map", "0", "0.bin"), "a");
+    writeFileDeep(path.join(savePath, "map", "1", "1.bin"), "b");
+
+    // Sequential, not Promise.all -- the lock now refuses a concurrent
+    // second call outright, which would prove nothing about the naming
+    // generator's own entropy. Awaiting the first call's release before
+    // starting the second isolates exactly the property Kevin's test
+    // proved: the random suffix, not serialization, is what keeps two
+    // same-millisecond names apart.
+    const res1 = await postAs("/delete-chunks", {
+      saveName: SAVE_NAME,
+      chunks: [{ file: "0/0.bin", x: 0, y: 0 }],
+      createBackup: true,
+    });
+    const res2 = await postAs("/delete-chunks", {
+      saveName: SAVE_NAME,
+      chunks: [{ file: "1/1.bin", x: 1, y: 1 }],
+      createBackup: true,
+    });
+
+    expect(res1.getStatusCode()).toBe(200);
+    expect(res2.getStatusCode()).toBe(200);
+    expect(res1.getBody()).toEqual(expect.objectContaining({ success: true, backupCreated: true }));
+    expect(res2.getBody()).toEqual(expect.objectContaining({ success: true, backupCreated: true }));
+
+    const backupDirs = listBackupDirsMatching(new RegExp(`^${SAVE_NAME}_chunks_1700000000000`));
+    expect(backupDirs).toHaveLength(2);
+  });
+
+  it("delete-region: two SEQUENTIAL same-millisecond backups for the same save still get two distinct backup directories", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+
+    writeFileDeep(path.join(savePath, "map", "0", "0.bin"), "a");
+    writeFileDeep(path.join(savePath, "map", "5", "5.bin"), "b");
+
+    const res1 = await postAs("/delete-region", {
+      saveName: SAVE_NAME,
+      minX: 0,
+      maxX: 0,
+      minY: 0,
+      maxY: 0,
+      createBackup: true,
+    });
+    const res2 = await postAs("/delete-region", {
+      saveName: SAVE_NAME,
+      minX: 5,
+      maxX: 5,
+      minY: 5,
+      maxY: 5,
+      createBackup: true,
+    });
+
+    expect(res1.getStatusCode()).toBe(200);
+    expect(res2.getStatusCode()).toBe(200);
+
+    const backupDirs = listBackupDirsMatching(new RegExp(`^${SAVE_NAME}_region_1700000000000`));
+    expect(backupDirs).toHaveLength(2);
+  });
+
+  // lifecycle-lock-set sweep, 2026-09-07: the property Kevin's fix could
+  // not have proven at the time -- the routes now genuinely serialize
+  // against each other (and against /wipe, /restore, /start, ...), so a
+  // REAL concurrent double-submit no longer risks the naming collision at
+  // all. The second request never reaches the naming code; the first's
+  // work is never touched.
+  it("delete-chunks: two CONCURRENT requests for the same save -- the second is refused 409, the first's backup is untouched", async () => {
+    writeFileDeep(path.join(savePath, "map", "0", "0.bin"), "a");
+    writeFileDeep(path.join(savePath, "map", "1", "1.bin"), "b");
+
+    const [res1, res2] = await Promise.all([
+      postAs("/delete-chunks", {
+        saveName: SAVE_NAME,
+        chunks: [{ file: "0/0.bin", x: 0, y: 0 }],
+        createBackup: true,
+      }),
+      postAs("/delete-chunks", {
+        saveName: SAVE_NAME,
+        chunks: [{ file: "1/1.bin", x: 1, y: 1 }],
+        createBackup: true,
+      }),
+    ]);
+
+    expect(res1.getStatusCode()).toBe(200);
+    expect(res1.getBody()).toEqual(expect.objectContaining({ success: true, backupCreated: true }));
+    expect(res2.getStatusCode()).toBe(409);
+    expect(res2.getBody()).toEqual(
+      expect.objectContaining({ code: LIFECYCLE_IN_PROGRESS_CODE }),
+    );
+
+    // The first request's backup exists and is the only one -- the second
+    // never got far enough to create its own (or touch anything).
+    const backupsRoot = path.join(dataRoot, "backups");
+    const backupDirs = fs.readdirSync(backupsRoot);
+    expect(backupDirs).toHaveLength(1);
+    // The chunk the refused second request would have deleted must survive.
+    expect(fs.existsSync(path.join(savePath, "map", "1", "1.bin"))).toBe(true);
   });
 });

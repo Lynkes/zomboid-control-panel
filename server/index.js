@@ -16,7 +16,7 @@ import { permissionsPolicy } from "./middleware/permissionsPolicy.js";
 import { logSetupTokenIfNeeded } from "./utils/setupToken.js";
 import { computeInlineScriptCspHash } from "./utils/cspScriptHash.js";
 import { parseTrustProxySetting } from "./utils/trustProxy.js";
-import { isUncompressedBinaryProxyPath } from "./utils/compressionFilter.js";
+import { isUncompressedBinaryProxyPath, isEventStreamResponse } from "./utils/compressionFilter.js";
 import { createServer } from "http";
 import { createServer as createHttpsServer } from "https";
 import { Server } from "socket.io";
@@ -49,6 +49,7 @@ import {
   flushForShutdown,
   recordPerformanceSnapshot,
   logServerEvent,
+  peekServerDisplayName,
 } from "./database/init.js";
 import { RconService } from "./services/rcon.js";
 import { ServerManager } from "./services/serverManager.js";
@@ -59,6 +60,7 @@ import { Scheduler } from "./services/scheduler.js";
 import { DiscordBot } from "./services/discordBot.js";
 import { BackupService } from "./services/backupService.js";
 import { UpdateChecker } from "./services/updateChecker.js";
+import { rehydrateActiveSteamOperationsFromDisk } from "./services/activeSteamOperations.js";
 import {
   PanelUpdateChecker,
   createUpdateDataBackup,
@@ -69,11 +71,12 @@ import {
   applyUpdateBundle,
   inspectPendingUpdateBundle,
   PANEL_API_CONTRACT_VERSION as DEFAULT_API_CONTRACT_VERSION,
+  recoverFromUnreadableJournal,
   recoverInterruptedUpdateBundle,
 } from "./services/updateBundle.js";
 import { LogTailer } from "./services/logTailer.js";
 import { DiskMonitor } from "./services/diskMonitor.js";
-import authService from "./services/auth.js";
+import authService, { onSessionRevoked } from "./services/auth.js";
 import { getRoleByName } from "./services/permissions.js";
 import { requireRole } from "./services/auth.js";
 import authRoutes from "./routes/auth.js";
@@ -94,11 +97,11 @@ import {
   readClientDistMetadata,
   resolveClientDistPath,
 } from "./utils/embeddedClient.js";
-import { resolveObservedServerRunning } from "./utils/serverStatus.js";
+import { resolveObservedServerRunning, resolveServerPhase } from "./utils/serverStatus.js";
 import { discoverMounts } from "./services/mountDiscovery.js";
 import { shouldAutoOpenBrowser } from "./utils/browserLaunch.js";
 import { isLinuxPanelSupervisor } from "./utils/restartSupervisor.js";
-import { acquireLifecycleLock } from "./services/lifecycleCoordinator.js";
+import { acquireLifecycleLock, setServerDisplayNameResolver } from "./services/lifecycleCoordinator.js";
 
 // === Supervisor bootstrap ===
 // If the .exe was double-clicked directly (no PANEL_SUPERVISOR_V env var) and
@@ -163,11 +166,27 @@ process.stderr?.on?.("error", (err) => {
 // closed) is still swallowed — it's benign and would otherwise loop forever.
 function fatalExit(label, err) {
   log.error(`${label}:`, err);
+  // gracefulShutdown() (SIGTERM/SIGINT) and the Windows Supervisor restart
+  // path (60f4de4f) both close out every open player session via
+  // panelBridge.stop() -> trackPlayerActivity([]) before the process goes
+  // down. This is the third process-exit path and was missing that call: a
+  // hard crash (uncaughtException/unhandledRejection) with players online
+  // left their last_session_start dangling in the DB, silently discarded --
+  // not stuck open forever, just clobbered by a fresh "connect" the next
+  // time trackPlayerActivity's diff sees them still online post-restart --
+  // the same playtime-loss pattern already closed on the other two paths.
+  try {
+    if (panelBridge?.isRunning) panelBridge.stop();
+  } catch (stopErr) {
+    log.error("Failed to close player sessions during fatal exit:", stopErr);
+  }
   Promise.race([
     flushWrites().catch(() => {}),
     new Promise((resolve) => setTimeout(resolve, 3000)),
   ]).finally(() => process.exit(1));
 }
+
+export { fatalExit };
 
 process.on("uncaughtException", (error) => {
   if (error && error.code === "EPIPE") return;
@@ -635,7 +654,23 @@ export function setupHttpsServer({
     return null;
   }
 
-  httpsServer = createHttpsServer(certs, app);
+  // loadOrCreateCerts() only confirms the custom paths are real, readable
+  // FILES -- it never parses their content, so a file that satisfies both
+  // checks but holds garbage/corrupted bytes (truncated on disk, or just
+  // the wrong file) reaches here unchanged. createServer() parses the
+  // PEM/DER synchronously and throws immediately on invalid content (e.g.
+  // "PEM routines::no start line") -- same crash-the-whole-panel class as
+  // the cert-path/EADDRINUSE cases above, just one call later, so it gets
+  // the identical guard.
+  try {
+    httpsServer = createHttpsServer(certs, app);
+  } catch (error) {
+    log.error(
+      `HTTPS certificate/key content is invalid: ${error.message} — running HTTP only`,
+    );
+    httpsServer = null;
+    return null;
+  }
   // Add HTTPS origin to allowed list dynamically
   addAllowedOrigin(`https://localhost:${httpsPort}`);
   // Attach the SAME Socket.IO instance to the HTTPS server too, instead of
@@ -823,12 +858,13 @@ app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 
 // Compress all HTTP responses (gzip/deflate) EXCEPT the <img>-tag-loaded
-// binary proxy routes -- see compressionFilter.js for why.
+// binary proxy routes and SSE streams -- see compressionFilter.js for why.
 app.use(
   compression({
     threshold: 1024,
     filter: (req, res) => {
       if (isUncompressedBinaryProxyPath(req)) return false;
+      if (isEventStreamResponse(res)) return false;
       return compression.filter(req, res);
     },
   }),
@@ -956,6 +992,11 @@ const dockerClient = new DockerClient();
 // Lets the scheduler and the Discord bot route lifecycle actions to Docker
 // without threading the client through their constructors.
 setDockerClient(dockerClient);
+// Lets lifecycleInProgressResponse()'s 409 message resolve a held lock's
+// server DB id back to a display name, without lifecycleCoordinator.js
+// statically importing database/init.js (see its own comment on why: dozens
+// of test files mock that module with only the exports they need).
+setServerDisplayNameResolver(peekServerDisplayName);
 const modChecker = new ModChecker();
 const logTailer = new LogTailer();
 const scheduler = new Scheduler(rconService, serverManager);
@@ -1223,6 +1264,32 @@ async function tryStartPanelBridge(trigger = "unknown") {
   }
 }
 
+// server-running-determination-convention sweep, 2026-09-08: panelBridge is
+// a shared singleton, exactly like serverManager and rconService, that only
+// ever points at ONE server's bridge folder (this.bridgePath) at a time --
+// but unlike those two, nothing explicitly repointed it when the active
+// server changed. tryStartPanelBridge() alone can't fix that: its very
+// first line is `if (panelBridge.isRunning) return true`, so calling it
+// after a switch is a guaranteed no-op whenever the bridge was already
+// running for the PREVIOUS server, which is exactly the moment a resync is
+// needed. The only thing that used to save this was rconService's own
+// "connected" event re-triggering tryStartPanelBridge('rcon-connected') --
+// conditional on the NEWLY active server having an RCON password
+// configured at all. A server managed via PanelBridge/SFTP only, or simply
+// not yet given a password, left panelBridge silently pointed at whichever
+// server it last served, indefinitely. That is not a display-only bug:
+// sendCommand() (weather control, player details, world stats, safehouses,
+// vehicles, every PanelBridge-routed feature) writes straight to
+// this.bridgePath's commands.json -- a stale bridgePath means a command
+// the operator believes is going to the newly active server is actually
+// delivered to, and executed by, the PREVIOUS one.
+async function resyncPanelBridgeForActiveServer(trigger = "active-server-changed") {
+  if (panelBridge.isRunning) {
+    panelBridge.stop();
+  }
+  return tryStartPanelBridge(trigger);
+}
+
 // Auto-start PanelBridge when RCON connects (secondary trigger)
 // An async EventEmitter listener that rejects becomes an unhandled rejection,
 // which reaches process.on("unhandledRejection") and kills the panel — so
@@ -1314,6 +1381,7 @@ panelBridge.on("playerDisconnect", (playerName) => {
 // Make services available to routes
 app.set("rconService", rconService);
 app.set("serverManager", serverManager);
+app.set("resyncPanelBridgeForActiveServer", resyncPanelBridgeForActiveServer);
 app.set("dockerClient", dockerClient);
 app.set("modChecker", modChecker);
 app.set("scheduler", scheduler);
@@ -1429,6 +1497,130 @@ function inspectPendingPanelUpdate() {
     runningMetadata: _buildMetadata,
   });
 }
+
+// State-machine sweep, 2026-09-07 (god's dispatch): inspectPendingPanelUpdate()
+// runs BEFORE httpServer.listen() and calls ensureCompatibleBundle()
+// internally the moment a journal is "awaiting_startup_ack" (or its Windows
+// equivalent) -- so a real version_mismatch (the staged build's own
+// metadata not matching what's actually running, the one integrity check
+// this whole bundle system exists to catch) throws HERE, first, every
+// single time. The ready-callback further down (search for
+// "Update startup handshake failed") ALSO handles version_mismatch, by
+// rolling the bundle back via acknowledgeUpdateBundle()'s own internal
+// catch -- but it runs strictly LATER, after this exact check already threw
+// and this process already called process.exit(76). That later code is
+// unreachable for this condition: same journal, same runningMetadata, same
+// comparison, so a real mismatch is always caught here first. Without this,
+// every subsequent restart hits the identical throw with nothing ever
+// having rolled back -- the one safety net actually catching the exact
+// problem it was built for, then getting permanently stuck instead of
+// healing, bounded only by whatever supervisor eventually gives up on
+// repeated nonzero exits. Exported so it can be unit-tested directly
+// against a real on-disk journal instead of through start()'s full
+// listen()-and-banner sequence.
+//
+// Hotfix, 2026-09-07 ("hotfix-invalid-bundle"): widened beyond
+// version_mismatch to also cover invalid_bundle -- thrown from roughly ten
+// sites in updateBundle.js (unparseable JSON, a structurally-invalid
+// journal, an installDir that no longer matches where the journal actually
+// lives, an unreadable applying-marker) and, unlike version_mismatch, it
+// was falling straight through this function and out to a bare
+// process.exit(76) with nothing ever cleaned up -- so every single restart
+// re-hit the identical throw, forever. Confirmed in the wild on v1.2.16.
+//
+// invalid_bundle is not one condition, it is two, and they need different
+// recoveries:
+//   - The journal itself is fine (parses, validates) but something ELSE
+//     inspectPendingPanelUpdate() touched while checking it was bad (e.g.
+//     the staged/applied frontend's own build-info.json is unreadable).
+//     The journal still knows exactly what to roll back to here, so this
+//     is really the same shape as version_mismatch -- try
+//     recoverInterruptedUpdateBundle() first, unconditionally, for both
+//     codes.
+//   - The journal ITSELF is what's unreadable. recoverInterruptedUpdateBundle()
+//     re-reads that same journalPath as its very first step, so it just
+//     re-throws the identical invalid_bundle back at us -- that specific
+//     failure shape (a *second* invalid_bundle, from the rollback attempt
+//     itself) is exactly the signal that there is no journal left to trust,
+//     and is the only case that falls through to recoverFromUnreadableJournal()'s
+//     fixed-path, journal-less recovery.
+export function recoverFromStartupInspectionFailure(error, journalPath) {
+  if (error?.code === "version_mismatch") {
+    try {
+      recoverInterruptedUpdateBundle(journalPath, "version_mismatch");
+      log.warn(
+        "Rolled back the pending update bundle after a startup version-mismatch; the next restart should boot the previous, working build.",
+      );
+    } catch (rollbackError) {
+      log.error(
+        `Automatic rollback also failed [${rollbackError.code || "rollback_failed"}]: ${rollbackError.message}. ` +
+          `To recover manually, delete ${journalPath} and any .update-applying marker next to it, then restart.`,
+      );
+    }
+    return;
+  }
+
+  if (error?.code !== "invalid_bundle") return;
+
+  try {
+    const rolledBack = recoverInterruptedUpdateBundle(journalPath, "invalid_bundle");
+    if (rolledBack) {
+      log.warn(
+        "Rolled back the pending update bundle after a startup validation failure; the next restart should boot the previous, working build.",
+      );
+    }
+    // rolledBack === false means the journal parsed fine but said "staged"
+    // (nothing was ever applied, so there is nothing to roll back) -- not
+    // an error, nothing further to do; the operator's next start attempt
+    // simply re-evaluates the same, still-merely-staged journal.
+    return;
+  } catch (rollbackError) {
+    if (rollbackError?.code !== "invalid_bundle") {
+      // The journal WAS readable; the rollback it described was attempted
+      // and failed for its own reason (e.g. rollback_failed). Same
+      // actionable shape as version_mismatch's failure branch.
+      log.error(
+        `Automatic rollback also failed [${rollbackError.code || "rollback_failed"}]: ${rollbackError.message}. ` +
+          `To recover manually, delete ${journalPath} and any .update-applying marker next to it, then restart.`,
+      );
+      return;
+    }
+    // Second invalid_bundle in a row: recoverInterruptedUpdateBundle()
+    // could not even re-read the journal. The journal is the corrupt thing
+    // itself, not something it points at -- fall back to fixed-location,
+    // journal-less recovery.
+  }
+
+  try {
+    const outcome = recoverFromUnreadableJournal({
+      journalPath,
+      binaryPath: panelUpdateChecker.getExeBasePath(),
+      liveClientPath: path.join(
+        path.dirname(panelUpdateChecker.getExeBasePath()),
+        "client",
+        "dist",
+      ),
+    });
+    const restoredParts = [
+      outcome.restoredBinary ? "binary" : null,
+      outcome.restoredClient ? "frontend" : null,
+    ].filter(Boolean);
+    const restoredSummary = restoredParts.length
+      ? `Restored the previous ${restoredParts.join(" and ")} from backup. `
+      : "No previous-build backup was found to restore (nothing was actually pending). ";
+    const journalSummary = outcome.quarantinedJournalPath
+      ? `Moved the unreadable journal aside to ${outcome.quarantinedJournalPath} so startup can proceed.`
+      : `Could not move the unreadable journal aside; it is still at ${journalPath} and startup will keep tripping over it.`;
+    log.warn(
+      `Startup validation could not read the update bundle journal at all [${error.code}]: ${error.message}. ${restoredSummary}${journalSummary}`,
+    );
+  } catch (recoveryError) {
+    log.error(
+      `Could not recover from the unreadable update bundle journal [${recoveryError.code || "recovery_failed"}]: ${recoveryError.message}. ` +
+        `To recover manually, delete ${journalPath} and any .update-applying marker or .bundle-previous/dist.previous backups next to it, then restart.`,
+    );
+  }
+}
 app.get("/api/health", (req, res) => {
   res.json({
     status: "ok",
@@ -1532,10 +1724,33 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
           applyingUpdate: true,
           supervisor: true,
         });
+        // Same gap gracefulShutdown() (SIGTERM/SIGINT) already closes for a
+        // signal-triggered shutdown: this handler exits the process directly
+        // and never went through that path, so every currently-connected
+        // player's session (panelBridge.trackPlayerActivity's previousPlayers,
+        // and the DB row it accumulates playtime into) was left open. The
+        // next status poll after relaunch then reads the SAME still-connected
+        // players as brand-new joins and silently overwrites their still-open
+        // prior session -- the identical bug already fixed for "mod offline"
+        // and "bridge stop" (2026-09-04), reachable here via a third,
+        // previously-uncovered trigger: a plain panel restart/update-apply
+        // with anyone online. Stop the bridge before exiting so the session
+        // actually closes first.
+        if (panelBridge?.isRunning) panelBridge.stop();
         // Exit code 75 tells Start.bat to apply the marker and relaunch.
         setTimeout(() => process.exit(75), 500);
         return;
       } catch (err) {
+        // The Linux staged-update branch below resets this on every one of
+        // its own failure paths; this branch didn't, so a failure here (the
+        // marker write, the setSetting/flushWrites awaits above it, or
+        // panelBridge.stop()) left isApplying stuck true forever in this
+        // still-running process -- since nothing failed badly enough to
+        // reach the process.exit(75) that would have made the flag moot.
+        // Every later restart attempt then hit the guard above and was
+        // rejected with "An update apply is already in progress" even
+        // though nothing was: the panel telling the user something untrue.
+        checker.isApplying = false;
         log.error(`Could not write supervisor marker: ${err.message}`);
         return res.status(500).json({ error: sanitizeError(err.message) });
       }
@@ -1624,8 +1839,32 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
       // Release the apply guard so the user can retry after fixing whatever
       // failed (e.g. permission, disk full).
       checker.isApplying = false;
-      log.error(`Failed to apply Linux staged update: ${err.message}`);
-      return res.status(500).json({ error: sanitizeError(err.message) });
+      // god-dispatched, 2026-09-08 (harden-updater-fileops #3): updateError()
+      // (updateBundle.js) stores the real fs error -- EPERM/EBUSY/EACCES,
+      // the actual reason a rename/copy failed -- only in `.cause`, and
+      // overwrites `.code` with the semantic bucket name
+      // (binary_swap_failed/frontend_swap_failed/...). Logging only
+      // err.message here meant an AV-locked file, a permission problem and
+      // a full disk all produced the byte-identical log line, same disease
+      // as [powershell_unavailable] before that fix. LOG the raw cause in
+      // full -- it can carry absolute paths, which is fine server-side.
+      // Deliberately does NOT widen the RESPONSE: REGISTERED_ERROR_CODES's
+      // own header comment above (~2203) already rules on this exact
+      // question -- forwarding a raw Node/OS code to the client, even a
+      // "harmless-looking" one, is the leak apiErrorHandler's allowlist
+      // exists to prevent, and this catch's `code` field already goes
+      // through that same allowlist via registeredErrorCode(). If the
+      // operator-facing message should say more, that's a wording change
+      // to report, not one to invent here.
+      log.error(
+        `Failed to apply Linux staged update: ${err.message}${describeErrorCause(err)}`,
+      );
+      const body = { error: sanitizeError(err.message) };
+      const code = registeredErrorCode(err);
+      if (code) {
+        body.code = code;
+      }
+      return res.status(500).json(body);
     }
   }
 
@@ -1633,6 +1872,14 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
 
   // Short delay so the response can be sent before exit
   setTimeout(async () => {
+    // Same reasoning as the Windows supervisor-handoff branch above: this is
+    // every OTHER restart (a plain manual restart with no staged update, and
+    // the Linux staged-update-applied case), and it exits the process
+    // directly without ever going through gracefulShutdown() -- so it never
+    // closed out an in-flight player session either. Stop the bridge first
+    // so the session record actually closes instead of silently getting
+    // overwritten by a phantom "connect" once polling resumes post-restart.
+    if (panelBridge?.isRunning) panelBridge.stop();
     try {
       await flushWrites();
     } catch {
@@ -1706,12 +1953,26 @@ app.get("/api/panel/update-check", async (req, res) => {
 });
 
 app.get("/api/panel/update-status", (req, res) => {
-  const checker = req.app.get("panelUpdateChecker");
-  if (!checker)
-    return res
-      .status(500)
-      .json({ error: "Panel update checker not available" });
-  res.json(checker.getStatus());
+  try {
+    const checker = req.app.get("panelUpdateChecker");
+    if (!checker)
+      return res
+        .status(500)
+        .json({ error: "Panel update checker not available" });
+    res.json(checker.getStatus());
+  } catch (error) {
+    // The only inline update route with no try/catch, found by comparing it
+    // against its three siblings (update-check, update-preflight,
+    // update-apply-log) directly above and below it, which all wrap the
+    // same "call a checker method, hand the result to res.json()" shape.
+    // getStatus() calls getStagedUpdate() (real file I/O) internally; a
+    // synchronous throw here would still be caught by Express's own
+    // handler-dispatch and forwarded to apiErrorHandler today, so this
+    // wasn't a live crash, but it meant this one route alone produced a
+    // generic 500 instead of the same structured error shape every sibling
+    // route gives for the same failure.
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
 });
 
 app.get("/api/panel/update-preflight", async (req, res) => {
@@ -1760,6 +2021,12 @@ export async function handlePanelUpdateDownload(req, res) {
         return res
           .status(500)
           .json({ error: "Panel update checker not available" });
+
+      // Set only once this request has actually stopped a running server
+      // (below) -- used to tell the truth about it if downloadUpdate()
+      // itself then fails, rather than leaving that consequential, already-
+      // happened side effect unmentioned in an error about something else.
+      let stoppedServerForThisRequest = false;
 
       if (checker.dockerUpdateProxy?.enabled) {
         if (req.body?.confirm !== true) {
@@ -1815,11 +2082,27 @@ export async function handlePanelUpdateDownload(req, res) {
             "server_stop",
             "Server stopped before Docker panel update",
           );
+          stoppedServerForThisRequest = true;
         }
       }
 
       const result = await checker.downloadUpdate();
       if (!result.success) {
+        // god's ruling, 2026-09-08: do NOT auto-restart the server here on a
+        // failed apply -- a failed apply can leave a half-written install,
+        // and launching the game server's JVM over that is exactly the
+        // corruption activeSteamOperations' own crash-survival work exists
+        // to prevent. Auto-restarting would also override an operator who
+        // may have wanted the server down. Say so instead: the world was
+        // already saved and the server already stopped (a real,
+        // consequential action) as part of this request, and the download/
+        // apply failure below is otherwise silent about that -- a user
+        // reading only "update failed" has no way to know their server
+        // needs a manual restart.
+        if (stoppedServerForThisRequest) {
+          result.error = `${result.error} Your game server was stopped to prepare for this update and was NOT restarted -- restart it manually.`;
+          result.serverStoppedNotRestarted = true;
+        }
         if (result.code === "already_downloading")
           return res.status(409).json(result);
         if (result.code === "no_update") return res.status(400).json(result);
@@ -1938,14 +2221,41 @@ export function sendClientIndex(res, clientDistPath, callback) {
 // before this change -- do not "fix" that by widening the allowlist to
 // everything; that's the leak this exists to prevent.
 const REGISTERED_ERROR_CODES = new Set(Object.values(ErrorCode));
+// Same allowlist gate apiErrorHandler enforces below, factored out so a
+// route that builds its own res.json() directly instead of calling
+// next(err) -- and so never reaches apiErrorHandler at all -- can apply the
+// identical check instead of a hand-rolled copy. That's how the Linux
+// update-apply catch (POST /api/panel/restart) lost hash_unverifiable /
+// binary_swap_failed / rollback_failed silently: it builds its 500 body
+// locally and never called next(err), so this allowlist never ran for it.
+export function registeredErrorCode(err) {
+  return typeof err?.code === "string" && REGISTERED_ERROR_CODES.has(err.code)
+    ? err.code
+    : undefined;
+}
+
+// god-dispatched, 2026-09-08 (harden-updater-fileops #3): updateBundle.js's
+// updateError() overwrites `.code` with a semantic bucket name
+// (binary_swap_failed, frontend_swap_failed, ...) and keeps the REAL fs
+// error -- the actual EPERM/EBUSY/EACCES/ENOSPC a rename/copy failed with
+// -- only on `.cause`. Nothing read `.cause` anywhere, so a locked-by-AV
+// rename, a permission problem and a full disk all logged the identical
+// line: an operator with the log open had no more information than one
+// without it. Server-log-only, deliberately -- see the Linux-apply catch's
+// own comment for why this never reaches the client response.
+export function describeErrorCause(err) {
+  if (!err?.cause) return "";
+  return ` (cause: ${err.cause.code || "no code"}: ${err.cause.message})`;
+}
 // Exported so server/tests/errorCodeReachability.test.js can assert the
 // allowlist both ways directly against the real handler, not a reimplementation.
 export function apiErrorHandler(err, req, res, next) {
   log.error(`Unhandled API error on ${req.method} ${req.path}: ${err.message}`);
   const status = err.status || 500;
   const body = { error: sanitizeError(err.message) };
-  if (typeof err.code === "string" && REGISTERED_ERROR_CODES.has(err.code)) {
-    body.code = err.code;
+  const code = registeredErrorCode(err);
+  if (code) {
+    body.code = code;
   }
   res.status(status).json(body);
 }
@@ -2041,6 +2351,16 @@ io.on("connection", (socket) => {
     `Client connected: ${socket.id}${socket.user ? ` (${socket.user.username})` : ""}`,
   );
 
+  // Membership for the per-user eviction room used by the
+  // onSessionRevoked() subscription below (password change/reset, role
+  // change, user delete). Auth-disabled and no-setup-needed connections
+  // have no real userId (socket.user.userId is null, or socket.user is
+  // unset entirely) and are intentionally left out -- there is no DB user
+  // row for either to be revoked against.
+  if (socket.user?.userId) {
+    socket.join(`user:${socket.user.userId}`);
+  }
+
   socket.on("disconnect", () => {
     log.debug(`Client disconnected: ${socket.id}`);
   });
@@ -2109,6 +2429,26 @@ io.on("connection", (socket) => {
   });
 });
 
+// Sockets authenticate once at handshake (io.use above) and are never
+// re-validated per event, so without this, regenerate-jwt-secret,
+// change-password/reset-password, role changes, and user deletion (the
+// revocation paths in services/auth.js) would all be no-ops for any socket
+// that connected before the change -- e.g. a revoked user's already-open
+// socket would keep receiving the rcon-live room's whitelist passwords
+// indefinitely. disconnectSockets(true) forces a reconnect, which re-runs
+// io.use and picks up the new state (or fails closed if the user is gone).
+// Exported (not an inline closure) so tests can call it directly against
+// the real `io` instance and assert the disconnect calls it makes, without
+// needing a live network socket to prove the wiring is correct.
+export function evictRevokedSockets(event) {
+  if (event.scope === "all") {
+    io.disconnectSockets(true);
+  } else if (event.scope === "user" && event.userId) {
+    io.in(`user:${event.userId}`).disconnectSockets(true);
+  }
+}
+onSessionRevoked(evictRevokedSockets);
+
 // Stream logs to Socket.IO clients
 onLog((logEntry) => {
   addLogToBuffer(logEntry.level, logEntry.message, logEntry.source);
@@ -2120,7 +2460,10 @@ onLog((logEntry) => {
 // ============================================
 import { getDataPaths } from "./utils/paths.js";
 
-async function autoExportPlayer(username) {
+// Exported so tests can call it directly against real fs/database state
+// without needing a live PanelBridge mod connection -- see
+// server/tests/autoExportPlayerCollision.test.js.
+export async function autoExportPlayer(username) {
   try {
     if (!panelBridge.isRunning || !panelBridge.isModConnected()) {
       log.debug(
@@ -2146,21 +2489,46 @@ async function autoExportPlayer(username) {
     );
     fs.mkdirSync(exportDir, { recursive: true });
 
-    // Write timestamped export file
+    // Write timestamped export file. toISOString() is millisecond-resolution
+    // -- two auto-exports for the SAME player landing in the same
+    // millisecond (e.g. a rapid disconnect/reconnect scheduling two
+    // 10-second-delayed timers close together) would otherwise silently
+    // overwrite one export with the other. Same collision-suffix convention
+    // as configBackup.js/database/init.js's backup rings -- the suffix goes
+    // BEFORE the .json extension (name-<n>.json), not after, so the
+    // rotation filter/sort below (which matches on ".json") still sees the
+    // file: an earlier draft of this fix appended "-<n>" after ".json" and
+    // silently exempted every collided export from rotation forever.
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const filename = `${username.replace(/[^a-zA-Z0-9_-]/g, "_")}_${timestamp}.json`;
-    fs.writeFileSync(
-      path.join(exportDir, filename),
-      JSON.stringify(result.data || result, null, 2),
-    );
+    const safeUsername = username.replace(/[^a-zA-Z0-9_-]/g, "_");
+    const exportBaseName = `${safeUsername}_${timestamp}`;
+    let exportPath = path.join(exportDir, `${exportBaseName}.json`);
+    for (let collision = 2; fs.existsSync(exportPath); collision++) {
+      exportPath = path.join(exportDir, `${exportBaseName}-${collision}.json`);
+    }
+    fs.writeFileSync(exportPath, JSON.stringify(result.data || result, null, 2));
 
-    // Rotate — keep only the last N exports
+    // Rotate — keep only the last N exports. Same (timestampKey,
+    // collisionSuffix)-parsing sort as database/init.js's
+    // sortBackupFilenamesNewestFirst(): a raw string sort would put
+    // "-2.json" before ".json" ('-' < '.'), treating a collision's later
+    // duplicate as older than the original it collided with.
     const maxExports = Number(await getSetting("autoExportMaxPerPlayer")) || 3;
     const files = fs
       .readdirSync(exportDir)
       .filter((f) => f.endsWith(".json"))
-      .sort()
-      .reverse(); // newest first by name (ISO timestamp)
+      .map((name) => {
+        const withoutExt = name.slice(0, -".json".length);
+        const match = withoutExt.match(/^(.*)-(\d+)$/);
+        return match
+          ? { name, key: match[1], suffix: parseInt(match[2], 10) }
+          : { name, key: withoutExt, suffix: 1 };
+      })
+      .sort((a, b) => {
+        if (a.key !== b.key) return a.key < b.key ? 1 : -1; // newest first
+        return b.suffix - a.suffix; // higher collision suffix = created later
+      })
+      .map((c) => c.name);
 
     if (files.length > maxExports) {
       for (const old of files.slice(maxExports)) {
@@ -2473,8 +2841,19 @@ async function startPerfPolling() {
         memoryUsed: panelMem.heapUsed,
         memoryTotal: panelMem.heapTotal,
         // Status
+        //
+        // is-running-enumeration sweep, 2026-09-08: was serverManager.isRunning
+        // -- a local-scan-only cached field, always false for a docker-local/
+        // docker-managed/remote active server no matter what RCON or the
+        // bridge report, the exact GH#114 shape already fixed at every other
+        // "is the active server running" site (see getObservedServerRunning()
+        // below, which discordBot.js and the watchdog already use). This was
+        // the one remaining unswept site -- display-only (feeds the
+        // performance-history chart's running/stopped annotation, nothing
+        // gates on it), but it perpetuated the same wrong answer those other
+        // sites were fixed to stop giving.
         playerCount: lastPlayerList.length,
-        serverRunning: serverManager.isRunning,
+        serverRunning: Boolean(await getObservedServerRunning()),
       };
 
       await recordPerformanceSnapshot(snapshot);
@@ -2505,6 +2884,7 @@ function stopPerfPolling() {
 // ============================================
 let statusWatchdogInterval = null;
 let lastKnownRunning = null;
+let lastKnownPhase = null;
 
 // Thin, no-arg wrapper over utils/serverStatus.js's shared
 // resolveObservedServerRunning() -- see that function's own doc comment for
@@ -2554,12 +2934,28 @@ export async function checkServerStatusNow(detectionReason = "watchdog") {
       log.debug("Status watchdog: server state is unknown; skipping transition");
       return;
     }
-    if (lastKnownRunning !== null && running !== lastKnownRunning) {
+    // Display-only refinement of `running` -- see resolveServerPhase()'s own
+    // comment. Never read for any decision in this function: the
+    // running/stopped comparisons and Discord notifications below are
+    // unchanged, so a starting/unresponsive server can't newly block or skip
+    // anything that a plain running:true already didn't.
+    const phase = resolveServerPhase({
+      running,
+      serverStarting: Boolean(rconService.serverStarting),
+      rconConnected: Boolean(rconService.connected),
+    });
+    const runningChanged = lastKnownRunning !== null && running !== lastKnownRunning;
+    // `running` stays true across the whole starting -> unresponsive/running
+    // handoff (host process is up the entire time), so without this the dot
+    // would freeze on whatever phase it first saw and never update -- the
+    // exact "starting forever" lie this feature exists to avoid.
+    const phaseChanged = lastKnownPhase !== null && phase !== lastKnownPhase;
+    if (runningChanged || phaseChanged) {
       log.info(
-        `Server state changed → ${running ? "running" : "stopped"} (detected by ${detectionReason})`,
+        `Server state changed → ${running ? "running" : "stopped"}${runningChanged ? "" : ` (phase: ${phase})`} (detected by ${detectionReason})`,
       );
-      io.emit("server:status", { running });
-      if (!running) {
+      io.emit("server:status", { running, phase });
+      if (runningChanged && !running) {
         logServerEvent(
           "server_stop",
           `Server process exited (detected by ${detectionReason})`,
@@ -2571,7 +2967,7 @@ export async function checkServerStatusNow(detectionReason = "watchdog") {
               `Discord serverStop notification failed: ${err.message}`,
             ),
           );
-      } else {
+      } else if (runningChanged) {
         discordBot
           .sendEventNotification("serverStart", {})
           .catch((err) =>
@@ -2582,6 +2978,7 @@ export async function checkServerStatusNow(detectionReason = "watchdog") {
       }
     }
     lastKnownRunning = running;
+    lastKnownPhase = phase;
   } catch (err) {
     log.debug(`Status watchdog error: ${err.message}`);
   }
@@ -2699,6 +3096,33 @@ export async function logExposureWarningIfNeeded({
   }
 }
 
+// Startup-failure-mode sweep, 2026-09-07 (god's dispatch): resolves the
+// configured HTTP port, falling back to 3001 for anything out of range --
+// same fallback this always had, but now WARNS when that fallback actually
+// discards an operator-set value instead of silently substituting it. A
+// bad PORT env var (a typo, a stray quote from a .env file, a value copied
+// from a different app) or a corrupted `panelPort` setting used to just
+// become 3001 with nothing in the log to explain why the panel wasn't
+// listening where the operator expected -- SILENT-OR-GENERIC in the exact
+// sense this sweep is looking for: it doesn't fail, so there's nothing to
+// investigate, and it doesn't do what was asked either. Exported so the
+// resolution logic is directly testable without booting start()'s full
+// listen()-and-banner sequence.
+export function resolvePanelPort(rawValue, { onInvalid } = {}) {
+  const configuredPort = Number(rawValue);
+  if (
+    Number.isInteger(configuredPort) &&
+    configuredPort >= 1 &&
+    configuredPort <= 65535
+  ) {
+    return configuredPort;
+  }
+  if (rawValue !== undefined && rawValue !== null && rawValue !== "") {
+    onInvalid?.(rawValue);
+  }
+  return 3001;
+}
+
 // Initialize and start server
 async function start() {
   try {
@@ -2720,9 +3144,17 @@ async function start() {
       try {
         _pendingUpdateInspection = inspectPendingPanelUpdate();
       } catch (error) {
+        // A log line is the ENTIRE interface for a failure this early --
+        // there is no HTTP server yet for a UI to report through. Naming
+        // the journal path here is the difference between "delete the
+        // right file" and "go find it yourself" for whichever of the two
+        // outcomes below actually applies (a version_mismatch that just
+        // got rolled back, or anything else that didn't).
+        const journalPath = updateBundleJournalPath();
         log.error(
-          `Update startup validation failed [${error.code || "invalid_bundle"}]: ${error.message}`,
+          `Update startup validation failed [${error.code || "invalid_bundle"}]: ${error.message}. Journal: ${journalPath}`,
         );
+        recoverFromStartupInspectionFailure(error, journalPath);
         process.exit(76);
         return;
       }
@@ -2758,6 +3190,19 @@ async function start() {
     await initDatabase();
     await refreshCorsConfig();
     log.info("Database ready");
+
+    // Rehydrate any Steam operation (install/update/auto-update) that was
+    // still recorded as in-flight when this process last exited -- if that
+    // was a genuine crash (not a clean shutdown, which never leaves one
+    // behind) rather than the operation actually finishing, an orphaned
+    // SteamCMD could still be writing to the install directory right now.
+    // Must run before anything in this process could ever call
+    // startServer() or start a second Steam operation on the same path --
+    // both check the same in-memory guard this seeds. See
+    // activeSteamOperations.js's own header for why: the alternative is the
+    // JVM launching over a half-written install, a corrupted server, not a
+    // retryable failure.
+    await rehydrateActiveSteamOperationsFromDisk();
 
     // ── Authentication ──
     await authService.init();
@@ -3019,7 +3464,7 @@ async function start() {
             } else {
               const lifecycleLock = acquireLifecycleLock(
                 "startup-auto-start",
-                activeServer?.name || activeServer?.serverName || null,
+                activeServer?.id ?? null,
               );
               if (!lifecycleLock) {
                 log.warn(
@@ -3145,10 +3590,12 @@ async function start() {
 
     // Read panel port from DB (saved via Settings UI), fallback to env or 3001
     const savedPort = await getSetting("panelPort");
-    const configuredPort = Number(process.env.PORT || savedPort || 3001);
-    const PORT = Number.isInteger(configuredPort) && configuredPort >= 1 && configuredPort <= 65535
-      ? configuredPort
-      : 3001;
+    const PORT = resolvePanelPort(process.env.PORT || savedPort || 3001, {
+      onInvalid: (value) =>
+        log.warn(
+          `Configured panel port "${value}" is not valid (must be a number 1-65535) -- using 3001 instead.`,
+        ),
+    });
     let listenPort = PORT;
 
     // ── HTTPS Setup ──
@@ -3238,8 +3685,13 @@ async function start() {
             }
           }
         } catch (error) {
+          // Same reasoning as inspectPendingPanelUpdate()'s catch above:
+          // this is a log-only failure path (the process exits a few lines
+          // down, before any client can ever see a response), so the
+          // journal path belongs in the message itself, not left for an
+          // operator to rediscover.
           log.error(
-            `Update startup handshake failed [${error.code || "startup_handshake_failed"}]: ${error.message}`,
+            `Update startup handshake failed [${error.code || "startup_handshake_failed"}]: ${error.message}. Journal: ${updateBundleJournalPath()}`,
           );
           if (error.code === "version_mismatch") {
             // client/dist was just rolled back to the previous version by
@@ -3448,4 +3900,10 @@ if (!process.env.VITEST) {
   start();
 }
 
-export { io };
+// Exported for tests only, same rationale as oidcRoutes.test.js's
+// getHandler() helper: an Express Application's route table is walkable via
+// its own `.stack` the same way a Router's is, so a test can find a route's
+// registered handler and call it directly with hand-built req/res -- no
+// real HTTP server, no supertest (deliberately not a dependency here; see
+// that same test file's comment on why).
+export { app, io };

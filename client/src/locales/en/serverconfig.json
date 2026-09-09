@@ -11,6 +11,10 @@
     "title_other": "{{count}} settings appear more than once in this configuration file: {{keys}}",
     "desc": "This editor reads the last copy and the Mods page reads the first, so the two can show different values for the same setting."
   },
+  "serverChangedBanner": {
+    "title": "Active server changed",
+    "desc": "The active server changed while this page was open. The settings below are still from the previous server -- reload before saving, or the save would overwrite the new active server's config."
+  },
   "pageHeader": {
     "title": "Server Configuration",
     "description": "Edit the live INI, sandbox, spawn, and mod settings for this server.",
@@ -338,6 +342,7 @@
   "toasts": {
     "error": "Error",
     "loadConfigFailed": "Failed to load server config.",
+    "serverChangedSinceLoad": "The active server changed since this page loaded. Reload before saving to avoid overwriting the wrong server.",
     "invalidIniTitle": "Invalid server settings",
     "invalidSandboxTitle": "Invalid Sandbox values",
     "fixSettings": "Fix: {{settings}}",
@@ -367,6 +372,8 @@
     "worldSaveFailedDesc": "{{option}} was applied, but the server's world save failed ({{reason}}), so it may not survive the next restart.",
     "notPersistedDesc": "{{option}} is not in SandboxVars.lua, so it will reset when the server restarts.",
     "willResetFallback": "{{option}} will reset when the server restarts.",
+    "someSandboxKeysNotSavedTitle": "Some settings not saved",
+    "someSandboxKeysNotSavedDesc": "The rest was saved, but these could not be written and will reset when the server restarts: {{keys}}",
     "failedToUpdateTitle": "Failed to Update",
     "unknownError": "Unknown error",
     "setOptionFailed": "Failed to set option",
@@ -382,6 +389,8 @@
     "applyTemplateFailed": "Failed to apply saved config.",
     "applyTemplatePartialTitle": "Partially applied",
     "applyTemplatePartialDesc": "{{applied}} settings were written to disk before this failed: {{error}} The rest of the saved config was not applied.",
+    "applyTemplateBackupWarningTitle": "Applied, but not backed up",
+    "applyTemplateBackupWarningDesc": "{{warnings}}",
     "saveTemplateFailed": "Failed to save config.",
     "deletedTitle": "Deleted",
     "templateDeletedDesc": "Saved config \"{{name}}\" deleted",

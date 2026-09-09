@@ -28,7 +28,8 @@
     "label": "Historial",
     "recordedCount_one": "{{count}} copia de seguridad registrada",
     "recordedCount_other": "{{count}} copias de seguridad registradas",
-    "latest": "Más reciente: {{date}}"
+    "latest": "Más reciente: {{date}}",
+    "recordedCount_many": "{{count}} copias de seguridad registradas"
   },
   "statusCards": {
     "totalBackups": "Total de copias de seguridad",
@@ -98,7 +99,9 @@
     "downloadAria": "Descargar {{name}}",
     "downloadTitle": "Descargar copia de seguridad",
     "deleteAria": "Eliminar {{name}}",
-    "deleteTitle": "Eliminar copia de seguridad"
+    "deleteTitle": "Eliminar copia de seguridad",
+    "selectAllLabel_many": "Seleccionar todo · {{count}} copias de seguridad",
+    "allSelectedLabel_many": "Las {{count}} seleccionadas · clic para borrar selección"
   },
   "snapshotDialog": {
     "title": "Instantánea del servidor",
@@ -112,7 +115,8 @@
   },
   "restoreDialog": {
     "title": "Restaurar copia de seguridad",
-    "description": "Restaurar <1>{{name}}</1>. Esto <2>reemplazará</2> los datos actuales del mundo.",
+    "description": "Restore <1>{{name}}</1> onto <3>{{serverName}}</3>. This will <2>replace</2> the current world data.",
+    "unknownServerFallback": "the currently active server",
     "bulletStopServer": "Detener el servidor primero.",
     "bulletSafetyBackup": "El panel creará una copia de seguridad de emergencia antes de restaurar.",
     "bulletUndoRequiresRestore": "Para deshacer esto más tarde, tendrás que restaurar tú mismo esa copia de seguridad — no ocurre automáticamente.",
@@ -139,6 +143,8 @@
     "confirm": "Eliminar copias antiguas"
   },
   "toasts": {
+    "serverChangedSinceLoadTitle": "Active server changed",
+    "serverChangedSinceLoadDesc": "The active server just changed. Refreshing -- try again once the list updates, so this action targets the right server.",
     "backupCreatedTitle": "Instantánea de refugio creada",
     "backupCreatedDesc": "Se guardó {{name}} en {{seconds}} s",
     "backupFailedTitle": "Copia de seguridad fallida",
@@ -186,7 +192,10 @@
     "autoUpdateFailedTitle": "Error al actualizar la copia de seguridad automática",
     "autoUpdateFailedFallback": "No se pudieron actualizar los ajustes de copia de seguridad",
     "loadStatusFailed": "No se pudo cargar el estado de las copias de seguridad.",
-    "loadBackupsFailed": "No se pudieron cargar las copias de seguridad."
+    "loadBackupsFailed": "No se pudieron cargar las copias de seguridad.",
+    "oldSnapshotsClearedDesc_many": "Se eliminaron {{count}} copias de seguridad",
+    "deleteFailedCount_many": "No se pudieron eliminar {{count}} copias de seguridad",
+    "oldBackupsRemovedFallback_many": "Se eliminaron {{count}} copias de seguridad antiguas"
   },
   "restoreProgress": {
     "title": "Restaurando {{name}}…",

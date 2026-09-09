@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { apiErrorHandler, handlePanelUpdateDownload } from "../index.js";
+import {
+  apiErrorHandler,
+  describeErrorCause,
+  handlePanelUpdateDownload,
+  registeredErrorCode,
+} from "../index.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 
 // Wire-level coverage for the 2026-08-22 code-reachability trace: the
@@ -151,5 +156,95 @@ describe("handlePanelUpdateDownload: downloadUpdate()'s result reaches res.json(
 
     expect(res.status).not.toHaveBeenCalled();
     expect(res.json).toHaveBeenCalledWith({ success: true, version: "1.2.3" });
+  });
+});
+
+// 2026-09-07, updateBundle reachability follow-up: POST /api/panel/restart's
+// Linux-apply catch (index.js, "Failed to apply Linux staged update") built
+// its own 500 body directly and never called next(err), so it never went
+// through apiErrorHandler's allowlist above -- it just dropped err.code
+// outright, silently, for every code applyUpdateBundle()/
+// recoverInterruptedUpdateBundle() can throw (hash_unverifiable,
+// binary_swap_failed, rollback_failed -- all three registered by Kevin in
+// 11fe8dea, and still unobservable on the wire until this). Fixed by
+// factoring the allowlist gate itself out of apiErrorHandler into
+// registeredErrorCode() and having both call sites use the one
+// implementation, instead of a second hand-rolled copy that could drift out
+// of sync the same way this one silently did. This does not exercise the
+// restart route's full handler directly (that handler runs 200+ lines deep
+// into process.exit/spawn territory on its success path -- pulling it out
+// for a supertest-style proof would be a much larger, riskier refactor of a
+// shared, contended file for a 3-line fix); apiErrorHandler's own tests
+// above already prove this exact function correct when reached via
+// next(err), and the Linux-apply catch is a one-line call to the same
+// function -- verified by reading index.js, not re-derived by a second
+// implementation here.
+describe("registeredErrorCode: the shared allowlist gate both apiErrorHandler and the Linux update-apply catch use", () => {
+  it("forwards a registered code (one of the three the Linux-apply catch specifically needed: hash_unverifiable)", () => {
+    const err = new Error("hash mismatch");
+    err.code = ErrorCode.HASH_UNVERIFIABLE_LEGACY;
+    expect(registeredErrorCode(err)).toBe("hash_unverifiable");
+  });
+
+  it("forwards the other two codes the Linux-apply catch can throw", () => {
+    const binaryErr = new Error("swap failed");
+    binaryErr.code = ErrorCode.BINARY_SWAP_FAILED_LEGACY;
+    expect(registeredErrorCode(binaryErr)).toBe("binary_swap_failed");
+
+    const rollbackErr = new Error("rollback failed");
+    rollbackErr.code = ErrorCode.ROLLBACK_FAILED_LEGACY;
+    expect(registeredErrorCode(rollbackErr)).toBe("rollback_failed");
+  });
+
+  it("does NOT forward a raw Node internal code -- e.g. EACCES/ENOSPC, exactly what chmod()/rename() set on a real disk-full or permission failure in this same code path", () => {
+    const err = new Error("EACCES: permission denied, chmod '/opt/panel/app'");
+    err.code = "EACCES";
+    expect(registeredErrorCode(err)).toBeUndefined();
+  });
+
+  it("does not forward a non-string code", () => {
+    const err = new Error("boom");
+    err.code = 500;
+    expect(registeredErrorCode(err)).toBeUndefined();
+  });
+
+  it("does not throw on an error with no code at all", () => {
+    expect(registeredErrorCode(new Error("boom"))).toBeUndefined();
+  });
+});
+
+// 2026-09-08, harden-updater-fileops #3: the Linux-apply catch's log line
+// used only err.message -- updateError()'s semantic bucket name
+// ("Could not activate staged binary") -- and never read err.cause, where
+// the real fs error (EPERM/EBUSY/EACCES/ENOSPC) actually lives. An
+// AV-locked rename, a permission problem and a full disk all produced the
+// identical log line. describeErrorCause() is server-log-only by design --
+// see its own comment and the Linux-apply catch's for why this never
+// reaches the client response (registeredErrorCode's allowlist already
+// governs that path and stays untouched here).
+describe("describeErrorCause: surfaces the real OS error a semantic bucket code was hiding, log-only", () => {
+  it("formats the underlying cause's code and message when present", () => {
+    const cause = new Error("EACCES: permission denied, rename '/opt/panel/app' -> '/opt/panel/app.new'");
+    cause.code = "EACCES";
+    const err = new Error("Could not activate staged binary", { cause });
+    err.code = "binary_swap_failed";
+    expect(describeErrorCause(err)).toBe(
+      " (cause: EACCES: EACCES: permission denied, rename '/opt/panel/app' -> '/opt/panel/app.new')",
+    );
+  });
+
+  it("falls back to 'no code' when the cause has a message but no .code", () => {
+    const cause = new Error("something went wrong");
+    const err = new Error("Could not activate staged frontend", { cause });
+    expect(describeErrorCause(err)).toBe(" (cause: no code: something went wrong)");
+  });
+
+  it("returns an empty string when there is no cause at all", () => {
+    expect(describeErrorCause(new Error("boom"))).toBe("");
+  });
+
+  it("returns an empty string for a nullish error", () => {
+    expect(describeErrorCause(undefined)).toBe("");
+    expect(describeErrorCause(null)).toBe("");
   });
 });

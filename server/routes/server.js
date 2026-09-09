@@ -17,12 +17,17 @@ import {
 } from "../database/init.js";
 import { sanitizeError, sanitizeIniValue } from "../utils/sanitize.js";
 import { hasIniKeyValue, setIniKeyLine } from "../utils/iniKeyWrite.js";
-import { resolveLaunchMode } from "../services/serverManager.js";
+import {
+  resolveLaunchMode,
+  ServerManager,
+  scoreServerProcessOwnership,
+} from "../services/serverManager.js";
 import {
   isSteamOperationIdle,
   getActiveSteamOperations,
   clearActiveSteamOperation,
   hasActiveSteamOperation,
+  recordActiveSteamOperationPid,
   STEAM_OPERATION_IDLE_TIMEOUT_MS,
 } from "../services/activeSteamOperations.js";
 import { normalizeMemoryGb } from "../utils/memory.js";
@@ -41,6 +46,10 @@ import { autoInstallBridgeIfNeeded } from "../services/panelBridgeInstaller.js";
 import { parseBoundedInteger } from "../utils/queryNumbers.js";
 import { confineToRoots } from "../utils/browseRoots.js";
 import { isContainerized } from "../utils/dockerDetect.js";
+import {
+  createLinuxServiceLifecycle,
+  isManagedLifecycleProvider,
+} from "../services/linuxServiceLifecycle.js";
 
 const router = express.Router();
 
@@ -161,6 +170,46 @@ function emitRawSteamCmdLine(io, event, type, text) {
   io?.emit(event, { type, text });
 }
 
+// GH #147: a real user's SteamCMD install kept failing with "Missing file
+// permissions" (exit 8), then "Missing configuration" once he widened the
+// GAME install directory's own permissions — a permission change that MOVES
+// the error rather than fixing it means the first failure was real and the
+// thing widened wasn't what SteamCMD was actually complaining about. His own
+// log named it directly: `Redirecting stderr to
+// '/home/pzuser/Steam/logs/stderr.txt'` -- SteamCMD resolves its OWN client
+// state (login cache, depot/workshop staging, logs) from $HOME, entirely
+// separate from wherever `+force_install_dir` points the actual game files.
+// The panel's bundled systemd unit (zomboid-panel.service) sandboxes the
+// service with `ProtectHome=read-only`, which makes every write under
+// $HOME fail at the mount-namespace level regardless of the target's own
+// filesystem permissions -- chown/chmod on the install path can't touch it,
+// because the real blocker is a completely different path the install guide
+// never mentions (it only documents the `ReadWritePaths` trap for the GAME
+// install dir itself, not for SteamCMD's own home-relative state).
+// Redirecting HOME to a folder inside SteamCMD's own directory sidesteps
+// the sandboxed /home entirely -- that directory is already required to be
+// writable (SteamCMD downloads and updates itself there), so this needs no
+// unit-file edit from the user and no relaxing of ProtectHome.
+export function buildLinuxSteamCmdEnv(steamcmdBinDir) {
+  const steamHome = path.join(steamcmdBinDir, ".steamhome");
+  try {
+    fs.mkdirSync(steamHome, { recursive: true });
+  } catch (err) {
+    log.debug(
+      `Could not create SteamCMD HOME override at ${steamHome}: ${err.message}`,
+    );
+  }
+  const ldPaths = [
+    path.join(steamcmdBinDir, "linux32"),
+    path.join(steamcmdBinDir, "linux64"),
+    steamcmdBinDir,
+    process.env.LD_LIBRARY_PATH || "",
+  ]
+    .filter(Boolean)
+    .join(":");
+  return { ...process.env, LD_LIBRARY_PATH: ldPaths, HOME: steamHome };
+}
+
 // Self-heal "SteamCMD not found": downloads, extracts and first-time
 // initializes SteamCMD into `installPath` on Linux, mirroring the same
 // steps as POST /steamcmd/download. Called from /install and /update when
@@ -246,19 +295,10 @@ async function ensureSteamCmdLinux(installPath, io) {
     message: "Initializing SteamCMD (first run)...",
     progressCode: ProgressCode.STEAMCMD_INITIALIZING,
   });
-  const ldPaths = [
-    path.join(installPath, "linux32"),
-    path.join(installPath, "linux64"),
-    installPath,
-    process.env.LD_LIBRARY_PATH || "",
-  ]
-    .filter(Boolean)
-    .join(":");
-
   await new Promise((resolve, reject) => {
     const proc = spawn(steamcmdExe, ["+quit"], {
       cwd: installPath,
-      env: { ...process.env, LD_LIBRARY_PATH: ldPaths },
+      env: buildLinuxSteamCmdEnv(installPath),
     });
     proc.stdout.on("data", (d) =>
       emitRawSteamCmdLine(io, "steamcmd:log", "stdout", d.toString()),
@@ -549,29 +589,43 @@ export async function ensureRconConfigured() {
   }
 }
 
-// Helper functions for multi-server support
-async function getServerConfigPath() {
+// Helper for multi-server support.
+//
+// split-derivation sweep, 2026-09-07 (same class as /wipe's pre-fix bug,
+// 5c2e73e9): this file used to have two separate functions,
+// getServerConfigPath() and getServerName(), each making its OWN
+// independent getActiveServer() call. Both call sites in this file need
+// both values, so a concurrent request switching the active server between
+// the two separate awaited calls could produce e.g. serverConfigPath from
+// server A + serverName from server B, matching neither server's real INI.
+// This reads the active server ONCE and derives both values from that
+// single snapshot.
+// Exported so server/tests/getActiveServerPathsSingleRead.test.js can assert
+// the single-read behaviour directly, rather than only indirectly through
+// a route handler.
+export async function getActiveServerPaths() {
   const activeServer = await getActiveServer();
-  if (activeServer?.serverConfigPath) {
-    return activeServer.serverConfigPath;
-  }
-  const legacyPath = await getSetting("serverConfigPath");
-  return legacyPath || null;
-}
 
-async function getServerName() {
-  const activeServer = await getActiveServer();
-  if (activeServer?.serverName) {
-    return activeServer.serverName;
+  let serverConfigPath = activeServer?.serverConfigPath || null;
+  if (!serverConfigPath) {
+    const legacyPath = await getSetting("serverConfigPath");
+    serverConfigPath = legacyPath || null;
   }
-  const legacyName = await getSetting("serverName");
-  // No active server and no legacy settings name either -- "servertest" used
-  // to fill in here, which is Project Zomboid's own vanilla single-player/
-  // test-server name. On a machine with a real, unrelated PZ install at the
-  // default path, an unconfigured panel would silently target its
-  // Server/servertest.ini. Callers already gate on `!serverConfigPath`;
-  // returning null lets the same gate also catch "no server name configured".
-  return legacyName || null;
+
+  let serverName = activeServer?.serverName || null;
+  if (!serverName) {
+    const legacyName = await getSetting("serverName");
+    // No active server and no legacy settings name either -- "servertest"
+    // used to fill in here, which is Project Zomboid's own vanilla
+    // single-player/test-server name. On a machine with a real, unrelated
+    // PZ install at the default path, an unconfigured panel would silently
+    // target its Server/servertest.ini. Callers already gate on
+    // `!serverConfigPath`; null here lets the same gate also catch "no
+    // server name configured".
+    serverName = legacyName || null;
+  }
+
+  return { serverConfigPath, serverName };
 }
 
 // Security: Sanitize string for use in batch files/commands
@@ -579,6 +633,9 @@ function sanitizeForBatch(str) {
   if (!str) return "";
   // Remove or escape dangerous characters for batch files
   return String(str)
+    .replace(/[\x00-\x1F\x7F]/g, "") // Remove control chars (CR/LF included --
+    // a newline here closes out the current script line early and starts a
+    // new one that the supervisor then executes as its own command)
     .replace(/[&|<>^%"`;$(){}[\]!]/g, "") // Remove shell metacharacters
     .replace(/\.\./g, "") // Remove path traversal
     .trim();
@@ -609,9 +666,24 @@ export function isValidPath(inputPath) {
   return true;
 }
 
-function resolveZomboidPaths(installPath, zomboidDataPath) {
+export function resolveZomboidPaths(installPath, zomboidDataPath) {
+  // path-resolution sweep, 2026-09-06: this used to be a naive template
+  // string (`${installPath}_Data`), which only produces the intended
+  // SIBLING folder when installPath has no trailing separator. isValidPath()
+  // (above) rejects ".." and non-absolute paths but not a trailing one, and
+  // path.normalize() does not strip a single trailing separator either --
+  // so installPath="D:\Servers\MyServer\" (plausible from a pasted Explorer
+  // address bar) silently nested the default data folder INSIDE the install
+  // folder ("MyServer\_Data") instead of beside it ("MyServer_Data"), which
+  // is exactly the condition the delete-files route above refuses to delete
+  // through (comment at its own nested-data-path check). path.dirname() and
+  // path.basename() both already strip a trailing separator before
+  // extracting their piece, so deriving the default this way is
+  // separator-agnostic by construction -- it doesn't matter whether
+  // upstream trimmed anything, this can't reproduce the bug.
   const defaultZomboidDataPath =
-    process.env.PZ_SAVE_PATH || `${installPath}_Data`;
+    process.env.PZ_SAVE_PATH ||
+    path.join(path.dirname(installPath), `${path.basename(installPath)}_Data`);
   const zomboidPath = zomboidDataPath || defaultZomboidDataPath;
 
   return {
@@ -671,6 +743,44 @@ export function formatWritablePathError(
         kind === "install"
           ? ErrorCode.WRITABLE_PATH_INSTALL_CONTAINER
           : ErrorCode.WRITABLE_PATH_DATA_CONTAINER,
+      params: { path: directoryPath },
+    };
+  }
+
+  // sweep-round2, Windows non-admin install shapes (2026-09-06): this
+  // branch used to be the unconditional "everything that isn't a
+  // container" fallback, telling every non-container caller to fix it
+  // "with chown/chmod" -- commands that don't exist on Windows. Same defect
+  // class this whole function exists to have already fixed once (see the
+  // 2026-08-29 comment above: "run as Administrator" on Linux, "pull the
+  // latest code with git" for Docker) -- the isContainer split above never
+  // covered the OS axis, only the container axis, so a non-admin Windows
+  // operator pointing the install wizard's install/data path fields at a
+  // folder their account can't write to (Program Files, another account's
+  // profile, a UAC-protected system folder) got told to run a shell command
+  // that fails outright on their OS. formatDirectoryReadError() right below
+  // this function already branches on platformIsWindows for the read-side
+  // equivalent of this same problem -- this mirrors that, not a new shape.
+  if (platformIsWindows) {
+    return {
+      message:
+        `${baseMessage} The Windows account running the panel does not own ` +
+        `this folder or lacks write permission to it -- choose a folder ` +
+        `your account can already write to (see docs/install/windows.md), ` +
+        `grant your account write access via the folder's Properties > ` +
+        `Security tab, or run Start.bat as Administrator.`,
+      code:
+        // TODO(sweep-round2, 2026-09-06): register in errorCodes.js + all 9
+        // client/src/locales/*/errors.json once that directory is free
+        // (another agent is mid-flight there as of this commit). Wire
+        // values chosen now and won't change once registered -- until then
+        // an unregistered 4xx code passes this raw message through to the
+        // client untranslated rather than being silently dropped, same
+        // TODO pattern already used for the auth.js escalation fix this
+        // same sweep.
+        kind === "install"
+          ? "WRITABLE_PATH_INSTALL_WINDOWS"
+          : "WRITABLE_PATH_DATA_WINDOWS",
       params: { path: directoryPath },
     };
   }
@@ -1385,7 +1495,7 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
   const activeServerForLock = await getActiveServer();
   const lifecycleLock = acquireLifecycleLock(
     "start",
-    activeServerForLock?.name || activeServerForLock?.serverName || null,
+    activeServerForLock?.id ?? null,
   );
   if (!lifecycleLock) {
     return res.status(409).json(lifecycleInProgressResponse());
@@ -1500,7 +1610,23 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
     // immediately and go straight to waiting for RCON, skipping the poll
     // entirely for this path.
     if (managed.handled) {
-      if (io) io.emit("server:status", { running: true });
+      // Not a bare io.emit("server:status", {running:true}) -- the host
+      // (container) being confirmed up is not the same claim as the server
+      // being ready to use, and RCON can still take well past this moment to
+      // come up (waitForRconAfterStart below). checkServerStatusNow is the
+      // sole place that computes the starting/running/unresponsive phase
+      // (see resolveServerPhase's own comment) from rconService.serverStarting,
+      // which was just set true above -- asserting our own competing
+      // {running:true} here would reintroduce the exact premature-green-dot
+      // bug this fix exists to close.
+      const checkServerStatusNow = req.app.get("checkServerStatusNow");
+      if (typeof checkServerStatusNow === "function") {
+        Promise.resolve(checkServerStatusNow("start-managed")).catch((err) =>
+          log.debug(`Post-start status re-check failed: ${err.message}`),
+        );
+      } else if (io) {
+        io.emit("server:status", { running: true });
+      }
       log.info("Container start confirmed by Docker; skipping local process poll");
       lifecycleLockTransferred = true;
       void waitForRconAfterStart({
@@ -1510,7 +1636,17 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
         .catch((err) =>
           log.error(`Post-start RCON wait failed: ${err.message}`),
         )
-        .finally(() => releaseLifecycleLock());
+        .finally(() => {
+          // Nudge for the running/unresponsive transition the instant
+          // waitForRconAfterStart settles, rather than leaving it to the
+          // periodic watchdog's own next tick (up to 10s later).
+          if (typeof checkServerStatusNow === "function") {
+            Promise.resolve(checkServerStatusNow("start-managed-rcon-settled")).catch(
+              (err) => log.debug(`Post-start status re-check failed: ${err.message}`),
+            );
+          }
+          releaseLifecycleLock();
+        });
       res.json(result);
       return;
     }
@@ -1563,9 +1699,29 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
         if (isRunning) {
           pollCleared = true;
           clearInterval(pollInterval);
-          if (io) io.emit("server:status", { running: true });
+          // See the managed branch's own comment above: the host process
+          // existing is not the same claim as the server being ready, so
+          // this asks checkServerStatusNow to compute the real phase
+          // (starting, since rconService.serverStarting is still true here)
+          // instead of asserting a bare running:true directly.
+          const checkServerStatusNow = req.app.get("checkServerStatusNow");
+          if (typeof checkServerStatusNow === "function") {
+            Promise.resolve(checkServerStatusNow("start-detected")).catch((err) =>
+              log.debug(`Post-start status re-check failed: ${err.message}`),
+            );
+          } else if (io) {
+            io.emit("server:status", { running: true });
+          }
           log.info("Server detected as running");
           await waitForRconAfterStart({ rconService, discordBot: req.app.get("discordBot") });
+          // Nudge for the running/unresponsive transition the instant
+          // waitForRconAfterStart settles, rather than leaving it to the
+          // periodic watchdog's own next tick (up to 10s later).
+          if (typeof checkServerStatusNow === "function") {
+            Promise.resolve(checkServerStatusNow("start-rcon-settled")).catch((err) =>
+              log.debug(`Post-start status re-check failed: ${err.message}`),
+            );
+          }
           releaseLifecycleLock();
         } else if (attempts >= maxAttempts) {
           pollCleared = true;
@@ -1609,7 +1765,7 @@ router.post("/stop", requirePermission("server.control"), async (req, res) => {
   const activeServerForLock = await getActiveServer();
   const lifecycleLock = acquireLifecycleLock(
     "stop",
-    activeServerForLock?.name || activeServerForLock?.serverName || null,
+    activeServerForLock?.id ?? null,
   );
   if (!lifecycleLock) {
     return res.status(409).json(lifecycleInProgressResponse());
@@ -1669,7 +1825,7 @@ router.post("/stop", requirePermission("server.control"), async (req, res) => {
     const result = managed.handled
       ? { success: true, message: managed.message || "Container stopping" }
       : serviceManaged
-        ? await serverManager.stopServer(false, {
+        ? await serverManager.stopServer({
             serverId: activeServer?.id ?? null,
           })
         : await rconService.quit({ retryOnConnectionError: false });
@@ -1743,7 +1899,14 @@ router.post("/stop", requirePermission("server.control"), async (req, res) => {
       result.message =
         result.message || result.response || "Shutdown requested";
       result.confirmed = false;
-      monitorGracefulStop(serverManager, releaseLifecycleLock);
+      monitorGracefulStop({
+        serverManager,
+        releaseLifecycleLock,
+        serverId: activeServer?.id ?? null,
+        io: req.app.get("io"),
+        checkServerStatusNow,
+        discordBot: req.app.get("discordBot"),
+      });
       lifecycleLockTransferred = true;
     }
 
@@ -1772,13 +1935,84 @@ router.post("/stop", requirePermission("server.control"), async (req, res) => {
 const FORCE_STOP_SAVE_TIMEOUT_MS = 3000;
 const GRACEFUL_STOP_CONFIRMATION_TIMEOUT_MS = 5 * 60 * 1000;
 
-function monitorGracefulStop(serverManager, releaseLifecycleLock) {
+// A graceful stop that never confirms must not just sit there: performRestart()'s
+// own stop-phase (this file's restart flow lives in scheduler.js) already
+// escalates to a force-kill after 60 failed 1s polls following its RCON quit,
+// because "we asked it to stop and nothing ever confirmed it" is a hung panel,
+// not a safe wait -- exactly the failure mode the 2026-09-07 hardening request
+// named directly ("a graceful shutdown that hangs forever with no escalation
+// to a hard kill"). Before this fix, plain POST /stop's monitor only ever
+// polled up to GRACEFUL_STOP_CONFIRMATION_TIMEOUT_MS (5 minutes) and then gave
+// up silently, releasing the lock with the game process potentially still
+// running and nothing having ever tried to actually kill it. This brings
+// /stop in line with the SAME bound and the SAME mechanism restart already
+// uses (serverManager.stopServer(...)) rather than inventing a new
+// escalation path. Only reached for the native-process RCON-quit branch --
+// a Docker- or systemd/openrc-managed stop is already confirmed synchronously
+// before the route ever calls this (see the `managed.handled || serviceManaged`
+// branch above), so there is nothing to escalate there.
+const GRACEFUL_STOP_ESCALATE_AFTER_MS = 60 * 1000;
+
+function monitorGracefulStop({
+  serverManager,
+  releaseLifecycleLock,
+  serverId = null,
+  io = null,
+  checkServerStatusNow = null,
+  discordBot = null,
+}) {
   if (typeof serverManager?.getServerProcessDetails !== "function") {
     releaseLifecycleLock();
     return;
   }
 
-  const deadline = Date.now() + GRACEFUL_STOP_CONFIRMATION_TIMEOUT_MS;
+  const announceStopped = (reason) => {
+    if (typeof checkServerStatusNow === "function") {
+      Promise.resolve(checkServerStatusNow(reason)).catch((err) =>
+        log.debug(`Post-stop status re-check failed: ${err.message}`),
+      );
+    } else if (io) {
+      io.emit("server:status", { running: false });
+    }
+  };
+
+  const startedAt = Date.now();
+  const deadline = startedAt + GRACEFUL_STOP_CONFIRMATION_TIMEOUT_MS;
+  let escalated = false;
+
+  const escalateToForceStop = async () => {
+    escalated = true;
+    log.warn(
+      `Graceful stop did not confirm within ${GRACEFUL_STOP_ESCALATE_AFTER_MS / 1000}s; escalating to force-stop`,
+    );
+    try {
+      const forced = await serverManager.stopServer({ serverId });
+      if (forced?.success && forced.confirmed !== false) {
+        serverManager?.markServerStopped?.();
+        announceStopped("graceful-stop-escalated");
+        await logServerEventBestEffort(
+          "server_stop",
+          "Graceful shutdown did not complete in time; escalated to a force stop",
+        );
+        discordBot
+          ?.sendEventNotification("serverStop", {})
+          .catch((err) =>
+            log.debug(`Discord serverStop notification failed: ${err.message}`),
+          );
+      } else {
+        // Left running deliberately -- the final poll below still has until
+        // GRACEFUL_STOP_CONFIRMATION_TIMEOUT_MS to catch a delayed exit, and
+        // the operator's next Force Stop click will report the real reason
+        // (this one is just a log trail for what was already tried).
+        log.error(
+          `Graceful-stop escalation's force-stop did not confirm: ${forced?.error || forced?.message || "unknown error"}`,
+        );
+      }
+    } catch (error) {
+      log.error(`Graceful-stop escalation threw: ${error.message}`);
+    }
+  };
+
   const poll = async () => {
     try {
       const details = await serverManager.getServerProcessDetails();
@@ -1790,7 +2024,23 @@ function monitorGracefulStop(serverManager, releaseLifecycleLock) {
       log.debug(`Graceful stop confirmation failed: ${error.message}`);
     }
 
-    if (Date.now() >= deadline) {
+    const now = Date.now();
+    if (!escalated && now - startedAt >= GRACEFUL_STOP_ESCALATE_AFTER_MS) {
+      await escalateToForceStop();
+      // Check again right away instead of waiting out another full poll
+      // tick -- a successful kill confirms in well under a second.
+      try {
+        const details = await serverManager.getServerProcessDetails();
+        if (details && !details.scanFailed && details.running === false) {
+          releaseLifecycleLock();
+          return;
+        }
+      } catch (error) {
+        log.debug(`Post-escalation confirmation failed: ${error.message}`);
+      }
+    }
+
+    if (now >= deadline) {
       log.warn("Graceful stop confirmation timed out; releasing lifecycle lock");
       releaseLifecycleLock();
       return;
@@ -1842,7 +2092,7 @@ router.post("/force-stop", requirePermission("server.control"), async (req, res)
   const activeServerForLock = await getActiveServer();
   const lifecycleLock = acquireLifecycleLock(
     "force-stop",
-    activeServerForLock?.name || activeServerForLock?.serverName || null,
+    activeServerForLock?.id ?? null,
   );
   if (!lifecycleLock) {
     return res.status(409).json(lifecycleInProgressResponse());
@@ -1880,7 +2130,7 @@ router.post("/force-stop", requirePermission("server.control"), async (req, res)
           success: true,
           message: managed.message || "Container stopped.",
         }
-      : await serverManager.stopServer(false, {
+      : await serverManager.stopServer({
           serverId: activeServer?.id ?? null,
         });
 
@@ -1920,7 +2170,7 @@ router.post("/restart", requirePermission("server.control"), async (req, res) =>
   const activeServerForLock = await getActiveServer();
   const lifecycleLock = acquireLifecycleLock(
     "restart",
-    activeServerForLock?.name || activeServerForLock?.serverName || null,
+    activeServerForLock?.id ?? null,
   );
   if (!lifecycleLock) {
     return res.status(409).json(lifecycleInProgressResponse());
@@ -2260,18 +2510,9 @@ router.get("/branches", requirePermission("server.install"), async (req, res) =>
     ];
 
     const result = await new Promise((resolve, reject) => {
-      // On Linux, set LD_LIBRARY_PATH for SteamCMD's 32-bit libraries
       const branchSpawnOpts = { cwd: steamcmdPath, timeout: 60000 };
       if (!isWindows) {
-        const ldPaths = [
-          path.join(steamcmdPath, "linux32"),
-          path.join(steamcmdPath, "linux64"),
-          steamcmdPath,
-          process.env.LD_LIBRARY_PATH || "",
-        ]
-          .filter(Boolean)
-          .join(":");
-        branchSpawnOpts.env = { ...process.env, LD_LIBRARY_PATH: ldPaths };
+        branchSpawnOpts.env = buildLinuxSteamCmdEnv(steamcmdPath);
       }
       const steamcmd = spawn(steamcmdExe, steamcmdArgs, branchSpawnOpts);
 
@@ -2508,6 +2749,30 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
     const { zomboidPath, serverConfigPath, usesEnvironmentDataPath } =
       resolveZomboidPaths(installPath, zomboidDataPath);
 
+    // steamcmd-routes-running-check, 2026-09-08: installPath can point at an
+    // EXISTING install with a server already running there (a re-run, a
+    // repair, or simply the wrong path) -- SteamCMD writing over live game
+    // files, and this route's own later writeFileAtomic() calls rewriting a
+    // running JVM's INI/start scripts out from under it, is exactly the
+    // "wholesale overwrite while running" class serverFiles.js's own
+    // requireStoppedForLocalConfigMutation exists to block, except this
+    // route had no guard at all. See resolveTargetServerForRunningCheck's
+    // own comment for why Convention A (the shared serverManager singleton)
+    // would answer the wrong question here.
+    const installTargetServer = await resolveTargetServerForRunningCheck(
+      installPath,
+      { serverName, zomboidDataPath },
+    );
+    const installNotStoppedError = await checkSpecificServerStopped(
+      installTargetServer,
+      "installing to this path",
+    );
+    if (installNotStoppedError) {
+      return res
+        .status(installNotStoppedError.status)
+        .json(installNotStoppedError.body);
+    }
+
     try {
       ensureWritableDirectory(installPath);
     } catch (directoryError) {
@@ -2627,21 +2892,11 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
     const io = req.app.get("io");
 
     // Spawn SteamCMD process
-    // On Linux, set LD_LIBRARY_PATH so SteamCMD can find its 32-bit libraries
     const spawnOpts = { cwd: steamcmdPath };
     if (!isWindows) {
-      const ldPaths = [
-        path.join(steamcmdPath, "linux32"),
-        path.join(steamcmdPath, "linux64"),
-        steamcmdPath,
-        process.env.LD_LIBRARY_PATH || "",
-      ]
-        .filter(Boolean)
-        .join(":");
-      spawnOpts.env = { ...process.env, LD_LIBRARY_PATH: ldPaths };
+      spawnOpts.env = buildLinuxSteamCmdEnv(steamcmdPath);
     }
     const steamcmd = spawn(steamcmdExe, steamcmdArgs, spawnOpts);
-    activeSteamOperations.get(normalizedPath).pid = steamcmd.pid;
     // A signal-killed process reports code=null to the close handler below,
     // not the exit code INSTALL_FAILED_EXIT_CODE's message names -- tracked
     // so that branch can say "stalled and was stopped" instead of the
@@ -2809,7 +3064,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
               ...(bareMetalCommand ? { command: bareMetalCommand } : {}),
             },
           });
-          activeSteamOperations.delete(normalizedPath);
+          clearActiveSteamOperation(normalizedPath);
           return;
         }
 
@@ -3073,6 +3328,12 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
       });
     });
 
+    // All of steamcmd's own listeners are attached synchronously above --
+    // this await, unlike one placed between spawn() and those .on() calls,
+    // cannot lose an early 'close'/'error'/data event to a gap where
+    // nothing was listening yet.
+    await recordActiveSteamOperationPid(normalizedPath, steamcmd.pid);
+
     // Return immediately - progress is sent via Socket.IO
     res.json({
       success: true,
@@ -3082,7 +3343,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
     });
   } catch (error) {
     if (activeOperationPath) {
-      activeSteamOperations.delete(activeOperationPath);
+      clearActiveSteamOperation(activeOperationPath);
     }
     log.error(`Installation error: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -3148,6 +3409,29 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
           "Server files not found. Make sure the path contains Project Zomboid dedicated server files.",
         code: ErrorCode.QUICK_SETUP_SERVER_FILES_NOT_FOUND,
       });
+    }
+
+    // steamcmd-routes-running-check, 2026-09-08: unlike /install, this
+    // route's own precondition just above GUARANTEES server files already
+    // exist at installPath -- exactly the state an existing, possibly
+    // running server is in. It then unconditionally rewrites the INI and
+    // both start scripts via writeFileAtomic() below with nothing standing
+    // in the way. See resolveTargetServerForRunningCheck's own comment for
+    // why the shared serverManager singleton (Convention A) would answer
+    // the wrong question for a route whose target is an arbitrary
+    // caller-supplied path, not necessarily the active server.
+    const quickSetupTargetServer = await resolveTargetServerForRunningCheck(
+      installPath,
+      { serverName, zomboidDataPath },
+    );
+    const quickSetupNotStoppedError = await checkSpecificServerStopped(
+      quickSetupTargetServer,
+      "running quick setup on this path",
+    );
+    if (quickSetupNotStoppedError) {
+      return res
+        .status(quickSetupNotStoppedError.status)
+        .json(quickSetupNotStoppedError.body);
     }
 
     try {
@@ -3398,9 +3682,9 @@ router.post("/configure-rcon", requirePermission("server.configure"), async (req
       return res.status(400).json({ error: "RCON password is required", code: ErrorCode.CONFIGURE_RCON_PASSWORD_REQUIRED });
     }
 
-    // Get the server config path from active server or settings
-    const serverConfigPath = await getServerConfigPath();
-    const serverName = await getServerName();
+    // Get the server config path from active server or settings -- ONE
+    // read, not two (split-derivation sweep, 2026-09-07).
+    const { serverConfigPath, serverName } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
       return res.status(400).json({
@@ -3491,9 +3775,9 @@ router.post("/configure-network", requirePermission("server.configure"), async (
       });
     }
 
-    // Get the server config path from active server or settings
-    const serverConfigPath = await getServerConfigPath();
-    const serverName = await getServerName();
+    // Get the server config path from active server or settings -- ONE
+    // read, not two (split-derivation sweep, 2026-09-07).
+    const { serverConfigPath, serverName } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
       return res.status(400).json({
@@ -3749,36 +4033,33 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
       return res.status(400).json({ error: "Invalid install path", code: ErrorCode.INSTALL_PATH_INVALID });
     }
 
-    // Check if server is running - cannot update while running. Fail closed:
-    // this used to swallow a failed detection scan and continue as if the
-    // server were stopped ("user may be updating a different server"), but
-    // checkServerRunning() throwing (or resolving scanFailed) means we
-    // genuinely don't know the process state — and running SteamCMD
-    // `validate` against a live install's files is exactly what this check
-    // exists to prevent. Same doctrine as configMutationGuard.js's
-    // SERVER_STATE_UNKNOWN response.
-    const serverManager = req.app.get("serverManager");
-    try {
-      const processDetails = await serverManager.getServerProcessDetails();
-      if (processDetails.scanFailed) {
-        return res.status(503).json({
-          error: "Can't verify whether the server is actually stopped — the process-detection scan itself failed, not the server. Check the panel's log for the error. If this keeps happening, something on this host (antivirus, a full disk, or a missing system tool) may be blocking detection.",
-          code: ErrorCode.SERVER_STATE_UNKNOWN,
-        });
-      }
-      if (processDetails.running) {
-        return res.status(400).json({
-          error:
-            "Server is currently running. Please stop the server before updating.",
-          code: ErrorCode.STEAM_UPDATE_SERVER_RUNNING,
-        });
-      }
-    } catch (e) {
-      log.warn(`Could not verify server status before update: ${e.message}`);
-      return res.status(503).json({
-        error: "Can't verify whether the server is actually stopped — the process-detection scan itself failed, not the server. Check the panel's log for the error. If this keeps happening, something on this host (antivirus, a full disk, or a missing system tool) may be blocking detection.",
-        code: ErrorCode.SERVER_STATE_UNKNOWN,
-      });
+    // Check if server is running - cannot update while running.
+    //
+    // steamcmd-routes-running-check, 2026-09-08: this used to check
+    // `serverManager.getServerProcessDetails()` on the shared serverManager
+    // singleton -- scoped to whichever server serverManager itself has
+    // loaded, NOT necessarily the server at `installPath`, which arrives raw
+    // from req.body with no reload or reconciliation against it first. On a
+    // host managing more than one server, updating server B's installPath
+    // while serverManager has server A loaded checked A's running-state,
+    // completely unrelated to whether B (whose files SteamCMD is about to
+    // validate/overwrite) is running -- the identical shape
+    // checkSpecificServerStopped() itself had before this file's own
+    // 8f04b051, except here the wrong answer was a false GREEN LIGHT, not
+    // just a missing check. See resolveTargetServerForRunningCheck's own
+    // comment for the fix.
+    const steamUpdateTargetServer = await resolveTargetServerForRunningCheck(
+      installPath,
+      {},
+    );
+    const steamUpdateNotStoppedError = await checkSpecificServerStopped(
+      steamUpdateTargetServer,
+      "updating it",
+    );
+    if (steamUpdateNotStoppedError) {
+      return res
+        .status(steamUpdateNotStoppedError.status)
+        .json(steamUpdateNotStoppedError.body);
     }
 
     // Auto-download SteamCMD on Linux instead of hard-failing — see
@@ -3890,21 +4171,11 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
         : ProgressCode.STEAM_START_UPDATE,
     });
 
-    // On Linux, set LD_LIBRARY_PATH so SteamCMD can find its 32-bit libraries
     const updateSpawnOpts = { cwd: steamcmdPath };
     if (!isWindows) {
-      const ldPaths = [
-        path.join(steamcmdPath, "linux32"),
-        path.join(steamcmdPath, "linux64"),
-        steamcmdPath,
-        process.env.LD_LIBRARY_PATH || "",
-      ]
-        .filter(Boolean)
-        .join(":");
-      updateSpawnOpts.env = { ...process.env, LD_LIBRARY_PATH: ldPaths };
+      updateSpawnOpts.env = buildLinuxSteamCmdEnv(steamcmdPath);
     }
     const steamcmd = spawn(steamcmdExe, steamcmdArgs, updateSpawnOpts);
-    activeSteamOperations.get(normalizedPath).pid = steamcmd.pid;
     activeSteamOperations.get(normalizedPath).watchdog = setInterval(() => {
       const activeOperation = activeSteamOperations.get(normalizedPath);
       if (!activeOperation) return;
@@ -4039,13 +4310,19 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
       log.error(`SteamCMD error: ${error.message}`);
     });
 
+    // All of steamcmd's own listeners are attached synchronously above --
+    // this await, unlike one placed between spawn() and those .on() calls,
+    // cannot lose an early 'close'/'error'/data event to a gap where
+    // nothing was listening yet.
+    await recordActiveSteamOperationPid(normalizedPath, steamcmd.pid);
+
     res.json({
       success: true,
       message: `Server ${operation} started`,
     });
   } catch (error) {
     if (activeOperationPath) {
-      activeSteamOperations.delete(activeOperationPath);
+      clearActiveSteamOperation(activeOperationPath);
     }
     log.error(`Steam update failed: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -4329,18 +4606,9 @@ router.post("/steamcmd/download", requirePermission("server.install"), async (re
       // function invoked from a spawn/stream callback, not awaited by
       // either caller.
       const steamcmdExe = getSteamCmdExe(installPath);
-      // On Linux, set LD_LIBRARY_PATH for SteamCMD's 32-bit libraries
       const firstRunOpts = { cwd: installPath };
       if (!isWindows) {
-        const ldPaths = [
-          path.join(installPath, "linux32"),
-          path.join(installPath, "linux64"),
-          installPath,
-          process.env.LD_LIBRARY_PATH || "",
-        ]
-          .filter(Boolean)
-          .join(":");
-        firstRunOpts.env = { ...process.env, LD_LIBRARY_PATH: ldPaths };
+        firstRunOpts.env = buildLinuxSteamCmdEnv(installPath);
       }
       const steamcmd = spawn(steamcmdExe, ["+quit"], firstRunOpts);
 
@@ -4415,23 +4683,97 @@ router.get("/steamcmd/check", requirePermission("server.install"), async (req, r
   }
 });
 
-// Fail-closed "is the server confirmed stopped" check, shared by both call
-// sites in /delete-files below -- factored out instead of a second
-// copy-pasted copy of the same ~15-line getServerProcessDetails/scanFailed
-// block. Returns null when confirmed stopped and safe to proceed; otherwise
-// the {status, body} to send back verbatim. checkServerRunning() would
-// collapse a failed scan into a bare `false` (see d85fd42) and let a
-// destructive action proceed against a server we simply failed to see was
-// running -- getServerProcessDetails() exposes scanFailed so that case can
-// be refused instead.
+// Fail-closed "is THIS SPECIFIC configured server confirmed stopped" check.
 //
-// NOT wired into /wipe, which has its own identical inline copy: that route
-// is out of scope for this pass (2026-08-26 bug hunt round 2, Pam's
-// asset-destruction hunt finding 2 -- TOCTOU on /delete-files specifically).
-// A natural follow-up for whoever next touches /wipe.
-async function checkServerConfirmedStopped(serverManager, actionLabel) {
-  const processDetails = await serverManager.getServerProcessDetails();
-  if (processDetails.scanFailed) {
+// split-derivation sweep, 2026-09-07 (same class as /wipe's pre-fix bug,
+// 5c2e73e9): the original version of this check took a `serverManager`
+// instance and trusted ITS cached running-state -- but `serverManager` is a
+// single global instance (server/index.js's one `new ServerManager()`)
+// that only ever reflects whichever server is currently active/loaded, not
+// necessarily the server /delete-files is about to act on. /delete-files
+// accepts ANY configured server's installPath (Servers.tsx's "Clear Install
+// Folder"/"Delete Everything" can target a server that isn't active), so
+// the old check answered "is the ACTIVE server stopped?" while the route
+// deleted a DIFFERENT server's files entirely -- reachable without even a
+// race, just by acting on a non-active server.
+//
+// state-detection lane, 2026-09-07 (round 2 -- the first fix above didn't
+// go far enough): still used serverManager.getServerProcessDetails() --
+// which is scoped to whichever server serverManager itself has loaded, NOT
+// targetServer -- plus a bare, unbounded substring match on installPath.
+// Concretely: Server A active+stopped, Server B configured+running with its
+// own -servername; scoring B's real process against A's descriptor
+// disqualifies it (-1), so it lands in neither owned nor unattributable and
+// vanishes from `matched` entirely; this check then saw an empty list and
+// confidently said "not running." Fixed the same way as servers.js's own
+// GET /api/servers/status (611687a5): scan the whole host
+// (ServerManager.scanHostForServerProcesses(), unfiltered by any one
+// server's loadConfig()) and attribute via scoreServerProcessOwnership()
+// against TARGET's own descriptor, on a throwaway instance -- never the
+// shared `serverManager` singleton, whose cached isRunning means something
+// different ("MY loaded server") than a host-wide answer would.
+//
+// A THIRD outcome now matters that didn't for the read-only /status list:
+// scoreServerProcessOwnership() can return 0 ("unattributable" -- a real
+// PZ-server-shaped process with no -servername/-cachedir, whose install
+// path doesn't match this target either) for a candidate that might still
+// BE this target, launched via a stock script with no identifying args, in
+// a shape this scan just couldn't pin down. /status can afford to render
+// that as "stopped" (a wrong badge is cosmetic); this check guards a
+// recursive fs.rmSync against a live install, so "cannot confirm it isn't
+// this one" must refuse exactly like a failed scan does, not read as "safe
+// to delete." Only zero owned AND zero unattributable candidates counts as
+// confirmed stopped.
+export async function checkSpecificServerStopped(targetServer, actionLabel) {
+  if (isManagedLifecycleProvider(targetServer.lifecycleProvider)) {
+    try {
+      const status = await createLinuxServiceLifecycle(
+        targetServer,
+        targetServer.lifecycleProvider,
+      ).status();
+      if (status.scanFailed) {
+        return {
+          status: 503,
+          body: {
+            error: "Can't verify whether the server is actually stopped — the process-detection scan itself failed, not the server. Check the panel's log for the error. If this keeps happening, something on this host (antivirus, a full disk, or a missing system tool) may be blocking detection.",
+            code: ErrorCode.SERVER_STATE_UNKNOWN,
+          },
+        };
+      }
+      if (status.running) {
+        return {
+          status: 400,
+          body: {
+            error: `Server must be stopped before ${actionLabel}. Stop the server first.`,
+            code: ErrorCode.WIPE_SERVER_RUNNING,
+          },
+        };
+      }
+      return null;
+    } catch (error) {
+      return {
+        status: 503,
+        body: {
+          error: `Can't verify whether the server is actually stopped — the process-detection scan itself failed, not the server (${error.message}).`,
+          code: ErrorCode.SERVER_STATE_UNKNOWN,
+        },
+      };
+    }
+  }
+
+  let scan;
+  try {
+    scan = await new ServerManager().scanHostForServerProcesses();
+  } catch (error) {
+    return {
+      status: 503,
+      body: {
+        error: `Can't verify whether the server is actually stopped — the process-detection scan itself failed, not the server (${error.message}).`,
+        code: ErrorCode.SERVER_STATE_UNKNOWN,
+      },
+    };
+  }
+  if (scan.scanFailed) {
     return {
       status: 503,
       body: {
@@ -4440,7 +4782,22 @@ async function checkServerConfirmedStopped(serverManager, actionLabel) {
       },
     };
   }
-  if (processDetails.running) {
+
+  const descriptor = {
+    serverName: targetServer.serverName,
+    savePath: targetServer.zomboidDataPath,
+    serverPath: targetServer.serverPath || targetServer.installPath,
+  };
+  const matched = Array.isArray(scan.matched) ? scan.matched : [];
+  let owned = false;
+  let unattributable = false;
+  for (const m of matched) {
+    const score = scoreServerProcessOwnership(m.cmd, descriptor);
+    if (score > 0) owned = true;
+    else if (score === 0) unattributable = true;
+  }
+
+  if (owned) {
     return {
       status: 400,
       body: {
@@ -4450,24 +4807,92 @@ async function checkServerConfirmedStopped(serverManager, actionLabel) {
       },
     };
   }
+  if (unattributable) {
+    return {
+      status: 503,
+      body: {
+        error: "Can't verify whether the server is actually stopped — a dedicated PZ server process exists on this host that can't be confirmed to belong to a different server. Check the panel's log for the process, or stop it and try again.",
+        code: ErrorCode.SERVER_STATE_UNKNOWN,
+      },
+    };
+  }
   return null;
+}
+
+// Builds the `targetServer` checkSpecificServerStopped() needs for a route
+// that has no `servers`-table row to hand it directly -- /install,
+// /quick-setup and /steam-update all accept an arbitrary installPath from
+// req.body with zero binding to any configured server (confirmed: none of
+// the three calls addServer() or references a serverId; server rows with
+// their own installPath field are created by a wholly separate route in
+// routes/servers.js).
+//
+// 2026-09-08, steamcmd-routes-running-check card: all three used to answer
+// "is the server running" by checking whichever server the shared
+// `serverManager` singleton happens to have loaded (or, for /install and
+// /quick-setup, not checking at all) -- Convention A, correct only when the
+// caller already guarantees serverManager points at the request's own
+// installPath, which none of them did. Same wrong-target shape as
+// checkSpecificServerStopped() itself before this file's own 8f04b051 fix.
+//
+// If installPath happens to match an ALREADY-CONFIGURED server (the common
+// case: re-running steam-update, or quick-setup, against a server the
+// operator already registered), prefer that real row -- it carries the
+// authoritative lifecycleProvider (routing a systemd/openrc-managed server
+// through its own service-status check, not a raw process scan) and its own
+// real serverName/zomboidDataPath, both more trustworthy than whatever the
+// client happened to submit this request. Falls back to a synthetic
+// descriptor built from the request's own fields only when genuinely no
+// configured server matches -- a brand-new install this panel has never
+// registered, exactly the state /install's own first-time-setup case is in.
+async function resolveTargetServerForRunningCheck(installPath, fallback = {}) {
+  const resolvedPath = path.resolve(installPath);
+  const configuredServers = await getServers();
+  const matchedServer = configuredServers.find(
+    (s) => s.installPath && path.resolve(s.installPath) === resolvedPath,
+  );
+  if (matchedServer) return matchedServer;
+  return {
+    serverName: fallback.serverName,
+    zomboidDataPath: fallback.zomboidDataPath,
+    installPath,
+  };
 }
 
 // Delete server files (used when removing a server from panel with file deletion)
 router.post("/delete-files", requirePermission("server.wipe"), async (req, res) => {
+  // lifecycle-lock-set sweep, 2026-09-07: checkSpecificServerStopped()
+  // above already narrows the check-then-delete TOCTOU window "as far as
+  // it can go without a shared lock with /start, which is out of scope
+  // here" (dd1e44f1's own comment) -- that scoping was correct then
+  // (a different lane, single-source derivation only), it's this lane's
+  // question now. The actual rmSync() below is synchronous and runs
+  // immediately after the check, so the only exposed window is the
+  // checked round-trip itself, but a /start landing in exactly that
+  // window still launches the JVM against files about to be deleted out
+  // from under it. Same fix as /wipe (bfc0e515) and now chunks.js's
+  // delete-chunks/delete-region: take the process-wide lifecycleCoordinator
+  // lock for the whole handler. Acquired before deletePath is even parsed
+  // (nothing here identifies a target server yet), so no serverId is passed
+  // -- degrades to the generic refusal wording, see
+  // lifecycleCoordinator.js's own comment on that fallback.
+  //
+  // normalize-lifecycle-lock-server-identifier, 2026-09-08: deliberately
+  // still null, not a gap left over from that sweep. targetServer (the
+  // actual server DB id) isn't resolved until deep in the try block below
+  // -- after confirm/path/existence/PZ-marker checks -- by matching
+  // deletePath against configured servers' installPath. Fetching that
+  // early enough to pass into the lock would mean either doing the DB
+  // lookup before the lock (an async gap the TOCTOU fix above exists
+  // specifically to close) or acquiring the lock after it (reopening the
+  // exact race this fix closes). Nothing here is a server DB id yet at the
+  // one point in this handler an id could be attached to the lock -- a
+  // genuine "no id available" site, not an oversight.
+  const lifecycleLock = acquireLifecycleLock("delete-files");
+  if (!lifecycleLock) {
+    return res.status(409).json(lifecycleInProgressResponse());
+  }
   try {
-    // Same rails POST /wipe already has: refuse without confirm, refuse
-    // while the server is running, and fail CLOSED (not open) when
-    // detection itself can't tell. Mirrors /wipe's exact order: state check,
-    // then confirm, then this route's own path/PZ-install validation below.
-    const serverManager = req.app.get("serverManager");
-    await serverManager.loadConfig();
-
-    const notStoppedError = await checkServerConfirmedStopped(serverManager, "deleting its files");
-    if (notStoppedError) {
-      return res.status(notStoppedError.status).json(notStoppedError.body);
-    }
-
     const { path: deletePath, confirm } = req.body || {};
     if (confirm !== true) {
       return res.status(400).json({
@@ -4519,14 +4944,39 @@ router.post("/delete-files", requirePermission("server.wipe"), async (req, res) 
     // replacement for it.
     const resolvedDeletePath = path.resolve(deletePath);
     const configuredServers = await getServers();
-    const matchesConfiguredServer = configuredServers.some(
+    // .find(), not .some() -- the matched record's own zomboidDataPath and
+    // lifecycleProvider are needed below for the nesting and stopped
+    // checks, not just a yes/no membership test.
+    const targetServer = configuredServers.find(
       (s) => s.installPath && path.resolve(s.installPath) === resolvedDeletePath,
     );
-    if (!matchesConfiguredServer) {
+    if (!targetServer) {
       return res.status(400).json({
         error:
           "This path doesn't match a server the panel has on record. Refusing to delete for safety.",
         code: ErrorCode.DELETE_FILES_NOT_CONFIGURED_SERVER,
+      });
+    }
+
+    // steamcmd-routes-running-check card, second finding: this route does a
+    // RECURSIVE rmSync directly on installPath, unconditionally, with no
+    // check for an in-progress SteamCMD operation at all -- so the panel
+    // could delete an install directory while its own SteamCMD process (see
+    // POST /install, POST /steam-update) is actively writing into that exact
+    // path. Unlike /wipe's version of this same gap (conditional on
+    // zomboidDataPath nesting inside installPath), this one is unconditional:
+    // deletePath IS installPath. Same guard /install and /steam-update
+    // already claim before spawning, reused here rather than introducing a
+    // lock -- activeSteamOperations is already scoped per install path,
+    // exactly what this check needs.
+    const normalizedDeleteTargetPath = path
+      .normalize(deletePath)
+      .toLowerCase();
+    if (hasActiveSteamOperation(normalizedDeleteTargetPath)) {
+      return res.status(409).json({
+        error:
+          "A Steam operation is already in progress for this path. Please wait for it to complete.",
+        code: ErrorCode.STEAM_OPERATION_IN_PROGRESS_PATH,
       });
     }
 
@@ -4544,9 +4994,13 @@ router.post("/delete-files", requirePermission("server.wipe"), async (req, res) 
     // <zomboidDataPath>/backups, which would be inside the doomed tree
     // too, so a same-tree backup would just get deleted right alongside
     // everything else it was meant to protect.
-    const zomboidDataPath = serverManager.savePath;
+    //
+    // targetServer.zomboidDataPath, not serverManager.savePath -- same
+    // split-derivation fix as the stopped-check below: serverManager's
+    // cache reflects whichever server is currently active/loaded, which is
+    // not necessarily targetServer.
+    const zomboidDataPath = targetServer.zomboidDataPath;
     if (zomboidDataPath) {
-      const resolvedDeletePath = path.resolve(deletePath);
       if (confineToRoots(zomboidDataPath, [resolvedDeletePath])) {
         return res.status(400).json({
           error: `Refusing to delete: this server's Zomboid data folder (${zomboidDataPath}) is inside the folder you're about to delete, so this would also permanently destroy the world save. Move the data path outside the install folder in Settings, or back it up yourself first, before deleting.`,
@@ -4555,22 +5009,23 @@ router.post("/delete-files", requirePermission("server.wipe"), async (req, res) 
       }
     }
 
-    // Re-check immediately before the irreversible delete (2026-08-26 bug
-    // hunt round 2, Pam's finding 2): the FIRST check above is stale by the
-    // time we get here -- getServerProcessDetails() takes real wall-clock
-    // time (OS process enumeration), and everything between that await
-    // resolving and this point is synchronous path/marker validation with
-    // no further awaits, so a second admin session, a scheduler task, or a
-    // supervisor auto-restart starting the server DURING that first scan
-    // would sail through undetected. This doesn't make the check-then-act
-    // atomic in a formal sense -- true atomicity would need the /start path
-    // to participate in a shared lock too, out of scope here -- but it
-    // narrows the exploitable window from "however long the first scan
-    // took" down to just this second scan's own duration, immediately
-    // before the act it guards, using the exact same fail-closed check.
-    const stillNotStoppedError = await checkServerConfirmedStopped(serverManager, "deleting its files");
-    if (stillNotStoppedError) {
-      return res.status(stillNotStoppedError.status).json(stillNotStoppedError.body);
+    // Confirmed-stopped check, positioned immediately before the
+    // irreversible delete (2026-08-26 bug hunt round 2, Pam's finding 2:
+    // narrows the check-then-act TOCTOU window as far as it can go without
+    // a shared lock with /start, which is out of scope here) -- now against
+    // targetServer specifically rather than serverManager's cache. This
+    // used to run TWICE: once before deletePath was even parsed (checking
+    // whatever server happened to be active/loaded, which is not the
+    // server-identity question this route needs answered at all) and once
+    // here. The first copy is gone -- it was answering the wrong question,
+    // not just answering it from a stale source -- leaving this single,
+    // correctly-targeted check right before the delete it guards.
+    const notStoppedError = await checkSpecificServerStopped(
+      targetServer,
+      "deleting its files",
+    );
+    if (notStoppedError) {
+      return res.status(notStoppedError.status).json(notStoppedError.body);
     }
 
     log.warn(`Deleting server files at: ${deletePath}`);
@@ -4583,6 +5038,8 @@ router.post("/delete-files", requirePermission("server.wipe"), async (req, res) 
   } catch (error) {
     log.error(`Failed to delete server files: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
+  } finally {
+    lifecycleLock.release();
   }
 });
 
@@ -5368,7 +5825,41 @@ export async function countDir(dir, budget) {
 router.post("/wipe/preview", requirePermission("server.wipe"), async (req, res) => {
   try {
     const serverManager = req.app.get("serverManager");
-    await serverManager.loadConfig();
+    // path-resolution sweep, 2026-09-06: this used to read serverManager's
+    // CACHED savePath/serverName, refreshed only by an explicit
+    // reloadConfig() (servers.js's /:id/activate and PUT /servers/:id) --
+    // a failed reload there is treated as best-effort (the DB write is
+    // never rolled back, see servers.js:1706-1710) and serverManager's own
+    // loadConfig() is a no-op once already loaded (serverManager.js:525),
+    // so it does NOT self-heal. backupService.js's getSavesPath() /
+    // getBackupsPath() -- used by /wipe's own pre-wipe backup -- always
+    // re-read getActiveServer() fresh from the DB, independent of
+    // serverManager. Two derivations of "the active server's save path"
+    // that agree under normal conditions but can silently diverge when an
+    // earlier reload failed -- collapsed here onto ONE fresh source
+    // (getActiveServer(), matching backupService's own already-correct
+    // approach) instead of reconciling two. reloadConfig() (a REAL reload,
+    // not the guarded loadConfig() above) is forced so the stopped-check in
+    // /wipe itself (getServerProcessDetails(), which depends on
+    // serverManager's OTHER cached fields -- serverPath, serverBat,
+    // launchMode -- to find the right OS process) examines this same
+    // server too, rather than whatever serverManager last successfully
+    // loaded. A reload failure here fails the preview closed instead of
+    // silently describing a possibly-wrong server -- see the follow-up
+    // report on whether activate/update's own best-effort posture should
+    // change; not touched here.
+    const activeServer = await getActiveServer();
+    if (!activeServer) {
+      return res.status(400).json({ error: "No active server configured", code: ErrorCode.WIPE_ZOMBOID_DATA_PATH_NOT_CONFIGURED });
+    }
+    try {
+      await serverManager.reloadConfig();
+    } catch (e) {
+      return res.status(503).json({
+        error: "Could not verify the active server's configuration — refusing to preview a wipe against possibly-stale state. Try again, or restart the panel.",
+        code: ErrorCode.SERVER_STATE_UNKNOWN,
+      });
+    }
 
     const { targets } = req.body || {}; // e.g. ["map", "players", "world"]
     if (!Array.isArray(targets) || targets.length === 0) {
@@ -5390,8 +5881,8 @@ router.post("/wipe/preview", requirePermission("server.wipe"), async (req, res) 
       });
     }
 
-    const savePath = serverManager.savePath;
-    const serverName = serverManager.serverName || "servertest";
+    const savePath = activeServer.zomboidDataPath;
+    const serverName = activeServer.serverName || "servertest";
     if (!savePath) {
       return res.status(400).json({ error: "No zomboid data path configured", code: ErrorCode.WIPE_ZOMBOID_DATA_PATH_NOT_CONFIGURED });
     }
@@ -5613,6 +6104,27 @@ router.post("/wipe", requirePermission("server.wipe"), async (req, res) => {
   }
   wipeInProgress = true;
 
+  // 2026-09-05 host-suspend-resume sweep: the "server must be stopped"
+  // check below and the multi-minute pre-wipe backup that follows it were
+  // not covered by any lock a concurrent /start could also see -- only
+  // `wipeInProgress` (this-route-only) stood in the way, so a Start fired
+  // during the backup passed straight through and this handler went on to
+  // rmSync the save tree of a now-running server. restoreBackup() has the
+  // exact same shape (checked-then-long-op-then-destructive) and is fixed
+  // the same way in backupService.js: acquire the SAME process-wide
+  // lifecycle lock /start, /stop, /restart already take, before the
+  // stopped-check, held through the destructive step, released once in the
+  // outer finally below alongside wipeInProgress.
+  const activeServerForLock = await getActiveServer();
+  const lifecycleLock = acquireLifecycleLock(
+    "wipe",
+    activeServerForLock?.id ?? null,
+  );
+  if (!lifecycleLock) {
+    wipeInProgress = false;
+    return res.status(409).json(lifecycleInProgressResponse());
+  }
+
   // Declared here, not with `const`/`let` inside the try below, so the
   // catch block can still see whatever these held at the moment of a
   // mid-wipe throw -- a try-scoped `const results = {}` is invisible to
@@ -5625,7 +6137,53 @@ router.post("/wipe", requirePermission("server.wipe"), async (req, res) => {
 
   try {
     const serverManager = req.app.get("serverManager");
-    await serverManager.loadConfig();
+    // path-resolution sweep, 2026-09-06: serverManager.loadConfig() alone
+    // (below) is a no-op once already loaded (serverManager.js:525) and
+    // does NOT self-heal a stale manager -- see the matching comment on
+    // /wipe/preview above for the full mechanism. Fetched fresh here
+    // (not reusing activeServerForLock, computed before the lock above was
+    // acquired) since the lifecycle lock now held for the rest of this
+    // request guarantees the active server can't change under us -- this
+    // read is the one source of truth the target path, the stopped-check,
+    // and the pre-wipe backup below all now agree on, matching
+    // backupService's own already-correct getActiveServer()-based
+    // derivation instead of reconciling two different ones.
+    const activeServer = await getActiveServer();
+    if (!activeServer) {
+      return res.status(400).json({ error: "No active server configured", code: ErrorCode.WIPE_ZOMBOID_DATA_PATH_NOT_CONFIGURED });
+    }
+
+    // steamcmd-routes-running-check card: this route never checked for an
+    // in-progress SteamCMD operation before wiping. A default install keeps
+    // zomboidDataPath OUTSIDE installPath (see the nested-data-path comment
+    // below), so this is normally a non-issue -- but nothing stops an
+    // operator from nesting it inside installPath instead, and when that's
+    // the configuration, a wipe running while POST /install or POST
+    // /steam-update is actively writing into that same tree deletes/
+    // recreates files SteamCMD has open. Same guard those two routes
+    // already claim before spawning, reused here rather than a new lock --
+    // activeSteamOperations is already scoped per install path.
+    if (activeServer.installPath) {
+      const normalizedWipeTargetPath = path
+        .normalize(activeServer.installPath)
+        .toLowerCase();
+      if (hasActiveSteamOperation(normalizedWipeTargetPath)) {
+        return res.status(409).json({
+          error:
+            "A Steam operation is already in progress for this path. Please wait for it to complete.",
+          code: ErrorCode.STEAM_OPERATION_IN_PROGRESS_PATH,
+        });
+      }
+    }
+
+    try {
+      await serverManager.reloadConfig();
+    } catch (e) {
+      return res.status(503).json({
+        error: "Could not verify the active server's configuration — refusing to wipe against possibly-stale state. Nothing was deleted. Try again, or restart the panel.",
+        code: ErrorCode.SERVER_STATE_UNKNOWN,
+      });
+    }
 
     // Safety: server must be stopped, and we must be SURE of that.
     // checkServerRunning() collapses a failed detection scan into `false`
@@ -5670,8 +6228,8 @@ router.post("/wipe", requirePermission("server.wipe"), async (req, res) => {
         .json({ error: `Invalid targets: ${invalid.join(", ")}`, code: ErrorCode.WIPE_INVALID_TARGETS });
     }
 
-    const savePath = serverManager.savePath;
-    serverName = serverManager.serverName || "servertest";
+    const savePath = activeServer.zomboidDataPath;
+    serverName = activeServer.serverName || "servertest";
     if (!savePath) {
       return res.status(400).json({ error: "No zomboid data path configured", code: ErrorCode.WIPE_ZOMBOID_DATA_PATH_NOT_CONFIGURED });
     }
@@ -5933,6 +6491,7 @@ router.post("/wipe", requirePermission("server.wipe"), async (req, res) => {
     });
   } finally {
     wipeInProgress = false;
+    lifecycleLock.release();
   }
 });
 

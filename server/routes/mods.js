@@ -170,57 +170,70 @@ function getSanitizedIniPath(serverConfigPath, serverName) {
   return path.join(serverConfigPath, `${sanitizedServerName}.ini`);
 }
 
-// Helper functions for multi-server support
-async function getServerConfigPath() {
+// Helper for multi-server support.
+//
+// split-derivation sweep, 2026-09-07 (same class as /wipe's pre-fix bug,
+// 5c2e73e9): this file used to have getServerConfigPath()/getServerName()/
+// getServerPath() as three separate functions, each making its OWN
+// independent getActiveServer() call. Most handlers in this file need two
+// or three of these values together, so a concurrent request switching the
+// active server between two or three separate awaited calls could produce
+// e.g. serverConfigPath from server A + serverName from server B, matching
+// neither server's real INI. This reads the active server ONCE and derives
+// all three values from that single snapshot. getServerPath() below is
+// kept as a thin wrapper purely for the handlers elsewhere in this file
+// that only ever need the install path alone, where there is nothing to
+// diverge against.
+// Exported so server/tests/modsGetActiveServerPathsSingleRead.test.js can
+// assert the single-read behaviour directly.
+export async function getActiveServerPaths() {
   const activeServer = await getActiveServer();
 
-  // First, use explicitly configured serverConfigPath if available
-  if (activeServer?.serverConfigPath) {
-    return activeServer.serverConfigPath;
+  // First, use explicitly configured serverConfigPath if available.
+  let serverConfigPath = activeServer?.serverConfigPath || null;
+  // Fallback to zomboidDataPath + Server (like serverFiles.js does).
+  if (!serverConfigPath && activeServer?.zomboidDataPath) {
+    serverConfigPath = path.join(activeServer.zomboidDataPath, "Server");
+  }
+  // Fallback to legacy settings.
+  if (!serverConfigPath) {
+    const legacyPath = await getSetting("serverConfigPath");
+    if (legacyPath) serverConfigPath = legacyPath;
+  }
+  if (!serverConfigPath) {
+    const legacyZomboidPath = await getSetting("zomboidDataPath");
+    if (legacyZomboidPath) {
+      serverConfigPath = path.join(legacyZomboidPath, "Server");
+    }
   }
 
-  // Fallback to zomboidDataPath + Server (like serverFiles.js does)
-  if (activeServer?.zomboidDataPath) {
-    return path.join(activeServer.zomboidDataPath, "Server");
+  let serverName = activeServer?.serverName || null;
+  if (!serverName) {
+    const legacyName = await getSetting("serverName");
+    // No active server and no legacy settings name either -- there is no
+    // real server this could refer to. "servertest" used to fill in here,
+    // which happens to be Project Zomboid's own vanilla single-player/
+    // test-server name: on a machine that has a real (unrelated,
+    // never-added-to-the-panel) PZ install at the default path, an
+    // unconfigured panel would silently read/write ITS Server/servertest.ini
+    // and report success. Every call site below already gates on
+    // `!serverConfigPath`; null here (instead of a fabricated name) makes
+    // those same gates also catch "no server name configured" rather than
+    // papering over it.
+    serverName = legacyName || null;
   }
 
-  // Fallback to legacy settings
-  const legacyPath = await getSetting("serverConfigPath");
-  if (legacyPath) return legacyPath;
-
-  const legacyZomboidPath = await getSetting("zomboidDataPath");
-  if (legacyZomboidPath) {
-    return path.join(legacyZomboidPath, "Server");
+  let serverPath = activeServer?.installPath || null;
+  if (!serverPath) {
+    const legacyPath = await getSetting("serverPath");
+    serverPath = legacyPath || null;
   }
 
-  return null;
-}
-
-async function getServerName() {
-  const activeServer = await getActiveServer();
-  if (activeServer?.serverName) {
-    return activeServer.serverName;
-  }
-  const legacyName = await getSetting("serverName");
-  // No active server and no legacy settings name either -- there is no real
-  // server this could refer to. "servertest" used to fill in here, which
-  // happens to be Project Zomboid's own vanilla single-player/test-server
-  // name: on a machine that has a real (unrelated, never-added-to-the-panel)
-  // PZ install at the default path, an unconfigured panel would silently
-  // read/write ITS Server/servertest.ini and report success. Every call
-  // site below already gates on `!serverConfigPath`; returning null here
-  // (instead of a fabricated name) makes those same gates also catch "no
-  // server name configured" rather than papering over it.
-  return legacyName || null;
+  return { serverConfigPath, serverName, serverPath };
 }
 
 async function getServerPath() {
-  const activeServer = await getActiveServer();
-  if (activeServer?.installPath) {
-    return activeServer.installPath;
-  }
-  const legacyPath = await getSetting("serverPath");
-  return legacyPath || null;
+  return (await getActiveServerPaths()).serverPath;
 }
 
 // Helper to get modChecker with null check
@@ -267,8 +280,7 @@ router.get("/tracked", async (req, res) => {
     // We skip mods the user has explicitly removed (ignore list) so this
     // doesn't fight the "Remove from server" action.
     try {
-      const serverConfigPath = await getServerConfigPath();
-      const serverName = await getServerName();
+      const { serverConfigPath, serverName } = await getActiveServerPaths();
       if (serverConfigPath && serverName) {
         const sanitizedServerName = path.basename(serverName);
         if (sanitizedServerName === serverName && !serverName.includes("..")) {
@@ -936,8 +948,7 @@ router.post("/cancel-pending-restart", async (req, res) => {
 router.post("/sync-from-server", async (req, res) => {
   try {
     // Use direct INI reading (more reliable than serverManager which has path issues)
-    const serverConfigPath = await getServerConfigPath();
-    const serverName = await getServerName();
+    const { serverConfigPath, serverName } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
       log.warn("sync-from-server: Server config path not set");
@@ -1119,8 +1130,7 @@ router.get("/collection/diff", async (req, res) => {
     // mod is missing from the server".
     let serverConfigRead = false;
     try {
-      const serverConfigPath = await getServerConfigPath();
-      const serverName = await getServerName();
+      const { serverConfigPath, serverName } = await getActiveServerPaths();
       const sanitizedServerName = path.basename(serverName || "");
       if (
         serverConfigPath &&
@@ -1633,7 +1643,13 @@ router.get("/collection/extension-bundle", async (req, res) => {
         'attachment; filename="zomboid-panel-extension.zip"',
       );
       res.setHeader("Content-Length", String(stat.size));
-      fs.createReadStream(zipPath).pipe(res);
+      const zipStream = fs.createReadStream(zipPath);
+      zipStream.on("error", (err) => {
+        log.error(`Extension bundle stream error: ${err.message}`);
+        if (!res.headersSent) res.status(500).end();
+        else res.destroy();
+      });
+      zipStream.pipe(res);
       return;
     }
 
@@ -1965,9 +1981,7 @@ router.post("/write-to-ini", async (req, res) => {
       }
     }
 
-    const serverConfigPath = await getServerConfigPath();
-    const serverName = await getServerName();
-    const serverPath = await getServerPath();
+    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
       return res.status(400).json({
@@ -2211,8 +2225,7 @@ router.post("/write-to-ini", async (req, res) => {
 // Get current mod configuration from .ini file
 router.get("/current-config", async (req, res) => {
   try {
-    const serverConfigPath = await getServerConfigPath();
-    const serverName = await getServerName();
+    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
       return res.json({
@@ -2279,7 +2292,6 @@ router.get("/current-config", async (req, res) => {
     const duplicateKeys = findDuplicateIniKeys(content);
 
     // Build workshop → modId mapping from disk
-    const serverPath = await getServerPath();
     const modIdSet = new Set(modIds);
     const workshopModMap = {}; // workshopId -> [{ id, name, enabled, require }]
     if (serverPath) {
@@ -2335,8 +2347,7 @@ router.post("/toggle-mod-id", async (req, res) => {
       });
     }
 
-    const serverConfigPath = await getServerConfigPath();
-    const serverName = await getServerName();
+    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
       return res.status(400).json({
@@ -2364,8 +2375,6 @@ router.post("/toggle-mod-id", async (req, res) => {
         code: ErrorCode.MODS_CONFIG_FILE_NOT_FOUND,
       });
     }
-
-    const serverPath = await getServerPath();
 
     const result = await withIniLock(iniPath, async () => {
       let content = readTextFile(iniPath);
@@ -2498,8 +2507,7 @@ router.post("/batch-toggle-mod-ids", async (req, res) => {
       }
     }
 
-    const serverConfigPath = await getServerConfigPath();
-    const serverName = await getServerName();
+    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
       return res.status(400).json({
@@ -2527,8 +2535,6 @@ router.post("/batch-toggle-mod-ids", async (req, res) => {
         code: ErrorCode.MODS_CONFIG_FILE_NOT_FOUND,
       });
     }
-
-    const serverPath = await getServerPath();
 
     const result = await withIniLock(iniPath, async () => {
       let content = readTextFile(iniPath);
@@ -2633,8 +2639,7 @@ router.post("/add-to-ini", async (req, res) => {
       });
     }
 
-    const serverConfigPath = await getServerConfigPath();
-    const serverName = await getServerName();
+    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
       return res.status(400).json({
@@ -2670,7 +2675,6 @@ router.post("/add-to-ini", async (req, res) => {
     // Do all async detection work BEFORE taking the lock
     let detectedModId = modId;
     let detectionSource = "provided";
-    const serverPath = await getServerPath();
 
     if (!detectedModId) {
       // First, try to find from already downloaded workshop folder
@@ -3450,9 +3454,7 @@ router.post("/remove-from-ini", async (req, res) => {
       ? clientModIds.slice(0, 50)
       : [];
 
-    const serverConfigPath = await getServerConfigPath();
-    const serverPath = await getServerPath();
-    const serverName = await getServerName();
+    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
       return res.status(400).json({
@@ -3706,9 +3708,7 @@ router.post("/batch-remove", async (req, res) => {
     const dbResults = { removed: 0, failed: 0 };
 
     // Step 2: Remove all from INI in a single locked write
-    const serverConfigPath = await getServerConfigPath();
-    const serverPath = await getServerPath();
-    const serverName = await getServerName();
+    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
 
     let iniResult = { removed: 0, skipped: 0 };
     // Tracks whether the INI edit block below actually ran. Ignore-listing
@@ -3878,9 +3878,7 @@ router.post("/batch-remove", async (req, res) => {
 // Repair Map= entries - validates each entry has actual map data on disk and removes invalid ones
 router.post("/repair-map-entries", async (req, res) => {
   try {
-    const serverConfigPath = await getServerConfigPath();
-    const serverPath = await getServerPath();
-    const serverName = await getServerName();
+    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverPath || !serverName) {
       return res.status(400).json({
@@ -4021,8 +4019,7 @@ router.post("/repair-map-entries", async (req, res) => {
 // Deduplicate mod IDs in the Mods= line — removes exact duplicates, keeps one of each
 router.post("/deduplicate-mod-ids", async (req, res) => {
   try {
-    const serverConfigPath = await getServerConfigPath();
-    const serverName = await getServerName();
+    const { serverConfigPath, serverName } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
       return res.status(400).json({
@@ -4140,9 +4137,7 @@ router.post("/add-missing-dep", async (req, res) => {
       });
     }
 
-    const serverConfigPath = await getServerConfigPath();
-    const serverName = await getServerName();
-    const serverPath = await getServerPath();
+    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
     if (!serverConfigPath || !serverName)
       return res.status(400).json({
         error: "Server path not configured.",
@@ -4312,9 +4307,7 @@ router.post("/add-all-resolved-deps", async (req, res) => {
       }
     }
 
-    const serverConfigPath = await getServerConfigPath();
-    const serverName = await getServerName();
-    const serverPath = await getServerPath();
+    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
     if (!serverConfigPath || !serverName) {
       return res.status(400).json({
         error: "Server config path not set",
@@ -4895,9 +4888,7 @@ router.post("/resolve-missing-deps", async (req, res) => {
 // ─── Sync mod IDs from Workshop → INI ─────────────────────────────────────
 router.post("/sync-mod-ids", async (req, res) => {
   try {
-    const serverConfigPath = await getServerConfigPath();
-    const serverName = await getServerName();
-    const serverPath = await getServerPath();
+    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
     if (!serverConfigPath || !serverName) {
       return res.status(400).json({
         error: "Server config path not set",
@@ -5079,9 +5070,7 @@ router.post("/sync-mod-ids", async (req, res) => {
 // Validate mod configuration (check for dependencies and consistency)
 router.get("/validate-config", async (req, res) => {
   try {
-    const serverConfigPath = await getServerConfigPath();
-    const serverPath = await getServerPath();
-    const serverName = await getServerName();
+    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
       return res.status(400).json({
@@ -5257,8 +5246,7 @@ router.post("/presets", async (req, res) => {
     }
 
     // Read current mods from INI
-    const serverConfigPath = await getServerConfigPath();
-    const serverName = await getServerName();
+    const { serverConfigPath, serverName } = await getActiveServerPaths();
     const iniPath = getSanitizedIniPath(serverConfigPath, serverName);
 
     if (!iniPath) {
@@ -5414,8 +5402,7 @@ router.post("/presets/:id/apply", async (req, res) => {
       });
     }
 
-    const serverConfigPath = await getServerConfigPath();
-    const serverName = await getServerName();
+    const { serverConfigPath, serverName } = await getActiveServerPaths();
     const iniPath = getSanitizedIniPath(serverConfigPath, serverName);
 
     if (!iniPath) {
@@ -5506,8 +5493,7 @@ router.post("/save-order", async (req, res) => {
       }
     }
 
-    const serverConfigPath = await getServerConfigPath();
-    const serverName = await getServerName();
+    const { serverConfigPath, serverName } = await getActiveServerPaths();
     const iniPath = getSanitizedIniPath(serverConfigPath, serverName);
 
     if (!iniPath) {
@@ -5739,9 +5725,7 @@ router.post("/add-mod-advanced", async (req, res) => {
       });
     }
 
-    const serverConfigPath = await getServerConfigPath();
-    const serverName = await getServerName();
-    const serverPath = await getServerPath();
+    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
       return res.status(400).json({
@@ -5946,24 +5930,42 @@ let scanLockToken = 0;
 const SCAN_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 // Returns a token identifying this scan, or null when a scan is already running.
-function acquireScanLock() {
+//
+// conflictScanStartedAt uses performance.now() (monotonic), not Date.now()
+// (wall clock) -- bug hunt 2026-09-07 (Date.now()-for-elapsed-time sweep):
+// the old Date.now()-based version's stuck-mutex auto-reset is a stuck-
+// state auto-recovery that can silently stop being able to run -- a wall-
+// clock step BACKWARD (NTP correction, DST, a manual clock change) landing
+// between conflictScanStartedAt being recorded and a later acquireScanLock()
+// call means `Date.now() - conflictScanStartedAt` may never exceed
+// SCAN_MUTEX_TIMEOUT_MS again. A genuinely crashed/stuck scan's mutex would
+// then never auto-release -- every subsequent scan request gets rejected as
+// "already running" until real wall-clock time closes whatever gap the step
+// introduced, which for a large correction could be hours. Monotonic time
+// cannot step backward, so this comparison can only ever be false because
+// not enough real time has actually passed -- matching what the auto-reset
+// was written to measure.
+// Exported so tests can drive the mutex directly against real
+// timers/clocks without needing a full conflict-scan route call -- see
+// server/tests/modsScanMutexClockJump.test.js.
+export function acquireScanLock() {
   // Auto-reset if stuck for more than 5 minutes (e.g. crash mid-scan)
   if (
     conflictScanInFlight &&
-    Date.now() - conflictScanStartedAt > SCAN_MUTEX_TIMEOUT_MS
+    performance.now() - conflictScanStartedAt > SCAN_MUTEX_TIMEOUT_MS
   ) {
     log.warn("Conflict scan mutex was stuck for >5 min — auto-resetting");
     conflictScanInFlight = false;
   }
   if (conflictScanInFlight) return null;
   conflictScanInFlight = true;
-  conflictScanStartedAt = Date.now();
+  conflictScanStartedAt = performance.now();
   return ++scanLockToken;
 }
 
 // Tokens stop a scan that overran the stuck-mutex timeout from releasing the
 // lock out from under the newer scan that replaced it.
-function releaseScanLock(token) {
+export function releaseScanLock(token) {
   if (token !== scanLockToken) return;
   conflictScanInFlight = false;
   conflictScanStartedAt = 0;
@@ -6490,8 +6492,7 @@ function hashFileSync(filePath) {
 
 // Read INI and return { workshopIds, modIdsFromIni }
 async function readIniModLists() {
-  const serverConfigPath = await getServerConfigPath();
-  const serverName = await getServerName();
+  const { serverConfigPath, serverName } = await getActiveServerPaths();
   const iniPath = getSanitizedIniPath(serverConfigPath, serverName);
   let workshopIds = [];
   let modIdsFromIni = [];
@@ -8180,8 +8181,7 @@ router.get("/disk-only", async (req, res) => {
     }
 
     // Read INI to know what's currently enabled.
-    const serverConfigPath = await getServerConfigPath();
-    const serverName = await getServerName();
+    const { serverConfigPath, serverName } = await getActiveServerPaths();
     const inIni = new Set();
     if (serverConfigPath && serverName) {
       const sanitized = path.basename(serverName);
@@ -8261,9 +8261,7 @@ router.post("/enable-disk-mod", async (req, res) => {
       });
     }
 
-    const serverConfigPath = await getServerConfigPath();
-    const serverName = await getServerName();
-    const serverPath = await getServerPath();
+    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
     if (!serverConfigPath || !serverName) {
       return res.status(400).json({
         error: "Server config path not set",
@@ -8358,9 +8356,7 @@ router.post("/enable-disk-mod", async (req, res) => {
 // reached — callers must not ignore-list in that case, because the mod may
 // still be live in Mods=/WorkshopItems=.
 async function deleteModFromDiskAndIni(wsId) {
-  const serverConfigPath = await getServerConfigPath();
-  const serverName = await getServerName();
-  const serverPath = await getServerPath();
+  const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
   const sanitized = serverName ? path.basename(serverName) : null;
   const iniPath =
     sanitized && serverConfigPath
@@ -8634,6 +8630,25 @@ router.post("/batch-delete-disk-mods", async (req, res) => {
           code: ErrorCode.MODS_WORKSHOP_IDS_ARRAY_REQUIRED,
         });
     }
+
+    // sibling-convention sweep, 2026-09-08: /batch-remove (an INI/DB-only
+    // edit) caps its own workshopIds array at 500 "to prevent abuse" -- this
+    // route had no cap at all despite doing the more destructive of the two
+    // operations (deleting real files from disk per ID, via
+    // findAllModIdsFromWorkshop's filesystem scan for each one, then rmSync).
+    // An unbounded array here is worse than an unbounded one on the
+    // INI-only route: the blast radius is real files gone, not just list
+    // entries, and the synchronous scan-then-delete loop over an
+    // attacker-or-mistake-supplied array has no upper bound on how long it
+    // blocks the event loop either. Same cap, same reasoning, own code
+    // since this route's failure mode is sharper.
+    if (workshopIds.length > 500) {
+      return res.status(400).json({
+        error: "Maximum 500 mods per batch",
+        code: ErrorCode.MODS_BATCH_DELETE_DISK_MODS_TOO_MANY,
+      });
+    }
+
     const cleaned = workshopIds
       .map(String)
       .filter((id) => /^\d{1,15}$/.test(id));
@@ -8644,9 +8659,7 @@ router.post("/batch-delete-disk-mods", async (req, res) => {
       });
     }
 
-    const serverConfigPath = await getServerConfigPath();
-    const serverName = await getServerName();
-    const serverPath = await getServerPath();
+    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
     const sanitized = serverName ? path.basename(serverName) : null;
     const iniPath =
       sanitized && serverConfigPath
@@ -8779,6 +8792,21 @@ router.post("/resolve-orphan-workshop", async (req, res) => {
           code: ErrorCode.MODS_WORKSHOP_IDS_ARRAY_REQUIRED,
         });
     }
+
+    // sibling-convention sweep, 2026-09-08: same missing-cap shape as
+    // /batch-delete-disk-mods just above -- /batch-remove established a
+    // 500-item cap "to prevent abuse" for this exact array shape and this
+    // route never adopted it, despite doing the same per-ID filesystem scan
+    // (findAllModIdsFromWorkshop) that scan does. No disk deletion here
+    // (INI-only, same severity class as /batch-remove), so same cap, same
+    // reasoning, own code per this file's convention.
+    if (workshopIds.length > 500) {
+      return res.status(400).json({
+        error: "Maximum 500 mods per batch",
+        code: ErrorCode.MODS_RESOLVE_ORPHAN_WORKSHOP_TOO_MANY,
+      });
+    }
+
     const cleaned = workshopIds
       .map(String)
       .filter((id) => /^\d{1,15}$/.test(id));
@@ -8789,9 +8817,7 @@ router.post("/resolve-orphan-workshop", async (req, res) => {
       });
     }
 
-    const serverConfigPath = await getServerConfigPath();
-    const serverName = await getServerName();
-    const serverPath = await getServerPath();
+    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
     if (!serverConfigPath || !serverName) {
       return res.status(400).json({
         error: "Server config path not set",

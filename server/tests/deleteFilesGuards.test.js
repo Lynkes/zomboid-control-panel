@@ -11,8 +11,28 @@ vi.mock("../database/init.js", () => ({
   getServers: vi.fn(),
 }));
 
+// checkSpecificServerStopped() (server.js) scans the whole host and
+// attributes candidates via the REAL scoreServerProcessOwnership() -- keep
+// that real (importActual) and only replace ServerManager's host scan, so
+// these tests exercise the actual attribution logic, not a re-description
+// of it.
+const scanHostForServerProcesses = vi.fn();
+
+vi.mock("../services/serverManager.js", async () => {
+  const actual = await vi.importActual("../services/serverManager.js");
+  return {
+    ...actual,
+    ServerManager: vi.fn().mockImplementation(function () {
+      this.scanHostForServerProcesses = scanHostForServerProcesses;
+    }),
+  };
+});
+
 const { default: router } = await import("../routes/server.js");
 const { getServers } = await import("../database/init.js");
+const { getActiveSteamOperations } = await import(
+  "../services/activeSteamOperations.js"
+);
 
 function createResponse() {
   const response = { status: vi.fn(), json: vi.fn() };
@@ -35,7 +55,6 @@ function getDeleteFilesHandler() {
 // callers treat "cannot tell" as "stopped".
 describe("POST /api/server/delete-files safety guards", () => {
   let installDir;
-  let serverManager;
 
   beforeEach(() => {
     installDir = fs.mkdtempSync(path.join(os.tmpdir(), "pz-delete-files-"));
@@ -43,10 +62,8 @@ describe("POST /api/server/delete-files safety guards", () => {
     // check passes and the guards under test are the only thing left
     // that could refuse the request.
     fs.writeFileSync(path.join(installDir, "ProjectZomboid64.json"), "{}");
-    serverManager = {
-      loadConfig: async () => {},
-      getServerProcessDetails: async () => ({ running: false, scanFailed: false }),
-    };
+    // Default: no PZ processes anywhere on the host at all.
+    scanHostForServerProcesses.mockReset().mockResolvedValue({ scanFailed: false, matched: [] });
     // bug-hunt-2026-08-27: deletePath must now also match a configured
     // server's own installPath -- the marker-file check alone was
     // trivially satisfiable. Default every test to a configured server
@@ -62,7 +79,6 @@ describe("POST /api/server/delete-files safety guards", () => {
   });
 
   const buildRequest = (body) => ({
-    app: { get: () => serverManager },
     body: { path: installDir, ...body },
   });
 
@@ -84,9 +100,9 @@ describe("POST /api/server/delete-files safety guards", () => {
   });
 
   it("refuses while the server is running", async () => {
-    serverManager.getServerProcessDetails = async () => ({
-      running: true,
+    scanHostForServerProcesses.mockResolvedValue({
       scanFailed: false,
+      matched: [{ cmd: installDir, pid: 111 }],
     });
     const handler = getDeleteFilesHandler();
     const response = createResponse();
@@ -101,10 +117,113 @@ describe("POST /api/server/delete-files safety guards", () => {
     expect(fs.existsSync(installDir)).toBe(true);
   });
 
+  // state-detection lane, 2026-09-07 (round 2 -- the exact scenario god
+  // asked to be reproduced as a destructive-path test, not just a scoring
+  // assertion): Server A is the target of THIS delete and is genuinely
+  // stopped. Server B is a completely different, unrelated configured
+  // server, and IS running, launched with its own -servername. Before this
+  // fix, checkSpecificServerStopped asked the shared, ACTIVE-server-scoped
+  // serverManager singleton "are you running" instead of scanning the host
+  // and attributing by TARGET identity -- so this scenario's real danger
+  // (a genuinely running non-active server) never even entered the
+  // decision. Now: scoreServerProcessOwnership disqualifies Server B's
+  // process against Server A's descriptor (mismatched -servername), so it
+  // correctly contributes nothing to Server A's own verdict, and Server A
+  // is correctly confirmed stopped -- proving the fix answers "is THIS ONE
+  // stopped", not "is anything on the host running".
+  it("still deletes a genuinely stopped target even while a completely different configured server is running", async () => {
+    const otherInstallDir = path.join(os.tmpdir(), "pz-other-running-server");
+    getServers.mockResolvedValue([
+      { id: 1, installPath: installDir, serverName: "ServerA" },
+      { id: 2, installPath: otherInstallDir, serverName: "ServerB" },
+    ]);
+    scanHostForServerProcesses.mockResolvedValue({
+      scanFailed: false,
+      matched: [
+        {
+          pid: 222,
+          cmd: `java zombie.network.GameServer -servername "ServerB" -cachedir="${otherInstallDir}"`,
+        },
+      ],
+    });
+
+    const handler = getDeleteFilesHandler();
+    const response = createResponse();
+
+    await handler(buildRequest({ confirm: true }), response);
+
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({ success: true }),
+    );
+    expect(fs.existsSync(installDir)).toBe(false);
+  });
+
+  // The actual destructive-path regression this round exists to close:
+  // Server A (the delete target) is genuinely RUNNING but is not the
+  // active/loaded server. Pre-fix, checkSpecificServerStopped asked the
+  // shared serverManager singleton (scoped to whichever OTHER server was
+  // active) whether IT was running -- so it could answer "not running"
+  // while Server A's own real process sat right there in a host-wide scan
+  // it never looked at. Assert the REFUSAL and that the install directory
+  // survives -- the value of this finding is the deterministic destructive
+  // path, not merely that a score changed.
+  it("refuses to delete a target server's files while THAT target is running, even though it is not the active/loaded server", async () => {
+    getServers.mockResolvedValue([
+      { id: 1, installPath: installDir, serverName: "ServerA" },
+    ]);
+    scanHostForServerProcesses.mockResolvedValue({
+      scanFailed: false,
+      matched: [
+        {
+          pid: 111,
+          cmd: `java zombie.network.GameServer -servername "ServerA" -cachedir="C:\\Zomboid\\A"`,
+        },
+      ],
+    });
+
+    const handler = getDeleteFilesHandler();
+    const response = createResponse();
+
+    await handler(buildRequest({ confirm: true }), response);
+
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "WIPE_SERVER_RUNNING" }),
+    );
+    expect(fs.existsSync(installDir)).toBe(true);
+  });
+
   it("refuses when it cannot be determined whether the server is running (fails closed)", async () => {
-    serverManager.getServerProcessDetails = async () => ({
-      running: false,
+    scanHostForServerProcesses.mockResolvedValue({
+      matched: [],
       scanFailed: true,
+    });
+    const handler = getDeleteFilesHandler();
+    const response = createResponse();
+
+    await handler(buildRequest({ confirm: true }), response);
+
+    expect(response.status).toHaveBeenCalledWith(503);
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "SERVER_STATE_UNKNOWN" }),
+    );
+    expect(fs.existsSync(installDir)).toBe(true);
+  });
+
+  // god's ruling, 2026-09-07: a recursive fs.rmSync against a live install
+  // must not proceed on "probably stopped". A real PZ-server-shaped process
+  // that scoreServerProcessOwnership can't attribute to this target OR rule
+  // out (no -servername/-cachedir, install path doesn't match either) must
+  // read the same as a failed scan -- refuse -- not as "safe to delete".
+  it("refuses (fails closed) when a PZ-shaped process exists that can't be confirmed to belong to a different server", async () => {
+    scanHostForServerProcesses.mockResolvedValue({
+      scanFailed: false,
+      matched: [
+        // No -servername/-cachedir, and this cmd doesn't mention installDir
+        // at all -- scoreServerProcessOwnership returns 0 (unattributable),
+        // not -1 (positively someone else's).
+        { pid: 999, cmd: "java -cp pz.jar zombie.network.GameServer" },
+      ],
     });
     const handler = getDeleteFilesHandler();
     const response = createResponse();
@@ -201,57 +320,30 @@ describe("POST /api/server/delete-files safety guards", () => {
     });
   });
 
-  // 2026-08-26 bug hunt round 2, Pam's finding 2: the entry check happens
-  // once, but everything after it (path/marker validation) is synchronous --
-  // getServerProcessDetails() itself is the only part of this route that
-  // yields, so a server that starts DURING that scan (a second admin
-  // session, a scheduler task, a supervisor auto-restart) would previously
-  // sail through undetected. These simulate exactly that: the first check
-  // (at route entry) sees a stopped server, but the server has started by
-  // the time the SECOND check (immediately before the actual delete) runs.
-  describe("re-checks immediately before the delete, not just at entry", () => {
-    it("refuses when the server starts between the entry check and the delete", async () => {
-      let calls = 0;
-      serverManager.getServerProcessDetails = async () => {
-        calls += 1;
-        return calls === 1
-          ? { running: false, scanFailed: false }
-          : { running: true, scanFailed: false };
-      };
-      const handler = getDeleteFilesHandler();
-      const response = createResponse();
+  // 2026-08-26 bug hunt round 2, Pam's finding 2 (original shape): the
+  // entry check happened once, then everything after it (path/marker
+  // validation) was synchronous, so a server that started DURING that
+  // first scan would sail through the second check undetected -- fixed by
+  // re-checking immediately before the delete too.
+  //
+  // split-derivation sweep, 2026-09-07: that "first" check is GONE now, not
+  // just fixed -- it ran before deletePath was even parsed, so it was
+  // structurally checking the wrong server's state by construction (see
+  // server.js's comment on checkSpecificServerStopped). There is only one
+  // check left, and it is positioned exactly where the old "second" check
+  // was: immediately before the delete. This test now guards against that
+  // redundant premature check ever coming back, rather than simulating a
+  // race between two checks that no longer both exist.
+  it("checks the target server's process state exactly once, immediately before the delete -- not a stale entry check", async () => {
+    const handler = getDeleteFilesHandler();
+    const response = createResponse();
 
-      await handler(buildRequest({ confirm: true }), response);
+    await handler(buildRequest({ confirm: true }), response);
 
-      expect(calls).toBeGreaterThanOrEqual(2);
-      expect(response.status).toHaveBeenCalledWith(400);
-      expect(response.json).toHaveBeenCalledWith(
-        expect.objectContaining({ code: "WIPE_SERVER_RUNNING" }),
-      );
-      // The whole point: refusal must be real, the install must survive.
-      expect(fs.existsSync(installDir)).toBe(true);
-    });
-
-    it("fails closed when the second scan itself can't tell, even though the first scan could", async () => {
-      let calls = 0;
-      serverManager.getServerProcessDetails = async () => {
-        calls += 1;
-        return calls === 1
-          ? { running: false, scanFailed: false }
-          : { running: false, scanFailed: true };
-      };
-      const handler = getDeleteFilesHandler();
-      const response = createResponse();
-
-      await handler(buildRequest({ confirm: true }), response);
-
-      expect(calls).toBeGreaterThanOrEqual(2);
-      expect(response.status).toHaveBeenCalledWith(503);
-      expect(response.json).toHaveBeenCalledWith(
-        expect.objectContaining({ code: "SERVER_STATE_UNKNOWN" }),
-      );
-      expect(fs.existsSync(installDir)).toBe(true);
-    });
+    expect(scanHostForServerProcesses).toHaveBeenCalledTimes(1);
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({ success: true }),
+    );
   });
 
   // 2026-08-26 bug hunt round 2 follow-up, Michelle's UX audit: "Delete
@@ -263,11 +355,19 @@ describe("POST /api/server/delete-files safety guards", () => {
   // install folder, in which case this same one-click delete also destroys
   // the world save with no separate copy -- the actual "delete that doesn't
   // look like one." These simulate that configuration directly.
-  describe("refuses when the active server's Zomboid data folder is inside the folder being deleted", () => {
+  describe("refuses when the TARGET server's Zomboid data folder is inside the folder being deleted", () => {
+    // split-derivation sweep, 2026-09-07: this check now reads
+    // targetServer.zomboidDataPath (the matched getServers() record) instead
+    // of serverManager.savePath -- the latter reflects whichever server is
+    // currently active/loaded, not necessarily the server whose files are
+    // being deleted (see the delete-files-targets-a-non-active-server test
+    // above for the same class of bug on the stopped-check).
     it("refuses when zomboidDataPath is a subfolder of the install path being deleted", async () => {
       const dataDir = path.join(installDir, "ZomboidData");
       fs.mkdirSync(dataDir, { recursive: true });
-      serverManager.savePath = dataDir;
+      getServers.mockResolvedValue([
+        { id: 1, installPath: installDir, zomboidDataPath: dataDir },
+      ]);
 
       const handler = getDeleteFilesHandler();
       const response = createResponse();
@@ -282,7 +382,9 @@ describe("POST /api/server/delete-files safety guards", () => {
     });
 
     it("refuses when zomboidDataPath equals the install path being deleted", async () => {
-      serverManager.savePath = installDir;
+      getServers.mockResolvedValue([
+        { id: 1, installPath: installDir, zomboidDataPath: installDir },
+      ]);
 
       const handler = getDeleteFilesHandler();
       const response = createResponse();
@@ -299,7 +401,9 @@ describe("POST /api/server/delete-files safety guards", () => {
     it("still deletes when zomboidDataPath is a sibling, not nested (the default layout)", async () => {
       const siblingDataDir = `${installDir}_Data`;
       fs.mkdirSync(siblingDataDir, { recursive: true });
-      serverManager.savePath = siblingDataDir;
+      getServers.mockResolvedValue([
+        { id: 1, installPath: installDir, zomboidDataPath: siblingDataDir },
+      ]);
 
       const handler = getDeleteFilesHandler();
       const response = createResponse();
@@ -317,12 +421,104 @@ describe("POST /api/server/delete-files safety guards", () => {
       }
     });
 
-    it("still deletes when the active server has no savePath configured at all", async () => {
-      serverManager.savePath = null;
+    it("still deletes when the target server has no zomboidDataPath configured at all", async () => {
+      getServers.mockResolvedValue([
+        { id: 1, installPath: installDir, zomboidDataPath: null },
+      ]);
 
       const handler = getDeleteFilesHandler();
       const response = createResponse();
 
+      await handler(buildRequest({ confirm: true }), response);
+
+      expect(response.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true }),
+      );
+      expect(fs.existsSync(installDir)).toBe(false);
+    });
+  });
+
+  // steamcmd-routes-running-check card, second finding: this route did a
+  // recursive rmSync directly on installPath with no check for an
+  // in-progress SteamCMD operation at all -- unconditional, unlike /wipe's
+  // version of the same gap (only reachable if zomboidDataPath nests inside
+  // installPath). activeSteamOperations is the real, unmocked module here
+  // (module-level Map) -- these tests populate/clear it directly rather
+  // than mocking hasActiveSteamOperation(), so the real liveness/claim
+  // semantics are what's under test, not a description of them.
+  describe("refuses while a SteamCMD operation is active for this exact install path", () => {
+    afterEach(() => {
+      getActiveSteamOperations().clear();
+    });
+
+    it("refuses with 409 when POST /install or /steam-update has already claimed this path, and does not delete anything", async () => {
+      const normalizedPath = path.normalize(installDir).toLowerCase();
+      // No `pid` yet -- the real early-claim window, set before the child's
+      // pid is known (see activeSteamOperations.js's own comment on
+      // recordActiveSteamOperationPid). hasActiveSteamOperation() must
+      // treat this as active without needing a liveness probe.
+      getActiveSteamOperations().set(normalizedPath, {
+        type: "install",
+        startTime: Date.now(),
+      });
+
+      const handler = getDeleteFilesHandler();
+      const response = createResponse();
+      await handler(buildRequest({ confirm: true }), response);
+
+      expect(response.status).toHaveBeenCalledWith(409);
+      expect(response.json).toHaveBeenCalledWith(
+        expect.objectContaining({ code: "STEAM_OPERATION_IN_PROGRESS_PATH" }),
+      );
+      expect(fs.existsSync(installDir)).toBe(true);
+    });
+
+    it("refuses with 409 once a real pid is recorded and still alive, not just during the pid-less claim window", async () => {
+      const normalizedPath = path.normalize(installDir).toLowerCase();
+      // This test process's own pid -- guaranteed alive, so
+      // hasActiveSteamOperation()'s process.kill(pid, 0) liveness probe
+      // reports it as genuinely still running rather than self-healing it
+      // away as stale.
+      getActiveSteamOperations().set(normalizedPath, {
+        type: "steam-update",
+        startTime: Date.now(),
+        pid: process.pid,
+      });
+
+      const handler = getDeleteFilesHandler();
+      const response = createResponse();
+      await handler(buildRequest({ confirm: true }), response);
+
+      expect(response.status).toHaveBeenCalledWith(409);
+      expect(fs.existsSync(installDir)).toBe(true);
+    });
+
+    it("does not refuse once the operation has cleared -- proceeds normally", async () => {
+      const normalizedPath = path.normalize(installDir).toLowerCase();
+      getActiveSteamOperations().set(normalizedPath, {
+        type: "install",
+        startTime: Date.now(),
+      });
+      getActiveSteamOperations().delete(normalizedPath);
+
+      const handler = getDeleteFilesHandler();
+      const response = createResponse();
+      await handler(buildRequest({ confirm: true }), response);
+
+      expect(response.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true }),
+      );
+      expect(fs.existsSync(installDir)).toBe(false);
+    });
+
+    it("an active operation for a DIFFERENT path does not block deleting this one", async () => {
+      getActiveSteamOperations().set("z:\\some\\other\\unrelated\\path", {
+        type: "install",
+        startTime: Date.now(),
+      });
+
+      const handler = getDeleteFilesHandler();
+      const response = createResponse();
       await handler(buildRequest({ confirm: true }), response);
 
       expect(response.json).toHaveBeenCalledWith(

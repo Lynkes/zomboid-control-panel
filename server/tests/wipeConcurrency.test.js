@@ -5,9 +5,32 @@ vi.mock("../database/init.js", () => ({
   setSetting: vi.fn(),
   getSetting: vi.fn(),
   getActiveServer: vi.fn(),
+  getServers: vi.fn(async () => []),
 }));
 
+// steamcmd-routes-running-check, 2026-09-08: /steam-update's running-check
+// no longer reads `req.app.get("serverManager")` (Convention A, the
+// wrong-target check this card fixed) -- it now calls
+// checkSpecificServerStopped() via a throwaway ServerManager instance's real
+// host scan, same as /install and /quick-setup. The "fails closed on
+// ambiguous detection" tests below drive THIS mock now, not the req.app one.
+const scanHostForServerProcesses = vi.fn();
+vi.mock("../services/serverManager.js", async () => {
+  const actual = await vi.importActual("../services/serverManager.js");
+  return {
+    ...actual,
+    ServerManager: vi.fn().mockImplementation(function () {
+      this.scanHostForServerProcesses = scanHostForServerProcesses;
+    }),
+  };
+});
+
 const { default: router } = await import("../routes/server.js");
+const { getActiveServer } = await import("../database/init.js");
+getActiveServer.mockResolvedValue({
+  zomboidDataPath: null,
+  serverName: "servertest",
+});
 
 function createResponse() {
   const response = { status: vi.fn(), json: vi.fn() };
@@ -36,11 +59,25 @@ describe("POST /api/server/wipe concurrency guard", () => {
   it("rejects a second wipe that arrives while the first is still validating", async () => {
     let releaseRunningCheck;
     let checkCalls = 0;
+    // Signal, don't poll (f30b7558's fix for the sibling
+    // wipeVsStartLifecycleLock.test.js, same class): a `while` loop here
+    // would spin the microtask queue forever and hang the whole suite if a
+    // future await ever lands ahead of this suspension point without
+    // incrementing checkCalls -- with no indication in the trace of where it
+    // got stuck. An unresolved `await checkEntered` instead fails at the
+    // suite's timeout with `checkEntered` named, pointing straight at the
+    // precondition that stopped holding.
+    let checkEnteredResolve;
+    const checkEntered = new Promise((r) => {
+      checkEnteredResolve = r;
+    });
 
     const serverManager = {
       loadConfig: async () => {},
+      reloadConfig: async () => {},
       getServerProcessDetails: () => {
         checkCalls += 1;
+        checkEnteredResolve();
         // Suspend the first request inside its validation phase.
         if (checkCalls === 1) {
           return new Promise((resolve) => {
@@ -64,8 +101,9 @@ describe("POST /api/server/wipe concurrency guard", () => {
     const secondResponse = createResponse();
 
     const firstCall = handler(buildRequest(), firstResponse);
-    // Let the first request reach its await.
-    await Promise.resolve();
+    // Let the first request reach its suspension point inside
+    // getServerProcessDetails() before firing the second.
+    await checkEntered;
 
     await handler(buildRequest(), secondResponse);
 
@@ -78,6 +116,7 @@ describe("POST /api/server/wipe concurrency guard", () => {
   it("releases the guard so a later wipe is not blocked forever", async () => {
     const serverManager = {
       loadConfig: async () => {},
+      reloadConfig: async () => {},
       getServerProcessDetails: async () => ({
         running: true,
         scanFailed: false,
@@ -108,6 +147,7 @@ describe("POST /api/server/wipe fails closed when detection can't confirm the se
   it("refuses the wipe instead of assuming the server is stopped", async () => {
     const serverManager = {
       loadConfig: async () => {},
+      reloadConfig: async () => {},
       getServerProcessDetails: async () => ({
         running: false,
         scanFailed: true,
@@ -134,22 +174,20 @@ describe("POST /api/server/wipe fails closed when detection can't confirm the se
 });
 
 describe("POST /api/server/steam-update fails closed when detection can't confirm the server is stopped", () => {
-  const baseRequest = (serverManager) => ({
-    app: { get: (key) => (key === "serverManager" ? serverManager : undefined) },
+  const baseRequest = () => ({
+    app: { get: () => undefined },
     body: { steamcmdPath: "/opt/steamcmd", installPath: "/opt/pzserver" },
   });
 
   it("refuses the update when scanFailed is true, instead of assuming the server is stopped", async () => {
-    const serverManager = {
-      getServerProcessDetails: async () => ({
-        running: false,
-        scanFailed: true,
-      }),
-    };
+    scanHostForServerProcesses.mockReset().mockResolvedValue({
+      scanFailed: true,
+      matched: [],
+    });
 
     const handler = getSteamUpdateHandler();
     const response = createResponse();
-    await handler(baseRequest(serverManager), response);
+    await handler(baseRequest(), response);
 
     expect(response.status).toHaveBeenCalledWith(503);
     expect(response.json).toHaveBeenCalledWith(
@@ -158,15 +196,11 @@ describe("POST /api/server/steam-update fails closed when detection can't confir
   });
 
   it("refuses the update when the detection call throws, instead of continuing anyway", async () => {
-    const serverManager = {
-      getServerProcessDetails: async () => {
-        throw new Error("ps failed");
-      },
-    };
+    scanHostForServerProcesses.mockReset().mockRejectedValue(new Error("ps failed"));
 
     const handler = getSteamUpdateHandler();
     const response = createResponse();
-    await handler(baseRequest(serverManager), response);
+    await handler(baseRequest(), response);
 
     expect(response.status).toHaveBeenCalledWith(503);
     expect(response.json).toHaveBeenCalledWith(

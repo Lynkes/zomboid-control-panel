@@ -100,13 +100,14 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { PageHeader } from '@/components/PageHeader'
 // DropdownMenu imports available if needed
-import { serverApi, serverFilesApi, serversApi, panelBridgeApi, ApiError, SpawnPointsByProfession, SpawnRegion, SandboxData, ConfigTemplate } from '@/lib/api'
+import { serverApi, serverFilesApi, serversApi, panelBridgeApi, ApiError, SpawnPointsByProfession, SpawnRegion, SandboxData, ConfigTemplate, BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS } from '@/lib/api'
 import { resolveServerRunning } from '@/lib/serverStatus'
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { formatModSettingDescription, formatModSettingLabel } from '@/lib/modSettingsLabels'
 import { EmptyState } from '@/components/EmptyState'
 import { useAuth } from '@/contexts/AuthContext'
+import { useSocket } from '@/contexts/SocketContext'
 import { DisabledReason } from '@/components/DisabledReason'
 import {
   INI_SCHEMA,
@@ -217,6 +218,21 @@ export function isWorldSaveFailure(data: { persisted?: unknown } | null | undefi
   return data?.persisted === false
 }
 
+// server/routes/serverFiles.js's PUT /sandbox reads the SandboxVars.lua file
+// back after writing it specifically because a key with no matching line to
+// update was silently dropped while the route still reported success --
+// attached as `unpersistedKeys` when that happens. The route still returns
+// success:true (most of the save DID land), so this is a warning to surface
+// alongside the normal saved toast, not a replacement for it. Exported as a
+// pure predicate so the decision to warn is unit-testable without mounting
+// the whole page.
+export function getUnpersistedSandboxKeys(
+  data: { unpersistedKeys?: unknown } | null | undefined,
+): string[] | null {
+  const keys = data?.unpersistedKeys
+  return Array.isArray(keys) && keys.length > 0 ? (keys as string[]) : null
+}
+
 // server/routes/serverFiles.js's POST /templates/:id/apply tracks each write
 // as it actually lands, and attaches that as `partiallyApplied` on the 500
 // body when INI succeeded before Sandbox threw (the two settings groups are
@@ -226,6 +242,24 @@ export function isWorldSaveFailure(data: { persisted?: unknown } | null | undefi
 // of the template is now live on disk. Exported as a pure predicate so the
 // decision (partial-apply toast vs. generic failure toast) is unit-testable
 // without mounting the whole page.
+// server/routes/serverFiles.js's POST /templates/:id/apply can write BOTH
+// the INI and the Sandbox file in one call, and attaches a `backupWarnings`
+// ARRAY when either write's own backup failed -- one entry per file, so
+// both can fail independently and still both be reported. The globally-
+// handled `backupWarning` field (singular, a string; see api.ts's shared
+// response handler) is a DIFFERENT shape used by ~30 other config-writing
+// routes that only ever touch one file per call; that handler does not
+// know to look for this route's plural array, so without reading it here
+// explicitly, applying a template could overwrite both config files with
+// no safety copy and no warning at all. Exported as a pure predicate so
+// the decision to warn is unit-testable without mounting the whole page.
+export function getApplyTemplateBackupWarnings(
+  data: { backupWarnings?: unknown } | null | undefined,
+): string[] | null {
+  const warnings = data?.backupWarnings
+  return Array.isArray(warnings) && warnings.length > 0 ? (warnings as string[]) : null
+}
+
 export function getPartiallyAppliedFromApplyTemplateError(error: unknown): string[] | null {
   if (
     error instanceof ApiError &&
@@ -380,8 +414,14 @@ const IniSettingRow = memo(({
                 />
                 {(setting.min !== undefined || setting.max !== undefined) && (
                   <div className="text-xs text-muted-foreground/60 text-end mt-0.5">
+                    {/* bug-hunt-2026-09-08 (Arabic render pass): rangeMinMax's
+                        "{{min}} – {{max}}" is a bare-punctuation number pair,
+                        the exact bidi-vulnerable shape -- confirmed reversed
+                        in Arabic (a 1-100 field showed "100 - 1"). A lone
+                        min or max has no second number to reorder against,
+                        so those two branches don't need it. */}
                     {setting.min !== undefined && setting.max !== undefined
-                      ? t('row.rangeMinMax', { min: setting.min, max: setting.max })
+                      ? <bdi>{t('row.rangeMinMax', { min: setting.min, max: setting.max })}</bdi>
                       : setting.min !== undefined
                       ? t('row.rangeMin', { min: setting.min })
                       : t('row.rangeMax', { max: setting.max })}
@@ -584,7 +624,7 @@ export const SandboxSettingRow = memo(({
                 {(setting.min !== undefined || setting.max !== undefined) && (
                   <div className="text-xs text-muted-foreground/60 text-end mt-0.5">
                     {setting.min !== undefined && setting.max !== undefined
-                      ? t('row.rangeMinMax', { min: setting.min, max: setting.max })
+                      ? <bdi>{t('row.rangeMinMax', { min: setting.min, max: setting.max })}</bdi>
                       : setting.min !== undefined
                       ? t('row.rangeMin', { min: setting.min })
                       : t('row.rangeMax', { max: setting.max })}
@@ -1018,6 +1058,16 @@ export default function ServerConfig() {
   // isRemote-flag-fetched-independently pattern as Backups.tsx.
   const [activeServerRemote, setActiveServerRemote] = useState(false)
   const [activeServerName, setActiveServerName] = useState<string | null>(null)
+  // Set when activeServerChanged fires while this page has unsaved edits --
+  // GET/PUT /server-files/ini and /sandbox both resolve "the active server"
+  // fresh on the server per-request rather than taking a server id, so
+  // Save always writes to whichever server is active NOW, not whichever
+  // server's data is actually sitting in iniSettings/sandboxData. Loading
+  // fresh data on every activeServerChanged (like Settings.tsx does) would
+  // silently discard those edits instead; this blocks Save until the user
+  // explicitly reloads, so the choice to lose the edit is theirs, not a
+  // race between two browser tabs.
+  const [serverChangedSinceLoad, setServerChangedSinceLoad] = useState(false)
 
   // File browser state (for image path fields)
   const [fileBrowserOpen, setFileBrowserOpen] = useState(false)
@@ -1032,6 +1082,7 @@ export default function ServerConfig() {
 
   const { toast } = useToast()
   const confirm = useConfirm()
+  const socket = useSocket()
   const { can } = useAuth()
   // Whole-router gate on the server: server/routes/serverFiles.js applies
   // requirePermission("serverfiles.manage") to every route in the file, GET
@@ -1056,20 +1107,29 @@ export default function ServerConfig() {
     }
   }, [])
 
-  const loadData = async () => {
+  // 2026-09-08 (retry-stacking sweep, page 5 of 5): `manual` distinguishes
+  // this page's THREE human-initiated triggers (two Retry buttons on the
+  // error/server-changed banners, plus the page header's own Refresh
+  // button) from the mount effect -- see Servers.tsx's fetchServers() for
+  // the full reasoning. Sequential awaits, not Promise.all/allSettled --
+  // the first one to reject short-circuits the rest, so a persistent
+  // getPaths() failure alone is what the mount-vs-manual test can rely on.
+  const loadData = async (opts?: { manual?: boolean }) => {
+    const retries = opts?.manual ? { retries: 0 } : undefined
     setLoading(true)
+    setServerChangedSinceLoad(false)
     const active = await serversApi.getResolvedActive().catch(() => ({ server: null }))
     const isRemote = !!active.server?.isRemote
     setActiveServerRemote(isRemote)
     setActiveServerName(active.server?.name || active.server?.serverName || null)
     try {
       // Load paths info first
-      const paths = await serverFilesApi.getPaths()
+      const paths = await serverFilesApi.getPaths(retries)
       setPathsInfo(paths)
 
       // Load files that exist
       if (paths.exists.ini) {
-        const iniData = await serverFilesApi.getIni()
+        const iniData = await serverFilesApi.getIni(retries)
         const merged = mergeSchemaDefaults(iniData.settings)
         setIniSettings(merged)
         setOriginalIniSettings(merged)
@@ -1077,18 +1137,18 @@ export default function ServerConfig() {
       }
 
       const sandboxRes = paths.exists.sandbox
-        ? await serverFilesApi.getSandbox()
+        ? await serverFilesApi.getSandbox(retries)
         : { sandbox: createSandboxDefaults() }
       setSandboxData(sandboxRes.sandbox)
       setOriginalSandboxData(sandboxRes.sandbox)
 
       if (paths.exists.spawnpoints) {
-        const spawnRes = await serverFilesApi.getSpawnPoints()
+        const spawnRes = await serverFilesApi.getSpawnPoints(retries)
         setSpawnPoints(spawnRes.spawnpoints)
       }
 
       if (paths.exists.spawnregions) {
-        const regionsRes = await serverFilesApi.getSpawnRegions()
+        const regionsRes = await serverFilesApi.getSpawnRegions(retries)
         setSpawnRegions(regionsRes.spawnregions)
       }
       setLoadError(null)
@@ -1199,6 +1259,30 @@ export default function ServerConfig() {
     return JSON.stringify(sandboxData) !== JSON.stringify(originalSandboxData)
   }, [editorMode, activeTab, rawContent, originalRawContent, sandboxData, originalSandboxData])
 
+  // GET/PUT /server-files/ini and /sandbox both resolve "the active server"
+  // fresh per-request rather than taking a server id (see loadData() and
+  // handleSaveIni/handleSaveSandbox), so if the active server changes while
+  // this page is open, Save would silently write the loaded server's data
+  // onto whichever server is active now. With no unsaved edits it's safe to
+  // just reload, matching every other page's activeServerChanged handler
+  // (Settings.tsx, Dashboard.tsx, Servers.tsx, WorldMap.tsx, Layout.tsx);
+  // with unsaved edits, reloading would silently discard them instead, so
+  // this blocks Save and surfaces a banner instead of choosing for the user.
+  useEffect(() => {
+    if (!socket) return
+    const handleActiveServerChanged = () => {
+      if (hasIniChanges || hasSandboxChanges) {
+        setServerChangedSinceLoad(true)
+      } else {
+        loadData()
+      }
+    }
+    socket.on('activeServerChanged', handleActiveServerChanged)
+    return () => {
+      socket.off('activeServerChanged', handleActiveServerChanged)
+    }
+  }, [socket, hasIniChanges, hasSandboxChanges]) // eslint-disable-line react-hooks/exhaustive-deps -- loadData is mount-stable, not a dep
+
   // Warn before leaving with unsaved changes
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => { e.preventDefault() }
@@ -1256,7 +1340,18 @@ export default function ServerConfig() {
     setModSettingsLoading(true)
     setModSettingsError(null)
     try {
-      const response = await panelBridgeApi.sendCommand('getAllSandboxOptions', {}) as {
+      // getAllSandboxOptions enumerates every sandbox option server-wide
+      // (vanilla + every mod's contributed settings) with no chunking on the
+      // mod side, and its cache goes cold on restart, on any admin sandbox
+      // change, or after any 5-minute idle gap -- so a cold run on a
+      // heavily-modded server can legitimately take longer than a generic
+      // API call. Use the slow-enumeration timeout (comfortably above the
+      // server's own worst-case commandTimeoutMs, see api.ts) so that if the
+      // bridge genuinely can't answer in time, the SERVER's own honest
+      // timeout response wins the race and reaches the user here -- instead
+      // of our own client abort firing first with a generic, misleading
+      // "check your connection".
+      const response = await panelBridgeApi.sendCommand('getAllSandboxOptions', {}, { timeout: BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS }) as {
         success?: boolean
         data?: {
           options: Record<string, Array<{
@@ -1493,6 +1588,14 @@ export default function ServerConfig() {
   }, [fileBrowserSelected, fileBrowserKey])
 
   const handleSaveIni = async () => {
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.error'),
+        description: t('toasts.serverChangedSinceLoad'),
+        variant: 'destructive',
+      })
+      return
+    }
     setSaving(true)
     try {
       if (invalidIniSettings.length > 0) {
@@ -1543,6 +1646,14 @@ export default function ServerConfig() {
   }
 
   const handleSaveSandbox = async () => {
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.error'),
+        description: t('toasts.serverChangedSinceLoad'),
+        variant: 'destructive',
+      })
+      return
+    }
     setSaving(true)
     try {
       if (editorMode === 'structured' && invalidSandboxSettings.length > 0) {
@@ -1582,10 +1693,27 @@ export default function ServerConfig() {
           }
         })
 
-        await serverFilesApi.saveSandbox(cleanData)
+        const sandboxSaveResult = await serverFilesApi.saveSandbox(cleanData)
         // Update local state to match sanitized data
         setSandboxData(cleanData)
         setOriginalSandboxData(cleanData)
+
+        // The server verifies this write by reading the file back (see its
+        // own comment on this route) specifically because a key with no
+        // matching line to update is silently dropped otherwise -- that
+        // read-back is inert unless something on this end actually surfaces
+        // it, so without this the operator still saw a plain "Saved" toast
+        // for a save that partially failed.
+        const unpersistedKeys = getUnpersistedSandboxKeys(sandboxSaveResult)
+        if (unpersistedKeys) {
+          toast({
+            title: t('toasts.someSandboxKeysNotSavedTitle'),
+            description: t('toasts.someSandboxKeysNotSavedDesc', {
+              keys: unpersistedKeys.join(', '),
+            }),
+            variant: 'destructive',
+          })
+        }
       }
 
       toast({ title: t('toasts.savedTitle'), description: t('toasts.savedRestartToApply') })
@@ -1892,6 +2020,16 @@ export default function ServerConfig() {
         title: t('toasts.appliedTitle'),
         description: result.message
       })
+      const backupWarnings = getApplyTemplateBackupWarnings(result)
+      if (backupWarnings) {
+        toast({
+          title: t('toasts.applyTemplateBackupWarningTitle'),
+          description: t('toasts.applyTemplateBackupWarningDesc', {
+            warnings: backupWarnings.join(' '),
+          }),
+          variant: 'destructive',
+        })
+      }
       setShowTemplates(false)
       loadData() // Reload the config data
     } catch (error) {
@@ -2155,7 +2293,7 @@ export default function ServerConfig() {
             <AlertTitle>{t('loadErrorTitle')}</AlertTitle>
             <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <span className="min-w-0 break-words" dir="auto" title={loadError}>{loadError}</span>
-              <Button variant="outline" size="sm" onClick={loadData} className="self-start">
+              <Button variant="outline" size="sm" onClick={() => loadData({ manual: true })} className="self-start">
                 <RefreshCw className="me-2 h-4 w-4" /> {t('retry')}
               </Button>
             </AlertDescription>
@@ -2190,6 +2328,21 @@ export default function ServerConfig() {
         </div>
       )}
 
+      {serverChangedSinceLoad && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>{t('serverChangedBanner.title')}</AlertTitle>
+          <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span className="min-w-0 break-words">
+              {t('serverChangedBanner.desc')}
+            </span>
+            <Button variant="outline" size="sm" onClick={() => loadData({ manual: true })} className="self-start">
+              <RefreshCw className="me-2 h-4 w-4" /> {t('retry')}
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
       <PageHeader
         title={t('pageHeader.title')}
         description={t('pageHeader.description')}
@@ -2210,7 +2363,7 @@ export default function ServerConfig() {
             <Button variant="command" size="sm" className="h-9 gap-1.5 text-xs font-medium" onClick={loadBackups}>
               <History className="h-3.5 w-3.5" /> {t('pageHeader.backups')}
             </Button>
-            <Button variant="command" size="sm" className="h-9 gap-1.5 text-xs font-medium" onClick={loadData}>
+            <Button variant="command" size="sm" className="h-9 gap-1.5 text-xs font-medium" onClick={() => loadData({ manual: true })}>
               <RefreshCw className="h-3.5 w-3.5" /> {t('pageHeader.refresh')}
             </Button>
           </div>
@@ -2471,7 +2624,7 @@ export default function ServerConfig() {
                   >
                     <ExternalLink className="h-3 w-3" /> {t('editorToolbar.wiki')}
                   </a>
-                  <Button onClick={handleSaveIni} disabled={saving || !hasIniChanges || invalidIniSettings.length > 0} variant="command" size="sm" className="h-7 gap-1.5 text-xs font-medium">
+                  <Button onClick={handleSaveIni} disabled={saving || !hasIniChanges || invalidIniSettings.length > 0 || serverChangedSinceLoad} variant="command" size="sm" className="h-7 gap-1.5 text-xs font-medium">
                     {saving ? (
                       <Loader2 className="h-3 w-3 animate-spin" />
                     ) : (
@@ -2623,10 +2776,10 @@ export default function ServerConfig() {
                     </ScrollArea>
                   ) : (
                     // Rail mode: vertical category nav (grouped) + single active category content
-                    <div className="grid gap-0 md:grid-cols-[252px_minmax(0,1fr)] rtl:md:grid-cols-[minmax(0,1fr)_252px]">
+                    <div className="grid gap-0 md:grid-cols-[252px_minmax(0,1fr)]">
                       <nav
                         aria-label={t('categoriesNav.iniAria')}
-                        className="-mx-2 flex flex-col gap-0.5 px-2 pb-2 md:mx-0 md:order-1 md:border-e md:border-border/50 md:pb-0 md:pe-3 md:pt-1 md:max-h-[calc(100vh-420px)] md:min-h-[360px] md:overflow-y-auto rtl:md:order-2"
+                        className="-mx-2 flex flex-col gap-0.5 px-2 pb-2 md:mx-0 md:order-1 md:border-e md:border-border/50 md:pb-0 md:pe-3 md:pt-1 md:max-h-[calc(100vh-420px)] md:min-h-[360px] md:overflow-y-auto"
                       >
                         <div className="hidden md:flex items-center justify-between px-3 pb-1">
                           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
@@ -2734,7 +2887,7 @@ export default function ServerConfig() {
                           )
                         })()}
                       </nav>
-                      <ScrollArea className="h-[calc(100vh-420px)] min-h-[360px] md:ps-5 pe-4 md:order-2 rtl:md:order-1">
+                      <ScrollArea className="h-[calc(100vh-420px)] min-h-[360px] md:ps-5 pe-4 md:order-2">
                         {(() => {
                           if (activeIniCategory === 'uncategorized') {
                             if (uncategorizedIniKeys.length === 0) {
@@ -2892,7 +3045,7 @@ export default function ServerConfig() {
                   >
                     <ExternalLink className="h-3 w-3" /> {t('editorToolbar.wiki')}
                   </a>
-                  <Button onClick={handleSaveSandbox} disabled={saving || !hasSandboxChanges || invalidSandboxSettings.length > 0} variant="command" size="sm" className="h-7 gap-1.5 text-xs font-medium">
+                  <Button onClick={handleSaveSandbox} disabled={saving || !hasSandboxChanges || invalidSandboxSettings.length > 0 || serverChangedSinceLoad} variant="command" size="sm" className="h-7 gap-1.5 text-xs font-medium">
                     {saving ? (
                       <Loader2 className="h-3 w-3 animate-spin" />
                     ) : (
@@ -3029,10 +3182,10 @@ export default function ServerConfig() {
                     </ScrollArea>
                   ) : (
                     // Rail mode: vertical category nav (grouped) + single active category content
-                    <div className="grid gap-0 md:grid-cols-[252px_minmax(0,1fr)] rtl:md:grid-cols-[minmax(0,1fr)_252px]">
+                    <div className="grid gap-0 md:grid-cols-[252px_minmax(0,1fr)]">
                       <nav
                         aria-label={t('categoriesNav.sandboxAria')}
-                        className="-mx-2 flex flex-col gap-0.5 px-2 pb-2 md:mx-0 md:order-1 md:border-e md:border-border/50 md:pb-0 md:pe-3 md:pt-1 md:max-h-[calc(100vh-420px)] md:min-h-[360px] md:overflow-y-auto rtl:md:order-2"
+                        className="-mx-2 flex flex-col gap-0.5 px-2 pb-2 md:mx-0 md:order-1 md:border-e md:border-border/50 md:pb-0 md:pe-3 md:pt-1 md:max-h-[calc(100vh-420px)] md:min-h-[360px] md:overflow-y-auto"
                       >
                         <div className="hidden md:flex items-center justify-between px-3 pb-1">
                           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
@@ -3139,7 +3292,7 @@ export default function ServerConfig() {
                           )
                         })()}
                       </nav>
-                      <ScrollArea className="h-[calc(100vh-420px)] min-h-[360px] md:ps-5 pe-4 md:order-2 rtl:md:order-1">
+                      <ScrollArea className="h-[calc(100vh-420px)] min-h-[360px] md:ps-5 pe-4 md:order-2">
                         {(() => {
                           if (activeSandboxCategory === 'uncategorized') {
                             if (uncategorizedSandboxKeys.length === 0) {
@@ -3697,11 +3850,17 @@ export default function ServerConfig() {
                 <ScrollArea className="h-[calc(100vh-440px)] min-h-[400px] pe-4">
                   <div className="mb-3 flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
                     <Badge variant="secondary">
-                      {modSettingsSearch || modSettingsModifiedOnly ? `${filteredModGroups.length} / ${modSettingsGroups.length}` : modSettingsGroups.length} {t('modSettingsTab.groupsBadge')}
+                      {/* bug-hunt-2026-09-08 (Arabic render pass, dwight): same
+                          "number / number" bidi-neutral-run reversal as
+                          6a6e26ee/09040e60/Debug.tsx -- confirmed with a real
+                          Chromium render (not assumed): the internal digit
+                          pair reverses here too once it sits next to the
+                          Arabic label text. <bdi> isolates it. */}
+                      {modSettingsSearch || modSettingsModifiedOnly ? <bdi>{`${filteredModGroups.length} / ${modSettingsGroups.length}`}</bdi> : modSettingsGroups.length} {t('modSettingsTab.groupsBadge')}
                     </Badge>
                     <Badge variant="secondary">
                       {modSettingsSearch || modSettingsModifiedOnly
-                        ? `${filteredModGroups.reduce((s, g) => s + g.filteredOpts.length, 0)} / ${modSettingsGroups.reduce((s, g) => s + g.count, 0)}`
+                        ? <bdi>{`${filteredModGroups.reduce((s, g) => s + g.filteredOpts.length, 0)} / ${modSettingsGroups.reduce((s, g) => s + g.count, 0)}`}</bdi>
                         : modSettingsGroups.reduce((s, g) => s + g.count, 0)
                       } {t('modSettingsTab.optionsBadge')}
                     </Badge>
@@ -3897,7 +4056,7 @@ export default function ServerConfig() {
                                       )}
                                       {opt.min !== undefined && opt.max !== undefined && (
                                         <span className="text-xs text-muted-foreground/60 whitespace-nowrap">
-                                          {opt.min}–{opt.max}
+                                          <bdi>{opt.min}–{opt.max}</bdi>
                                         </span>
                                       )}
                                       {isModified && (
@@ -3999,7 +4158,7 @@ export default function ServerConfig() {
               variant="command"
               size="sm"
               onClick={activeTab === 'ini' ? handleSaveIni : handleSaveSandbox}
-              disabled={saving || (activeTab === 'ini' ? invalidIniSettings.length > 0 : invalidSandboxSettings.length > 0)}
+              disabled={saving || serverChangedSinceLoad || (activeTab === 'ini' ? invalidIniSettings.length > 0 : invalidSandboxSettings.length > 0)}
               className="h-8 gap-1.5 text-xs font-medium"
             >
               {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}

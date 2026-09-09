@@ -110,6 +110,11 @@
     "description": "Tienes ediciones pendientes. Guarda los cambios para aplicarlos al panel en ejecución.",
     "saveButton": "Guardar cambios"
   },
+  "restartWait": {
+    "failedTitle": "The panel hasn't come back",
+    "failedDescription": "It's been a few minutes since the restart and the panel still isn't responding. It may still be starting (this can take longer than usual right after an update), or it may have failed to start. Check the panel's console/log output for errors before trying again.",
+    "checkAgain": "Check Again"
+  },
   "saveButton": {
     "saving": "Guardando…",
     "save": "Guardar ajustes",
@@ -207,7 +212,9 @@
     "expectedVersion": " Se esperaba la v{{version}}.",
     "stagedStillPresent": " El archivo descargado sigue en el disco; puedes reintentar el reinicio.",
     "stagedGone": " El binario preparado ha desaparecido: vuelve a descargar la actualización antes de reintentar.",
+    "stagedGoneAfterHandshakeFailure": " The staged update was applied, then automatically rolled back — re-downloading the same version will very likely fail the same way.",
     "likelyCauseLabel": "Causa probable:",
+    "startupHandshakeFailed": "the update applied successfully (the new version launched) but it exited before finishing startup, so the panel automatically rolled back to the previous version. This is not a missing or corrupted download — see the log below for the exact reason the new version exited.",
     "avQuarantine": "el antivirus o el Acceso controlado a carpetas eliminó el nuevo binario después de colocarlo.",
     "avExclusionHint": "Añade esta carpeta a las exclusiones de tu antivirus y reintenta:",
     "windowsDefenderLabel": "Windows Defender:",
@@ -219,6 +226,13 @@
     "helperBlockedRecoveryNote": "Start.bat elige automáticamente el binario más reciente, así que la actualización se aplicará. Para evitar esto en el futuro, añade la carpeta del panel a las exclusiones del antivirus.",
     "noHelperLogTitle": "No se escribió ningún registro auxiliar.",
     "noHelperLogDesc": "Es posible que la directiva de ejecución o el antivirus hayan bloqueado el script auxiliar. Consulta el historial de protección de Windows Defender.",
+    "rollbackFailedRetryWarning": "the automatic rollback did not fully complete. The panel is likely to retry this exact update again on the next restart and fail the same way, until this is cleared by hand.",
+    "rollbackFailedCosmetic": "the update rolled back successfully. One leftover file could not be removed automatically and is safe to delete by hand.",
+    "rollbackFailedRecoveryLabel": "Files to delete:",
+    "rollbackFailedRecoveryNote": "close this panel first, then delete these three files from the install folder below:",
+    "rollbackFailedRecoveryNoteCosmetic": "delete this file from the install folder below:",
+    "unknownCauseTitle": "Cause could not be determined automatically.",
+    "unknownCauseDesc": "The helper log doesn't match a known failure signature. See the log below for detail.",
     "showHelperLog": "Mostrar registro auxiliar",
     "refreshLog": "Actualizar registro",
     "couldNotReadLog": {
@@ -230,19 +244,23 @@
     "preflight": {
       "packagedBuildGit": "La actualización automática solo está disponible en versiones empaquetadas. En modo de desarrollo, descarga el código más reciente con git.",
       "packagedBuildDocker": "La actualización automática solo está disponible en versiones empaquetadas. Descarga la imagen más reciente y vuelve a crear el contenedor: docker compose pull && docker compose up -d.",
+      "dockerNotChecked": "Docker updates are applied by a separate update controller container. The panel does not run its own preflight checks (disk space, permissions, etc.) for this mode -- those are the controller's responsibility.",
       "noReleaseInfo": "Todavía no hay información de versión en caché. Haz clic primero en Buscar actualizaciones.",
-      "databaseUnreadable": "No se puede leer la base de datos del panel antes de actualizar: {{error}}.",
+      "databaseUnreadable": "No se puede leer la base de datos del panel antes de actualizar: {{error}}. Reinicia primero el panel: al iniciar, intenta recuperar automáticamente db.json desde sus propias copias de seguridad en data/backups.",
       "databaseMissing": "No se encontró data/db.json junto al panel en ejecución. Parece una instalación nueva; comprueba la carpeta de datos antes de aplicar la actualización.",
       "binaryMissing": "No se encontró ningún binario de {{platform}} en la última versión.",
       "folderNotWritableWindows": "Este proceso no puede escribir en la carpeta del panel: {{detail}}. Intenta ejecutar el panel como administrador o muévelo fuera de una carpeta protegida.",
       "folderNotWritableLinux": "Este proceso no puede escribir en la carpeta del panel: {{detail}}. Comprueba que el usuario del servicio sea propietario de la carpeta de instalación y pueda escribir en ella.",
       "folderNotWritableOther": "Este proceso no puede escribir en la carpeta del panel: {{detail}}. Comprueba los permisos de la carpeta de instalación para la cuenta que ejecuta el panel.",
+      "exeNotRenameable": "Windows no permite que este proceso renombre su propio archivo de programa. Intenta ejecutar el panel como administrador o muévelo fuera de una carpeta protegida.",
       "diskSpace": "No hay suficiente espacio libre. Se necesitan unos {{neededMb}} MB y hay {{freeMb}} MB disponibles.",
+      "diskSpaceUnknown": "Could not determine free disk space before update. Proceeding without this check -- verify you have enough free space manually if the apply fails partway through.",
       "oneDrive": "El panel está en una carpeta sincronizada con OneDrive. La sincronización puede bloquear brevemente el ejecutable al reemplazarlo. Pausa OneDrive antes de aplicar la actualización o mueve el panel a una ubicación no sincronizada (por ejemplo, C:\\ZomboidPanel).",
       "syncSuspect": "El panel está en el Escritorio o en Documentos. Si usas la copia de seguridad de OneDrive o Known Folder Move, esa carpeta está sincronizada y puede bloquear el ejecutable durante la aplicación. Considera mover el panel a una ubicación no sincronizada.",
       "programFiles": "El panel está instalado en Program Files. Windows necesita permisos de administrador para reemplazar archivos allí. Si la aplicación falla, vuelve a iniciar el panel como administrador.",
       "previousUpdateStaged": "Ya hay una actualización anterior (v{{version}}) preparada y lista para aplicarse en el próximo reinicio.",
-      "previousBackup": "Hay una copia de seguridad anterior (.old) junto al ejecutable. Se eliminará después de la próxima aplicación correcta."
+      "previousBackup": "Hay una copia de seguridad anterior (.old) junto al ejecutable. Se eliminará después de la próxima aplicación correcta.",
+      "downloadHostUnreachable": "No se pudo contactar con {{host}}, el host desde el que se descarga el binario de la actualización. Un firewall o proxy que permita comprobar actualizaciones pero bloquee este host provocará que la descarga falle aunque esta comprobación se haya superado."
     },
     "checkForUpdates": "Buscar actualizaciones",
     "applyingDockerUpdate": "Aplicando actualización de Docker…",
@@ -272,6 +290,7 @@
     "footerAutoUpdateDevMode": "La actualización automática solo funciona en compilaciones empaquetadas. En modo de desarrollo, actualiza desde git. ¿Se ejecuta en Docker sin el controlador de actualización configurado? Actualiza con docker compose pull && docker compose up -d.",
     "permissionDeniedWindows": "acceso denegado al escribir en la carpeta del panel. Vuelve a iniciar el panel como Administrador o muévelo fuera de Archivos de programa.",
     "permissionDeniedPosix": "acceso denegado al escribir en la carpeta del panel. Comprueba el propietario y los permisos de escritura del usuario del servicio del panel.",
+    "powershellUnavailable": "PowerShell parece estar bloqueado en este equipo (directiva de ejecución, AppLocker o directiva de grupo). El mecanismo de actualización depende de él para verificar y aplicar los archivos preparados. Pide a tu administrador que permita ejecutar powershell.exe para esta aplicación.",
     "helperLogHintWindows": "Si la nueva versión no vuelve a estar en línea en un minuto, revisa <code>{{path}}</code>. Los helpers antiguos también pueden dejar registros en <code>%TEMP%</code>.",
     "helperLogHintPosix": "Si la nueva versión no vuelve a estar en línea en un minuto, revisa <code>{{path}}</code>. En instalaciones con systemd, revisa también <code>journalctl -u zomboid-panel</code>.",
     "logPathUnavailable": "el directorio de registros del panel",
@@ -526,7 +545,8 @@
     "copiesKeptHelp": "Las exportaciones más antiguas se eliminan cuando un jugador supera este número. Restáuralas desde la página de Jugadores.",
     "loadFailedTitle": "No se pudieron cargar las copias de seguridad",
     "loadFailedDescription": "Esto no significa necesariamente que la lista esté vacía: la solicitud falló. Vuelve a abrir esta página para reintentarlo.",
-    "statusLoadFailed": "No se pudo comprobar si las copias de seguridad programadas están activas: este interruptor permanece desactivado hasta que cargue. Vuelve a abrir esta página para reintentarlo."
+    "statusLoadFailed": "No se pudo comprobar si las copias de seguridad programadas están activas: este interruptor permanece desactivado hasta que cargue. Vuelve a abrir esta página para reintentarlo.",
+    "backupsStored_many": "{{count}} copias de seguridad almacenadas"
   },
   "security": {
     "cardTitle": "Seguridad y autenticación",
@@ -800,7 +820,8 @@
       "cookiesFirstError": "Añade primero las cookies de Steam para escribir en la colección.",
       "sessionExpiredError": "Sesión de Steam caducada. Pega cookies nuevas arriba y vuelve a intentarlo.",
       "failedToReadCollection": "No se pudo leer la colección"
-    }
+    },
+    "inSync_many": "Sincronizado: {{count}} elementos"
   },
   "toasts": {
     "recoveryCodesGenerated": {

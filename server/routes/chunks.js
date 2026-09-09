@@ -1,6 +1,7 @@
 import express from "express";
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import { createLogger } from "../utils/logger.js";
 const log = createLogger("API:Chunks");
 import {
@@ -14,6 +15,10 @@ import { sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
 import { requirePermission, getRoleByName } from "../services/permissions.js";
 import { deleteVehiclesInBoxes } from "../utils/vehiclesDb.js";
 import { confineToRoots } from "../utils/browseRoots.js";
+import {
+  acquireLifecycleLock,
+  lifecycleInProgressResponse,
+} from "../services/lifecycleCoordinator.js";
 import {
   normalizeUserPath,
   getCandidateZomboidPaths,
@@ -250,6 +255,20 @@ async function getZomboidDataPath() {
   return normalizeUserPath(legacyPath) || null;
 }
 
+// bug-hunt-2026-09-06: identity companion to getZomboidDataPath() above --
+// stamps a scan (GET /chunks/:saveName) with which server it was resolved
+// against, and lets a later delete (POST /delete-chunks|delete-region)
+// re-check that identity hasn't moved by request time. Called independently
+// rather than threaded out of getZomboidDataPath() itself to avoid touching
+// that function's 6 existing call sites for a value only 3 of them need.
+// Legacy-settings-only setups (no server rows at all) resolve to null both
+// at scan and delete time -- there's only ever one path in play there, so
+// there's nothing for this check to protect against.
+async function getActiveServerId() {
+  const activeServer = await getActiveServer();
+  return activeServer?.id ?? null;
+}
+
 function resolveSavesPath(zomboidDataPath) {
   let savesPath = path.join(zomboidDataPath, "Saves", "Multiplayer");
 
@@ -280,31 +299,39 @@ function resolveCustomOrDefaultDataPath(customPath) {
   const cleaned = normalizeUserPath(customPath);
   if (!cleaned) return null;
   const normalized = path.resolve(cleaned);
+  // SECURITY (2026-09-05, env-var-expansion-oracle): normalizeUserPath()
+  // expands %VAR%/${VAR}/$VAR from the raw input. If the EXPANDED value
+  // (`normalized`) is echoed back here, a caller who only holds the
+  // delegable chunks.manage capability can read any process-environment
+  // secret (JWT_SECRET, RCON_PASSWORD, ...) one request at a time via
+  // customPath=%SECRET_NAME% — the failure message hands the expansion
+  // straight back. Every error below must echo the caller's raw literal
+  // (`customPath`), never `normalized`.
   if (!fs.existsSync(normalized)) {
     const error = new Error(
-      `Custom path does not exist: ${normalized}. ` +
+      `Custom path does not exist: ${customPath}. ` +
         `Check for typos and verify the panel has read access to this folder.`,
     );
     error.statusCode = 400;
-    error.details = { reason: "not-found", tried: normalized };
+    error.details = { reason: "not-found", tried: String(customPath) };
     throw error;
   }
   try {
     if (!fs.statSync(normalized).isDirectory()) {
-      const error = new Error(`Custom path is not a directory: ${normalized}`);
+      const error = new Error(`Custom path is not a directory: ${customPath}`);
       error.statusCode = 400;
-      error.details = { reason: "not-a-directory", tried: normalized };
+      error.details = { reason: "not-a-directory", tried: String(customPath) };
       throw error;
     }
   } catch (e) {
     if (e.statusCode) throw e;
     const error = new Error(
-      `Could not read custom path (${e.code || "error"}): ${normalized}`,
+      `Could not read custom path (${e.code || "error"}): ${customPath}`,
     );
     error.statusCode = 400;
     error.details = {
       reason: "stat-failed",
-      tried: normalized,
+      tried: String(customPath),
       errorCode: e.code,
     };
     throw error;
@@ -919,6 +946,12 @@ router.get("/chunks/:saveName", requirePermission("chunks.manage"), async (req, 
       });
     }
 
+    // Stamps this scan with the server it was actually resolved against
+    // (null for a customPath scan, which isn't server-scoped at all) so the
+    // client can round-trip it back on delete -- see getActiveServerId()'s
+    // own comment and CHUNKS_STALE_SERVER_SCAN below.
+    const resolvedServerId = customPath ? null : await getActiveServerId();
+
     // Resolve the saves path the same way as /saves
     let savesPath = resolveSavesPath(zomboidDataPath);
 
@@ -931,7 +964,7 @@ router.get("/chunks/:saveName", requirePermission("chunks.manage"), async (req, 
 
     if (!fs.existsSync(savePath)) {
       log.warn(`[ChunkCleaner] Save directory not found: ${savePath}`);
-      return res.json({ chunks: [], bounds: null });
+      return res.json({ chunks: [], bounds: null, resolvedServerId });
     }
 
     const chunks = [];
@@ -1203,6 +1236,7 @@ router.get("/chunks/:saveName", requirePermission("chunks.manage"), async (req, 
       limitReached: false,
       maxChunks: null,
       isB42,
+      resolvedServerId,
     });
   } catch (error) {
     // resolveCustomOrDefaultDataPath throws 400/403 for bad custom paths —
@@ -1220,6 +1254,29 @@ router.get("/chunks/:saveName", requirePermission("chunks.manage"), async (req, 
 
 // Delete selected chunks
 router.post("/delete-chunks", requirePermission("chunks.manage"), async (req, res) => {
+  // lifecycle-lock-set sweep, 2026-09-07: this route unlinks real chunk
+  // files (Pass 1 below) with no lock a concurrent /start could also see --
+  // only the stopped-check above, which only proves the server was stopped
+  // at the moment it ran. A /start landing after that check and before
+  // deletion finishes launches the JVM against a save mid-delete. Same shape
+  // as /wipe pre-bfc0e515 and /delete-files pre-dd1e44f1; same fix: take the
+  // process-wide lifecycleCoordinator lock for the whole handler, not just
+  // the stopped-check. Acquired unconditionally (not skipped by force=true)
+  // -- force only overrides "is the server currently running", a different
+  // question from "could a lifecycle op start while this one runs".
+  // Peeked here purely to give the lock a real server identity --
+  // req.body is already fully parsed by the time this handler runs, so this
+  // costs nothing extra and doesn't move the actual customPath/saveName
+  // handling below. null for a customPath delete: see getActiveServerId()'s
+  // own customPath bypass above -- no server identity applies to it, so
+  // normalize-lifecycle-lock-server-identifier leaves this one null rather
+  // than attributing the lock to whichever server merely happens to be
+  // active right now.
+  const lockServerId = req.body?.customPath ? null : await getActiveServerId();
+  const lifecycleLock = acquireLifecycleLock("delete-chunks", lockServerId);
+  if (!lifecycleLock) {
+    return res.status(409).json(lifecycleInProgressResponse());
+  }
   try {
     const {
       saveName,
@@ -1228,10 +1285,32 @@ router.post("/delete-chunks", requirePermission("chunks.manage"), async (req, re
       customPath = null,
       deleteVehicles = false,
       force = false,
+      expectedServerId = undefined,
     } = req.body;
     log.info(
       `POST /delete-chunks: saveName=${saveName}, chunkCount=${chunks?.length || 0}, createBackup=${createBackup}, deleteVehicles=${!!deleteVehicles}, force=${!!force}`,
     );
+
+    // bug-hunt-2026-09-06: defense in depth behind the client's own
+    // activeServerChanged handling (ChunkCleaner.tsx) -- deleteChunks takes
+    // no server id, so without this a switch-servers-mid-scan-then-delete
+    // deletes real chunk files off whatever server is active NOW, not the
+    // one the operator scanned. Checked BEFORE the force/running-check
+    // below and NOT bypassed by force:true -- force only overrides "is the
+    // target server running", a wholly different question from "is this
+    // even the right target server". Skipped when customPath is set: a
+    // customPath delete isn't server-scoped at all, so no server identity
+    // applies (matches getZomboidDataPath()'s own customPath bypass).
+    if (!customPath) {
+      const currentServerId = await getActiveServerId();
+      if (expectedServerId === undefined || expectedServerId !== currentServerId) {
+        return res.status(409).json({
+          error:
+            "The active server changed since these chunks were scanned. Refresh the save list and re-select chunks before deleting.",
+          code: ErrorCode.CHUNKS_STALE_SERVER_SCAN,
+        });
+      }
+    }
 
     // Refuse to mutate save files while the server is running — it will write
     // them back on shutdown and corrupt the save, or hold vehicles.db open
@@ -1417,10 +1496,22 @@ router.post("/delete-chunks", requirePermission("chunks.manage"), async (req, re
     // vehicles are being deleted) so the operation is fully reversible.
     let backupPath = null;
     if (createBackup) {
+      // No lock guards this route the way /wipe and restoreBackup() are
+      // guarded (see server.js's wipeInProgress / backupService.js's
+      // restoreInProgress) -- two concurrent delete-chunks requests for the
+      // SAME save (a double-submit, or two operators acting at once) reach
+      // here with nothing serializing them. Date.now() alone would give
+      // both the IDENTICAL backup directory; mkdirSync's recursive:true
+      // does not throw EEXIST, so both would silently share one directory
+      // and interleave/overwrite each other's chunk backups -- exactly the
+      // deletion this backup exists to make reversible would then have no
+      // reliable backup for whichever operation's files got overwritten.
+      // A random suffix, not a check-then-retry loop, closes this: two
+      // concurrent calls simply land in two different directories.
       backupPath = path.join(
         zomboidDataPath,
         "backups",
-        `${sanitizedSaveName}_chunks_${Date.now()}`,
+        `${sanitizedSaveName}_chunks_${Date.now()}-${crypto.randomBytes(4).toString("hex")}`,
       );
       await fs.promises.mkdir(backupPath, { recursive: true });
 
@@ -1650,11 +1741,22 @@ router.post("/delete-chunks", requirePermission("chunks.manage"), async (req, re
     res
       .status(error.statusCode || 500)
       .json({ error: sanitizeError(error.message) });
+  } finally {
+    lifecycleLock.release();
   }
 });
 
 // Delete chunks by region (x/y coordinate range)
 router.post("/delete-region", requirePermission("chunks.manage"), async (req, res) => {
+  // lifecycle-lock-set sweep, 2026-09-07: same finding and fix as
+  // delete-chunks above -- see its comment for the full rationale.
+  // See delete-chunks' matching comment above for why this is peeked before
+  // the lock and why customPath maps to null.
+  const lockServerId = req.body?.customPath ? null : await getActiveServerId();
+  const lifecycleLock = acquireLifecycleLock("delete-region", lockServerId);
+  if (!lifecycleLock) {
+    return res.status(409).json(lifecycleInProgressResponse());
+  }
   try {
     const {
       saveName,
@@ -1667,7 +1769,22 @@ router.post("/delete-region", requirePermission("chunks.manage"), async (req, re
       customPath = null,
       deleteVehicles = false,
       force = false,
+      expectedServerId = undefined,
     } = req.body;
+
+    // See the matching comment in delete-chunks above for the full
+    // rationale -- identical check, same reasons (not bypassed by
+    // force:true, skipped for a customPath delete).
+    if (!customPath) {
+      const currentServerId = await getActiveServerId();
+      if (expectedServerId === undefined || expectedServerId !== currentServerId) {
+        return res.status(409).json({
+          error:
+            "The active server changed since these chunks were scanned. Refresh the save list and re-select chunks before deleting.",
+          code: ErrorCode.CHUNKS_STALE_SERVER_SCAN,
+        });
+      }
+    }
 
     // Refuse to mutate save files while the server is running. See the
     // delete-chunks handler above for the full rationale and `force` escape
@@ -1969,13 +2086,15 @@ router.post("/delete-region", requirePermission("chunks.manage"), async (req, re
       });
     }
 
-    // Create backup if requested
+    // Create backup if requested. Same unguarded-double-submit risk as
+    // /delete-chunks' backup dir above -- see that one's comment; the fix
+    // is identical.
     let backupPath = null;
     if (createBackup) {
       backupPath = path.join(
         zomboidDataPath,
         "backups",
-        `${sanitizedSaveName}_region_${Date.now()}`,
+        `${sanitizedSaveName}_region_${Date.now()}-${crypto.randomBytes(4).toString("hex")}`,
       );
       await fs.promises.mkdir(backupPath, { recursive: true });
 
@@ -2162,6 +2281,8 @@ router.post("/delete-region", requirePermission("chunks.manage"), async (req, re
     res
       .status(error.statusCode || 500)
       .json({ error: sanitizeError(error.message) });
+  } finally {
+    lifecycleLock.release();
   }
 });
 

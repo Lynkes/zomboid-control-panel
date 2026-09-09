@@ -85,9 +85,13 @@ router.use(requirePermission('automation.manage'));
 //                                             only, deliberately not
 //                                             moderator)
 // requiredCapabilityForScheduledCommand() in services/scheduler.js is the
-// single source of truth for this mapping — both the checks below and
-// executeTask()'s own dispatch draw from it, so they can never silently
-// drift on what a given command needs.
+// single source of truth for this mapping — every check below (create,
+// edit-command, edit-enable, run-now) and executeTask()'s own dispatch all
+// draw from it, so they can never silently drift on what a given command
+// needs. (Was "both the checks below" when there were two call sites here;
+// the enabling-arms-a-stored-command fix below added a third, then a
+// fourth counting create -- exactly the enumeration-goes-stale-the-first-
+// time-someone-adds-a-path shape, caught while sweeping for it elsewhere.)
 //
 // This closes two related but DIFFERENT gaps found the same night:
 // docs/qa/kevin-adversarial-findings.md Finding 1 (raw commands reaching
@@ -315,8 +319,10 @@ router.post('/tasks', async (req, res) => {
     };
 
     // Schedule the task — rollback DB entry if scheduling fails
+    let scheduleResult;
     try {
-      if (scheduler.scheduleTask(task) === false) {
+      scheduleResult = scheduler.scheduleTask(task);
+      if (scheduleResult === false) {
         throw new Error("Scheduler rejected the task");
       }
     } catch (schedErr) {
@@ -329,7 +335,12 @@ router.post('/tasks', async (req, res) => {
       });
     }
 
-    res.json({ success: true, task });
+    // dstWarning (2026-09-05, scheduler-time-audit): non-null only for a
+    // sub-hourly (15-60 min) schedule in a DST-observing timezone -- already
+    // logged server-side by scheduleTask() itself. Surfaced here too so a
+    // future UI can show it without another server change (Scheduler.tsx
+    // reading this field is carded separately, not part of this fix).
+    res.json({ success: true, task, dstWarning: scheduleResult?.dstWarning || null });
   } catch (error) {
     log.error(`Failed to create scheduled task: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -359,11 +370,24 @@ router.put('/tasks/:id', async (req, res) => {
     if (command !== undefined && (typeof command !== 'string' || command.length > 2000)) {
       return res.status(400).json({ error: 'Invalid command (max 2000 characters)', code: ErrorCode.SCHEDULER_INVALID_COMMAND });
     }
+
+    // Fetched here (not just below, where the original code fetched it only
+    // for the merged-reschedule step) because the enabled-arming check right
+    // below needs the task's STORED command to classify -- see that check's
+    // own comment for why.
+    const tasksBeforeUpdate = await getScheduledTasks();
+    const previousTaskRecord = Array.isArray(tasksBeforeUpdate)
+      ? tasksBeforeUpdate.find((task) => String(task.id) === String(taskId))
+      : null;
+    const previousTask = previousTaskRecord
+      ? { ...previousTaskRecord }
+      : null;
+
     // Only gate on the command's required capability when THIS request is
-    // actually setting the command -- a caller who only toggles enabled/
-    // name/serverId on a task someone else created shouldn't need any
-    // particular capability just because that task's untouched, pre-existing
-    // command happens to need one.
+    // actually setting the command -- a caller who only toggles name/
+    // serverId on a task someone else created shouldn't need any particular
+    // capability just because that task's untouched, pre-existing command
+    // happens to need one.
     if (command !== undefined) {
       const allowed = await requireCapabilityInline(
         requiredCapabilityForScheduledCommand(command),
@@ -380,6 +404,31 @@ router.put('/tasks/:id', async (req, res) => {
     }
     const normalizedEnabled =
       enabled === undefined ? undefined : (enabled === true || enabled === 1 ? 1 : 0);
+
+    // Arming: turning a task on is what makes its STORED command fire later
+    // with no live user context to check against (the cron path is
+    // deliberately unchecked -- see the router-level comment). POST
+    // /tasks/:id/run's own comment names the two enforcement halves that
+    // close this class of escalation -- create/edit-time and run-now-time --
+    // but enabling a previously-created, currently-disabled task is a THIRD
+    // way to make a stored command live that neither half covers: it isn't
+    // editing `command` (skips the check above) and it isn't a manual
+    // run-now (skips that route's check too). Someone holding only
+    // automation.manage (required for this whole router, checked above) but
+    // not e.g. server.control could otherwise re-enable a restart/broadcast
+    // task someone else set up while they legitimately held that capability,
+    // and have it fire on schedule without ever holding it themselves.
+    // Skipped when `command` is ALSO in this request: already checked above
+    // against the fresh value, and re-checking against previousTask's STALE
+    // command here would check the wrong string.
+    if (command === undefined && normalizedEnabled === 1) {
+      const allowed = await requireCapabilityInline(
+        requiredCapabilityForScheduledCommand(previousTaskRecord?.command),
+        req,
+        res,
+      );
+      if (!allowed) return;
+    }
 
     // Validate cron expression before saving to prevent DB/scheduler inconsistency
     if (cronExpression && !cron.validate(cronExpression)) {
@@ -406,14 +455,6 @@ router.put('/tasks/:id', async (req, res) => {
       }
     }
 
-    const tasksBeforeUpdate = await getScheduledTasks();
-    const previousTaskRecord = Array.isArray(tasksBeforeUpdate)
-      ? tasksBeforeUpdate.find((task) => String(task.id) === String(taskId))
-      : null;
-    const previousTask = previousTaskRecord
-      ? { ...previousTaskRecord }
-      : null;
-
     const updated = await updateScheduledTask(taskId, name, cronExpression, command, normalizedEnabled, serverId);
     if (!updated) {
       return res.status(404).json({ error: 'Task not found', code: ErrorCode.SCHEDULER_TASK_NOT_FOUND });
@@ -422,6 +463,7 @@ router.put('/tasks/:id', async (req, res) => {
     // Reschedule from the merged record, not the request body: a partial update
     // (e.g. the enable/disable toggle) would otherwise re-arm the job without
     // its pinned server and run it against whichever server is active.
+    let dstWarning = null;
     if (updated.enabled) {
       try {
         const scheduled = scheduler.scheduleTask({
@@ -435,6 +477,9 @@ router.put('/tasks/:id', async (req, res) => {
         if (scheduled === false) {
           throw new Error("Scheduler rejected the updated task");
         }
+        // 2026-09-05, scheduler-time-audit: same field POST /tasks returns,
+        // see that route's own comment.
+        dstWarning = scheduled?.dstWarning || null;
       } catch (schedErr) {
         log.error(`Failed to reschedule task ${taskId}, reverting DB: ${schedErr.message}`);
         if (previousTask) {
@@ -470,7 +515,7 @@ router.put('/tasks/:id', async (req, res) => {
       scheduler.cancelTask(taskId);
     }
 
-    res.json({ success: true, message: 'Task updated' });
+    res.json({ success: true, message: 'Task updated', dstWarning });
   } catch (error) {
     log.error(`Failed to update scheduled task: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });

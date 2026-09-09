@@ -36,6 +36,7 @@
     "inactive": "Inactif",
     "remote": "Distant",
     "updateAvailable": "Mise à jour disponible",
+    "updateStatusUnknown": "Update status unknown",
     "optionsAria": "Options pour {{name}}",
     "edit": "Modifier",
     "setActive": "Activer",
@@ -189,7 +190,8 @@
     "selectScannedConfigAria": "Utiliser le serveur détecté {{name}}",
     "discoverNoPermission": "Détecter ou rechercher des serveurs nécessite la permission servers.discover, que ce rôle ne possède pas.",
     "installPathPlaceholderWindows": "Chemin vers le dossier du serveur PZ contenant StartServer64.bat",
-    "installPathPlaceholderPosix": "Chemin vers le dossier du serveur PZ contenant start-server.sh"
+    "installPathPlaceholderPosix": "Chemin vers le dossier du serveur PZ contenant start-server.sh",
+    "foundServers_many": "{{count}} serveurs trouvés. Cliquez pour en sélectionner un :"
   },
   "editDialog": {
     "lifecycleProviderLabel": "Gestion du cycle de vie",
@@ -297,7 +299,9 @@
     "startUpdate": "Lancer la mise à jour",
     "done": "Terminé",
     "retry": "Réessayer",
-    "noPermission": "Mettre à jour ou vérifier les fichiers du serveur nécessite la permission server.install, que ce rôle ne possède pas."
+    "noPermission": "Mettre à jour ou vérifier les fichiers du serveur nécessite la permission server.install, que ce rôle ne possède pas.",
+    "stalledMessage": "This is taking longer than expected and the panel hasn't heard back from SteamCMD. It may still be running in the background. You can close this dialog and check the server status separately.",
+    "closeAnyway": "Close Anyway"
   },
   "clearInstallDialog": {
     "title": "Vider le dossier d'installation ?",
@@ -386,6 +390,7 @@
     "serverAddedTitle": "Serveur ajouté",
     "serverAddedDesc": "« {{name}} » ajouté au panneau",
     "addServerFailed": "Échec de l'ajout du serveur",
-    "detectionFailed": "Échec de la détection"
+    "detectionFailed": "Échec de la détection",
+    "serversFoundCount_many": "{{count}} serveurs trouvés"
   }
 }

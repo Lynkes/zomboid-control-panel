@@ -1,7 +1,6 @@
 import { spawn, exec, execFile } from "child_process";
 import path from "path";
 import fs from "fs";
-import os from "os";
 import net from "net";
 import { createLogger } from "../utils/logger.js";
 const log = createLogger("Server");
@@ -22,6 +21,7 @@ import {
   isManagedLifecycleProvider,
 } from "./linuxServiceLifecycle.js";
 import { hasActiveSteamOperation } from "./activeSteamOperations.js";
+import { listNonInternalIPv4Interfaces } from "../utils/networkInterfaces.js";
 
 const isWindows = process.platform === "win32";
 // How long a live-looked-up public IP is trusted before re-checking.
@@ -70,6 +70,35 @@ export function classifyProcessKillError(error) {
   }
 
   return "failed";
+}
+
+// GH #147, second symptom: a real user's SteamCMD install failed with
+// "Missing file permissions" because SteamCMD writes its OWN client state
+// ($HOME/Steam) separately from the game files at `+force_install_dir`, and
+// the bundled systemd unit's `ProtectHome=read-only` blocks that write
+// unconditionally (see server/routes/server.js's buildLinuxSteamCmdEnv,
+// the fix for the panel's own install/update SteamCMD calls, for the full
+// mechanism -- verified for real on a systemd host, not just reasoned
+// about). A separate Discord report is the same root from the other end:
+// a workshop folder SteamCMD "never produced," with the base server
+// already working -- Project Zomboid's dedicated server itself shells out
+// to its OWN SteamCMD internally at startup to sync `WorkshopItems=`, and
+// that child process inherits whatever env THIS spawn gives the JVM. If
+// the JVM inherits the same unmodified (and sandboxed) $HOME, its internal
+// SteamCMD call fails the identical way. Redirect it here too, into a
+// folder inside the server's own directory -- already required to be
+// writable, so it inherits whatever ReadWritePaths grant the operator's
+// install already needs, with no new configuration surface.
+export function buildLinuxServerHome(serverDir) {
+  const steamHome = path.join(serverDir, ".steamhome");
+  try {
+    fs.mkdirSync(steamHome, { recursive: true });
+  } catch (err) {
+    log.debug(
+      `Could not create SteamCMD HOME override at ${steamHome}: ${err.message}`,
+    );
+  }
+  return steamHome;
 }
 
 // Build LD_LIBRARY_PATH from server directory, filtering to only existing paths
@@ -395,6 +424,26 @@ function normalizePathForCompare(value) {
   return isWindows ? normalized.toLowerCase() : normalized;
 }
 
+// A bare String.includes() lets "C:/Servers/MyServer" match inside
+// "C:/Servers/MyServer2/..." -- a real sibling install, not this one. Require
+// whatever comes right after the match (if anything) to actually end the
+// path segment, the same boundary confineToRoots() already checks for the
+// identical reason. cmd has already been through normalizePathForCompare, so
+// every separator is "/" and there's nothing left to also match on "\\".
+function pathAppearsInCommandLine(cmd, needle) {
+  if (!needle) return false;
+  let from = 0;
+  for (;;) {
+    const idx = cmd.indexOf(needle, from);
+    if (idx === -1) return false;
+    const after = cmd[idx + needle.length];
+    if (after === undefined || after === "/" || after === '"' || after === "'" || after === " ") {
+      return true;
+    }
+    from = idx + 1;
+  }
+}
+
 // Two supported ways to point the panel at a server -- an operator ruling,
 // not an accident (2026-08-27, user-report-servertest-ini-and-sandbox-
 // reverted-to-default-after-restart): MANAGED (a directory -- the panel
@@ -457,7 +506,7 @@ export function scoreServerProcessOwnership(commandLine, descriptor = {}) {
   }
 
   const installPath = normalizePathForCompare(descriptor.serverPath);
-  if (installPath && normalizePathForCompare(cmd).includes(installPath)) {
+  if (installPath && pathAppearsInCommandLine(normalizePathForCompare(cmd), installPath)) {
     score += 1;
   }
 
@@ -840,6 +889,19 @@ export class ServerManager {
       owned: resolved,
       scanFailed: Boolean(scan.scanFailed),
     };
+  }
+
+  // Public wrapper around the raw, unfiltered, host-wide scan for callers
+  // that need to judge MULTIPLE configured servers against one scan (e.g.
+  // servers.js's /status list) rather than getServerProcessDetails()'s own
+  // `matched`, which is already filtered down to (and capped/truncated for)
+  // whichever ONE server this instance's loadConfig() points at -- reusing
+  // that for every OTHER configured server silently made every non-active
+  // server's real running process invisible to the list page. Callers
+  // should attribute each returned candidate themselves via
+  // scoreServerProcessOwnership(candidate.cmd, descriptor) per server.
+  async scanHostForServerProcesses() {
+    return this._scanDedicatedServerProcesses();
   }
 
   // Raw OS scan: every Project Zomboid dedicated server process on this host,
@@ -1551,7 +1613,11 @@ export class ServerManager {
             cwd,
             detached: true,
             stdio: launchStdio,
-            env: { ...process.env, LD_LIBRARY_PATH: ldPath },
+            env: {
+              ...process.env,
+              LD_LIBRARY_PATH: ldPath,
+              HOME: buildLinuxServerHome(serverAbsPath),
+            },
           });
         } else {
           // Reached on Linux only for a no-extension custom command (the
@@ -1577,6 +1643,7 @@ export class ServerManager {
                 return {
                   ...process.env,
                   LD_LIBRARY_PATH: buildLdLibraryPath(serverAbsPath),
+                  HOME: buildLinuxServerHome(serverAbsPath),
                 };
               })();
           this.serverProcess = spawn(resolvedCmd, args, {
@@ -1689,7 +1756,11 @@ export class ServerManager {
           cwd: this.serverPath,
           detached: true,
           stdio: launchStdio,
-          env: { ...process.env, LD_LIBRARY_PATH: ldPath },
+          env: {
+            ...process.env,
+            LD_LIBRARY_PATH: ldPath,
+            HOME: buildLinuxServerHome(serverAbsPath),
+          },
         });
       }
       this._closeLaunchLogFd();
@@ -1805,20 +1876,22 @@ export class ServerManager {
     });
   }
 
-  async stopServer(
-    graceful = true,
-    { serverId = this._serverId } = {},
-  ) {
-    if (graceful) {
-      // This should be done via RCON 'quit' command
-      // This method is for force stopping
-      log.info("Graceful stop requested - use RCON quit command");
-      return {
-        success: true,
-        message: "Use RCON quit command for graceful shutdown",
-      };
-    }
-
+  // Force-stops the process/container this instance tracks. Graceful
+  // shutdown is a SEPARATE path (RCON 'quit', issued by the caller) --
+  // this used to also accept a `graceful` flag that, when true (the
+  // DEFAULT), skipped every check below and returned `{success:true}`
+  // without confirming anything or issuing any command at all. Every real
+  // call site already passed `false` explicitly (grepped server/ and
+  // client/src, zero exceptions), so the flag was reachable only via the
+  // most natural-looking call of all -- a bare `stopServer()` -- exactly
+  // the "confident answer with nothing confirmed" shape 63a32640 (OpenRC
+  // stop reporting `success:true, confirmed:true` with no stop issued) was
+  // fixed for. Removed by construction rather than documented as a trap:
+  // deleting is behaviour-preserving at every existing site since they all
+  // already pass `false`, and a real graceful-RCON-quit-from-here would be
+  // a new feature duplicating the RCON path that already exists (see
+  // managedContainer.js's header comment on the two mechanisms).
+  async stopServer({ serverId = this._serverId } = {}) {
     // startServer() already refuses outright when this._stopping is true
     // (see "Prevent start while a stop is still in flight" above) -- this
     // function only ever SET the flag, it never checked it on its OWN
@@ -2272,7 +2345,7 @@ export class ServerManager {
 
       // Force stop if still running
       if (processDetails.running) {
-        const forced = await this.stopServer(false);
+        const forced = await this.stopServer();
         if (!forced?.success || forced.confirmed === false) {
           throw new Error(
             `The old server process could not be stopped (${forced?.error || "unknown error"}), so it was not restarted`,
@@ -2431,18 +2504,12 @@ export class ServerManager {
 
   // All non-internal IPv4 addresses currently present on the host, e.g. one
   // per VPN mesh (Tailscale, ZeroTier) plus the real LAN adapter — so the
-  // Settings UI can offer a choice instead of the panel guessing.
+  // Settings UI can offer a choice instead of the panel guessing. Delegates
+  // to the shared utils/networkInterfaces.js implementation (2026-09-08)
+  // so server/utils/certs.js's SubjectAltName generation reuses this exact
+  // enumeration instead of a second one.
   listNetworkInterfaces() {
-    const interfaces = os.networkInterfaces();
-    const result = [];
-    for (const name of Object.keys(interfaces)) {
-      for (const iface of interfaces[name]) {
-        if (iface.family === "IPv4" && !iface.internal) {
-          result.push({ name, address: iface.address });
-        }
-      }
-    }
-    return result;
+    return listNonInternalIPv4Interfaces();
   }
 
   async getLocalIp() {

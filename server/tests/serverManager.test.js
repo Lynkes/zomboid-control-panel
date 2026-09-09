@@ -79,6 +79,25 @@ describe('ServerManager process ownership', () => {
 
     expect(scoreServerProcessOwnership(commandLine, serverA)).toBe(0);
   });
+
+  it('does not claim a sibling install whose name is a prefix of its own (no -servername present)', () => {
+    // serverA.serverPath is "C:\pz\a" -- a naive substring check on the
+    // normalized path would also match "C:\pz\ab", a real, different,
+    // sibling server folder that merely starts with the same characters.
+    const commandLine =
+      '"C:\\pz\\ab\\jre64\\bin\\java.exe" -cp pz.jar zombie.network.GameServer';
+
+    expect(scoreServerProcessOwnership(commandLine, serverA)).toBe(0);
+  });
+
+  it('still claims its own install path when followed by a real path separator or end of string', () => {
+    const trailingSlash =
+      '"C:\\pz\\a/jre64/bin/java.exe" -cp pz.jar zombie.network.GameServer';
+    const exactEnd = 'java -cp pz.jar zombie.network.GameServer -installdir "C:\\pz\\a"';
+
+    expect(scoreServerProcessOwnership(trailingSlash, serverA)).toBeGreaterThan(0);
+    expect(scoreServerProcessOwnership(exactEnd, serverA)).toBeGreaterThan(0);
+  });
 });
 
 describe('ServerManager detection with two servers on one host', () => {
@@ -194,13 +213,40 @@ describe('ServerManager status state', () => {
     });
     manager._killPids = async () => ({ timedOut: true });
 
-    const result = await manager.stopServer(false);
+    const result = await manager.stopServer();
 
     expect(result).toMatchObject({
       success: true,
       confirmed: false,
       timedOut: true,
     });
+  });
+
+  it('a bare stopServer() call with no arguments performs a real stop, not a no-op success', async () => {
+    // Regression guard for the removed `graceful = true` default: stopServer()
+    // used to take a boolean whose default skipped every check below and
+    // returned {success:true} without killing anything or confirming
+    // anything -- reachable via exactly this call shape, `stopServer()` with
+    // no arguments, which reads like "stop the server" and used to do
+    // nothing. Every real call site already passed `false` explicitly, so
+    // the parameter was deleted rather than documented; this proves the
+    // bare call now goes through the genuine kill path.
+    const manager = new ServerManager();
+    manager.serverName = 'ServerA';
+    manager.configLoaded = true;
+    manager.getServerProcessDetails = async () => ({
+      owned: [{ pid: '111' }],
+      scanFailed: false,
+    });
+    const killPids = vi.fn(async () => ({ timedOut: false, failed: false, errors: [] }));
+    manager._killPids = killPids;
+    manager._confirmProcessStopped = async () => true;
+
+    const result = await manager.stopServer();
+
+    expect(killPids).toHaveBeenCalledWith(['111']);
+    expect(result).toMatchObject({ success: true });
+    expect(manager.isRunning).toBe(false);
   });
 
   it('clears tracked process state when a graceful stop is accepted', () => {

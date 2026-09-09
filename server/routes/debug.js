@@ -13,6 +13,7 @@ import { getDiskFree } from "../utils/diskSpace.js";
 import { resolveLaunchMode } from "../services/serverManager.js";
 const log = createLogger("API:Debug");
 import { getDataPaths, setDataPaths } from "../utils/paths.js";
+import { isLockProtectionDisabled } from "../utils/pidLock.js";
 import {
   getPerformanceHistory,
   recordPerformanceSnapshot,
@@ -1610,14 +1611,15 @@ router.get("/logs/download-zip", requirePermission("diagnostics.manage"), async 
       log.warn(`Log zip warning: ${error.message}`);
     });
 
-    archive.on("error", (error) => {
+    const handleArchiveFailure = (error) => {
       log.error(`Failed to create log archive: ${error.message}`);
       if (!res.headersSent) {
         res.status(500).json({ error: "Failed to create log archive" });
       } else {
         res.destroy(error);
       }
-    });
+    };
+    archive.on("error", handleArchiveFailure);
 
     archive.pipe(res);
 
@@ -1647,10 +1649,15 @@ router.get("/logs/download-zip", requirePermission("diagnostics.manage"), async 
     archive.append(manifest, { name: "support-bundle-info.txt" });
 
     for (const entry of entries) {
-      archive.append(
-        fs.createReadStream(entry.filePath).pipe(createRedactingLogStream(knownSecrets)),
-        { name: entry.archivePath },
-      );
+      // pipe() does not forward 'error' from source to destination -- the
+      // raw read stream needs its own handler or a rotated/deleted/unreadable
+      // log file crashes the whole process instead of failing this request
+      // (same convention as backupService.js's restore-extraction path).
+      const entryStream = fs.createReadStream(entry.filePath);
+      entryStream.on("error", handleArchiveFailure);
+      archive.append(entryStream.pipe(createRedactingLogStream(knownSecrets)), {
+        name: entry.archivePath,
+      });
     }
 
     // ── Diagnostic JSON files (best-effort; collectors never throw) ──
@@ -2507,6 +2514,7 @@ export async function getServerProcessState(
 
   if (typeof serverManager.checkServerRunning === "function") {
     const running = await withTimeout(
+      // eslint-disable-next-line local/no-fail-open-check-server-running -- already fail-closed on its own terms: the typeof check below converts anything that isn't a real boolean into { running: null, scanFailed: true } before returning, and this function's only two callers are both read-only diagnostics routes in this file -- nothing destructive is gated on the result.
       Promise.resolve().then(() => serverManager.checkServerRunning()),
       timeoutMs,
       null,
@@ -4448,6 +4456,9 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
       );
     }
 
+    const lockProtectionCheck = buildLockProtectionCheck();
+    if (lockProtectionCheck) checks.push(lockProtectionCheck);
+
     try {
       const backupsDir = path.join(paths.dataDir, "backups");
       if (await safePathExists(backupsDir)) {
@@ -4931,6 +4942,15 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
         }
       }
 
+      if (panelUpdateChecker) {
+        const installDir = path.dirname(panelUpdateChecker.getExeBasePath());
+        const rollbackNoticeCheck = buildUpdateRollbackNoticeCheck(
+          installDir,
+          panelUpdateChecker.currentVersion,
+        );
+        if (rollbackNoticeCheck) checks.push(rollbackNoticeCheck);
+      }
+
       if (panelUpdateChecker?.updateAvailable) {
         const latest =
           panelUpdateChecker.latestRelease?.tag_name ||
@@ -5084,6 +5104,74 @@ async function detectSaveBuild(savePath) {
   if (rootEntries && rootEntries.some((e) => /^map_\d+_\d+\.bin$/.test(e)))
     return "b41";
   return "unknown";
+}
+
+// god's dispatch, 2026-09-08 (part 2 of the pidLock.js fix, ea286e15):
+// isLockProtectionDisabled() (utils/pidLock.js) is non-null only when
+// acquireLock() succeeded WITHOUT actually creating a lock, because the
+// data directory turned out to be one of the accepted read-only/access-
+// restricted cases -- previously logged once as a warn and never surfaced
+// again. "Fatal" is off the table (that specific case is a real, supported
+// deployment shape), so the only remaining lever is making the degraded
+// state persistently visible instead of silent -- exactly the pattern
+// nearly every other fix tonight followed: the panel telling the operator
+// something untrue (here, nothing at all) about its own state. Exported so
+// it can be unit tested directly rather than only reachable through the
+// full /diagnostics handler's many other dependencies.
+export function buildLockProtectionCheck() {
+  const disabled = isLockProtectionDisabled();
+  if (!disabled) return null;
+  return diagWarn(
+    "storage.lockProtection",
+    "Duplicate-instance protection is disabled",
+    `The panel could not create its startup lock file (${disabled.code}) and is running without protection against a second instance starting against the same data directory.`,
+    {
+      category: "storage",
+      hint: "This is expected on a deliberately read-only or access-restricted data directory. If that wasn't intentional, check permissions on the data directory; otherwise make sure your deployment only ever runs one panel instance at a time.",
+      params: { code: disabled.code },
+    },
+  );
+}
+
+// god's addition to Q3 (harden-updater, 2026-09-08): a presence-based
+// Linux rollback (build.js's generateStartSh(), rollback_failed_update())
+// can now fire silently -- the operator ends up running an OLDER version
+// than the one they installed with nothing telling them why, retries the
+// same update, and hits the same regression. rollback_failed_update()
+// leaves a durable breadcrumb (a plain `cp` of the update-bundle.json
+// journal, before removing it -- no bash-side JSON parsing needed, every
+// field the journal already had survives the copy) at a fixed path next to
+// the panel's own binary. This turns that breadcrumb into a Diagnostics
+// entry the operator will actually see when investigating "why didn't my
+// update take" -- exactly the symptom this whole feature exists to
+// prevent going unexplained. Exported so it can be unit tested directly,
+// matching buildLockProtectionCheck()'s convention above.
+export function buildUpdateRollbackNoticeCheck(installDir, currentVersion) {
+  const noticePath = path.join(installDir, ".update-rollback-notice.json");
+  let notice;
+  try {
+    notice = JSON.parse(fs.readFileSync(noticePath, "utf-8"));
+  } catch {
+    return null;
+  }
+  const failedVersion = notice?.version || "an update";
+  // currentVersion is what THIS process is actually running right now --
+  // by construction it can only be the restored build, since a version
+  // that successfully passed its own startup handshake would already have
+  // deleted this same notice file's source journal (acknowledgeUpdateBundle()).
+  // Always stated (never conditionally omitted) so the English fallback
+  // here matches the one fixed sentence the locale files render.
+  const resolvedCurrentVersion = currentVersion || "?";
+  return diagWarn(
+    "update.rollback",
+    "An update was automatically rolled back",
+    `Version ${failedVersion} failed to complete its startup handshake and was automatically reverted. You are currently running v${resolvedCurrentVersion}.`,
+    {
+      category: "updates",
+      hint: "This build likely has a real problem, not a one-off -- check logs/supervisor.log from around the time of the revert before retrying the same version. Delete .update-rollback-notice.json from the install folder to dismiss this notice.",
+      params: { version: failedVersion, currentVersion: resolvedCurrentVersion },
+    },
+  );
 }
 
 // Turns a scanSaveStats() result into the server.staleLocks diagnostics
@@ -5892,6 +5980,23 @@ router.post("/clear-stale-locks", requirePermission("diagnostics.manage"), async
 });
 
 // Get crash logs (hs_err files from Java crashes)
+// Shared shape check for both crash-log routes below: what actually counts
+// as a "crash log", not just "no .. or / or \". Used to gate GET
+// /crash-logs/:filename's arbitrary-read (a name-shaped blacklist alone
+// can't be made correct -- searchDirs below includes the PZ install ROOT,
+// so any non-crash-log file sitting there, e.g. a generated
+// StartServer_<name>.bat with -adminpassword in plaintext, was readable by
+// name) and kept identical to the enumeration below so the two routes never
+// disagree on what a crash log is.
+function isCrashLogFilename(file) {
+  return (
+    typeof file === "string" &&
+    (file.startsWith("hs_err_pid") ||
+      (file.includes("crash") && file.endsWith(".log")) ||
+      (file.includes("error") && file.endsWith(".log")))
+  );
+}
+
 router.get("/crash-logs", requirePermission("diagnostics.manage"), async (req, res) => {
   try {
     const serverManager = req.app.get("serverManager");
@@ -5933,11 +6038,7 @@ router.get("/crash-logs", requirePermission("diagnostics.manage"), async (req, r
             if (seenFiles.has(file)) return;
 
             // Match Java crash dumps and common crash log patterns
-            if (
-              file.startsWith("hs_err_pid") ||
-              (file.includes("crash") && file.endsWith(".log")) ||
-              (file.includes("error") && file.endsWith(".log"))
-            ) {
+            if (isCrashLogFilename(file)) {
               try {
                 const filePath = path.join(dir, file);
                 const stats = await fs.promises.stat(filePath);
@@ -5991,6 +6092,18 @@ router.get("/crash-logs/:filename", requirePermission("diagnostics.manage"), asy
       filename.includes("/") ||
       filename.includes("\\")
     ) {
+      return res.status(400).json({ error: "Invalid filename" });
+    }
+
+    // SECURITY (2026-09-05, crash-logs-arbitrary-read): the traversal check
+    // above only rejects a SHAPE of attack, not an untrusted TARGET -- it
+    // says nothing about which files under searchDirs are actually crash
+    // logs. searchDirs' first entry is the PZ install ROOT, so without this
+    // an authenticated caller holding only diagnostics.manage (not admin)
+    // could read any file there by name, e.g.
+    // GET /crash-logs/StartServer_<name>.bat, which embeds -adminpassword
+    // in plaintext -- confirmed live over HTTP before this fix.
+    if (!isCrashLogFilename(filename)) {
       return res.status(400).json({ error: "Invalid filename" });
     }
 

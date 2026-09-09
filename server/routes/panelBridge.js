@@ -23,7 +23,7 @@ import {
 import { sanitizeError, sanitizeErrorParams, isMaskedSecret } from "../utils/sanitize.js";
 import { getDataPaths } from "../utils/paths.js";
 import { persistSandboxValues } from "./serverFiles.js";
-import { requirePermission } from "../services/permissions.js";
+import { requirePermission, requireAnyPermission } from "../services/permissions.js";
 import { parseClampedInteger } from "../utils/queryNumbers.js";
 import {
   getEmbeddedPanelBridgeLua,
@@ -447,8 +447,21 @@ function isValidBridgePath(inputPath) {
 // -- same capability players.js uses for reading player details/status, and
 // held by all three default roles, so no legitimate caller loses access.
 
-// Get bridge status
-router.get("/status", async (req, res) => {
+// sweep-round5 (2026-09-07): the response still carries two host
+// filesystem paths that ARE genuinely displayed client-side (bridgePath,
+// statusFile.path -- both rendered in Settings.tsx's PanelBridge card;
+// three others that were never read anywhere -- cachePath, remotePath,
+// remoteDirectories -- were removed from the response entirely instead,
+// see services/panelBridgeSftp.js's getStatus()). "Displayed" is not
+// "public": gated to any role that could legitimately need to see basic
+// bridge connectivity -- the same two capabilities that already govern
+// configuring (bridge.setup) or diagnosing (bridge.diagnostics) it.
+// Matches the client-side check added alongside this (Settings.tsx only
+// fetches this route when the signed-in user holds one of the two).
+router.get(
+  "/status",
+  requireAnyPermission("bridge.setup", "bridge.diagnostics"),
+  async (req, res) => {
   const status = bridge.getStatus();
 
   // Also include detected paths and either local auto-install status or a
@@ -3749,11 +3762,24 @@ router.post("/character/import", requirePermission("players.gm_tools"), async (r
     const exportDir = path.join(dataDir, "exports", safeUsername);
     // codeql[js/path-injection] username is stripped to [a-zA-Z0-9_-] via safeUsername = username.replace(...) immediately above before being joined into this path.
     fs.mkdirSync(exportDir, { recursive: true });
+    // toISOString() is millisecond-resolution -- two imports for the same
+    // player landing in the same millisecond (a double-submit before the
+    // button disables, or a retried request) would otherwise make the
+    // second import's "recovery copy" silently overwrite the first, which
+    // is worse than the failure this snapshot exists to guard against: the
+    // route would still report success and the earlier pre-import state
+    // would just be gone. Same collision-suffix convention as
+    // autoExportPlayer() (server/index.js), which writes into this same
+    // exports/<username>/ directory.
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    snapshotPath = path.join(
-      exportDir,
-      `${safeUsername}_pre-import_${timestamp}.json`,
-    );
+    const snapshotBaseName = `${safeUsername}_pre-import_${timestamp}`;
+    snapshotPath = path.join(exportDir, `${snapshotBaseName}.json`);
+    for (let collision = 2; fs.existsSync(snapshotPath); collision++) {
+      snapshotPath = path.join(
+        exportDir,
+        `${snapshotBaseName}-${collision}.json`,
+      );
+    }
     fs.writeFileSync(
       // codeql[js/path-injection] username is stripped to [a-zA-Z0-9_-] via safeUsername = username.replace(...) immediately above before being joined into this path.
       snapshotPath,

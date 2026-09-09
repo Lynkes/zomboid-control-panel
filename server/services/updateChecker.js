@@ -10,6 +10,7 @@ import {
   hasActiveSteamOperation,
   getActiveSteamOperations,
   clearActiveSteamOperation,
+  recordActiveSteamOperationPid,
 } from "./activeSteamOperations.js";
 import { acquireLifecycleLock } from "./lifecycleCoordinator.js";
 
@@ -37,6 +38,19 @@ export class UpdateChecker {
     this.serverManager = serverManager;
     this.checkInterval = null;
     this.lastCheck = null;
+    // wrapper-bypass/sibling-instrumentation class sweep, 2026-09-08:
+    // panelUpdateChecker.js (the panel's own self-update checker, doing the
+    // structurally identical "fetch, compare, report" operation) already has
+    // this exact field for its own check flow. This class never adopted it,
+    // so checkForUpdates() ran unattended (an initial post-boot check, then
+    // an unconditional setInterval forever, both fire-and-forget) with every
+    // failure path logging server-side and returning null -- no signal ever
+    // reached an operator who wasn't the one person who happened to click
+    // "Check Now" at the exact moment it failed. Same clearing discipline as
+    // dockerClient.js's lastError: cleared on any check that reached a real
+    // answer (available or not), set only when the check itself couldn't
+    // produce one.
+    this.lastError = null;
     this.updateAvailable = null;
     this.gameVersion = null;
     this.isChecking = false;
@@ -410,6 +424,8 @@ export class UpdateChecker {
 
       if (!steamcmdPath || !serverPath) {
         log.debug("UpdateChecker: steamcmdPath or serverPath not configured");
+        this.lastError = "steamcmdPath or serverPath is not configured";
+        this.io.emit("server:updateCheckFailed", { lastError: this.lastError });
         this.isChecking = false;
         return null;
       }
@@ -418,6 +434,8 @@ export class UpdateChecker {
       const installed = await this.getInstalledBuildInfo(serverPath);
       if (!installed || !installed.buildId) {
         log.debug("UpdateChecker: Could not determine installed build");
+        this.lastError = "Could not determine the installed build (missing or unreadable appmanifest)";
+        this.io.emit("server:updateCheckFailed", { lastError: this.lastError });
         this.isChecking = false;
         return null;
       }
@@ -433,11 +451,14 @@ export class UpdateChecker {
       );
       if (!latest || !latest.buildId) {
         log.debug("UpdateChecker: Could not get latest build info from Steam");
+        this.lastError = "Could not get the latest build info from Steam (steamcmd query failed)";
+        this.io.emit("server:updateCheckFailed", { lastError: this.lastError });
         this.isChecking = false;
         return null;
       }
 
       this.lastCheck = new Date().toISOString();
+      this.lastError = null;
 
       // Compare build IDs (ensure base 10 parsing)
       const installedBuild = parseInt(installed.buildId, 10);
@@ -446,6 +467,8 @@ export class UpdateChecker {
       // Guard against NaN from invalid build IDs
       if (isNaN(installedBuild) || isNaN(latestBuild)) {
         log.warn("UpdateChecker: Invalid build ID format");
+        this.lastError = "Installed or latest build ID was not a valid number";
+        this.io.emit("server:updateCheckFailed", { lastError: this.lastError });
         this.isChecking = false;
         return null;
       }
@@ -509,6 +532,8 @@ export class UpdateChecker {
       return updateInfo;
     } catch (err) {
       log.error(`Update check failed: ${err.message}`);
+      this.lastError = err.message;
+      this.io.emit("server:updateCheckFailed", { lastError: this.lastError });
       this.isChecking = false;
       return null;
     } finally {
@@ -551,7 +576,19 @@ export class UpdateChecker {
   }
 
   async runAutoUpdate(updateInfo) {
-    const lifecycleLock = acquireLifecycleLock("automatic-update", this.serverManager?.serverName || null);
+    // normalize-lifecycle-lock-server-identifier, 2026-09-08: fetched before
+    // the lock (a pure DB read) rather than reading
+    // this.serverManager?.serverName -- a display name, and possibly a
+    // stale one if serverManager hadn't loaded any config yet. Safe to move
+    // ahead of the lock here (unlike scheduler.js's performRestart): this
+    // function is only ever invoked from a single setTimeout callback
+    // scheduleAutoUpdate() itself guards against double-scheduling
+    // (autoUpdateTimer/autoUpdateRunning, checked before the timer is even
+    // set), so there is no concurrent second call that an added await could
+    // let slip past a check-then-set guard the way performRestart's
+    // restartInProgress could.
+    const activeServer = await getActiveServer();
+    const lifecycleLock = acquireLifecycleLock("automatic-update", activeServer?.id ?? null);
     if (!lifecycleLock) {
       this.autoUpdateRunning = false;
       log.warn("Automatic update skipped because another lifecycle operation is in progress");
@@ -565,7 +602,7 @@ export class UpdateChecker {
     // thrown error can never leave a permanent claim, per the same
     // requirement as every other guarded spawn site.
     let normalizedInstallPath = null;
-    let targetServerId = null;
+    let targetServerId = activeServer?.id ?? null;
     // Tracks how far the job got, recorded on failure alongside a stable
     // reason key -- see the class doc comment on _recordAutoUpdateResult()
     // for why phase (not a per-reason serverUp guess) is the source of
@@ -596,8 +633,6 @@ export class UpdateChecker {
         log.info("Automatic server update cancelled because the setting was disabled");
         return;
       }
-      const activeServer = await getActiveServer();
-      targetServerId = activeServer?.id ?? null;
       const steamcmdPath = await getSetting("steamcmdPath");
       // Refuse a container-managed server outright. Its image owns the game
       // install, and the stop below would RCON-quit a process the container's
@@ -621,6 +656,31 @@ export class UpdateChecker {
         shouldRestart = true;
         phase = "before-stop";
         if (!this.rconService.connected) fail("RCON_NOT_CONNECTED", "RCON is not connected, so the server cannot be stopped safely");
+        // scheduleAutoUpdate()'s own warning announcement only fires ONCE,
+        // at the moment the update was first detected -- if RCON happened
+        // to be disconnected at that exact instant (a transient blip, not a
+        // sustained outage), the warning is silently skipped there (best-
+        // effort, matching this same "log and continue" posture) while the
+        // timer still runs to completion. If RCON has since reconnected by
+        // the time this line runs, the check above passes and the server
+        // gets stopped with players never having been warned at all --
+        // "silently drops connected players mid-session" is exactly the
+        // failure mode this whole feature exists to avoid. A second,
+        // immediate announcement right here, right before the actual save
+        // + quit, closes that gap regardless of what happened minutes ago,
+        // and also gives a final heads-up to anyone who missed or ignored
+        // the original N-minute warning. Best-effort, same as the other
+        // one -- a failed announcement must not abort an update that is
+        // otherwise safe to run.
+        try {
+          const announced = await this.rconService.serverMessage(
+            "Server is restarting now for an update.",
+            { skipLog: true },
+          );
+          if (!announced?.success) log.warn(`Could not announce imminent automatic update: ${announced?.error || "unknown error"}`);
+        } catch (error) {
+          log.warn(`Could not announce imminent automatic update: ${error.message}`);
+        }
         const saved = await this.rconService.save({ skipLog: true });
         if (!saved?.success) fail("SAVE_FAILED", `The world could not be saved (${saved?.error || "unknown error"}), so the update was abandoned rather than lose progress`, { reason: sanitizeError(saved?.error || "unknown error") });
         const quit = await this.rconService.quit();
@@ -689,11 +749,20 @@ export class UpdateChecker {
 
       let code;
       try {
-        code = await new Promise((resolve, reject) => {
-          const child = spawn(steamcmdExe, ["+force_install_dir", activeServer.installPath, ...loginArgs, "+app_update", "380870", ...branch, "validate", "+quit"], { cwd: steamcmdPath });
+        const child = spawn(steamcmdExe, ["+force_install_dir", activeServer.installPath, ...loginArgs, "+app_update", "380870", ...branch, "validate", "+quit"], { cwd: steamcmdPath });
+        // Listeners attached synchronously, in the same tick as spawn --
+        // 'error'/'close' can fire on any subsequent macrotask, so an
+        // await between spawn() and .once() here (e.g. persisting the pid
+        // first) risks losing an event that fires in that gap: an
+        // EventEmitter never buffers an event for a listener that wasn't
+        // there yet. The persistence write below runs concurrently with
+        // this promise instead, not before it.
+        const exitPromise = new Promise((resolve, reject) => {
           child.once("error", reject);
           child.once("close", resolve);
         });
+        await recordActiveSteamOperationPid(candidateInstallPath, child.pid);
+        code = await exitPromise;
       } finally {
         // Released as soon as SteamCMD itself is done, not tied to the
         // OUTER finally below -- that one also covers the (possibly slow)
@@ -849,6 +918,7 @@ export class UpdateChecker {
       updateAvailable: this.updateAvailable,
       gameVersion: this.gameVersion,
       lastCheck: this.lastCheck,
+      lastError: this.lastError,
       intervalMinutes: this.intervalMs / 60000,
       isChecking: this.isChecking,
       lastAutoUpdateResult: this.lastAutoUpdateResult,
