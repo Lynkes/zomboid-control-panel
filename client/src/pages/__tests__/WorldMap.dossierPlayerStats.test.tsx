@@ -138,6 +138,68 @@ async function setUp(players: Array<Record<string, unknown>>) {
 }
 
 describe('WorldMap.tsx dossier: hunger/thirst/fatigue from getServerInfo are actually rendered', () => {
+  it('searches and selects a map POI without requiring a live bridge', async () => {
+    await setUp([])
+
+    renderWorldMap()
+
+    const search = await screen.findByRole('textbox', { name: 'Search map places' })
+    await waitFor(() => expect(search).toBeEnabled())
+    expect(search).toHaveAttribute('maxLength', '120')
+    fireEvent.change(search, { target: { value: 'Louisville' } })
+
+    const results = await screen.findAllByRole('button', { name: /Louisville/i })
+    fireEvent.click(results[0])
+
+    expect(await screen.findByText('selected')).toBeInTheDocument()
+
+    fireEvent.change(search, { target: { value: 'Rosewood' } })
+    expect(screen.queryByText('selected')).not.toBeInTheDocument()
+  })
+
+  it('hides Build 42-only POIs when the active server is Build 41', async () => {
+    await setUp([])
+    getUpdateStatus.mockResolvedValue({ gameVersion: '41.78.16' } as Awaited<ReturnType<typeof updateApi.getStatus>>)
+
+    renderWorldMap()
+
+    const search = await screen.findByRole('textbox', { name: 'Search map places' })
+    await waitFor(() => expect(search).toBeDisabled())
+
+    expect(search).toHaveAttribute('placeholder', 'POIs unavailable on B41')
+    expect(screen.getByRole('combobox', { name: 'Filter place category' })).toBeDisabled()
+  })
+
+  it('shows an unavailable state when map detection fails', async () => {
+    await setUp([])
+    mapResolve.mockRejectedValue(new Error('map lookup failed'))
+
+    renderWorldMap()
+
+    const search = await screen.findByRole('textbox', { name: 'Search map places' })
+    await waitFor(() => expect(search).toHaveAttribute('placeholder', 'POIs unavailable'))
+    expect(search).toBeDisabled()
+
+    mapResolve.mockResolvedValue({
+      root: '/tiles',
+      b42Dir: 'b42',
+      b41Path: '/tiles/b41',
+      tileSize: 1024,
+      width: 1157312,
+      height: 509520,
+      maxLevel: 21,
+      renderedMaxLevel: 10,
+    })
+    const resolveCallsBeforeRetry = mapResolve.mock.calls.length
+    const statusCallsBeforeRetry = getUpdateStatus.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+
+    await waitFor(() => expect(getUpdateStatus).toHaveBeenCalledTimes(statusCallsBeforeRetry + 1))
+    await waitFor(() => expect(mapResolve).toHaveBeenCalledTimes(resolveCallsBeforeRetry + 1))
+    await waitFor(() => expect(search).toBeEnabled())
+    expect(search).toHaveAttribute('placeholder', 'Search places...')
+  })
+
   it('shows the real percentages for a player the bridge sent stats for', async () => {
     await setUp([{ name: 'Kate', x: 10000, y: 10000, hunger: 0.62, thirst: 0.18, fatigue: 0.4 }])
 

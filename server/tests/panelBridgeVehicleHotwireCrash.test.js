@@ -78,4 +78,14 @@ describe('PanelBridge.lua handlers.vehicleHotwire -- undefined-global crash on s
     expect(result.data.actions).toContain('hotwired');
     expect(result.data.actions).toContain('startEngine');
   });
+
+  it('does not claim success when no engine-start method works', () => {
+    const bridge = loadPanelBridge(LUA_PATH, STUBS + `
+FakeVehicle.startEngine = nil
+`);
+    const result = bridge.callHandler('vehicleHotwire', { vehicleId: 1 });
+
+    expect(result.ok).toBe(false);
+    expect(result.err).toMatch(/no engine-start method worked/);
+  });
 });

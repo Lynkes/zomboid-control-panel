@@ -241,6 +241,20 @@
     "title": "地图上没有玩家",
     "subtitle": "PanelBridge 连接后将显示玩家位置"
   },
+  "poi": {
+    "label": "兴趣点",
+    "selected": "已选择",
+    "searchPlaceholder": "搜索地点...",
+    "detectingMap": "正在检测地图...",
+    "unavailable": "兴趣点不可用",
+    "unavailableB41": "B41 不支持兴趣点",
+    "searchAria": "搜索地图地点",
+    "clearSearch": "清除地点搜索",
+    "categoryAria": "筛选地点类别",
+    "allCategories": "所有类别",
+    "noResults": "未找到地点",
+    "categories": { "town": "城镇", "medical": "医疗", "police": "警察", "fire": "消防", "gun": "武器", "shop": "商店", "gas": "加油站", "military": "军事", "landmark": "地标", "industrial": "工业" }
+  },
   "airdropPresets": {
     "military": {
       "label": "军事",

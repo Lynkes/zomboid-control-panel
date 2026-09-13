@@ -59,6 +59,32 @@ export function resolveTargetPath(server) {
   return installDir ? path.join(installDir, 'media', 'lua', 'server', 'PanelBridge.lua') : null;
 }
 
+function sourceModRoot(sourcePath) {
+  return sourcePath ? path.resolve(sourcePath, '..', '..', '..', '..') : null;
+}
+
+export function resolveClientSourcePath() {
+  const root = sourceModRoot(resolveSourcePath());
+  const candidate = root && path.join(root, 'media', 'lua', 'client', 'PanelBridgeClient.lua');
+  return candidate && fs.existsSync(candidate) ? candidate : null;
+}
+
+export function resolveManifestSourcePath() {
+  const root = sourceModRoot(resolveSourcePath());
+  const candidate = root && path.join(root, 'mod.info');
+  return candidate && fs.existsSync(candidate) ? candidate : null;
+}
+
+export function resolveClientTargetPath(server) {
+  const installDir = resolveInstallDir(server);
+  return installDir ? path.join(installDir, 'media', 'lua', 'client', 'PanelBridgeClient.lua') : null;
+}
+
+export function resolveManifestTargetPath(server) {
+  const installDir = resolveInstallDir(server);
+  return installDir ? path.join(installDir, 'mod.info') : null;
+}
+
 function isWritableDir(dirPath) {
   try {
     if (!fs.statSync(dirPath).isDirectory()) return false;
@@ -105,16 +131,36 @@ function readVersion(filePath) {
 export function checkBridgeInstalled(server) {
   const sourcePath = resolveSourcePath();
   const targetPath = resolveTargetPath(server);
+  const clientSourcePath = resolveClientSourcePath();
+  const clientTargetPath = resolveClientTargetPath(server);
+  const manifestSourcePath = resolveManifestSourcePath();
+  const manifestTargetPath = resolveManifestTargetPath(server);
   const installed = Boolean(targetPath && fs.existsSync(targetPath));
   const sourceContent = sourcePath ? readContent(sourcePath) : null;
   const targetContent = installed ? readContent(targetPath) : null;
+  const clientSourceContent = clientSourcePath ? readContent(clientSourcePath) : null;
+  const clientTargetContent = clientTargetPath && fs.existsSync(clientTargetPath) ? readContent(clientTargetPath) : null;
+  const manifestSourceContent = manifestSourcePath ? readContent(manifestSourcePath) : null;
+  const manifestTargetContent = manifestTargetPath && fs.existsSync(manifestTargetPath) ? readContent(manifestTargetPath) : null;
   const targetVersion = targetContent ? extractVersion(targetContent) : null;
   const needsUpdate = Boolean(
     installed && sourceContent !== null &&
-    (targetContent === null || targetContent !== sourceContent),
+    (targetContent === null || targetContent !== sourceContent
+      || (clientSourceContent !== null && clientTargetContent !== clientSourceContent)
+      || (manifestSourceContent !== null && manifestTargetContent !== manifestSourceContent)),
   );
 
-  return { installed, version: targetVersion, needsUpdate, sourcePath, targetPath };
+  return {
+    installed,
+    version: targetVersion,
+    needsUpdate,
+    sourcePath,
+    targetPath,
+    clientSourcePath,
+    clientTargetPath,
+    manifestSourcePath,
+    manifestTargetPath,
+  };
 }
 
 // Best-effort: match the copied file's ownership to the install directory's
@@ -131,9 +177,25 @@ function matchOwnership(targetPath, referencePath) {
   }
 }
 
+function writeAtomicText(targetPath, content) {
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  const tempPath = `${targetPath}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    fs.writeFileSync(tempPath, content, { mode: 0o644 });
+    fs.renameSync(tempPath, targetPath);
+  } catch (error) {
+    try { fs.unlinkSync(tempPath); } catch (_) { /* ignore */ }
+    throw error;
+  }
+}
+
 export function installBridge(server) {
   const sourcePath = resolveSourcePath();
   const targetPath = resolveTargetPath(server);
+  const clientSourcePath = resolveClientSourcePath();
+  const clientTargetPath = resolveClientTargetPath(server);
+  const manifestSourcePath = resolveManifestSourcePath();
+  const manifestTargetPath = resolveManifestTargetPath(server);
   if (!sourcePath) {
     return { success: false, error: 'PanelBridge source not found in panel install.' };
   }
@@ -143,6 +205,8 @@ export function installBridge(server) {
 
   try {
     const sourceContent = fs.readFileSync(sourcePath, 'utf8');
+    const clientSourceContent = clientSourcePath ? fs.readFileSync(clientSourcePath, 'utf8') : null;
+    const manifestSourceContent = manifestSourcePath ? fs.readFileSync(manifestSourcePath, 'utf8') : null;
     const sourceVersion = extractVersion(sourceContent);
     if (!sourceVersion) {
       return { success: false, error: 'PanelBridge source has no readable version.' };
@@ -154,13 +218,21 @@ export function installBridge(server) {
       // three unbumped fixes go undelivered) still needs to fall through to
       // the write below -- only true content equality short-circuits here.
       if (targetContent === sourceContent) {
-        return {
-          success: true,
-          targetPath,
-          version: sourceVersion,
-          updated: false,
-          message: `Existing PanelBridge v${sourceVersion} already matches the bundled version; left unchanged.`,
-        };
+        const clientMatches = !clientSourceContent || (clientTargetPath && fs.existsSync(clientTargetPath)
+          && fs.readFileSync(clientTargetPath, 'utf8') === clientSourceContent);
+        const manifestMatches = !manifestSourceContent || (manifestTargetPath && fs.existsSync(manifestTargetPath)
+          && fs.readFileSync(manifestTargetPath, 'utf8') === manifestSourceContent);
+        if (clientMatches && manifestMatches) {
+          return {
+            success: true,
+            targetPath,
+            clientTargetPath,
+            manifestTargetPath,
+            version: sourceVersion,
+            updated: false,
+            message: `Existing PanelBridge v${sourceVersion} already matches the bundled payload; left unchanged.`,
+          };
+        }
       }
       const targetVersion = extractVersion(targetContent);
       if (targetVersion && compareModVersions(targetVersion, sourceVersion) > 0) {
@@ -173,11 +245,36 @@ export function installBridge(server) {
         };
       }
     }
-    writeLuaAtomic(targetPath, sourceContent);
-    matchOwnership(targetPath, resolveInstallDir(server));
+    const existingTargetContent = fs.existsSync(targetPath)
+      ? readContent(targetPath)
+      : null;
+    if (existingTargetContent !== sourceContent) {
+      writeLuaAtomic(targetPath, sourceContent);
+      matchOwnership(targetPath, resolveInstallDir(server));
+    }
+    if (clientSourceContent && clientTargetPath) {
+      const existingClient = fs.existsSync(clientTargetPath) ? readContent(clientTargetPath) : null;
+      if (existingClient !== clientSourceContent) {
+        writeAtomicText(clientTargetPath, clientSourceContent);
+        matchOwnership(clientTargetPath, resolveInstallDir(server));
+      }
+    }
+    if (manifestSourceContent && manifestTargetPath) {
+      const existingManifest = fs.existsSync(manifestTargetPath) ? readContent(manifestTargetPath) : null;
+      if (existingManifest !== manifestSourceContent) {
+        writeAtomicText(manifestTargetPath, manifestSourceContent);
+        matchOwnership(manifestTargetPath, resolveInstallDir(server));
+      }
+    }
     const installedContent = fs.readFileSync(targetPath, 'utf8');
     const version = readVersion(targetPath);
-    if (installedContent !== sourceContent || version !== sourceVersion) {
+    const installedClient = clientSourceContent && clientTargetPath
+      ? readContent(clientTargetPath) : null;
+    const installedManifest = manifestSourceContent && manifestTargetPath
+      ? readContent(manifestTargetPath) : null;
+    if (installedContent !== sourceContent || version !== sourceVersion
+      || (clientSourceContent && installedClient !== clientSourceContent)
+      || (manifestSourceContent && installedManifest !== manifestSourceContent)) {
       return { success: false, error: 'PanelBridge verification failed after install.' };
     }
     // Verifies the file the way the GAME will see it, not just the way the
@@ -202,7 +299,7 @@ export function installBridge(server) {
       }
     }
     log.info(`PanelBridge installed at ${targetPath} (v${version || 'unknown'})`);
-    return { success: true, targetPath, version, updated: true };
+    return { success: true, targetPath, clientTargetPath, manifestTargetPath, version, updated: true };
   } catch (error) {
     log.warn(`PanelBridge install failed: ${error.message}`);
     return { success: false, error: error.message };

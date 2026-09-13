@@ -85,7 +85,7 @@ import { loadOrCreateCerts } from "./utils/certs.js";
 import { sanitizeError, sanitizeErrorParams } from "./utils/sanitize.js";
 import { ErrorCode } from "./utils/errorCodes.js";
 import { getSftpCachePath } from "./services/panelBridgeSftp.js";
-import { resolveInstallDir } from "./services/panelBridgeInstaller.js";
+import { autoInstallBridgeIfNeeded, resolveInstallDir } from "./services/panelBridgeInstaller.js";
 import {
   getEmbeddedPanelBridgeLua,
   compareModVersions,
@@ -1190,6 +1190,11 @@ async function tryStartPanelBridge(trigger = "unknown") {
       const activeServer = await getActiveServer();
       const installDir = resolveInstallDir(activeServer);
       if (installDir) {
+        // Keep the complete mod payload synchronized before the legacy
+        // embedded-Lua fallback below runs. The client companion and mod.info
+        // are just as load-bearing as the server Lua, but the embedded binary
+        // only carries the server file for backwards compatibility.
+        autoInstallBridgeIfNeeded(activeServer);
         const destLuaFile = path.join(
           installDir,
           "media",
@@ -1465,11 +1470,17 @@ try {
   _pkgVersion = "0.0.0";
 }
 try {
-  _buildSha =
+  const configuredBuildSha =
     typeof PANEL_BUILD_SHA !== "undefined"
       ? PANEL_BUILD_SHA
-      : process.env.PANEL_BUILD_SHA ||
-        execSync("git rev-parse HEAD", { encoding: "utf8" }).trim();
+      : process.env.PANEL_BUILD_SHA;
+  if (configuredBuildSha) {
+    _buildSha = configuredBuildSha;
+  } else if (fs.existsSync(path.join(process.cwd(), ".git"))) {
+    _buildSha = execSync("git rev-parse HEAD", { encoding: "utf8" }).trim();
+  } else {
+    _buildSha = "unknown";
+  }
 } catch {
   _buildSha = "unknown";
 }

@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-**v1.3.2 candidate:**
+## [1.3.2] - 2026-09-13
 
 - **SteamCMD setup and updates now recover when SteamCMD is missing on Windows as well as Linux**, report the self-heal progress in the visible installation log, reject concurrent downloads safely, and avoid false Linux 503 responses caused by an unavailable Windows-only process probe.
 - **Discord configuration changes are serialized against the running bot**, preventing overlapping config, webhook-event, or command-permission saves from racing with reconnects.
@@ -16,6 +16,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Support bundles now include sandbox-option diagnostics**, with PZ and PanelBridge versions, exception excerpts, triggering command counts, configured mods, and installed mod metadata for Build 42 compatibility investigations.
 
 ### Fixed
+
+**PanelBridge / Project Zomboid Build 42**
+
+- **Build 42 vehicle polling no longer attempts indexed access on Set-shaped Java collections**, eliminating the repeated RuntimeException spam that could hide vehicle state from the panel.
+- **Java collection traversal is now iterator-first across players, inventory exports, utilities, zombies, safehouses, factions, catalogs, and sandbox options**, with honest failures when a collection cannot be read.
+- **PanelBridge no longer reports fabricated zero counts or successful mutations when a collection read, verification read-back, or deferred utility scan fails.** Bulk vehicle removal now separates attempted work from confirmed removals.
+- **PanelBridge result queues recover from reset or malformed state without reusing an existing outbox sequence.** Reader/writer open, write, and close failures are bounded and retryable, and expired commands are counted consistently.
+- **Player-targeted actions now distinguish an unreadable online-player list from a genuinely offline player.** Faction creation and disbanding return explicit Build 42 API-limit errors instead of attempting nonexistent methods.
+
+**Teleport synchronization**
+
+- Added a bundled client-side PanelBridge companion. Server teleport requests now ask the client to apply the local position and acknowledge the result; the panel presents this as requested/unverified when client receipt cannot be synchronously proven.
+- The installer now keeps the server Lua, client companion Lua, and `mod.info` manifest synchronized, repairing stale or missing companion files without rewriting an already-current server Lua file.
 
 **SteamCMD / installer**
 
@@ -98,6 +111,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Diagnostics page section headings, and a handful of remaining untranslated strings on the Scheduler, Mod Settings, and PanelBridge connection-status screens, are now translated in every supported language instead of always showing English.
 - Diagnostics' "Clear Stale Locks" action now refuses to run while a start, stop, restart, wipe, or other server-lifecycle action is already in progress, closing the same class of gap already closed for those actions.
 
+**Build and deployment**
+
+- Docker images now receive the release build SHA explicitly, avoiding noisy `git: not found` startup probes and keeping frontend/backend provenance metadata aligned in images without a `.git` checkout.
+- The repository RCON maintenance helper now runs correctly under the repository's ESM package configuration.
+
 **Login & account recovery**
 
 - **Clicking "Lost password" on a slow connection, before the panel finished checking whether local or code-based recovery was available, could route you into attempting a local reset even if you already held a valid recovery token or code.** It now waits for that check to actually finish before deciding.
@@ -116,6 +134,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Expanded Docker/Unraid troubleshooting documentation (`docs/install/docker.md`) to cover the RCON-host, Quick Setup, and discovery fixes above.
 - A late RCON response arriving after its own command had already timed out is now logged instead of silently vanishing, matching how the PanelBridge connection already handled the identical case.
 - Routine internal cleanup: three cases where a timer was left running instead of being cleared, and a renamed internal helper whose old name overstated what it actually does (it can't cancel the operation it wraps, only stop waiting on it).
+- Added live-shaped Fengari regressions for iterator-only collections, queue-state corruption, client teleport IPC, installer payload parity, player lookup failures, and unverifiable action presentation.
 
 ## [1.3.0] - 2026-09-09
 

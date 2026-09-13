@@ -241,6 +241,20 @@
     "title": "地圖上沒有玩家",
     "subtitle": "PanelBridge 連線後將顯示玩家位置"
   },
+  "poi": {
+    "label": "興趣點",
+    "selected": "已選取",
+    "searchPlaceholder": "搜尋地點...",
+    "detectingMap": "正在偵測地圖...",
+    "unavailable": "興趣點無法使用",
+    "unavailableB41": "B41 不支援興趣點",
+    "searchAria": "搜尋地圖地點",
+    "clearSearch": "清除地點搜尋",
+    "categoryAria": "篩選地點類別",
+    "allCategories": "所有類別",
+    "noResults": "找不到地點",
+    "categories": { "town": "城鎮", "medical": "醫療", "police": "警察", "fire": "消防", "gun": "武器", "shop": "商店", "gas": "加油站", "military": "軍事", "landmark": "地標", "industrial": "工業" }
+  },
   "airdropPresets": {
     "military": {
       "label": "軍事",

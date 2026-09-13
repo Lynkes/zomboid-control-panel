@@ -247,6 +247,20 @@
     "title": "No players on the map",
     "subtitle": "Player positions appear when PanelBridge is connected"
   },
+  "poi": {
+    "label": "POI",
+    "selected": "selected",
+    "searchPlaceholder": "Search places...",
+    "detectingMap": "Detecting map...",
+    "unavailable": "POIs unavailable",
+    "unavailableB41": "POIs unavailable on B41",
+    "searchAria": "Search map places",
+    "clearSearch": "Clear place search",
+    "categoryAria": "Filter place category",
+    "allCategories": "All categories",
+    "noResults": "No places found",
+    "categories": { "town": "Towns", "medical": "Medical", "police": "Police", "fire": "Fire", "gun": "Guns", "shop": "Shops", "gas": "Gas", "military": "Military", "landmark": "Landmarks", "industrial": "Industrial" }
+  },
   "airdropPresets": {
     "military": { "label": "Military", "desc": "Rifles, ammo, armor, comms" },
     "medical": { "label": "Medical", "desc": "Bandages, antibiotics, first aid" },

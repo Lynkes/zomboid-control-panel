@@ -140,7 +140,23 @@ describe('installBridge', () => {
     expect(result.success).toBe(true);
     expect(fs.existsSync(result.targetPath)).toBe(true);
     expect(fs.readFileSync(result.targetPath, 'utf8')).toBe(sourceContent);
+    expect(fs.existsSync(result.clientTargetPath)).toBe(true);
+    expect(fs.existsSync(result.manifestTargetPath)).toBe(true);
     expect(result.version).toBeTruthy();
+  });
+
+  it('repairs a missing client companion and stale mod.info even when server Lua matches', () => {
+    const first = installBridge(localServer());
+    fs.unlinkSync(first.clientTargetPath);
+    fs.writeFileSync(first.manifestTargetPath, 'modversion=0.0.1\n');
+
+    const status = checkBridgeInstalled(localServer());
+    expect(status.needsUpdate).toBe(true);
+
+    const result = installBridge(localServer());
+    expect(result.success).toBe(true);
+    expect(fs.existsSync(first.clientTargetPath)).toBe(true);
+    expect(fs.readFileSync(first.manifestTargetPath, 'utf8')).toContain(`modversion=${result.version}`);
   });
 
   it('creates the media/lua/server directory tree if missing', () => {

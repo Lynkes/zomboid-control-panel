@@ -115,9 +115,11 @@ describe('bridge.diagnostics Lua handlers -- do something real if called (real L
     expect(present.ok).toBe(true);
     expect(present.data.available).toBe(true);
     expect(present.data.methodAvailable).toBe(true);
+    expect(present.data.methodStatus).toBe('available');
 
     const missingMethod = bridge.callHandler('checkAPI', { object: 'ClimateManager', method: 'noSuchMethod' });
     expect(missingMethod.data.methodAvailable).toBe(false);
+    expect(missingMethod.data.methodStatus).toBe('unknown');
 
     // Negative control: no getGameTime stub exists in this Lua state at
     // all -- must honestly report unavailable, not claim success anyway.

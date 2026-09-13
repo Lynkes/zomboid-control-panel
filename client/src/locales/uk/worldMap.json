@@ -257,6 +257,20 @@
     "title": "На карті немає гравців",
     "subtitle": "Позиції гравців з'являються, коли підключено PanelBridge"
   },
+  "poi": {
+    "label": "POI",
+    "selected": "вибрано",
+    "searchPlaceholder": "Пошук місць...",
+    "detectingMap": "Визначення карти...",
+    "unavailable": "POI недоступні",
+    "unavailableB41": "POI недоступні в B41",
+    "searchAria": "Пошук місць на карті",
+    "clearSearch": "Очистити пошук місць",
+    "categoryAria": "Фільтр категорії місця",
+    "allCategories": "Усі категорії",
+    "noResults": "Місць не знайдено",
+    "categories": { "town": "Міста", "medical": "Медицина", "police": "Поліція", "fire": "Пожежна служба", "gun": "Зброя", "shop": "Крамниці", "gas": "Заправки", "military": "Військові", "landmark": "Пам'ятки", "industrial": "Промисловість" }
+  },
   "airdropPresets": {
     "military": {
       "label": "Військовий",

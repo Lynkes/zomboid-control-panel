@@ -29,6 +29,10 @@ function getFileWriter(path)
 end
 `;
 
+const EXPIRED_FILE_STUBS = FILE_STUBS + `
+getTimestampMs = function() return 1000 end
+`;
+
 describe("PanelBridge command budget", () => {
   it("counts duplicate entries toward the per-tick queue budget", () => {
     const bridge = loadPanelBridge(LUA_PATH, FILE_STUBS);
@@ -100,5 +104,20 @@ describe("PanelBridge command budget", () => {
     // entries were skipped, never dispatched to processSingleCommand.
     const processedLine = state.debugLog.find((e) => /^Processed \d+ commands$/.test(e.message));
     expect(processedLine?.message).toBe("Processed 3 commands");
+  });
+
+  it("counts an expired command as processed after reporting its expiry", () => {
+    const bridge = loadPanelBridge(LUA_PATH, EXPIRED_FILE_STUBS);
+    bridge.run(`
+      FILES["panelbridge/TestServer/inbox/cmd-0000000001.json"] =
+        '{"id":"expired","action":"unknown","expiresAt":500}'
+      PanelBridgeModule.processCommands()
+    `);
+
+    const state = bridge.getGlobal("PanelBridgeModule");
+    expect(state.queueState.lastCommandSeq).toBe(1);
+    expect(state.stats.commandsProcessed).toBe(1);
+    expect(state.stats.commandsFailed).toBe(1);
+    expect(state.pendingResults[0].error).toMatch(/expired before mod/);
   });
 });

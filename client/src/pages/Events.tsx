@@ -1658,13 +1658,26 @@ export default function Events() {
   const handleBridgeAction = useCallback(async (action: string, fn: () => Promise<unknown>, onSettled?: (success: boolean) => void | Promise<void>) => {
     setBridgeLoading(action)
     try {
-      await fn()
+      const result = await fn()
       const successCopy = getEventSuccessCopy(action, t)
-      toast({
-        title: successCopy.title,
-        description: successCopy.description,
-        variant: 'success' as const,
-      })
+      const isUnverifiable = result
+        && typeof result === 'object'
+        && 'data' in result
+        && result.data
+        && typeof result.data === 'object'
+        && 'verified' in result.data
+        && result.data.verified === 'unverifiable'
+      toast(isUnverifiable
+        ? {
+            title: successCopy.title,
+            description: t('toasts.bridgeUnverifiedDesc', { action: successCopy.title }),
+            variant: 'default' as const,
+          }
+        : {
+            title: successCopy.title,
+            description: successCopy.description,
+            variant: 'success' as const,
+          })
       pushActivity(successCopy.title, true)
       await onSettled?.(true)
     } catch (error) {
@@ -1713,6 +1726,22 @@ export default function Events() {
       if (override) {
         toast(override)
         pushActivity(override.title, true)
+      } else if (
+        result
+        && typeof result === 'object'
+        && 'data' in result
+        && result.data
+        && typeof result.data === 'object'
+        && 'verified' in result.data
+        && result.data.verified === 'unverifiable'
+      ) {
+        const successCopy = getEventSuccessCopy(action, t)
+        toast({
+          title: successCopy.title,
+          description: t('toasts.bridgeUnverifiedDesc', { action: successCopy.title }),
+          variant: 'default' as const,
+        })
+        pushActivity(successCopy.title, true)
       } else {
         const successCopy = getEventSuccessCopy(action, t)
         toast({

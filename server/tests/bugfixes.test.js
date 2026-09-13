@@ -1198,6 +1198,8 @@ describe("Discord event notifications", () => {
     bot.webhookEvents = webhookEvents;
     bot._lastLifecycleState = null;
     bot._lastLifecycleAt = 0;
+    bot._lifecycleNotificationChain = Promise.resolve();
+    bot._lifecycleNotificationGeneration = 0;
     const sent = [];
     bot.sendNotification = async (msg) => {
       sent.push(msg);
@@ -1263,6 +1265,27 @@ describe("Discord event notifications", () => {
     await bot.sendEventNotification("serverStop");
     expect(sent).toEqual(["Server stopped", "Server stopped"]);
   }, 15000);
+
+  it("serializes concurrent lifecycle notifications so one transition sends once", async () => {
+    const { bot, sent } = await makeBot({
+      serverStart: { enabled: true, template: "Server started" },
+    });
+    let release;
+    bot.sendNotification = vi.fn((message) => {
+      sent.push(message);
+      return new Promise((resolve) => { release = () => resolve(true); });
+    });
+
+    const first = bot.sendEventNotification("serverStart");
+    const second = bot.sendEventNotification("serverStart");
+    await vi.waitFor(() => expect(bot.sendNotification).toHaveBeenCalledOnce());
+    expect(sent).toEqual(["Server started"]);
+
+    release();
+    await Promise.all([first, second]);
+    expect(bot.sendNotification).toHaveBeenCalledOnce();
+    expect(bot._lastLifecycleState).toBe("running");
+  });
 });
 
 describe("Discord player presence", () => {
@@ -1532,6 +1555,66 @@ describe("LogTailer.reloadConfig", () => {
       fs.rmSync(dirA, { recursive: true, force: true });
       fs.rmSync(dirB, { recursive: true, force: true });
     }
+  });
+
+  it("does not relay messages queued before a bot stop into the next session", async () => {
+    const bot = Object.create(DiscordBot.prototype);
+    bot.chatRelayEnabled = true;
+    bot.isRunning = true;
+    bot.client = {};
+    bot.chatRelayScope = "public";
+    bot.chatRelayChannelId = "123456789012345678";
+    bot.channelId = null;
+    bot._chatRelayChain = Promise.resolve();
+    bot._chatRelayPending = 0;
+    bot._chatRelayDropped = 0;
+    bot._chatRelayGeneration = 0;
+
+    let releaseFirst;
+    const relayed = [];
+    bot.handleGameChat = vi.fn((data) => {
+      relayed.push(data.message);
+      if (data.message === "first") return new Promise((resolve) => { releaseFirst = resolve; });
+      return Promise.resolve();
+    });
+
+    bot._queueGameChat({ type: "general", message: "first" });
+    bot._queueGameChat({ type: "general", message: "stale" });
+    await vi.waitFor(() => expect(bot.handleGameChat).toHaveBeenCalledTimes(1));
+
+    bot.isRunning = false;
+    bot._chatRelayGeneration++;
+    bot._chatRelayChain = Promise.resolve();
+    bot._chatRelayPending = 0;
+    bot._chatRelayDropped = 0;
+    bot.isRunning = true;
+    bot._queueGameChat({ type: "general", message: "fresh" });
+
+    releaseFirst();
+    await vi.waitFor(() => expect(bot.handleGameChat).toHaveBeenCalledTimes(2));
+
+    expect(relayed).toEqual(["first", "fresh"]);
+    expect(bot._chatRelayPending).toBe(0);
+  });
+
+  it("invalidates pending relay and lifecycle work when stop runs without a client", async () => {
+    const bot = Object.create(DiscordBot.prototype);
+    bot.client = null;
+    bot._presenceInterval = null;
+    bot._chatRelayGeneration = 0;
+    bot._chatRelayChain = Promise.resolve();
+    bot._chatRelayPending = 1;
+    bot._chatRelayDropped = 3;
+    bot._lifecycleNotificationGeneration = 0;
+    bot._lifecycleNotificationChain = Promise.resolve();
+    bot._onGameChat = null;
+
+    await bot.stop();
+
+    expect(bot._chatRelayGeneration).toBe(1);
+    expect(bot._chatRelayPending).toBe(0);
+    expect(bot._chatRelayDropped).toBe(0);
+    expect(bot._lifecycleNotificationGeneration).toBe(1);
   });
 });
 
