@@ -2827,6 +2827,28 @@ router.post("/add-to-ini", async (req, res) => {
   }
 });
 
+export function extractWorkshopModId(description, title) {
+  const patterns = [
+    /Mod\s*ID\s*[:=]\s*([^\n\r\[\]<>]+)/i,
+    /\bid\s*=\s*([^\n\r\[\]<>]+)/i,
+    /\bMod\s*:\s*([^\n\r\[\]<>]+)/i,
+    /\[code\][\s\S]*?id\s*=\s*([^\s\n\r\[\]]+)[\s\S]*?\[\/code\]/i,
+    /IDs\s*[:=]\s*([^\n\r\[\]<>]+)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = String(description || "").match(pattern);
+    if (!match) continue;
+    const candidate = match[1].trim();
+    if (/^[A-Za-z0-9_-]+$/.test(candidate) && candidate.length > 0) {
+      return candidate;
+    }
+  }
+
+  const potentialId = String(title || "").trim();
+  return /^[A-Za-z0-9_-]{4,29}$/.test(potentialId) ? potentialId : null;
+}
+
 // Helper function to fetch mod ID from Steam Workshop page description
 async function fetchModIdFromWorkshop(workshopId) {
   try {
@@ -2868,60 +2890,10 @@ async function fetchModIdFromWorkshop(workshopId) {
 
     const description = modInfo.description || "";
     const title = modInfo.title || "";
-
-    // Try various patterns to find the mod ID in the description
-    // Pattern 1: "Mod ID: SomeName" or "ModID: SomeName"
-    let match = description.match(/Mod\s*ID\s*[:=]\s*([^\s\n\r\[\]<>]+)/i);
-    if (match) {
-      log.info(`Found Mod ID from "Mod ID:" pattern: ${match[1]}`);
-      return match[1].trim();
-    }
-
-    // Pattern 2: "id=SomeName" (common in description)
-    match = description.match(/\bid\s*=\s*([^\s\n\r\[\]<>]+)/i);
-    if (match) {
-      log.info(`Found Mod ID from "id=" pattern: ${match[1]}`);
-      return match[1].trim();
-    }
-
-    // Pattern 3: Workshop ID matches a pattern like "Mod: ModName"
-    match = description.match(/\bMod\s*:\s*([A-Za-z0-9_-]+)/i);
-    if (match && match[1].length > 3) {
-      log.info(`Found Mod ID from "Mod:" pattern: ${match[1]}`);
-      return match[1].trim();
-    }
-
-    // Pattern 4: Look for [code] blocks that might contain mod.info content
-    // Use [\s\S] to match newlines
-    match = description.match(
-      /\[code\][\s\S]*?id\s*=\s*([^\s\n\r\[\]]+)[\s\S]*?\[\/code\]/i,
-    );
-    if (match) {
-      log.info(`Found Mod ID from [code] block: ${match[1]}`);
-      return match[1].trim();
-    }
-
-    // Pattern 5: "Ids: ModId" (plural)
-    match = description.match(/IDs\s*[:=]\s*([^\s\n\r\[\]<>]+)/i);
-    if (match) {
-      log.info(`Found Mod ID from "IDs:" pattern: ${match[1]}`);
-      return match[1].trim();
-    }
-
-    // Pattern 6: If specific workshop ID is mentioned near "Mod ID"
-    // Sometimes description has multiple mods, but we want the one for THIS item?
-    // Usually one workshop item = one mod, but obscure cases exist.
-
-    // Pattern 7: Fallback - Title as Mod ID if looks like ID
-    // Only use if the title is already a clean ID-like string (no spaces, special chars)
-    const potentialId = title.replace(/[^a-zA-Z0-9_-]/g, "");
-    if (
-      potentialId === title &&
-      potentialId.length > 3 &&
-      potentialId.length < 30
-    ) {
-      log.info(`Using title as Mod ID (exact match): ${potentialId}`);
-      return potentialId;
+    const detectedId = extractWorkshopModId(description, title);
+    if (detectedId) {
+      log.info(`Found Mod ID from Steam Workshop metadata: ${detectedId}`);
+      return detectedId;
     }
 
     log.warn(
@@ -9117,7 +9089,23 @@ router.get("/thumbnail/:workshopId", async (req, res) => {
     if (st.size > 0) {
       res.setHeader("Content-Type", "image/jpeg");
       res.setHeader("Cache-Control", "public, max-age=86400, immutable");
-      return res.sendFile(cacheFile);
+      // res.sendFile() needs a callback: without one, Express's default on a
+      // failed send (the cache file vanishing between the stat() above and
+      // this call, a permission problem, anything) is next(err) -- which
+      // lands in server/index.js's generic apiErrorHandler and gets logged
+      // as `[ERROR] [Panel] Unhandled API error on GET /mods/thumbnail/<id>:
+      // Not Found`, at ERROR severity, indistinguishable from a real bug. A
+      // real user's support bundle (2026-09-08) had 300+ of these -- the
+      // single largest thing in error.log, burying every other error next
+      // to it. Every OTHER failure path in this function already falls back
+      // to the placeholder gif via sendEmptyThumbnail() instead of
+      // propagating; this is the one path that didn't.
+      return res.sendFile(cacheFile, (err) => {
+        if (!err || res.headersSent) return;
+        log.debug(`Cached thumbnail for ${wsId} vanished before it could be sent: ${err.message}`);
+        recordThumbFailure(wsId, err.message);
+        sendEmptyThumbnail(res);
+      });
     }
   } catch {
     /* not cached yet */

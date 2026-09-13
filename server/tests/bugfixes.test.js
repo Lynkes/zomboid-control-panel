@@ -15,11 +15,35 @@ import {
 import {
   compareDefinitionSets,
   createConflictScanSnapshots,
+  extractWorkshopModId,
   filterOwnedClientModIds,
   getModDetailsFromWorkshop,
   groupIntoPairs,
   scoreWorkshopDependencyMatch,
 } from "../routes/mods.js";
+
+describe("extractWorkshopModId", () => {
+  it("rejects a spaced description value instead of truncating it to the first word", () => {
+    expect(
+      extractWorkshopModId(
+        "Workshop ID: 3785483068\\nMod ID: Kentucky Cellar",
+        "Kentucky Cellar",
+      ),
+    ).toBeNull();
+  });
+
+  it("accepts a clean Mod ID from the description", () => {
+    expect(extractWorkshopModId("Mod ID: KentuckyCellar", "Kentucky Cellar")).toBe(
+      "KentuckyCellar",
+    );
+  });
+
+  it("accepts a clean title as the final fallback", () => {
+    expect(extractWorkshopModId("No mod ID listed", "KentuckyCellar")).toBe(
+      "KentuckyCellar",
+    );
+  });
+});
 import {
   ModChecker,
   getWorkshopAcfCandidates,
@@ -1088,7 +1112,7 @@ describe("LogTailer chunk boundaries", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it("reads a log created after we started watching from the beginning", async () => {
+  it("reads a pre-existing file from wherever it already stood, and a file born after watchStartedAt from the beginning", async () => {
     const fs = await import("fs");
     const os = await import("os");
     const path = await import("path");
@@ -1099,17 +1123,24 @@ describe("LogTailer chunk boundaries", () => {
     const old = path.join(dir, "old.txt");
     fs.writeFileSync(old, "history\n");
     const tailer = new LogTailer();
+    // start-offset-replays-the-whole-file-on-every-non-first-rotation,
+    // 2026-09-09/10: startOffsetFor used to take a second `firstDiscovery`
+    // argument and return 0 unconditionally whenever it was false --
+    // i.e. this exact `old` file, checked again as a later "rotation"
+    // rather than a first discovery, used to always read from byte zero
+    // regardless of its real birthtime. That was the bug: a stale file
+    // externally re-touched to look newest would have its entire existing
+    // content replayed as brand-new chat/user events. The parameter is
+    // gone; a file that predates watchStartedAt now skips its existing
+    // content every time it's checked, first discovery or not.
     tailer.watchStartedAt = Date.now() + 1000; // pretend we start later
-    expect(tailer.startOffsetFor(old, true)).toBe(8);
+    expect(tailer.startOffsetFor(old)).toBe(8);
 
-    // A file born after we started watching is all new.
+    // A file born after watchStartedAt is always new content.
     tailer.watchStartedAt = 0;
     const fresh = path.join(dir, "fresh.txt");
     fs.writeFileSync(fresh, "new session\n");
-    expect(tailer.startOffsetFor(fresh, true)).toBe(0);
-
-    // A rotation always starts at zero.
-    expect(tailer.startOffsetFor(old, false)).toBe(0);
+    expect(tailer.startOffsetFor(fresh)).toBe(0);
 
     fs.rmSync(dir, { recursive: true, force: true });
   });

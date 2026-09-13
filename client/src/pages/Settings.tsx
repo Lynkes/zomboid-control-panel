@@ -107,6 +107,16 @@ import {
 } from "@/lib/api";
 import { getUserErrorMessage } from "@/lib/errorMessage";
 import { resolveRegisteredTranslation } from "@/lib/paramTranslation";
+import {
+  getAllowOutOfRangeSandboxValues,
+  setAllowOutOfRangeSandboxValues,
+} from "@/lib/serverConfigSchema";
+import {
+  detectBridgeStaleness,
+  getBridgeStalenessActionLabel,
+  getBridgeStalenessBody,
+  getBridgeStalenessTitle,
+} from "@/lib/bridgeVersionStaleness";
 import { useSocket } from "@/contexts/SocketContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme, type ThemeName } from "@/contexts/ThemeContext";
@@ -238,6 +248,16 @@ function toSettingBoolean(value: unknown, fallback: boolean): boolean {
   return fallback;
 }
 
+// Same no-locale-file-required pattern as serverConfigSchema.ts's
+// translatedOrFallback (see getUnrecognizedSandboxOptionWarning's comment
+// there): translates once a future locale change adds this key under
+// settings.json, plain English until then, rather than a bare
+// useTranslation() key needing a same-day addition to every locale file
+// this session isn't authorized to touch.
+function settingsFallback(key: string, fallback: string): string {
+  return resolveRegisteredTranslation("settings", key, undefined) ?? fallback;
+}
+
 // Mirrors server/routes/config.js's own httpsPort range check so the client
 // can reject an out-of-range port before submitting -- panelPort has no such
 // check on the server at all (unlike its httpsPort sibling), so an
@@ -347,6 +367,19 @@ export default function Settings() {
   );
   const [loading, setLoading] = useState(false);
   const [settingsLoadError, setSettingsLoadError] = useState<string | null>(null);
+  // Escape hatch for the Sandbox tab's range validation (ServerConfig.tsx),
+  // per bernanas' request via the 2026-09-09 dispatch. Plain localStorage,
+  // not the AppSettings blob above: PUT /app-settings validates against a
+  // fixed key whitelist (server/routes/config.js) this change doesn't touch,
+  // and this is a client-only UI preference like ThemeContext's, not
+  // something that needs server persistence or cross-device sync.
+  const [allowOutOfRangeSandbox, setAllowOutOfRangeSandboxState] = useState(
+    () => getAllowOutOfRangeSandboxValues(),
+  );
+  const handleAllowOutOfRangeSandboxChange = useCallback((value: boolean) => {
+    setAllowOutOfRangeSandboxState(value);
+    setAllowOutOfRangeSandboxValues(value);
+  }, []);
   const [showSteamApiKey, setShowSteamApiKey] = useState(false);
   const [saving, setSaving] = useState(false);
   const [corsOriginValidationError, setCorsOriginValidationError] = useState<
@@ -441,8 +474,11 @@ export default function Settings() {
     connection?: {
       healthy: boolean;
       canSendCommands: boolean;
-      summary: string;
-      issues: string[];
+      // {key, params, text} -- resolveBridgeDiagText() below translates via
+      // t(`bridge.diagnostics.${key}`, {...params, defaultValue: text}),
+      // same key+defaultValue convention as capabilities.<key>.label.
+      summary: { key: string; params?: Record<string, string>; text: string };
+      issues: Array<{ key: string; params?: Record<string, string>; text: string }>;
       checks: Record<string, boolean | number | null>;
     };
     statusFile?: {
@@ -464,15 +500,37 @@ export default function Settings() {
       timestamp: number;
       age?: number;
       error?: string;
+      protocolVersionMismatch?: { expected: string; actual: string };
     } | null;
     detectedPaths?: {
       serverName: string;
       installPath: string;
       zomboidDataPath: string;
     } | null;
+    localInstall?: {
+      canAutoInstall: boolean;
+      installed: boolean;
+      version: string | null;
+      needsUpdate: boolean;
+      sourcePath: string | null;
+      targetPath: string | null;
+    } | null;
+    remoteBridgeVersionCheck?: {
+      bundledVersion: string | null;
+      liveVersion: string | null;
+      behind: boolean | null;
+    } | null;
   } | null>(null);
   const [bridgeLoading, setBridgeLoading] = useState(false);
   const [bridgeError, setBridgeError] = useState<string | null>(null);
+  // Resolves a getConnectionDiagnostics() summary/issue entry through its
+  // key+params via i18next, falling back to the server's own English text
+  // when no translation entry exists for that key yet -- same
+  // key+defaultValue convention as capabilities.<key>.label.
+  const resolveBridgeDiagText = (
+    entry: { key: string; params?: Record<string, string>; text: string } | undefined,
+  ): string | undefined =>
+    entry ? t(`bridge.diagnostics.${entry.key}`, { ...(entry.params ?? {}), defaultValue: entry.text }) : undefined;
   const [pinging, setPinging] = useState(false);
   const [manualBridgePath, setManualBridgePath] = useState("");
   const [testingSftp, setTestingSftp] = useState(false);
@@ -2710,6 +2768,40 @@ export default function Settings() {
                   </div>
                 </div>
 
+                <div className="rounded-xl border border-border/70 bg-background/40 p-4 space-y-4">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-warning" />
+                      {settingsFallback("general.sandboxRangeOverrideTitle", "Sandbox Value Ranges")}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {settingsFallback(
+                        "general.sandboxRangeOverrideDesc",
+                        "Controls whether the Sandbox tab's Save button blocks a value outside its known minimum/maximum.",
+                      )}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-lg border border-warning/40 bg-warning/10 p-3">
+                    <div>
+                      <Label className="text-sm font-medium text-warning">
+                        {settingsFallback("general.sandboxRangeOverrideLabel", "Allow values outside the known range")}
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        {settingsFallback(
+                          "general.sandboxRangeOverrideHint",
+                          "Off by default. The Sandbox tab still shows when a value is outside its known range, but with this on, Save no longer blocks it -- useful when this panel's range table is out of date for your game version.",
+                        )}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={allowOutOfRangeSandbox}
+                      onCheckedChange={handleAllowOutOfRangeSandboxChange}
+                      aria-label={settingsFallback("ariaLabels.sandboxRangeOverride", "Allow sandbox values outside known range")}
+                    />
+                  </div>
+                </div>
+
               </CardContent>
             </Card>
           </TabsContent>
@@ -4075,7 +4167,7 @@ export default function Settings() {
                       running={bridgeStatus.isRunning}
                       loading={bridgeLoading}
                       bridgePath={bridgeStatus.bridgePath}
-                      summary={bridgeStatus.connection?.summary}
+                      summary={resolveBridgeDiagText(bridgeStatus.connection?.summary)}
                       interactive={false}
                     />
                   )}
@@ -4119,6 +4211,50 @@ export default function Settings() {
                     </p>
                   </Alert>
                 )}
+
+                {/* Bridge version staleness -- WARNING only, never blocks
+                    anything (matches the server side, which never rejects a
+                    command over either signal). Reads GET /panel-bridge/
+                    status's remoteBridgeVersionCheck/localInstall.needsUpdate
+                    (computed, never read anywhere before this card) and
+                    modStatus.protocolVersionMismatch (Kevin's 71e45705) as
+                    ONE prioritized signal, not two banners -- see
+                    detectBridgeStaleness's own comment for why. */}
+                {(() => {
+                  const staleness = detectBridgeStaleness(bridgeStatus);
+                  if (!staleness) return null;
+                  const actionLabel = getBridgeStalenessActionLabel(staleness);
+                  return (
+                    <Alert
+                      className="border-warning/40 bg-warning/10"
+                      aria-live="polite"
+                    >
+                      <AlertTriangle className="h-4 w-4 text-warning" />
+                      <AlertTitle className="text-warning">
+                        {getBridgeStalenessTitle(staleness)}
+                      </AlertTitle>
+                      <AlertDescription className="space-y-3">
+                        <p>{getBridgeStalenessBody(staleness)}</p>
+                        {actionLabel && (
+                          <Button
+                            onClick={() => handleAutoConfigure()}
+                            disabled={bridgeLoading}
+                            size="sm"
+                            variant="outline"
+                            className="gap-2"
+                          >
+                            {bridgeLoading ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <RefreshCw className="w-3.5 h-3.5" />
+                            )}
+                            {actionLabel}
+                          </Button>
+                        )}
+                      </AlertDescription>
+                    </Alert>
+                  );
+                })()}
 
                 {/* Not running - setup flow */}
                 {!bridgeStatus?.isRunning && (
@@ -4246,7 +4382,7 @@ export default function Settings() {
                       <div className="p-3 space-y-3">
                         {/* Summary */}
                         <p className="text-xs text-muted-foreground">
-                          {bridgeStatus.connection.summary}
+                          {resolveBridgeDiagText(bridgeStatus.connection.summary)}
                         </p>
 
                         {/* Issues list */}
@@ -4254,13 +4390,13 @@ export default function Settings() {
                           bridgeStatus.connection.issues.length > 0 && (
                             <div className="space-y-1">
                               {bridgeStatus.connection.issues.map(
-                                (issue: string, i: number) => (
+                                (issue, i: number) => (
                                   <div
                                     key={i}
                                     className="flex items-start gap-1.5 text-xs text-destructive"
                                   >
                                     <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
-                                    <span>{issue}</span>
+                                    <span>{resolveBridgeDiagText(issue)}</span>
                                   </div>
                                 ),
                               )}

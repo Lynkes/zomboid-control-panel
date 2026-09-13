@@ -11,6 +11,10 @@ import archiver from "archiver";
 import { createLogger } from "../utils/logger.js";
 import { getDiskFree } from "../utils/diskSpace.js";
 import { resolveLaunchMode } from "../services/serverManager.js";
+import {
+  acquireLifecycleLock,
+  lifecycleInProgressResponse,
+} from "../services/lifecycleCoordinator.js";
 const log = createLogger("API:Debug");
 import { getDataPaths, setDataPaths } from "../utils/paths.js";
 import { isLockProtectionDisabled } from "../utils/pidLock.js";
@@ -218,16 +222,21 @@ async function getAvailableLogFiles(logsDir) {
     )
   )
     .filter((file) => file !== null)
+    // display-order-tie-breaks-nine-sites-cosmetic, 2026-09-09: on a tie
+    // this fell through to readdir order, which has no ordering meaning
+    // -- name is at least deterministic across platforms.
     .sort(
-      (a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime(),
+      (a, b) =>
+        new Date(b.modified).getTime() - new Date(a.modified).getTime() ||
+        b.name.localeCompare(a.name),
     );
 
   return files;
 }
 
-const SUPPORT_LOG_FILE_RE = /\.(log|txt)$/i;
+const SUPPORT_LOG_FILE_RE = /\.(log|txt|out|err|trace)$/i;
 const CRASH_FILE_RE =
-  /^(hs_err_pid.*|.*(?:crash|error|exception).*)\.(log|txt)$/i;
+  /^(hs_err_pid.*|.*(?:crash|error|exception).*)\.(log|txt|out|err|trace)$/i;
 
 async function resolveSearchRoot(candidate) {
   if (!candidate) return null;
@@ -248,31 +257,53 @@ async function collectBundleFilesFromDir(
   archivePrefix,
   entries,
   seenFiles,
+  {
+    maxDepth = 0,
+    skipDirectories = [],
+    maxFiles = 500,
+  } = {},
 ) {
-  if (!dir) return;
+  if (!dir) return { addedFiles: 0, visitedDirectories: 0 };
 
-  try {
-    await fs.promises.access(dir);
-  } catch {
-    return;
-  }
+  const skipped = new Set(skipDirectories.map((name) => name.toLowerCase()));
+  let addedFiles = 0;
+  let visitedDirectories = 0;
 
-  const dirEntries = await fs.promises.readdir(dir, { withFileTypes: true });
+  const visit = async (currentDir, relativeParts, depth) => {
+    if (addedFiles >= maxFiles) return;
+    let dirEntries;
+    try {
+      dirEntries = await fs.promises.readdir(currentDir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    visitedDirectories += 1;
 
-  for (const entry of dirEntries) {
-    if (!entry.isFile()) continue;
-    if (!matcher(entry.name)) continue;
+    for (const entry of dirEntries) {
+      if (addedFiles >= maxFiles) break;
+      const filePath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        if (depth < maxDepth && !skipped.has(entry.name.toLowerCase())) {
+          await visit(filePath, [...relativeParts, entry.name], depth + 1);
+        }
+        continue;
+      }
+      if (!entry.isFile() || !matcher(entry.name)) continue;
 
-    const filePath = path.join(dir, entry.name);
-    const dedupeKey = path.resolve(filePath).toLowerCase();
-    if (seenFiles.has(dedupeKey)) continue;
+      const dedupeKey = path.resolve(filePath).toLowerCase();
+      if (seenFiles.has(dedupeKey)) continue;
 
-    seenFiles.add(dedupeKey);
-    entries.push({
-      filePath,
-      archivePath: `${archivePrefix}/${entry.name}`,
-    });
-  }
+      seenFiles.add(dedupeKey);
+      entries.push({
+        filePath,
+        archivePath: `${archivePrefix}/${[...relativeParts, entry.name].join("/")}`,
+      });
+      addedFiles += 1;
+    }
+  };
+
+  await visit(path.resolve(dir), [], 0);
+  return { addedFiles, visitedDirectories };
 }
 
 // ───────────────────────────────────────────────────────────────────────
@@ -676,6 +707,205 @@ const SUPPORT_INI_KEYS = [
   "HideDisguisedUserName",
   "AntiCheatProtectionType",
 ];
+
+const SANDBOX_DIAGNOSTIC_MAX_LOG_BYTES = 512 * 1024;
+const SANDBOX_DIAGNOSTIC_MAX_EXCERPTS = 8;
+const SANDBOX_DIAGNOSTIC_MAX_MODS = 500;
+
+async function readTailText(filePath, maxBytes = SANDBOX_DIAGNOSTIC_MAX_LOG_BYTES) {
+  let handle = null;
+  try {
+    const stats = await fs.promises.stat(filePath);
+    if (!stats.isFile()) return null;
+    const length = Math.min(stats.size, maxBytes);
+    handle = await fs.promises.open(filePath, "r");
+    const buffer = Buffer.alloc(length);
+    const { bytesRead } = await handle.read(buffer, 0, length, stats.size - length);
+    return buffer.subarray(0, bytesRead).toString("utf8");
+  } catch {
+    return null;
+  } finally {
+    if (handle) await handle.close().catch(() => {});
+  }
+}
+
+function parseModInfoMetadata(content, infoPath, fallbackName) {
+  const fields = {};
+  const ids = [];
+  for (const raw of String(content || "").split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#") || line.startsWith(";")) continue;
+    const separator = line.indexOf("=");
+    if (separator <= 0) continue;
+    const key = line.slice(0, separator).trim().toLowerCase();
+    const value = line.slice(separator + 1).trim();
+    if (key === "id" && value) ids.push(value);
+    if (["name", "modversion", "pzversion", "require"].includes(key)) fields[key] = value;
+  }
+  if (ids.length === 0 && fallbackName) ids.push(fallbackName);
+  return {
+    path: infoPath,
+    ids,
+    name: fields.name || null,
+    modversion: fields.modversion || null,
+    pzversion: fields.pzversion || null,
+    require: fields.require || null,
+  };
+}
+
+async function inspectModDirectory(modDir, fallbackName, source, workshopId, configuredMods) {
+  const roots = [modDir];
+  for (const child of (await safeReaddir(modDir)) || []) {
+    const childPath = path.join(modDir, child);
+    const stats = await safeStat(childPath);
+    if (stats?.isDirectory()) roots.push(childPath);
+  }
+
+  const records = [];
+  for (const root of roots) {
+    const infoPath = path.join(root, "mod.info");
+    const infoStats = await safeStat(infoPath);
+    if (!infoStats?.isFile()) continue;
+    let metadata;
+    try {
+      metadata = parseModInfoMetadata(
+        await fs.promises.readFile(infoPath, "utf8"),
+        infoPath,
+        fallbackName,
+      );
+    } catch {
+      continue;
+    }
+
+    const sandboxOptionFiles = [];
+    const mediaPath = path.join(root, "media");
+    for (const name of (await safeReaddir(mediaPath)) || []) {
+      if (!/sandbox/i.test(name)) continue;
+      const candidate = path.join(mediaPath, name);
+      const stats = await safeStat(candidate);
+      if (stats?.isFile()) sandboxOptionFiles.push(candidate);
+    }
+
+    records.push({
+      source,
+      workshopId: workshopId || null,
+      folder: fallbackName,
+      configuredIds: metadata.ids.filter((id) => configuredMods.has(id)),
+      ...metadata,
+      sandboxOptionFiles,
+    });
+  }
+  return records;
+}
+
+async function collectSandboxModMetadata(activeServer, ini) {
+  const configuredMods = new Set(ini?.Mods || []);
+  const records = [];
+  const inspectRoot = async (root, source, workshopId = null) => {
+    for (const name of (await safeReaddir(root)) || []) {
+      if (records.length >= SANDBOX_DIAGNOSTIC_MAX_MODS) break;
+      const modDir = path.join(root, name);
+      const stats = await safeStat(modDir);
+      if (!stats?.isDirectory()) continue;
+      records.push(...await inspectModDirectory(
+        modDir,
+        name,
+        source,
+        workshopId,
+        configuredMods,
+      ));
+    }
+  };
+
+  if (activeServer?.installPath) {
+    const workshopBase = path.join(
+      activeServer.installPath,
+      "steamapps",
+      "workshop",
+      "content",
+      "108600",
+    );
+    for (const workshopId of ini?.WorkshopItems || []) {
+      if (!/^\d+$/.test(workshopId)) continue;
+      await inspectRoot(
+        path.join(workshopBase, workshopId, "mods"),
+        "workshop",
+        workshopId,
+      );
+      if (records.length >= SANDBOX_DIAGNOSTIC_MAX_MODS) break;
+    }
+  }
+
+  if (activeServer?.zomboidDataPath && records.length < SANDBOX_DIAGNOSTIC_MAX_MODS) {
+    for (const directoryName of ["mods", "Mods"]) {
+      await inspectRoot(
+        path.join(activeServer.zomboidDataPath, directoryName),
+        "local",
+      );
+      if (records.length >= SANDBOX_DIAGNOSTIC_MAX_MODS) break;
+    }
+  }
+  return records.slice(0, SANDBOX_DIAGNOSTIC_MAX_MODS);
+}
+
+async function buildSandboxOptionsDiagnostics(activeServer, knownSecrets = []) {
+  if (!activeServer?.zomboidDataPath || !activeServer?.serverConfigPath) {
+    return { available: false, reason: "Active server paths are not configured" };
+  }
+
+  const serverName = activeServer.serverName || activeServer.name || null;
+  const ini = serverName
+    ? await parseServerIni(path.join(activeServer.serverConfigPath, `${serverName}.ini`))
+    : null;
+  const logPath = path.join(activeServer.zomboidDataPath, "server-console.txt");
+  const logText = await readTailText(logPath);
+  const lines = logText ? logText.split(/\r?\n/) : [];
+  const signature = /ArrayIndexOutOfBoundsException|SandboxOptions\$EnumSandboxOption\.getValueTranslationByIndexOrNull/;
+  const exceptionCount = lines.filter((line) => /ArrayIndexOutOfBoundsException/.test(line)).length;
+  const actionCount = lines.filter((line) => /getAllSandboxOptions/.test(line)).length;
+  const excerpts = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!signature.test(lines[index])) continue;
+    const excerpt = lines.slice(Math.max(0, index - 4), index + 8).join("\n");
+    const redacted = redactRawLogText(excerpt, knownSecrets);
+    if (!excerpts.some((entry) => entry.excerpt === redacted)) {
+      excerpts.push({ path: logPath, excerpt: redacted });
+    }
+    if (excerpts.length >= SANDBOX_DIAGNOSTIC_MAX_EXCERPTS) break;
+  }
+
+  const installedMods = await collectSandboxModMetadata(activeServer, ini);
+  const pzVersion = logText?.match(/\bversion=([^\s]+)\s+b[0-9a-f]+/i)?.[1] || null;
+  const bridgeVersion = logText?.match(/\[PanelBridge\]\s+Initializing v([^\s]+)/i)?.[1] || null;
+  const detected = exceptionCount > 0;
+  return {
+    available: true,
+    serverName,
+    pzVersion,
+    panelBridgeVersion: bridgeVersion,
+    configuredMods: ini?.Mods || [],
+    workshopItems: ini?.WorkshopItems || [],
+    detected,
+    error: detected
+      ? {
+          type: "sandbox-enum-index",
+          exception: "java.lang.ArrayIndexOutOfBoundsException",
+          javaMethod: "SandboxOptions$EnumSandboxOption.getValueTranslationByIndexOrNull",
+          action: "getAllSandboxOptions",
+          exceptionCount,
+          actionCount,
+          excerpts,
+          optionName: null,
+          note: "The PZ stack does not include the option name. Candidate mods are listed below from installed mod.info and sandbox-option metadata.",
+        }
+      : { exceptionCount: 0, actionCount },
+    candidateMods: installedMods.filter(
+      (mod) => mod.configuredIds.length > 0 || mod.sandboxOptionFiles.length > 0,
+    ),
+    installedMods,
+    logFiles: logText ? [logPath] : [],
+  };
+}
 
 async function buildServerConfigSummary(activeServer) {
   const configDir = activeServer?.serverConfigPath;
@@ -1333,13 +1563,14 @@ function buildBundleReadme() {
     "11. `network-interfaces.json` — local IPs (no MACs).",
     "12. `process.json` — process flags, versions, active handle counts.",
     "13. `server-config-summary.json` — sanitized effective server settings, mod/map lists, sandbox integrity, and whether the Mods/WorkshopItems lists are the same length (a mismatch is a cheap signal of an unresolved mod).",
-    "14. `pz-build-info.json` — installed Project Zomboid branch and Steam build ID.",
-    "15. `oidc-status.json` — whether SSO is configured, issuer/client/redirect/scope, which fields are pinned by an env var, and whether a client secret is set (never its value). No live IdP check — see the file's own notes.",
-    "16. `roles-and-permissions.json` — every role, what it grants, how many/which local users hold it. Start here for \"why can't this person see X\".",
-    "17. `world-map-diagnostics.json` — whether `curl` is present on this host (a missing one is the most likely new World Map support ticket this release) and the resolved B42 tile-build source/directory/reason.",
-    "18. `db-write-health.json` — db.json's write circuit-breaker state and retry count. Does NOT cover config-file (INI/Lua) writes — see the file's own notes for why.",
-    "19. `backups-summary.json` — the last 20 backup runs. Only successful runs are recorded; a failed scheduled backup shows up in `admin-panel/error.log` instead, not here.",
-    "20. `discord-bot-status.json` — connected or not, which guild/channel/mod-role it's wired to, and the last start failure if any (token presence only, never the value).",
+    "14. `sandbox-options-diagnostics.json` — PZ/PanelBridge versions, sandbox-option exception signatures and excerpts, triggering action counts, configured mods, and installed mod.info/sandbox-option metadata.",
+    "15. `pz-build-info.json` — installed Project Zomboid branch and Steam build ID.",
+    "16. `oidc-status.json` — whether SSO is configured, issuer/client/redirect/scope, which fields are pinned by an env var, and whether a client secret is set (never its value). No live IdP check — see the file's own notes.",
+    "17. `roles-and-permissions.json` — every role, what it grants, how many/which local users hold it. Start here for \"why can't this person see X\".",
+    "18. `world-map-diagnostics.json` — whether `curl` is present on this host (a missing one is the most likely new World Map support ticket this release) and the resolved B42 tile-build source/directory/reason.",
+    "19. `db-write-health.json` — db.json's write circuit-breaker state and retry count. Does NOT cover config-file (INI/Lua) writes — see the file's own notes for why.",
+    "20. `backups-summary.json` — the last 20 backup runs. Only successful runs are recorded; a failed scheduled backup shows up in `admin-panel/error.log` instead, not here.",
+    "21. `discord-bot-status.json` — connected or not, which guild/channel/mod-role it's wired to, and the last start failure if any (token presence only, never the value).",
     "",
     "## Then the raw logs",
     "",
@@ -1400,6 +1631,9 @@ async function buildBundleDiagnostics(activeServer, req, knownSecrets) {
     wrap("process.json", () => buildProcessSnapshot()),
     wrap("network-interfaces.json", () => buildNetworkInterfaces()),
     wrap("server-config-summary.json", () => buildServerConfigSummary(activeServer)),
+    wrap("sandbox-options-diagnostics.json", () =>
+      buildSandboxOptionsDiagnostics(activeServer, knownSecrets),
+    ),
     wrap("pz-build-info.json", () => buildPzBuildInfo(activeServer)),
     wrap("oidc-status.json", () => buildOidcStatus()),
     wrap("roles-and-permissions.json", () => buildRolesAndPermissions()),
@@ -1449,85 +1683,145 @@ async function buildBundleDiagnostics(activeServer, req, knownSecrets) {
 async function getSupportBundleEntries() {
   const paths = getDataPaths();
   const activeServer = await getActiveServer().catch(() => null);
+  const settings = await getAllSettings().catch(() => ({}));
 
   const installRoot = await resolveSearchRoot(activeServer?.installPath || "");
+  const serverPathRoot = await resolveSearchRoot(activeServer?.serverPath || "");
+  const steamcmdRoot = await resolveSearchRoot(settings?.steamcmdPath || "");
   const zomboidDataRoot = await resolveSearchRoot(
     activeServer?.zomboidDataPath || "",
   );
 
   const entries = [];
   const seenFiles = new Set();
+  const collectionReports = [];
+  const scan = async (root, matcher, archivePrefix, options = {}) => {
+    const result = await collectBundleFilesFromDir(
+      root,
+      matcher,
+      archivePrefix,
+      entries,
+      seenFiles,
+      options,
+    );
+    collectionReports.push({
+      root,
+      archivePrefix,
+      ...result,
+      maxDepth: options.maxDepth ?? 0,
+      maxFiles: options.maxFiles ?? 500,
+    });
+  };
 
-  await collectBundleFilesFromDir(
+  await scan(
     paths.logsDir,
     (name) => SUPPORT_LOG_FILE_RE.test(name) && !name.startsWith("."),
     "admin-panel",
-    entries,
-    seenFiles,
+    { maxDepth: 2, maxFiles: 200 },
   );
 
-  await collectBundleFilesFromDir(
+  await scan(
     zomboidDataRoot,
     (name) => SUPPORT_LOG_FILE_RE.test(name),
     "zomboid-server/root",
-    entries,
-    seenFiles,
+    {
+      maxDepth: 1,
+      maxFiles: 500,
+      skipDirectories: [
+        "backups",
+        "lua",
+        "map",
+        "maps",
+        "mods",
+        "saves",
+        "workshop",
+      ],
+    },
   );
 
-  await collectBundleFilesFromDir(
+  await scan(
     zomboidDataRoot ? path.join(zomboidDataRoot, "Logs") : null,
     (name) => SUPPORT_LOG_FILE_RE.test(name),
     "zomboid-server/Logs",
-    entries,
-    seenFiles,
+    { maxDepth: 3, maxFiles: 1000 },
   );
 
-  await collectBundleFilesFromDir(
+  await scan(
     installRoot ? path.join(installRoot, "logs") : null,
     (name) => SUPPORT_LOG_FILE_RE.test(name),
     "zomboid-install/logs",
-    entries,
-    seenFiles,
+    { maxDepth: 3, maxFiles: 1000 },
   );
 
-  await collectBundleFilesFromDir(
+  await scan(
+    installRoot ? path.join(installRoot, "steamapps", "logs") : null,
+    (name) => SUPPORT_LOG_FILE_RE.test(name),
+    "zomboid-install/steamapps-logs",
+    { maxDepth: 3, maxFiles: 1000 },
+  );
+
+  await scan(
+    steamcmdRoot ? path.join(steamcmdRoot, "logs") : null,
+    (name) => SUPPORT_LOG_FILE_RE.test(name),
+    "steamcmd/logs",
+    { maxDepth: 3, maxFiles: 1000 },
+  );
+
+  const alternateServerRoots = [serverPathRoot].filter(
+    (root) => root && root.toLowerCase() !== installRoot?.toLowerCase(),
+  );
+  for (const root of alternateServerRoots) {
+    await scan(
+      root,
+      (name) => SUPPORT_LOG_FILE_RE.test(name),
+      "zomboid-server/alternate-root",
+      { maxDepth: 1, maxFiles: 500 },
+    );
+    await scan(
+      path.join(root, "logs"),
+      (name) => SUPPORT_LOG_FILE_RE.test(name),
+      "zomboid-server/alternate-logs",
+      { maxDepth: 3, maxFiles: 1000 },
+    );
+  }
+
+  await scan(
     installRoot,
     (name) => CRASH_FILE_RE.test(name),
     "crash-logs/install-root",
-    entries,
-    seenFiles,
+    { maxDepth: 2, maxFiles: 100 },
   );
 
-  await collectBundleFilesFromDir(
+  await scan(
     installRoot ? path.join(installRoot, "logs") : null,
     (name) => CRASH_FILE_RE.test(name),
     "crash-logs/install-logs",
-    entries,
-    seenFiles,
+    { maxDepth: 3, maxFiles: 200 },
   );
 
-  await collectBundleFilesFromDir(
+  await scan(
     zomboidDataRoot,
     (name) => CRASH_FILE_RE.test(name),
     "crash-logs/server-root",
-    entries,
-    seenFiles,
+    { maxDepth: 2, maxFiles: 200 },
   );
 
-  await collectBundleFilesFromDir(
+  await scan(
     zomboidDataRoot ? path.join(zomboidDataRoot, "Logs") : null,
     (name) => CRASH_FILE_RE.test(name),
     "crash-logs/server-logs",
-    entries,
-    seenFiles,
+    { maxDepth: 3, maxFiles: 200 },
   );
 
   return {
     entries,
     activeServer,
+    collectionReports,
     sources: {
       panelLogsDir: paths.logsDir,
       installRoot,
+      serverPathRoot,
+      steamcmdRoot,
       zomboidDataRoot,
     },
   };
@@ -1587,7 +1881,8 @@ router.get("/logs/download-zip", requirePermission("diagnostics.manage"), async 
   try {
     log.info("GET /logs/download-zip");
 
-    const { entries, activeServer, sources } = await getSupportBundleEntries();
+    const { entries, activeServer, sources, collectionReports } =
+      await getSupportBundleEntries();
     if (entries.length === 0) {
       return res.status(404).json({ error: "No support logs found" });
     }
@@ -1631,6 +1926,7 @@ router.get("/logs/download-zip", requirePermission("diagnostics.manage"), async 
       `Zomboid Data Dir: ${sources.zomboidDataRoot || "n/a"}`,
       `Install Dir: ${sources.installRoot || "n/a"}`,
       `Included Files: ${entries.length}`,
+      `Scanned Roots: ${collectionReports.filter((report) => report.root).length}`,
       "",
       "WARNING: This bundle contains real logs. Known credential shapes",
       "(RCON/join/SFTP passwords, the Discord bot token, the Steam Web API",
@@ -1642,8 +1938,17 @@ router.get("/logs/download-zip", requirePermission("diagnostics.manage"), async 
       "- admin-panel: panel combined/error logs",
       "- zomboid-server: server-console and runtime logs",
       "- zomboid-install: install-side connection/workshop/system logs",
+      "- steamcmd: SteamCMD download/update logs when the configured path is available",
       "- crash-logs: matching crash/error dump files",
       "- docker-container-logs.txt / managed-service-logs.txt: container/service stdout+stderr for a Docker- or systemd-managed server (see README.md)",
+      "",
+      "Log scan results:",
+      ...collectionReports
+        .filter((report) => report.root)
+        .map(
+          (report) =>
+            `- ${report.archivePrefix}: ${report.addedFiles} file(s), ${report.visitedDirectories} directorie(s) visited, depth ${report.maxDepth}`,
+        ),
     ].join("\n");
 
     archive.append(manifest, { name: "support-bundle-info.txt" });
@@ -2017,7 +2322,13 @@ async function pathWritableAsync(p) {
 // step actually crashed.
 //
 // Returns null if no log; otherwise { ids, results, crashed, logMtime }.
-async function scanWorkshopFailures(zPath) {
+// Exported for direct testing (same reason getServerProcessState is
+// exported below) -- GET /diagnostics' full handler has enough of its own
+// dependency surface (req.app-injected services, several other database/
+// init.js lookups) that reaching this one check through a real route
+// invocation is its own, much larger undertaking; testing the function
+// directly proves its own behavior without needing that.
+export async function scanWorkshopFailures(zPath) {
   if (!zPath) return null;
   const logPath = path.join(zPath, "server-console.txt");
   let stat;
@@ -2083,8 +2394,9 @@ async function scanWorkshopFailures(zPath) {
 
 // Generic crash scanner. Tail server-console.txt and report the most
 // recent fatal symptom (OOM, main-thread exception, FATAL log line).
-// Returns null when nothing notable is in the tail.
-async function scanRecentCrash(zPath) {
+// Returns null when nothing notable is in the tail. Exported for direct
+// testing -- see scanWorkshopFailures's own comment above for why.
+export async function scanRecentCrash(zPath) {
   if (!zPath) return null;
   const logPath = path.join(zPath, "server-console.txt");
   let stat;
@@ -2471,10 +2783,21 @@ async function probeSteamWorkshopApi() {
   }
 }
 
-// Wrap a promise with a timeout. Used to keep slow / unreachable mounts
-// (broken NFS, dead SMB share, suspended VM) from hanging the entire
-// diagnostics request. Returns `fallback` on timeout instead of throwing.
-function withTimeout(promise, ms, fallback) {
+// Races an ALREADY-CREATED promise against a timer and returns `fallback`
+// if the timer wins. Used to keep slow / unreachable mounts (broken NFS,
+// dead SMB share, suspended VM) from hanging the entire diagnostics
+// request. Named raceWithFallback (not withTimeout, which diskSpace.js's
+// own real-cancel helper earned) deliberately -- this function is handed
+// an opaque promise it did not create, so it structurally CANNOT cancel
+// whatever is running inside it (no child process, no AbortSignal, nothing
+// to kill); it can only stop waiting and move on. That is a different,
+// weaker guarantee than "timeout" implies, and the old shared name made
+// diskSpace.js's real SIGTERM-on-timeout and this abandon-in-place read as
+// the same behavior when they never were (timeout-handling-consistency-
+// sweep, 2026-09-10). Never rejects -- always resolves either the real
+// value or `fallback`. Exported for direct testing, same reason as
+// scanWorkshopFailures/scanRecentCrash above.
+export function raceWithFallback(promise, ms, fallback) {
   let timer;
   const timeoutPromise = new Promise((resolve) => {
     timer = setTimeout(() => resolve(fallback), ms);
@@ -2494,6 +2817,22 @@ function withTimeout(promise, ms, fallback) {
   ]);
 }
 
+// A distinguishable "we gave up waiting" marker, applied below to the two
+// checks where the gap matters most: scanWorkshopFailures/scanRecentCrash
+// both use `null` as their OWN natural "nothing wrong here" answer, which
+// used to be the exact same value raceWithFallback substituted on a
+// timeout -- so a slow tail-read of server-console.txt read as a
+// confirmed-clean result instead of "we don't actually know," a false
+// all-clear from a page whose whole job is telling the operator what's
+// wrong. This is deliberately NOT applied to every raceWithFallback call
+// in this file (per god's steer: convert only where it changes what the
+// user sees, not all ~20 sites) -- safePathExists/safePathWritable's own
+// `false` fallback has the identical ambiguity in principle, but retrofitting
+// it means auditing 40+ call sites of those two helpers for how each one
+// currently treats a bare `false`, a materially bigger and separate job
+// than these two self-contained, single-consumer checks.
+export const CHECK_TIMED_OUT = Symbol("debug-check-timed-out");
+
 export async function getServerProcessState(
   serverManager,
   timeoutMs = FS_TIMEOUT_MS,
@@ -2501,7 +2840,7 @@ export async function getServerProcessState(
   if (!serverManager) return { running: false, scanFailed: false };
 
   if (typeof serverManager.getServerProcessDetails === "function") {
-    const details = await withTimeout(
+    const details = await raceWithFallback(
       Promise.resolve().then(() => serverManager.getServerProcessDetails()),
       timeoutMs,
       null,
@@ -2513,7 +2852,7 @@ export async function getServerProcessState(
   }
 
   if (typeof serverManager.checkServerRunning === "function") {
-    const running = await withTimeout(
+    const running = await raceWithFallback(
       // eslint-disable-next-line local/no-fail-open-check-server-running -- already fail-closed on its own terms: the typeof check below converts anything that isn't a real boolean into { running: null, scanFailed: true } before returning, and this function's only two callers are both read-only diagnostics routes in this file -- nothing destructive is gated on the result.
       Promise.resolve().then(() => serverManager.checkServerRunning()),
       timeoutMs,
@@ -2529,25 +2868,20 @@ export async function getServerProcessState(
 
 const FS_TIMEOUT_MS = 2000;
 const safePathExists = (p) =>
-  withTimeout(pathExistsAsync(p), FS_TIMEOUT_MS, false);
+  raceWithFallback(pathExistsAsync(p), FS_TIMEOUT_MS, false);
 const safePathWritable = (p) =>
-  withTimeout(pathWritableAsync(p), FS_TIMEOUT_MS, false);
+  raceWithFallback(pathWritableAsync(p), FS_TIMEOUT_MS, false);
 
-async function safeReaddir(p) {
-  try {
-    return await withTimeout(fs.promises.readdir(p), FS_TIMEOUT_MS, null);
-  } catch {
-    return null;
-  }
-}
-
-async function safeStat(p) {
-  try {
-    return await withTimeout(fs.promises.stat(p), FS_TIMEOUT_MS, null);
-  } catch {
-    return null;
-  }
-}
+// timeout-handling-consistency-sweep, 2026-09-10: these used to wrap the
+// raceWithFallback() call in a try/catch that could never fire -- the
+// helper never throws, it always resolves (the real value or `fallback`).
+// That dead handling read as "the rejection case is covered here," which
+// is exactly backwards: there IS no rejection case to cover. Plain
+// expressions now, matching safePathExists/safePathWritable above.
+const safeReaddir = (p) =>
+  raceWithFallback(fs.promises.readdir(p), FS_TIMEOUT_MS, null);
+const safeStat = (p) =>
+  raceWithFallback(fs.promises.stat(p), FS_TIMEOUT_MS, null);
 
 // Run a single check function, catching any unexpected throw and converting
 // it into a 'fail' diag entry rather than aborting the whole report.
@@ -2621,7 +2955,27 @@ function buildThumbnailResolutionCheck(thumbStatus) {
       "mods.thumbnailResolution",
       "Mod thumbnail status unavailable",
       "Could not determine mod thumbnail resolution status.",
-      { category: "services" },
+      { category: "services", variant: "statusUnavailable" },
+    );
+  }
+
+  // diagnostics-registry-scanner-cannot-see-named-collector-functions,
+  // 2026-09-09: this used to be one diagOk() call with a computed
+  // (ternary) `variant` value, invisible to diagnosticsCheckRegistry.
+  // test.js's literal-string variant scan by design (see that file's own
+  // header comment, failure mode #1). Split into two literal-variant
+  // branches -- same fix as db.backup's unreadable/error split elsewhere
+  // in this file -- so both are grep-able and locale-translatable.
+  if (failing === 0 && total > 0) {
+    return diagOk(
+      "mods.thumbnailResolution",
+      "Mod thumbnails resolving normally",
+      `${total} tracked mod${total === 1 ? "" : "s"}, all thumbnails resolving.`,
+      {
+        category: "services",
+        params: { total },
+        variant: "allResolvingSome",
+      },
     );
   }
 
@@ -2629,10 +2983,12 @@ function buildThumbnailResolutionCheck(thumbStatus) {
     return diagOk(
       "mods.thumbnailResolution",
       "Mod thumbnails resolving normally",
-      total > 0
-        ? `${total} tracked mod${total === 1 ? "" : "s"}, all thumbnails resolving.`
-        : "No thumbnail resolution failures.",
-      { category: "services", params: { total } },
+      "No thumbnail resolution failures.",
+      {
+        category: "services",
+        params: { total },
+        variant: "allResolvingNone",
+      },
     );
   }
 
@@ -2648,6 +3004,7 @@ function buildThumbnailResolutionCheck(thumbStatus) {
         category: "services",
         hint: "Usually means those specific Workshop items were deleted, made private, or region-restricted on Steam — check the Workshop ID above on steamcommunity.com. Resolution retries automatically every 5 minutes; this clears on its own if the item is public and Steam is reachable.",
         params: { failing, total, reason, workshopId, age },
+        variant: "someFailing",
       },
     );
   }
@@ -2745,6 +3102,16 @@ function summarizeRconRejections(history, classify, { windowMs = RCON_REJECTION_
   };
 }
 
+// rcon-command-rejections-check-has-never-rendered-in-any-language,
+// 2026-09-09: this used an "rcon" category value, which is not a
+// DIAG_CATEGORIES key (services/bridge/server/storage/runtime/updates) --
+// Debug.tsx's category render loop filters checks by category===catKey
+// against those keys only, so a check whose category doesn't exist
+// renders NOWHERE, silently, in every language, while still running and
+// computing a real result. Uses "services" (Core Services) to match
+// rcon.connected, its sibling check in the same try/catch chain just
+// above this function's call site, rather than inventing a distinct
+// grouping for one check.
 function buildRconCommandRejectionsCheck(summary) {
   if (!summary || typeof summary.total !== "number" || !Array.isArray(summary.breakdown)) {
     // Unrecognised/unavailable -- fail closed to warn, not ok, same rule as
@@ -2753,7 +3120,7 @@ function buildRconCommandRejectionsCheck(summary) {
       "rcon.commandRejections",
       "RCON command rejection status unavailable",
       "Could not determine whether the game server has rejected any RCON commands recently.",
-      { category: "rcon", hint: RCON_REJECTIONS_CLOSING_LINE },
+      { category: "services", hint: RCON_REJECTIONS_CLOSING_LINE, variant: "statusUnavailable" },
     );
   }
 
@@ -2762,7 +3129,7 @@ function buildRconCommandRejectionsCheck(summary) {
       "rcon.commandRejections",
       "No RCON command rejections",
       "No RCON commands have been rejected by the game server recently.",
-      { category: "rcon", hint: RCON_REJECTIONS_CLOSING_LINE },
+      { category: "services", hint: RCON_REJECTIONS_CLOSING_LINE },
     );
   }
 
@@ -2773,9 +3140,10 @@ function buildRconCommandRejectionsCheck(summary) {
     "The game server has rejected some RCON commands",
     `${summary.total} commands were rejected by the game server in the last 24 hours: ${list}.`,
     {
-      category: "rcon",
+      category: "services",
       hint,
       params: { total: summary.total, list },
+      variant: "someRejected",
     },
   );
 }
@@ -2808,28 +3176,28 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
       serverState,
       dbStats,
     ] = await Promise.all([
-      withTimeout(
+      raceWithFallback(
         getActiveServer().catch(() => null),
         FS_TIMEOUT_MS,
         null,
       ),
-      withTimeout(
+      raceWithFallback(
         getAllSettings().catch(() => ({})),
         FS_TIMEOUT_MS,
         {},
       ),
-      withTimeout(
+      raceWithFallback(
         getTrackedMods().catch(() => []),
         FS_TIMEOUT_MS,
         [],
       ),
-      withTimeout(
+      raceWithFallback(
         getScheduledTasks().catch(() => []),
         FS_TIMEOUT_MS,
         [],
       ),
       serverStatePromise,
-      withTimeout(
+      raceWithFallback(
         getDatabaseStats().catch(() => null),
         FS_TIMEOUT_MS,
         null,
@@ -2967,7 +3335,7 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
             "rcon.commandRejections",
             "RCON command rejection status unavailable",
             `Could not determine whether the game server has rejected any RCON commands recently: ${e?.message || "unknown"}`,
-            { category: "rcon" },
+            { category: "services", variant: "statusUnavailableWithError", params: { error: e?.message || "unknown" } },
           ),
         );
       }
@@ -3072,7 +3440,7 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
             "mods.thumbnailResolution",
             "Mod thumbnail status unavailable",
             `Could not determine mod thumbnail resolution status: ${e?.message || "unknown"}`,
-            { category: "services" },
+            { category: "services", variant: "statusUnavailableWithError", params: { error: e?.message || "unknown" } },
           ),
         );
       }
@@ -3491,12 +3859,32 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
         // offending IDs so the user can remove them from the .ini.
         let workshopCrashed = false;
         if (zPath) {
-          const wf = await withTimeout(
+          const wf = await raceWithFallback(
             scanWorkshopFailures(zPath),
             FS_TIMEOUT_MS,
-            null,
+            CHECK_TIMED_OUT,
           );
-          if (wf && wf.ids.length > 0) {
+          if (wf === CHECK_TIMED_OUT) {
+            // Reuses the existing server.error id/shape (see the try/catch
+            // below that already emits this for an unexpected throw) rather
+            // than a new check id or variant -- "some active-server checks
+            // could not run" is exactly true here too, and it's already
+            // translated in every locale this file supports.
+            checks.push(
+              diagWarn(
+                "server.error",
+                "Server checks errored",
+                "Some active-server checks could not run: the Workshop-crash scan did not finish within the time limit",
+                {
+                  category: "server",
+                  params: {
+                    reason:
+                      "the Workshop-crash scan did not finish within the time limit",
+                  },
+                },
+              ),
+            );
+          } else if (wf && wf.ids.length > 0) {
             const shown = wf.ids.slice(0, 5).join(", ");
             const idList =
               wf.ids.length > 5
@@ -3563,12 +3951,27 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
         // and FATAL log entries that aren't the Workshop install crash (which
         // we already flagged above with richer detail).
         if (zPath) {
-          const rc = await withTimeout(
+          const rc = await raceWithFallback(
             scanRecentCrash(zPath),
             FS_TIMEOUT_MS,
-            null,
+            CHECK_TIMED_OUT,
           );
-          if (rc && !(workshopCrashed && rc.kind === "workshop")) {
+          if (rc === CHECK_TIMED_OUT) {
+            checks.push(
+              diagWarn(
+                "server.error",
+                "Server checks errored",
+                "Some active-server checks could not run: the recent-crash scan did not finish within the time limit",
+                {
+                  category: "server",
+                  params: {
+                    reason:
+                      "the recent-crash scan did not finish within the time limit",
+                  },
+                },
+              ),
+            );
+          } else if (rc && !(workshopCrashed && rc.kind === "workshop")) {
             const ageMin = Math.max(
               0,
               Math.round((Date.now() - rc.logMtime.getTime()) / 60000),
@@ -3642,7 +4045,7 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
             ? path.join(zPath, "Server", `${activeServer.serverName}.ini`)
             : null;
         const ini = iniPathForActive
-          ? await withTimeout(
+          ? await raceWithFallback(
               parseServerIni(iniPathForActive),
               FS_TIMEOUT_MS,
               null,
@@ -3654,12 +4057,12 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
           // local mod folder. Anything unresolved means "this mod will not
           // load" — silent and one of the most painful PZ-server gotchas.
           const [wsScan, localScan] = await Promise.all([
-            withTimeout(
+            raceWithFallback(
               scanWorkshopMods(installPath),
               FS_TIMEOUT_MS,
               new Map(),
             ),
-            withTimeout(scanLocalMods(zPath), FS_TIMEOUT_MS, {
+            raceWithFallback(scanLocalMods(zPath), FS_TIMEOUT_MS, {
               mods: new Set(),
               maps: new Set(),
             }),
@@ -4123,13 +4526,13 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
             const st = await safeStat(sp);
             if (st && st.isDirectory()) {
               // scanSaveStats gets a budget comfortably under the outer
-              // withTimeout below, so it almost always finishes (with
+              // raceWithFallback below, so it almost always finishes (with
               // truncated: true if it ran out of room) rather than being
               // raced away -- the outer wrap stays only as a last-resort
               // safety net. Both `null` (raced away) and `truncated: true`
               // (self-bounded early exit) mean the same thing to the check
               // below: this scan could not fully confirm the save is clean.
-              saveStats = await withTimeout(
+              saveStats = await raceWithFallback(
                 scanSaveStats(sp, FS_TIMEOUT_MS * 3),
                 FS_TIMEOUT_MS * 4,
                 null,
@@ -4162,7 +4565,7 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
             }
           }
           if (javaBin) {
-            const probe = await withTimeout(probeJre(javaBin), 5000, {
+            const probe = await raceWithFallback(probeJre(javaBin), 5000, {
               ok: false,
               error: "timeout",
             });
@@ -4813,7 +5216,7 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
     // ─── Updates ───────────────────────────────────────────────────────
     // Steam Workshop API probe is needed by both update.steamApi and the
     // host-clock check (we read its Date response header). Compute once.
-    const steamProbe = await withTimeout(probeSteamWorkshopApi(), 6000, {
+    const steamProbe = await raceWithFallback(probeSteamWorkshopApi(), 6000, {
       reachable: false,
       error: "timeout",
     });
@@ -5238,7 +5641,7 @@ router.get("/worldmap", requirePermission("diagnostics.manage"), async (req, res
   try {
     // Gather context with the same hard timeout we use for /diagnostics.
     const [activeServer] = await Promise.all([
-      withTimeout(
+      raceWithFallback(
         getActiveServer().catch(() => null),
         FS_TIMEOUT_MS,
         null,
@@ -5815,6 +6218,24 @@ router.post("/database/compact", requirePermission("diagnostics.manage"), async 
 // holds open. Only deletes files older than 1 hour (matches the
 // diagnostics threshold in scanSaveStats).
 router.post("/clear-stale-locks", requirePermission("diagnostics.manage"), async (req, res) => {
+  // re-entrancy sweep, 2026-09-10 (HIGH #2): this route's own comment
+  // below already named FIVE sibling routes (wipe, delete-files, chunks.js's
+  // delete-chunks/delete-region, backup.js's restore, templates.js's apply)
+  // fixed for the exact "checked-then-race" shape this route was itself
+  // still in -- an async running-check, followed well after it resolves by
+  // a real unlink loop over the live save directory's .lock files, with
+  // nothing stopping a /start from landing in the gap and launching the JVM
+  // against a save mid-delete. Same fix as those five: take the process-wide
+  // lifecycleCoordinator lock for the whole handler, acquired before the
+  // running-check itself, not just around the delete loop.
+  const activeServerForLock = await getActiveServer().catch(() => null);
+  const lifecycleLock = acquireLifecycleLock(
+    "clear-stale-locks",
+    activeServerForLock?.id ?? null,
+  );
+  if (!lifecycleLock) {
+    return res.status(409).json(lifecycleInProgressResponse());
+  }
   try {
     log.info("POST /clear-stale-locks");
     const serverManager = req.app.get("serverManager");
@@ -5976,6 +6397,8 @@ router.post("/clear-stale-locks", requirePermission("diagnostics.manage"), async
     res
       .status(500)
       .json({ success: false, error: sanitizeError(error.message) });
+  } finally {
+    lifecycleLock.release();
   }
 });
 
@@ -6065,8 +6488,14 @@ router.get("/crash-logs", requirePermission("diagnostics.manage"), async (req, r
       }
     }
 
-    // Sort by modified date, newest first
-    crashLogs.sort((a, b) => new Date(b.modified) - new Date(a.modified));
+    // Sort by modified date, newest first. display-order-tie-breaks-nine-
+    // sites-cosmetic, 2026-09-09: name tie-break so a same-timestamp pair
+    // doesn't fall through to readdir order.
+    crashLogs.sort(
+      (a, b) =>
+        new Date(b.modified) - new Date(a.modified) ||
+        b.name.localeCompare(a.name),
+    );
 
     // totalCount is the real count before the cap -- the client showed the
     // capped array's length as if it were the total, so a server with more
@@ -6194,13 +6623,28 @@ router.post("/client-errors", (req, res) => {
       return res.status(400).json({ error: "Message is required" });
     }
 
-    log.warn(`[ClientError] ${message.slice(0, 500)}`, {
-      error:
-        typeof errorDetail === "string"
-          ? errorDetail.slice(0, 1000)
-          : undefined,
-      url: typeof url === "string" ? url.slice(0, 200) : undefined,
-    });
+    // Before this, `error`/`url` were passed as winston's metadata argument,
+    // which BOTH file transports' printf formatters (server/utils/logger.js
+    // consolePrintf/filePrintf) only ever ignore -- they interpolate
+    // level/message/timestamp/stack/source and nothing else, so this detail
+    // was captured by the logger and then silently never written anywhere.
+    // A real user's support bundle (2026-09-08) had `[ClientError] Request
+    // failed, retrying (1/3)...` repeated 17+ times in combined.log, never
+    // once naming what failed, and `Diagnostics auto-fix failed.` with zero
+    // detail right after they pressed the panel's own "fix this" button --
+    // both calls already had the real reason available (client-errors.ts's
+    // reportClientError/reportClientWarning always send the caught error's
+    // own .message as `error`, and the page URL the user was on as `url`);
+    // it just never reached the file an operator would read. Folded into
+    // the message text itself, since that's the only part either printf
+    // renders.
+    const errorPart =
+      typeof errorDetail === "string" && errorDetail
+        ? ` -- ${errorDetail.slice(0, 300)}`
+        : "";
+    const urlPart =
+      typeof url === "string" && url ? ` (page: ${url.slice(0, 200)})` : "";
+    log.warn(`[ClientError] ${message.slice(0, 500)}${errorPart}${urlPart}`);
 
     res.json({ ok: true });
   } catch (err) {
@@ -6313,8 +6757,16 @@ router.get("/activity", requirePermission("diagnostics.manage"), async (req, res
       }
     }
 
-    // Sort by timestamp (newest first) and trim
-    entries.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    // Sort by timestamp (newest first) and trim. display-order-tie-
+    // breaks-nine-sites-cosmetic, 2026-09-09: id tie-break -- these
+    // entries come from two different tables interleaved, so a tied
+    // timestamp previously fell through to whatever order the two source
+    // queries happened to be concatenated in, not a real ordering.
+    entries.sort(
+      (a, b) =>
+        new Date(b.timestamp) - new Date(a.timestamp) ||
+        String(b.id).localeCompare(String(a.id)),
+    );
     const trimmed = entries.slice(0, limit);
 
     res.json({ entries: trimmed, total: trimmed.length });
@@ -6417,6 +6869,7 @@ export {
   buildBundleDiagnostics,
   buildSystemInfo,
   buildServerConfigSummary,
+  buildSandboxOptionsDiagnostics,
   buildOidcStatus,
   buildRolesAndPermissions,
   checkCurlAvailable,
@@ -6434,6 +6887,7 @@ export {
   redactRawLogText,
   collectBundleKnownSecrets,
   createRedactingLogStream,
+  collectBundleFilesFromDir,
 };
 // Exported for direct unit testing of the GET /diagnostics thumbnail-
 // resolution check -- see server/tests/thumbnailResolutionCheck.test.js.

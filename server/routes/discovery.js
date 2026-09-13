@@ -6,12 +6,13 @@ import path from "path";
 import { createLogger } from "../utils/logger.js";
 const log = createLogger("API:Discovery");
 import { sanitizeError, sanitizeServerResponse } from "../utils/sanitize.js";
-import { normalizeRconHost } from "../services/rcon.js";
+import { normalizeRconHost, resolveEnvRconHost } from "../services/rcon.js";
 import { createServer } from "../database/init.js";
 import { requirePermission } from "../services/permissions.js";
 import {
   discoverMounts,
   discoverMountIssues,
+  scanAllCandidates,
   probeInstallPath,
   probeDataPath,
   readServerIniSettings,
@@ -32,8 +33,23 @@ router.get("/discover-mounts", requirePermission("servers.discover"), async (req
     // inaccessible: candidates that exist but couldn't be read (permission
     // denied) rather than simply not being mounted -- surfaced separately so
     // a misconfigured host permission doesn't read identically to "nothing
-    // mounted here".
-    res.json({ mounts: discoverMounts(), inaccessible: discoverMountIssues() });
+    // mounted here". Kept unchanged for every existing caller (DiscoverySetup.tsx).
+    //
+    // candidates: server-detection-lifecycle-hardening, 2026-09-09 -- the
+    // additive, ranked-with-reasons version. `mounts`/`inaccessible` above
+    // only ever show a candidate once it's fully ready or explicitly
+    // permission-denied; everything else (empty, not mounted, half-there)
+    // was invisible. `candidates` shows EVERY common Docker/Unraid/env
+    // location this scan knows about, ranked best-first, each with a
+    // `status` and a plain-language `reason` -- see
+    // mountDiscovery.js's scanAllCandidates() for the taxonomy. New UI
+    // should read this field; DiscoverySetup.tsx's existing flow is
+    // untouched.
+    res.json({
+      mounts: discoverMounts(),
+      inaccessible: discoverMountIssues(),
+      candidates: scanAllCandidates(),
+    });
   } catch (error) {
     log.error(`Mount discovery failed: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -80,8 +96,34 @@ router.post("/create-from-discovery", requirePermission("servers.discover"), asy
         .json({ error: "dataPath does not look like a PZ data folder" });
     }
 
-    const resolvedName =
-      serverName || dataResult.serverNames[0] || installResult.serverNames[0];
+    // discovery-silent-multi-server-autopick, 2026-09-09: same
+    // dataResult-first-else-installResult precedence discoverMounts() itself
+    // uses for its own `serverNames` field (mountDiscovery.js) -- computed
+    // fresh from the probes just above rather than reusing `discovered`
+    // (probed moments earlier by discoverMounts()) so the ambiguity check
+    // and the name actually picked below can never disagree with each other.
+    const effectiveServerNames = dataResult.serverNames.length
+      ? dataResult.serverNames
+      : installResult.serverNames;
+
+    // A silent pick is fine when there is nothing to choose between (the
+    // overwhelmingly common single-server case) or when the caller already
+    // told us which one they meant. It stops being fine once the mount
+    // genuinely has two or more real, already-configured servers and
+    // nothing was specified: picking one of several servers the operator
+    // OWNS and hiding that a choice was made means the others are never
+    // offered at all, and the wrong pick isn't something an editable field
+    // fixes after the fact -- the panel now thinks the wrong one is the
+    // only one. So: one candidate, use it silently; two or more, hand back
+    // the list instead of guessing (rule 4, no dead ends).
+    if (!serverName && effectiveServerNames.length > 1) {
+      return res.status(400).json({
+        error: `This location has ${effectiveServerNames.length} servers (${effectiveServerNames.join(", ")}) — specify serverName to choose one.`,
+        serverNames: effectiveServerNames,
+      });
+    }
+
+    const resolvedName = serverName || effectiveServerNames[0];
     if (!resolvedName) {
       return res.status(400).json({
         error: "No server config (Server/*.ini) found — specify serverName",
@@ -109,12 +151,18 @@ router.post("/create-from-discovery", requirePermission("servers.discover"), asy
       });
     }
 
+    // docker-unraid-onboarding, 2026-09-09: found by Dwight tracing this
+    // route end to end; the two-container-topology reasoning now lives in
+    // resolveEnvRconHost()'s own comment (rcon.js), shared with
+    // install/quick-setup/configure-rcon rather than duplicated per route.
+    const resolvedRconHost = resolveEnvRconHost();
+
     const server = await createServer({
       name: name || iniSettings.publicName || resolvedName,
       serverName: resolvedName,
       installPath: discovered.installPath,
       zomboidDataPath: discovered.dataPath,
-      rconHost: normalizeRconHost("127.0.0.1"),
+      rconHost: normalizeRconHost(resolvedRconHost),
       rconPort: iniSettings.rconPort,
       rconPassword: iniSettings.rconPassword,
       serverPort: iniSettings.serverPort,

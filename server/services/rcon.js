@@ -104,6 +104,28 @@ export function normalizeRconHost(host) {
   return host.trim() || "127.0.0.1";
 }
 
+// docker-unraid-onboarding, 2026-09-09: the panel and PZ are usually
+// co-located (same container, or PZ native on the same host), where
+// 127.0.0.1 is correct -- but the project's own docker/unraid/
+// zomboid-panel.xml documents a second, equally real topology: the panel
+// and PZ in TWO SEPARATE containers sharing only the bind-mounted
+// install/data volumes, reachable over the Docker network -- and that
+// template's own RCON_HOST field says, verbatim, "Never use 127.0.0.1."
+// Originated in discovery.js's create-from-discovery (Dwight); shared here
+// so every route that writes a freshly-configured server's rconHost --
+// install, quick-setup, configure-rcon, discovery -- resolves it the same
+// way instead of each hardcoding 127.0.0.1 and silently regressing on this
+// topology one call site at a time (server.js:3114/3626/3809, found after
+// discovery.js shipped this fix without checking for siblings).
+// "CHANGE_ME" is the template's own literal default for a REQUIRED field --
+// guarded explicitly in case an Unraid version ever lets a required field
+// deploy unedited, so a profile is never created pointed at a host
+// literally named "CHANGE_ME".
+export function resolveEnvRconHost() {
+  const envHost = String(process.env.RCON_HOST || "").trim();
+  return envHost && envHost !== "CHANGE_ME" ? envHost : "127.0.0.1";
+}
+
 function parseConfiguredRconPort(value) {
   if (
     value === undefined ||
@@ -433,8 +455,20 @@ export class RconService extends EventEmitter {
     this.reconnecting = false; // Mutex to prevent concurrent reconnection attempts
     this.reconnectPromise = null; // Store ongoing reconnection promise
 
-    // Connection timeout - how long to wait for authenticate() before giving up
-    this.connectionTimeout = 10000; // 10 seconds
+    // Connection timeout - how long to wait for authenticate() before giving up.
+    // timeout-handling-consistency-sweep, 2026-09-10: authenticate() itself
+    // runs SourceRconClient's connect phase and auth phase SEQUENTIALLY,
+    // each capped at that client's own `timeout` constructor option
+    // (5000ms, set where `new SourceRconClient(...)` is constructed below) --
+    // a worst case of ~10000ms, an exact tie with this outer ceiling
+    // measured from the same t=0. A tie leaves zero margin for scheduling
+    // or network jitter: this outer timer can fire moments before the
+    // inner one would have reported the real (slower but genuine) auth
+    // failure, same shape as tonight's bridge bug before
+    // BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS gave it real headroom. Widened
+    // past the inner worst case with margin; a healthy connection settles
+    // in milliseconds and is unaffected.
+    this.connectionTimeout = 13000;
     this.commandTimeout = 10000; // 10 seconds execution timeout for commands
 
     // Periodic health check to detect stale connections

@@ -169,6 +169,18 @@ const PLAYER_PRESENCE_INTERVAL_MS = 60_000;
 // shardDisconnect, which never clears on its own) reaches the operator.
 const GATEWAY_DEGRADED_THRESHOLD_MS = 30_000;
 
+// start()'s distinguishable return for "a DIFFERENT start() call is already
+// in flight, this call was a no-op" (its _starting guard, re-entrancy sweep
+// finding #1). Truthy like the plain `true` success return -- POST
+// /discord/start's existing `if (started)` still reads it as success with
+// no code change needed there, since the bot genuinely is (or is about to
+// be) running either way -- but PUT /config's credential-change branch can
+// tell it apart from a real reconnect it just performed itself, so it does
+// not claim credit for a reconnect this request never attempted.
+export const START_ALREADY_IN_PROGRESS = Symbol(
+  "discord-start-already-in-progress",
+);
+
 export class DiscordBot {
   constructor(rconService, serverManager, scheduler, logTailer = null) {
     this.client = null;
@@ -182,11 +194,26 @@ export class DiscordBot {
     this.modRoleId = null;
     this.channelId = null;
     this.isRunning = false;
+    // Claimed synchronously at the top of start(), released in a finally --
+    // see start()'s own comment for the double-start race this closes.
+    this._starting = false;
     // Last start() failure, surfaced through routes/discord.js so a bad
     // token, disallowed privileged intents, and a network timeout stop
     // wearing the same "check configuration" message. Same pattern as
     // DockerClient.lastError.
     this.lastStartError = null;
+    // Serializes PUT /config, /webhook-events, and /permissions (all three
+    // read this singleton's current persisted config and write back a
+    // merge) against each other -- re-entrancy sweep finding #5, same
+    // promise-chain-mutex shape as AuthService._withMutex
+    // (services/auth.js) and permissions.js's withRoleMutex. Without this,
+    // two overlapping saves each read a not-yet-committed value and the
+    // second write clobbers a field the first one just changed; it also
+    // means PUT /config's own stop()+start() reconnect sequence runs to
+    // completion before a second concurrent /config save can begin its
+    // own, closing the specific compounding race with finding #1 (two
+    // overlapping start() calls) that motivated start()'s _starting guard.
+    this._configMutex = Promise.resolve();
     this.webhookEvents = {};
     this.commandPermissions = { ...DEFAULT_COMMAND_PERMISSIONS };
     this.chatRelayEnabled = true;
@@ -344,6 +371,17 @@ export class DiscordBot {
       `**<${cleanAuthor}>** ${cleanMessage}`,
       { label: "game chat relay" },
     );
+  }
+
+  // Run a critical section serialized against other config-mutex holders.
+  // Same shape as AuthService._withMutex (services/auth.js).
+  withConfigMutex(fn) {
+    const run = this._configMutex.then(fn, fn);
+    this._configMutex = run.then(
+      () => {},
+      () => {},
+    );
+    return run;
   }
 
   async loadConfig() {
@@ -1635,6 +1673,34 @@ export class DiscordBot {
       return true;
     }
 
+    // re-entrancy sweep, 2026-09-10 (HIGH #1): the check above is not
+    // enough on its own to stop a SECOND, near-simultaneous start() call --
+    // this.client isn't assigned until well after the first await
+    // (loadConfig(), right below) and this.isRunning not until later still
+    // (post-login, clientReady). Two overlapping start() calls both pass
+    // the check above before either assigns this.client, and both go on to
+    // create a Client and attach their own messageCreate listener, doubling
+    // every in-game chat relay message. Reachable two ways: a POST
+    // /discord/start double-click, AND PUT /discord/config's own internal
+    // restart-on-credential-change (routes/discord.js) calling start() a
+    // second way -- a guard covering only one of the two callers would
+    // still leave the other live, so this is claimed once, synchronously,
+    // right here in start() itself (both callers go through this same
+    // method), before the first await -- mirrors panelUpdateChecker.js's
+    // isDownloading.
+    if (this._starting) {
+      log.warn("start() called while a previous start() call is still in flight — ignoring");
+      return START_ALREADY_IN_PROGRESS;
+    }
+    this._starting = true;
+    try {
+      return await this._doStart();
+    } finally {
+      this._starting = false;
+    }
+  }
+
+  async _doStart() {
     await this.loadConfig();
 
     // If a previous stop() detached the chatMessage listener, reattach it

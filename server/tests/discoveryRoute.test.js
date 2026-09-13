@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const createServer = vi.fn();
 const discoverMounts = vi.fn();
 const discoverMountIssues = vi.fn(() => []);
+const scanAllCandidates = vi.fn(() => []);
 const probeInstallPath = vi.fn();
 const probeDataPath = vi.fn();
 const readServerIniSettings = vi.fn();
@@ -13,6 +14,7 @@ vi.mock("../database/init.js", () => ({ createServer, getRoleByName: mockGetRole
 vi.mock("../services/mountDiscovery.js", () => ({
   discoverMounts,
   discoverMountIssues,
+  scanAllCandidates,
   probeInstallPath,
   probeDataPath,
   readServerIniSettings,
@@ -141,6 +143,58 @@ describe("POST /api/servers/create-from-discovery", () => {
     expect(payload.server.adminPassword).not.toBe("admin-secret");
   });
 
+  // docker-unraid-onboarding, 2026-09-09: found by Dwight tracing this
+  // route end to end against docker/unraid/zomboid-panel.xml's own
+  // documented two-container topology (panel and PZ server in SEPARATE
+  // containers, reachable only over the Docker network) -- the template's
+  // RCON_HOST field says verbatim "Never use 127.0.0.1." This used to be
+  // hardcoded regardless of that env var.
+  it("uses process.env.RCON_HOST when the operator configured it, instead of always hardcoding 127.0.0.1", async () => {
+    vi.stubEnv("RCON_HOST", "projectzomboid");
+
+    const response = await runCreate({
+      installPath: "/pz-server",
+      dataPath: "/zomboid",
+      serverName: "servertest",
+    });
+
+    expect(response.status).not.toHaveBeenCalledWith(400);
+    expect(createServer).toHaveBeenCalledWith(
+      expect.objectContaining({ rconHost: "projectzomboid" }),
+    );
+    vi.unstubAllEnvs();
+  });
+
+  it("falls back to 127.0.0.1 when RCON_HOST is unset (the co-located, single-container topology)", async () => {
+    vi.stubEnv("RCON_HOST", "");
+
+    await runCreate({
+      installPath: "/pz-server",
+      dataPath: "/zomboid",
+      serverName: "servertest",
+    });
+
+    expect(createServer).toHaveBeenCalledWith(
+      expect.objectContaining({ rconHost: "127.0.0.1" }),
+    );
+    vi.unstubAllEnvs();
+  });
+
+  it("falls back to 127.0.0.1 rather than literally using 'CHANGE_ME' as a hostname -- the Unraid template's own unedited default for this required field", async () => {
+    vi.stubEnv("RCON_HOST", "CHANGE_ME");
+
+    await runCreate({
+      installPath: "/pz-server",
+      dataPath: "/zomboid",
+      serverName: "servertest",
+    });
+
+    expect(createServer).toHaveBeenCalledWith(
+      expect.objectContaining({ rconHost: "127.0.0.1" }),
+    );
+    vi.unstubAllEnvs();
+  });
+
   it("reports malformed discovered INI settings instead of blaming a missing password", async () => {
     readServerIniSettings.mockReturnValue(null);
 
@@ -155,6 +209,70 @@ describe("POST /api/servers/create-from-discovery", () => {
       error: expect.stringMatching(/valid RCON or game port settings/i),
     });
     expect(createServer).not.toHaveBeenCalled();
+  });
+
+  // discovery-silent-multi-server-autopick, 2026-09-09: the ONE place
+  // tonight's onboarding push goes the opposite direction from "stop
+  // asking, guess, let them change it" -- a silent wrong pick between
+  // several real, already-configured servers the operator owns is not a
+  // recoverable-later guess like a path or a port. Both branches covered:
+  // the single-server case (must not regress, it's the common one) and the
+  // new ambiguous case.
+  it("still auto-picks silently when the mount has exactly one server and none was specified", async () => {
+    // beforeEach's default probeDataPath already returns a single name.
+    const response = await runCreate({
+      installPath: "/pz-server",
+      dataPath: "/zomboid",
+    });
+
+    expect(response.status).not.toHaveBeenCalledWith(400);
+    expect(createServer).toHaveBeenCalledWith(
+      expect.objectContaining({ serverName: "servertest" }),
+    );
+  });
+
+  it("refuses to silently pick between two or more real servers at the same mount, and hands back the full list instead", async () => {
+    probeDataPath.mockReturnValue({
+      valid: true,
+      serverNames: ["ServerA", "ServerB"],
+    });
+
+    const response = await runCreate({
+      installPath: "/pz-server",
+      dataPath: "/zomboid",
+    });
+
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(createServer).not.toHaveBeenCalled();
+    const payload = response.json.mock.calls[0][0];
+    expect(payload.serverNames).toEqual(["ServerA", "ServerB"]);
+    expect(payload.error).toContain("ServerA");
+    expect(payload.error).toContain("ServerB");
+  });
+
+  it("still creates the explicitly named server when the mount is ambiguous, without triggering the ambiguity refusal", async () => {
+    probeDataPath.mockReturnValue({
+      valid: true,
+      serverNames: ["ServerA", "ServerB"],
+    });
+    discoverMounts.mockReturnValue([
+      {
+        installPath: "/pz-server",
+        dataPath: "/zomboid",
+        serverNames: ["ServerA", "ServerB"],
+      },
+    ]);
+
+    const response = await runCreate({
+      installPath: "/pz-server",
+      dataPath: "/zomboid",
+      serverName: "ServerB",
+    });
+
+    expect(response.status).not.toHaveBeenCalledWith(400);
+    expect(createServer).toHaveBeenCalledWith(
+      expect.objectContaining({ serverName: "ServerB" }),
+    );
   });
 
   it("rejects non-string discovery paths with a client error", async () => {
@@ -186,6 +304,7 @@ describe("GET /api/servers/discover-mounts", () => {
     expect(response.json).toHaveBeenCalledWith({
       mounts: [{ installPath: "/pz-server" }],
       inaccessible: [],
+      candidates: [],
     });
   });
 
@@ -202,6 +321,28 @@ describe("GET /api/servers/discover-mounts", () => {
       inaccessible: [
         { path: "/pz-server", source: "common-mount", reason: "permission-denied" },
       ],
+      candidates: [],
     });
+  });
+
+  // server-detection-lifecycle-hardening, 2026-09-09: the additive,
+  // ranked-with-reasons field -- see mountDiscovery.js's scanAllCandidates()
+  // for what builds this. Route-level: just prove it's plumbed through
+  // untouched, alongside the two pre-existing fields.
+  it("returns the ranked candidate scan (with reasons) alongside the existing mounts/inaccessible fields", async () => {
+    discoverMounts.mockReturnValue([]);
+    discoverMountIssues.mockReturnValue([]);
+    scanAllCandidates.mockReturnValue([
+      { installPath: "/pz-server", dataPath: "/zomboid", source: "common-mount", status: "ready", reason: "Found a complete Project Zomboid server here -- server files and save data both present.", serverNames: ["servertest"], hasStartScript: true, hasPanelBridge: false },
+      { installPath: "/data", dataPath: null, source: "generic-single-mount", status: "not-mounted", reason: "Not mounted -- this container path doesn't exist. If you're on Docker or Unraid, check the volume/bind-mount mapping for this path in your container's settings.", serverNames: [], hasStartScript: false, hasPanelBridge: false },
+    ]);
+
+    const response = await runDiscover();
+
+    const payload = response.json.mock.calls[0][0];
+    expect(payload.candidates).toHaveLength(2);
+    expect(payload.candidates[0].status).toBe("ready");
+    expect(payload.candidates[1].status).toBe("not-mounted");
+    expect(payload.candidates[1].reason).toMatch(/not mounted/i);
   });
 });

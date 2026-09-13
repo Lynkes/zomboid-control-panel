@@ -933,6 +933,10 @@ export interface ScheduleHistoryEntry {
   id: number;
   task_id: number | null;
   task_name: string;
+  // Set only for the two system-triggered restarts (Manual restart / Auto
+  // Restart) -- null for a real user-named scheduled task, which stays
+  // task_name verbatim (it's the user's own text, not ours to translate).
+  task_name_key?: "manualRestart" | "autoRestart" | null;
   command: string;
   success: number;
   message: string | null;
@@ -1743,12 +1747,50 @@ export interface ServerInstance {
   createdAt: string;
 }
 
+// A candidate that exists but couldn't be read (permission denied), as
+// opposed to one that simply isn't mounted at all -- server/services/
+// mountDiscovery.js's discoverMountIssues() already keeps these separate
+// (see its own comment: "misconfigured host permissions" is a different,
+// actionable problem from "nothing mounted here"). GET /discover-mounts has
+// returned both `mounts` and `inaccessible` since discovery.js:36; this type
+// only declared the former until the client-side gap was found and fixed
+// (2026-09-09, docker-unraid-add-server-experience) -- the server-computed
+// distinction was silently dropped one hop before it could ever reach a
+// user, exactly the "the system knew and told the user nothing" shape.
+export interface InaccessibleMountCandidate {
+  path: string;
+  source: string;
+  reason: string;
+}
+
 // Mount discovery — probes common Docker bind-mount locations for PZ server
 // files so a fresh panel can offer a one-click "connect this" profile.
 export interface DiscoveredMount {
   installPath: string;
   dataPath: string | null;
   source: string;
+  serverNames: string[];
+  hasStartScript: boolean;
+  hasPanelBridge: boolean;
+}
+
+// Ranked scan result (server/routes/discovery.js's `candidates` field,
+// added alongside `mounts`/`inaccessible` -- server/services/mountDiscovery.js's
+// scanAllCandidates()). Six-way `status` instead of a boolean or a 3-level
+// confidence enum on purpose (Angela's call, 2026-09-09): each value maps to
+// DIFFERENT copy (install-only vs data-only aren't the same story to tell a
+// user), and `reason` is always one plain-language sentence already written
+// server-side rather than something the client re-derives from a checks
+// object. Sorted ready-first, not-mounted-last -- render top to bottom, no
+// client re-sort needed. Mechanical rule for "exactly one confident match":
+// candidates.filter(c => c.status === 'ready').length === 1 means auto-use
+// it, don't present a picker (god's rule 3, 2026-09-09 bar broadcast).
+export interface MountDiscoveryCandidate {
+  installPath: string | null;
+  dataPath: string | null;
+  source: string;
+  status: "ready" | "install-only" | "data-only" | "permission-denied" | "empty" | "not-mounted";
+  reason: string;
   serverNames: string[];
   hasStartScript: boolean;
   hasPanelBridge: boolean;
@@ -1900,6 +1942,8 @@ export const serversApi = {
   discoverMounts: () =>
     apiGet("/servers/discover-mounts") as Promise<{
       mounts: DiscoveredMount[];
+      inaccessible: InaccessibleMountCandidate[];
+      candidates: MountDiscoveryCandidate[];
     }>,
 
   // Turn a discover-mounts result into a fully-populated server profile —
@@ -2376,6 +2420,24 @@ export interface BridgeCommandResult<T = Record<string, unknown>> {
 // still gives up at its own ceiling and answers with the honest failure at
 // that point, this constant only ensures that answer is the one the user
 // actually sees instead of our own earlier, misleading guess.
+//
+// 2026-09-09 (support-bundle-2026-09-08 follow-up): also applied to
+// getVehiclesDetailed at every call site (ChunkCleaner.tsx, Debug.tsx,
+// Events.tsx, WorldMap.tsx). Its per-vehicle cost is comparable to
+// getAllSandboxOptions' per-option cost (a dozen-plus pcall'd Java
+// accessors, several two-hop via an intermediate VehicleParts/
+// LightbarSirenMode object), and unlike getSafehouses/getFactions (bounded
+// by player-created claims, deliberately left on the shared default -- see
+// that decision's own writeup) its item count is IsoCell:getVehicles(),
+// which grows with world uptime and vehicle-mod content rather than player
+// count. Real support-bundle evidence showed getSafehouses/getFactions
+// hitting this same 15000ms ceiling too, but only 2 occurrences each
+// against 11+ for getAllSandboxOptions -- consistent with those two riding
+// along in the same per-tick command batch as a slow sibling command
+// (PanelBridge.lua processes up to MAX_COMMANDS_PER_TICK=200 queued
+// commands synchronously within one server tick), not their own handler
+// cost. Raising their timeout too would not fix that contention, only wait
+// longer to observe it.
 export const BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS = 75000;
 
 // Panel Bridge API (for direct Lua mod communication)
@@ -2415,8 +2477,13 @@ export const panelBridgeApi = {
       connection?: {
         healthy: boolean;
         canSendCommands: boolean;
-        summary: string;
-        issues: string[];
+        // {key, params, text} -- resolve via t(`bridge.diagnostics.${key}`,
+        // {ns: 'settings', ...params, defaultValue: text}), the same
+        // key+defaultValue convention as capabilities.<key>.label. See
+        // Settings.tsx's resolveBridgeDiagText() and Events.tsx's
+        // checkBridgeStatus().
+        summary: { key: string; params?: Record<string, string>; text: string };
+        issues: Array<{ key: string; params?: Record<string, string>; text: string }>;
         checks: {
           bridgePathConfigured: boolean;
           bridgePathExists: boolean;

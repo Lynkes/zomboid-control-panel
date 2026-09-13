@@ -240,6 +240,33 @@ export class PanelUpdateChecker {
     // started). Prevents a second concurrent /api/panel/restart from
     // spawning a second helper that would race for the staged file.
     this.isApplying = false;
+    // panel-update-download-temp-path-is-per-process-not-per-call,
+    // 2026-09-10: monotonic per-process counter, incremented once per
+    // downloadAndStageUpdate() call, so its temp paths are per-CALL, not
+    // merely per-process (see nextPartialCallId() below for why
+    // process.pid alone wasn't enough). NOT a bare timestamp -- two calls
+    // landing in the same millisecond is real, not theoretical (two files
+    // with an identical fs birthtime, same night, same real Windows disk,
+    // in an unrelated part of this codebase).
+    this._downloadAttemptSeq = 0;
+  }
+
+  // A fresh id for this attempt's temp files: process.pid alone is stable
+  // for the whole process lifetime, so a failed download followed by an
+  // operator retry (same process, no restart) reused the exact same
+  // tmpDownloadPath/tmpClientArchivePath. That let the FIRST attempt's own
+  // deferred cleanup (downloadFile()'s fail(): the destroyed write
+  // stream's "close" event fires the actual unlink, arbitrarily later --
+  // see its own comment for why the unlink can't happen immediately) land
+  // on the SECOND attempt's actively-writing file, if that deferred close
+  // happened to arrive mid-retry. Appending a monotonic counter makes each
+  // call's id unique regardless of how long the previous attempt's
+  // cleanup takes to actually fire. cleanupOrphanPartials()'s own patterns
+  // are updated to match this shape in the same commit -- see its comment
+  // for why that pairing is not optional.
+  nextPartialCallId() {
+    this._downloadAttemptSeq += 1;
+    return `${process.pid}-${this._downloadAttemptSeq}`;
   }
 
   /**
@@ -588,13 +615,15 @@ export class PanelUpdateChecker {
     // sees isDownloading still false and passes this same guard too.
     // Confirmed reachable, not theoretical: two near-simultaneous downloadUpdate()
     // calls (e.g. a double-click) both got past the guard and both proceeded
-    // into asset lookup / the real download in a repro. With the SAME pid,
-    // a second binary download would target the identical
-    // `${stagedPath}.partial.${process.pid}` temp path as the first, so both
-    // writes interleave into one corrupted file. Every return below that
-    // does NOT go on to actually download resets isDownloading before
-    // returning, mirroring the finally-based reset the real download itself
-    // already used only for its own errors.
+    // into asset lookup / the real download in a repro. Both downloads would
+    // still land on DIFFERENT temp paths since 2026-09-10 (each call gets its
+    // own id from nextPartialCallId() -- see its own comment), but two
+    // uncoordinated downloads sharing one `isDownloading`/`downloadProgress`
+    // state and both racing to stage over the same stagedPath is still worth
+    // rejecting outright, not just no-longer-corrupting-a-single-file. Every
+    // return below that does NOT go on to actually download resets
+    // isDownloading before returning, mirroring the finally-based reset the
+    // real download itself already used only for its own errors.
     this.isDownloading = true;
 
     // Preflight gates the download — we refuse to stage anything if we already
@@ -634,6 +663,40 @@ export class PanelUpdateChecker {
 
     // Stage the executable separately and refresh client/dist from the matching
     // archive. Standalone builds serve that directory beside the binary.
+    //
+    // Captured together with `asset`/`clientArchive` below, synchronously and
+    // before any further `await` -- this download can run for a real amount
+    // of time (two file downloads, two checksum verifications, an archive
+    // extraction), and checkForUpdate() can land during any of it, on its own
+    // periodic 6-hour timer or a manual "Check for Updates" click. It
+    // reassigns `this.latestRelease` wholesale to a new object, so re-reading
+    // `this.latestRelease.version` afterward (as this code used to, several
+    // times, further down) can observe a DIFFERENT release than the one
+    // whose binary/archive were actually downloaded and verified in this
+    // call.
+    //
+    // Traced, not assumed: stageClientDist() has its own internal read of
+    // this same field, checked against the staged archive's real
+    // manifest.version -- a race landing before that point gets caught
+    // there (a loud, if confusingly-worded, "version does not match"
+    // failure) rather than silently mislabeling anything, and there is no
+    // `await` between that check and this function's own journal-write, so
+    // the persisted `stageUpdateBundle({ version: ... })` and
+    // `_stagedVersionCache` were already effectively protected by that
+    // combination -- fragile protection, though, since it depends on no
+    // future edit ever adding an `await` in that stretch. What is NOT
+    // protected, confirmed via panelUpdateDownloadVersionRace.test.js: every
+    // read of `this.latestRelease.version` AFTER the `await setSetting(...)`
+    // a few lines below that persists the staged version -- the "staged at
+    // ..." log line, the `panel:updateReady` socket emit the client renders
+    // as a toast, and this call's own returned success `message`. A race
+    // landing in that specific window used to make the panel tell the
+    // operator "Update to v1.2.0 downloaded" for a binary that was actually
+    // v1.1.0. `targetVersion` pins every one of these to the exact release
+    // `asset`/`clientArchive` were resolved from, removing the reliance on
+    // the no-intervening-await invariant for the persisted values and fixing
+    // the genuinely reachable message/log/emit staleness outright.
+    const targetVersion = this.latestRelease.version;
     const assetName = isWindows
       ? "ZomboidControlPanel.exe"
       : "ZomboidControlPanel";
@@ -689,11 +752,21 @@ export class PanelUpdateChecker {
     // (ends in .new or .new2). We must stage into a slot that is NOT the file
     // we're running from, otherwise we'd try to overwrite our own binary.
     const stagedPath = this.getStageSlotPath();
-    const tmpDownloadPath = `${stagedPath}.partial.${process.pid}`;
+    // panel-update-download-temp-path-is-per-process-not-per-call,
+    // 2026-09-10: was `.partial.${process.pid}` alone -- stable for the
+    // whole process, so a failed download followed by an operator retry
+    // (same process, no restart) reused the identical temp path, letting
+    // the FIRST attempt's own deferred cleanup unlink the SECOND attempt's
+    // actively-writing file. See nextPartialCallId()'s own comment for the
+    // full mechanism. Both temp paths share one call id -- they're always
+    // created and cleaned up together within a single downloadAndStageUpdate()
+    // call, so there's no reason to burn two counter values on one attempt.
+    const partialCallId = this.nextPartialCallId();
+    const tmpDownloadPath = `${stagedPath}.partial.${partialCallId}`;
     const clientArchiveExtension = isWindows ? ".zip" : ".tar.gz";
     const tmpClientArchivePath = path.join(
       exeDir,
-      `.client-dist-${this.latestRelease.version}.partial.${process.pid}${clientArchiveExtension}`,
+      `.client-dist-${this.latestRelease.version}.partial.${partialCallId}${clientArchiveExtension}`,
     );
     let incomingClientPath = null;
 
@@ -810,7 +883,7 @@ export class PanelUpdateChecker {
       const exeBasePath = this.getExeBasePath();
       const journalPath = stageUpdateBundle({
         installDir: exeDir,
-        version: this.latestRelease.version,
+        version: targetVersion,
         binaryPath: exeBasePath,
         stagedBinaryPath: stagedPath,
         liveClientPath: path.join(exeDir, "client", "dist"),
@@ -833,26 +906,27 @@ export class PanelUpdateChecker {
       // too — without this, a background update check that publishes a newer
       // release would make `getStagedUpdate()` fall back to the fresher
       // `latestRelease.version` and misreport the version actually on disk.
-      this._stagedVersionCache = this.latestRelease.version;
+      // Uses `targetVersion` (captured above, before this download's own
+      // awaits), not `this.latestRelease.version` -- see targetVersion's own
+      // comment for why re-reading the live field here is exactly the
+      // staleness this paragraph already warns about.
+      this._stagedVersionCache = targetVersion;
       try {
-        await setSetting(
-          "stagedPanelUpdateVersion",
-          this.latestRelease.version,
-        );
+        await setSetting("stagedPanelUpdateVersion", targetVersion);
       } catch (persistErr) {
         log.debug(`Could not persist staged version: ${persistErr.message}`);
       }
 
       log.info(
-        `Update to v${this.latestRelease.version} staged at ${stagedPath}. Restart to apply.`,
+        `Update to v${targetVersion} staged at ${stagedPath}. Restart to apply.`,
       );
       this.io?.emit("panel:updateReady", {
-        version: this.latestRelease.version,
+        version: targetVersion,
       });
 
       return {
         success: true,
-        message: `Update to v${this.latestRelease.version} downloaded. Restart the panel to apply.`,
+        message: `Update to v${targetVersion} downloaded. Restart the panel to apply.`,
         journal: path.basename(journalPath),
       };
     } catch (error) {
@@ -2454,9 +2528,17 @@ public static extern bool CloseHandle(System.IntPtr hObject);
           },
         );
         req.on("error", reject);
-        req.setTimeout(GITHUB_API_TIMEOUT_MS, () =>
-          req.destroy(new Error("Timed out")),
-        );
+        // timeout-handling-consistency-sweep, 2026-09-10: this was the only
+        // GITHUB_API_TIMEOUT_MS call site that didn't tag .code="ETIMEDOUT"
+        // the way its two siblings (line 491 above, line ~1714's download
+        // timeout) both do -- isRetryableGitHubError() branches on .code, so
+        // a checksum-fetch timeout here silently fell into the non-retryable
+        // bucket while an identical timeout anywhere else was retried.
+        req.setTimeout(GITHUB_API_TIMEOUT_MS, () => {
+          const timeoutError = new Error("Timed out");
+          timeoutError.code = "ETIMEDOUT";
+          req.destroy(timeoutError);
+        });
       };
 
       follow(url, 0);
@@ -2997,7 +3079,13 @@ public static extern bool CloseHandle(System.IntPtr hObject);
           }
         })
         .filter(Boolean)
-        .sort((a, b) => b.mtime - a.mtime);
+        // display-order-tie-breaks-nine-sites-cosmetic, 2026-09-09: on a
+        // same-millisecond mtime tie this used to fall through to
+        // fs.readdirSync's order, which has no ordering meaning and isn't
+        // even guaranteed consistent across platforms -- tie-break on the
+        // path itself so the choice is at least deterministic, same fix
+        // shape as every other site in this card.
+        .sort((a, b) => b.mtime - a.mtime || b.fp.localeCompare(a.fp));
       if (names.length) {
         const { fp, size } = names[0];
         const MAX_BYTES = 8 * 1024;
@@ -3051,7 +3139,14 @@ public static extern bool CloseHandle(System.IntPtr hObject);
           }
         })
         .filter(Boolean)
-        .sort((a, b) => b.mtime - a.mtime);
+        // display-order-tie-breaks-nine-sites-cosmetic, 2026-09-09: see
+        // the same tie-break added to readMostRecentApplyLog() above --
+        // a same-millisecond mtime tie here decides which artifact gets
+        // pruned as "old", so falling through to readdir order (no
+        // ordering meaning, platform-dependent) is worth a deterministic
+        // tie-break even though the cost of guessing wrong is just a
+        // stale post-mortem log, not data loss.
+        .sort((a, b) => b.mtime - a.mtime || b.fp.localeCompare(a.fp));
       const toDelete = matching.slice(keep);
       for (const { fp } of toDelete) {
         try {
@@ -3084,7 +3179,10 @@ public static extern bool CloseHandle(System.IntPtr hObject);
             }
           })
           .filter(Boolean)
-          .sort((a, b) => b.mtime - a.mtime);
+          // display-order-tie-breaks-nine-sites-cosmetic, 2026-09-09: see
+          // the same tie-break above in this function -- deterministic
+          // over readdir order on a same-millisecond mtime tie.
+          .sort((a, b) => b.mtime - a.mtime || b.fp.localeCompare(a.fp));
         const toDelete = cmdEntries.slice(keep);
         for (const { fp } of toDelete) {
           try {
@@ -3115,7 +3213,14 @@ public static extern bool CloseHandle(System.IntPtr hObject);
           }
         })
         .filter(Boolean)
-        .sort((a, b) => b.mtime - a.mtime);
+        // display-order-tie-breaks-nine-sites-cosmetic, 2026-09-09: see
+        // the same tie-break added to readMostRecentApplyLog() above --
+        // a same-millisecond mtime tie here decides which artifact gets
+        // pruned as "old", so falling through to readdir order (no
+        // ordering meaning, platform-dependent) is worth a deterministic
+        // tie-break even though the cost of guessing wrong is just a
+        // stale post-mortem log, not data loss.
+        .sort((a, b) => b.mtime - a.mtime || b.fp.localeCompare(a.fp));
       const toDelete = logEntries.slice(keep);
       for (const { fp } of toDelete) {
         try {
@@ -3130,16 +3235,17 @@ public static extern bool CloseHandle(System.IntPtr hObject);
   }
 
   /**
-   * Remove orphan .partial.<pid> files left behind by interrupted downloads.
-   * Called at start() — at that moment no download can be in progress, so
-   * everything matching either partial pattern is safe to delete.
+   * Remove orphan .partial.<callId> files left behind by interrupted
+   * downloads. Called at start() — at that moment no download can be in
+   * progress, so everything matching either partial pattern is safe to
+   * delete.
    *
    * Two distinct naming shapes, both written by downloadAndStageUpdate():
-   *   - the staged binary download: `<stagedPath>.partial.<pid>` (no further
-   *     suffix -- matches partialPattern below).
-   *   - the client archive download: `.client-dist-<version>.partial.<pid>.zip`
+   *   - the staged binary download: `<stagedPath>.partial.<callId>` (no
+   *     further suffix -- matches partialPattern below).
+   *   - the client archive download: `.client-dist-<version>.partial.<callId>.zip`
    *     (or `.tar.gz` on Linux) -- did NOT match partialPattern (its `$`
-   *     anchor requires the digits to be the last characters in the name,
+   *     anchor requires the callId to be the last characters in the name,
    *     but the archive extension follows them), so a process crash between
    *     a successful client-archive download and its own happy-path unlink
    *     (anywhere inside stageClientDist(), or the gap before line ~714's
@@ -3160,6 +3266,23 @@ public static extern bool CloseHandle(System.IntPtr hObject);
    * exactly what downloadAndStageUpdate() actually names its own file and
    * nothing else -- same fix shape as the client-archive pattern below,
    * which was already correctly prefix-anchored.
+   *
+   * 2026-09-10 (panel-update-download-temp-path-is-per-process-not-per-call):
+   * <callId> changed shape from a bare `<pid>` to `<pid>-<seq>` (see
+   * nextPartialCallId()) so a retry within the same process gets its own
+   * temp path instead of colliding with a still-pending deferred cleanup
+   * from the attempt before it. This regex is a HARD dependency on that
+   * shape: cleanup fails CLOSED (no match, no delete, no error), so if the
+   * callId shape ever changes again without updating the pattern below in
+   * the SAME commit, every orphan of the new shape leaks silently,
+   * forever, on every single start() -- see
+   * panelUpdateCleanupOrphanPartials.test.js's dedicated coverage for this
+   * exact shape, which asserts the cleanup actually MATCHES it, not just
+   * that the regex compiles. The trailing `-\d+` is optional so an orphan
+   * left by a panel binary from BEFORE this change (bare `<pid>`, no
+   * counter) still gets swept once the operator upgrades to a binary that
+   * has this fix -- a one-time transitional file, not an ongoing shape
+   * this code ever writes again after this commit.
    */
   cleanupOrphanPartials() {
     if (typeof process.pkg === "undefined") return;
@@ -3173,8 +3296,8 @@ public static extern bool CloseHandle(System.IntPtr hObject);
     const exeBaseName = path.basename(this.getExeBasePath());
     const escapedBaseName = exeBaseName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const partialPatterns = [
-      new RegExp(`^${escapedBaseName}\\.new2?\\.partial\\.\\d+$`),
-      /^\.client-dist-.+\.partial\.\d+\.(?:zip|tar\.gz)$/,
+      new RegExp(`^${escapedBaseName}\\.new2?\\.partial\\.\\d+(?:-\\d+)?$`),
+      /^\.client-dist-.+\.partial\.\d+(?:-\d+)?\.(?:zip|tar\.gz)$/,
     ];
     for (const name of entries) {
       if (!partialPatterns.some((pattern) => pattern.test(name))) continue;

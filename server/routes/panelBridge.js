@@ -490,7 +490,21 @@ router.get(
       };
       if (activeServer.isRemote) {
         const bundledVersion = getBundledBridgeVersion();
-        const liveVersion = status.version || null;
+        // Found while building the client-side staleness surfacing card
+        // (remote-bridge-version-staleness-is-never-surfaced-to-sftp-users):
+        // PanelBridge.getStatus() (services/panelBridge.js) has no
+        // top-level `.version` field -- the mod's live version lives at
+        // `status.modStatus.version`, exactly where the comment above this
+        // block already says it comes from ("status.version, from its
+        // status.json heartbeat"). Reading `status.version` directly always
+        // read `undefined`, so `liveVersion` was always null and `behind`
+        // could never be anything but null -- the signal this whole card
+        // exists to surface had never actually been able to fire. The
+        // existing test for this route (panelBridgeStatusRemoteVersionCheck
+        // .test.js) didn't catch it because it mocks bridge.getStatus() to
+        // return a top-level `version` field directly, a shape the real
+        // service never produces -- fixed alongside this.
+        const liveVersion = status.modStatus?.version || null;
         remoteBridgeVersionCheck = {
           bundledVersion,
           liveVersion,
@@ -1622,6 +1636,21 @@ router.post("/command", requireBridgeCommandUnlessGmToolsOnly, async (req, res) 
     const message = sanitizeError(error?.message || "Bridge command failed");
     logBridgeCommand(action, args, { error: message }, false, durationMs).catch(
       () => {},
+    );
+    // Before this line, a failed bridge command was recorded ONLY in
+    // logBridgeCommand()'s structured db.json/bridgeLogs history -- never in
+    // combined.log/error.log, the two files the support bundle's own README
+    // tells an admin to grep ("Failed to", "ERROR") when troubleshooting.
+    // The request line above (`POST /command: action=...`) went out, then
+    // nothing: a real user's "mod settings won't load" bundle showed the
+    // request firing repeatedly with no completion line anywhere a human
+    // would look, even though the failure was already known and recorded
+    // structurally the whole time. One line per failed command, at the
+    // level the request line itself uses one below (WARN), so it survives
+    // whatever filtering already keeps this route's own DEBUG-level success
+    // line out of production logs.
+    log.warn(
+      `POST /command: action=${action} failed after ${durationMs}ms: ${message}`,
     );
 
     // 2026-08-31 bug hunt: services/panelBridge.js's processResult() attaches

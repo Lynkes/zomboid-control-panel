@@ -20,6 +20,7 @@ import {
   createBackup,
   backupWarningFor,
   writeIniWithBackup,
+  parseAnyBackupFilename,
 } from "../utils/configBackup.js";
 import { escapeRegExp } from "../utils/regex.js";
 import { findDuplicateIniKeys } from "../utils/iniDuplicateKeys.js";
@@ -2272,6 +2273,9 @@ router.get("/backups", async (req, res) => {
                 filename,
                 size: stats.size,
                 created: stats.birthtime,
+                // Not part of the response shape -- sort key only, see
+                // the .sort() below.
+                _parsed: parseAnyBackupFilename(filename),
               };
             } catch (e) {
               log.debug(
@@ -2283,14 +2287,35 @@ router.get("/backups", async (req, res) => {
       )
     )
       .filter((f) => f !== null)
+      // display-order-tie-breaks-nine-sites-cosmetic, 2026-09-09: this
+      // used to sort by fs birthtime alone -- the exact method utils/
+      // configBackup.js's listBackupsFor() documents as unsafe for this
+      // same directory (real ext4 same-millisecond collisions confirmed;
+      // see that file's comment), re-derived here after being explicitly
+      // rejected there. Every backup in this directory is written by
+      // configBackup.js's createBackup(), so _parsed is expected to
+      // succeed for all of them; the birthtime/filename fallback below
+      // only matters for a foreign or hand-placed file that doesn't match
+      // the naming convention.
       .sort((a, b) => {
-        // Handle invalid dates gracefully
+        if (a._parsed && b._parsed) {
+          if (a._parsed.timestampKey !== b._parsed.timestampKey) {
+            return a._parsed.timestampKey < b._parsed.timestampKey ? 1 : -1;
+          }
+          return b._parsed.suffix - a._parsed.suffix;
+        }
+        if (Boolean(a._parsed) !== Boolean(b._parsed)) {
+          return a._parsed ? -1 : 1; // a parsed, real name always wins
+        }
+        // Neither parses -- fall back to birthtime, then filename.
         const dateA = new Date(a.created);
         const dateB = new Date(b.created);
-        if (isNaN(dateA.getTime())) return 1;
-        if (isNaN(dateB.getTime())) return -1;
-        return dateB - dateA;
-      });
+        if (isNaN(dateA.getTime()) !== isNaN(dateB.getTime())) {
+          return isNaN(dateA.getTime()) ? 1 : -1;
+        }
+        return dateB - dateA || b.filename.localeCompare(a.filename);
+      })
+      .map(({ _parsed, ...rest }) => rest);
 
     res.json({ backups: files, path: backupDir });
   } catch (error) {
@@ -2364,20 +2389,37 @@ router.post("/restore/:filename", async (req, res) => {
 
     const targetPath = path.join(configPath, originalName);
 
+    // re-entrancy-followups, 2026-09-10: every sibling writer in this file
+    // (PUT /ini, /sandbox, /sandbox-option, /spawnpoints, /spawnregions,
+    // /raw/:type) wraps its write in withFileLock(filePath, ...) and writes
+    // via writeFileAtomic (temp file in the same dir, then rename) -- this
+    // route was the one exception, writing straight onto targetPath with
+    // fs.promises.copyFile: no lock (a concurrent PUT/restore on the same
+    // targetPath could interleave with this one) AND no temp+rename (a
+    // reader mid-copy could observe a partially-restored file, since
+    // copyFile streams directly onto the live path rather than replacing it
+    // atomically). Read the backup into memory first so writeFileAtomic --
+    // the same helper every sibling already uses, not a second mechanism --
+    // can do the temp+rename for us, keyed on the same targetPath the lock
+    // guards.
+    const backupData = await fs.promises.readFile(backupPath);
+
     // Create backup of current before restoring. The restore itself is a
     // deliberate, well-defined choice (the operator picked this exact
     // backup file), not a guess -- so a failed pre-restore backup doesn't
     // block it. But it must be said plainly: if this failed, the state as
     // of right before this restore is not recoverable through this panel.
     let preRestoreBackupWarning = null;
-    if (fs.existsSync(targetPath)) {
-      const backup = await createBackup(configPath, originalName);
-      if (!backup.backedUp && backup.reason !== "no-source") {
-        preRestoreBackupWarning = `Could not back up the current ${originalName} before restoring over it: ${backup.error}. The version that was in place before this restore is not recoverable through this panel.`;
+    await withFileLock(targetPath, async () => {
+      if (fs.existsSync(targetPath)) {
+        const backup = await createBackup(configPath, originalName);
+        if (!backup.backedUp && backup.reason !== "no-source") {
+          preRestoreBackupWarning = `Could not back up the current ${originalName} before restoring over it: ${backup.error}. The version that was in place before this restore is not recoverable through this panel.`;
+        }
       }
-    }
 
-    await fs.promises.copyFile(backupPath, targetPath);
+      writeFileAtomic(targetPath, backupData);
+    });
 
     log.info(`Restored from backup: ${filename} -> ${originalName}`);
     res.json({
@@ -2474,7 +2516,14 @@ router.get("/templates", async (req, res) => {
         }
       })
       .filter(Boolean)
-      .sort((a, b) => new Date(b.modified) - new Date(a.modified));
+      // display-order-tie-breaks-nine-sites-cosmetic, 2026-09-09: id
+      // (the template's filename) tie-break -- a mtime tie previously
+      // fell through to readdir order, which has no ordering meaning.
+      .sort(
+        (a, b) =>
+          new Date(b.modified) - new Date(a.modified) ||
+          b.id.localeCompare(a.id),
+      );
 
     res.json({ templates: files });
   } catch (error) {

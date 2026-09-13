@@ -124,6 +124,10 @@ class PanelBridge extends EventEmitter {
     this.modStatus = null;
     this.previousPlayers = new Set(); // Track previous player list for connect/disconnect detection
     this.lastStatusFileCheck = 0;
+    // panelbridge-lua-version-handshake: last protocolVersion string we've
+    // already warned about, so a mismatch logs once (not every ~1s poll)
+    // and re-warns if the mod is redeployed to yet another mismatched build.
+    this.loggedProtocolVersionMismatch = null;
     this.consecutiveFailures = 0;
     this.maxConsecutiveFailures = 5;
     this.watcherRetries = 0;
@@ -420,7 +424,14 @@ class PanelBridge extends EventEmitter {
     const resultsFile = this.getResultsFile();
     const statusFile = this.getStatusFile();
 
+    // Each issue is `{key, params, text}` -- `text` is the exact English
+    // sentence a caller with no translation entry sees (kept for anyone
+    // still consuming this as a plain string), `key`+`params` let the
+    // client resolve `bridge.diagnostics.<key>` via i18next with `text` as
+    // defaultValue, the same convention as capabilities.<key>.label. See
+    // client/src/pages/Settings.tsx and Events.tsx for the two consumers.
     const issues = [];
+    const pushIssue = (key, text, params) => issues.push({ key, params, text });
     const checks = {
       bridgePathConfigured: Boolean(bridgePath),
       bridgePathExists: false,
@@ -439,13 +450,13 @@ class PanelBridge extends EventEmitter {
     };
 
     if (!bridgePath) {
-      issues.push('Bridge path is not configured.');
+      pushIssue('notConfigured', 'Bridge path is not configured.');
       return {
         healthy: false,
         canSendCommands: false,
         checks,
         issues,
-        summary: 'Bridge path not configured.',
+        summary: { key: 'notConfigured', text: 'Bridge path is not configured.' },
       };
     }
 
@@ -453,10 +464,10 @@ class PanelBridge extends EventEmitter {
       // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
       checks.bridgePathExists = fs.existsSync(bridgePath);
       if (!checks.bridgePathExists) {
-        issues.push('Bridge directory does not exist yet.');
+        pushIssue('directoryMissing', 'Bridge directory does not exist yet.');
       }
     } catch (e) {
-      issues.push(`Bridge directory check failed: ${e.message}`);
+      pushIssue('directoryCheckFailed', `Bridge directory check failed: ${e.message}`, { error: e.message });
     }
 
     if (checks.bridgePathExists) {
@@ -465,7 +476,7 @@ class PanelBridge extends EventEmitter {
         fs.accessSync(bridgePath, fs.constants.R_OK);
         checks.bridgePathReadable = true;
       } catch (e) {
-        issues.push(`Bridge directory is not readable: ${e.message}`);
+        pushIssue('directoryNotReadable', `Bridge directory is not readable: ${e.message}`, { error: e.message });
       }
 
       try {
@@ -473,7 +484,7 @@ class PanelBridge extends EventEmitter {
         fs.accessSync(bridgePath, fs.constants.W_OK);
         checks.bridgePathWritable = true;
       } catch (e) {
-        issues.push(`Bridge directory is not writable: ${e.message}`);
+        pushIssue('directoryNotWritable', `Bridge directory is not writable: ${e.message}`, { error: e.message });
       }
     }
 
@@ -489,7 +500,8 @@ class PanelBridge extends EventEmitter {
         checks[readableKey] = true;
       } catch (e) {
         checks[readableKey] = false;
-        issues.push(`${path.basename(filePath)} is not readable: ${e.message}`);
+        const filename = path.basename(filePath);
+        pushIssue('fileNotReadable', `${filename} is not readable: ${e.message}`, { filename, error: e.message });
       }
     };
 
@@ -509,7 +521,7 @@ class PanelBridge extends EventEmitter {
     }
 
     if (!checks.statusFilePresent) {
-      issues.push('Status file is missing. Start the game server with PanelBridge enabled.');
+      pushIssue('statusFileMissing', 'Status file is missing. Start the game server with PanelBridge enabled.');
     } else {
       try {
         // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
@@ -522,10 +534,11 @@ class PanelBridge extends EventEmitter {
         checks.statusAgeMs = ageMs;
         checks.statusFresh = ageMs < diagStaleMs;
         if (!checks.statusFresh) {
-          issues.push(`Status file is stale (${formatAge(ageMs)} old) — is the PZ server running?`);
+          const age = formatAge(ageMs);
+          pushIssue('statusFileStale', `Status file is stale (${age} old) — is the PZ server running?`, { age });
         }
       } catch (e) {
-        issues.push(`Could not read status file metadata: ${e.message}`);
+        pushIssue('statusFileMetadataFailed', `Could not read status file metadata: ${e.message}`, { error: e.message });
       }
     }
 
@@ -540,7 +553,7 @@ class PanelBridge extends EventEmitter {
       canSendCommands,
       checks,
       issues,
-      summary: issues[0] || 'Bridge file connection looks healthy.',
+      summary: issues[0] || { key: 'healthy', text: 'Bridge file connection looks healthy.' },
     };
   }
 
@@ -1510,6 +1523,28 @@ class PanelBridge extends EventEmitter {
       status.age = age;
       status._wasAlive = status.alive;
       status.filePath = statusFile;
+
+      // panelbridge-lua-version-handshake: the mod has written its own
+      // protocolVersion into every status.json since PROTOCOL_VERSION was
+      // added (PanelBridge.lua's updateStatus()) -- this side just never
+      // read it back. Nothing new needed from the mod; the field already
+      // ships today. Surfaced, not enforced: mod and panel are shipped as
+      // one hand-synced pair today with no compatibility matrix behind
+      // them (deliberately not built -- see the card), so a mismatch means
+      // one side of that pair got updated without the other, not a known
+      // "these two versions can't talk" case this could safely reject.
+      // Logs once per distinct mismatch and rides along on modStatus for
+      // any future diagnostic/UI to read; never blocks a command or marks
+      // the mod unreachable over it.
+      if (status.protocolVersion && status.protocolVersion !== this.protocolVersion) {
+        status.protocolVersionMismatch = { expected: this.protocolVersion, actual: status.protocolVersion };
+        if (this.loggedProtocolVersionMismatch !== status.protocolVersion) {
+          this.loggedProtocolVersionMismatch = status.protocolVersion;
+          log.warn(`PanelBridge protocol version mismatch: panel expects '${this.protocolVersion}', mod reports '${status.protocolVersion}' -- they ship as a bundled pair, so this usually means one side was updated without the other`);
+        }
+      } else if (this.loggedProtocolVersionMismatch) {
+        this.loggedProtocolVersionMismatch = null; // resolved (mod redeployed) -- re-warn if it recurs
+      }
 
       // Track player connections and disconnections
       if (status.alive && status.players) {

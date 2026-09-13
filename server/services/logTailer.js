@@ -14,6 +14,13 @@ const SHOUT_CHAT_ROOM_ID = 2;
 
 const DELIVERY_LINE = /Message ChatMessage\{chat=([^,]+),\s*author='(.*?)',\s*text='(.*)'\} sent to chat \(id = (\d+)\)/;
 
+// startOffsetFor's watchStartedAt (Date.now()) vs a file's birthtimeMs come
+// from two different clock sources measured up to ~20ms apart on this stack
+// (see startOffsetFor's own comment). This is 5x that measured figure as a
+// safety margin, not a guess -- see start-offset-replays-the-whole-file-on-
+// every-non-first-rotation, 2026-09-09.
+const BIRTHTIME_CLOCK_SKEW_GRACE_MS = 100;
+
 export function chatMessageKey(chatType, author, text) {
   return `${chatType}\u0000${author}\u0000${text}`;
 }
@@ -46,6 +53,10 @@ export class LogTailer extends EventEmitter {
     this.checkTimer = null;
     this.logsDir = null;       // Path to Logs/ directory for chat/user log discovery
     this.basePath = null;      // Zomboid data dir, kept so paths can be re-resolved
+    // Every path this tailer has ever selected as chatLogPath/userLogPath --
+    // see findLatestChatLog/findLatestUserLog's double-tie tiebreak below.
+    this.everTrackedChatPaths = new Set();
+    this.everTrackedUserPaths = new Set();
     // Files created after this point are new sessions and must be read whole;
     // files that already existed are skipped to the end so a panel restart
     // doesn't replay history.
@@ -77,11 +88,47 @@ export class LogTailer extends EventEmitter {
   // creating the "already existing" file it was supposed to represent,
   // which is backwards from how this is ever true in production and is
   // exactly the tight regime where the clock skew becomes visible.
-  startOffsetFor(filePath, firstDiscovery) {
+  //
+  // 2026-09-09 (start-offset-replays-the-whole-file-on-every-non-first-
+  // rotation): `firstDiscovery` used to gate the birthtime check at all --
+  // any switch mid-polling unconditionally returned 0, on the assumption
+  // that only a genuinely fresh, near-empty file ever wins that comparison.
+  // Reachable counterexample, confirmed by direct measurement (see
+  // logTailerStartOffsetReplay.test.js): this application never writes into
+  // Logs/ itself, but nothing stops an external actor (an admin's `touch`,
+  // a backup/volume-restore tool, an NFS/SMB remount) from bumping an old,
+  // already-populated file's mtime past the currently-tailed file's while
+  // the panel keeps running with no reloadConfig()-triggering event. That
+  // file then wins the plain `b.mtime - a.mtime` sort -- no tie needed, so
+  // this predates tonight's tie-break work entirely -- and firstDiscovery
+  // was false (chatLogPath/userLogPath was already set), so its entire
+  // existing content got replayed as brand-new chat/user events on the
+  // next poll. Fixed by dropping the firstDiscovery gate and applying the
+  // SAME born-vs-watchStartedAt rule to every discovery, not just the
+  // first: a file that predates this tailer's watch start is never new
+  // content, however it ends up winning the "latest" comparison.
+  //
+  // Gate failure on that same commit, same day: extending the check to
+  // every discovery means the already-documented ~20ms cross-clock skew
+  // above (previously only ever exercised by the ONE first-discovery
+  // decision, which in every real deployment has seconds of margin to
+  // spare) is now also exercised by every switch -- and a switch can
+  // legitimately happen within a few ms of watchStartedAt (a fast test
+  // with no real elapsed time between constructing the tailer and the
+  // next file appearing; in production, any rotation landing unusually
+  // soon after the tailer starts watching). `born` reading a few ms
+  // EARLIER than watchStartedAt purely from clock disagreement, for a
+  // file that was actually created AFTER, misclassifies it as
+  // pre-existing and skips its real (in this case: brand new) content.
+  // A grace margin absorbs the measured skew with room to spare, and
+  // costs nothing against a truly pre-existing file, whose gap is always
+  // orders of magnitude larger (seconds at an absolute minimum, per the
+  // comment above).
+  startOffsetFor(filePath) {
     try {
         const stats = fs.statSync(filePath);
         const born = stats.birthtimeMs || 0;
-        if (!firstDiscovery || (born > 0 && born >= this.watchStartedAt)) return 0;
+        if (born > 0 && born >= this.watchStartedAt - BIRTHTIME_CLOCK_SKEW_GRACE_MS) return 0;
         return stats.size;
     } catch (e) {
         log.debug(`LogTailer: stat failed for ${filePath}: ${e.message}`);
@@ -106,8 +153,8 @@ export class LogTailer extends EventEmitter {
   // different server. Nulling the discovery state before re-running
   // findLogPath() forces it to re-read the (now updated) active server's
   // zomboidDataPath and rediscover everything under it, and reusing
-  // findLogPath's own firstDiscovery/startOffsetFor logic means we pick up
-  // the new server's current log tail rather than replaying its history.
+  // findLogPath's own startOffsetFor logic means we pick up the new
+  // server's current log tail rather than replaying its history.
   async reloadConfig() {
     this.basePath = null;
     this.logsDir = null;
@@ -117,6 +164,11 @@ export class LogTailer extends EventEmitter {
     this.currentSize = 0;
     this.userLogPath = null;
     this.userLogSize = 0;
+    // Belongs to the server being pointed at, not to the process -- a
+    // switch to a different server's logsDir must not carry over which
+    // paths the OLD server's tailing ever settled on.
+    this.everTrackedChatPaths = new Set();
+    this.everTrackedUserPaths = new Set();
     this.consoleRemainder = '';
     this.chatRemainder = '';
     this.userRemainder = '';
@@ -175,7 +227,7 @@ export class LogTailer extends EventEmitter {
         try {
             fs.accessSync(consoleLogPath, fs.constants.R_OK);
             this.logPath = consoleLogPath;
-            this.currentSize = this.startOffsetFor(consoleLogPath, true);
+            this.currentSize = this.startOffsetFor(consoleLogPath);
             log.info(`Found console log at ${consoleLogPath}`);
         } catch {
             /* not there yet */
@@ -220,9 +272,37 @@ export class LogTailer extends EventEmitter {
   // that), but does not tie once even a small (tens-of-ms) real gap
   // separates the two files' creation -- which is what distinguishes two
   // genuinely different PZ sessions' logs in practice.
+  //
+  // 2026-09-09 (log-tailer-tie-break-is-not-airtight-on-coarse-filesystems):
+  // that residual gap is real, not just theoretical -- linuxLogTailerRotation
+  // .test.js's own double-tie test only distinguishes the two files by
+  // forcing a real 50ms wait, which is exactly a timestamp-resolution race
+  // against whatever the underlying filesystem/CI host actually honours, and
+  // is the likely cause of that test going red on a loaded gate run and
+  // green on a quieter re-run.
+  //
+  // A first attempt at a third tie-break keyed on "is this the currently
+  // tracked path" (current path loses the tie). god caught, by measurement,
+  // that this OSCILLATES forever while a tie holds: poll 1, A is current so
+  // B wins; poll 2, B is now current so A wins back; repeat indefinitely --
+  // and every switch resets chatLogSize to 0 (see startOffsetFor), so each
+  // flip replays the ENTIRE file again as new chat. The predicate was a
+  // property of the last decision, not of the file, so it inverted itself.
+  //
+  // Fixed by keying on a monotonic, per-file property instead:
+  // everTrackedChatPaths remembers every path ever selected as chatLogPath,
+  // and a tie is won by whichever file has NEVER been tracked before over
+  // one that has (a genuinely new file beats a stale one) -- this can only
+  // fire once per file, since selecting it immediately adds it to the set.
+  // Once BOTH tied files have been tracked before (poll 2 onward, same
+  // scenario), that clause no longer discriminates, so a second fallback
+  // clause holds the current path steady (an already-known file does not
+  // unseat the one already active). Neither clause needs any elapsed time.
   findLatestChatLog() {
     if (!this.logsDir) return;
     try {
+        const currentPath = this.chatLogPath;
+        const tracked = this.everTrackedChatPaths;
         const files = fs.readdirSync(this.logsDir)
             .filter(f => f.endsWith('_chat.txt'))
             .map(f => {
@@ -234,15 +314,17 @@ export class LogTailer extends EventEmitter {
                 catch { return null; }
             })
             .filter(Boolean)
-            .sort((a, b) => (b.mtime - a.mtime) || (b.birthtime - a.birthtime));
+            .sort((a, b) => (b.mtime - a.mtime) || (b.birthtime - a.birthtime)
+                || ((tracked.has(a.path) ? 1 : 0) - (tracked.has(b.path) ? 1 : 0))
+                || ((a.path === currentPath ? 0 : 1) - (b.path === currentPath ? 0 : 1)));
 
         if (files.length > 0) {
             const latest = files[0].path;
             if (latest !== this.chatLogPath) {
-                const firstDiscovery = !this.chatLogPath;
                 this.chatLogPath = latest;
+                this.everTrackedChatPaths.add(latest);
                 this.chatRemainder = '';
-                this.chatLogSize = this.startOffsetFor(latest, firstDiscovery);
+                this.chatLogSize = this.startOffsetFor(latest);
                 log.info(`Tailing B42 chat log: ${latest}`);
             }
         }
@@ -254,10 +336,14 @@ export class LogTailer extends EventEmitter {
   // Find the most recently modified *_user.txt in the Logs/ directory
   // (PZ records player join/leave/death events here). Same mtime-tie
   // tiebreak as findLatestChatLog above -- see its comment for why
-  // birthtimeMs, not filename order.
+  // birthtimeMs, not filename order, and for the 2026-09-09 everTracked +
+  // current-path tie-break (replacing an oscillating first attempt) added
+  // below.
   findLatestUserLog() {
     if (!this.logsDir) return;
     try {
+        const currentPath = this.userLogPath;
+        const tracked = this.everTrackedUserPaths;
         const files = fs.readdirSync(this.logsDir)
             .filter(f => f.endsWith('_user.txt'))
             .map(f => {
@@ -269,15 +355,17 @@ export class LogTailer extends EventEmitter {
                 catch { return null; }
             })
             .filter(Boolean)
-            .sort((a, b) => (b.mtime - a.mtime) || (b.birthtime - a.birthtime));
+            .sort((a, b) => (b.mtime - a.mtime) || (b.birthtime - a.birthtime)
+                || ((tracked.has(a.path) ? 1 : 0) - (tracked.has(b.path) ? 1 : 0))
+                || ((a.path === currentPath ? 0 : 1) - (b.path === currentPath ? 0 : 1)));
 
         if (files.length > 0) {
             const latest = files[0].path;
             if (latest !== this.userLogPath) {
-                const firstDiscovery = !this.userLogPath;
                 this.userLogPath = latest;
+                this.everTrackedUserPaths.add(latest);
                 this.userRemainder = '';
-                this.userLogSize = this.startOffsetFor(latest, firstDiscovery);
+                this.userLogSize = this.startOffsetFor(latest);
                 log.info(`Tailing B42 user log: ${latest}`);
             }
         }

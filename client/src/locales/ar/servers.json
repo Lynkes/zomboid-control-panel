@@ -266,7 +266,10 @@
     "cancel": "إلغاء",
     "saving": "جارٍ الحفظ...",
     "saveChanges": "حفظ التغييرات",
-    "noPermission": "يتطلب حفظ إعدادات الخادم صلاحية servers.manage، وهي غير متاحة لهذا الدور."
+    "noPermission": "يتطلب حفظ إعدادات الخادم صلاحية servers.manage، وهي غير متاحة لهذا الدور.",
+    "dockerContainerPickInstead": "Pick from detected containers instead",
+    "dockerContainerPickPlaceholder": "Select a container...",
+    "dockerContainerTypeManually": "Type it in manually..."
   },
   "deleteDialog": {
     "title": "إزالة الخادم من اللوحة؟",
@@ -302,6 +305,12 @@
     "publicStable": "Public (مستقر)",
     "currentBadge": "الحالي",
     "branchHintDefault": "اختر فرع Steam الذي تريد التنزيل منه",
+    "branchDescriptions": {
+      "public": "الإصدار المستقر الحالي. موصى به لمعظم الخوادم.",
+      "unstable": "فرع اختبار Build 42، بما في ذلك اللعب الجماعي. احتفظ بنسخة احتياطية من الحفظ وتوقع عدم توافق بعض التعديلات.",
+      "iwbums": "فرع اختبار تجريبي. احتفظ بنسخة احتياطية من الحفظ قبل التبديل.",
+      "legacy41": "فرع Build 41 القديم للعوالم والتعديلات الأقدم."
+    },
     "buildPrefix": "Build {{buildId}}",
     "updatedPrefix": "حُدِّث في {{date}}",
     "progressLabel": "التقدم",

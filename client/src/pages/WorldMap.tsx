@@ -74,7 +74,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { panelBridgeApi, updateApi, serversApi, mapApi, playersApi } from '@/lib/api'
+import { panelBridgeApi, updateApi, serversApi, mapApi, playersApi, BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS } from '@/lib/api'
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { useToast } from '@/components/ui/use-toast'
@@ -666,7 +666,12 @@ export default function WorldMap() {
   }, [contextMenu])
   const [selectedPlayer, setSelectedPlayer] = useState<MapPlayer | null>(null)
   const [bridgeConnected, setBridgeConnected] = useState(false)
-  const [bridgeLoading, setBridgeLoading] = useState(false)
+  // Inits true (bridge-tri-state sweep, 2026-09-10): checkBridgeStatus sets
+  // this true itself once it runs, but that's a mount-effect tick after the
+  // first paint -- an init of false let that first paint render "Offline"
+  // (bridgeConnected's own default) for one frame before flipping to the
+  // loading state BridgeStatusBadge is meant to show instead.
+  const [bridgeLoading, setBridgeLoading] = useState(true)
   // Bridge's self-reported PanelBridge.VERSION -- gates the player-status
   // fields (isAlive/isInfected/accessLevel) added in bridge v1.7.39. See
   // worldMapBridgeVersion.ts for why this is a real version comparison
@@ -797,9 +802,26 @@ export default function WorldMap() {
       let isB41 = false
       if (serverRes.status === 'fulfilled') {
         setHasActiveServer(!!serverRes.value.server)
-      } else {
-        setHasActiveServer(false)
       }
+      // unknown-window-instances-outside-the-bridge, 2026-09-10: a REJECTED
+      // fetch (network blip, momentary API hiccup) is not "confirmed no
+      // active server" -- it's "we don't know." Asserting false here used
+      // to collapse both into the same value, which cascades hard: every
+      // hasActiveServer-gated effect (checkBridgeStatus, fetchPlayerPositions,
+      // fetchOverlays, and the cleanup effect that clears players/vehicles/
+      // safehouses) treats false as "definitely no server" and tears itself
+      // down -- including forcibly zeroing bridgeConnected, an otherwise
+      // independent signal that's already correctly fail-closed on its own
+      // terms (see fetchPlayerPositions), before it ever gets a chance to
+      // report its own honest status. Unlike Docker's dockerAvailable (a
+      // 10s poll that self-heals on its own), this only re-runs on mount or
+      // an 'activeServerChanged' socket event -- which may not fire again
+      // for the rest of this page load -- so a wrong false here can be
+      // effectively permanent, silently killing live player/vehicle
+      // tracking for a server that may be fully running. Fail open: keep
+      // whatever hasActiveServer already was rather than asserting false.
+      // On a cold first load with no prior value, this can't do better than
+      // the existing false default -- there's nothing to fall back to yet.
       if (statusRes.status === 'fulfilled' && statusRes.value.gameVersion) {
         isB41 = statusRes.value.gameVersion.startsWith('41.')
       }
@@ -1393,7 +1415,12 @@ export default function WorldMap() {
     if (!overlayFetchGateRef.current.enter()) return
     try {
       const [vRes, persistedRes, sRes] = await Promise.allSettled([
-        showVehicles ? panelBridgeApi.sendCommand('getVehiclesDetailed') : Promise.resolve(null),
+        // Vehicle count grows with world uptime/vehicle-mod content, not
+        // player count, so it can legitimately exceed the shared 15s
+        // default the same way getAllSandboxOptions does -- see
+        // BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS's own comment for the
+        // client/server timeout race this sizing avoids losing.
+        showVehicles ? panelBridgeApi.sendCommand('getVehiclesDetailed', {}, { timeout: BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS }) : Promise.resolve(null),
         showVehicles ? mapApi.vehicles() : Promise.resolve(null),
         panelBridgeApi.sendCommand('getSafehouses'),
       ])
@@ -3009,7 +3036,7 @@ export default function WorldMap() {
                 <span className="text-muted-foreground/50">·</span>
                 <span className={cn('flex items-center gap-1', bridgeConnected ? 'text-emerald-400/90' : 'text-muted-foreground/60')}>
                   <span className={cn('h-1.5 w-1.5 rounded-full', bridgeConnected ? 'bg-emerald-400 animate-pulse' : 'bg-muted-foreground/40')} />
-                  {bridgeConnected ? t('roster.live') : t('roster.offline')}
+                  {bridgeLoading ? t('roster.loading') : bridgeConnected ? t('roster.live') : t('roster.offline')}
                 </span>
               </span>
               <span className="flex items-center gap-1.5">
@@ -3204,7 +3231,7 @@ export default function WorldMap() {
                       setActionLoading('heal-card')
                       panelBridgeApi.sendCommand('healPlayer', { username: selectedPlayer.username })
                         .then(() => { toast({ title: t('dossier.healedTitle'), description: t('dossier.healedDesc', { username: selectedPlayer.username }) }); fetchPlayerPositions() })
-                        .catch(() => toast({ title: t('errorTitle'), variant: 'destructive' }))
+                        .catch((err) => toast({ title: t('errorTitle'), description: getUserErrorMessage(err, t('toasts.unknownError')), variant: 'destructive' }))
                         .finally(() => setActionLoading(null))
                     }}
                   >
@@ -3230,7 +3257,7 @@ export default function WorldMap() {
                               toast({ title: t('dossier.godModeEnabled') })
                             }
                           })
-                          .catch(() => toast({ title: t('errorTitle'), variant: 'destructive' }))
+                          .catch((err) => toast({ title: t('errorTitle'), description: getUserErrorMessage(err, t('toasts.unknownError')), variant: 'destructive' }))
                           .finally(() => setActionLoading(null))
                       }}
                     >
@@ -3347,7 +3374,7 @@ export default function WorldMap() {
                     if (!canGmTools) return
                     panelBridgeApi.sendCommand('healPlayer', { username: contextMenu.player!.username })
                       .then(() => { toast({ title: t('dossier.healedTitle'), description: t('dossier.healedDesc', { username: contextMenu.player!.username }) }); fetchPlayerPositions() })
-                      .catch(() => toast({ title: t('errorTitle'), variant: 'destructive' }))
+                      .catch((err) => toast({ title: t('errorTitle'), description: getUserErrorMessage(err, t('toasts.unknownError')), variant: 'destructive' }))
                     setContextMenu(null)
                   }}
                 />

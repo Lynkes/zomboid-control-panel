@@ -252,7 +252,10 @@
     "saveChanges": "Sove Chanjman",
     "noPermission": "Pou ou sove paramèt sèvè yo, ou bezwen pèmisyon servers.manage, e wòl sa a pa genyen li.",
     "customStartCommandPlaceholderWindows": "pa egzanp, StartServer64.bat -servername MyServer",
-    "customStartCommandPlaceholderPosix": "pa egzanp, ./start-server.sh -servername MyServer"
+    "customStartCommandPlaceholderPosix": "pa egzanp, ./start-server.sh -servername MyServer",
+    "dockerContainerPickInstead": "Pick from detected containers instead",
+    "dockerContainerPickPlaceholder": "Select a container...",
+    "dockerContainerTypeManually": "Type it in manually..."
   },
   "deleteDialog": {
     "title": "Retire Sèvè nan Panèl la?",
@@ -288,6 +291,12 @@
     "publicStable": "Piblik (Stab)",
     "currentBadge": "aktyèl",
     "branchHintDefault": "Chwazi branch Steam pou telechaje soti ladan l",
+    "branchDescriptions": {
+      "public": "Vèsyon estab aktyèl la. Rekòmande pou pifò sèvè.",
+      "unstable": "Branch tès Build 42, ki gen ladan multijoueur. Fè sovgad pati ou yo epi tann enkonpatibilite mod.",
+      "iwbums": "Branch tès eksperimantal. Fè sovgad pati ou yo anvan ou chanje.",
+      "legacy41": "Ansyen branch Build 41 pou vye mond ak mod."
+    },
     "buildPrefix": "Build {{buildId}}",
     "updatedPrefix": "Mete ajou {{date}}",
     "progressLabel": "Pwogrè",

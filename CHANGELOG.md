@@ -7,6 +7,170 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**v1.3.2 candidate:**
+
+- **SteamCMD setup and updates now recover when SteamCMD is missing on Windows as well as Linux**, report the self-heal progress in the visible installation log, reject concurrent downloads safely, and avoid false Linux 503 responses caused by an unavailable Windows-only process probe.
+- **Discord configuration changes are serialized against the running bot**, preventing overlapping config, webhook-event, or command-permission saves from racing with reconnects.
+- **Translation fallback parameters now resolve correctly**, and 31 previously unmirrored fallback keys are present across all nine supported locales.
+- **Support bundles now collect deeper and broader logs**, including nested PZ/install logs, SteamCMD logs, alternate server paths, additional log extensions, and per-root scan counts.
+- **Support bundles now include sandbox-option diagnostics**, with PZ and PanelBridge versions, exception excerpts, triggering command counts, configured mods, and installed mod metadata for Build 42 compatibility investigations.
+
+### Fixed
+
+**SteamCMD / installer**
+
+- Windows now self-heals a missing SteamCMD installation instead of failing immediately, matching the Linux path.
+- Concurrent SteamCMD downloads are rejected before they can overwrite one another.
+- The setup UI now shows SteamCMD self-heal progress when installation begins from a later setup step.
+- Linux no longer reports a false 503 when a Windows-only process-state probe is unavailable.
+
+**Discord**
+
+- Configuration, webhook-event, and command-permission updates now serialize against the Discord bot singleton, preventing stale overlapping writes and reconnect races.
+
+**Localization**
+
+- Registered fallback keys with interpolation parameters now receive their values correctly instead of rendering unresolved placeholders.
+- Missing fallback keys are mirrored across every supported locale and guarded by tests.
+
+**Diagnostics**
+
+- Support bundles now retain enough PZ, SteamCMD, and PanelBridge context to investigate sandbox-option exceptions and identify candidate mods without guessing.
+
+## [1.3.1] - 2026-09-10
+
+**TL;DR:**
+
+- **Two admins editing roles at the same moment could permanently remove every user able to manage roles or accounts, with no way back in.** Fixed.
+- **v1.3.0's RCON fix is now actually complete.** That release fixed one of four places the panel hardcoded an unreachable RCON address on the two-container Docker/Unraid topology; the other three (a fresh install, Quick Setup, and manually reconfiguring RCON) are fixed now too.
+- **The native "Browse for folder" dialog on Windows could hang the request forever** if it lost focus or was simply left open.
+- **A same-millisecond timing collision could make the panel misjudge which world backup was actually newest** — including which one automatic retention cleanup prunes as "old."
+- **The Docker Start/Stop buttons could disappear for several seconds after a single dropped status check, and World Map could go dark for a genuinely running server after one failed lookup** — both now hold their last known-good state through a momentary blip instead of reading it as confirmed-gone.
+- **The chat/player-action log viewer could get stuck showing the previous game session's log after a restart**, and in one case would replay the same old messages over and over instead of settling on the new session.
+- **An unattended nightly server update could hang forever with nobody watching** if SteamCMD itself stalled — the same stall-detection the manual Install/Update buttons already had was never wired into the automatic path.
+- Smaller fixes: installing/updating SteamCMD could corrupt its own download if triggered twice at once; starting the Discord bot twice in close succession could double every relayed chat message; a diagnostics check for RCON command rejections has never appeared on the Diagnostics page, in any language, since it shipped; and several other panel screens showed untranslated English text regardless of your chosen language.
+
+### Fixed
+
+**Role & user management**
+
+- **Two admins editing roles at the same moment could together strip every role of the ability to manage roles or manage user accounts — a permanent lockout with no recovery path.** Each edit checked "does at least one other role still grant this" against the state *before* either edit landed, so two edits that were each individually safe could combine into an unsafe one. Role changes are now serialized the same way user-account changes already were, so a second edit is checked against what the first one actually did, not against stale state.
+
+**RCON**
+
+- **Completes a fix v1.3.0 only did one quarter of.** v1.3.0's release notes said a hardcoded RCON address (the one our own official Unraid two-container template explicitly warns against) was fixed — but that was true only for servers added through "Find my server." A fresh install, Quick Setup, and manually reconfiguring a server's RCON connection all still wrote the same unreachable address on that exact topology, with no error anywhere. All four now agree.
+
+**Docker / server status**
+
+- **The Docker Start/Stop buttons could vanish from a server's card for several seconds after a single status request happened to fail**, even though the panel still had a perfectly good, only-slightly-stale answer about whether a container was there. They now keep showing what they last knew instead of reading one dropped request as "this container doesn't exist."
+- **World Map's live player/vehicle tracking and bridge status could go dark for a server that was actually running fine**, and — unlike every other place this can happen — never recover on their own for the rest of the page visit. A single rejected "is there an active server" check was being read as a confirmed "no," which then forced every dependent signal (including bridge connection status) to the same wrong answer. It now keeps the last known state instead of asserting a negative it doesn't actually have.
+- **The Players page could keep showing "bridge offline" long after the bridge had actually reconnected**, because it only ever checked bridge status once, when the page first loaded. It now re-checks on the same schedule every other page already uses. Separately, the brief window between "page loaded" and "first status check finished" could render as a confident "offline" instead of "checking" on the Players and Events pages and World Map's roster.
+- On a slow or heavily loaded host, the server's shown running/stopped status could very rarely flip to a stale answer moments after you'd already gotten a correct one, if an old, slow status scan finished after a newer one. Fixed. RCON connection attempts also got a little more headroom against ordinary network jitter.
+
+**SteamCMD / installer**
+
+- **An unattended nightly server update could hang forever, with nobody watching, if the SteamCMD process itself stalled.** The manual Install and Update buttons already detected and reported a stalled SteamCMD; the automatic overnight path never had the same protection.
+- **Installing or updating SteamCMD could corrupt its own download if triggered twice at once** — a double-click, or an automatic install/update starting while a manual download was already running. The second attempt is now refused with a clear message instead of silently overwriting the first one's file.
+- **On Windows, the native "Browse for folder" dialog (used when picking an install path by hand) had no time limit at all.** If the dialog lost focus — a known quirk on Windows — or was simply left open, the request behind it hung forever with no way to recover except restarting the panel. It now times out the same way the equivalent Linux dialog already did.
+- Hardened the discovery API against silently picking one server out of two or more real ones found at the same mount — the panel's own discovery screen already shows a picker whenever this happens, so this closes a gap in the underlying endpoint rather than changing anything you'd have seen.
+
+**Panel updater**
+
+- Hardened the in-app updater's download cleanup against a narrow, unreproduced race: retrying a failed download quickly enough could, in principle, let the previous attempt's own delayed cleanup delete the retry's file out from under it. Each download attempt now gets its own cleanup target instead of sharing one.
+
+**Discord bot**
+
+- **Starting the Discord bot twice in close succession — a double-click, or the panel automatically reconnecting after a settings save while a manual start was already underway — could connect it twice, doubling every relayed in-game chat message.** A second start attempt is now refused while one is already in progress, the same way a second SteamCMD download already was.
+
+**Backups**
+
+- **A same-millisecond timing collision — two backups landing in the exact same millisecond, which a fast or near-empty world can do — could make the panel misjudge which of two backups was actually newest.** For the panel's own internal settings-recovery backups, this meant the wrong one could be used to silently recover from a corrupted settings file. For your actual world backups, the same bug affects what the Backups page reports as most recent and which backups automatic retention cleanup prunes as "old" — a genuinely newer backup tied with an older one could be the one deleted. Fixed for both.
+
+**Chat & player-action logs**
+
+- **The chat/player-action log viewer could get stuck displaying the previous game session's log after a restart**, when two files' timestamps landed close enough together to tie at the filesystem's own resolution — in one case it would settle on the wrong file forever; in another, it alternated between replaying both files' entire contents over and over instead of settling at all. Both are fixed.
+- **In one rare case — a backup/volume restore, a remount, or someone manually touching a log file while the panel keeps running — a stale, already-read log could be picked up as "new" and have its entire old content replayed into the chat/player-action log as if it had just happened.** Fixed.
+
+**Diagnostics**
+
+- **A diagnostics check for rejected RCON commands has never appeared on the Diagnostics page, in any language, since it shipped.** It was silently computing a real result and then being filtered out before anyone saw it, due to a mis-labeled internal category. It now shows up like every other check.
+- **A mod-compatibility or crash-log check that merely timed out (a slow or unresponsive disk, for example) could report a confident "nothing wrong" instead of "couldn't tell."** These two checks now say plainly when they weren't able to finish.
+- Diagnostics page section headings, and a handful of remaining untranslated strings on the Scheduler, Mod Settings, and PanelBridge connection-status screens, are now translated in every supported language instead of always showing English.
+- Diagnostics' "Clear Stale Locks" action now refuses to run while a start, stop, restart, wipe, or other server-lifecycle action is already in progress, closing the same class of gap already closed for those actions.
+
+**Login & account recovery**
+
+- **Clicking "Lost password" on a slow connection, before the panel finished checking whether local or code-based recovery was available, could route you into attempting a local reset even if you already held a valid recovery token or code.** It now waits for that check to actually finish before deciding.
+
+**Display ordering**
+
+- A handful of file listings (activity feed, crash logs, PanelBridge SFTP logs, player data exports, config templates, and the panel updater's own log history) could show items in a different, meaningless order across restarts or platforms whenever two files' timestamps tied exactly. All now sort consistently. The one case that was more than cosmetic — the raw backup-file listing under Server Files — could show backups in a genuinely wrong order under the same kind of tie; it now sorts by each backup's own recorded time instead.
+
+**Config files**
+
+- Restoring a saved server config file (server.ini, SandboxVars, etc.) from a backup now goes through the same file-locking and atomic-write path every other config save on that page already uses, closing a narrow window where a restore could interleave badly with another save to the same file.
+
+### Internal
+
+- Extended test coverage and CI-gate reliability work across the log-tailer, config-backup, and diagnostics-translation fixes above, plus two Windows-specific test-only timing fixes (a shared test-teardown race, a client test asserting on an in-flight status transition) that had no effect on the running panel.
+- Expanded Docker/Unraid troubleshooting documentation (`docs/install/docker.md`) to cover the RCON-host, Quick Setup, and discovery fixes above.
+- A late RCON response arriving after its own command had already timed out is now logged instead of silently vanishing, matching how the PanelBridge connection already handled the identical case.
+- Routine internal cleanup: three cases where a timer was left running instead of being cleared, and a renamed internal helper whose old name overstated what it actually does (it can't cancel the operation it wraps, only stop waiting on it).
+
+## [1.3.0] - 2026-09-09
+
+**TL;DR:**
+
+- **The Docker/Unraid experience has been rebuilt end to end: the panel now finds your existing Project Zomboid server for you instead of asking you to type paths, and a serious bug that broke RCON forever for anyone following our own official Unraid template is fixed.**
+- **Server Configuration → Mod Settings, and vehicle lookups, no longer time out on modded or high-population servers.**
+- **The Sandbox tab now reads real min/max limits from your running server, and a sandbox value saved out of range can no longer permanently disable Save.**
+- A handful of smaller fixes: the Backups page no longer says "Never" after a restart when real backups exist on disk, World Map's Heal/God buttons show the real error instead of a bare toast, and an in-app update can no longer show the wrong version in its own success message.
+
+### Added
+
+**Docker/Unraid onboarding**
+
+- **The panel can now find your Project Zomboid server for you.** Instead of typing a path and hoping, it scans the common Docker/Unraid mount locations (including this project's own container layout and the popular community Unraid template's) and tells you in plain language what it found at each one — a complete server, files with no data, data with no files, a folder it can't read, or nothing mounted — so you can add the one that's ready with one click. This now runs every time you visit the Servers page, not only when you have no servers yet, and the Dashboard's "Quick Start" button now sends you here instead of always defaulting to the from-scratch install wizard.
+- **If you run the official Unraid template with the panel and Project Zomboid in separate containers, you can now let the panel read your Docker socket** — an optional, off-by-default field in the template — so it automatically translates a path you can see on the host into the path it can see inside its own container, instead of you having to guess which side's path to type.
+- **Installing Project Zomboid no longer requires typing the SteamCMD path by hand.** If you leave it blank, the panel now looks in the same places it already checks automatically, and inside our own all-in-one Docker image it already knows exactly where SteamCMD lives. You only need to type a path yourself if none of that finds it, and if so the panel now tells you exactly where it looked.
+
+**Sandbox settings**
+
+- **The Sandbox tab now reads the real minimum/maximum for every value from your running server**, instead of a table baked into the panel that goes stale whenever a game update changes the defaults. A new toggle in Settings lets you save a value outside that range anyway, for the rare case you know better than the game's own limits.
+
+### Fixed
+
+**Docker/Unraid (RCON)**
+
+- **A server profile created through "Find my server" could look completely set up and still never connect, with no error anywhere.** If you followed our own official Unraid template with the panel and the game server in separate containers, the panel would find your install, your save data, and your settings file, correctly read the real RCON port and password out of it — and then hard-code the one RCON address our own template explicitly warns you never to use in that setup. Every step looked like it worked; no command from the panel ever reached the server. The panel now uses the RCON host you actually configured.
+
+**PanelBridge / mod communication**
+
+- **Server Configuration → Mod Settings could fail with "The request timed out. Check your connection and try again" even when your connection was fine.** On a heavily modded server, reading every sandbox option can legitimately take longer than the panel allowed for — and there turned out to be two separate, disagreeing internal deadlines (one in your browser, one on the panel's own server side), so raising only one changed nothing. Both are now raised together.
+- **The same "no response from mod" timeout could also hit vehicle lookups on servers with a lot of vehicles**, for the same reason, and now gets the same longer allowance. Safehouse and faction lookups stay fast regardless of server size and were deliberately left unchanged.
+- **World Map's Heal and God-mode buttons showed a bare, reasonless error whenever the connection to the game was down**, unlike every other button on that page. They now show the same real explanation the rest of the panel already gives.
+- **The panel now tells you when your bridge mod is out of date or speaking a different protocol version than it expects**, including when you connect over remote/SFTP — previously this got no signal about it at all.
+
+**Sandbox settings**
+
+- **Once a sandbox value was saved outside its valid range, it could never be saved again — not even back to a valid value.** The panel's own range check, meant to stop you saving a bad value, was also blocking the fix. Fixed.
+
+**Backups**
+
+- **The Backups page could say "Last Backup: Never" right next to a correct, non-zero backup count, on every panel restart**, even with real backups already on disk. The displayed value only tracked backups made since the panel last started and never checked disk on its own. It now does.
+
+**Scheduler & installer**
+
+- **A scheduled restart's "another operation is already in progress" message now names the server it's actually about**, in the common case where it previously always read as a generic, unhelpful message.
+- **Installing Project Zomboid, running Quick Setup, or updating SteamCMD for a server could start while a wipe, restore, or template apply was already running for that same server.** All three now wait for the same lock those operations already respect.
+- **An in-app update could, in a rare timing case, report the wrong version number in its own "update complete" message** if a routine background update-check happened to land in the middle of a download. Fixed.
+
+### Internal
+
+- A failed bridge command, a missing thumbnail, and a client retry could each happen without leaving any line in the log files the panel's own documentation tells you to check when troubleshooting. All three now log.
+- The i18n duplicate-string checker used in CI no longer flags plural forms that don't exist in English but are required in other languages, which had been failing CI on every commit.
+- Routine dependency updates and error-code documentation cleanup.
+
 ## [1.2.21] - 2026-09-09
 
 **TL;DR:**

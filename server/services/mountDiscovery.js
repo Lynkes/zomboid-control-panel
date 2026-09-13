@@ -9,6 +9,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { describeContainerMountPoints } from "../utils/containerMountInfo.js";
 
 const INI_SUFFIX_BLOCKLIST = [
   "_SandboxVars.ini",
@@ -131,6 +132,17 @@ const COMMON_MOUNT_CANDIDATES = [
     source: "ich777-mount",
   },
   { install: "/steam/pz", data: "/steam/pz/Zomboid", source: "steam-mount" },
+  // server-detection-lifecycle-hardening, 2026-09-09: generic single-mount
+  // container conventions -- an image that bind-mounts ONE volume for
+  // everything (install + data co-located, no separate PZ_SAVE_PATH) rather
+  // than this project's own two-mount /pz-server + /zomboid split. No
+  // explicit `data` here on purpose: resolveDataPathCandidate()'s existing
+  // "Zomboid folder nested under install" fallback (findDataPath) already
+  // handles the co-located case correctly for these, exactly as it does for
+  // the bare-metal Linux candidates below.
+  { install: "/data", source: "generic-single-mount" },
+  { install: "/config", source: "generic-single-mount" },
+  { install: "/serverfiles", source: "generic-single-mount" },
 ];
 
 function envCandidates() {
@@ -222,6 +234,195 @@ export function discoverMounts() {
   }
 
   return candidates;
+}
+
+// Human-readable text for scanAllCandidates()'s per-candidate `reason`,
+// keyed by `status`. server-detection-lifecycle-hardening, 2026-09-09: the
+// operator's own words -- "people are fucking stupid... we need to remove
+// pain points" -- translate to "given no way to succeed". A validator that
+// says "path not found" for a path that demonstrably exists (the Docker/
+// Unraid case: the user's real host path and the panel's own bind-mount
+// view of it are two different strings for the same directory) is the bug
+// being fixed here. Every candidate below gets a sentence a non-technical
+// user can act on, not a boolean.
+const CANDIDATE_STATUS_REASON = {
+  ready:
+    "Found a complete Project Zomboid server here -- server files and save data both present.",
+  "install-only":
+    "Server files found here, but no matching save-data folder yet -- it may still be initializing, or the save-data mount is missing.",
+  "data-only":
+    "Save data found here, but no server install files at this path.",
+  "permission-denied":
+    "This path exists but the panel doesn't have permission to read it -- check the file/folder permissions on this mount, or the container's user (PUID/PGID).",
+  empty:
+    "Nothing here yet -- this path exists but doesn't look like a Project Zomboid server or save folder.",
+  "not-mounted":
+    "Not mounted -- this container path doesn't exist. If you're on Docker or Unraid, check the volume/bind-mount mapping for this path in your container's settings.",
+};
+
+// docker-unraid-onboarding, 2026-09-09: Pam's containerMountInfo.js, on
+// main now. Her empirical finding (real containers, /proc/self/mountinfo):
+// this process's own fs.existsSync-based classification above CANNOT tell
+// apart "a genuine bind mount that happens to be empty" (correctly
+// configured, just nothing saved here yet) from "an ordinary directory
+// baked into the image that nothing was ever bound to" (the volume mapping
+// itself is missing) -- `classifyCandidate()`'s "empty" status collapses
+// both into one answer today, and they need DIFFERENT operator instructions.
+// mountinfo (no Docker socket needed, safe to call unconditionally) CAN
+// make that distinction for a container-side path. Scoped to sources that
+// are actually container bind-mount CONVENTIONS -- applying "mount"
+// semantics to a bare-metal Linux path (source: "linux-bare-metal") or an
+// operator-typed env override (source: "environment", could legitimately
+// be either) would produce a confusing, wrong reason.
+const CONTAINER_MOUNT_SOURCES = new Set([
+  "common-mount",
+  "ich777-mount",
+  "steam-mount",
+  "generic-single-mount",
+]);
+
+const NOT_ACTUALLY_MOUNTED_REASON =
+  "This directory exists in the container image, but nothing is bind-mounted here -- add a volume mapping for this path in your Docker/Unraid container settings.";
+const GENUINELY_EMPTY_MOUNT_REASON =
+  "This is correctly mounted, but nothing has been saved here yet -- check it points at the right host folder, or the server just hasn't run yet.";
+
+// Rank order, best candidate first -- the UI is expected to render in this
+// order rather than re-sort, so "the top of the list is usually right" is a
+// server-side guarantee, not a client-side judgment call.
+const STATUS_RANK = [
+  "ready",
+  "install-only",
+  "data-only",
+  "permission-denied",
+  "empty",
+  "not-mounted",
+];
+
+function classifyCandidate(candidate) {
+  const installState = classifyDir(candidate.install);
+
+  if (installState === "inaccessible") {
+    return { status: "permission-denied", installResult: null, dataPath: null, dataResult: null };
+  }
+
+  if (installState !== "ok") {
+    // Install path itself isn't there -- still worth checking whether an
+    // explicit data-side candidate (env PZ_SAVE_PATH, or a Docker template's
+    // separate data mount) exists on its own, since a user can legitimately
+    // have only ONE of the two paths mounted at a time while setting the
+    // other up.
+    const dataPath = candidate.data || null;
+    if (dataPath) {
+      const dataState = classifyDir(dataPath);
+      if (dataState === "inaccessible") {
+        return { status: "permission-denied", installResult: null, dataPath, dataResult: null };
+      }
+      if (dataState === "ok") {
+        const dataResult = probeDataPath(dataPath);
+        if (dataResult.valid) {
+          return { status: "data-only", installResult: null, dataPath, dataResult };
+        }
+      }
+    }
+    return { status: "not-mounted", installResult: null, dataPath, dataResult: null };
+  }
+
+  const installResult = probeInstallPath(candidate.install);
+  const dataPath = resolveDataPathCandidate(candidate);
+  const dataResult = dataPath ? probeDataPath(dataPath) : null;
+
+  if (!installResult.valid) {
+    if (dataResult?.valid) {
+      return { status: "data-only", installResult, dataPath, dataResult };
+    }
+    return { status: "empty", installResult, dataPath, dataResult };
+  }
+
+  if (dataResult?.valid) {
+    return { status: "ready", installResult, dataPath, dataResult };
+  }
+  if (dataPath && classifyDir(dataPath) === "inaccessible") {
+    return { status: "permission-denied", installResult, dataPath, dataResult };
+  }
+  return { status: "install-only", installResult, dataPath, dataResult };
+}
+
+// Every env-configured and common Docker/Unraid bind-mount candidate this
+// module knows about, PROBED AND REPORTED REGARDLESS OF OUTCOME -- unlike
+// discoverMounts() below (which silently drops anything that isn't a
+// complete, ready-to-use server, the existing contract every current
+// caller of discoverMounts() already depends on and must not change), this
+// is the "show your work" version: ranked best-first, each entry carrying a
+// `status` and a plain-language `reason`, including the paths that are
+// empty or simply not mounted at all. Lets the UI show "we checked X
+// places and here's what we found at each", not a silent list of only the
+// places that already worked.
+export function scanAllCandidates() {
+  const raw = [];
+  const seen = new Set();
+
+  for (const candidate of allCandidates()) {
+    if (!candidate.install && !candidate.data) continue;
+    const key = candidate.install || candidate.data;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const { status, installResult, dataPath, dataResult } = classifyCandidate(candidate);
+    raw.push({ candidate, status, installResult, dataPath, dataResult });
+  }
+
+  // Pam's mountinfo-based real-mount-vs-baked-into-image distinction --
+  // batched into one read of /proc/self/mountinfo (or one null, on a
+  // machine that has none, e.g. this codebase's Windows dev machines)
+  // rather than once per candidate. Only "empty" candidates from a genuine
+  // container-mount-convention source need the extra check -- every other
+  // status already has enough signal, and mountinfo has nothing meaningful
+  // to say about a bare-metal or env-override path.
+  const emptyContainerPaths = raw
+    .filter((r) => r.status === "empty" && CONTAINER_MOUNT_SOURCES.has(r.candidate.source))
+    .map((r) => r.candidate.install)
+    .filter(Boolean);
+  const mountDescriptions =
+    emptyContainerPaths.length > 0
+      ? describeContainerMountPoints(emptyContainerPaths)
+      : [];
+  const mountedByPath = new Map(mountDescriptions.map((d) => [d.path, d.mounted]));
+
+  const results = raw.map(({ candidate, status, installResult, dataPath, dataResult }) => {
+    let finalStatus = status;
+    let reason = CANDIDATE_STATUS_REASON[status];
+
+    if (status === "empty" && CONTAINER_MOUNT_SOURCES.has(candidate.source)) {
+      const mounted = mountedByPath.get(candidate.install);
+      if (mounted === false) {
+        finalStatus = "not-mounted";
+        reason = NOT_ACTUALLY_MOUNTED_REASON;
+      } else if (mounted === true) {
+        reason = GENUINELY_EMPTY_MOUNT_REASON;
+      }
+      // mounted === undefined (not in the map, shouldn't happen for a
+      // filtered candidate) or the describeContainerMountPoints() result
+      // being null-mounted (mountinfo unreadable, e.g. non-Linux dev
+      // machines) both fall through to the existing fs-only "empty"
+      // reason above -- no worse than before this change, never wrong.
+    }
+
+    return {
+      installPath: candidate.install || null,
+      dataPath: dataResult?.valid ? dataResult.path : dataPath || null,
+      source: candidate.source,
+      status: finalStatus,
+      reason,
+      serverNames: dataResult?.serverNames?.length
+        ? dataResult.serverNames
+        : installResult?.serverNames || [],
+      hasStartScript: Boolean(installResult?.hasStartScript),
+      hasPanelBridge: Boolean(installResult?.hasPanelBridge),
+    };
+  });
+
+  results.sort((a, b) => STATUS_RANK.indexOf(a.status) - STATUS_RANK.indexOf(b.status));
+  return results;
 }
 
 // Common-mount candidates that exist but couldn't be read (permission

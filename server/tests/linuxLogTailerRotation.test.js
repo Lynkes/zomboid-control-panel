@@ -97,16 +97,39 @@ const isLinux = process.platform !== "win32";
       // beforeEach() constructs `tailer` (capturing watchStartedAt = Date.now())
       // BEFORE this file exists, which is backwards from what "old session,
       // already on disk when the panel starts watching" is supposed to mean
-      // in production -- and startOffsetFor's `born >= watchStartedAt` check
-      // compares two different clocks (filesystem birthtime vs Date.now())
-      // that measured up to ~20ms apart on this platform (see
-      // startOffsetFor's own comment), so leaving watchStartedAt at its
-      // construction-time value made this assertion genuinely racy under
-      // load, not just theoretically. Set it explicitly, deterministically
-      // after the file's real birthtime, the same way the rotation below
-      // already forces an unambiguous mtime with fs.utimesSync rather than
-      // relying on incidental timing.
-      tailer.watchStartedAt = fs.statSync(oldChat).birthtimeMs + 1000;
+      // in production. Set it explicitly, right after oldChat is written,
+      // rather than relying on construction order to happen to land on the
+      // right side of "now".
+      //
+      // start-offset-replays-the-whole-file-on-every-non-first-rotation,
+      // 2026-09-10 (gate finding, round 1): an EARLIER version of this line
+      // used `fs.statSync(oldChat).birthtimeMs + 1000` -- a full synthetic
+      // second of padding, chosen when startOffsetFor's non-first-discovery
+      // path unconditionally returned 0 and so never actually consulted
+      // watchStartedAt for the SECOND file below at all. Once that path
+      // started consulting it too, this same padding also swallowed
+      // newChat, created only a few real ms later -- misclassifying a
+      // genuinely brand-new file as pre-existing (`expect(seen).toHaveLength(1)`
+      // failed with an empty array: the rotation's one real line was never
+      // read).
+      //
+      // Round 2 (same gate finding, next iteration): swapping straight to
+      // `Date.now()` fixed newChat's side but broke oldChat's -- with
+      // BIRTHTIME_CLOCK_SKEW_GRACE_MS (100ms) now subtracted from the
+      // comparison, `born >= watchStartedAt - 100` is TRUE for oldChat too
+      // when watchStartedAt is captured only a few ms after oldChat's real
+      // birth, so it read from byte zero instead of skipping to the end --
+      // Alice's line leaked into `seen`. The grace is doing exactly what
+      // it's for (a genuinely pre-existing file predates the watch by
+      // seconds, not milliseconds -- see startOffsetFor's own comment); the
+      // fix is widening THIS gap past the grace, not shrinking the grace to
+      // fit a timescale production never sees. A real wait, larger than
+      // BIRTHTIME_CLOCK_SKEW_GRACE_MS, between oldChat's birth and
+      // watchStartedAt gives oldChat an unambiguous, grace-proof margin on
+      // the "pre-existing" side, symmetric with the wait already used below
+      // to give newChat the same margin on the "new" side.
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      tailer.watchStartedAt = Date.now();
 
       const seen = [];
       tailer.on("chatMessage", (m) => seen.push(m));
@@ -120,7 +143,11 @@ const isLinux = process.platform !== "win32";
       // Real rotation: PZ creates a NEW, later-mtime chat log for a new
       // session. Real filesystem timestamp resolution can be coarse, so
       // force a distinguishable mtime rather than relying on wall-clock
-      // drift between two fast writes.
+      // drift between two fast writes. A real wait also keeps newChat's
+      // birthtime unambiguously later than watchStartedAt above, past any
+      // cross-clock skew (see startOffsetFor's own comment).
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
       const newChat = path.join(logsDir, "02-01-26_chat.txt");
       fs.writeFileSync(
         newChat,
@@ -163,7 +190,16 @@ const isLinux = process.platform !== "win32";
         oldChat,
         "[01-01-26 10:00:00.000][info] Got message:ChatMessage{chat=Say, author='Alice', text='old session'}.\n",
       );
-      tailer.watchStartedAt = fs.statSync(oldChat).birthtimeMs + 1000;
+      // Same fix as the rotation test above and for the same reason: a
+      // plain Date.now(), not a birthtimeMs-derived synthetic offset that
+      // overshoots newChat below -- AND (gate finding, round 2) captured
+      // only after a real wait bigger than BIRTHTIME_CLOCK_SKEW_GRACE_MS,
+      // not immediately after oldChat's write, so oldChat's own birth sits
+      // unambiguously on the "pre-existing" side of the grace window too
+      // (an immediate Date.now() here let Alice's line leak through --
+      // `seen` had length 2 instead of 1 further down).
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      tailer.watchStartedAt = Date.now();
 
       const seen = [];
       tailer.on("chatMessage", (m) => seen.push(m));
