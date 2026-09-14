@@ -202,6 +202,82 @@ describe("PUT /settings: validation", () => {
     expect(res.status).toHaveBeenCalledWith(400);
   });
 
+  it("rejects a non-HTTP redirectUri scheme", async () => {
+    const res = await runRoute(
+      "/settings",
+      "put",
+      makeReq({ body: { redirectUri: "javascript:alert(1)" } }),
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(settingsStore.get("oidcRedirectUri")).toBeUndefined();
+  });
+
+  it("rejects redirectUri query parameters because the callback exchange strips them", async () => {
+    const res = await runRoute(
+      "/settings",
+      "put",
+      makeReq({ body: { redirectUri: "https://panel.example.com/callback?tenant=one" } }),
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(settingsStore.get("oidcRedirectUri")).toBeUndefined();
+  });
+
+  it("rejects a string allowInsecureHttp value instead of treating \"false\" as true", async () => {
+    const res = await runRoute(
+      "/settings",
+      "put",
+      makeReq({ body: { allowInsecureHttp: "false" } }),
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(settingsStore.get("oidcAllowInsecureHttp")).toBeUndefined();
+  });
+
+  it("rejects a non-empty scope that omits openid", async () => {
+    const res = await runRoute(
+      "/settings",
+      "put",
+      makeReq({ body: { scope: "email profile" } }),
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(settingsStore.get("oidcScope")).toBeUndefined();
+  });
+
+  it("rejects an invalid redirectUri before Test Connection reaches the provider", async () => {
+    const res = await runRoute(
+      "/test-connection",
+      "post",
+      makeReq({
+        body: {
+          issuerUrl: "https://idp.example.com",
+          clientId: "client",
+          clientSecret: "secret",
+          redirectUri: "javascript:alert(1)",
+        },
+      }),
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ error: expect.stringMatching(/redirectUri/) }),
+    );
+  });
+
+  it("rejects an edited scope without openid before Test Connection reaches the provider", async () => {
+    const res = await runRoute(
+      "/test-connection",
+      "post",
+      makeReq({
+        body: {
+          issuerUrl: "https://idp.example.com",
+          clientId: "client",
+          clientSecret: "secret",
+          scope: "email profile",
+        },
+      }),
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({ error: "scope must include openid" });
+  });
+
   it("a resubmitted masked clientSecret placeholder leaves the real stored secret untouched", async () => {
     await runRoute("/settings", "put", makeReq({ body: { clientSecret: "real-secret-1" } }));
 

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-09-13
+
+- **Google/SSO can now be linked to an existing local account from Users.** Local usernames remain punctuation-free; an administrator creates the account with a local username, then starts a verified provider flow with the new Link SSO action.
+- **OIDC configuration and callback handling are hardened.** Unsafe or malformed issuer/redirect URLs, non-boolean transport flags, and scopes without `openid` are rejected; provider requests have bounded timeouts; link state expires and cannot fall back to login; callback linking is admin-authorized atomically and fails closed on malformed or duplicate identities.
+
 ## [1.3.2] - 2026-09-13
 
 - **SteamCMD setup and updates now recover when SteamCMD is missing on Windows as well as Linux**, report the self-heal progress in the visible installation log, reject concurrent downloads safely, and avoid false Linux 503 responses caused by an unavailable Windows-only process probe.

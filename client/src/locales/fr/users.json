@@ -23,7 +23,8 @@
     "lastSignIn": "Dernière connexion",
     "never": "Jamais",
     "actions": "Actions",
-    "removeTooltip": "Supprimer {{username}}"
+    "removeTooltip": "Supprimer {{username}}",
+    "linkSsoTooltip": "Lier le SSO à {{username}}"
   },
   "deleteDialog": {
     "title": "Supprimer {{username}} ?",
@@ -37,6 +38,7 @@
     "description": "Créez une connexion pour quelqu'un d'autre. Cette personne utilisera ce nom d'utilisateur et ce mot de passe pour se connecter.",
     "usernameLabel": "Nom d'utilisateur",
     "usernamePlaceholder": "ex. jdupont",
+    "usernameHint": "Utilisez un nom d'utilisateur local, pas une adresse e-mail. Liez Google/SSO après la création.",
     "passwordLabel": "Mot de passe",
     "confirmPasswordLabel": "Confirmer le mot de passe",
     "roleLabel": "Rôle",
@@ -58,6 +60,10 @@
     "userDeletedTitle": "Compte supprimé",
     "userDeletedDescription": "{{username}} ne peut plus se connecter.",
     "actionFailedTitle": "Échec de l'action",
-    "unknownError": "Erreur inconnue"
+    "unknownError": "Erreur inconnue",
+    "ssoLinkedTitle": "SSO lié",
+    "ssoLinkedDescription": "L'identité externe est maintenant liée à ce compte.",
+    "ssoLinkExpired": "La session de liaison SSO a expiré. Recommencez.",
+    "ssoLinkFailed": "L'identité SSO n'a pas pu être liée à ce compte."
   }
 }

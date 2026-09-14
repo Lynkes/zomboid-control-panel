@@ -11,7 +11,7 @@
 // which is Jim's auth.js work and decides find-vs-refuse/role policy.
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
-import authService from "../services/auth.js";
+import authService, { requireRole } from "../services/auth.js";
 import { createLogger } from "../utils/logger.js";
 import { sanitizeError, isMaskedSecret } from "../utils/sanitize.js";
 import {
@@ -19,8 +19,11 @@ import {
   getOidcEnvOverrides,
   setOidcSettings,
   isOidcConfigured,
+  isValidOidcIssuerUrl,
+  isValidOidcRedirectUri,
   buildOidcAuthorizationRequest,
   handleOidcCallback,
+  hasOpenIdScope,
   resetOidcConfigCache,
   testOidcDiscovery,
 } from "../services/oidc.js";
@@ -50,6 +53,21 @@ const callbackRateLimiter = makeOidcLimiter();
 
 const FLOW_COOKIE_NAME = "oidcFlow";
 const FLOW_COOKIE_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes — enough for an IdP login + MFA, short enough to limit exposure.
+const pendingIdentityLinks = new Map();
+
+function prunePendingIdentityLinks(now = Date.now()) {
+  for (const [state, entry] of pendingIdentityLinks) {
+    if (entry.expiresAt <= now) pendingIdentityLinks.delete(state);
+  }
+}
+
+function rememberPendingIdentityLink(state, entry) {
+  pendingIdentityLinks.set(state, entry);
+  const cleanup = setTimeout(() => {
+    pendingIdentityLinks.delete(state);
+  }, Math.max(0, entry.expiresAt - Date.now()));
+  cleanup.unref?.();
+}
 
 // The state/nonce/PKCE cookie deliberately uses SameSite=Lax, not Strict:
 // unlike the refresh-token cookie above (only ever sent by same-site XHR
@@ -65,7 +83,7 @@ function getFlowCookieOptions(req) {
   const forceSecureCookies =
     process.env.HTTPS === "true" || process.env.FORCE_HSTS === "true";
   const requestIsSecure =
-    req.secure || req.headers["x-forwarded-proto"] === "https";
+    req.secure === true;
   return {
     httpOnly: true,
     secure: forceSecureCookies || requestIsSecure,
@@ -98,7 +116,7 @@ router.get("/login", loginRateLimiter, async (req, res) => {
 
     res.cookie(
       FLOW_COOKIE_NAME,
-      JSON.stringify({ state, nonce, codeVerifier }),
+      JSON.stringify({ state, nonce, codeVerifier, flowType: "login" }),
       getFlowCookieOptions(req),
     );
     res.redirect(authorizationUrl);
@@ -107,6 +125,56 @@ router.get("/login", loginRateLimiter, async (req, res) => {
     res.status(502).json({
       error: sanitizeError(
         "Could not reach the identity provider. Try local sign-in, or contact your administrator.",
+      ),
+    });
+  }
+});
+
+// POST /api/auth/oidc/link — starts an admin-authorized link flow for an
+// existing local account. The selected user id lives server-side, keyed by
+// the random OIDC state, rather than in the unsigned browser cookie; changing
+// a cookie cannot redirect a verified Google identity onto another account.
+router.post("/link", loginRateLimiter, requireRole("admin"), async (req, res) => {
+  if (req.user?.authDisabled) {
+    return res.status(403).json({
+      error: "SSO linking requires an authenticated administrator",
+    });
+  }
+  const initiatorUserId =
+    typeof req.user?.userId === "string" ? req.user.userId.trim() : "";
+  if (!initiatorUserId) {
+    return res.status(403).json({
+      error: "SSO linking requires an authenticated administrator",
+    });
+  }
+  const userId = typeof req.body?.userId === "string" ? req.body.userId.trim() : "";
+  if (!userId) return res.status(400).json({ error: "userId is required" });
+
+  const settings = await getOidcSettings();
+  if (!isOidcConfigured(settings)) {
+    return res.status(404).json({ error: "OIDC is not configured" });
+  }
+
+  try {
+    const { authorizationUrl, state, nonce, codeVerifier } =
+      await buildOidcAuthorizationRequest();
+    prunePendingIdentityLinks();
+    rememberPendingIdentityLink(state, {
+      userId,
+      initiatorUserId,
+      expiresAt: Date.now() + FLOW_COOKIE_MAX_AGE_MS,
+    });
+    res.cookie(
+      FLOW_COOKIE_NAME,
+      JSON.stringify({ state, nonce, codeVerifier, flowType: "link" }),
+      getFlowCookieOptions(req),
+    );
+    res.json({ authorizationUrl });
+  } catch (error) {
+    log.warn(`OIDC identity-link start failed: ${error.message}`);
+    res.status(502).json({
+      error: sanitizeError(
+        "Could not reach the identity provider. Try again or contact your administrator.",
       ),
     });
   }
@@ -152,6 +220,31 @@ router.get("/callback", callbackRateLimiter, async (req, res) => {
   } catch (error) {
     log.warn(`OIDC callback rejected: ${error.message}`);
     return res.redirect("/?oidcError=invalid_token");
+  }
+
+  const pendingLink = pendingIdentityLinks.get(flow.state);
+  if (flow.flowType === "link" && !pendingLink) {
+    return res.redirect("/settings?tab=users&oidcError=link_expired");
+  }
+  if (pendingLink) {
+    pendingIdentityLinks.delete(flow.state);
+    if (pendingLink.expiresAt <= Date.now()) {
+      return res.redirect("/settings?tab=users&oidcError=link_expired");
+    }
+    try {
+      await authService.linkExternalIdentity(pendingLink.userId, {
+        issuer: claims.iss,
+        subject: claims.sub,
+        email: claims.email,
+      }, {
+        actingUserId: pendingLink.initiatorUserId,
+      });
+      log.info(`OIDC identity linked to local user ${pendingLink.userId}`);
+      return res.redirect("/settings?tab=users&oidcSuccess=linked");
+    } catch (error) {
+      log.warn(`OIDC identity link failed: ${error.message}`);
+      return res.redirect("/settings?tab=users&oidcError=link_failed");
+    }
   }
 
   // User/role resolution is entirely authService's call (Jim's
@@ -211,16 +304,12 @@ router.get("/callback", callbackRateLimiter, async (req, res) => {
 
 const MAX_SCOPE_LENGTH = 500;
 const MAX_PROVIDER_NAME_LENGTH = 100;
-
-function looksLikeUrl(value, { allowHttp }) {
-  try {
-    const url = new URL(value);
-    if (url.protocol === "https:") return true;
-    if (url.protocol === "http:" && allowHttp) return true;
-    return false;
-  } catch {
-    return false;
+function readOptionalBoolean(body, field) {
+  if (body[field] === undefined) return { ok: true, value: undefined };
+  if (typeof body[field] !== "boolean") {
+    return { ok: false, error: `${field} must be a boolean` };
   }
+  return { ok: true, value: body[field] };
 }
 
 function publicSettingsShape(settings) {
@@ -262,15 +351,19 @@ router.put("/settings", requirePermission("panel.settings"), async (req, res) =>
     const body = req.body || {};
     const current = await getOidcSettings();
     const updates = {};
+    const allowInsecureHttp = readOptionalBoolean(body, "allowInsecureHttp");
+    if (!allowInsecureHttp.ok) {
+      return res.status(400).json({ error: allowInsecureHttp.error });
+    }
 
     if (body.issuerUrl !== undefined) {
       const value = String(body.issuerUrl).trim();
       if (value) {
         const allowHttp =
-          body.allowInsecureHttp !== undefined
-            ? Boolean(body.allowInsecureHttp)
+          allowInsecureHttp.value !== undefined
+            ? allowInsecureHttp.value
             : current.allowInsecureHttp;
-        if (!looksLikeUrl(value, { allowHttp })) {
+        if (!isValidOidcIssuerUrl(value, allowHttp)) {
           return res.status(400).json({
             error: allowHttp
               ? "issuerUrl must be a valid URL"
@@ -296,10 +389,10 @@ router.put("/settings", requirePermission("panel.settings"), async (req, res) =>
     if (body.redirectUri !== undefined) {
       const value = String(body.redirectUri).trim();
       if (value) {
-        try {
-          new URL(value);
-        } catch {
-          return res.status(400).json({ error: "redirectUri must be a valid URL" });
+        if (!isValidOidcRedirectUri(value)) {
+          return res.status(400).json({
+            error: "redirectUri must be a valid http:// or https:// URL without credentials, query parameters, or a fragment",
+          });
         }
       }
       updates.redirectUri = value;
@@ -311,6 +404,9 @@ router.put("/settings", requirePermission("panel.settings"), async (req, res) =>
         return res
           .status(400)
           .json({ error: `scope must be ${MAX_SCOPE_LENGTH} characters or fewer` });
+      }
+      if (value && !hasOpenIdScope(value)) {
+        return res.status(400).json({ error: "scope must include openid" });
       }
       updates.scope = value;
     }
@@ -325,8 +421,8 @@ router.put("/settings", requirePermission("panel.settings"), async (req, res) =>
       updates.providerName = value;
     }
 
-    if (body.allowInsecureHttp !== undefined) {
-      updates.allowInsecureHttp = Boolean(body.allowInsecureHttp);
+    if (allowInsecureHttp.value !== undefined) {
+      updates.allowInsecureHttp = allowInsecureHttp.value;
     }
 
     await setOidcSettings(updates);
@@ -358,24 +454,49 @@ router.put("/settings", requirePermission("panel.settings"), async (req, res) =>
 router.post("/test-connection", requirePermission("panel.settings"), async (req, res) => {
   const body = req.body || {};
   const current = await getOidcSettings();
+  const allowInsecureHttp = readOptionalBoolean(body, "allowInsecureHttp");
+  if (!allowInsecureHttp.ok) {
+    return res.status(400).json({ error: allowInsecureHttp.error });
+  }
 
   const clientSecret =
     body.clientSecret !== undefined && !isMaskedSecret(body.clientSecret)
       ? String(body.clientSecret)
       : current.clientSecret;
 
+  const candidateIssuerUrl =
+    body.issuerUrl !== undefined ? String(body.issuerUrl).trim() : current.issuerUrl;
+  const candidateRedirectUri =
+    body.redirectUri !== undefined ? String(body.redirectUri).trim() : current.redirectUri;
+  const candidateAllowInsecureHttp =
+    allowInsecureHttp.value !== undefined
+      ? allowInsecureHttp.value
+      : current.allowInsecureHttp;
+  const candidateScope =
+    body.scope !== undefined ? String(body.scope).trim() : current.scope;
+  if (candidateScope && !hasOpenIdScope(candidateScope)) {
+    return res.status(400).json({ error: "scope must include openid" });
+  }
+  if (!isValidOidcIssuerUrl(candidateIssuerUrl, candidateAllowInsecureHttp)) {
+    return res.status(400).json({
+      error: candidateAllowInsecureHttp
+        ? "issuerUrl must be a valid http:// or https:// URL without credentials, query parameters, or a fragment."
+        : "issuerUrl must be a valid https:// URL without credentials, query parameters, or a fragment.",
+    });
+  }
+  if (candidateRedirectUri && !isValidOidcRedirectUri(candidateRedirectUri)) {
+    return res.status(400).json({
+      error: "redirectUri must be a valid http:// or https:// URL without credentials, query parameters, or a fragment.",
+    });
+  }
+
   const result = await testOidcDiscovery({
-    issuerUrl:
-      body.issuerUrl !== undefined ? String(body.issuerUrl).trim() : current.issuerUrl,
+    issuerUrl: candidateIssuerUrl,
     clientId:
       body.clientId !== undefined ? String(body.clientId).trim() : current.clientId,
     clientSecret,
-    redirectUri:
-      body.redirectUri !== undefined ? String(body.redirectUri).trim() : current.redirectUri,
-    allowInsecureHttp:
-      body.allowInsecureHttp !== undefined
-        ? Boolean(body.allowInsecureHttp)
-        : current.allowInsecureHttp,
+    redirectUri: candidateRedirectUri,
+    allowInsecureHttp: candidateAllowInsecureHttp,
   });
 
   res.json(result);

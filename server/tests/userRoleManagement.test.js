@@ -241,6 +241,28 @@ describe("OIDC seam — refuse by default", () => {
       }),
     ).rejects.toThrow(/already linked to a different account/);
   });
+
+  it("fails closed when legacy data links one external identity to multiple accounts", async () => {
+    db.data.users.push({
+      id: "tech-1",
+      username: "tech",
+      role: "technician",
+      password: "x",
+      externalIdentities: [
+        { issuer: "https://accounts.example.com", subject: "duplicate-sub" },
+      ],
+    });
+    db.data.users[0].externalIdentities = [
+      { issuer: "https://accounts.example.com", subject: "duplicate-sub" },
+    ];
+
+    await expect(
+      authService.loginWithExternalIdentity({
+        issuer: "https://accounts.example.com",
+        subject: "duplicate-sub",
+      }),
+    ).rejects.toThrow(/multiple accounts/);
+  });
 });
 
 describe("login() tolerates OIDC-only accounts (no local password)", () => {
