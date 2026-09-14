@@ -212,6 +212,31 @@ describe("PUT /settings: validation", () => {
     expect(settingsStore.get("oidcRedirectUri")).toBeUndefined();
   });
 
+  it("rejects a redirectUri that cannot reach the panel's OIDC callback route", async () => {
+    const res = await runRoute(
+      "/settings",
+      "put",
+      makeReq({ body: { redirectUri: "https://panel.example.com/api/auth/oidc/callbak" } }),
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ error: expect.stringContaining("/api/auth/oidc/callback") }),
+    );
+    expect(settingsStore.get("oidcRedirectUri")).toBeUndefined();
+  });
+
+  it("accepts the callback route behind a reverse-proxy path prefix", async () => {
+    const res = await runRoute(
+      "/settings",
+      "put",
+      makeReq({ body: { redirectUri: "https://panel.example.com/zomboid/api/auth/oidc/callback" } }),
+    );
+    expect(res.status).not.toHaveBeenCalledWith(400);
+    expect(settingsStore.get("oidcRedirectUri")).toBe(
+      "https://panel.example.com/zomboid/api/auth/oidc/callback",
+    );
+  });
+
   it("rejects redirectUri query parameters because the callback exchange strips them", async () => {
     const res = await runRoute(
       "/settings",

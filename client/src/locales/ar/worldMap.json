@@ -274,9 +274,13 @@
     "unavailableB41": "نقاط الاهتمام غير متاحة في B41",
     "searchAria": "البحث عن أماكن على الخريطة",
     "clearSearch": "مسح بحث الأماكن",
-    "categoryAria": "تصفية فئة المكان",
+    "categoryAria": "اختر أنواع النقاط المهمة",
+    "categoryFilterLabel": "أنواع النقاط المهمة",
+    "selectedCategoryCount": "{{count}} أنواع",
+    "clearCategories": "مسح الأنواع",
     "allCategories": "كل الفئات",
     "noResults": "لم يتم العثور على أماكن",
+    "showingOnMap": "{{count}} أماكن ظاهرة على الخريطة",
     "categories": { "town": "بلدات", "medical": "طبي", "police": "شرطة", "fire": "إطفاء", "gun": "أسلحة", "shop": "متاجر", "gas": "وقود", "military": "عسكري", "landmark": "معالم", "industrial": "صناعة" }
   },
   "airdropPresets": {

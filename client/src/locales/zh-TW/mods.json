@@ -28,7 +28,8 @@
     "fixPath": "修復路徑",
     "sync": "同步",
     "syncTooltip": "從伺服器 INI 設定同步已追蹤的模組",
-    "checkUpdates": "檢查更新",
+    "checkUpdates": "掃描更新",
+    "checkUpdatesTooltip": "檢查 Steam 時間戳並更新更新清單。不會下載或安裝模組。",
     "lastCheckedAgo": "{{when}}前",
     "lastCheckedOn": "上次檢查：{{when}}",
     "neverChecked": "從未檢查",
@@ -53,8 +54,8 @@
   "staleFlag": {
     "reported_one": "Steam 報告了 {{count}} 個模組更新——標記已不同步",
     "reported_other": "Steam 報告了 {{count}} 個模組更新——標記已不同步",
-    "desc": "創意工坊資料夾中的檔案比面板記錄的更新。執行一次檢查以更新各模組狀態。",
-    "checkNow": "立即檢查"
+    "desc": "檢查 Steam 是否有較新的檔案並更新各模組的更新標記。不會下載或安裝任何內容。",
+    "checkNow": "再次掃描"
   },
   "removedFromWorkshop": {
     "title_one": "{{count}} 個模組在 Steam 創意工坊中已不存在",

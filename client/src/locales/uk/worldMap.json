@@ -266,9 +266,13 @@
     "unavailableB41": "POI недоступні в B41",
     "searchAria": "Пошук місць на карті",
     "clearSearch": "Очистити пошук місць",
-    "categoryAria": "Фільтр категорії місця",
+    "categoryAria": "Вибрати типи POI",
+    "categoryFilterLabel": "Типи POI",
+    "selectedCategoryCount": "{{count}} типів",
+    "clearCategories": "Очистити типи",
     "allCategories": "Усі категорії",
     "noResults": "Місць не знайдено",
+    "showingOnMap": "{{count}} місць на карті",
     "categories": { "town": "Міста", "medical": "Медицина", "police": "Поліція", "fire": "Пожежна служба", "gun": "Зброя", "shop": "Крамниці", "gas": "Заправки", "military": "Військові", "landmark": "Пам'ятки", "industrial": "Промисловість" }
   },
   "airdropPresets": {

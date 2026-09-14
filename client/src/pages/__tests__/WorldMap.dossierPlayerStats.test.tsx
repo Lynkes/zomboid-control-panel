@@ -151,10 +151,11 @@ describe('WorldMap.tsx dossier: hunger/thirst/fatigue from getServerInfo are act
     const results = await screen.findAllByRole('button', { name: /Louisville/i })
     fireEvent.click(results[0])
 
-    expect(await screen.findByText('selected')).toBeInTheDocument()
+    await waitFor(() => expect(results[0]).toHaveClass('bg-primary/10'))
 
     fireEvent.change(search, { target: { value: 'Rosewood' } })
-    expect(screen.queryByText('selected')).not.toBeInTheDocument()
+    const rosewoodResults = await screen.findAllByRole('button', { name: /Rosewood/i })
+    expect(rosewoodResults[0]).not.toHaveClass('bg-primary/10')
   })
 
   it('hides Build 42-only POIs when the active server is Build 41', async () => {
@@ -167,7 +168,7 @@ describe('WorldMap.tsx dossier: hunger/thirst/fatigue from getServerInfo are act
     await waitFor(() => expect(search).toBeDisabled())
 
     expect(search).toHaveAttribute('placeholder', 'POIs unavailable on B41')
-    expect(screen.getByRole('combobox', { name: 'Filter place category' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Police' })).toBeDisabled()
   })
 
   it('shows an unavailable state when map detection fails', async () => {
@@ -198,6 +199,21 @@ describe('WorldMap.tsx dossier: hunger/thirst/fatigue from getServerInfo are act
     await waitFor(() => expect(mapResolve).toHaveBeenCalledTimes(resolveCallsBeforeRetry + 1))
     await waitFor(() => expect(search).toBeEnabled())
     expect(search).toHaveAttribute('placeholder', 'Search places...')
+  })
+
+  it('shows every POI in a selected category without requiring a search query', async () => {
+    await setUp([])
+
+    renderWorldMap()
+
+    const police = await screen.findByRole('button', { name: 'Police' })
+    await waitFor(() => expect(police).toBeEnabled())
+    fireEvent.click(police)
+    const medical = await screen.findByRole('button', { name: 'Medical' })
+    fireEvent.click(medical)
+
+    expect(police).toHaveAttribute('aria-pressed', 'true')
+    expect(medical).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('shows the real percentages for a player the bridge sent stats for', async () => {

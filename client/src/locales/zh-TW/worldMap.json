@@ -250,9 +250,13 @@
     "unavailableB41": "B41 不支援興趣點",
     "searchAria": "搜尋地圖地點",
     "clearSearch": "清除地點搜尋",
-    "categoryAria": "篩選地點類別",
+    "categoryAria": "選擇 POI 類型",
+    "categoryFilterLabel": "POI 類型",
+    "selectedCategoryCount": "{{count}} 個類型",
+    "clearCategories": "清除類型",
     "allCategories": "所有類別",
     "noResults": "找不到地點",
+    "showingOnMap": "地圖顯示 {{count}} 個地點",
     "categories": { "town": "城鎮", "medical": "醫療", "police": "警察", "fire": "消防", "gun": "武器", "shop": "商店", "gas": "加油站", "military": "軍事", "landmark": "地標", "industrial": "工業" }
   },
   "airdropPresets": {

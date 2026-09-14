@@ -86,18 +86,24 @@ import { resolveFallbackTile, conservativeRenderedMaxLevel } from './worldMapTil
 import { buildTileQuery } from './worldMapTileUrl'
 import { mapConfigsEqual } from './worldMapConfigEqual'
 import { bridgeSupportsPlayerStatus } from './worldMapBridgeVersion'
+import { drawPoiMarker } from './worldMapPoiMarker'
 import { diagnoseTileFailure, tileFailureCopyKeys, type TileFailureDiagnosis } from './worldMapTileFailureDiagnosis'
 import {
   searchWorldMapLocations,
+  WORLD_MAP_LOCATIONS,
   isWorldMapLandmarkAvailable,
   isWorldMapLocationAvailable,
   MAX_WORLD_MAP_QUERY_LENGTH,
-  WORLD_MAP_CATEGORIES,
   WORLD_MAP_CATEGORY_LABELS,
   type WorldMapCategory,
   type WorldMapLocation,
   type WorldMapVersion,
 } from '@/lib/worldMapLocations'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 
 const TILE_RETRY_MS = [2_000, 10_000, 60_000] as const
 
@@ -622,6 +628,19 @@ const POI_COLORS: Record<WorldMapCategory, string> = {
   industrial: 'hsl(24 24% 64%)',
 }
 
+const POI_CATEGORY_CONTROLS = [
+  { category: 'town', Icon: Home },
+  { category: 'medical', Icon: Heart },
+  { category: 'police', Icon: Shield },
+  { category: 'fire', Icon: Flame },
+  { category: 'gun', Icon: Target },
+  { category: 'shop', Icon: Package },
+  { category: 'gas', Icon: Fuel },
+  { category: 'military', Icon: Swords },
+  { category: 'landmark', Icon: MapPin },
+  { category: 'industrial', Icon: Hammer },
+] as const
+
 // ─── Component ────────────────────────────────────────────
 export default function WorldMap() {
   const { t } = useTranslation('worldMap')
@@ -710,8 +729,9 @@ export default function WorldMap() {
   const [hasActiveServer, setHasActiveServer] = useState(false)
   const [loading, setLoading] = useState(true)
   const [hoveredPlayer, setHoveredPlayer] = useState<string | null>(null)
+  const [hoveredPoi, setHoveredPoi] = useState<string | null>(null)
   const [poiQuery, setPoiQuery] = useState('')
-  const [poiCategory, setPoiCategory] = useState<WorldMapCategory | 'all'>('all')
+  const [poiCategories, setPoiCategories] = useState<WorldMapCategory[]>([])
   const [selectedPoi, setSelectedPoi] = useState<WorldMapLocation | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0, offX: 0, offY: 0 })
@@ -787,12 +807,37 @@ export default function WorldMap() {
   const { toast } = useToast()
 
   const poiAvailable = mapVersionStatus === 'ready' && isWorldMapLocationAvailable(mapCfg.label)
-  const poiResults = useMemo(
-    () => poiAvailable && poiQuery.trim()
-      ? searchWorldMapLocations(poiQuery, poiCategory, 8, mapCfg.label)
-      : [],
-    [mapCfg.label, poiAvailable, poiCategory, poiQuery],
-  )
+  const poiMarkerLocations = useMemo(() => {
+    if (!poiAvailable) return []
+
+    const selectedCategories = new Set(poiCategories)
+    const categoryLocations = selectedCategories.size > 0
+      ? WORLD_MAP_LOCATIONS.filter((location) => selectedCategories.has(location.category))
+      : []
+
+    if (!poiQuery.trim()) return categoryLocations
+
+    const categories = poiCategories.length > 0 ? poiCategories : ['all' as const]
+    const matches = categories.flatMap((category) =>
+      searchWorldMapLocations(poiQuery, category, 100, mapCfg.label),
+    )
+    const unique = new Map(matches.map((location) => [location.id, location]))
+    return [...unique.values()]
+  }, [mapCfg.label, poiAvailable, poiCategories, poiQuery])
+
+  const poiResults = useMemo(() => {
+    if (!poiAvailable) return []
+    if (poiQuery.trim()) return poiMarkerLocations.slice(0, 12)
+    return poiMarkerLocations.slice(0, 12)
+  }, [poiAvailable, poiMarkerLocations, poiQuery])
+
+  const togglePoiCategory = useCallback((category: WorldMapCategory, checked: boolean) => {
+    setSelectedPoi(null)
+    setPoiCategories((current) => {
+      if (checked) return current.includes(category) ? current : [...current, category]
+      return current.filter((value) => value !== category)
+    })
+  }, [])
 
   // Floor label helper
   const floorLabel = (f: number) =>
@@ -940,7 +985,7 @@ export default function WorldMap() {
       setSelectedPlayer(null)
       setSelectedPoi(null)
       setPoiQuery('')
-      setPoiCategory('all')
+      setPoiCategories([])
       setMapVersionStatus('loading')
       setContextMenu(null)
       hasFittedRef.current = false
@@ -1376,6 +1421,24 @@ export default function WorldMap() {
     }, [playerRenderPosition]
   )
 
+  const poiAtScreenPoint = useCallback(
+    (mx: number, my: number) => {
+      let closest: WorldMapLocation | null = null
+      let closestDistance = Number.POSITIVE_INFINITY
+      for (const poi of poiMarkerLocations) {
+        const point = playerToScreen(poi.x, poi.y)
+        const distance = Math.hypot(mx - point.x, my - (point.y - 15.5))
+        const hitRadius = 18
+        if (distance < hitRadius && distance < closestDistance) {
+          closest = poi
+          closestDistance = distance
+        }
+      }
+      return closest
+    },
+    [playerToScreen, poiMarkerLocations],
+  )
+
   // Canvas pixel → game-tile (inverse isometric)
   const screenToTile = useCallback(
     (cx: number, cy: number, s?: number, off?: { x: number; y: number }) => {
@@ -1634,7 +1697,7 @@ export default function WorldMap() {
     ctx.restore()
 
     // ── Searchable POI markers ──
-    const visiblePois = [...poiResults]
+    const visiblePois = [...poiMarkerLocations]
     if (
       selectedPoi &&
       isWorldMapLocationAvailable(mapCfgRef.current.label) &&
@@ -1642,42 +1705,45 @@ export default function WorldMap() {
     ) {
       visiblePois.push(selectedPoi)
     }
+    const labelBounds: Array<{ left: number; right: number; top: number; bottom: number }> = []
     for (const poi of visiblePois) {
       const point = playerToScreen(poi.x, poi.y, s, off)
       if (point.x < -80 || point.x > W + 80 || point.y < -80 || point.y > H + 80) continue
 
       const selected = selectedPoi?.id === poi.id
-      const radius = selected ? 7 : 5
+      const hovered = hoveredPoi === poi.id
+      const focused = selected || hovered
       const color = POI_COLORS[poi.category]
+      const marker = drawPoiMarker(ctx, point.x, point.y, poi.category, color, selected ? 'selected' : hovered ? 'hovered' : 'default')
 
-      if (selected) {
-        ctx.beginPath()
-        ctx.arc(point.x, point.y, radius + 8, 0, Math.PI * 2)
-        ctx.strokeStyle = color
-        ctx.globalAlpha = 0.7
-        ctx.lineWidth = 1.5
-        ctx.stroke()
-        ctx.globalAlpha = 1
-      }
-
-      ctx.beginPath()
-      ctx.arc(point.x, point.y, radius + 2, 0, Math.PI * 2)
-      ctx.fillStyle = 'rgba(12, 16, 18, 0.86)'
-      ctx.fill()
-      ctx.beginPath()
-      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2)
-      ctx.fillStyle = color
-      ctx.fill()
-
-      if (selected || s > 0.0012) {
-        ctx.font = `600 ${Math.max(9, Math.min(12, s * 2200))}px ui-sans-serif, system-ui, sans-serif`
+      const labelEligible = focused || (poiCategories.length === 1 && s > 0.0015)
+      if (labelEligible) {
+        const fontSize = Math.max(11, Math.min(14, s * 2600))
+        ctx.font = `650 ${fontSize}px ui-sans-serif, system-ui, sans-serif`
         ctx.textAlign = 'center'
-        ctx.fillStyle = color
-        ctx.shadowColor = 'rgba(0,0,0,0.75)'
-        ctx.shadowBlur = 3
-        ctx.fillText(poi.name, point.x, point.y - radius - 6)
-        ctx.shadowColor = 'transparent'
-        ctx.shadowBlur = 0
+        const label = poi.name.length > 28 ? `${poi.name.slice(0, 27)}...` : poi.name
+        const labelY = marker.top - 10
+        const labelWidth = ctx.measureText(label).width + 16
+        const bounds = {
+          left: point.x - labelWidth / 2,
+          right: point.x + labelWidth / 2,
+          top: labelY - fontSize - 5,
+          bottom: labelY + 5,
+        }
+        const overlapsExistingLabel = labelBounds.some((other) =>
+          bounds.left < other.right && bounds.right > other.left && bounds.top < other.bottom && bounds.bottom > other.top,
+        )
+        if (focused || !overlapsExistingLabel) {
+          roundRectPath(ctx, bounds.left, bounds.top, labelWidth, fontSize + 10, 4)
+          ctx.fillStyle = 'rgba(9, 13, 16, 0.96)'
+          ctx.fill()
+          ctx.strokeStyle = focused ? color : 'rgba(247, 249, 247, 0.28)'
+          ctx.lineWidth = focused ? 1.5 : 1
+          ctx.stroke()
+          ctx.fillStyle = 'rgba(247, 249, 247, 0.98)'
+          ctx.fillText(label, point.x, labelY)
+          labelBounds.push(bounds)
+        }
       }
     }
 
@@ -2189,7 +2255,7 @@ export default function WorldMap() {
       ctx.stroke()
       ctx.setLineDash([])
     }
-  }, [canvasSize, loadDziTile, drawTileWithFallback, playerToScreen, playerRenderPosition, hoveredPlayer, selectedPlayer, selectedPoi, poiResults, cursorWorldPos, isDragging, showVehicles, showSafehouses, hoveredVehicle, t, presetLabel])
+  }, [canvasSize, loadDziTile, drawTileWithFallback, playerToScreen, playerRenderPosition, hoveredPlayer, hoveredPoi, selectedPlayer, selectedPoi, poiMarkerLocations, poiCategories, cursorWorldPos, isDragging, showVehicles, showSafehouses, hoveredVehicle, t, presetLabel])
 
   // ─── Animation loop ─────────────────────────────────────
   useEffect(() => {
@@ -2383,9 +2449,12 @@ export default function WorldMap() {
       }
       setHoveredPlayer(found)
 
+      const foundPoi = found ? null : poiAtScreenPoint(mx, my)?.id ?? null
+      setHoveredPoi(foundPoi)
+
       // Hit test vehicles (hit radius scales with zoom to match icon size)
       let foundVehicle: number | null = null
-      if (showVehicles && !found) {
+      if (showVehicles && !found && !foundPoi) {
         const vHitRadius = Math.max(MARKER_HIT_RADIUS, Math.max(14, Math.min(36, scaleRef.current * 4200)) * 0.7)
         for (const v of vehiclesRef.current) {
           const vp = playerToScreen(v.x, v.y)
@@ -2398,7 +2467,7 @@ export default function WorldMap() {
       }
       setHoveredVehicle(foundVehicle)
     },
-    [isDragging, dragStart, screenToTile, playerRenderPosition, playerToScreen, showVehicles]
+    [isDragging, dragStart, screenToTile, playerRenderPosition, playerToScreen, poiAtScreenPoint, showVehicles]
   )
 
   const handleMouseUp = useCallback(
@@ -2417,8 +2486,9 @@ export default function WorldMap() {
       const rect = canvas.getBoundingClientRect()
       const clickedPlayer = playerAtScreenPoint(e.clientX - rect.left, e.clientY - rect.top)
       setSelectedPlayer(clickedPlayer)
+      if (!clickedPlayer) setSelectedPoi(poiAtScreenPoint(e.clientX - rect.left, e.clientY - rect.top))
     },
-    [playerAtScreenPoint]
+    [playerAtScreenPoint, poiAtScreenPoint]
   )
 
   const handleContextMenu = useCallback(
@@ -2470,6 +2540,7 @@ export default function WorldMap() {
     pointerDownRef.current = null
     setIsDragging(false)
     setHoveredPlayer(null)
+    setHoveredPoi(null)
     setHoveredVehicle(null)
     setCursorWorldPos(null)
   }, [])
@@ -2531,12 +2602,14 @@ export default function WorldMap() {
       const canvas = canvasRef.current
       if (canvas) {
         const rect = canvas.getBoundingClientRect()
-        setSelectedPlayer(playerAtScreenPoint(touch.clientX - rect.left, touch.clientY - rect.top))
+        const clickedPlayer = playerAtScreenPoint(touch.clientX - rect.left, touch.clientY - rect.top)
+        setSelectedPlayer(clickedPlayer)
+        if (!clickedPlayer) setSelectedPoi(poiAtScreenPoint(touch.clientX - rect.left, touch.clientY - rect.top))
       }
     }
     setIsDragging(false)
     touchRef.current.pinchDist = null
-  }, [playerAtScreenPoint])
+  }, [playerAtScreenPoint, poiAtScreenPoint])
 
   // ─── Zoom controls ─────────────────────────────────────
   const zoomIn = useCallback(() => {
@@ -2944,22 +3017,28 @@ export default function WorldMap() {
         }
       />
 
-      <div ref={mapWrapperRef} className="relative rounded-md border border-border/60 overflow-hidden bg-background shadow-[inset_0_0_0_1px_rgba(0,0,0,0.35)]">
-        {/* Corner brackets — tactical control-room frame */}
-        <span aria-hidden className="pointer-events-none absolute top-0 start-0 z-30 h-3 w-3 border-s-2 border-t-2 border-primary/50" />
-        <span aria-hidden className="pointer-events-none absolute top-0 end-0 z-30 h-3 w-3 border-e-2 border-t-2 border-primary/50" />
-        <span aria-hidden className="pointer-events-none absolute bottom-0 start-0 z-30 h-3 w-3 border-s-2 border-b-2 border-primary/50" />
-        <span aria-hidden className="pointer-events-none absolute bottom-0 end-0 z-30 h-3 w-3 border-e-2 border-b-2 border-primary/50" />
-
+      <div ref={mapWrapperRef} className="relative overflow-hidden rounded-md border border-border/60 bg-background shadow-[inset_0_0_0_1px_rgba(0,0,0,0.35)]">
         {/* POI search rail */}
-        <div className="absolute top-3 start-16 z-20 w-[min(21rem,calc(100%-5rem))]">
-          <div className="rounded-md border border-border/55 bg-card/90 backdrop-blur-md shadow-lg overflow-hidden">
-            <div className="flex items-center gap-2 px-2.5 py-1.5 border-b border-border/40 bg-muted/40 font-mono text-[10px] uppercase tracking-[0.22em] text-primary/70">
-              <Search className="h-3.5 w-3.5 text-primary/80" />
+        <div className="absolute top-3 start-16 z-20 w-[min(24rem,calc(100%-5rem))]">
+          <div className="overflow-hidden rounded-md border border-border/55 bg-card shadow-lg">
+            <div className="flex items-center gap-2 border-b border-border/40 bg-muted/35 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground">
+              <Search className="h-3.5 w-3.5 text-primary" />
               <span>{t('poi.label')}</span>
-              {selectedPoi && <span className="ms-auto text-[9px] text-accent/80">{t('poi.selected')}</span>}
+              {selectedPoi ? (
+                <span className="ms-auto max-w-40 truncate font-sans text-[10px] font-medium normal-case tracking-normal text-foreground">
+                  {selectedPoi.name}
+                </span>
+              ) : poiCategories.length > 0 ? (
+                <span
+                  aria-label={t('poi.showingOnMap', { count: poiMarkerLocations.length })}
+                  className="ms-auto inline-flex items-center gap-1 font-sans text-[10px] font-medium normal-case tracking-normal text-muted-foreground"
+                >
+                  <MapPin className="h-3 w-3" />
+                  {poiMarkerLocations.length}
+                </span>
+              ) : null}
             </div>
-            <div className="flex items-center gap-1.5 p-2">
+            <div className="p-2">
               <div className="relative min-w-0 flex-1">
                 <Input
                   value={poiQuery}
@@ -2997,62 +3076,94 @@ export default function WorldMap() {
                   </button>
                 )}
               </div>
-              <select
-                value={poiCategory}
-                onChange={(event) => {
-                  setPoiCategory(event.target.value as WorldMapCategory | 'all')
-                  setSelectedPoi(null)
-                }}
+              <div
+                role="group"
                 aria-label={t('poi.categoryAria')}
-                disabled={!poiAvailable}
-                className="h-8 max-w-[7.5rem] rounded-md border border-border/60 bg-background/70 px-2 text-[11px] text-foreground outline-none focus:ring-1 focus:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-60"
+                className="mt-2 flex flex-wrap gap-1 border-t border-border/40 pt-2"
               >
-                <option value="all">{t('poi.allCategories')}</option>
-                {WORLD_MAP_CATEGORIES.map((category) => (
-                  <option key={category} value={category}>
-                    {t(`poi.categories.${category}`, { defaultValue: WORLD_MAP_CATEGORY_LABELS[category] })}
-                  </option>
-                ))}
-              </select>
+                {POI_CATEGORY_CONTROLS.map(({ category, Icon }) => {
+                  const active = poiCategories.includes(category)
+                  const label = t(`poi.categories.${category}`, { defaultValue: WORLD_MAP_CATEGORY_LABELS[category] })
+                  return (
+                    <Tooltip key={category}>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          aria-label={label}
+                          aria-pressed={active}
+                          disabled={!poiAvailable}
+                          onClick={() => togglePoiCategory(category, !active)}
+                          title={label}
+                          className={cn(
+                            'h-8 w-8 border-border/55 bg-background text-muted-foreground hover:bg-muted/70',
+                            active && 'bg-muted text-foreground',
+                          )}
+                          style={active ? { borderColor: POI_COLORS[category], color: POI_COLORS[category] } : undefined}
+                        >
+                          <Icon className="h-3.5 w-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{label}</TooltipContent>
+                    </Tooltip>
+                  )
+                })}
+                {poiCategories.length > 0 && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label={t('poi.clearCategories')}
+                        onClick={() => setPoiCategories([])}
+                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t('poi.clearCategories')}</TooltipContent>
+                  </Tooltip>
+                )}
+              </div>
             </div>
             {poiQuery.trim() && poiAvailable && (
               <div className="max-h-56 overflow-y-auto border-t border-border/40">
                 {poiResults.length > 0 ? poiResults.map((poi) => (
-                  <button
-                    type="button"
-                    key={poi.id}
-                    onClick={() => {
-                      setPoiQuery(poi.name)
-                      panToPoi(poi)
-                    }}
-                    className={cn(
-                      'flex w-full items-center gap-2 px-2.5 py-2 text-start transition-colors hover:bg-muted/60',
-                      selectedPoi?.id === poi.id && 'bg-primary/10',
-                    )}
-                  >
-                    <MapPin className="h-3.5 w-3.5 shrink-0 text-primary" />
-                    <span className="min-w-0 flex-1 truncate text-xs text-foreground">
-                      <span className="block truncate">{poi.name}</span>
-                      <span className="block truncate text-[10px] text-muted-foreground/70">{poi.town}</span>
-                    </span>
-                    <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70">
-                      {t(`poi.categories.${poi.category}`, { defaultValue: WORLD_MAP_CATEGORY_LABELS[poi.category] })}
-                    </span>
-                  </button>
-                )) : (
-                  <div className="px-3 py-3 text-xs text-muted-foreground">{t('poi.noResults')}</div>
+                    <button
+                      type="button"
+                      key={poi.id}
+                      onClick={() => panToPoi(poi)}
+                      className={cn(
+                        'flex w-full items-center gap-2 px-2.5 py-2 text-start transition-colors hover:bg-muted/60',
+                        selectedPoi?.id === poi.id && 'bg-primary/10',
+                      )}
+                    >
+                      <MapPin className="h-3.5 w-3.5 shrink-0 text-primary" />
+                      <span className="min-w-0 flex-1 truncate text-xs text-foreground">
+                        <span className="block truncate">{poi.name}</span>
+                        <span className="block truncate text-[10px] text-muted-foreground/70">{poi.town}</span>
+                      </span>
+                      <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70">
+                        {t(`poi.categories.${poi.category}`, { defaultValue: WORLD_MAP_CATEGORY_LABELS[poi.category] })}
+                      </span>
+                    </button>
+                  )) : (
+                    <div className="px-3 py-3 text-xs text-muted-foreground">{t('poi.noResults')}</div>
+                  )}
+                {poiMarkerLocations.length > poiResults.length && (
+                  <div className="border-t border-border/40 px-3 py-2 text-[10px] text-muted-foreground">
+                    {t('poi.showingOnMap', { count: poiMarkerLocations.length })}
+                  </div>
                 )}
               </div>
             )}
           </div>
         </div>
 
-        {/* Control rail — top-left */}
-        <div className="absolute top-3 start-3 z-10 w-12 rounded-md border border-border/55 bg-card/85 backdrop-blur-md shadow-lg overflow-hidden">
-          <div className="flex items-center justify-center gap-1 px-1.5 py-1 border-b border-border/40 bg-muted/40 font-mono text-[9px] uppercase tracking-[0.24em] text-primary/70">
-            <span className="text-primary/60">//</span>
-            <span>{t('controlRail.ctrlLabel')}</span>
-          </div>
+        {/* Map controls */}
+        <div className="absolute top-3 start-3 z-10 w-12 overflow-hidden rounded-md border border-border/55 bg-card shadow-lg">
           <div className="flex flex-col gap-px p-1">
             <button
               onClick={zoomIn}

@@ -252,9 +252,13 @@
     "unavailableB41": "POI indisponibles sur B41",
     "searchAria": "Rechercher des lieux sur la carte",
     "clearSearch": "Effacer la recherche de lieu",
-    "categoryAria": "Filtrer la catégorie de lieu",
+    "categoryAria": "Choisir les types de POI",
+    "categoryFilterLabel": "Types de POI",
+    "selectedCategoryCount": "{{count}} types",
+    "clearCategories": "Effacer les types",
     "allCategories": "Toutes les catégories",
     "noResults": "Aucun lieu trouvé",
+    "showingOnMap": "{{count}} lieux affichés sur la carte",
     "categories": { "town": "Villes", "medical": "Médical", "police": "Police", "fire": "Pompiers", "gun": "Armes à feu", "shop": "Commerces", "gas": "Stations-service", "military": "Militaire", "landmark": "Lieux remarquables", "industrial": "Industrie" }
   },
   "airdropPresets": {

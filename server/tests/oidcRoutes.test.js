@@ -204,11 +204,11 @@ describe('routes/oidc.js: /callback', () => {
   function callbackReq({
     state = 'flow-state',
     nonce = 'flow-nonce',
-    flowType,
+    flowType = 'login',
     missingCookie = false,
   } = {}) {
     const flow = { state, nonce, codeVerifier: 'flow-code-verifier' };
-    if (flowType) flow.flowType = flowType;
+    if (flowType !== null) flow.flowType = flowType;
     return makeReq({
       cookies: missingCookie
         ? {}
@@ -236,6 +236,19 @@ describe('routes/oidc.js: /callback', () => {
     expect(res.redirectedTo).toBe('/?oidcError=expired_flow');
     expect(res.clearedCookies).toHaveLength(1);
     expect(res.clearedCookies[0].name).toBe('oidcFlow');
+  });
+
+  it('rejects a missing or unknown flow type before identity resolution', async () => {
+    const getDbSpy = vi.spyOn(dbModule, 'getDb');
+
+    for (const flowType of [null, 'unexpected']) {
+      const res = makeRes();
+      await getHandler('get', '/callback')(callbackReq({ flowType }), res);
+      expect(res.redirectedTo).toBe('/?oidcError=expired_flow');
+      expect(res.cookies.find((cookie) => cookie.name === 'refreshToken')).toBeUndefined();
+    }
+
+    expect(getDbSpy).not.toHaveBeenCalled();
   });
 
   it('redirects with invalid_token when the ID token fails validation, and never reaches user resolution', async () => {
@@ -280,18 +293,6 @@ describe('routes/oidc.js: /callback', () => {
   });
 
   it('links a verified identity to the selected existing account instead of issuing a login session', async () => {
-    const startRes = makeRes();
-    await getHandler('post', '/link')(
-      makeReq({ body: { userId: 'user-42' } }),
-      startRes,
-    );
-    expect(startRes.statusCode).toBe(200);
-    const flowCookie = startRes.cookies.find((cookie) => cookie.name === 'oidcFlow');
-    expect(flowCookie).toBeTruthy();
-    const flow = JSON.parse(flowCookie.value);
-    expect(flow.flowType).toBe('link');
-
-    provider.setNextIdToken({ claims: { nonce: flow.nonce, email: 'alice@example.com' } });
     const user = {
       id: 'user-42',
       username: 'alice',
@@ -308,11 +309,25 @@ describe('routes/oidc.js: /callback', () => {
     });
     vi.spyOn(dbModule, 'commitNow').mockResolvedValue(undefined);
 
+    const startRes = makeRes();
+    await getHandler('post', '/link')(
+      makeReq({ body: { userId: 'user-42' } }),
+      startRes,
+    );
+    expect(startRes.statusCode).toBe(200);
+    const flowCookie = startRes.cookies.find((cookie) => cookie.name === 'oidcFlow');
+    expect(flowCookie).toBeTruthy();
+    const flow = JSON.parse(flowCookie.value);
+    expect(flow.flowType).toBe('link');
+
+    provider.setNextIdToken({ claims: { nonce: flow.nonce, email: 'alice@example.com' } });
+
     const callbackRes = makeRes();
     await getHandler('get', '/callback')(
       callbackReq({
         state: flow.state,
         nonce: flow.nonce,
+        flowType: flow.flowType,
       }),
       callbackRes,
     );
@@ -326,6 +341,25 @@ describe('routes/oidc.js: /callback', () => {
         email: 'alice@example.com',
       }),
     ]);
+  });
+
+  it('refuses a missing local target before starting an identity-provider flow', async () => {
+    vi.spyOn(dbModule, 'getDb').mockResolvedValue({
+      data: {
+        users: [{ id: 'admin-1', username: 'admin', role: 'admin' }],
+      },
+    });
+
+    const res = makeRes();
+    await getHandler('post', '/link')(
+      makeReq({ body: { userId: 'deleted-user' } }),
+      res,
+    );
+
+    expect(res.statusCode).toBe(404);
+    expect(res.jsonBody).toEqual({ error: 'User not found' });
+    expect(res.cookies).toHaveLength(0);
+    expect(res.redirectedTo).toBeUndefined();
   });
 
   it('does not fall back to ordinary login when a link flow record has expired', async () => {
@@ -344,6 +378,21 @@ describe('routes/oidc.js: /callback', () => {
   });
 
   it('refuses a link when the initiating admin loses admin authority before callback', async () => {
+    const target = {
+      id: 'user-42',
+      username: 'alice',
+      role: 'moderator',
+      externalIdentities: [],
+    };
+    vi.spyOn(dbModule, 'getDb').mockResolvedValue({
+      data: {
+        users: [
+          { id: 'admin-1', username: 'admin', role: 'admin' },
+          target,
+        ],
+      },
+    });
+
     const startRes = makeRes();
     await getHandler('post', '/link')(
       makeReq({ body: { userId: 'user-42' } }),
@@ -352,13 +401,7 @@ describe('routes/oidc.js: /callback', () => {
     const flow = JSON.parse(startRes.cookies[0].value);
     provider.setNextIdToken({ claims: { nonce: flow.nonce } });
 
-    const target = {
-      id: 'user-42',
-      username: 'alice',
-      role: 'moderator',
-      externalIdentities: [],
-    };
-    vi.spyOn(dbModule, 'getDb').mockResolvedValue({
+    dbModule.getDb.mockResolvedValue({
       data: {
         users: [
           { id: 'admin-1', username: 'admin', role: 'technician' },
@@ -369,7 +412,7 @@ describe('routes/oidc.js: /callback', () => {
 
     const res = makeRes();
     await getHandler('get', '/callback')(
-      callbackReq({ state: flow.state, nonce: flow.nonce }),
+      callbackReq({ state: flow.state, nonce: flow.nonce, flowType: flow.flowType }),
       res,
     );
 

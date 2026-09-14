@@ -250,9 +250,13 @@
     "unavailableB41": "B41 不支持兴趣点",
     "searchAria": "搜索地图地点",
     "clearSearch": "清除地点搜索",
-    "categoryAria": "筛选地点类别",
+    "categoryAria": "选择 POI 类型",
+    "categoryFilterLabel": "POI 类型",
+    "selectedCategoryCount": "{{count}} 个类型",
+    "clearCategories": "清除类型",
     "allCategories": "所有类别",
     "noResults": "未找到地点",
+    "showingOnMap": "地图显示 {{count}} 个地点",
     "categories": { "town": "城镇", "medical": "医疗", "police": "警察", "fire": "消防", "gun": "武器", "shop": "商店", "gas": "加油站", "military": "军事", "landmark": "地标", "industrial": "工业" }
   },
   "airdropPresets": {

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.5] - 2026-09-14
+
+- **World Map POIs now use a compact direct-filter rail and distinct map markers.** Search results no longer cover the map for category browsing; all ten POI types have high-contrast pictograms, exact-location pointers, collision-aware labels, and separate hover and selected states.
+- **Checking Workshop mods now communicates that it scans for updates without applying them.** The Mods page refreshes tracked status after a scan and opens Updates Only automatically when updates are found.
+- **SSO configuration now rejects redirect URLs that cannot reach the panel callback.** Reverse-proxy path prefixes remain supported, while mistyped callback paths fail before they can lock users into a broken sign-in flow.
+- **SSO account linking now rejects deleted or unknown local accounts before opening the identity provider**, instead of making an administrator finish sign-in and MFA before reporting a generic link failure.
+- **OIDC callbacks now require an explicit login or link flow type**, so malformed flow cookies are rejected before token exchange or account resolution.
+
 ## [1.3.4] - 2026-09-14
 
 - **Linux supervisor tests now run reliably on Windows.** The harness uses native Git Bash when available and stdin-based execution, avoiding WSL path conversion and temporary-directory locking that previously caused nine false failures in the full server suite.

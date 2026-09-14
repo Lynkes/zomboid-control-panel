@@ -24,6 +24,7 @@ import { ErrorCode } from "../utils/errorCodes.js";
 const log = createLogger("OIDC");
 const OIDC_REQUEST_TIMEOUT_SECONDS = 15;
 const MAX_OIDC_URL_LENGTH = 2048;
+const OIDC_CALLBACK_PATH = "/api/auth/oidc/callback";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -150,7 +151,10 @@ export function isValidOidcIssuerUrl(value, allowInsecureHttp = false) {
 }
 
 export function isValidOidcRedirectUri(value) {
-  return isValidOidcUrl(value, { allowHttp: true, allowQuery: false });
+  if (!isValidOidcUrl(value, { allowHttp: true, allowQuery: false })) {
+    return false;
+  }
+  return new URL(value).pathname.endsWith(OIDC_CALLBACK_PATH);
 }
 
 export function isOidcConfigured(settings) {
@@ -295,7 +299,7 @@ export async function testOidcDiscovery({
   if (redirectUri && !isValidOidcRedirectUri(redirectUri)) {
     return {
       success: false,
-      error: "redirectUri must be a valid http:// or https:// URL without credentials, query parameters, or a fragment.",
+      error: `redirectUri must be a valid http:// or https:// URL ending in ${OIDC_CALLBACK_PATH}, without credentials, query parameters, or a fragment.`,
     };
   }
 

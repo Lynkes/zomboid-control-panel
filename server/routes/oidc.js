@@ -156,6 +156,18 @@ router.post("/link", loginRateLimiter, requireRole("admin"), async (req, res) =>
   }
 
   try {
+    const users = await authService.getUsers();
+    if (!users.some((user) => user.id === userId)) {
+      return res.status(404).json({ error: "User not found" });
+    }
+  } catch (error) {
+    log.error(`OIDC identity-link target lookup failed: ${error.message}`);
+    return res.status(500).json({
+      error: sanitizeError("Could not verify the selected local account. Try again."),
+    });
+  }
+
+  try {
     const { authorizationUrl, state, nonce, codeVerifier } =
       await buildOidcAuthorizationRequest();
     prunePendingIdentityLinks();
@@ -205,7 +217,7 @@ router.get("/callback", callbackRateLimiter, async (req, res) => {
   } catch {
     flow = null;
   }
-  if (!flow) {
+  if (!flow || (flow.flowType !== "login" && flow.flowType !== "link")) {
     log.warn("OIDC callback with no/invalid flow cookie (expired, or CSRF attempt)");
     return res.redirect("/?oidcError=expired_flow");
   }
@@ -222,11 +234,11 @@ router.get("/callback", callbackRateLimiter, async (req, res) => {
     return res.redirect("/?oidcError=invalid_token");
   }
 
-  const pendingLink = pendingIdentityLinks.get(flow.state);
-  if (flow.flowType === "link" && !pendingLink) {
-    return res.redirect("/settings?tab=users&oidcError=link_expired");
-  }
-  if (pendingLink) {
+  if (flow.flowType === "link") {
+    const pendingLink = pendingIdentityLinks.get(flow.state);
+    if (!pendingLink) {
+      return res.redirect("/settings?tab=users&oidcError=link_expired");
+    }
     pendingIdentityLinks.delete(flow.state);
     if (pendingLink.expiresAt <= Date.now()) {
       return res.redirect("/settings?tab=users&oidcError=link_expired");
@@ -391,7 +403,7 @@ router.put("/settings", requirePermission("panel.settings"), async (req, res) =>
       if (value) {
         if (!isValidOidcRedirectUri(value)) {
           return res.status(400).json({
-            error: "redirectUri must be a valid http:// or https:// URL without credentials, query parameters, or a fragment",
+            error: "redirectUri must be a valid http:// or https:// URL ending in /api/auth/oidc/callback, without credentials, query parameters, or a fragment",
           });
         }
       }
@@ -486,7 +498,7 @@ router.post("/test-connection", requirePermission("panel.settings"), async (req,
   }
   if (candidateRedirectUri && !isValidOidcRedirectUri(candidateRedirectUri)) {
     return res.status(400).json({
-      error: "redirectUri must be a valid http:// or https:// URL without credentials, query parameters, or a fragment.",
+      error: "redirectUri must be a valid http:// or https:// URL ending in /api/auth/oidc/callback, without credentials, query parameters, or a fragment.",
     });
   }
 

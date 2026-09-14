@@ -28,7 +28,8 @@
     "fixPath": "Ranje chemen an",
     "sync": "Senkwonize",
     "syncTooltip": "Senkwonize mods swiv yo soti nan konfig INI sèvè a",
-    "checkUpdates": "Tcheke Mizajou",
+    "checkUpdates": "Eskane pou Mizajou",
+    "checkUpdatesTooltip": "Tcheke lè Steam yo epi mete lis mizajou a ajou. Li pa telechaje ni enstale mod yo.",
     "lastCheckedAgo": "{{when}} de sa",
     "lastCheckedOn": "Dènye tcheke {{when}}",
     "neverChecked": "Pa janm tcheke",
@@ -53,8 +54,8 @@
   "staleFlag": {
     "reported_one": "{{count}} mizajou mod Steam rapòte — drapo yo pa senkwonize",
     "reported_other": "{{count}} mizajou mod Steam rapòte — drapo yo pa senkwonize",
-    "desc": "Dosye Workshop la montre fichye ki pi nouvo pase sa panèl la genyen nan achiv li. Fè yon tchekaj pou mete estati chak mod ajou.",
-    "checkNow": "Tcheke Kounye a"
+    "desc": "Tcheke si Steam gen fichye ki pi nouvo epi mete mak mizajou chak mod ajou. Li pa telechaje ni enstale anyen.",
+    "checkNow": "Eskane Ankò"
   },
   "removedFromWorkshop": {
     "title_one": "{{count}} mod pa egziste ankò sou Steam Workshop",

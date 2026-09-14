@@ -256,9 +256,13 @@
     "unavailableB41": "POI pa disponib sou B41",
     "searchAria": "Chèche kote sou kat la",
     "clearSearch": "Efase rechèch kote a",
-    "categoryAria": "Filtre kategori kote",
+    "categoryAria": "Chwazi kalite POI",
+    "categoryFilterLabel": "Kalite POI",
+    "selectedCategoryCount": "{{count}} kalite",
+    "clearCategories": "Netwaye kalite yo",
     "allCategories": "Tout kategori",
     "noResults": "Pa jwenn okenn kote",
+    "showingOnMap": "{{count}} kote sou kat la",
     "categories": { "town": "Vil", "medical": "Medikal", "police": "Polis", "fire": "Ponpye", "gun": "Zam", "shop": "Boutik", "gas": "Estasyon gaz", "military": "Militè", "landmark": "Kote remakab", "industrial": "Endistri" }
   },
   "airdropPresets": {
