@@ -522,6 +522,7 @@ if ($SkipBuild) {
             @{ platform = "linux"; kind = "binary"; file = "ZomboidControlPanel";              path = $linuxBin },
             @{ platform = "win";   kind = "archive"; file = "ZomboidControlPanel-windows.zip"; path = $zipPath },
             @{ platform = "linux"; kind = "archive"; file = "ZomboidControlPanel-linux.tar.gz"; path = $tarPath },
+            @{ platform = "browser"; kind = "extension"; file = "zomboid-panel-extension.zip"; path = (Join-Path $RepoDir "release\zomboid-panel-extension.zip") },
             @{ platform = "docker"; kind = "compose"; file = "docker-compose.install.yml";     path = (Join-Path $RepoDir "docker-compose.install.yml") },
             @{ platform = "docker"; kind = "dockerfile"; file = "Dockerfile";                  path = (Join-Path $RepoDir "Dockerfile") }
         )
@@ -667,6 +668,7 @@ if ($SkipGitHub) {
         (Join-Path $RepoDir $WinExePath),
         (Join-Path $RepoDir $LinuxBinPath),
         (Join-Path $RepoDir $ChecksumsPath),
+        (Join-Path $RepoDir "release\zomboid-panel-extension.zip"),
         (Join-Path $RepoDir "docker-compose.install.yml"),
         (Join-Path $RepoDir "Dockerfile")
     )
