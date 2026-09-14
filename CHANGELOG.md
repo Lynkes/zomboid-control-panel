@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.4] - 2026-09-14
+
+- **Linux supervisor tests now run reliably on Windows.** The harness uses native Git Bash when available and stdin-based execution, avoiding WSL path conversion and temporary-directory locking that previously caused nine false failures in the full server suite.
+
 ## [1.3.3] - 2026-09-13
 
 - **Google/SSO can now be linked to an existing local account from Users.** Local usernames remain punctuation-free; an administrator creates the account with a local username, then starts a verified provider flow with the new Link SSO action.

@@ -5,6 +5,15 @@ import { execFileSync } from "child_process";
 import { afterEach, describe, expect, it } from "vitest";
 import { generateStartSh } from "../../build.js";
 
+const BASH_COMMAND =
+  process.platform !== "win32"
+    ? "bash"
+    : [
+        path.join(process.env.ProgramFiles || "C:\\Program Files", "Git", "bin", "bash.exe"),
+        path.join(process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)", "Git", "bin", "bash.exe"),
+      ].find((candidate) => fs.existsSync(candidate)) || null;
+const describeSupervisor = BASH_COMMAND ? describe : describe.skip;
+
 // State-machine sweep of the updater/supervisor surface, 2026-09-07 (god's
 // dispatch): applyUpdateBundle() (services/updateBundle.js) replaces the
 // LIVE Linux binary while it is still running -- rename it to
@@ -56,16 +65,26 @@ const FUNCTION_SOURCE = extractFunctionSource(
 
 const roots = [];
 afterEach(() => {
-  for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
+  for (const root of roots.splice(0)) {
+    fs.rmSync(root, {
+      recursive: true,
+      force: true,
+      maxRetries: process.platform === "win32" ? 10 : 0,
+      retryDelay: 100,
+    });
+  }
 });
 
 function runInRoot(root) {
-  const wrapper = path.join(root, "run.sh");
-  fs.writeFileSync(wrapper, `#!/bin/bash\ncd "$(dirname "$0")"\n${FUNCTION_SOURCE}\nrestore_interrupted_update\n`);
-  return execFileSync("bash", [wrapper], { cwd: root, encoding: "utf8" });
+  const script = `${FUNCTION_SOURCE}\nrestore_interrupted_update\n`;
+  return execFileSync(BASH_COMMAND, ["-s"], {
+    cwd: root,
+    input: script,
+    encoding: "utf8",
+  });
 }
 
-describe("generateStartSh()'s restore_interrupted_update: self-heals a Linux self-update interrupted mid-rename", () => {
+describeSupervisor("generateStartSh()'s restore_interrupted_update: self-heals a Linux self-update interrupted mid-rename", () => {
   it("sanity check: the function was actually found and looks like the real thing (guards against a silent extraction-regex break)", () => {
     expect(FUNCTION_SOURCE).toContain("ZomboidControlPanel.bundle-previous");
     expect(FUNCTION_SOURCE).toContain("dist.previous");
