@@ -26,7 +26,7 @@ const FIXTURE_PATH = path.resolve(__dirname, "../__fixtures__/pzRconRejectionStr
 
 // Confirmed missing from the live jar, not guessed -- see the fixture's own
 // _provenance.note and the extractor script's header comment for the full
-// story. Kevin's 2026-08-23 audit (docs/qa/kevin-b42-jar-audits.md)
+// story. The 2026-08-23 B42 audit
 // verbatim-confirmed "...can be executed only from the game" in
 // ReleaseSafehouseCommand.class via isCommandComeFromServerConsole().
 // Re-extracted 2026-08-27 against build 24909800: the string is gone from
@@ -73,8 +73,8 @@ const allStrings = fixture ? Object.values(fixture.classes).flat() : [];
 // (24909800) as the prior 2026-08-27/69-class extraction -- this jump from
 // 69 is a DELIBERATE scope widening (banuser/unbanuser/adduser/
 // removeuserfromwhitelist's own command classes carry no rejection text of
-// their own; it lives in these two classes, see
-// docs/qa/kevin-b42-jar-audits.md's "Pass 4"), NOT a PZ patch artifact. If
+// their own; it lives in these two classes, as established by the B42 audit's
+// "Pass 4"), NOT a PZ patch artifact. If
 // this changes again, a PZ patch added/removed command classes -- or the
 // scope changed again -- investigate before updating it, don't just bump it
 // to match.
