@@ -141,4 +141,25 @@ getWorld = function() return FakeWorld end
     expect(byId.vread2.success).toBe(true);
     expect(byId.vread2.data.count).toBe(5);
   });
+
+  it('invalidates live caches after a mutation fails verification but still changes underlying state', () => {
+    const bridge = loadPanelBridge(LUA_PATH, STUBS + `
+function FakeOption:setValue(v) self.value = v + 1 end
+`);
+
+    enqueue(bridge, [
+      { id: 'read1', action: 'getAllSandboxOptions' },
+      { id: 'write', action: 'setSandboxOption', args: { name: 'ZombieCount', value: 8 } },
+      { id: 'read2', action: 'getAllSandboxOptions' },
+    ], 1);
+    bridge.run('PanelBridgeModule.processCommands()');
+
+    const results = bridge.getGlobal('PanelBridgeModule').pendingResults;
+    const byId = Object.fromEntries(results.map((r) => [r.id, r]));
+
+    expect(byId.read1.data.options.Vanilla[0].value).toBe(4);
+    expect(byId.write.success).toBe(false);
+    expect(byId.read2.success).toBe(true);
+    expect(byId.read2.data.options.Vanilla[0].value).toBe(9);
+  });
 });

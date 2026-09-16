@@ -57,6 +57,18 @@ Faction = {
 }
 
 describe('PanelBridge.lua handlers.factionAddPlayer/RemovePlayer/SetTag -- gate on the real read-back', () => {
+  it('reports the unsupported faction create/remove actions explicitly', () => {
+    const bridge = loadPanelBridge(LUA_PATH, factionStub());
+
+    const create = bridge.callHandler('createFaction', { name: 'Test', owner: 'Alice' });
+    const remove = bridge.callHandler('removeFaction', { factionName: 'Test' });
+
+    expect(create.ok).toBe(false);
+    expect(create.err).toMatch(/not exposed by the Build 42 Lua API/);
+    expect(remove.ok).toBe(false);
+    expect(remove.err).toMatch(/not exposed by the Build 42 Lua API/);
+  });
+
   it('factionAddPlayer reports success and verified=true when the player is really a member afterward', () => {
     const bridge = loadPanelBridge(LUA_PATH, factionStub({ sticks: true }));
     const result = bridge.callHandler('factionAddPlayer', { factionName: 'Test', username: 'Alice' });

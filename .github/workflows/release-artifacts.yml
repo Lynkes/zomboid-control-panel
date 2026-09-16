@@ -163,6 +163,25 @@ jobs:
       - name: Checkout release files
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      - name: Verify existing release points to this tag commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_tag="${GITHUB_REF_NAME}"
+          release_target="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${release_tag}" --jq '.target_commitish' 2>/dev/null || true)"
+          if [ -n "$release_target" ]; then
+            release_target_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${release_target}" --jq '.sha')"
+            if [ "$release_target_sha" != "$GITHUB_SHA" ]; then
+              echo "::error::Existing release ${release_tag} targets ${release_target_sha}, but this workflow is building ${GITHUB_SHA}. Refusing to replace its assets."
+              exit 1
+            fi
+            echo "Existing release ${release_tag} targets the current tag commit."
+          else
+            echo "No existing release for ${release_tag}; the publish step may create it."
+          fi
+
       - name: Download Windows archive
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:

@@ -116,7 +116,8 @@ class PanelBridge extends EventEmitter {
     this.queueState = {
       initialized: false,
       nextCommandSeq: 1,
-      lastConsumedResultSeq: 0
+      lastConsumedResultSeq: 0,
+      nextResultSeq: 1
     };
     this.outboxStuckState = { seq: null, since: 0, nextCheckAt: 0 };
     this.inboxResyncNextCheckAt = 0;
@@ -353,19 +354,53 @@ class PanelBridge extends EventEmitter {
         const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8') || '{}');
         const nextSeq = Number(state.nextCommandSeq);
         const consumed = Number(state.lastConsumedResultSeq);
+        const nextResult = Number(state.nextResultSeq);
         this.queueState.nextCommandSeq = Number.isFinite(nextSeq) && nextSeq > 0 ? Math.floor(nextSeq) : 1;
         this.queueState.lastConsumedResultSeq = Number.isFinite(consumed) && consumed >= 0 ? Math.floor(consumed) : 0;
+        this.queueState.nextResultSeq = Number.isFinite(nextResult) && nextResult > 0 ? Math.floor(nextResult) : 1;
       } catch (error) {
         log.warn(`Could not parse queue state file: ${error.message}`);
         this.queueState.nextCommandSeq = 1;
         this.queueState.lastConsumedResultSeq = 0;
+        this.queueState.nextResultSeq = 1;
+      }
+    }
+
+    // A malformed Lua-owned state file must not reset the result sequence to
+    // one while old outbox files are still present. Recover the strongest
+    // lower bound available from the panel-owned state, Lua's last snapshot,
+    // and surviving cached result filenames.
+    const luaStateFile = this.resolveModFile('queue-state-lua.json');
+    if (luaStateFile && fs.existsSync(luaStateFile)) {
+      try {
+        const luaState = JSON.parse(fs.readFileSync(luaStateFile, 'utf8') || '{}');
+        const luaNextResult = Number(luaState.nextResultSeq);
+        if (Number.isFinite(luaNextResult) && luaNextResult > 0) {
+          this.queueState.nextResultSeq = Math.max(this.queueState.nextResultSeq, Math.floor(luaNextResult));
+        }
+      } catch (error) {
+        log.warn(`Could not parse Lua result sequence state: ${error.message}`);
+      }
+    }
+
+    if (outboxDir && fs.existsSync(outboxDir)) {
+      try {
+        for (const name of fs.readdirSync(outboxDir)) {
+          const match = /^res-(\d+)\.json(?:\.txt)?$/.exec(name);
+          if (!match) continue;
+          const resultSeq = Number(match[1]);
+          if (Number.isFinite(resultSeq)) {
+            this.queueState.nextResultSeq = Math.max(this.queueState.nextResultSeq, Math.floor(resultSeq) + 1);
+          }
+        }
+      } catch (error) {
+        log.warn(`Could not scan outbox result sequence state: ${error.message}`);
       }
     }
 
     // The SFTP cache can be cleared independently of the remote server. In
     // that case the Lua cursor is the authoritative lower bound for new
     // command filenames, otherwise Node would restart at cmd-0000000001.
-    const luaStateFile = this.resolveModFile('queue-state-lua.json');
     // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
     if (luaStateFile && fs.existsSync(luaStateFile)) {
       try {
@@ -394,6 +429,7 @@ class PanelBridge extends EventEmitter {
       protocolVersion: this.protocolVersion,
       nextCommandSeq: this.queueState.nextCommandSeq,
       lastConsumedResultSeq: this.queueState.lastConsumedResultSeq,
+      nextResultSeq: Math.max(this.queueState.nextResultSeq, this.queueState.lastConsumedResultSeq + 1),
       updatedAt: Date.now()
     };
     const tempFile = `${stateFile}.tmp`;
@@ -985,6 +1021,7 @@ class PanelBridge extends EventEmitter {
     // resync exists to heal) costs one cheap existsSync and is skipped.
     this.recoverSkippedResults(this.queueState.lastConsumedResultSeq, luaHighWater);
     this.queueState.lastConsumedResultSeq = luaHighWater;
+    this.queueState.nextResultSeq = Math.max(this.queueState.nextResultSeq, luaNextResultSeq);
     this.persistQueueState();
     this.outboxStuckState.seq = null;
     return true;
@@ -1155,6 +1192,7 @@ class PanelBridge extends EventEmitter {
           if (this._emptyReadCounter.count >= 10) {
             log.warn(`Queue result seq ${seq} empty for ${this._emptyReadCounter.count} polls, advancing past it`);
             this.queueState.lastConsumedResultSeq = seq;
+            this.queueState.nextResultSeq = Math.max(this.queueState.nextResultSeq, seq + 1);
             this._emptyReadCounter.count = 0;
             consumed++;
             continue;
@@ -1175,6 +1213,7 @@ class PanelBridge extends EventEmitter {
       }
 
       this.queueState.lastConsumedResultSeq = seq;
+      this.queueState.nextResultSeq = Math.max(this.queueState.nextResultSeq, seq + 1);
       consumed++;
 
       try {

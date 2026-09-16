@@ -81,7 +81,7 @@ describe("authService.middleware() — /api/auth/* is no longer a blanket exempt
   // an exempted prefix inherits its exemption whether wanted or not" shape
   // as the original incident. Pinned here so nobody "simplifies" the OIDC
   // exemption back into a prefix and reintroduces it.
-  it.each(["/api/auth/oidc/settings", "/api/auth/oidc/test-connection"])(
+  it.each(["/api/auth/oidc/settings", "/api/auth/oidc/test-connection", "/api/auth/oidc/link"])(
     "%s is NOT exempt — it requires a token like any other authenticated route",
     async (path) => {
       const { next, res } = await run(path);

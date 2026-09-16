@@ -23,7 +23,8 @@
     "lastSignIn": "آخر تسجيل دخول",
     "never": "أبدًا",
     "actions": "الإجراءات",
-    "removeTooltip": "إزالة {{username}}"
+    "removeTooltip": "إزالة {{username}}",
+    "linkSsoTooltip": "ربط SSO بـ {{username}}"
   },
   "deleteDialog": {
     "title": "إزالة {{username}}؟",
@@ -37,6 +38,7 @@
     "description": "أنشئ حساب دخول لشخص آخر. سيستخدم اسم المستخدم وكلمة المرور هذين لتسجيل الدخول.",
     "usernameLabel": "اسم المستخدم",
     "usernamePlaceholder": "مثال: jsmith",
+    "usernameHint": "استخدم اسم مستخدم محلياً، وليس عنوان بريد إلكتروني. اربط Google/SSO بعد إنشاء الحساب.",
     "passwordLabel": "كلمة المرور",
     "passwordHint": "استخدم 6 أحرف على الأقل.",
     "confirmPasswordLabel": "تأكيد كلمة المرور",
@@ -58,6 +60,10 @@
     "userDeletedTitle": "تمت إزالة الحساب",
     "userDeletedDescription": "لم يعد بإمكان {{username}} تسجيل الدخول.",
     "actionFailedTitle": "فشل الإجراء",
-    "unknownError": "خطأ غير معروف"
+    "unknownError": "خطأ غير معروف",
+    "ssoLinkedTitle": "تم ربط SSO",
+    "ssoLinkedDescription": "تم الآن ربط الهوية الخارجية بهذا الحساب.",
+    "ssoLinkExpired": "انتهت جلسة ربط SSO. ابدأ الربط مرة أخرى.",
+    "ssoLinkFailed": "تعذر ربط هوية SSO بهذا الحساب."
   }
 }

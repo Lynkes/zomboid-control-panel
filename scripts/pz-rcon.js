@@ -1,7 +1,7 @@
 // Minimal Source RCON client for maintenance tasks.
 // PZ sends an empty packet before the real reply, so responses are buffered
 // until the socket goes quiet instead of exiting on the first packet.
-const net = require("net");
+import net from "node:net";
 
 const HOST = process.env.RCON_HOST || "127.0.0.1";
 const PORT = Number(process.env.RCON_PORT || 27015);

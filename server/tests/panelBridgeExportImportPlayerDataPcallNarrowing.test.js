@@ -97,6 +97,40 @@ function FakePlayer:getZombieKills() error("simulated engine failure") end
     expect(result.data.username).toBe('Fielder');
     expect(result.data.perks.Fitness.level).toBe(3);
   });
+
+  it('exports items from an iterator-only inventory collection', () => {
+    const bridge = loadPanelBridge(LUA_PATH, BASE + `
+FakeItem = {}
+function FakeItem:getFullType() return "Base.Axe" end
+function FakeItem:getType() return "Axe" end
+function FakeItem:getName() return "Axe" end
+function FakeItem:getCount() return 2 end
+function FakeItem:isFavorite() return false end
+function FakeItem:isEquipped() return false end
+function FakeItem:getCondition() return 100 end
+
+FakeItemList = { items = { FakeItem } }
+function FakeItemList:size() return #self.items end
+function FakeItemList:iterator()
+  local values = self.items
+  local iterator = { index = 0 }
+  function iterator:hasNext() return self.index < #values end
+  function iterator:next()
+    self.index = self.index + 1
+    return values[self.index]
+  end
+  return iterator
+end
+FakeContainer = {}
+function FakeContainer:getItems() return FakeItemList end
+function FakePlayer:getInventory() return FakeContainer end
+`);
+    const result = bridge.callHandler('exportPlayerData', { username: 'Fielder' });
+
+    expect(result.ok).toBe(true);
+    expect(result.data.inventory[0].fullType).toBe('Base.Axe');
+    expect(result.data.inventory[0].count).toBe(2);
+  });
 });
 
 describe('PanelBridge.lua handlers.importPlayerData -- getXp() throwing no longer aborts the independent inventory restore', () => {

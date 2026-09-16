@@ -247,6 +247,24 @@
     "title": "Pa gen jwè sou kat la",
     "subtitle": "Pozisyon jwè parèt lè PanelBridge konekte"
   },
+  "poi": {
+    "label": "POI",
+    "selected": "chwazi",
+    "searchPlaceholder": "Chèche kote...",
+    "detectingMap": "Ap detekte kat la...",
+    "unavailable": "POI pa disponib",
+    "unavailableB41": "POI pa disponib sou B41",
+    "searchAria": "Chèche kote sou kat la",
+    "clearSearch": "Efase rechèch kote a",
+    "categoryAria": "Chwazi kalite POI",
+    "categoryFilterLabel": "Kalite POI",
+    "selectedCategoryCount": "{{count}} kalite",
+    "clearCategories": "Netwaye kalite yo",
+    "allCategories": "Tout kategori",
+    "noResults": "Pa jwenn okenn kote",
+    "showingOnMap": "{{count}} kote sou kat la",
+    "categories": { "town": "Vil", "medical": "Medikal", "police": "Polis", "fire": "Ponpye", "gun": "Zam", "shop": "Boutik", "gas": "Estasyon gaz", "military": "Militè", "landmark": "Kote remakab", "industrial": "Endistri" }
+  },
   "airdropPresets": {
     "military": { "label": "Militè", "desc": "Fizi, minisyon, blende, kominikasyon" },
     "medical": { "label": "Medikal", "desc": "Pansman, antibyotik, premye swen" },

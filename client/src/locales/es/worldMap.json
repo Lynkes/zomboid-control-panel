@@ -243,6 +243,24 @@
     "title": "No hay jugadores en el mapa",
     "subtitle": "Las posiciones de los jugadores aparecen cuando PanelBridge está conectado"
   },
+  "poi": {
+    "label": "PDI",
+    "selected": "seleccionado",
+    "searchPlaceholder": "Buscar lugares...",
+    "detectingMap": "Detectando mapa...",
+    "unavailable": "PDI no disponibles",
+    "unavailableB41": "PDI no disponibles en B41",
+    "searchAria": "Buscar lugares del mapa",
+    "clearSearch": "Borrar búsqueda de lugares",
+    "categoryAria": "Elegir tipos de POI",
+    "categoryFilterLabel": "Tipos de POI",
+    "selectedCategoryCount": "{{count}} tipos",
+    "clearCategories": "Borrar tipos",
+    "allCategories": "Todas las categorías",
+    "noResults": "No se encontraron lugares",
+    "showingOnMap": "{{count}} lugares en el mapa",
+    "categories": { "town": "Pueblos", "medical": "Médico", "police": "Policía", "fire": "Bomberos", "gun": "Armas", "shop": "Tiendas", "gas": "Gasolineras", "military": "Militar", "landmark": "Lugares destacados", "industrial": "Industrial" }
+  },
   "airdropPresets": {
     "military": {
       "label": "Militar",

@@ -243,6 +243,24 @@
     "title": "Aucun joueur sur la carte",
     "subtitle": "Les positions des joueurs apparaissent une fois PanelBridge connecté"
   },
+  "poi": {
+    "label": "POI",
+    "selected": "sélectionné",
+    "searchPlaceholder": "Rechercher un lieu...",
+    "detectingMap": "Détection de la carte...",
+    "unavailable": "POI indisponibles",
+    "unavailableB41": "POI indisponibles sur B41",
+    "searchAria": "Rechercher des lieux sur la carte",
+    "clearSearch": "Effacer la recherche de lieu",
+    "categoryAria": "Choisir les types de POI",
+    "categoryFilterLabel": "Types de POI",
+    "selectedCategoryCount": "{{count}} types",
+    "clearCategories": "Effacer les types",
+    "allCategories": "Toutes les catégories",
+    "noResults": "Aucun lieu trouvé",
+    "showingOnMap": "{{count}} lieux affichés sur la carte",
+    "categories": { "town": "Villes", "medical": "Médical", "police": "Police", "fire": "Pompiers", "gun": "Armes à feu", "shop": "Commerces", "gas": "Stations-service", "military": "Militaire", "landmark": "Lieux remarquables", "industrial": "Industrie" }
+  },
   "airdropPresets": {
     "military": {
       "label": "Militaire",

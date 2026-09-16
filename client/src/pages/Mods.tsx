@@ -1142,6 +1142,9 @@ export default function Mods() {
         result?.code === 'MODS_CHECK_UPDATES_ACF_NOT_FOUND'
           ? resolveRegisteredTranslation('errors', result.code, undefined)
           : null
+      await fetchData()
+      if (count > 0) setShowUpdatesOnly(true)
+
       if (workshopAcfNotFoundMessage) {
         toast({
           title: t('toasts.workshopDataUnavailableTitle'),
@@ -1168,7 +1171,6 @@ export default function Mods() {
               : t('toasts.modsHaveUpdates', { count }),
         })
       }
-      fetchData()
     } catch (error) {
       toast({
         title: t('toasts.updateCheckFailedTitle'),
@@ -2689,6 +2691,7 @@ export default function Mods() {
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="bottom">
+                <span>{t('statusBar.checkUpdatesTooltip')}</span>
                 {status?.lastCheck ? (() => {
                   const secs = Math.round((Date.now() - new Date(status.lastCheck).getTime()) / 1000)
                   let when: string

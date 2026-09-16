@@ -40,6 +40,15 @@ describe('OIDC: unconfigured (the non-negotiable property)', () => {
     expect(isOidcConfigured(await getOidcSettings())).toBe(false);
   });
 
+  it('reports not configured when the saved scope omits the mandatory openid scope', async () => {
+    process.env.PANEL_OIDC_ISSUER_URL = 'https://idp.example.com';
+    process.env.PANEL_OIDC_CLIENT_ID = 'panel';
+    process.env.PANEL_OIDC_CLIENT_SECRET = 'secret';
+    process.env.PANEL_OIDC_REDIRECT_URI = 'https://panel.example.com/api/auth/oidc/callback';
+    process.env.PANEL_OIDC_SCOPE = 'email profile';
+    expect(isOidcConfigured(await getOidcSettings())).toBe(false);
+  });
+
   it('getOidcConfig() resolves to null rather than throwing or making a network call', async () => {
     await expect(getOidcConfig()).resolves.toBeNull();
   });
@@ -148,6 +157,14 @@ describe('OIDC: ID token validation (each rejection reason tested separately)', 
     await expect(runCallback()).rejects.toThrow();
   });
 
+  it('rejects a malformed non-string or control-character subject before identity mapping', async () => {
+    provider.setNextIdToken({ claims: { nonce: 'flow-nonce', sub: 12345 } });
+    await expect(runCallback()).rejects.toThrow(/subject claim/);
+
+    provider.setNextIdToken({ claims: { nonce: 'flow-nonce', sub: 'user\n123' } });
+    await expect(runCallback()).rejects.toThrow(/subject claim/);
+  });
+
   it('rejects the whole callback when the state does not match (CSRF protection)', async () => {
     provider.setNextIdToken({ claims: { nonce: 'flow-nonce' } });
     const flow = { state: 'flow-state', nonce: 'flow-nonce', codeVerifier: 'flow-code-verifier' };
@@ -210,6 +227,23 @@ describe('OIDC: discovery failure does not stick around forever', () => {
       await expect(getOidcConfig()).resolves.toBeTruthy();
     } finally {
       await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it('sets a bounded timeout on the discovered configuration for token exchange', async () => {
+    const provider = await startMockOidcProvider({ clientId: 'timeout-client' });
+    try {
+      process.env.PANEL_OIDC_ISSUER_URL = provider.baseUrl;
+      process.env.PANEL_OIDC_CLIENT_ID = 'timeout-client';
+      process.env.PANEL_OIDC_CLIENT_SECRET = 'secret';
+      process.env.PANEL_OIDC_REDIRECT_URI = `${provider.baseUrl}/api/auth/oidc/callback`;
+      process.env.PANEL_OIDC_ALLOW_INSECURE_HTTP = 'true';
+      _resetOidcConfigCacheForTests();
+
+      const config = await getOidcConfig();
+      expect(config.timeout).toBe(15);
+    } finally {
+      await provider.close();
     }
   });
 });

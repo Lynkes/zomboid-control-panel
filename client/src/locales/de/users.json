@@ -23,7 +23,8 @@
     "lastSignIn": "Letzte Anmeldung",
     "never": "Nie",
     "actions": "Aktionen",
-    "removeTooltip": "{{username}} entfernen"
+    "removeTooltip": "{{username}} entfernen",
+    "linkSsoTooltip": "SSO mit {{username}} verknüpfen"
   },
   "deleteDialog": {
     "title": "{{username}} entfernen?",
@@ -37,6 +38,7 @@
     "description": "Lege einen Zugang für jemand anderen an. Mit diesem Benutzernamen und Passwort kann sich die Person anmelden.",
     "usernameLabel": "Benutzername",
     "usernamePlaceholder": "z. B. jsmith",
+    "usernameHint": "Verwende einen lokalen Benutzernamen, keine E-Mail-Adresse. Verknüpfe Google/SSO nach der Erstellung.",
     "passwordLabel": "Passwort",
     "confirmPasswordLabel": "Passwort bestätigen",
     "roleLabel": "Rolle",
@@ -58,6 +60,10 @@
     "userDeletedTitle": "Konto entfernt",
     "userDeletedDescription": "{{username}} kann sich nicht mehr anmelden.",
     "actionFailedTitle": "Aktion fehlgeschlagen",
-    "unknownError": "Unbekannter Fehler"
+    "unknownError": "Unbekannter Fehler",
+    "ssoLinkedTitle": "SSO verknüpft",
+    "ssoLinkedDescription": "Die externe Identität ist jetzt mit diesem Konto verknüpft.",
+    "ssoLinkExpired": "Die SSO-Verknüpfung ist abgelaufen. Starte sie erneut.",
+    "ssoLinkFailed": "Die SSO-Identität konnte nicht mit diesem Konto verknüpft werden."
   }
 }

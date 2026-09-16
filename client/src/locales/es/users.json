@@ -23,7 +23,8 @@
     "lastSignIn": "Último inicio de sesión",
     "never": "Nunca",
     "actions": "Acciones",
-    "removeTooltip": "Eliminar a {{username}}"
+    "removeTooltip": "Eliminar a {{username}}",
+    "linkSsoTooltip": "Vincular SSO a {{username}}"
   },
   "deleteDialog": {
     "title": "¿Eliminar a {{username}}?",
@@ -37,6 +38,7 @@
     "description": "Crea un inicio de sesión para otra persona. Usará este nombre de usuario y contraseña para iniciar sesión.",
     "usernameLabel": "Nombre de usuario",
     "usernamePlaceholder": "p. ej. jsmith",
+    "usernameHint": "Usa un nombre de usuario local, no una dirección de correo. Vincula Google/SSO después de crear la cuenta.",
     "passwordLabel": "Contraseña",
     "confirmPasswordLabel": "Confirmar contraseña",
     "roleLabel": "Rol",
@@ -58,6 +60,10 @@
     "userDeletedTitle": "Cuenta eliminada",
     "userDeletedDescription": "{{username}} ya no puede iniciar sesión.",
     "actionFailedTitle": "La acción falló",
-    "unknownError": "Error desconocido"
+    "unknownError": "Error desconocido",
+    "ssoLinkedTitle": "SSO vinculado",
+    "ssoLinkedDescription": "La identidad externa ya está vinculada a esta cuenta.",
+    "ssoLinkExpired": "La sesión de vinculación SSO caducó. Vuelve a iniciarla.",
+    "ssoLinkFailed": "No se pudo vincular la identidad SSO a esta cuenta."
   }
 }
