@@ -1,6 +1,6 @@
 {
   "name": "pz-server-manager",
-  "version": "1.3.1",
+  "version": "1.3.5",
   "description": "Project Zomboid Server Manager - Web-based admin panel",
   "main": "server/index.js",
   "type": "module",
@@ -27,7 +27,8 @@
     "check:bridge-actions": "node scripts/audit-bridge-actions.mjs .",
     "check:bridge-routes": "node scripts/audit-bridge-routes.mjs .",
     "check:rcon-commands": "node scripts/audit-rcon-commands.mjs .",
-    "check:i18n": "node scripts/i18n-check.mjs --all"
+    "check:i18n": "node scripts/i18n-check.mjs --all",
+    "check:package-version": "node scripts/verify-package-version.mjs"
   },
   "dependencies": {
     "archiver": "^7.0.1",

@@ -29,6 +29,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Reject obsolete standalone release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          obsolete=$(git ls-files | grep -E '(^|/)release-notes-[^/]+\.md$' || true)
+          if [ -n "$obsolete" ]; then
+            echo "::error title=Obsolete standalone release notes tracked::"
+            printf '%s\n' "$obsolete"
+            exit 1
+          fi
+          echo "No obsolete standalone release-note files are tracked."
+
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
@@ -160,6 +172,18 @@ jobs:
 
       - name: i18n French duplicate-value check (against the reviewed baseline)
         run: node scripts/i18n-check.mjs --all
+
+      - name: Package version parity (Docker/release source)
+        run: node scripts/verify-package-version.mjs
+
+      - name: Package version is not behind latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq '.tagName' | sed 's/^v//')"
+          node scripts/verify-package-version.mjs --minimum "$latest"
 
   client:
     name: Client (lint + types + tests)

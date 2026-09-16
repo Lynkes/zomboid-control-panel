@@ -31,6 +31,7 @@ on:
       - 'server/**'
       - 'client/**'
       - 'pz-mod/**'
+      - 'scripts/verify-package-version.mjs'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/docker-aio-build.yml'
@@ -40,6 +41,7 @@ on:
       - 'server/**'
       - 'client/**'
       - 'pz-mod/**'
+      - 'scripts/verify-package-version.mjs'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/docker-aio-build.yml'
@@ -55,6 +57,46 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Reject release tag outside main
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --no-tags
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Release tag $GITHUB_REF_NAME does not point to a commit on main."
+            exit 1
+          fi
+
+      - name: Reject manual Docker publication outside main or release tag
+        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/v')
+        run: |
+          echo "::error::Manual Docker publication is allowed only from main or a v* release tag."
+          exit 1
+
+      - name: Verify package version parity
+        run: node scripts/verify-package-version.mjs
+
+      - name: Read package version
+        id: package-version
+        run: node -e "console.log('version=' + require('./package.json').version)" >> "$GITHUB_OUTPUT"
+
+      - name: Reject stale main Docker version
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq '.tagName' | sed 's/^v//')"
+          node scripts/verify-package-version.mjs --minimum "$latest"
+
+      - name: Verify tag Docker version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: node scripts/verify-package-version.mjs "${{ github.ref_name }}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -107,7 +149,9 @@ jobs:
           platforms: linux/amd64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.panel-meta.outputs.tags }}
-          labels: ${{ steps.panel-meta.outputs.labels }}
+          labels: |
+            ${{ steps.panel-meta.outputs.labels }}
+            org.opencontainers.image.version=${{ steps.package-version.outputs.version }}
           cache-from: type=gha,scope=aio
           cache-to: type=gha,mode=max,scope=aio
           # Same reasoning as docker-publish.yml: avoid the phantom
@@ -122,7 +166,9 @@ jobs:
           platforms: linux/amd64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.updater-meta.outputs.tags }}
-          labels: ${{ steps.updater-meta.outputs.labels }}
+          labels: |
+            ${{ steps.updater-meta.outputs.labels }}
+            org.opencontainers.image.version=${{ steps.package-version.outputs.version }}
           cache-from: type=gha,scope=aio-updater
           cache-to: type=gha,mode=max,scope=aio-updater
           provenance: false
