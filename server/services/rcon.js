@@ -1759,7 +1759,7 @@ export class RconService extends EventEmitter {
     const safeP1 = this.sanitizeQuotedArg(player1, "Username", 64);
     if (player2) {
       return this.execute(
-        `teleport "${safeP1}" "${this.sanitizeQuotedArg(player2, "Target username", 64)}"`,
+        `teleportplayer "${safeP1}" "${this.sanitizeQuotedArg(player2, "Target username", 64)}"`,
       );
     }
     return this.execute(`teleport "${safeP1}"`);

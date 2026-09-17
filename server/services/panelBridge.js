@@ -802,6 +802,29 @@ class PanelBridge extends EventEmitter {
     const id = uuidv4();
     this.ensureQueueProtocol();
 
+    // Register before writing the inbox file. The mod can process a local
+    // command before the write promise yields back to this function; adding
+    // the pending entry afterwards loses that valid fast response as an
+    // orphan and makes the caller wait for a false timeout.
+    let resolveCommand;
+    let rejectCommand;
+    const commandPromise = new Promise((resolve, reject) => {
+      resolveCommand = resolve;
+      rejectCommand = reject;
+    });
+    const timeout = setTimeout(() => {
+      this.pendingCommands.delete(id);
+      rejectCommand(new Error(`Command timeout: ${action} (no response from mod)`));
+    }, this.config.commandTimeoutMs);
+    this.pendingCommands.set(id, {
+      resolve: resolveCommand,
+      reject: rejectCommand,
+      timeout,
+      action,
+      timestamp: Date.now(),
+    });
+    log.debug(`sendCommand: pending action=${action} id=${id} (pending=${this.pendingCommands.size})`);
+
     // Serialize file access to prevent TOCTOU race conditions
     if (!this._writeQueue) this._writeQueue = Promise.resolve();
 
@@ -817,25 +840,17 @@ class PanelBridge extends EventEmitter {
 
     // If the command failed to write, reject immediately instead of waiting for timeout
     if (writeError) {
-      throw new Error(`Failed to write command ${action}: ${writeError.message}`);
+      const pending = this.pendingCommands.get(id);
+      if (pending) {
+        clearTimeout(pending.timeout);
+        this.pendingCommands.delete(id);
+        pending.reject(new Error(`Failed to write command ${action}: ${writeError.message}`));
+      }
     }
 
-    // Return a promise that resolves when we get the result
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.pendingCommands.delete(id);
-        reject(new Error(`Command timeout: ${action} (no response from mod)`));
-      }, this.config.commandTimeoutMs);
-
-      this.pendingCommands.set(id, {
-        resolve,
-        reject,
-        timeout,
-        action,
-        timestamp: Date.now()
-      });
-      log.debug(`sendCommand: queued action=${action} id=${id} (pending=${this.pendingCommands.size})`);
-    });
+    // Resolve when the result arrives, including a result that arrived while
+    // the serialized inbox write was still yielding.
+    return commandPromise;
   }
 
   /**

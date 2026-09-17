@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Build 42 teleport actions now use the current `teleportplayer` and `teleportto` RCON commands**, and the Events target-player action no longer depends on the unrelated global target toggle.
+- **PanelBridge no longer loses fast command results as orphaned responses** while the inbox write is completing; lifecycle status also refreshes immediately while final start/stop confirmation continues in the background.
+
 ## [1.3.5] - 2026-09-14
 
 - **World Map POIs now use a compact direct-filter rail and distinct map markers.** Search results no longer cover the map for category browsing; all ten POI types have high-contrast pictograms, exact-location pointers, collision-aware labels, and separate hover and selected states.

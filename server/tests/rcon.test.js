@@ -522,6 +522,17 @@ describe('RconService', () => {
     });
   });
 
+  describe('teleport player targeting', () => {
+    it('uses teleportplayer for player-to-player movement on Build 42', async () => {
+      const liveRcon = new RconService();
+      const executeSpy = vi.spyOn(liveRcon, 'execute').mockResolvedValue({ success: true, response: 'ok' });
+
+      await liveRcon.teleportPlayer('Bob', 'Alice');
+
+      expect(executeSpy).toHaveBeenCalledWith('teleportplayer "Bob" "Alice"');
+    });
+  });
+
   describe('releaseSafehouse', () => {
     it('refuses honestly instead of sending a command the real server always rejects over RCON', async () => {
       const liveRcon = new RconService();
