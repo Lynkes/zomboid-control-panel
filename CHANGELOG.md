@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+_No unreleased changes._
+
+## [1.3.6] - 2026-09-17
+
 ### Fixed
 
 - **Build 42 teleport actions now use the current `teleportplayer` and `teleportto` RCON commands**, and the Events target-player action no longer depends on the unrelated global target toggle.
