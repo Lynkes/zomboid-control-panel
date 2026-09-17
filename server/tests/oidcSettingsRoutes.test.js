@@ -1,9 +1,18 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
 import { mockGetRoleByName } from "./helpers/mockPermissionsDb.js";
 import { startMockOidcProvider } from "./helpers/mockOidcProvider.js";
+import { acquireOidcTestLock } from "./helpers/oidcTestLock.js";
+
+let releaseOidcTestLock;
+beforeAll(async () => {
+  releaseOidcTestLock = await acquireOidcTestLock();
+});
+afterAll(() => {
+  releaseOidcTestLock?.();
+});
 
 // GET/PUT /api/auth/oidc/settings and POST /api/auth/oidc/test-connection --
 // the OIDC-configurable-from-the-panel work. Two things this file exists

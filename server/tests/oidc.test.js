@@ -9,6 +9,15 @@ import {
   _resetOidcConfigCacheForTests,
 } from '../services/oidc.js';
 import { makeSigningKey, startMockOidcProvider } from './helpers/mockOidcProvider.js';
+import { acquireOidcTestLock } from './helpers/oidcTestLock.js';
+
+let releaseOidcTestLock;
+beforeAll(async () => {
+  releaseOidcTestLock = await acquireOidcTestLock();
+});
+afterAll(() => {
+  releaseOidcTestLock?.();
+});
 
 const ENV_KEYS = [
   'PANEL_OIDC_ISSUER_URL',
