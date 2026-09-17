@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Build 42 teleport actions now use the current `teleportplayer` and `teleportto` RCON commands**, and the Events target-player action no longer depends on the unrelated global target toggle.
 - **PanelBridge no longer loses fast command results as orphaned responses** while the inbox write is completing; lifecycle status also refreshes immediately while final start/stop confirmation continues in the background.
+- **Existing seeded admin roles now receive the player-endanger capability during database migration**, so horde controls remain usable after the permission split introduced in schema v3.
 
 ## [1.3.5] - 2026-09-14
 

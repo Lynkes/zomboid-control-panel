@@ -175,7 +175,7 @@ describe("db.json backup -> restore round trip: real code paths, not hand-crafte
     const freshMod = await import("../database/init.js");
     const db = await freshMod.getDb();
 
-    expect(db.data._schemaVersion).toBe(3);
+    expect(db.data._schemaVersion).toBe(4);
 
     // Nothing the v1 snapshot already had was silently dropped.
     expect(db.data.settings.customOldSetting).toBe(
