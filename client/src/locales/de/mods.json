@@ -28,7 +28,8 @@
     "fixPath": "Pfad korrigieren",
     "sync": "Synchronisieren",
     "syncTooltip": "Erfasste Mods aus der Server-INI-Konfiguration synchronisieren",
-    "checkUpdates": "Aktualisierungen prüfen",
+    "checkUpdates": "Nach Updates suchen",
+    "checkUpdatesTooltip": "Prüft die Steam-Zeitstempel und aktualisiert die Update-Liste. Mods werden nicht heruntergeladen oder installiert.",
     "lastCheckedAgo": "vor {{when}}",
     "lastCheckedOn": "Zuletzt geprüft: {{when}}",
     "neverChecked": "Nie geprüft",
@@ -53,8 +54,8 @@
   "staleFlag": {
     "reported_one": "{{count}} Mod-Aktualisierung von Steam gemeldet — Markierungen nicht synchron",
     "reported_other": "{{count}} Mod-Aktualisierungen von Steam gemeldet — Markierungen nicht synchron",
-    "desc": "Der Workshop-Ordner enthält neuere Dateien, als das Panel erfasst hat. Führe eine Prüfung aus, um den Status der einzelnen Mods zu aktualisieren.",
-    "checkNow": "Jetzt prüfen"
+    "desc": "Prüft Steam auf neuere Dateien und aktualisiert die Update-Markierungen der Mods. Es wird nichts heruntergeladen oder installiert.",
+    "checkNow": "Erneut scannen"
   },
   "removedFromWorkshop": {
     "title_one": "{{count}} Mod existiert nicht mehr im Steam Workshop",

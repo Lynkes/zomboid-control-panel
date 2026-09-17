@@ -819,6 +819,11 @@ export default function Dashboard() {
       const isLifecycleAction = action === 'Start server' || action === 'Stop server' || action === 'Force stop server'
       let confirmed: boolean | null = null
       if (isLifecycleAction && activeServer?.id != null) {
+        // Refresh the dashboard immediately after the request is accepted.
+        // The confirmation poll below intentionally waits for the final state,
+        // but it must not postpone the visible starting/stopping transition
+        // until that potentially long poll completes.
+        if (mountedRef.current) void fetchStatus()
         confirmed = await waitForServerState(
           () => serversApi.getStatus({ retries: 0 }),
           activeServer.id,

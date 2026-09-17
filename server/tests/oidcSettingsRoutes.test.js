@@ -1,9 +1,18 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
 import { mockGetRoleByName } from "./helpers/mockPermissionsDb.js";
 import { startMockOidcProvider } from "./helpers/mockOidcProvider.js";
+import { acquireOidcTestLock } from "./helpers/oidcTestLock.js";
+
+let releaseOidcTestLock;
+beforeAll(async () => {
+  releaseOidcTestLock = await acquireOidcTestLock();
+});
+afterAll(() => {
+  releaseOidcTestLock?.();
+});
 
 // GET/PUT /api/auth/oidc/settings and POST /api/auth/oidc/test-connection --
 // the OIDC-configurable-from-the-panel work. Two things this file exists
@@ -200,6 +209,107 @@ describe("PUT /settings: validation", () => {
       makeReq({ body: { redirectUri: "not a url at all" } }),
     );
     expect(res.status).toHaveBeenCalledWith(400);
+  });
+
+  it("rejects a non-HTTP redirectUri scheme", async () => {
+    const res = await runRoute(
+      "/settings",
+      "put",
+      makeReq({ body: { redirectUri: "javascript:alert(1)" } }),
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(settingsStore.get("oidcRedirectUri")).toBeUndefined();
+  });
+
+  it("rejects a redirectUri that cannot reach the panel's OIDC callback route", async () => {
+    const res = await runRoute(
+      "/settings",
+      "put",
+      makeReq({ body: { redirectUri: "https://panel.example.com/api/auth/oidc/callbak" } }),
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ error: expect.stringContaining("/api/auth/oidc/callback") }),
+    );
+    expect(settingsStore.get("oidcRedirectUri")).toBeUndefined();
+  });
+
+  it("accepts the callback route behind a reverse-proxy path prefix", async () => {
+    const res = await runRoute(
+      "/settings",
+      "put",
+      makeReq({ body: { redirectUri: "https://panel.example.com/zomboid/api/auth/oidc/callback" } }),
+    );
+    expect(res.status).not.toHaveBeenCalledWith(400);
+    expect(settingsStore.get("oidcRedirectUri")).toBe(
+      "https://panel.example.com/zomboid/api/auth/oidc/callback",
+    );
+  });
+
+  it("rejects redirectUri query parameters because the callback exchange strips them", async () => {
+    const res = await runRoute(
+      "/settings",
+      "put",
+      makeReq({ body: { redirectUri: "https://panel.example.com/callback?tenant=one" } }),
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(settingsStore.get("oidcRedirectUri")).toBeUndefined();
+  });
+
+  it("rejects a string allowInsecureHttp value instead of treating \"false\" as true", async () => {
+    const res = await runRoute(
+      "/settings",
+      "put",
+      makeReq({ body: { allowInsecureHttp: "false" } }),
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(settingsStore.get("oidcAllowInsecureHttp")).toBeUndefined();
+  });
+
+  it("rejects a non-empty scope that omits openid", async () => {
+    const res = await runRoute(
+      "/settings",
+      "put",
+      makeReq({ body: { scope: "email profile" } }),
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(settingsStore.get("oidcScope")).toBeUndefined();
+  });
+
+  it("rejects an invalid redirectUri before Test Connection reaches the provider", async () => {
+    const res = await runRoute(
+      "/test-connection",
+      "post",
+      makeReq({
+        body: {
+          issuerUrl: "https://idp.example.com",
+          clientId: "client",
+          clientSecret: "secret",
+          redirectUri: "javascript:alert(1)",
+        },
+      }),
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ error: expect.stringMatching(/redirectUri/) }),
+    );
+  });
+
+  it("rejects an edited scope without openid before Test Connection reaches the provider", async () => {
+    const res = await runRoute(
+      "/test-connection",
+      "post",
+      makeReq({
+        body: {
+          issuerUrl: "https://idp.example.com",
+          clientId: "client",
+          clientSecret: "secret",
+          scope: "email profile",
+        },
+      }),
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({ error: "scope must include openid" });
   });
 
   it("a resubmitted masked clientSecret placeholder leaves the real stored secret untouched", async () => {

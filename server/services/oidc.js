@@ -22,6 +22,9 @@ import { sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 
 const log = createLogger("OIDC");
+const OIDC_REQUEST_TIMEOUT_SECONDS = 15;
+const MAX_OIDC_URL_LENGTH = 2048;
+const OIDC_CALLBACK_PATH = "/api/auth/oidc/callback";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -75,6 +78,7 @@ export async function getOidcSettings() {
     envClientSecret || readUiSecretFile("oidcClientSecret", log) || "";
 
   const envAllowInsecureHttp = readEnv("PANEL_OIDC_ALLOW_INSECURE_HTTP");
+  const storedAllowInsecureHttp = await getSetting("oidcAllowInsecureHttp");
   // Off by default: openid-client refuses plain HTTP for discovery and
   // every subsequent request, which is the right default for a panel
   // exposed to the internet. Only needed for a self-hosted IdP reachable
@@ -83,7 +87,7 @@ export async function getOidcSettings() {
   // tests, which run a local HTTP mock IdP.
   const allowInsecureHttp = envAllowInsecureHttp
     ? envAllowInsecureHttp === "true"
-    : Boolean(await getSetting("oidcAllowInsecureHttp"));
+    : storedAllowInsecureHttp === true;
 
   return {
     issuerUrl: resolved.oidcIssuerUrl,
@@ -126,13 +130,45 @@ export async function setOidcSettings(updates) {
   if (updates.clientSecret !== undefined) writeUiSecretFile("oidcClientSecret", updates.clientSecret);
 }
 
+function isValidOidcUrl(value, { allowHttp, allowQuery }) {
+  if (typeof value !== "string" || !value || value.length > MAX_OIDC_URL_LENGTH) {
+    return false;
+  }
+  try {
+    const url = new URL(value);
+    if (url.username || url.password || url.hash || (!allowQuery && url.search)) {
+      return false;
+    }
+    if (url.protocol === "https:") return true;
+    return url.protocol === "http:" && allowHttp;
+  } catch {
+    return false;
+  }
+}
+
+export function isValidOidcIssuerUrl(value, allowInsecureHttp = false) {
+  return isValidOidcUrl(value, { allowHttp: allowInsecureHttp === true, allowQuery: false });
+}
+
+export function isValidOidcRedirectUri(value) {
+  if (!isValidOidcUrl(value, { allowHttp: true, allowQuery: false })) {
+    return false;
+  }
+  return new URL(value).pathname.endsWith(OIDC_CALLBACK_PATH);
+}
+
 export function isOidcConfigured(settings) {
   return Boolean(
-    settings.issuerUrl &&
+    isValidOidcIssuerUrl(settings.issuerUrl, settings.allowInsecureHttp) &&
       settings.clientId &&
       settings.clientSecret &&
-      settings.redirectUri,
+      isValidOidcRedirectUri(settings.redirectUri) &&
+      hasOpenIdScope(settings.scope),
   );
+}
+
+export function hasOpenIdScope(scope) {
+  return typeof scope === "string" && scope.split(/\s+/).includes("openid");
 }
 
 // Discovery is a network call to the IdP — never do it at module import time
@@ -167,7 +203,7 @@ export async function getOidcConfig() {
         settings.clientId,
         settings.clientSecret,
         undefined,
-        { execute },
+        { execute, timeout: OIDC_REQUEST_TIMEOUT_SECONDS },
       )
       .catch((error) => {
         _configPromise = null;
@@ -252,6 +288,21 @@ export async function testOidcDiscovery({
     };
   }
 
+  if (!isValidOidcIssuerUrl(issuerUrl, allowInsecureHttp)) {
+    return {
+      success: false,
+      error: allowInsecureHttp
+        ? "issuerUrl must be a valid http:// or https:// URL without credentials, query parameters, or a fragment."
+        : "issuerUrl must be a valid https:// URL without credentials, query parameters, or a fragment.",
+    };
+  }
+  if (redirectUri && !isValidOidcRedirectUri(redirectUri)) {
+    return {
+      success: false,
+      error: `redirectUri must be a valid http:// or https:// URL ending in ${OIDC_CALLBACK_PATH}, without credentials, query parameters, or a fragment.`,
+    };
+  }
+
   let issuer;
   try {
     issuer = new URL(issuerUrl);
@@ -264,7 +315,10 @@ export async function testOidcDiscovery({
 
   let config;
   try {
-    config = await client.discovery(issuer, clientId, clientSecret, undefined, { execute });
+    config = await client.discovery(issuer, clientId, clientSecret, undefined, {
+      execute,
+      timeout: OIDC_REQUEST_TIMEOUT_SECONDS,
+    });
   } catch (error) {
     log.warn(`OIDC test-connection discovery against ${issuerUrl} failed: ${error.message}`);
     return { success: false, error: error.message };
@@ -372,7 +426,15 @@ export async function handleOidcCallback(currentUrl, flow) {
   if (!config) {
     throw new Error("OIDC is not configured");
   }
-  if (!flow || !flow.state || !flow.nonce || !flow.codeVerifier) {
+  if (
+    !flow ||
+    typeof flow.state !== "string" ||
+    !flow.state ||
+    typeof flow.nonce !== "string" ||
+    !flow.nonce ||
+    typeof flow.codeVerifier !== "string" ||
+    !flow.codeVerifier
+  ) {
     throw new Error("OIDC sign-in session is missing or expired");
   }
 
@@ -387,7 +449,15 @@ export async function handleOidcCallback(currentUrl, flow) {
   // the provider's JWKS, iss, aud, exp, and nonce) — this just reads the
   // result out, it performs no additional checking of its own.
   const claims = tokens.claims();
-  if (!claims || !claims.sub) {
+  if (
+    !claims ||
+    typeof claims.iss !== "string" ||
+    !claims.iss ||
+    typeof claims.sub !== "string" ||
+    !claims.sub ||
+    claims.sub.length > 255 ||
+    /[\u0000-\u001f\u007f]/.test(claims.sub)
+  ) {
     throw new Error("OIDC provider did not return a subject claim");
   }
 

@@ -1129,43 +1129,59 @@ class AuthService {
    * @returns {Promise<{linked: true, user, accessToken, refreshToken} | {linked: false, canBootstrapAdmin: boolean}>}
    */
   async loginWithExternalIdentity({ issuer, subject } = {}, rememberMe = true) {
-    if (!issuer || !subject) {
+    if (
+      typeof issuer !== "string" ||
+      !issuer ||
+      typeof subject !== "string" ||
+      !subject
+    ) {
       throw new Error("issuer and subject are required");
     }
 
-    const db = await getDb();
-    const users = db.data.users || [];
-    const existing = users.find(
-      (u) =>
-        Array.isArray(u.externalIdentities) &&
-        u.externalIdentities.some(
-          (ext) => ext.issuer === issuer && ext.subject === subject,
-        ),
-    );
+    return this._withMutex(async () => {
+      const db = await getDb();
+      const users = db.data.users || [];
+      const matches = users.filter(
+        (u) =>
+          Array.isArray(u.externalIdentities) &&
+          u.externalIdentities.some(
+            (ext) => ext.issuer === issuer && ext.subject === subject,
+          ),
+      );
 
-    if (!existing) {
-      return { linked: false, canBootstrapAdmin: users.length === 0 };
-    }
+      if (matches.length > 1) {
+        log.error(
+          `Refusing OIDC login: identity ${issuer}/${subject} is linked to multiple accounts`,
+        );
+        throw new Error("External identity is linked to multiple accounts");
+      }
 
-    this.ensureUserAuthState(existing);
-    existing.lastLogin = new Date().toISOString();
-    const refreshSession = rememberMe
-      ? this.createRefreshSession(existing)
-      : null;
-    await commitNow();
+      const existing = matches[0];
 
-    const accessToken = this.generateAccessToken(existing);
-    const refreshToken = refreshSession
-      ? this.generateRefreshToken(existing, refreshSession.id)
-      : null;
+      if (!existing) {
+        return { linked: false, canBootstrapAdmin: users.length === 0 };
+      }
 
-    log.info(`User logged in via OIDC: ${existing.username}`);
-    return {
-      linked: true,
-      user: { id: existing.id, username: existing.username, role: existing.role },
-      accessToken,
-      refreshToken,
-    };
+      this.ensureUserAuthState(existing);
+      existing.lastLogin = new Date().toISOString();
+      const refreshSession = rememberMe
+        ? this.createRefreshSession(existing)
+        : null;
+      await commitNow();
+
+      const accessToken = this.generateAccessToken(existing);
+      const refreshToken = refreshSession
+        ? this.generateRefreshToken(existing, refreshSession.id)
+        : null;
+
+      log.info(`User logged in via OIDC: ${existing.username}`);
+      return {
+        linked: true,
+        user: { id: existing.id, username: existing.username, role: existing.role },
+        accessToken,
+        refreshToken,
+      };
+    });
   }
 
   /**
@@ -1210,7 +1226,12 @@ class AuthService {
       if (!(await verifySetupToken(setupToken))) {
         throw new Error("Invalid or missing setup token");
       }
-      if (!issuer || !subject) {
+      if (
+        typeof issuer !== "string" ||
+        !issuer ||
+        typeof subject !== "string" ||
+        !subject
+      ) {
         throw new Error("issuer and subject are required");
       }
       if (!username || typeof username !== "string") {
@@ -1234,7 +1255,7 @@ class AuthService {
           {
             issuer,
             subject,
-            email: email || null,
+            email: typeof email === "string" ? email : null,
             linkedAt: new Date().toISOString(),
           },
         ],
@@ -1257,50 +1278,67 @@ class AuthService {
    * enforcing it's admin-only, the same way the requireRole("admin")
    * routes elsewhere in this app do.
    */
-  async linkExternalIdentity(userId, { issuer, subject, email } = {}) {
-    if (!issuer || !subject) {
+  async linkExternalIdentity(
+    userId,
+    { issuer, subject, email } = {},
+    { actingUserId } = {},
+  ) {
+    if (
+      typeof issuer !== "string" ||
+      !issuer ||
+      typeof subject !== "string" ||
+      !subject
+    ) {
       throw new Error("issuer and subject are required");
     }
 
-    const db = await getDb();
-    const users = db.data.users || [];
-    const user = users.find((u) => u.id === userId);
-    if (!user) {
-      throw new Error("User not found");
-    }
+    return this._withMutex(async () => {
+      const db = await getDb();
+      const users = db.data.users || [];
+      const user = users.find((u) => u.id === userId);
+      if (!user) {
+        throw new Error("User not found");
+      }
+      if (actingUserId) {
+        const actingUser = users.find((candidate) => candidate.id === actingUserId);
+        if (actingUser?.role !== "admin") {
+          throw new Error("The initiating administrator is no longer authorized");
+        }
+      }
 
-    const claimedElsewhere = users.some(
-      (u) =>
-        u.id !== userId &&
-        Array.isArray(u.externalIdentities) &&
-        u.externalIdentities.some(
-          (ext) => ext.issuer === issuer && ext.subject === subject,
-        ),
-    );
-    if (claimedElsewhere) {
-      throw new Error(
-        "This external identity is already linked to a different account",
+      const claimedElsewhere = users.some(
+        (u) =>
+          u.id !== userId &&
+          Array.isArray(u.externalIdentities) &&
+          u.externalIdentities.some(
+            (ext) => ext.issuer === issuer && ext.subject === subject,
+          ),
       );
-    }
+      if (claimedElsewhere) {
+        throw new Error(
+          "This external identity is already linked to a different account",
+        );
+      }
 
-    if (!Array.isArray(user.externalIdentities)) {
-      user.externalIdentities = [];
-    }
-    const alreadyLinked = user.externalIdentities.some(
-      (ext) => ext.issuer === issuer && ext.subject === subject,
-    );
-    if (!alreadyLinked) {
-      user.externalIdentities.push({
-        issuer,
-        subject,
-        email: email || null,
-        linkedAt: new Date().toISOString(),
-      });
-      await commitNow();
-    }
+      if (!Array.isArray(user.externalIdentities)) {
+        user.externalIdentities = [];
+      }
+      const alreadyLinked = user.externalIdentities.some(
+        (ext) => ext.issuer === issuer && ext.subject === subject,
+      );
+      if (!alreadyLinked) {
+        user.externalIdentities.push({
+          issuer,
+          subject,
+          email: typeof email === "string" ? email : null,
+          linkedAt: new Date().toISOString(),
+        });
+        await commitNow();
+      }
 
-    log.info(`Linked external identity to user: ${user.username}`);
-    return { id: user.id, username: user.username, role: user.role };
+      log.info(`Linked external identity to user: ${user.username}`);
+      return { id: user.id, username: user.username, role: user.role };
+    });
   }
 
   /**

@@ -1,10 +1,64 @@
 ---@diagnostic disable: undefined-global, deprecated
 --[[
     PanelBridge - Server-side mod for Zomboid Control Panel
-    Version: 1.7.57
+    Version: 1.7.68
 
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
+
+                v1.7.67 Changes:
+                - Packaging: align the bundled bridge version with the
+                    Zomboid Control Panel v1.3.5 release.
+
+                v1.7.63 Changes:
+                - Add: bundled client companion receives targeted teleport
+                    requests, applies local coordinates, and acknowledges the
+                    request back to the server. Server responses report the
+                    client sync as requested rather than falsely confirmed.
+
+                v1.7.62 Changes:
+                - Harden: queue startup rebuilds nextResultSeq from the
+                    panel-owned consumed-result cursor after Lua state reset.
+                - Fix: player-targeted handlers distinguish an unreadable
+                    online-player collection from an offline player.
+                - UI: Events weather actions now label successful but
+                    unverifiable requests as requested, not confirmed.
+
+                v1.7.61 Changes:
+                - Fix: checkAPI now distinguishes available, unavailable,
+                    and unprobed Java methods instead of treating unknown as
+                    a confirmed absence.
+                - Fix: unsupported Build 42 faction creation/disbanding now
+                    return explicit API-limit errors instead of attempting
+                    dead methods and producing generic Lua failures.
+
+                v1.7.60 Changes:
+                - Harden: result sequence state is reserved before outbox
+                    writes, preventing a crash window from reusing a sequence
+                    and overwriting a previously written response.
+                - Harden: reader/writer open, write, and close failures now
+                    return clean retryable failures instead of escaping ticks.
+                - Fix: expired commands are counted consistently, and failed
+                    non-deferred mutations invalidate live read caches.
+
+                v1.7.59 Changes:
+                - Harden: Java method capability checks now invoke methods
+                    instead of reading unreliable userdata fields, including
+                    sandbox, faction, chat, vehicle, climate, and zombie APIs.
+                - Harden: shared iterator-first collection traversal now covers
+                    players, inventory, exports, utilities, zombies,
+                    safehouses, factions, catalogs, and sandbox options.
+                - Fix: unreadable collections and failed partial mutations no
+                    longer become fabricated zero counts, removals, successes,
+                    or stale cached reads.
+
+                v1.7.58 Changes:
+                - Fix: getVehiclesDetailed tried Java collection get(i)
+                    before iterator(), which throws a RuntimeException on
+                    Build 42's Set-shaped vehicle collection every polling
+                    cycle. Iterator traversal is now preferred, with get(i)
+                    retained only as a compatibility fallback for list-shaped
+                    bindings, stopping the repeated PanelBridge Lua errors.
 
                 v1.7.55 Changes:
                 - Fix: two wall-clock markers (tryResyncInboxCursor's
@@ -505,7 +559,7 @@
 local json
 
 local PanelBridge = {
-    VERSION = "1.7.57",
+    VERSION = "1.7.68",
     PROTOCOL_VERSION = "queue-v1",
     CHECK_INTERVAL = 250, -- milliseconds (fast command polling)
     lastCheck = 0,
@@ -794,6 +848,18 @@ function PanelBridge.hasMethod(obj, methodName)
     return key ~= nil and PanelBridge.methodCapabilities[key] == true
 end
 
+function PanelBridge.methodStatus(obj, methodName)
+    if not obj or not methodName then return "unknown" end
+    if type(obj) == "table" then
+        local ok, method = pcall(function() return obj[methodName] end)
+        if ok and type(method) == "function" then return "available" end
+    end
+    local key = capabilityKey(obj, methodName)
+    if key and PanelBridge.methodCapabilities[key] == true then return "available" end
+    if key and PanelBridge.methodCapabilities[key] == false then return "unavailable" end
+    return "unknown"
+end
+
 -- Safely call a method that might not exist
 -- Returns: success, result/error
 function PanelBridge.safeCall(obj, methodName, ...)
@@ -850,6 +916,48 @@ function PanelBridge.tryGet(obj, methodName, ...)
     local success, result = PanelBridge.invoke(obj, methodName, ...)
     if success then return result end
     return nil
+end
+
+local function collectJavaCollection(collection, label)
+    label = label or "Java collection"
+    if not collection then return nil, label .. " is nil" end
+
+    local sizeOk, size = PanelBridge.invoke(collection, "size")
+    local expected = sizeOk and tonumber(size) or nil
+    local items = {}
+
+    local iteratorOk, iterator = PanelBridge.invoke(collection, "iterator")
+    if iteratorOk and iterator then
+        local complete = true
+        while true do
+            local hasNextOk, hasNext = PanelBridge.invoke(iterator, "hasNext")
+            if not hasNextOk then
+                complete = false
+                break
+            end
+            if not hasNext then break end
+
+            local nextOk, item = PanelBridge.invoke(iterator, "next")
+            if not nextOk then
+                complete = false
+                break
+            end
+            if item ~= nil then table.insert(items, item) end
+        end
+        if complete then return items, nil end
+    end
+
+    items = {}
+    if expected and expected >= 0 then
+        for i = 0, expected - 1 do
+            local itemOk, item = PanelBridge.invoke(collection, "get", i)
+            if not itemOk then break end
+            if item ~= nil then table.insert(items, item) end
+        end
+        if #items > 0 or expected == 0 then return items, nil end
+    end
+
+    return nil, label .. " could not be enumerated"
 end
 
 -- zombie.characters.Stats has no getHunger/getThirst/getFatigue/etc -- it
@@ -975,7 +1083,8 @@ function PanelBridge.detectVersion()
     -- it's safe to confirm with a real PanelBridge.invoke() call instead of
     -- the broken hasMethod probe.
     local onlinePlayers = getOnlinePlayers and getOnlinePlayers()
-    local testPlayer = onlinePlayers and onlinePlayers:size() > 0 and onlinePlayers:get(0) or nil
+    local onlinePlayerList = onlinePlayers and collectJavaCollection(onlinePlayers, "Online player list")
+    local testPlayer = onlinePlayerList and onlinePlayerList[1] or nil
     if testPlayer then
         if PanelBridge.invoke(testPlayer, "getTraits") then
             version.isB41 = true
@@ -984,8 +1093,12 @@ function PanelBridge.detectVersion()
 
     -- Try to get build version
     pcall(function()
-        if getCore and getCore() and getCore().getVersion then
-            version.build = getCore():getVersion()
+        local core = getCore and getCore()
+        if core then
+            local versionOk, build = PanelBridge.invoke(core, "getVersion")
+            if versionOk and build then
+                version.build = build
+            end
         end
     end)
 
@@ -1298,12 +1411,22 @@ end
 local function getPlayerByUsername(username)
     if not username then return nil end
 
+    PanelBridge.lastPlayerLookupError = nil
+
     local onlinePlayers = getOnlinePlayers()
-    if not onlinePlayers then return nil end
+    if not onlinePlayers then
+        PanelBridge.lastPlayerLookupError = "Online player list unavailable"
+        return nil
+    end
+
+    local playerList, collectErr = collectJavaCollection(onlinePlayers, "Online player list")
+    if not playerList then
+        PanelBridge.lastPlayerLookupError = "Online player list unavailable: " .. tostring(collectErr)
+        return nil
+    end
 
     local lowerUser = string.lower(username)
-    for i = 0, onlinePlayers:size() - 1 do
-        local player = onlinePlayers:get(i)
+    for _, player in ipairs(playerList) do
         if player then
             local ok, pname = pcall(function() return player:getUsername() end)
             if ok and pname and string.lower(pname) == lowerUser then
@@ -1313,6 +1436,52 @@ local function getPlayerByUsername(username)
     end
 
     return nil
+end
+
+local function playerLookupError(username)
+    return PanelBridge.lastPlayerLookupError or "Player not found: " .. tostring(username)
+end
+
+PanelBridge.teleportRequestSeq = PanelBridge.teleportRequestSeq or 0
+PanelBridge.teleportAcks = PanelBridge.teleportAcks or {}
+PanelBridge.teleportAckOrder = PanelBridge.teleportAckOrder or {}
+local MAX_TELEPORT_ACKS = 200
+
+local function requestClientTeleport(player, x, y, z)
+    PanelBridge.teleportRequestSeq = PanelBridge.teleportRequestSeq + 1
+    local requestId = tostring(getTimestampMs()) .. "-" .. tostring(PanelBridge.teleportRequestSeq)
+    local ok, err = pcall(function()
+        if not sendServerCommand then error("sendServerCommand is not available") end
+        sendServerCommand(player, "PanelBridge", "teleport", {
+            requestId = requestId,
+            x = x,
+            y = y,
+            z = z
+        })
+    end)
+    if not ok then return false, requestId, tostring(err) end
+    return true, requestId, nil
+end
+
+function PanelBridge.onClientCommand(module, command, player, args)
+    if module ~= "PanelBridge" or command ~= "teleportAck" or not player then return end
+    args = args or {}
+    local requestId = tostring(args.requestId or "")
+    if requestId == "" then return end
+    PanelBridge.teleportAcks[requestId] = {
+        status = tostring(args.status or "unknown"),
+        username = PanelBridge.tryGet(player, "getUsername"),
+        x = tonumber(args.x),
+        y = tonumber(args.y),
+        z = tonumber(args.z),
+        error = args.error,
+        receivedAt = getTimestampMs()
+    }
+    table.insert(PanelBridge.teleportAckOrder, requestId)
+    while #PanelBridge.teleportAckOrder > MAX_TELEPORT_ACKS do
+        local oldest = table.remove(PanelBridge.teleportAckOrder, 1)
+        if oldest then PanelBridge.teleportAcks[oldest] = nil end
+    end
 end
 
 -- ============================================
@@ -1385,8 +1554,10 @@ function PanelBridge.ensureDirectory()
     -- Build 42 no longer lets Lua create directories, so the panel owns the
     -- bridge folder. What matters here is that the write root is usable.
     local initPath = PanelBridge.getWritePath(".init")
-    local writer = getFileWriter(initPath, true, false)
-    if writer then
+    local writerOk, writer = pcall(function()
+        return getFileWriter(initPath, true, false)
+    end)
+    if writerOk and writer then
         local stamp = "unknown"
         if os and os.date then
             local ok, val = pcall(function() return os.date() end)
@@ -1394,9 +1565,11 @@ function PanelBridge.ensureDirectory()
         elseif getTimestampMs then
             stamp = tostring(getTimestampMs())
         end
-        writer:write("PanelBridge initialized at " .. stamp)
-        writer:close()
-        return true
+        local initOk = pcall(function()
+            writer:write("PanelBridge initialized at " .. stamp)
+            writer:close()
+        end)
+        if initOk then return true end
     end
 
     print("[PanelBridge] ERROR: could not write " .. initPath .. " in the Lua folder")
@@ -1409,8 +1582,10 @@ function PanelBridge.ensureDirectory()
 end
 
 function PanelBridge.readPath(path)
-    local reader = getFileReader(path, false)
-    if not reader then
+    local readerOk, reader = pcall(function()
+        return getFileReader(path, false)
+    end)
+    if not readerOk or not reader then
         return nil
     end
 
@@ -1422,8 +1597,10 @@ function PanelBridge.readPath(path)
             line = reader:readLine()
         end
     end)
-    reader:close()
-    if not readOk then return nil end
+    local closeOk = pcall(function()
+        reader:close()
+    end)
+    if not readOk or not closeOk then return nil end
 
     local content = table.concat(lines, "\n")
     return (content:gsub("^%s*(.-)%s*$", "%1")) -- trim
@@ -1457,17 +1634,21 @@ function PanelBridge.writeFile(filename, content)
     else
         path = PanelBridge.getWritePath(filename)
     end
-    local writer = getFileWriter(path, true, false)
-    if not writer then
+    local writerOk, writer = pcall(function()
+        return getFileWriter(path, true, false)
+    end)
+    if not writerOk or not writer then
         print("[PanelBridge] Error: Could not write to " .. path)
         return false
     end
     local writeOk, writeErr = pcall(function()
         writer:write(content)
     end)
-    writer:close()
-    if not writeOk then
-        print("[PanelBridge] Error writing: " .. tostring(writeErr))
+    local closeOk, closeErr = pcall(function()
+        writer:close()
+    end)
+    if not writeOk or not closeOk then
+        print("[PanelBridge] Error writing: " .. tostring(writeErr or closeErr))
         return false
     end
     return true
@@ -1528,6 +1709,28 @@ function PanelBridge.readQueueState()
         end
         if nextResultSeq and nextResultSeq >= 1 then
             PanelBridge.queueState.nextResultSeq = math.floor(nextResultSeq)
+        end
+    end
+
+    -- Recover from a deleted, truncated, or reset Lua-owned state file using
+    -- the panel-owned cursor. Node uploads this file before its Lua inbox
+    -- resync path runs, so its consumed-result position is a safe lower bound
+    -- for the next result sequence and prevents outbox filename reuse.
+    local nodeState = PanelBridge.readJSON(".queue-state-node.json")
+    if type(nodeState) == "table" then
+        local nodeNextResult = tonumber(nodeState.nextResultSeq)
+        if nodeNextResult and nodeNextResult >= 1 then
+            PanelBridge.queueState.nextResultSeq = math.max(
+                PanelBridge.queueState.nextResultSeq,
+                math.floor(nodeNextResult)
+            )
+        end
+        local lastConsumed = tonumber(nodeState.lastConsumedResultSeq)
+        if lastConsumed and lastConsumed >= 0 then
+            PanelBridge.queueState.nextResultSeq = math.max(
+                PanelBridge.queueState.nextResultSeq,
+                math.floor(lastConsumed) + 1
+            )
         end
     end
 end
@@ -1608,6 +1811,15 @@ function PanelBridge.flushResults()
         return
     end
 
+    -- Reserve the advanced sequence counter before writing any result file.
+    -- If the process dies between these two writes, the next startup may skip
+    -- a missing result, but it cannot reuse a sequence and overwrite a result
+    -- that was already written.
+    if PanelBridge.queueStateDirty and not PanelBridge.writeQueueState() then
+        PanelBridge.warn("Queue state reservation failed; deferring result writes")
+        return
+    end
+
     -- NOTE (audit L04, retired): this used to also do a read-modify-write of
     -- a legacy results.json on every flush, for panels that hadn't
     -- negotiated protocolVersion=queue-v1. Panel and mod are always shipped
@@ -1653,12 +1865,6 @@ function PanelBridge.flushResults()
     end
     PanelBridge.pendingResults = remaining
 
-    -- Persist the sequence counter only after the result files it refers to
-    -- are on disk, so a crash can never leave a reusable seq pointing at an
-    -- unconsumed result.
-    if PanelBridge.queueStateDirty then
-        PanelBridge.writeQueueState()
-    end
 end
 
 -- ============================================
@@ -1752,6 +1958,7 @@ local function processSingleCommand(cmd)
         local nowMs = getTimestampMs()
         if nowMs > cmd.expiresAt then
             markProcessed(cmd.id)
+            PanelBridge.stats.commandsProcessed = PanelBridge.stats.commandsProcessed + 1
             PanelBridge.stats.commandsFailed = PanelBridge.stats.commandsFailed + 1
             PanelBridge.warn("Skipping expired command", {
                 action = tostring(cmd.action),
@@ -1759,7 +1966,7 @@ local function processSingleCommand(cmd)
                 ageMs = nowMs - cmd.expiresAt
             })
             PanelBridge.sendResult(cmd.id, false, nil, "Command expired before mod could process it")
-            return false
+            return true
         end
     end
 
@@ -1817,6 +2024,15 @@ local function processSingleCommand(cmd)
         local pcallOk, success, data, errorMsg = pcall(handler, handlerArgs, cmd.id)
         local duration = getTimestampMs() - startTime
 
+        -- A state-changing handler can mutate the game and then fail during
+        -- verification or persistence. Invalidate live read caches for every
+        -- non-deferred non-cacheable dispatch, not only the success branch.
+        -- Otherwise a partial failure serves the pre-mutation snapshot until
+        -- the TTL expires.
+        if not cacheTtl and (not pcallOk or success ~= "DEFERRED") then
+            invalidateLiveStateCache()
+        end
+
         if not pcallOk then
             PanelBridge.stats.commandsFailed = PanelBridge.stats.commandsFailed + 1
             local crashMsg = "Handler crashed: " .. tostring(success)
@@ -1840,10 +2056,6 @@ local function processSingleCommand(cmd)
             })
             if cacheTtl then
                 readOnlyCache[cmd.action] = { at = getTimestampMs(), ok = success, data = data, err = errorMsg }
-            else
-                -- Any non-cacheable command that succeeded may have mutated
-                -- world state the live caches describe.
-                invalidateLiveStateCache()
             end
             PanelBridge.sendResult(cmd.id, success, data, errorMsg)
         elseif errorMsg == "useRCON" then
@@ -2154,6 +2366,7 @@ handlers.checkAPI = function(args)
         if methodName then
             result.method = methodName
             result.methodAvailable = PanelBridge.hasMethod(obj, methodName)
+            result.methodStatus = PanelBridge.methodStatus(obj, methodName)
         else
             -- List available methods (limited)
             result.methods = {}
@@ -2207,7 +2420,7 @@ handlers.ping = function(args)
         message = "pong",
         version = PanelBridge.VERSION,
         serverTime = getTimestampMs(),
-        playerCount = onlinePlayers and onlinePlayers:size() or 0
+        playerCount = tonumber(PanelBridge.tryGet(onlinePlayers, "size")) or 0
     }
 end
 
@@ -2217,8 +2430,11 @@ handlers.getServerInfo = function(args)
     local onlinePlayers = getOnlinePlayers()
 
     if onlinePlayers then
-        for i = 0, onlinePlayers:size() - 1 do
-            local player = onlinePlayers:get(i)
+        local playerList, collectErr = collectJavaCollection(onlinePlayers, "Online player list")
+        if not playerList then
+            return false, nil, "Online player list lookup failed: " .. tostring(collectErr)
+        end
+        for _, player in ipairs(playerList) do
             if player then
                 -- Wrap each player in pcall so one bad player doesn't break the whole list
                 local ok, playerData = pcall(function()
@@ -3174,9 +3390,8 @@ handlers.resetClimateOverrides = function(args)
     -- Also reset ClimateBool overrides (e.g. BOOL_IS_SNOW = 0 set by setSnow)
     local boolsReset = 0
     pcall(function()
-        local snowBool = climate:getClimateBool(0) -- BOOL_IS_SNOW
-        if snowBool and snowBool.setEnableAdmin then
-            snowBool:setEnableAdmin(false)
+        local boolOk, snowBool = PanelBridge.invoke(climate, "getClimateBool", 0) -- BOOL_IS_SNOW
+        if boolOk and snowBool and PanelBridge.invoke(snowBool, "setEnableAdmin", false) then
             boolsReset = boolsReset + 1
         end
     end)
@@ -3267,10 +3482,12 @@ local function emitWorldSound(player, x, y, z, radius, volume)
         if addSound then
             addSound(player, x, y, z, radius, volume)
             method = "addSound"
-        elseif getWorld and getWorld() and getWorld().getWorldSoundManager then
-            local wsm = getWorld():getWorldSoundManager()
-            if wsm and wsm.addSound then
-                wsm:addSound(player, x, y, z, radius, volume)
+        elseif getWorld then
+            local world = getWorld()
+            local managerOk, wsm = PanelBridge.invoke(world, "getWorldSoundManager")
+            if managerOk and wsm then
+                local soundOk = PanelBridge.invoke(wsm, "addSound", player, x, y, z, radius, volume)
+                if not soundOk then error("WorldSoundManager.addSound failed") end
                 method = "WorldSoundManager.addSound"
             else
                 error("No sound API available")
@@ -3328,7 +3545,7 @@ handlers.playSoundNearPlayer = function(args)
 
     local player = getPlayerByUsername(username)
     if not player then
-        return false, nil, "Player not found: " .. username
+        return false, nil, playerLookupError(username)
     end
 
     local x = player:getX()
@@ -3368,7 +3585,7 @@ handlers.triggerGunshot = function(args)
             y = player:getY()
             z = player:getZ()
         else
-            return false, nil, "Player not found: " .. username
+            return false, nil, playerLookupError(username)
         end
     end
 
@@ -3410,7 +3627,7 @@ handlers.triggerAlarmSound = function(args)
             y = player:getY()
             z = player:getZ()
         else
-            return false, nil, "Player not found: " .. username
+            return false, nil, playerLookupError(username)
         end
     end
 
@@ -3454,7 +3671,7 @@ handlers.createNoise = function(args)
             y = player:getY()
             z = player:getZ()
         else
-            return false, nil, "Player not found: " .. username
+            return false, nil, playerLookupError(username)
         end
     end
 
@@ -3600,13 +3817,18 @@ handlers.getWorldStats = function(args)
 
     local cell = world:getCell()
     local zombieCount = 0
-    if cell and cell.getZombieList then
-        pcall(function()
-            local list = cell:getZombieList()
-            if list then
-                zombieCount = list:size()
-            end
-        end)
+    if cell then
+        local listOk, list = PanelBridge.invoke(cell, "getZombieList")
+        if not listOk or not list then
+            return false, nil, "Zombie list lookup failed"
+        end
+        local countOk, count = PanelBridge.invoke(list, "size")
+        if not countOk or tonumber(count) == nil then
+            return false, nil, "Zombie list size lookup failed"
+        end
+        zombieCount = tonumber(count)
+    else
+        return false, nil, "Cell not available"
     end
 
     return true, {
@@ -3741,7 +3963,7 @@ handlers.getPlayerDetails = function(args)
 
     local player = getPlayerByUsername(username)
     if not player then
-        return false, nil, "Player not found: " .. username
+        return false, nil, playerLookupError(username)
     end
 
     local ok, playerData = pcall(function()
@@ -3855,8 +4077,12 @@ handlers.getAllPlayerDetails = function(args)
         return true, { players = {} }
     end
 
-    for i = 0, onlinePlayers:size() - 1 do
-        local player = onlinePlayers:get(i)
+    local playerList, collectErr = collectJavaCollection(onlinePlayers, "Online player list")
+    if not playerList then
+        return false, nil, "Online player list lookup failed: " .. tostring(collectErr)
+    end
+
+    for _, player in ipairs(playerList) do
         if player then
             local ok, playerData = pcall(function()
                 -- Same fix as handlers.getPlayerDetails -- every field below
@@ -3938,9 +4164,11 @@ local function serializeInventory(container, depth, maxItems, currentCount)
     itemList = PanelBridge.tryGet(container, "getItems")
     if itemList then method = "getItems" end
 
-    -- B42 fallback: some containers use getAllItems() or Items
-    if not itemList and container.getAllItems then
-        local ok, result = pcall(function() return container:getAllItems() end)
+    -- B42 fallback: some containers use getAllItems() or Items. Java
+    -- userdata may expose the method to a call while field lookup reads nil,
+    -- so probe it through invoke() rather than testing container.getAllItems.
+    if not itemList then
+        local ok, result = PanelBridge.invoke(container, "getAllItems")
         if ok and result then
             itemList = result
             method = "getAllItems"
@@ -3949,16 +4177,12 @@ local function serializeInventory(container, depth, maxItems, currentCount)
 
     if not itemList then return {}, "no items method (tried: getItems, getAllItems)" end
 
-    local sizeOk, listSize = pcall(function() return itemList:size() end)
-    if not sizeOk or type(listSize) ~= "number" then
-        return {}, method .. " size() failed"
-    end
+    local itemArray, collectErr = collectJavaCollection(itemList, method .. " item list")
+    if not itemArray then return {}, collectErr end
+    if #itemArray == 0 then return {}, method .. " returned size 0" end
 
-    if listSize == 0 then return {}, method .. " returned size 0" end
-
-    for i = 0, listSize - 1 do
+    for _, item in ipairs(itemArray) do
         if currentCount.n >= maxItems then break end
-        local item = itemList:get(i)
         if item then
             local ok, itemData = pcall(function()
                 local data = {
@@ -4119,17 +4343,12 @@ local function getPlayerTraits(player)
 
     if not traitList then return {}, "no trait method worked (tried: player:getCharacterTraits():getKnownTraits, desc:getTraitList, desc:getTraits, player:getTraits)" end
 
-    -- Get size safely
-    local sizeOk, listSize = pcall(function() return traitList:size() end)
-    if not sizeOk or type(listSize) ~= "number" then
-        return {}, method .. " size() failed"
-    end
+    local traitItems, collectErr = collectJavaCollection(traitList, method .. " trait list")
+    if not traitItems then return {}, collectErr end
+    if #traitItems == 0 then return {}, method .. " returned size 0" end
 
-    if listSize == 0 then return {}, method .. " returned size 0" end
-
-    for i = 0, listSize - 1 do
-        local ok, trait = pcall(function() return traitList:get(i) end)
-        if ok and trait then
+    for _, trait in ipairs(traitItems) do
+        if trait then
             if type(trait) == "string" then
                 table.insert(traits, trait)
             else
@@ -4153,12 +4372,11 @@ local function getKnownRecipes(player)
     local listOk, recipeList = pcall(function() return player:getKnownRecipes() end)
     if not listOk or not recipeList then return recipes, "player:getKnownRecipes() failed or returned nil" end
 
-    local sizeOk, listSize = pcall(function() return recipeList:size() end)
-    if not sizeOk or type(listSize) ~= "number" then return recipes, "getKnownRecipes():size() failed" end
+    local recipeItems, collectErr = collectJavaCollection(recipeList, "Known recipe list")
+    if not recipeItems then return recipes, collectErr end
 
-    for i = 0, listSize - 1 do
-        local ok, recipe = pcall(function() return recipeList:get(i) end)
-        if ok and recipe then table.insert(recipes, recipe) end
+    for _, recipe in ipairs(recipeItems) do
+        if recipe then table.insert(recipes, recipe) end
     end
 
     return recipes, #recipes .. " recipe(s) found"
@@ -4175,21 +4393,17 @@ local function getWornItems(player)
 
     if not wornItems then return {}, "getWornItems returned nil or failed" end
 
-    local sizeOk, listSize = pcall(function() return wornItems:size() end)
-    if not sizeOk or type(listSize) ~= "number" then
-        return {}, method .. " size() failed"
-    end
+    local wornList, collectErr = collectJavaCollection(wornItems, method .. " list")
+    if not wornList then return {}, collectErr end
+    if #wornList == 0 then return {}, method .. " returned size 0" end
 
-    if listSize == 0 then return {}, method .. " returned size 0" end
-
-    for i = 0, listSize - 1 do
+    for _, wornItem in ipairs(wornList) do
         local ok, wornData = pcall(function()
-            local item = wornItems:get(i)
-            if item and item:getItem() then
+            if wornItem and wornItem:getItem() then
                 return {
-                    location = item:getLocation(),
-                    fullType = item:getItem():getFullType(),
-                    condition = item:getItem():getCondition()
+                    location = wornItem:getLocation(),
+                    fullType = wornItem:getItem():getFullType(),
+                    condition = wornItem:getItem():getCondition()
                 }
             end
             return nil
@@ -4211,7 +4425,7 @@ handlers.exportPlayerData = function(args)
 
     local player = getPlayerByUsername(username)
     if not player then
-        return false, nil, "Player not found: " .. username
+        return false, nil, playerLookupError(username)
     end
 
     -- Collect diagnostics
@@ -4246,12 +4460,13 @@ handlers.exportPlayerData = function(args)
                 local ok, wornObj = pcall(function()
                     local wi = player:getWornItems()
                     if wi then
-                        for j = 0, wi:size() - 1 do
-                            local w = wi:get(j)
+                        local wornList = collectJavaCollection(wi, "Worn item list")
+                        if not wornList then return end
+                        for _, w in ipairs(wornList) do
                             if w and w:getItem() and w:getItem():getFullType() == worn.fullType then
-                                if w:getItem().getItemContainer then
-                                    local subContainer = w:getItem():getItemContainer()
-                                    if subContainer then
+                                local wornItem = PanelBridge.tryGet(w, "getItem")
+                                local containerOk, subContainer = PanelBridge.invoke(wornItem, "getItemContainer")
+                                if containerOk and subContainer then
                                         local subItems = serializeInventory(subContainer)
                                         if #subItems > 0 then
                                             -- 2026-08-30, total-audit batch 3, item 3:
@@ -4271,7 +4486,6 @@ handlers.exportPlayerData = function(args)
                                             bagItems[locationKey] = subItems
                                             bagCount = bagCount + #subItems
                                         end
-                                    end
                                 end
                             end
                         end
@@ -4346,7 +4560,7 @@ handlers.importPlayerData = function(args)
 
     local player = getPlayerByUsername(username)
     if not player then
-        return false, nil, "Player not found: " .. username
+        return false, nil, playerLookupError(username)
     end
 
     local restored = {
@@ -4444,31 +4658,35 @@ handlers.importPlayerData = function(args)
                                 if totalAdded >= MAX_ITEMS then break end
                                 local newItem = container:AddItem(itemData.fullType)
                                 if newItem then
-                                    -- Set condition if available
-                                    if itemData.condition and newItem.setCondition then
-                                        newItem:setCondition(itemData.condition)
+                                    -- Java userdata does not reliably expose
+                                    -- callable methods as readable fields.
+                                    -- Probe through invoke() instead of using
+                                    -- `newItem.setCondition`-style guards,
+                                    -- which silently skip real setters.
+                                    if itemData.condition then
+                                        PanelBridge.invoke(newItem, "setCondition", itemData.condition)
                                     end
                                     -- Set uses if available (for drainable items)
-                                    if itemData.uses and newItem.setCurrentUses then
-                                        newItem:setCurrentUses(itemData.uses)
+                                    if itemData.uses then
+                                        PanelBridge.invoke(newItem, "setCurrentUses", itemData.uses)
                                     end
                                     -- setDelta() does not exist either (same jar check as the
                                     -- export side, see serializeInventory) -- restore the two
                                     -- real fields a newer export may carry instead.
-                                    if itemData.jobDelta and newItem.setJobDelta then
-                                        newItem:setJobDelta(itemData.jobDelta)
+                                    if itemData.jobDelta then
+                                        PanelBridge.invoke(newItem, "setJobDelta", itemData.jobDelta)
                                     end
-                                    if itemData.useDelta and newItem.setUseDelta then
-                                        newItem:setUseDelta(itemData.useDelta)
+                                    if itemData.useDelta then
+                                        PanelBridge.invoke(newItem, "setUseDelta", itemData.useDelta)
                                     end
                                     -- Set delta if available
-                                    if itemData.delta and newItem.setDelta then
-                                        newItem:setDelta(itemData.delta)
+                                    if itemData.delta then
+                                        PanelBridge.invoke(newItem, "setDelta", itemData.delta)
                                     end
                                     -- Handle container contents (bags) with depth limit
-                                    if itemData.contents and type(itemData.contents) == "table" and newItem.getItemContainer then
-                                        local subContainer = newItem:getItemContainer()
-                                        if subContainer then
+                                    if itemData.contents and type(itemData.contents) == "table" then
+                                        local containerOk, subContainer = PanelBridge.invoke(newItem, "getItemContainer")
+                                        if containerOk and subContainer then
                                             addItems(subContainer, itemData.contents, depth + 1)
                                         end
                                     end
@@ -4516,7 +4734,7 @@ handlers.teleportPlayer = function(args)
 
     local player = getPlayerByUsername(username)
     if not player then
-        return false, nil, "Player not found: " .. username
+        return false, nil, playerLookupError(username)
     end
 
     local oldX = player:getX()
@@ -4594,16 +4812,21 @@ handlers.teleportPlayer = function(args)
     end
 
     -- Step 4: Force position broadcast via sendPlayerExtraInfo (global, server-side).
-    -- PanelBridge has no client-side mod, so sendServerCommand to a custom module
-    -- would be a silent no-op. sendPlayerExtraInfo is the one broadcast mechanism
-    -- here actually confirmed to exist -- setNetworkTeleportEnabled above does not
-    -- (see Step 0c) and contributes nothing to sync today.
+    -- sendPlayerExtraInfo remains the server-side broadcast fallback. The
+    -- bundled client companion is requested separately below; the server
+    -- cannot synchronously prove that a client received or rendered it.
     pcall(function()
         if sendPlayerExtraInfo then
             sendPlayerExtraInfo(player)
             table.insert(debugInfo, "sendPlayerExtraInfo pushed")
         end
     end)
+
+    -- Ask the PanelBridge client companion to apply the position locally. The
+    -- handler cannot wait for the later client acknowledgement without
+    -- blocking the game tick, so the response says `requested`, not confirmed.
+    local clientSyncRequested, clientSyncRequestId, clientSyncError =
+        requestClientTeleport(player, x, y, z)
 
     -- Step 5: Verify position after teleport
     local verifyX = player:getX()
@@ -4617,12 +4840,6 @@ handlers.teleportPlayer = function(args)
     -- not reach the client is invisible.
     pcall(function()
         local probe = {}
-        for _, name in ipairs({
-            "setNetworkTeleportEnabled", "setLx", "setPosition", "teleportTo",
-            "setForceUpdate", "sendObjectChange", "getOnlineID",
-        }) do
-            if player[name] then table.insert(probe, name) end
-        end
         for _, name in ipairs({
             "sendPlayerExtraInfo", "syncPlayerFields", "NetworkTeleport",
             "sendServerCommand", "getPlayerInfo", "updatePlayerPosition",
@@ -4691,6 +4908,9 @@ handlers.teleportPlayer = function(args)
         newPosition = { x = x, y = y, z = z },
         verifyPosition = { x = verifyX, y = verifyY, z = verifyZ },
         verified = verifiedStr,
+        clientSync = clientSyncRequested and "requested" or "unavailable",
+        clientSyncRequestId = clientSyncRequestId,
+        clientSyncError = clientSyncError,
         debug = debugStr
     }
 end
@@ -4785,9 +5005,8 @@ handlers.getAllSandboxOptions = function(args)
         info.value = getOptionValue(opt)
         -- Get type info
         pcall(function()
-            if not opt.getClass then return end
-            local classObj = opt:getClass()
-            if not classObj then return end
+            local classOk, classObj = PanelBridge.invoke(opt, "getClass")
+            if not classOk or not classObj then return end
             local className = tostring(classObj)
             if className:find("Boolean") then
                 info.type = "boolean"
@@ -4890,10 +5109,10 @@ handlers.getAllSandboxOptions = function(args)
         pcall(function()
             local optionsList = sandbox:getOptions()
             if optionsList then
-                local size = optionsList:size()
-                for i = 0, size - 1 do
+                local optionItems, collectErr = collectJavaCollection(optionsList, "Sandbox option list")
+                if not optionItems then error(collectErr) end
+                for _, opt in ipairs(optionItems) do
                     pcall(function()
-                        local opt = optionsList:get(i)
                         if opt then
                             local info = getOptionInfo(opt)
                             if info.name then
@@ -4919,7 +5138,11 @@ handlers.getAllSandboxOptions = function(args)
                 if type(v) ~= "function" then
                     pcall(function()
                         -- Check if it's a sandbox option object with getName
-                        if v and type(v) == "userdata" and v.getName then
+                        local nameOk = false
+                        if v and type(v) == "userdata" then
+                            nameOk = PanelBridge.invoke(v, "getName")
+                        end
+                        if nameOk then
                             local info = getOptionInfo(v)
                             if info.name then
                                 local group = (info.tableName and info.tableName ~= "") and info.tableName or "Vanilla"
@@ -5009,9 +5232,9 @@ handlers.setSandboxOption = function(args)
         if numOptions and numOptions > 0 then
             for i = 0, numOptions - 1 do
                 local opt = sandbox:getOptionByIndex(i)
-                if opt and opt.getName then
-                    local name = opt:getName()
-                    if name == optName then
+                if opt then
+                    local nameOk, name = PanelBridge.invoke(opt, "getName")
+                    if nameOk and name == optName then
                         targetOpt = opt
                         return
                     end
@@ -5025,12 +5248,12 @@ handlers.setSandboxOption = function(args)
         pcall(function()
             local optionsList = sandbox:getOptions()
             if optionsList then
-                local size = optionsList:size()
-                for i = 0, size - 1 do
-                    local opt = optionsList:get(i)
-                    if opt and opt.getName then
-                        local name = opt:getName()
-                        if name == optName then
+                local optionItems, collectErr = collectJavaCollection(optionsList, "Sandbox option list")
+                if not optionItems then error(collectErr) end
+                for _, opt in ipairs(optionItems) do
+                    if opt then
+                        local nameOk, name = PanelBridge.invoke(opt, "getName")
+                        if nameOk and name == optName then
                             targetOpt = opt
                             return
                         end
@@ -5046,16 +5269,16 @@ handlers.setSandboxOption = function(args)
 
     -- Determine the option type and apply the value
     local optType = nil
-    pcall(function()
-        if not targetOpt.getClass then return end
-        local className = tostring(targetOpt:getClass())
+    local classOk, classValue = PanelBridge.invoke(targetOpt, "getClass")
+    if classOk and classValue then
+        local className = tostring(classValue)
         if className:find("Boolean") then optType = "boolean"
         elseif className:find("Double") or className:find("Numeric") then optType = "double"
         elseif className:find("Integer") then optType = "integer"
         elseif className:find("Enum") then optType = "enum"
         elseif className:find("String") then optType = "string"
         end
-    end)
+    end
 
     local ok, err
     local appliedValue
@@ -5247,10 +5470,8 @@ local function getChatSystem()
     end
     if ChatServerClass then
         local inited = true
-        if ChatServerClass.isInited then
-            local ok, val = pcall(function() return ChatServerClass.isInited() end)
-            if ok then inited = val end
-        end
+        local initOk, initValue = pcall(function() return ChatServerClass.isInited() end)
+        if initOk then inited = initValue end
         if inited then
             local ok, inst = pcall(function() return ChatServerClass.getInstance() end)
             if ok and inst then
@@ -5291,9 +5512,9 @@ handlers.sendToServerChat = function(args)
     -- Fallback: Say to each player (shows as overhead text only, not in chat window)
     local ok3, sent3 = pcall(function()
         local players = getOnlinePlayers()
-        if players and players:size() > 0 then
-            for i = 0, players:size() - 1 do
-                local p = players:get(i)
+        local playerList = players and collectJavaCollection(players, "Online player list")
+        if playerList and #playerList > 0 then
+            for _, p in ipairs(playerList) do
                 if p then p:Say(message) end
             end
             return true
@@ -5331,10 +5552,11 @@ handlers.sendToAdminChat = function(args)
     -- Fallback: Say to each admin player (overhead text only)
     local ok3, sent3 = pcall(function()
         local players = getOnlinePlayers()
-        if players and players:size() > 0 then
-            for i = 0, players:size() - 1 do
-                local p = players:get(i)
-                if p and p.accessLevel and p:getAccessLevel() ~= "" then
+        local playerList = players and collectJavaCollection(players, "Online player list")
+        if playerList and #playerList > 0 then
+            for _, p in ipairs(playerList) do
+                local accessLevel = PanelBridge.tryGet(p, "getAccessLevel")
+                if p and accessLevel and accessLevel ~= "" then
                     p:Say("[ADMIN] " .. message)
                 end
             end
@@ -5378,9 +5600,9 @@ handlers.sendToGeneralChat = function(args)
     -- Fallback: Say to each player with author prefix (overhead text only)
     local ok3, sent3 = pcall(function()
         local players = getOnlinePlayers()
-        if players and players:size() > 0 then
-            for i = 0, players:size() - 1 do
-                local p = players:get(i)
+        local playerList = players and collectJavaCollection(players, "Online player list")
+        if playerList and #playerList > 0 then
+            for _, p in ipairs(playerList) do
                 if p then p:Say("[" .. author .. "] " .. message) end
             end
             return true
@@ -5472,11 +5694,13 @@ handlers.getUtilitiesStatus = function(args)
         if sandbox then
             local elecOpt = sandbox:getOptionByName("ElecShut")
             local waterOpt = sandbox:getOptionByName("WaterShut")
-            if elecOpt and elecOpt.getValue then
-                elecShut = tostring(elecOpt:getValue())
+            local elecValue = PanelBridge.tryGet(elecOpt, "getValue")
+            if elecValue ~= nil then
+                elecShut = tostring(elecValue)
             end
-            if waterOpt and waterOpt.getValue then
-                waterShut = tostring(waterOpt:getValue())
+            local waterValue = PanelBridge.tryGet(waterOpt, "getValue")
+            if waterValue ~= nil then
+                waterShut = tostring(waterValue)
             end
             elecModifier = sandbox:getElecShutModifier()
             waterModifier = sandbox:getWaterShutModifier()
@@ -5532,14 +5756,14 @@ local function setElectricityOnLoadedSquares(enabled)
     end
 
     local players = getOnlinePlayers()
-    if not players or players:size() == 0 then
+    local playerList = players and collectJavaCollection(players, "Online player list")
+    if not playerList or #playerList == 0 then
         return 0, "No players online"
     end
 
     local squareCount = 0
 
-    for p = 0, players:size() - 1 do
-        local player = players:get(p)
+    for _, player in ipairs(playerList) do
         if player then
             local px, py = math.floor(player:getX()), math.floor(player:getY())
 
@@ -5549,10 +5773,9 @@ local function setElectricityOnLoadedSquares(enabled)
                     for z = 0, 3 do
                         local sq = cell:getGridSquare(x, y, z)
                         if sq then
-                            pcall(function()
-                                sq:setHaveElectricity(enabled)
-                            end)
-                            squareCount = squareCount + 1
+                            if PanelBridge.invoke(sq, "setHaveElectricity", enabled) then
+                                squareCount = squareCount + 1
+                            end
                         end
                     end
                 end
@@ -5610,12 +5833,12 @@ local function activateLightSwitchesInLoadedChunks()
     local activatedCount = 0
 
     local players = getOnlinePlayers()
-    if not players or players:size() == 0 then
+    local playerList = players and collectJavaCollection(players, "Online player list")
+    if not playerList or #playerList == 0 then
         return 0, "No players online"
     end
 
-    for p = 0, players:size() - 1 do
-        local player = players:get(p)
+    for _, player in ipairs(playerList) do
         if player then
             local px, py = math.floor(player:getX()), math.floor(player:getY())
 
@@ -5626,10 +5849,10 @@ local function activateLightSwitchesInLoadedChunks()
                         if sq then
                             local objects = sq:getObjects()
                             if objects then
-                                for i = 0, objects:size() - 1 do
-                                    local obj = objects:get(i)
+                                local objectList = collectJavaCollection(objects, "Square object list")
+                                for _, obj in ipairs(objectList or {}) do
                                     if obj and instanceof(obj, "IsoLightSwitch") then
-                                        local success, toggleErr = pcall(function()
+                                        pcall(function()
                                             if setLightSwitchState(obj, true) then
                                                 activatedCount = activatedCount + 1
                                             end
@@ -5657,12 +5880,12 @@ local function deactivateLightSwitchesInLoadedChunks()
     local deactivatedCount = 0
 
     local players = getOnlinePlayers()
-    if not players or players:size() == 0 then
+    local playerList = players and collectJavaCollection(players, "Online player list")
+    if not playerList or #playerList == 0 then
         return 0, "No players online"
     end
 
-    for p = 0, players:size() - 1 do
-        local player = players:get(p)
+    for _, player in ipairs(playerList) do
         if player then
             local px, py = math.floor(player:getX()), math.floor(player:getY())
 
@@ -5676,8 +5899,8 @@ local function deactivateLightSwitchesInLoadedChunks()
 
                             local objects = sq:getObjects()
                             if objects then
-                                for i = 0, objects:size() - 1 do
-                                    local obj = objects:get(i)
+                                local objectList = collectJavaCollection(objects, "Square object list")
+                                for _, obj in ipairs(objectList or {}) do
                                     if obj and instanceof(obj, "IsoLightSwitch") then
                                         local success, err = pcall(function()
                                             local inState, changed = setLightSwitchState(obj, false)
@@ -5755,6 +5978,13 @@ function PanelBridge.processActiveJob()
         PanelBridge.sendResult(job.cmdId, false, nil, "Background job step failed: " .. tostring(err))
         return
     end
+    if job.error then
+        PanelBridge.activeJob = nil
+        PanelBridge.stats.commandsFailed = PanelBridge.stats.commandsFailed + 1
+        PanelBridge.error("Background job setup failed", { error = tostring(job.error) })
+        PanelBridge.sendResult(job.cmdId, false, nil, tostring(job.error))
+        return
+    end
     if job.phaseDone then
         job.phaseIdx = job.phaseIdx + 1
     end
@@ -5784,11 +6014,16 @@ end
 local function makeSquareScanStepFn(radius, zMax, applyFn)
     local players = getOnlinePlayers()
     local playerCoords = {}
+    local playerListError = nil
     if players then
-        for p = 0, players:size() - 1 do
-            local player = players:get(p)
-            if player then
-                table.insert(playerCoords, { x = math.floor(player:getX()), y = math.floor(player:getY()) })
+        local playerList, collectErr = collectJavaCollection(players, "Online player list")
+        if not playerList then
+            playerListError = collectErr
+        else
+            for _, player in ipairs(playerList) do
+                if player then
+                    table.insert(playerCoords, { x = math.floor(player:getX()), y = math.floor(player:getY()) })
+                end
             end
         end
     end
@@ -5797,12 +6032,18 @@ local function makeSquareScanStepFn(radius, zMax, applyFn)
     local xOff, yOff, z = -radius, -radius, 0
 
     return function(job, budget)
+        if playerListError then
+            job.error = "Online player list lookup failed: " .. tostring(playerListError)
+            job.phaseDone = true
+            return
+        end
         if #playerCoords == 0 then
             job.phaseDone = true
             return
         end
         local cell = getCell()
         if not cell then
+            job.error = "Cell not available for utility scan"
             job.phaseDone = true
             return
         end
@@ -5841,8 +6082,9 @@ end
 -- switchesDeactivated return values the synchronous helpers produce).
 local function makeElectricitySetter(enabled, counter)
     return function(sq)
-        sq:setHaveElectricity(enabled)
-        counter.n = counter.n + 1
+        if PanelBridge.invoke(sq, "setHaveElectricity", enabled) then
+            counter.n = counter.n + 1
+        end
     end
 end
 
@@ -5850,8 +6092,8 @@ local function makeLightSwitchActivator(counter)
     return function(sq)
         local objects = sq:getObjects()
         if not objects then return end
-        for i = 0, objects:size() - 1 do
-            local obj = objects:get(i)
+        local objectList = collectJavaCollection(objects, "Square object list")
+        for _, obj in ipairs(objectList or {}) do
             if obj and instanceof(obj, "IsoLightSwitch") then
                 if setLightSwitchState(obj, true) then
                     counter.n = counter.n + 1
@@ -5866,8 +6108,8 @@ local function makeLightSwitchDeactivator(counter)
         PanelBridge.invoke(sq, "switchLight", false)
         local objects = sq:getObjects()
         if not objects then return end
-        for i = 0, objects:size() - 1 do
-            local obj = objects:get(i)
+        local objectList = collectJavaCollection(objects, "Square object list")
+        for _, obj in ipairs(objectList or {}) do
             if obj and instanceof(obj, "IsoLightSwitch") then
                 local inState, changed = setLightSwitchState(obj, false)
                 if inState and changed then
@@ -6243,7 +6485,7 @@ handlers.healPlayer = function(args)
 
     local player = getPlayerByUsername(username)
     if not player then
-        return false, nil, "Player not found: " .. username
+        return false, nil, playerLookupError(username)
     end
 
     -- Build 42's documented body-part collection is the complete supported
@@ -6261,8 +6503,9 @@ handlers.healPlayer = function(args)
 
     local ok1, err1 = pcall(function()
         local bodyParts = bodyDamage:getBodyParts()
-        for i = 0, bodyParts:size() - 1 do
-            local part = bodyParts:get(i)
+        local bodyPartList, collectErr = collectJavaCollection(bodyParts, "Body part list")
+        if not bodyPartList then error(collectErr) end
+        for _, part in ipairs(bodyPartList) do
             part:RestoreToFullHealth()
             part:SetFakeInfected(false)
             healed.bodyDamage = true
@@ -6329,7 +6572,7 @@ handlers.killPlayer = function(args)
 
     local player = getPlayerByUsername(username)
     if not player then
-        return false, nil, "Player not found: " .. username
+        return false, nil, playerLookupError(username)
     end
 
     local debugInfo = {}
@@ -6416,7 +6659,7 @@ handlers.setGodMode = function(args)
 
     local player = getPlayerByUsername(username)
     if not player then
-        return false, nil, "Player not found: " .. username
+        return false, nil, playerLookupError(username)
     end
 
     -- B42/B41: setGodMod is the actual PZ method name (not a typo)
@@ -6474,7 +6717,7 @@ handlers.setInvisible = function(args)
 
     local player = getPlayerByUsername(username)
     if not player then
-        return false, nil, "Player not found: " .. username
+        return false, nil, playerLookupError(username)
     end
 
     -- Uses the role-gate bypass (see setCharacterCheatBypassingRoleGate) --
@@ -6519,7 +6762,7 @@ handlers.setNoclip = function(args)
 
     local player = getPlayerByUsername(username)
     if not player then
-        return false, nil, "Player not found: " .. username
+        return false, nil, playerLookupError(username)
     end
 
     -- Uses the role-gate bypass (see setCharacterCheatBypassingRoleGate) --
@@ -6571,7 +6814,7 @@ handlers.giveItem = function(args)
 
     local player = getPlayerByUsername(username)
     if not player then
-        return false, nil, "Player not found: " .. username
+        return false, nil, playerLookupError(username)
     end
 
     local inventory = PanelBridge.tryGet(player, "getInventory")
@@ -6814,17 +7057,17 @@ handlers.getZombieCount = function(args)
         return false, nil, "Cell not available"
     end
 
-    local zombieCount = 0
-    local ok, list = pcall(function()
-        return cell:getZombieList()
-    end)
-
-    if ok and list then
-        zombieCount = list:size()
+    local listOk, list = PanelBridge.invoke(cell, "getZombieList")
+    if not listOk or not list then
+        return false, nil, "Zombie list lookup failed"
+    end
+    local countOk, count = PanelBridge.invoke(list, "size")
+    if not countOk or tonumber(count) == nil then
+        return false, nil, "Zombie list size lookup failed"
     end
 
     return true, {
-        zombieCount = zombieCount,
+        zombieCount = tonumber(count),
         note = "Count is for currently loaded cells only"
     }
 end
@@ -6840,7 +7083,7 @@ handlers.clearZombiesNearPlayer = function(args)
 
     local player = getPlayerByUsername(username)
     if not player then
-        return false, nil, "Player not found: " .. username
+        return false, nil, playerLookupError(username)
     end
 
     local px, py, pz = player:getX(), player:getY(), player:getZ()
@@ -6855,9 +7098,10 @@ handlers.clearZombiesNearPlayer = function(args)
     local ok, err = pcall(function()
         local zombies = cell:getZombieList()
         if zombies then
-            -- Iterate backwards to safely remove
-            for i = zombies:size() - 1, 0, -1 do
-                local zombie = zombies:get(i)
+            local zombieList, collectErr = collectJavaCollection(zombies, "Zombie list")
+            if not zombieList then error(collectErr) end
+            -- Snapshot first so removal cannot invalidate the collection traversal.
+            for _, zombie in ipairs(zombieList) do
                 if zombie then
                     pcall(function()
                         local zx, zy, zz = zombie:getX(), zombie:getY(), zombie:getZ()
@@ -6877,6 +7121,7 @@ handlers.clearZombiesNearPlayer = function(args)
 
     if not ok then
         PanelBridge.warn("Error clearing zombies", { error = tostring(err) })
+        return false, nil, "Failed to clear zombies: " .. tostring(err)
     end
 
     PanelBridge.info("Cleared zombies", { username = username, radius = radius, removed = removed })
@@ -6907,8 +7152,9 @@ handlers.clearAllZombies = function(args)
         local ok, err = pcall(function()
             local zombies = cell:getZombieList()
             if zombies then
-                for i = zombies:size() - 1, 0, -1 do
-                    local zombie = zombies:get(i)
+                local zombieList, collectErr = collectJavaCollection(zombies, "Zombie list")
+                if not zombieList then error(collectErr) end
+                for _, zombie in ipairs(zombieList) do
                     if zombie then
                         pcall(function()
                             zombie:removeFromSquare()
@@ -6921,6 +7167,7 @@ handlers.clearAllZombies = function(args)
         end)
         if not ok then
             PanelBridge.warn("Error clearing zombies manually", { error = tostring(err) })
+            return false, nil, "Failed to clear zombies: " .. tostring(err)
         end
     end
 
@@ -6941,6 +7188,22 @@ local function getZombiePopManager()
     return nil
 end
 
+local function trySpawnVirtualZombies(vzm, count, coordinateFn)
+    if not vzm then return false, 0 end
+
+    local spawned = 0
+    for i = 1, count do
+        local x, y, z = coordinateFn(i)
+        local ok, zombie = PanelBridge.invoke(vzm, "createRealZombieNow", x, y, z)
+        if not ok then
+            return i > 1, spawned
+        end
+        if zombie then spawned = spawned + 1 end
+    end
+
+    return true, spawned
+end
+
 -- Spawn horde near a player (40-80 tiles away)
 handlers.spawnHordeNearPlayer = function(args)
     local username = args.username
@@ -6953,7 +7216,7 @@ handlers.spawnHordeNearPlayer = function(args)
 
     local player = getPlayerByUsername(username)
     if not player then
-        return false, nil, "Player not found: " .. username
+        return false, nil, playerLookupError(username)
     end
 
     local px, py, pz = player:getX(), player:getY(), player:getZ()
@@ -6974,17 +7237,13 @@ handlers.spawnHordeNearPlayer = function(args)
         -- one at a time in a radius. More reliable than horde APIs and works
         -- even when createHordeInAreaTo silently no-ops on unloaded chunks.
         local vzm = _G.VirtualZombieManager and _G.VirtualZombieManager.instance
-        if vzm and vzm.createRealZombieNow then
-            for i = 1, count do
+        local virtualUsed, virtualSpawned = trySpawnVirtualZombies(vzm, count, function()
                 local dx = ZombRand(half * 2 + 1) - half
                 local dy = ZombRand(half * 2 + 1) - half
-                local tx = cx + dx
-                local ty = cy + dy
-                local okZ, zombie = pcall(function()
-                    return vzm:createRealZombieNow(tx, ty, pz)
-                end)
-                if okZ and zombie then spawned = spawned + 1 end
-            end
+                return cx + dx, cy + dy, pz
+            end)
+        if virtualUsed then
+            spawned = virtualSpawned
             method = "VirtualZombieManager.createRealZombieNow"
             verified = true
         else
@@ -6994,18 +7253,20 @@ handlers.spawnHordeNearPlayer = function(args)
             -- that would be a fabricated number, not an unverified one.
             -- Report which method ran and leave spawned nil (unverified).
             local zpop = getZombiePopManager()
-            if zpop and zpop.createHordeInAreaTo then
-                zpop:createHordeInAreaTo(cx - half, cy - half, half * 2, half * 2, math.floor(px), math.floor(py), count)
+            local hordeOk = zpop and PanelBridge.invoke(zpop, "createHordeInAreaTo",
+                cx - half, cy - half, half * 2, half * 2, math.floor(px), math.floor(py), count)
+            if hordeOk then
                 method = "createHordeInAreaTo"
                 spawned = nil
-            elseif zpop and zpop.createHordeFromTo then
-                zpop:createHordeFromTo(cx, cy, math.floor(px), math.floor(py), count)
+            elseif zpop and PanelBridge.invoke(zpop, "createHordeFromTo",
+                cx, cy, math.floor(px), math.floor(py), count) then
                 method = "createHordeFromTo"
                 spawned = nil
             else
                 local world = getWorld()
-                if world and world.CreateSwarm then
-                    world:CreateSwarm(count, cx - half, cy - half, cx + half, cy + half)
+                local swarmOk = world and PanelBridge.invoke(world, "CreateSwarm",
+                    count, cx - half, cy - half, cx + half, cy + half)
+                if swarmOk then
                     method = "CreateSwarm"
                     spawned = nil
                 else
@@ -7054,7 +7315,7 @@ handlers.spawnHordeBehindPlayer = function(args)
 
     local player = getPlayerByUsername(username)
     if not player then
-        return false, nil, "Player not found: " .. username
+        return false, nil, playerLookupError(username)
     end
 
     local px, py = player:getX(), player:getY()
@@ -7112,17 +7373,13 @@ handlers.spawnHordeBehindPlayer = function(args)
 
     local ok, err = pcall(function()
         local vzm = _G.VirtualZombieManager and _G.VirtualZombieManager.instance
-        if vzm and vzm.createRealZombieNow then
-            for i = 1, count do
+        local virtualUsed, virtualSpawned = trySpawnVirtualZombies(vzm, count, function()
                 local dx = ZombRand(half * 2 + 1) - half
                 local dy = ZombRand(half * 2 + 1) - half
-                local tx = cx + dx
-                local ty = cy + dy
-                local okZ, zombie = pcall(function()
-                    return vzm:createRealZombieNow(tx, ty, pz)
-                end)
-                if okZ and zombie then spawned = spawned + 1 end
-            end
+                return cx + dx, cy + dy, pz
+            end)
+        if virtualUsed then
+            spawned = virtualSpawned
             method = "VirtualZombieManager.createRealZombieNow"
             verified = true
         else
@@ -7130,18 +7387,20 @@ handlers.spawnHordeBehindPlayer = function(args)
             -- so `spawned` must not be set to `count` -- that would be a
             -- fabricated number, not an unverified one.
             local zpop = getZombiePopManager()
-            if zpop and zpop.createHordeInAreaTo then
-                zpop:createHordeInAreaTo(cx - half, cy - half, half * 2, half * 2, math.floor(px), math.floor(py), count)
+            local hordeOk = zpop and PanelBridge.invoke(zpop, "createHordeInAreaTo",
+                cx - half, cy - half, half * 2, half * 2, math.floor(px), math.floor(py), count)
+            if hordeOk then
                 method = "createHordeInAreaTo"
                 spawned = nil
-            elseif zpop and zpop.createHordeFromTo then
-                zpop:createHordeFromTo(cx, cy, math.floor(px), math.floor(py), count)
+            elseif zpop and PanelBridge.invoke(zpop, "createHordeFromTo",
+                cx, cy, math.floor(px), math.floor(py), count) then
                 method = "createHordeFromTo"
                 spawned = nil
             else
                 local world = getWorld()
-                if world and world.CreateSwarm then
-                    world:CreateSwarm(count, cx - half, cy - half, cx + half, cy + half)
+                local swarmOk = world and PanelBridge.invoke(world, "CreateSwarm",
+                    count, cx - half, cy - half, cx + half, cy + half)
+                if swarmOk then
                     method = "CreateSwarm"
                     spawned = nil
                 else
@@ -7183,18 +7442,27 @@ end
 -- SAFEHOUSE MANAGEMENT HANDLERS
 -- ============================================
 
+local function getSafehouseList()
+    if not SafeHouse then return nil, "SafeHouse API not available" end
+    local ok, list = pcall(function() return SafeHouse.getSafehouseList() end)
+    if not ok then
+        return nil, "SafeHouse API not available: " .. tostring(list)
+    end
+    return list, nil
+end
+
 local function findSafehouseByRef(ref)
     if not ref then return nil, "safehouseRef required" end
-    if not SafeHouse or not SafeHouse.getSafehouseList then
-        return nil, "SafeHouse API not available"
-    end
 
-    local list = SafeHouse.getSafehouseList()
+    local list, listErr = getSafehouseList()
+    if listErr then return nil, listErr end
     if not list then return nil, "No safehouses found" end
 
+    local safehouses, collectErr = collectJavaCollection(list, "Safehouse list")
+    if not safehouses then return nil, collectErr end
+
     local refStr = tostring(ref)
-    for i = 0, list:size() - 1 do
-        local sh = list:get(i)
+    for _, sh in ipairs(safehouses) do
         if sh then
             local idOk, sid = pcall(function() return sh:getId() end)
             local titleOk, title = pcall(function() return sh:getTitle() end)
@@ -7210,23 +7478,24 @@ local function findSafehouseByRef(ref)
 end
 
 handlers.getSafehouses = function(args)
-    if not SafeHouse or not SafeHouse.getSafehouseList then
-        return false, nil, "SafeHouse API not available"
-    end
-
-    local list = SafeHouse.getSafehouseList()
+    local list, listErr = getSafehouseList()
+    if listErr then return false, nil, listErr end
     local out = {}
     if list then
-        for i = 0, list:size() - 1 do
-            local sh = list:get(i)
+        local safehouses, collectErr = collectJavaCollection(list, "Safehouse list")
+        if not safehouses then return false, nil, collectErr end
+        for _, sh in ipairs(safehouses) do
             if sh then
                 -- Collect allowed players
                 local players = {}
                 pcall(function()
                     local pList = sh:getPlayers()
                     if pList then
-                        for j = 0, pList:size() - 1 do
-                            table.insert(players, tostring(pList:get(j)))
+                        local playerList = collectJavaCollection(pList, "Safehouse player list")
+                        if playerList then
+                            for _, player in ipairs(playerList) do
+                                table.insert(players, tostring(player))
+                            end
                         end
                     end
                 end)
@@ -7273,8 +7542,10 @@ handlers.safehouseAddPlayer = function(args)
     if ok2 and players then
         local found = false
         local ok3 = pcall(function()
-            for i = 0, players:size() - 1 do
-                if tostring(players:get(i)) == username then
+            local playerList = collectJavaCollection(players, "Safehouse player list")
+            if not playerList then error("Safehouse player list could not be enumerated") end
+            for _, player in ipairs(playerList) do
+                if tostring(player) == username then
                     found = true
                     break
                 end
@@ -7309,8 +7580,10 @@ handlers.safehouseRemovePlayer = function(args)
     if ok2 and players then
         local found = false
         local ok3 = pcall(function()
-            for i = 0, players:size() - 1 do
-                if tostring(players:get(i)) == username then
+            local playerList = collectJavaCollection(players, "Safehouse player list")
+            if not playerList then error("Safehouse player list could not be enumerated") end
+            for _, player in ipairs(playerList) do
+                if tostring(player) == username then
                     found = true
                     break
                 end
@@ -7396,22 +7669,30 @@ end
 -- ============================================
 
 handlers.getFactions = function(args)
-    if not Faction or not Faction.getFactions then
+    if not Faction then
         return false, nil, "Faction API not available"
     end
 
-    local factions = Faction.getFactions()
+    local factionsOk, factions = pcall(function() return Faction.getFactions() end)
+    if not factionsOk then
+        return false, nil, "Faction API not available: " .. tostring(factions)
+    end
     local out = {}
     if factions then
-        for i = 0, factions:size() - 1 do
-            local f = factions:get(i)
+        local factionList, collectErr = collectJavaCollection(factions, "Faction list")
+        if not factionList then return false, nil, collectErr end
+        for _, f in ipairs(factionList) do
             if f then
                 local players = {}
                 local playersOk, fPlayers = pcall(function() return f:getPlayers() end)
                 if not playersOk then fPlayers = nil end
                 if fPlayers then
-                    for j = 0, fPlayers:size() - 1 do
-                        table.insert(players, tostring(fPlayers:get(j)))
+                    local playerList = collectJavaCollection(fPlayers, "Faction player list")
+                    if not playerList then
+                        return false, nil, "Faction player list could not be enumerated"
+                    end
+                    for _, player in ipairs(playerList) do
+                        table.insert(players, tostring(player))
                     end
                 end
                 table.insert(out, {
@@ -7429,66 +7710,11 @@ handlers.getFactions = function(args)
 end
 
 handlers.createFaction = function(args)
-    if not Faction or not Faction.createFaction then
-        return false, nil, "Faction API not available"
-    end
-
-    local name = normalizeMessage(args.name, 64)
-    local owner = normalizeMessage(args.owner, 64)
-    if not name then return false, nil, "Faction name required" end
-    if not owner then return false, nil, "Faction owner required" end
-
-    -- Pre-check: faction name already taken
-    if Faction.factionExist and Faction.factionExist(name) then
-        return false, nil, "A faction named '" .. name .. "' already exists"
-    end
-
-    -- Pre-check: owner already in a faction
-    if Faction.isAlreadyInFaction then
-        local alreadyIn = false
-        local okChk, _ = pcall(function() alreadyIn = Faction.isAlreadyInFaction(owner) end)
-        if okChk and alreadyIn then
-            local existingName = ""
-            pcall(function()
-                local f = Faction.getPlayerFaction(owner)
-                if f then existingName = " (" .. tostring(f:getName()) .. ")" end
-            end)
-            return false, nil, "Owner '" .. owner .. "' is already in a faction" .. existingName
-        end
-    end
-
-    -- Faction.createFaction does not exist ANYWHERE in the real B42 jar --
-    -- confirmed 2026-08-23 by scanning every one of the jar's 23,740 class
-    -- files for a method literally named createFaction: zero hits. (Two
-    -- near-miss names exist on Faction itself, canCreateFaction() -- a
-    -- permission check, not a creator -- and the unrelated createFactionChat.)
-    -- FactionCreatePacket.class exists, suggesting real faction creation on
-    -- B42 goes through a network packet flow rather than a direct Lua-callable
-    -- method -- not investigated further here (out of scope for a
-    -- verification-gating pass; a real replacement would need someone to
-    -- trace that packet handler). The guard above and the pcall below already
-    -- make this fail safely and honestly every time (verified: this returns
-    -- ok=false, not a false success) -- nothing to fix for THIS audit's
-    -- purposes, but "Create Faction" has likely never worked on a B42 server.
-    local ok, factionOrErr = pcall(function()
-        return Faction.createFaction(name, owner)
-    end)
-    if not ok then
-        return false, nil, "Failed to create faction: " .. tostring(factionOrErr)
-    end
-
-    if not factionOrErr then
-        return false, nil, "Faction creation failed (name may be taken or owner ineligible)"
-    end
-
-    -- Sync to clients
-    PanelBridge.invoke(factionOrErr, "syncFaction")
-
-    return true, { message = "Faction '" .. name .. "' created with owner '" .. owner .. "'", name = name, owner = owner }
+    return false, nil, "Faction creation is not exposed by the Build 42 Lua API; use the in-game faction flow"
 end
 
 handlers.factionAddPlayer = function(args)
-    if not Faction or not Faction.getFaction then
+    if not Faction then
         return false, nil, "Faction API not available"
     end
 
@@ -7497,7 +7723,10 @@ handlers.factionAddPlayer = function(args)
     if not factionName then return false, nil, "factionName required" end
     if not username then return false, nil, "username required" end
 
-    local faction = Faction.getFaction(factionName)
+    local factionOk, faction = pcall(function() return Faction.getFaction(factionName) end)
+    if not factionOk then
+        return false, nil, "Faction API not available: " .. tostring(faction)
+    end
     if not faction then return false, nil, "Faction not found: " .. factionName end
 
     local ok, err = pcall(function()
@@ -7543,7 +7772,7 @@ handlers.factionAddPlayer = function(args)
 end
 
 handlers.factionRemovePlayer = function(args)
-    if not Faction or not Faction.getFaction then
+    if not Faction then
         return false, nil, "Faction API not available"
     end
 
@@ -7552,7 +7781,10 @@ handlers.factionRemovePlayer = function(args)
     if not factionName then return false, nil, "factionName required" end
     if not username then return false, nil, "username required" end
 
-    local faction = Faction.getFaction(factionName)
+    local factionOk, faction = pcall(function() return Faction.getFaction(factionName) end)
+    if not factionOk then
+        return false, nil, "Faction API not available: " .. tostring(faction)
+    end
     if not faction then return false, nil, "Faction not found: " .. factionName end
 
     local ok, err = pcall(function()
@@ -7586,7 +7818,7 @@ handlers.factionRemovePlayer = function(args)
 end
 
 handlers.factionSetTag = function(args)
-    if not Faction or not Faction.getFaction then
+    if not Faction then
         return false, nil, "Faction API not available"
     end
 
@@ -7595,7 +7827,10 @@ handlers.factionSetTag = function(args)
     if not factionName then return false, nil, "factionName required" end
     if not tag then return false, nil, "tag required" end
 
-    local faction = Faction.getFaction(factionName)
+    local factionOk, faction = pcall(function() return Faction.getFaction(factionName) end)
+    if not factionOk then
+        return false, nil, "Faction API not available: " .. tostring(faction)
+    end
     if not faction then return false, nil, "Faction not found: " .. factionName end
 
     local ok, err = pcall(function()
@@ -7632,30 +7867,7 @@ handlers.factionSetTag = function(args)
 end
 
 handlers.removeFaction = function(args)
-    if not Faction or not Faction.getFaction then
-        return false, nil, "Faction API not available"
-    end
-
-    local factionName = normalizeMessage(args.factionName, 64)
-    if not factionName then return false, nil, "factionName required" end
-
-    local faction = Faction.getFaction(factionName)
-    if not faction then return false, nil, "Faction not found: " .. factionName end
-
-    -- faction:removeFaction does not exist ANYWHERE in the real B42 jar --
-    -- same full-jar scan as createFaction's comment above, zero hits. See
-    -- that comment for the FactionCreatePacket/FactionDisbandPacket lead
-    -- that was not chased further here. Fails safely and honestly today
-    -- (ok=false, not a false success) -- "Remove Faction" has likely never
-    -- worked on a B42 server either.
-    local ok, err = pcall(function()
-        faction:removeFaction()
-    end)
-    if not ok then
-        return false, nil, "Failed to remove faction: " .. tostring(err)
-    end
-
-    return true, { message = "Faction removed", factionName = factionName }
+    return false, nil, "Faction removal is not exposed by the Build 42 Lua API; use the in-game faction flow"
 end
 
 -- ============================================
@@ -7699,13 +7911,14 @@ end
 -- answer the question, make the code correct under EITHER answer.
 --
 -- This collects every reachable vehicle into a plain Lua array regardless of
--- which shape the collection turns out to be: it tries size()+get(i) first
--- (works if the runtime object is List-shaped, or a Set-lookalike that still
--- exposes get(i)), and if that yields nothing despite a nonzero size, falls
--- back to the iterator()/hasNext()/next() protocol that EVERY
--- java.util.Collection guarantees -- List and genuine Set alike -- unlike
--- get(i), which only List guarantees. So it no longer matters which one
--- IsoCell.getVehicles() actually returns.
+-- which shape the collection turns out to be: it tries the
+-- iterator()/hasNext()/next() protocol first because EVERY
+-- java.util.Collection guarantees it -- List and genuine Set alike. This
+-- avoids calling get(i) on a genuine Set, where the Java binding throws a
+-- RuntimeException on every poll even though iterator() works. Indexed
+-- get(i) remains the fallback for list-shaped objects whose binding does not
+-- expose iterator(). So it no longer matters which one IsoCell.getVehicles()
+-- actually returns, and the normal B42 path stays quiet.
 --
 -- Returns (list, nil) on success -- list is `{}` when there really are zero
 -- vehicles, which is a legitimate, different outcome from failure. Returns
@@ -7720,12 +7933,6 @@ local function collectVehicles(vehicles)
     if size == 0 then return {}, nil end
 
     local out = {}
-    for i = 0, size - 1 do
-        local v = vehicleAt(vehicles, i)
-        if v then table.insert(out, v) end
-    end
-    if #out > 0 then return out, nil end
-
     local iterOk, iterator = PanelBridge.invoke(vehicles, "iterator")
     if iterOk and iterator then
         while true do
@@ -7735,6 +7942,15 @@ local function collectVehicles(vehicles)
             if not nextOk or not item then break end
             table.insert(out, item)
         end
+    end
+    if #out > 0 then return out, nil end
+
+    -- Compatibility fallback for list-shaped bindings that expose get(i) but
+    -- no iterator(). This is intentionally second: the live B42 Set-shaped
+    -- collection throws from get(i), which is noisy even when pcall catches it.
+    for i = 0, size - 1 do
+        local v = vehicleAt(vehicles, i)
+        if v then table.insert(out, v) end
     end
     if #out > 0 then return out, nil end
 
@@ -8084,9 +8300,11 @@ handlers.vehicleSetBattery = function(args)
         local battery = parts and PanelBridge.tryGet(parts, "getBattery")
         local item = battery and PanelBridge.tryGet(battery, "getInventoryItem")
         local currentUses = item and tonumber(PanelBridge.tryGet(item, "getCurrentUsesFloat"))
-        if currentUses and VehicleUtils and VehicleUtils.chargeBattery then
-            VehicleUtils.chargeBattery(vehicle, charge / 100 - currentUses)
-            return
+        if currentUses and VehicleUtils then
+            local chargeOk = pcall(function()
+                VehicleUtils.chargeBattery(vehicle, charge / 100 - currentUses)
+            end)
+            if chargeOk then return end
         end
         -- setBatteryCharge does NOT exist anywhere in the B42 vehicle API
         -- (BaseVehicle, VehicleParts, VehiclePart -- no near-miss at all,
@@ -8260,14 +8478,20 @@ handlers.removeVehiclesInArea = function(args)
         end
     end
 
+    if #attempted > 0 and not verifyOk then
+        return true, {
+            message = #attempted .. " vehicle(s) removal requested; post-removal verification unavailable",
+            attempted = #attempted,
+            vehicles = {},
+            bounds = { minX = minX, minY = minY, maxX = maxX, maxY = maxY },
+            verified = "unverifiable",
+        }
+    end
+
     local removed = 0
     local removedList = {}
     for _, entry in ipairs(attempted) do
-        -- If the re-check itself couldn't run (verifyOk false), fall back to
-        -- the pre-verification result rather than silently dropping every
-        -- entry -- same "unverifiable, not a false negative" treatment
-        -- PanelBridge.verifiedResult gives a single-vehicle verified==nil.
-        if not verifyOk or not stillPresentIds[tonumber(entry.id)] then
+        if not stillPresentIds[tonumber(entry.id)] then
             removed = removed + 1
             table.insert(removedList, entry)
         end
@@ -8276,9 +8500,10 @@ handlers.removeVehiclesInArea = function(args)
     return true, {
         message = removed .. " vehicle(s) removed from area",
         removed = removed,
+        attempted = #attempted,
         vehicles = removedList,
         bounds = { minX = minX, minY = minY, maxX = maxX, maxY = maxY },
-        verified = verifyOk and "confirmed" or "unverifiable",
+        verified = "confirmed",
     }
 end
 
@@ -8295,6 +8520,7 @@ handlers.vehicleHotwire = function(args)
     if not vehicle then return false, nil, findErr or "Vehicle not found" end
 
     local actions = {}
+    local engineStarted = false
 
     local ok, err = pcall(function()
         -- 1. Hotwire state
@@ -8365,29 +8591,23 @@ handlers.vehicleHotwire = function(args)
         -- ones without this note would either get something new wired to a dead
         -- path, or get the live one deleted by a future reader thinking it's the
         -- duplicate.
-        local engineStarted = false
-
         -- B42: startEngine method -- ABSENT from BaseVehicle; this branch never fires.
-        if not engineStarted and vehicle.startEngine then
-            vehicle:startEngine()
+        if not engineStarted and PanelBridge.invoke(vehicle, "engineDoStarting") then
+            engineStarted = true
+            table.insert(actions, "engineDoStarting")
+        end
+
+        -- Compatibility fallback for builds that expose the older startEngine
+        -- method instead of engineDoStarting.
+        if not engineStarted and PanelBridge.invoke(vehicle, "startEngine") then
             engineStarted = true
             table.insert(actions, "startEngine")
         end
 
-        -- B42/B41: setEngineRunning -- ABSENT from BaseVehicle, not "the real B42
-        -- name"; this branch never fires either.
-        if not engineStarted and vehicle.setEngineRunning then
-            vehicle:setEngineRunning(true)
+        -- Last compatibility fallback for builds exposing setEngineRunning.
+        if not engineStarted and PanelBridge.invoke(vehicle, "setEngineRunning", true) then
             engineStarted = true
             table.insert(actions, "setEngineRunning")
-        end
-
-        -- B42: engineDoStarting (forces engine into starting sequence) -- REAL on
-        -- BaseVehicle, so this is the tier that actually runs, every time.
-        if not engineStarted and vehicle.engineDoStarting then
-            vehicle:engineDoStarting()
-            engineStarted = true
-            table.insert(actions, "engineDoStarting")
         end
 
         if not engineStarted then
@@ -8409,6 +8629,9 @@ handlers.vehicleHotwire = function(args)
 
     if not ok then
         return false, nil, "Hotwire failed: " .. tostring(err) .. " (completed: " .. table.concat(actions, ", ") .. ")"
+    end
+    if not engineStarted then
+        return false, nil, "Hotwire completed, but no engine-start method worked (completed: " .. table.concat(actions, ", ") .. ")"
     end
 
     return true, {
@@ -8451,15 +8674,13 @@ handlers.triggerSwarmEvent = function(args)
 
     local ok, err = pcall(function()
         local vzm = _G.VirtualZombieManager and _G.VirtualZombieManager.instance
-        if vzm and vzm.createRealZombieNow then
-            for i = 1, count do
+        local virtualUsed, virtualSpawned = trySpawnVirtualZombies(vzm, count, function()
                 local tx = x1 + ZombRand(x2 - x1 + 1)
                 local ty = y1 + ZombRand(y2 - y1 + 1)
-                local okZ, zombie = pcall(function()
-                    return vzm:createRealZombieNow(tx, ty, z)
-                end)
-                if okZ and zombie then spawned = spawned + 1 end
-            end
+                return tx, ty, z
+            end)
+        if virtualUsed then
+            spawned = virtualSpawned
             method = "VirtualZombieManager.createRealZombieNow"
             verified = true
         else
@@ -8467,18 +8688,20 @@ handlers.triggerSwarmEvent = function(args)
             -- see spawnHordeNearPlayer's comment for why `spawned` must stay
             -- nil here rather than being fabricated as `count`.
             local zpop = getZombiePopManager()
-            if zpop and zpop.createHordeInAreaTo then
-                zpop:createHordeInAreaTo(x1, y1, x2 - x1, y2 - y1, midX, midY, count)
+            local hordeOk = zpop and PanelBridge.invoke(zpop, "createHordeInAreaTo",
+                x1, y1, x2 - x1, y2 - y1, midX, midY, count)
+            if hordeOk then
                 method = "createHordeInAreaTo"
                 spawned = nil
-            elseif zpop and zpop.createHordeFromTo then
-                zpop:createHordeFromTo(x1, y1, midX, midY, count)
+            elseif zpop and PanelBridge.invoke(zpop, "createHordeFromTo",
+                x1, y1, midX, midY, count) then
                 method = "createHordeFromTo"
                 spawned = nil
             else
                 local world = getWorld()
-                if world and world.CreateSwarm then
-                    world:CreateSwarm(count, x1, y1, x2, y2)
+                local swarmOk = world and PanelBridge.invoke(world, "CreateSwarm",
+                    count, x1, y1, x2, y2)
+                if swarmOk then
                     method = "CreateSwarm"
                     spawned = nil
                 else
@@ -8652,11 +8875,10 @@ handlers.moderationKickUser = function(args)
     -- value to read back, ever. pcall not throwing is the only signal this
     -- API can give, and that ceiling is already what this handler checks.
     local ok, err = pcall(function()
-        if BanSystem and BanSystem.KickUser then
-            BanSystem.KickUser(username, reason, description)
-        else
+        if not BanSystem then
             error("BanSystem.KickUser not available")
         end
+        BanSystem.KickUser(username, reason, description)
     end)
     if not ok then return false, nil, "Kick failed: " .. tostring(err) end
 
@@ -8671,10 +8893,8 @@ handlers.moderationBanUser = function(args)
     if not username then return false, nil, "Username required" end
 
     local ok, resultOrErr = pcall(function()
-        if BanSystem and BanSystem.BanUser then
-            return BanSystem.BanUser(username, nil, reason, ban)
-        end
-        error("BanSystem.BanUser not available")
+        if not BanSystem then error("BanSystem.BanUser not available") end
+        return BanSystem.BanUser(username, nil, reason, ban)
     end)
     if not ok then return false, nil, "Ban user failed: " .. tostring(resultOrErr) end
 
@@ -8711,10 +8931,8 @@ handlers.moderationBanIP = function(args)
     if not ip then return false, nil, "IP required" end
 
     local ok, resultOrErr = pcall(function()
-        if BanSystem and BanSystem.BanIP then
-            return BanSystem.BanIP(ip, nil, reason, ban)
-        end
-        error("BanSystem.BanIP not available")
+        if not BanSystem then error("BanSystem.BanIP not available") end
+        return BanSystem.BanIP(ip, nil, reason, ban)
     end)
     if not ok then return false, nil, "Ban IP failed: " .. tostring(resultOrErr) end
 
@@ -8741,10 +8959,8 @@ handlers.moderationBanSteamID = function(args)
     if not steamId then return false, nil, "steamId required" end
 
     local ok, resultOrErr = pcall(function()
-        if BanSystem and BanSystem.BanUserBySteamID then
-            return BanSystem.BanUserBySteamID(steamId, nil, reason, ban)
-        end
-        error("BanSystem.BanUserBySteamID not available")
+        if not BanSystem then error("BanSystem.BanUserBySteamID not available") end
+        return BanSystem.BanUserBySteamID(steamId, nil, reason, ban)
     end)
     if not ok then return false, nil, "Ban SteamID failed: " .. tostring(resultOrErr) end
 
@@ -8774,15 +8990,20 @@ handlers.debugItemScript = function(args)
 
     local allItems = nil
     pcall(function() allItems = sm:getAllItems() end)
-    if not allItems or allItems:size() == 0 then
+    if not allItems then
         return false, nil, "No items found"
+    end
+
+    local itemList, collectErr = collectJavaCollection(allItems, "Item script list")
+    if not itemList or #itemList == 0 then
+        return false, nil, collectErr or "No items found"
     end
 
     -- Test first 3 items
     local probes = {}
-    local limit = math.min(3, allItems:size())
-    for i = 0, limit - 1 do
-        local script = allItems:get(i)
+    local limit = math.min(3, #itemList)
+    for i = 1, limit do
+        local script = itemList[i]
         if script then
             local probe = {}
             local nameOk, name = pcall(function() return script:getFullName() end)
@@ -8793,16 +9014,11 @@ handlers.debugItemScript = function(args)
                              "getBodyLocation", "getSubCategory", "getCategories",
                              "getTypeToItem", "getScriptObjectType"}
             for _, m in ipairs(methods) do
-                local ok, val = pcall(function()
-                    if script[m] then
-                        return script[m](script)
-                    end
-                    return nil
-                end)
-                if ok and val ~= nil then
+                local val = PanelBridge.tryGet(script, m)
+                if val ~= nil then
                     probe[m] = tostring(val)
                 else
-                    probe[m] = ok and "nil" or ("ERROR: " .. tostring(val))
+                    probe[m] = "nil"
                 end
             end
             table.insert(probes, probe)
@@ -8825,11 +9041,12 @@ handlers.getItemCatalog = function(args)
         return false, nil, "Failed to enumerate items: " .. tostring(err)
     end
 
+    local itemList, collectErr = collectJavaCollection(allItems, "Item script list")
+    if not itemList then return false, nil, collectErr end
+
     local catalog = {}
     local errors = 0
-    local count = allItems:size()
-    for i = 0, count - 1 do
-        local script = allItems:get(i)
+    for _, script in ipairs(itemList) do
         if script then
             local entry = {}
             -- fullType is the ID used by AddItem / additem RCON
@@ -8891,10 +9108,11 @@ handlers.getVehicleCatalog = function(args)
         return false, nil, "Failed to enumerate vehicles: API not available"
     end
 
+    local vehicleList, collectErr = collectJavaCollection(allVehicles, "Vehicle script list")
+    if not vehicleList then return false, nil, collectErr end
+
     local catalog = {}
-    local count = allVehicles:size()
-    for i = 0, count - 1 do
-        local script = allVehicles:get(i)
+    for _, script in ipairs(vehicleList) do
         if script then
             local entry = {}
             local nameOk, fullName = pcall(function() return script:getFullName() end)
@@ -8921,14 +9139,9 @@ handlers.getVehicleCatalog = function(args)
 
                 -- Avoid getSeatNumber() — throws RuntimeException in B42 Kahlua
                 -- Try getPassengerCount/getMaxPassengers as safe alternatives
-                local seats = nil
-                if script.getPassengerCount then
-                    local pcOk, pc = pcall(script.getPassengerCount, script)
-                    if pcOk and pc then seats = pc end
-                end
-                if not seats and script.getMaxPassengers then
-                    local mpOk, mp = pcall(script.getMaxPassengers, script)
-                    if mpOk and mp then seats = mp end
+                local seats = PanelBridge.tryGet(script, "getPassengerCount")
+                if seats == nil then
+                    seats = PanelBridge.tryGet(script, "getMaxPassengers")
                 end
                 if seats then entry.seats = seats end
 
@@ -9062,11 +9275,12 @@ function PanelBridge.updateStatus()
     local ok, err = pcall(function()
         local onlinePlayers = getOnlinePlayers()
         local playerNames = {}
+        local playerList = onlinePlayers and collectJavaCollection(onlinePlayers, "Online player list")
         if onlinePlayers then
-            for i = 0, onlinePlayers:size() - 1 do
-                local player = onlinePlayers:get(i)
+            for _, player in ipairs(playerList or {}) do
                 if player then
-                    table.insert(playerNames, player:getUsername())
+                    local name = PanelBridge.tryGet(player, "getUsername")
+                    if name then table.insert(playerNames, name) end
                 end
             end
         end
@@ -9077,8 +9291,9 @@ function PanelBridge.updateStatus()
             protocolVersion = PanelBridge.PROTOCOL_VERSION,
             timestamp = getTimestampMs(),
             serverName = getServerName(),
-            playerCount = onlinePlayers and onlinePlayers:size() or 0,
+            playerCount = playerList and #playerList or tonumber(PanelBridge.tryGet(onlinePlayers, "size")) or 0,
             players = playerNames,
+            playerListError = onlinePlayers and not playerList and "Online player list could not be enumerated" or nil,
             path = PanelBridge.getBasePath(),
             debugMode = PanelBridge.DEBUG_MODE,
             stats = {
@@ -9226,6 +9441,9 @@ end
 Events.OnServerStarted.Add(PanelBridge.onServerStarted)
 -- Use OnTickEvenPaused so the bridge works even when no players are connected
 Events.OnTickEvenPaused.Add(PanelBridge.onTick)
+if Events.OnClientCommand and Events.OnClientCommand.Add then
+    Events.OnClientCommand.Add(PanelBridge.onClientCommand)
+end
 
 -- Exposes the handler table for the JS test harness (fengari) to call
 -- directly. Additive only: nothing in this file or on the panel side does

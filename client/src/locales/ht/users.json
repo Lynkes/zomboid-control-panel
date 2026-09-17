@@ -23,7 +23,8 @@
     "lastSignIn": "Dènye koneksyon",
     "never": "Jamè",
     "actions": "Aksyon",
-    "removeTooltip": "Retire {{username}}"
+    "removeTooltip": "Retire {{username}}",
+    "linkSsoTooltip": "Konekte SSO ak {{username}}"
   },
   "deleteDialog": {
     "title": "Retire {{username}}?",
@@ -37,6 +38,7 @@
     "description": "Kreye yon koneksyon pou yon lòt moun. Y ap itilize non itilizatè ak modpas sa a pou konekte.",
     "usernameLabel": "Non itilizatè",
     "usernamePlaceholder": "pa egzanp jsmith",
+    "usernameHint": "Sèvi ak yon non itilizatè lokal, pa yon adrès imèl. Konekte Google/SSO apre ou fin kreye kont lan.",
     "passwordLabel": "Modpas",
     "passwordHint": "Itilize omwen 6 karaktè.",
     "confirmPasswordLabel": "Konfime modpas",
@@ -58,6 +60,10 @@
     "userDeletedTitle": "Kont retire",
     "userDeletedDescription": "{{username}} pa ka konekte ankò.",
     "actionFailedTitle": "Aksyon echwe",
-    "unknownError": "Erè enkoni"
+    "unknownError": "Erè enkoni",
+    "ssoLinkedTitle": "SSO konekte",
+    "ssoLinkedDescription": "Idantite ekstèn nan konekte ak kont sa a kounye a.",
+    "ssoLinkExpired": "Sesyon koneksyon SSO a ekspire. Kòmanse ankò.",
+    "ssoLinkFailed": "Pa t kapab konekte idantite SSO a ak kont sa a."
   }
 }

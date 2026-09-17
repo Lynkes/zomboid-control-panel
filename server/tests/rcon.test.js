@@ -409,7 +409,7 @@ describe('RconService', () => {
     });
   });
 
-  // Finding 2 (docs/qa/kevin-adversarial-findings.md): sanitizeForBanReason()
+  // Security review Finding 2: sanitizeForBanReason()
   // used to have its own, less careful character-folding rules than
   // serverMessage() -- same class of user-typed text, different treatment
   // depending on which RCON call carried it. Both now share
@@ -519,6 +519,17 @@ describe('RconService', () => {
       await liveRcon.setInvisible(null, false);
 
       expect(executeSpy).toHaveBeenCalledWith('invisible -false');
+    });
+  });
+
+  describe('teleport player targeting', () => {
+    it('uses teleportplayer for player-to-player movement on Build 42', async () => {
+      const liveRcon = new RconService();
+      const executeSpy = vi.spyOn(liveRcon, 'execute').mockResolvedValue({ success: true, response: 'ok' });
+
+      await liveRcon.teleportPlayer('Bob', 'Alice');
+
+      expect(executeSpy).toHaveBeenCalledWith('teleportplayer "Bob" "Alice"');
     });
   });
 

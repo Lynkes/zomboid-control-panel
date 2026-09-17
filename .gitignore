@@ -46,7 +46,8 @@ release/
 ZomboidControlPanel-linux.tar.gz
 ZomboidControlPanel-windows.zip
 
-# GitHub Releases are the canonical release notes
+# GitHub Releases are the canonical release notes. Obsolete standalone note
+# files must never be tracked or uploaded.
 release-notes-*.md
 
 # Backup files

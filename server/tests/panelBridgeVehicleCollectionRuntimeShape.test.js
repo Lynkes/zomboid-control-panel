@@ -105,6 +105,31 @@ function FakeCell:getVehicles() return FakeVehicleSet end
     expect(result.data.vehicles.map((v) => v.id).sort()).toEqual([1, 2]);
   });
 
+  it('prefers iterator() when indexed get(i) throws, avoiding the live B42 Set noise path', () => {
+    const cell = `
+FakeCell = {}
+${fakeVehicleDecl('FakeVehicle1', 1, 100, 100)}
+FakeVehicleSet = {}
+FakeVehicleSet._items = { FakeVehicle1 }
+function FakeVehicleSet:size() return #self._items end
+function FakeVehicleSet:get(i) error("java.lang.RuntimeException: get is not supported") end
+function FakeVehicleSet:iterator()
+    local items = self._items
+    local it = { i = 0 }
+    function it:hasNext() return self.i < #items end
+    function it:next() self.i = self.i + 1; return items[self.i] end
+    return it
+end
+function FakeCell:getVehicles() return FakeVehicleSet end
+`;
+    const bridge = loadPanelBridge(LUA_PATH, worldStub(cell));
+    const result = bridge.callHandler('getVehiclesDetailed', {});
+
+    expect(result.ok).toBe(true);
+    expect(result.data.count).toBe(1);
+    expect(result.data.vehicles[0].id).toBe(1);
+  });
+
   it('Neither shape readable (size() reports 2 but get(i) and iterator() both fail): getVehiclesDetailed fails loudly instead of reporting zero vehicles', () => {
     const cell = `
 FakeCell = {}
@@ -199,6 +224,32 @@ function FakeCell:getVehicles() return FakeVehicleList end
     // existing "Zero real vehicles" test above's identical assertion shape.
     expect(result.data.vehicles).toEqual({});
     expect(result.data.verified).toBe('confirmed');
+  });
+
+  it('removeVehiclesInArea: an unreadable post-removal recheck reports attempts, not fabricated removals', () => {
+    const cell = `
+FakeCell = {}
+${fakeVehicleDecl('FakeVehicle1', 1, 100, 100)}
+FakeVehicleList = { FakeVehicle1 }
+FakeCallCount = 0
+function FakeCell:getVehicles()
+    FakeCallCount = FakeCallCount + 1
+    if FakeCallCount == 1 then return FakeVehicleList end
+    local broken = {}
+    function broken:size() error("collection invalidated") end
+    return broken
+end
+function FakeVehicleList:size() return 1 end
+function FakeVehicleList:get(i) return self[i + 1] end
+`;
+    const bridge = loadPanelBridge(LUA_PATH, worldStub(cell));
+    const result = bridge.callHandler('removeVehiclesInArea', { minX: 90, minY: 90, maxX: 110, maxY: 110 });
+
+    expect(result.ok).toBe(true);
+    expect(result.data.removed).toBeUndefined();
+    expect(result.data.attempted).toBe(1);
+    expect(result.data.vehicles).toEqual({});
+    expect(result.data.verified).toBe('unverifiable');
   });
 
   it('removeVehiclesInArea: neither shape readable fails loudly instead of reporting "0 vehicle(s) removed"', () => {

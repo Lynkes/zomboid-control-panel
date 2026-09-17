@@ -23,7 +23,8 @@
     "lastSignIn": "上次登入",
     "never": "從未",
     "actions": "操作",
-    "removeTooltip": "移除 {{username}}"
+    "removeTooltip": "移除 {{username}}",
+    "linkSsoTooltip": "將 SSO 連結至 {{username}}"
   },
   "deleteDialog": {
     "title": "移除 {{username}}？",
@@ -37,6 +38,7 @@
     "description": "為他人建立登入帳號，對方將使用此使用者名稱和密碼登入。",
     "usernameLabel": "使用者名稱",
     "usernamePlaceholder": "例如：jsmith",
+    "usernameHint": "請使用本機使用者名稱，而不是電子郵件地址。建立帳戶後再連結 Google/SSO。",
     "passwordLabel": "密碼",
     "confirmPasswordLabel": "確認密碼",
     "roleLabel": "角色",
@@ -58,6 +60,10 @@
     "userDeletedTitle": "帳號已移除",
     "userDeletedDescription": "{{username}} 已無法登入。",
     "actionFailedTitle": "操作失敗",
-    "unknownError": "未知錯誤"
+    "unknownError": "未知錯誤",
+    "ssoLinkedTitle": "SSO 已連結",
+    "ssoLinkedDescription": "外部身分現在已連結至此帳戶。",
+    "ssoLinkExpired": "SSO 連結工作階段已過期，請重新開始。",
+    "ssoLinkFailed": "無法將 SSO 身分連結至此帳戶。"
   }
 }

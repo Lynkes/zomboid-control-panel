@@ -5,6 +5,15 @@ import { execFileSync } from "child_process";
 import { afterEach, describe, expect, it } from "vitest";
 import { generateStartSh } from "../../build.js";
 
+const BASH_COMMAND =
+  process.platform !== "win32"
+    ? "bash"
+    : [
+        path.join(process.env.ProgramFiles || "C:\\Program Files", "Git", "bin", "bash.exe"),
+        path.join(process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)", "Git", "bin", "bash.exe"),
+      ].find((candidate) => fs.existsSync(candidate)) || null;
+const describeSupervisor = BASH_COMMAND ? describe : describe.skip;
+
 // Presence-based failed-update rollback (god's dispatch, 2026-09-08,
 // "harden-updater" Q3, taken for real this time): mirrors Start.bat's
 // `.update-applying`-presence check on Linux, where the equivalent signal
@@ -34,19 +43,26 @@ const FUNCTION_SOURCE = extractFunctionSource(generateStartSh(), "rollback_faile
 
 const roots = [];
 afterEach(() => {
-  for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
+  for (const root of roots.splice(0)) {
+    fs.rmSync(root, {
+      recursive: true,
+      force: true,
+      maxRetries: process.platform === "win32" ? 10 : 0,
+      retryDelay: 100,
+    });
+  }
 });
 
 // Captures both the function's own stdout AND its return code (echoed on
 // the last line, stripped before returning) -- rollback_failed_update()'s
 // success/failure is its whole contract, not just what it prints.
 function runInRoot(root) {
-  const wrapper = path.join(root, "run.sh");
-  fs.writeFileSync(
-    wrapper,
-    `#!/bin/bash\ncd "$(dirname "$0")"\n${FUNCTION_SOURCE}\nrollback_failed_update\necho "EXIT:$?"\n`,
-  );
-  const raw = execFileSync("bash", [wrapper], { cwd: root, encoding: "utf8" });
+  const script = `${FUNCTION_SOURCE}\nrollback_failed_update\necho "EXIT:$?"\n`;
+  const raw = execFileSync(BASH_COMMAND, ["-s"], {
+    cwd: root,
+    input: script,
+    encoding: "utf8",
+  });
   const lines = raw.split("\n");
   const exitLine = lines.find((l) => l.startsWith("EXIT:"));
   return {
@@ -55,7 +71,7 @@ function runInRoot(root) {
   };
 }
 
-describe("generateStartSh()'s rollback_failed_update: restores the previous build when an update never acknowledges startup", () => {
+describeSupervisor("generateStartSh()'s rollback_failed_update: restores the previous build when an update never acknowledges startup", () => {
   it("sanity check: the function was actually found and looks like the real thing (guards against a silent extraction-regex break)", () => {
     expect(FUNCTION_SOURCE).toContain("ZomboidControlPanel.bundle-previous");
     expect(FUNCTION_SOURCE).toContain("dist.previous");

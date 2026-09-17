@@ -320,7 +320,7 @@ export const KNOWN_RCON_REJECTIONS = [
     pattern: /^User ".*" is not in the whitelist nor the server, use \/adduser first\s*$/i,
     describe: (text) => `${text}.`,
   },
-  // 2026-08-29, hunt-wave11 (Kevin's Pass 4, docs/qa/kevin-b42-jar-audits.md):
+  // 2026-08-29, B42 jar audit Pass 4:
   // banuser / unbanuser / adduser / removeuserfromwhitelist each delegate
   // their entire result string to zombie/network/BanSystem or
   // zombie/network/ServerWorldDatabase -- their own command classes carry no
@@ -1562,7 +1562,7 @@ export class RconService extends EventEmitter {
   // ellipsis) to plain ASCII, transliterate common accented Latin letters,
   // then drop anything still outside printable ASCII. Used to be
   // reimplemented separately per call site with different character-class
-  // rules (see docs/qa/kevin-adversarial-findings.md Finding 2) -- the same
+  // rules (the security audit's Finding 2) -- the same
   // French text folded differently depending on which RCON call carried it,
   // and the caller had no way to know its text had been altered. One
   // implementation now; callers that need a narrower character set (e.g.
@@ -1724,7 +1724,7 @@ export class RconService extends EventEmitter {
     // characters PZ's RCON can't carry). Callers that persist their own
     // record of the ban (e.g. players.js's activity log) should log THIS,
     // not the original input, so the panel's own record matches reality.
-    // See docs/qa/kevin-adversarial-findings.md Finding 2.
+    // See the security audit's Finding 2.
     return { ...result, sentReason: safeReason };
   }
 
@@ -1759,7 +1759,7 @@ export class RconService extends EventEmitter {
     const safeP1 = this.sanitizeQuotedArg(player1, "Username", 64);
     if (player2) {
       return this.execute(
-        `teleport "${safeP1}" "${this.sanitizeQuotedArg(player2, "Target username", 64)}"`,
+        `teleportplayer "${safeP1}" "${this.sanitizeQuotedArg(player2, "Target username", 64)}"`,
       );
     }
     return this.execute(`teleport "${safeP1}"`);

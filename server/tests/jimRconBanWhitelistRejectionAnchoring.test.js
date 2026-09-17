@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { RconService } from "../services/rcon.js";
 
 // hunt-wave11-2026-08-29, follow-up to Pam's 27c6c26b anchoring fix and
-// Kevin's Pass 4 jar audit (docs/qa/kevin-b42-jar-audits.md). After Pam's
+// the B42 jar audit's Pass 4. After Pam's
 // fix, banuser / unbanuser / adduser / removeuserfromwhitelist STILL
 // reported a failure as a success -- each command's own class carries no
 // rejection text of its own; it all lives in zombie/network/BanSystem and

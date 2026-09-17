@@ -318,7 +318,7 @@ describe('PanelBridge vehicle compatibility', () => {
     // zero — use PanelBridge.invoke/tryGet, which probe by calling.
     const offenders = [];
     lines.forEach((line, index) => {
-      const guard = line.match(/(?:if|elseif)\s+(\w+)\.(\w+)\s+then/);
+      const guard = line.match(/(?:if|elseif)\s+[^\r\n]*?\b(\w+)\.(\w+)\s+then/);
       if (!guard) return;
       const [, base, method] = guard;
       const window = lines.slice(index, index + 4).join('\n');
@@ -328,6 +328,40 @@ describe('PanelBridge vehicle compatibility', () => {
     });
 
     expect(offenders).toEqual([]);
+  });
+
+  it('does not gate chained Java receivers on a readable method field', async () => {
+    const luaPath = path.resolve(process.cwd(), 'pz-mod/PanelBridge/media/lua/server/PanelBridge.lua');
+    const lua = await readFile(luaPath, 'utf8');
+    const lines = lua.split(/\r?\n/).map(line => line.replace(/--.*$/, ''));
+
+    // Java userdata exposes callable methods through the bridge even when a
+    // field read such as `w:getItem().getItemContainer` returns nil. This
+    // catches the chained form that the simpler obj.method scan above cannot.
+    const offenders = lines
+      .map((line, index) => ({ line, number: index + 1 }))
+      .filter(({ line }) => /\)\.(\w+)\s+then/.test(line));
+
+    expect(offenders).toEqual([]);
+  });
+
+  it('does not gate known Java static calls on readable fields', async () => {
+    const luaPath = path.resolve(process.cwd(), 'pz-mod/PanelBridge/media/lua/server/PanelBridge.lua');
+    const lua = await readFile(luaPath, 'utf8');
+    const offenders = lua
+      .split(/\r?\n/)
+      .map((line, index) => ({ line: line.replace(/--.*$/, ''), number: index + 1 }))
+      .filter(({ line }) => /\b(?:SafeHouse|Faction|BanSystem|VehicleUtils|VirtualZombieManager)\.\w+\s+then/.test(line))
+      .map(({ line, number }) => `${number}: ${line.trim()}`);
+
+    expect(offenders).toEqual([]);
+  });
+
+  it('does not probe Java methods through dynamic receiver fields', async () => {
+    const luaPath = path.resolve(process.cwd(), 'pz-mod/PanelBridge/media/lua/server/PanelBridge.lua');
+    const lua = await readFile(luaPath, 'utf8');
+
+    expect(lua).not.toMatch(/if\s+player\[name\]\s+then/);
   });
 
   it('keeps the Lua runtime version aligned with the manifest', async () => {

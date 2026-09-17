@@ -140,9 +140,18 @@ export const PZ_COMMANDS = {
   },
 
   // Teleport
+  teleportplayer: {
+    command: 'teleportplayer',
+    description: 'Teleport player1 to player2 (Build 42)',
+    parameters: [
+      { name: 'player1', type: 'string', required: true },
+      { name: 'player2', type: 'string', required: true }
+    ],
+    category: 'teleport'
+  },
   teleport: {
     command: 'teleport',
-    description: 'Teleport to a player or teleport player1 to player2',
+    description: 'Legacy teleport command (use teleportplayer for Build 42)',
     parameters: [
       { name: 'player1', type: 'string', required: true },
       { name: 'player2', type: 'string', required: false }
@@ -151,8 +160,9 @@ export const PZ_COMMANDS = {
   },
   teleportto: {
     command: 'teleportto',
-    description: 'Teleport to coordinates x,y,z',
+    description: 'Teleport a player to coordinates x,y,z (Build 42)',
     parameters: [
+      { name: 'username', type: 'string', required: true },
       { name: 'x', type: 'number', required: true },
       { name: 'y', type: 'number', required: true },
       { name: 'z', type: 'number', required: true }

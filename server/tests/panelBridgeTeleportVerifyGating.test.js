@@ -92,4 +92,24 @@ describe('PanelBridge.lua handlers.teleportPlayer -- gate ok on distance actuall
     expect(result.data.verified).toBe('confirmed');
     expect(result.data.verifyPosition).toEqual({ x: 100, y: 100, z: 1 });
   });
+
+  it('requests client-side synchronization when sendServerCommand is available', () => {
+    const bridge = loadPanelBridge(LUA_PATH, playerStub(true) + `
+FakeClientSyncCalls = 0
+function sendServerCommand(player, module, command, args)
+    FakeClientSyncCalls = FakeClientSyncCalls + 1
+    FakeClientSyncModule = module
+    FakeClientSyncCommand = command
+    FakeClientSyncArgs = args
+end
+`);
+    const result = bridge.callHandler('teleportPlayer', { username: 'Test', x: 5000, y: 6000, z: 0 });
+
+    expect(result.ok).toBe(true);
+    expect(result.data.clientSync).toBe('requested');
+    expect(bridge.getGlobal('FakeClientSyncCalls')).toBe(1);
+    expect(bridge.getGlobal('FakeClientSyncModule')).toBe('PanelBridge');
+    expect(bridge.getGlobal('FakeClientSyncCommand')).toBe('teleport');
+    expect(bridge.getGlobal('FakeClientSyncArgs').x).toBe(5000);
+  });
 });

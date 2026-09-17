@@ -116,7 +116,8 @@ class PanelBridge extends EventEmitter {
     this.queueState = {
       initialized: false,
       nextCommandSeq: 1,
-      lastConsumedResultSeq: 0
+      lastConsumedResultSeq: 0,
+      nextResultSeq: 1
     };
     this.outboxStuckState = { seq: null, since: 0, nextCheckAt: 0 };
     this.inboxResyncNextCheckAt = 0;
@@ -353,19 +354,53 @@ class PanelBridge extends EventEmitter {
         const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8') || '{}');
         const nextSeq = Number(state.nextCommandSeq);
         const consumed = Number(state.lastConsumedResultSeq);
+        const nextResult = Number(state.nextResultSeq);
         this.queueState.nextCommandSeq = Number.isFinite(nextSeq) && nextSeq > 0 ? Math.floor(nextSeq) : 1;
         this.queueState.lastConsumedResultSeq = Number.isFinite(consumed) && consumed >= 0 ? Math.floor(consumed) : 0;
+        this.queueState.nextResultSeq = Number.isFinite(nextResult) && nextResult > 0 ? Math.floor(nextResult) : 1;
       } catch (error) {
         log.warn(`Could not parse queue state file: ${error.message}`);
         this.queueState.nextCommandSeq = 1;
         this.queueState.lastConsumedResultSeq = 0;
+        this.queueState.nextResultSeq = 1;
+      }
+    }
+
+    // A malformed Lua-owned state file must not reset the result sequence to
+    // one while old outbox files are still present. Recover the strongest
+    // lower bound available from the panel-owned state, Lua's last snapshot,
+    // and surviving cached result filenames.
+    const luaStateFile = this.resolveModFile('queue-state-lua.json');
+    if (luaStateFile && fs.existsSync(luaStateFile)) {
+      try {
+        const luaState = JSON.parse(fs.readFileSync(luaStateFile, 'utf8') || '{}');
+        const luaNextResult = Number(luaState.nextResultSeq);
+        if (Number.isFinite(luaNextResult) && luaNextResult > 0) {
+          this.queueState.nextResultSeq = Math.max(this.queueState.nextResultSeq, Math.floor(luaNextResult));
+        }
+      } catch (error) {
+        log.warn(`Could not parse Lua result sequence state: ${error.message}`);
+      }
+    }
+
+    if (outboxDir && fs.existsSync(outboxDir)) {
+      try {
+        for (const name of fs.readdirSync(outboxDir)) {
+          const match = /^res-(\d+)\.json(?:\.txt)?$/.exec(name);
+          if (!match) continue;
+          const resultSeq = Number(match[1]);
+          if (Number.isFinite(resultSeq)) {
+            this.queueState.nextResultSeq = Math.max(this.queueState.nextResultSeq, Math.floor(resultSeq) + 1);
+          }
+        }
+      } catch (error) {
+        log.warn(`Could not scan outbox result sequence state: ${error.message}`);
       }
     }
 
     // The SFTP cache can be cleared independently of the remote server. In
     // that case the Lua cursor is the authoritative lower bound for new
     // command filenames, otherwise Node would restart at cmd-0000000001.
-    const luaStateFile = this.resolveModFile('queue-state-lua.json');
     // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
     if (luaStateFile && fs.existsSync(luaStateFile)) {
       try {
@@ -394,6 +429,7 @@ class PanelBridge extends EventEmitter {
       protocolVersion: this.protocolVersion,
       nextCommandSeq: this.queueState.nextCommandSeq,
       lastConsumedResultSeq: this.queueState.lastConsumedResultSeq,
+      nextResultSeq: Math.max(this.queueState.nextResultSeq, this.queueState.lastConsumedResultSeq + 1),
       updatedAt: Date.now()
     };
     const tempFile = `${stateFile}.tmp`;
@@ -766,6 +802,29 @@ class PanelBridge extends EventEmitter {
     const id = uuidv4();
     this.ensureQueueProtocol();
 
+    // Register before writing the inbox file. The mod can process a local
+    // command before the write promise yields back to this function; adding
+    // the pending entry afterwards loses that valid fast response as an
+    // orphan and makes the caller wait for a false timeout.
+    let resolveCommand;
+    let rejectCommand;
+    const commandPromise = new Promise((resolve, reject) => {
+      resolveCommand = resolve;
+      rejectCommand = reject;
+    });
+    const timeout = setTimeout(() => {
+      this.pendingCommands.delete(id);
+      rejectCommand(new Error(`Command timeout: ${action} (no response from mod)`));
+    }, this.config.commandTimeoutMs);
+    this.pendingCommands.set(id, {
+      resolve: resolveCommand,
+      reject: rejectCommand,
+      timeout,
+      action,
+      timestamp: Date.now(),
+    });
+    log.debug(`sendCommand: pending action=${action} id=${id} (pending=${this.pendingCommands.size})`);
+
     // Serialize file access to prevent TOCTOU race conditions
     if (!this._writeQueue) this._writeQueue = Promise.resolve();
 
@@ -781,25 +840,17 @@ class PanelBridge extends EventEmitter {
 
     // If the command failed to write, reject immediately instead of waiting for timeout
     if (writeError) {
-      throw new Error(`Failed to write command ${action}: ${writeError.message}`);
+      const pending = this.pendingCommands.get(id);
+      if (pending) {
+        clearTimeout(pending.timeout);
+        this.pendingCommands.delete(id);
+        pending.reject(new Error(`Failed to write command ${action}: ${writeError.message}`));
+      }
     }
 
-    // Return a promise that resolves when we get the result
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.pendingCommands.delete(id);
-        reject(new Error(`Command timeout: ${action} (no response from mod)`));
-      }, this.config.commandTimeoutMs);
-
-      this.pendingCommands.set(id, {
-        resolve,
-        reject,
-        timeout,
-        action,
-        timestamp: Date.now()
-      });
-      log.debug(`sendCommand: queued action=${action} id=${id} (pending=${this.pendingCommands.size})`);
-    });
+    // Resolve when the result arrives, including a result that arrived while
+    // the serialized inbox write was still yielding.
+    return commandPromise;
   }
 
   /**
@@ -985,6 +1036,7 @@ class PanelBridge extends EventEmitter {
     // resync exists to heal) costs one cheap existsSync and is skipped.
     this.recoverSkippedResults(this.queueState.lastConsumedResultSeq, luaHighWater);
     this.queueState.lastConsumedResultSeq = luaHighWater;
+    this.queueState.nextResultSeq = Math.max(this.queueState.nextResultSeq, luaNextResultSeq);
     this.persistQueueState();
     this.outboxStuckState.seq = null;
     return true;
@@ -1155,6 +1207,7 @@ class PanelBridge extends EventEmitter {
           if (this._emptyReadCounter.count >= 10) {
             log.warn(`Queue result seq ${seq} empty for ${this._emptyReadCounter.count} polls, advancing past it`);
             this.queueState.lastConsumedResultSeq = seq;
+            this.queueState.nextResultSeq = Math.max(this.queueState.nextResultSeq, seq + 1);
             this._emptyReadCounter.count = 0;
             consumed++;
             continue;
@@ -1175,6 +1228,7 @@ class PanelBridge extends EventEmitter {
       }
 
       this.queueState.lastConsumedResultSeq = seq;
+      this.queueState.nextResultSeq = Math.max(this.queueState.nextResultSeq, seq + 1);
       consumed++;
 
       try {

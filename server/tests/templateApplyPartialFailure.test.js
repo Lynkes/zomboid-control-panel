@@ -8,8 +8,8 @@ import { mockGetRoleByName } from "./helpers/mockPermissionsDb.js";
 // two separate steps. If the INI write succeeds and the Sandbox write then
 // fails, the route falls into its outer catch and responds with a flat
 // { error } -- reading as "nothing happened" -- even though the INI file was
-// already overwritten. Diagnosed in docs/qa/kevin-route-hunt.md Finding 4,
-// confirmed still present: the `applied` array that WOULD tell the truth is
+// already overwritten. Diagnosed during route-hunt Finding 4, confirmed
+// still present: the `applied` array that WOULD tell the truth is
 // only ever read on the success path.
 
 const withFileLock = vi.fn(async (filePath, fn) => {

@@ -28,7 +28,7 @@ describe("database/init.js schema v2 migration: roles collection + user.roleId",
   it("seeds admin/technician/moderator roles and assigns roleId to every existing user, without touching user.role", () => {
     const data = runMigrations(makeV1Data());
 
-    expect(data._schemaVersion).toBe(3);
+    expect(data._schemaVersion).toBe(4);
     expect(Array.isArray(data.roles)).toBe(true);
     expect(data.roles.map((r) => r.name).sort()).toEqual([
       "admin",
@@ -107,7 +107,7 @@ describe("database/init.js schema v2 migration: roles collection + user.roleId",
         { id: "role-admin", name: "admin", capabilities: ["users.manage"], isSeeded: true },
       ],
       settings: {},
-      _schemaVersion: 3,
+      _schemaVersion: 4,
     };
 
     const data = runMigrations(alreadyMigrated);
@@ -174,7 +174,7 @@ describe("database/init.js schema v3 migration: backups.download backfill", () =
       _schemaVersion: 2,
     });
 
-    expect(data._schemaVersion).toBe(3);
+    expect(data._schemaVersion).toBe(4);
     const technician = data.roles.find((r) => r.id === "role-technician");
     expect(technician.capabilities).toEqual(
       expect.arrayContaining(["backups.manage", "backups.download", "server.control"]),
@@ -233,5 +233,66 @@ describe("database/init.js schema v3 migration: backups.download backfill", () =
 
     const technician = twice.roles.find((r) => r.id === "role-technician");
     expect(technician.capabilities.filter((c) => c === "backups.download")).toHaveLength(1);
+  });
+});
+
+describe("database/init.js schema v4 migration: admin endanger capability backfill", () => {
+  it("grants the split capability to an existing seeded admin role", () => {
+    const data = runMigrations({
+      users: [],
+      roles: [
+        {
+          id: "role-admin",
+          name: "admin",
+          capabilities: ["server.world_events", "players.gm_tools"],
+          isSeeded: true,
+        },
+      ],
+      settings: {},
+      _schemaVersion: 3,
+    });
+
+    expect(data._schemaVersion).toBe(4);
+    expect(data.roles[0].capabilities).toEqual(
+      expect.arrayContaining(["server.world_events", "players.gm_tools", "players.endanger_or_impersonate"]),
+    );
+  });
+
+  it("does not grant the capability to another role", () => {
+    const data = runMigrations({
+      users: [],
+      roles: [
+        {
+          id: "role-technician",
+          name: "technician",
+          capabilities: ["server.world_events", "players.gm_tools"],
+          isSeeded: true,
+        },
+      ],
+      settings: {},
+      _schemaVersion: 3,
+    });
+
+    expect(data.roles[0].capabilities).not.toContain("players.endanger_or_impersonate");
+  });
+
+  it("is idempotent", () => {
+    const once = runMigrations({
+      users: [],
+      roles: [
+        {
+          id: "role-admin",
+          name: "admin",
+          capabilities: [],
+          isSeeded: true,
+        },
+      ],
+      settings: {},
+      _schemaVersion: 3,
+    });
+    once._schemaVersion = 3;
+    const twice = runMigrations(once);
+
+    expect(twice.roles[0].capabilities.filter((c) => c === "players.endanger_or_impersonate")).toHaveLength(1);
   });
 });

@@ -294,6 +294,21 @@ RCON shows connected.
   `ghcr.io/fpsacha/zomboid-panel:1.2.4` — no `v` prefix, unlike the git tag
   it's built from), if you'd rather pin a version than track `:latest`.
 
+Maintainer invariant: the root and client package manifests and both lockfiles
+must carry the same version. The Docker workflows build `:latest` from
+`main`, so they reject a `main` version older than the latest GitHub release
+and require an exact match for `v*` tag builds. Check the local files with:
+
+```sh
+npm run check:package-version
+```
+
+Release source-of-truth: create release tags from `main` only. Do not tag a
+feature branch and then repair `main` by changing package metadata; that can
+produce a correct versioned image and a different, stale `:latest` image. A
+tag that is not an ancestor of `main` requires reconciling the histories and
+the changelog before publishing another image.
+
 ---
 
 ## Path C: docker-compose.install.yml (panel only)
