@@ -302,6 +302,24 @@ router.get("/download/:name", requirePermission("backups.download"), async (req,
       return res.status(404).json({ error: "Backup not found", code: ErrorCode.BACKUP_NOT_FOUND });
     }
 
+    // round 19 (backup-read-paths-ownership): deleteBackup()/restoreBackup()
+    // already refuse a name that identifies another currently-colliding
+    // server's own backup (see backupService.js's _findForeignBackupOwner()
+    // comment) -- this download route never checked at all, so an operator
+    // of one server could download another server's full backup archive
+    // just by knowing (or guessing, from the predictable
+    // `${serverName}_${timestamp}.zip` naming already exposed by /list's
+    // pre-fix behavior) its filename. 404, not 403: matches the sibling
+    // /:name/snapshot route's existing "any failure -> 404" convention
+    // rather than confirming a foreign file's existence with a different
+    // status code.
+    const foreignOwner = await backupService._findForeignBackupOwner(safeName, backupsPath);
+    if (foreignOwner) {
+      return res.status(404).json({
+        error: `This backup belongs to another server profile ("${foreignOwner}") that shares this backups folder -- refusing to download it here.`,
+      });
+    }
+
     res.download(backupPath, safeName);
   } catch (error) {
     log.error(`Failed to download backup: ${error.message}`);

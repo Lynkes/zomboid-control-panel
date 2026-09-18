@@ -1163,6 +1163,22 @@ export class BackupService {
       return { success: false, message: "Backup not found" };
     }
 
+    // round 19 (backup-read-paths-ownership): the write/destructive paths
+    // (deleteBackup, restoreBackup) already refuse a name that identifies
+    // another currently-colliding server's own backup -- see
+    // _findForeignBackupOwner()'s own comment -- but this READ path never
+    // checked at all, so an operator of one server could read the panel
+    // snapshot embedded inside another server's backup archive just by
+    // knowing (or guessing, from the predictable `${serverName}_${timestamp}
+    // .zip` naming) its filename.
+    const foreignOwner = await this._findForeignBackupOwner(safeName, backupsPath);
+    if (foreignOwner) {
+      return {
+        success: false,
+        message: `This backup belongs to another server profile ("${foreignOwner}") that shares this backups folder -- refusing to read it here.`,
+      };
+    }
+
     try {
       const unzip = await getUnzipper();
       const archive = await unzip.Open.file(backupPath);

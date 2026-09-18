@@ -19,7 +19,7 @@ import { PageHeader } from '@/components/PageHeader'
 import { DisabledReason } from '@/components/DisabledReason'
 import { HelpTip } from '@/components/HelpTip'
 import { cn } from '@/lib/utils'
-import { getUserErrorMessage } from '@/lib/errorMessage'
+import { getUserErrorMessage, getResultErrorMessage } from '@/lib/errorMessage'
 import { usePageShortcut } from '@/hooks/useKeyboardShortcuts'
 
 // rconService.execute() (server/services/rcon.js) attaches
@@ -697,26 +697,31 @@ export default function Console() {
       }
 
       if (!result.success) {
-        // bug-hunt-2026-09-18 (round 13, client error-code display sweep):
-        // result.code was already read three lines up (isRconDisconnectError)
-        // to update connection state, but the toast below used to show
-        // result.error's raw prose regardless -- for every disconnect shape
-        // rconService.execute() can return (RCON_EXECUTE_DISCONNECTED
-        // covers several distinct English strings: "Server is not running",
-        // "RCON reconnection failed", and whatever getUserFriendlyError()
-        // classified it as), a non-English operator saw untranslated English
-        // instead of the already-registered, already-translated
-        // errors.json:RCON_EXECUTE_DISCONNECTED string. getUserErrorMessage()
+        // bug-hunt-2026-09-18 (round 13, client error-code display sweep;
+        // round 15: switched from a getUserErrorMessage({code, message})
+        // proxy to getResultErrorMessage(result) once round 14's Debug.tsx
+        // fix found that getUserErrorMessage()'s params extraction only
+        // works on a real ApiError instance -- a plain object like the
+        // proxy this used to build would silently drop any {{placeholder}}
+        // param a future coded result could carry, even though `result`
+        // here is already the exact "parsed response body" shape
+        // getResultErrorMessage() exists for): result.code was already read
+        // three lines up (isRconDisconnectError) to update connection
+        // state, but the toast below used to show result.error's raw prose
+        // regardless -- for every disconnect shape rconService.execute()
+        // can return (RCON_EXECUTE_DISCONNECTED covers several distinct
+        // English strings: "Server is not running", "RCON reconnection
+        // failed", and whatever getUserFriendlyError() classified it as), a
+        // non-English operator saw untranslated English instead of the
+        // already-registered, already-translated
+        // errors.json:RCON_EXECUTE_DISCONNECTED string. getResultErrorMessage()
         // resolves result.code through the SAME registry every other error
         // path in this app uses, and falls back to result.error unchanged
         // for the bucket-C case (no code, e.g. "Server is starting, please
         // wait...") -- byte-identical behavior to before for that case.
         toast({
           title: t('toasts.errorTitle'),
-          description: getUserErrorMessage(
-            { code: result.code, message: result.error },
-            result.error || t('toasts.commandFailedFallback'),
-          ),
+          description: getResultErrorMessage(result, result.error || t('toasts.commandFailedFallback')),
           variant: 'destructive',
         })
       }
@@ -839,10 +844,7 @@ export default function Console() {
         // instead of showing its raw English prose unconditionally.
         toast({
           title: t('toasts.errorTitle'),
-          description: getUserErrorMessage(
-            { code: result.code, message: result.error },
-            result.error || t('toasts.broadcastFailedFallback'),
-          ),
+          description: getResultErrorMessage(result, result.error || t('toasts.broadcastFailedFallback')),
           variant: 'destructive',
         })
       }

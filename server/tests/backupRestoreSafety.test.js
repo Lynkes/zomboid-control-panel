@@ -9,6 +9,11 @@ const logServerEvent = vi.fn(async () => {});
 
 vi.mock("../database/init.js", () => ({
   getActiveServer: vi.fn(async () => null),
+  // round 19 (backup-read-paths-ownership): getBackupSnapshot() now calls
+  // _findForeignBackupOwner(), which reads getServers() -- without this,
+  // every getBackupSnapshot() test below fails open with a noisy "No
+  // getServers export" warning (harmless, but worth keeping clean).
+  getServers: vi.fn(async () => []),
   getSetting: vi.fn(async () => null),
   setSetting: vi.fn(async () => {}),
   logServerEvent,
