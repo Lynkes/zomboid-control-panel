@@ -6006,10 +6006,10 @@ router.get("/console-log/error-count", requirePermission("server.world_events"),
 // never sends its matching follow-up) can't grow this without bound.
 const CONSOLE_STREAM_REMAINDER_MAX_ENTRIES = 16;
 const CONSOLE_STREAM_REMAINDER_CAP_BYTES = 64 * 1024;
-const consoleStreamRemainders = new Map(); // `${path} ${resumeAtSize}` -> text
+const consoleStreamRemainders = new Map(); // `${path}\u0000${resumeAtSize}` -> text
 
 function consoleStreamRemainderKey(consoleLogPath, resumeAtSize) {
-  return `${consoleLogPath} ${resumeAtSize}`;
+  return `${consoleLogPath}\u0000${resumeAtSize}`;
 }
 
 // A rotation/shrink means every fragment on file for this path was
@@ -6017,7 +6017,7 @@ function consoleStreamRemainderKey(consoleLogPath, resumeAtSize) {
 // shape -- reattaching any of them to whatever comes next (a fresh
 // full-file read) would glue unrelated content together.
 function clearConsoleStreamRemaindersForPath(consoleLogPath) {
-  const prefix = `${consoleLogPath} `;
+  const prefix = `${consoleLogPath}\u0000`;
   for (const key of consoleStreamRemainders.keys()) {
     if (key.startsWith(prefix)) consoleStreamRemainders.delete(key);
   }
@@ -6060,6 +6060,81 @@ function splitConsoleStreamLines(consoleLogPath, resumeFromSize, content) {
   return { completeLines: parts, remainder };
 }
 
+// continuous-bug-hunt round 14 (console stream file identity, follow-up to
+// round 13): the existing `stats.size < lastSize` check below only ever
+// catches a rotation that SHRINKS the file. PZ recreating server-console.txt
+// on restart -- or the active server switching to a different server's own
+// consoleLogPath -- produces a BRAND NEW file that starts at 0 and can
+// easily grow PAST the client's old lastSize within a single ~2s poll
+// window (a verbose PZ startup burst) before anyone notices: the size-only
+// check then reads bytes [lastSize, stats.size) of the WRONG (new) file,
+// silently skipping its own first `lastSize` bytes forever.
+//
+// Design choice (server-side identity, not a client-echoed token): this
+// route already keeps small per-path module state for the remainder
+// buffer above (rounds 13/13b) -- tracking "which file (by inode, or
+// birthtime when inode is unavailable) did we last see at this path" is
+// the same established idiom and needs ZERO client changes, since the
+// comparison is entirely server-side. A token-echo scheme (return an
+// identity token, have the client send it back next poll) would touch
+// client/src/pages/Console.tsx AND client/src/lib/api.ts for no
+// correctness benefit this approach doesn't already provide, and would
+// still need its own "no token yet" fallback for a client's very first
+// request -- exactly the ambiguous case this approach resolves for free
+// (see consoleLogIdentityChanged's own comment). Smaller, self-contained,
+// server-only diff -- the client's existing lastSize-only contract keeps
+// working completely unmodified.
+//
+// Sharing one identity map across every concurrently-polling client is
+// safe, unlike the remainder buffer: file identity is a single objective
+// server-side fact (which file currently sits at this path), not
+// per-reader state, so there is no round-13b-style "one poller's entry
+// clobbers another's" risk here.
+let consoleStreamKnownIdentity = new Map(); // path -> {birthtimeMs, ino}
+
+// Returns true only when a PREVIOUSLY recorded identity for this exact
+// path no longer matches the file currently there -- deleted and
+// recreated since we last looked (a new inode, or a new birthtime when
+// inode is unavailable), whether from a PZ restart or an active-server
+// switch to a different consoleLogPath. The very first time a path is
+// seen there is nothing yet to contradict, so this records a baseline and
+// returns false rather than forcing a resync -- the client's normal flow
+// already establishes a correct lastSize via its initial GET
+// /console-log fetch moments before its first /stream poll, so treating
+// "never seen before" as "assume changed" would force a needless full
+// re-read (and a visible content reset in the UI) on every ordinary page
+// load, not just a genuine rotation.
+//
+// Combined with (not replacing) the existing size-shrink check below: a
+// `copytruncate`-style external rotation tool can truncate the SAME inode
+// in place (birthtime and inode both unchanged, only size and mtime
+// change), which an identity comparison alone would miss.
+function consoleLogIdentityChanged(consoleLogPath, stats) {
+  const current = { birthtimeMs: stats.birthtimeMs || 0, ino: stats.ino || 0 };
+  const known = consoleStreamKnownIdentity.get(consoleLogPath);
+  consoleStreamKnownIdentity.set(consoleLogPath, current);
+  // Never tracked this exact path before -- this is either this process's
+  // genuine first-ever poll of it, OR the active server just switched to a
+  // path this process has never seen, carrying a lastSize that was
+  // calibrated for a DIFFERENT file entirely. The two are indistinguishable
+  // from state alone, and only ONE of them is safe to treat as unchanged --
+  // so treat "unknown" as "changed" and force a full resync. The cost is
+  // bounded and one-time: once ANY poll establishes a baseline for a path,
+  // every later poll against that SAME path (by this or any other client)
+  // stops forcing a resync unless the file genuinely changes identity, so
+  // this only fires once per path per panel-process-lifetime for the
+  // ordinary case -- not on every page load, since the map is shared
+  // across every poller, not per-client.
+  if (!known) return true;
+  if (current.ino && known.ino) return current.ino !== known.ino;
+  // ino unavailable (rare, some virtual/network filesystems) -- fall back
+  // to birthtime, same defensive shape as LogTailer.js's own startOffsetFor.
+  if (current.birthtimeMs && known.birthtimeMs) {
+    return current.birthtimeMs !== known.birthtimeMs;
+  }
+  return false; // neither signal available -- no worse than before this fix
+}
+
 // Stream server console log (long-polling for new content)
 router.get("/console-log/stream", requirePermission("server.world_events"), async (req, res) => {
   try {
@@ -6092,9 +6167,15 @@ router.get("/console-log/stream", requirePermission("server.world_events"), asyn
       Number.MAX_SAFE_INTEGER,
     );
     const stats = fs.statSync(consoleLogPath);
+    const identityChanged = consoleLogIdentityChanged(consoleLogPath, stats);
 
-    // If file is smaller than last known size, it was likely rotated/cleared
-    if (stats.size < lastSize) {
+    // If file is smaller than last known size, OR a different file (by
+    // inode/birthtime) now exists at this same path -- PZ recreated its
+    // console log on restart, or the active server switched to a
+    // different server's own consoleLogPath -- treat it as rotated: the
+    // size-alone check below would otherwise stay silent whenever the new
+    // file is already >= lastSize by the time this poll runs.
+    if (identityChanged || stats.size < lastSize) {
       clearConsoleStreamRemaindersForPath(consoleLogPath);
       const content = fs.readFileSync(consoleLogPath, "utf-8");
       const { completeLines, remainder } = splitConsoleStreamLines(
