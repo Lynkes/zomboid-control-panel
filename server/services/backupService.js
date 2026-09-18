@@ -5,10 +5,12 @@ import archiver from "archiver";
 import { createReadStream } from "fs";
 import { crc32 } from "zlib";
 import { createLogger } from "../utils/logger.js";
+import { escapeRegExp } from "../utils/regex.js";
 import { isPidAlive } from "../utils/pidLiveness.js";
 const log = createLogger("Backup");
 import {
   getActiveServer,
+  getServers,
   getSetting,
   setSetting,
   logServerEvent,
@@ -242,8 +244,18 @@ export async function appendDirectoryToArchive(archive, sourceRoot, destinationR
 // create this way (uploaded-*.zip, hand-copied files) -- there is no
 // better signal for those, and they're already exempt from automatic
 // pruning regardless.
-const BACKUP_TIMESTAMP_RE =
-  /(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3})(?:-(\d+))?\.zip$/;
+// The exact shape _doCreateBackup() writes (see its own timestamp/
+// collision-suffix construction): `new Date().toISOString()` with `:`/`.`
+// swapped for `-` and sliced to 23 chars (drops the trailing "Z"), plus an
+// optional `-N` collision suffix. Kept as one shared string so
+// BACKUP_TIMESTAMP_RE below and round 18b's per-server ownership pattern
+// (backupFilenameOwnerPattern()) can never drift apart on what a real
+// panel-written timestamp looks like.
+const BACKUP_TIMESTAMP_PATTERN =
+  "\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}";
+const BACKUP_TIMESTAMP_RE = new RegExp(
+  `(${BACKUP_TIMESTAMP_PATTERN})(?:-(\\d+))?\\.zip$`,
+);
 function backupSortKey(fileName, stats) {
   const match = fileName.match(BACKUP_TIMESTAMP_RE);
   if (match) {
@@ -253,6 +265,47 @@ function backupSortKey(fileName, stats) {
     key: stats.birthtime.toISOString().replace(/[:.]/g, "-").slice(0, 23),
     suffix: 1,
   };
+}
+
+// round 18b (god-caught follow-up): a plain name.startsWith(`${name}_`)
+// substring check is not enough to attribute a backup's filename to a
+// server -- SERVER_NAME_REGEX allows underscores, so two configured
+// servers "my" and "my_server" sharing a backups folder both look like
+// they "start with" my_server's own file (my_server_2026-...zip starts
+// with "my_" too), misattributing my_server's own backup as belonging to
+// "my" and hiding/refusing it as foreign. Anchoring the WHOLE filename --
+// `${name}_` immediately followed by the exact BACKUP_TIMESTAMP_PATTERN
+// shape and nothing else -- closes that: "my_server_2026-...zip" only
+// matches candidate "my_server" (nothing valid follows "my_" except
+// "server_2026...", which is not a 4-digit year), never candidate "my".
+function backupFilenameOwnerPattern(serverName) {
+  return new RegExp(
+    `^${escapeRegExp(serverName)}_${BACKUP_TIMESTAMP_PATTERN}(?:-\\d+)?\\.zip$`,
+  );
+}
+
+// Attributes `fileName` to exactly one of `candidateNames`: whichever
+// candidate's anchored pattern matches AND is the LONGEST such match wins,
+// so a longer, more specific name (e.g. "my_server") is never shadowed by
+// a shorter one that happens to be a literal prefix of it (e.g. "my").
+// Callers put the ACTIVE server's own name in `candidateNames` alongside
+// any colliding others, so ties always resolve in favor of a real name
+// (two different currently-configured servers can never share the exact
+// same name) and the active server's own file is never misattributed to
+// someone else as a side effect of this length comparison. Returns null
+// when NO candidate's pattern matches at all -- a legacy backup predating
+// multi-server support, an uploaded archive, or simply a name matching no
+// known server -- callers treat "no clear owner" as "assume mine, don't
+// hide or refuse it", the same conservative default the rest of this
+// round's fix already uses.
+function attributeBackupFilename(fileName, candidateNames) {
+  let winner = null;
+  for (const name of candidateNames) {
+    if (backupFilenameOwnerPattern(name).test(fileName)) {
+      if (!winner || name.length > winner.length) winner = name;
+    }
+  }
+  return winner;
 }
 
 export class BackupService {
@@ -372,6 +425,33 @@ export class BackupService {
   }
 
   /**
+   * Read-only resolution of the data directory a server's backups/ folder
+   * lives under -- the same fallback chain getBackupsPath() below applies,
+   * pulled out so cross-server ownership checks (see
+   * _excludeOtherServersBackups()/_findForeignBackupOwner() further down)
+   * can ask "where would THIS OTHER server's backups be" without also
+   * getBackupsPath()'s own side effect of creating that directory on disk
+   * for a server that may not even have any backups yet.
+   */
+  async _resolveServerDataBasePath(activeServerOverride) {
+    const activeServer =
+      activeServerOverride !== undefined
+        ? activeServerOverride
+        : await getActiveServer();
+
+    if (activeServer?.zomboidDataPath) {
+      return activeServer.zomboidDataPath;
+    }
+
+    const legacyPath = await getSetting("zomboidDataPath");
+    if (legacyPath) return legacyPath;
+
+    // Use local backups folder as fallback
+    const { getDataPaths } = await import("../utils/paths.js");
+    return getDataPaths().dataDir;
+  }
+
+  /**
    * Get the backups folder path.
    *
    * `activeServerOverride` -- see getSavesPath()'s comment just above for
@@ -381,24 +461,7 @@ export class BackupService {
    */
   async getBackupsPath(activeServerOverride) {
     try {
-      const activeServer =
-        activeServerOverride !== undefined
-          ? activeServerOverride
-          : await getActiveServer();
-      let basePath;
-
-      if (activeServer?.zomboidDataPath) {
-        basePath = activeServer.zomboidDataPath;
-      } else {
-        basePath = await getSetting("zomboidDataPath");
-      }
-
-      if (!basePath) {
-        // Use local backups folder as fallback
-        const { getDataPaths } = await import("../utils/paths.js");
-        basePath = getDataPaths().dataDir;
-      }
-
+      const basePath = await this._resolveServerDataBasePath(activeServerOverride);
       const backupsPath = path.join(basePath, "backups");
 
       // Ensure backups folder exists
@@ -410,6 +473,136 @@ export class BackupService {
     } catch (error) {
       log.error(`Failed to get backups path: ${error.message}`);
       return null;
+    }
+  }
+
+  // continuous-bug-hunt round 18 (backups and server ownership): unlike
+  // Saves/Multiplayer/<serverName>, a server's backups/ folder is just
+  // `<zomboidDataPath>/backups` -- no serverName segment in the PATH at
+  // all, only encoded in each FILE's own name (`${serverName}_${timestamp}
+  // .zip`, see createBackup() above). getBackupsPath() falls back to the
+  // app-wide legacy `zomboidDataPath` setting (or PZ_SAVE_PATH via
+  // routes/servers.js's own default) whenever a server profile doesn't
+  // have its OWN zomboidDataPath configured -- a perfectly ordinary state
+  // for a newly added second server profile, or any server never
+  // individually pointed at its own data folder. When that happens, TWO
+  // (or more) server profiles resolve to the exact SAME backups/ directory
+  // with nothing anywhere checking which file belongs to which server --
+  // every consumer (this list, cleanupOldBackups' automatic pruning,
+  // restore, delete) previously treated every .zip sitting in that shared
+  // folder as fair game, regardless of which server's name prefixed it.
+  //
+  // Deliberately narrow: only ever excludes something when a REAL
+  // collision is detected against a server that is CURRENTLY configured
+  // (fetched fresh, not cached) and genuinely resolves to this exact same
+  // directory -- for the overwhelming normal case (every server has its
+  // own distinct data path), every server in `others` fails the path
+  // comparison and this returns its input completely unchanged, zero
+  // behavior difference from before this fix. A backup is only ever
+  // treated as "not mine" when attributeBackupFilename() (see its own
+  // comment -- the WHOLE filename anchored against name + the exact
+  // timestamp shape, longest matching name wins, never the active
+  // server's own name) resolves it to a DIFFERENT, currently-existing,
+  // currently-colliding server -- anything else (a legacy backup
+  // predating multi-server support, one made before THIS server was
+  // renamed, an uploaded archive, or simply a name matching no known
+  // server) stays visible and prunable under this server: hiding or
+  // permanently losing track of an ambiguous-but-possibly-real backup
+  // would be a worse failure than this function occasionally
+  // under-filtering.
+  async _excludeOtherServersBackups(backups, backupsPath, activeServerOverride) {
+    if (backups.length === 0) return backups;
+    try {
+      const activeServer =
+        activeServerOverride !== undefined
+          ? activeServerOverride
+          : await getActiveServer();
+      const allServers = await getServers();
+      const others = allServers.filter(
+        (s) => String(s.id) !== String(activeServer?.id ?? ""),
+      );
+      if (others.length === 0) return backups;
+
+      const collidingOtherNames = new Set();
+      const resolvedBackupsPath = path.resolve(backupsPath);
+      for (const other of others) {
+        const otherBasePath = await this._resolveServerDataBasePath(other);
+        if (!otherBasePath) continue;
+        const otherBackupsPath = path.resolve(path.join(otherBasePath, "backups"));
+        if (
+          otherBackupsPath === resolvedBackupsPath &&
+          typeof other.serverName === "string" &&
+          other.serverName
+        ) {
+          collidingOtherNames.add(other.serverName);
+        }
+      }
+      if (collidingOtherNames.size === 0) return backups;
+
+      const ownName =
+        typeof activeServer?.serverName === "string" && activeServer.serverName
+          ? activeServer.serverName
+          : null;
+      const candidates = ownName ? [ownName, ...collidingOtherNames] : [...collidingOtherNames];
+
+      return backups.filter((b) => {
+        const owner = attributeBackupFilename(b.name, candidates);
+        if (owner && owner !== ownName) {
+          log.warn(
+            `Backup "${b.name}" sits in a backups folder shared with another server profile ("${owner}") -- excluded from this server's list/pruning`,
+          );
+          return false;
+        }
+        return true;
+      });
+    } catch (error) {
+      log.warn(`Could not check for cross-server backup ownership: ${error.message}`);
+      return backups; // fail open to the pre-fix behavior, not a blank list
+    }
+  }
+
+  // Single-name variant of the check above, for the destructive single-file
+  // operations (restore, delete) that don't go through listBackups() at
+  // all. Returns the OTHER server's name if `name` belongs to it (a real,
+  // currently-colliding server), else null -- including whenever
+  // attributeBackupFilename() resolves it to the ACTIVE server's own name
+  // instead, so this server's own file is never refused as foreign.
+  async _findForeignBackupOwner(name, backupsPath, activeServerOverride) {
+    try {
+      const activeServer =
+        activeServerOverride !== undefined
+          ? activeServerOverride
+          : await getActiveServer();
+      const allServers = await getServers();
+      const others = allServers.filter(
+        (s) => String(s.id) !== String(activeServer?.id ?? ""),
+      );
+      if (others.length === 0) return null;
+
+      const resolvedBackupsPath = path.resolve(backupsPath);
+      const collidingOtherNames = new Set();
+      for (const other of others) {
+        if (typeof other.serverName !== "string" || !other.serverName) continue;
+        const otherBasePath = await this._resolveServerDataBasePath(other);
+        if (!otherBasePath) continue;
+        const otherBackupsPath = path.resolve(path.join(otherBasePath, "backups"));
+        if (otherBackupsPath === resolvedBackupsPath) {
+          collidingOtherNames.add(other.serverName);
+        }
+      }
+      if (collidingOtherNames.size === 0) return null;
+
+      const ownName =
+        typeof activeServer?.serverName === "string" && activeServer.serverName
+          ? activeServer.serverName
+          : null;
+      const candidates = ownName ? [ownName, ...collidingOtherNames] : [...collidingOtherNames];
+
+      const owner = attributeBackupFilename(name, candidates);
+      return owner && owner !== ownName ? owner : null;
+    } catch (error) {
+      log.warn(`Could not check backup ownership for ${name}: ${error.message}`);
+      return null; // fail open, same posture as _excludeOtherServersBackups
     }
   }
 
@@ -910,28 +1103,35 @@ export class BackupService {
 
       const files = await fs.promises.readdir(backupsPath);
 
-      const backups = await Promise.all(
-        files
-          .filter((f) => f.endsWith(".zip"))
-          .map(async (f) => {
-            try {
-              const filePath = path.join(backupsPath, f);
-              const stats = await fs.promises.stat(filePath);
-              return {
-                name: f,
-                path: filePath,
-                size: stats.size,
-                created: stats.birthtime.toISOString(),
-                sortKey: backupSortKey(f, stats),
-              };
-            } catch (e) {
-              return null;
-            }
-          }),
+      const backups = (
+        await Promise.all(
+          files
+            .filter((f) => f.endsWith(".zip"))
+            .map(async (f) => {
+              try {
+                const filePath = path.join(backupsPath, f);
+                const stats = await fs.promises.stat(filePath);
+                return {
+                  name: f,
+                  path: filePath,
+                  size: stats.size,
+                  created: stats.birthtime.toISOString(),
+                  sortKey: backupSortKey(f, stats),
+                };
+              } catch (e) {
+                return null;
+              }
+            }),
+        )
+      ).filter((b) => b !== null);
+
+      const owned = await this._excludeOtherServersBackups(
+        backups,
+        backupsPath,
+        activeServerOverride,
       );
 
-      return backups
-        .filter((b) => b !== null)
+      return owned
         .sort((a, b) => {
           if (a.sortKey.key !== b.sortKey.key) {
             return a.sortKey.key < b.sortKey.key ? 1 : -1; // newest first
@@ -1000,6 +1200,16 @@ export class BackupService {
 
       if (!fs.existsSync(backupPath)) {
         throw new Error("Backup not found");
+      }
+
+      // round 18: refuse a delete whose name identifies it as another,
+      // currently-colliding server's own backup -- see
+      // _findForeignBackupOwner()'s own comment.
+      const foreignOwner = await this._findForeignBackupOwner(safeName, backupsPath);
+      if (foreignOwner) {
+        throw new Error(
+          `This backup belongs to another server profile ("${foreignOwner}") that shares this backups folder -- refusing to delete it from here.`,
+        );
       }
 
       fs.unlinkSync(backupPath);
@@ -1362,6 +1572,18 @@ export class BackupService {
 
       if (!fs.existsSync(backupPath)) {
         throw new Error(`Backup not found: ${safeName}`);
+      }
+
+      // round 18: refuse to restore a backup whose name identifies it as
+      // another, currently-colliding server's own backup -- the sharpest
+      // version of "restore writes server A's backup into server B's
+      // saves path" this bug hunt named. See _findForeignBackupOwner()'s
+      // own comment.
+      const foreignOwner = await this._findForeignBackupOwner(safeName, backupsPath);
+      if (foreignOwner) {
+        throw new Error(
+          `This backup belongs to another server profile ("${foreignOwner}") that shares this backups folder -- refusing to restore it here.`,
+        );
       }
 
       log.info(`Starting restore from: ${safeName}`);
