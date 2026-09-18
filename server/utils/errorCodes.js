@@ -879,6 +879,17 @@ export const ErrorCode = Object.freeze({
    * delete itself uses customPath (not server-scoped). Identical
    * wording/meaning both sites, shared code. */
   CHUNKS_STALE_SERVER_SCAN: "CHUNKS_STALE_SERVER_SCAN",
+  /** server/routes/chunks.js (sites: POST /delete-chunks, POST
+   * /delete-region) -- every chunk targeted by the request failed to
+   * delete (deleted:0 with a non-empty errors[]; the two "nothing was even
+   * targeted" cases -- empty chunks[]/chunksToDelete -- already return
+   * earlier and never reach here). god-dispatched 2026-09-18, round 4: the
+   * response used to hardcode an English-only `error` string for this case
+   * -- registered so the panel's i18n can translate it. Carries the first
+   * underlying filesystem error as `params.reason`, not baked into the
+   * message, same shape as WIPE_PARTIAL_FAILURE above. Identical
+   * wording/meaning both sites, shared code. */
+  DELETE_CHUNKS_ALL_FAILED: "DELETE_CHUNKS_ALL_FAILED",
   /** server/routes/chunks.js -- POST /delete-region, `saveName` missing or
    * one of minX/maxX/minY/maxY missing. */
   DELETE_REGION_FIELDS_REQUIRED: "DELETE_REGION_FIELDS_REQUIRED",
