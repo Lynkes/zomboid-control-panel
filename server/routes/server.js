@@ -330,7 +330,9 @@ async function ensureSteamCmdLinux(installPath, io) {
 // declaring success -- purely additive, cannot fail on a real successful
 // run, only catches the same "exited clean but the binary still isn't
 // there" edge case ensureSteamCmdLinux already guarded against.
-function runSteamCmdFirstTimeSetup(steamcmdExe, installPath, io) {
+export const STEAMCMD_FIRST_RUN_TIMEOUT_MS = 120000;
+
+export function runSteamCmdFirstTimeSetup(steamcmdExe, installPath, io) {
   return new Promise((resolve, reject) => {
     const firstRunOpts = { cwd: installPath };
     if (!isWindows) {
@@ -353,7 +355,26 @@ function runSteamCmdFirstTimeSetup(steamcmdExe, installPath, io) {
       emitRawSteamCmdLine(io, "steamcmd:log", "stderr", data.toString());
     });
 
+    let settled = false;
+    const timeoutId = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      steamcmd.kill();
+      const message = `SteamCMD first-run setup timed out after ${STEAMCMD_FIRST_RUN_TIMEOUT_MS}ms`;
+      io?.emit("steamcmd:status", {
+        status: "error",
+        message,
+        progressCode: ProgressCode.STEAMCMD_SETUP_FAILED,
+        params: { reason: message },
+      });
+      log.error(message);
+      reject(new Error(message));
+    }, STEAMCMD_FIRST_RUN_TIMEOUT_MS);
+
     steamcmd.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
       if (code !== 0 && code !== 7) {
         io?.emit("steamcmd:status", {
           status: "error",
@@ -400,6 +421,9 @@ function runSteamCmdFirstTimeSetup(steamcmdExe, installPath, io) {
     });
 
     steamcmd.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
       io?.emit("steamcmd:status", {
         status: "error",
         message: `Failed to run SteamCMD: ${sanitizeError(error.message)}`,

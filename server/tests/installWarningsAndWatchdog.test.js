@@ -4,6 +4,10 @@ import os from "os";
 import path from "path";
 import { EventEmitter } from "events";
 import { setSetting } from "../database/init.js";
+import {
+  runSteamCmdFirstTimeSetup,
+  STEAMCMD_FIRST_RUN_TIMEOUT_MS,
+} from "../routes/server.js";
 
 // 2026-08-26 install-failure hunt findings #6 and #1. #6: the game files
 // installing is the expensive, hard-to-redo part -- a failure in an
@@ -569,5 +573,48 @@ describe("POST /api/server/install -- UPnP reaches the server's own .ini, not ju
     expect(content).toContain("UPnP=true");
     expect(content).toContain("RCONPassword=rconpw123");
     expect(content).toContain("RCONPort=27015");
+  });
+});
+
+describe("SteamCMD first-run bootstrap watchdog", () => {
+  it("kills and rejects a +quit process that exceeds the shared ceiling", async () => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = vi.fn();
+    spawnMock.mockReturnValue(child);
+    const io = { emit: vi.fn() };
+
+    vi.useFakeTimers();
+    const pending = runSteamCmdFirstTimeSetup(process.execPath, os.tmpdir(), io);
+    const rejection = expect(pending).rejects.toThrow(/timed out/);
+    await vi.advanceTimersByTimeAsync(STEAMCMD_FIRST_RUN_TIMEOUT_MS);
+    await rejection;
+
+    expect(child.kill).toHaveBeenCalledTimes(1);
+    expect(io.emit).toHaveBeenCalledWith(
+      "steamcmd:status",
+      expect.objectContaining({ status: "error" }),
+    );
+    vi.useRealTimers();
+  });
+
+  it("clears the watchdog when +quit closes normally", async () => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = vi.fn();
+    spawnMock.mockReturnValue(child);
+    const exe = path.join(os.tmpdir(), `steamcmd-${Date.now()}`);
+    fs.writeFileSync(exe, "");
+
+    vi.useFakeTimers();
+    const pending = runSteamCmdFirstTimeSetup(exe, os.tmpdir(), null);
+    child.emit("close", 0);
+    await expect(pending).resolves.toBe(exe);
+    await vi.advanceTimersByTimeAsync(STEAMCMD_FIRST_RUN_TIMEOUT_MS);
+    expect(child.kill).not.toHaveBeenCalled();
+    fs.unlinkSync(exe);
+    vi.useRealTimers();
   });
 });
