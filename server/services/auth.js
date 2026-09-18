@@ -1160,6 +1160,20 @@ class AuthService {
       return { linked: false, canBootstrapAdmin: users.length === 0 };
     }
 
+    // Lockout must hold across BOTH sign-in paths. login() (password) checks
+    // lockedUntil before issuing a session; without the same check here, an
+    // account locked out by repeated failed password attempts could still
+    // sign in via OIDC and read straight through the lockout the password
+    // path just enforced.
+    const lockedUntil = existing.lockedUntil
+      ? Date.parse(existing.lockedUntil)
+      : 0;
+    if (lockedUntil && lockedUntil > Date.now()) {
+      throw new Error(
+        "Account is temporarily locked due to repeated failed sign-in attempts",
+      );
+    }
+
     this.ensureUserAuthState(existing);
     existing.lastLogin = new Date().toISOString();
     const refreshSession = rememberMe
