@@ -11,6 +11,8 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { DisabledReason } from '@/components/DisabledReason'
+import { useAuth } from '@/contexts/AuthContext'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import {
@@ -38,6 +40,20 @@ interface DiscoverySetupProps {
 // profile via create-from-discovery.
 export function DiscoverySetup({ open, onOpenChange, mount, onCreated }: DiscoverySetupProps) {
   const { t } = useTranslation('discoverySetup')
+  const { can } = useAuth()
+  // bug-hunt-2026-09-18 (round 18b): serversApi.createFromDiscovery() below
+  // hits POST /create-from-discovery, which round 18 fixed to require
+  // servers.manage rather than the scan-only servers.discover -- but this
+  // dialog's own Create button had no permission awareness, so a
+  // discover-only user could still open it (Servers.tsx's own Connect
+  // button is now disabled for them too, but this dialog is the second,
+  // independent layer: it must not rely solely on the caller remembering
+  // to disable its own trigger). Reuses servers.json's existing
+  // card.noPermissionManage string (cross-namespace `t()`, an established
+  // pattern in this app -- see Backups.tsx/ServerConfig.tsx) instead of
+  // duplicating the same English sentence into discoverySetup.json across
+  // all 9 locales.
+  const canServersManage = can('servers.manage')
   const [selectedName, setSelectedName] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [creating, setCreating] = useState(false)
@@ -58,7 +74,7 @@ export function DiscoverySetup({ open, onOpenChange, mount, onCreated }: Discove
   }
 
   const handleCreate = async () => {
-    if (!mount || !selectedName) return
+    if (!mount || !selectedName || !canServersManage) return
     setCreating(true)
     setCreateError(null)
     try {
@@ -138,10 +154,12 @@ export function DiscoverySetup({ open, onOpenChange, mount, onCreated }: Discove
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t('cancel')}</Button>
-          <Button onClick={handleCreate} disabled={creating || !selectedName}>
-            {creating && <Loader2 className="me-2 h-4 w-4 animate-spin" aria-hidden="true" />}
-            {t('addServer')}
-          </Button>
+          <DisabledReason reason={!canServersManage ? t('card.noPermissionManage', { ns: 'servers' }) : null}>
+            <Button onClick={handleCreate} disabled={creating || !selectedName || !canServersManage}>
+              {creating && <Loader2 className="me-2 h-4 w-4 animate-spin" aria-hidden="true" />}
+              {t('addServer')}
+            </Button>
+          </DisabledReason>
         </DialogFooter>
       </DialogContent>
     </Dialog>

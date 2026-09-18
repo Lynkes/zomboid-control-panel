@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { MountDiscoveryBanner, InaccessibleMountBanner } from '../MountDiscoveryBanner'
 import type { DiscoveredMount, InaccessibleMountCandidate } from '@/lib/api'
 
@@ -79,6 +80,39 @@ describe('MountDiscoveryBanner', () => {
       render(<MountDiscoveryBanner mount={partialMount} confidence="partial" onConnect={vi.fn()} />)
 
       expect(screen.getByText('Found something here, but could not confirm it fully.')).toBeInTheDocument()
+    })
+  })
+
+  // bug-hunt-2026-09-18 (round 18b): onConnect ultimately reaches
+  // POST /create-from-discovery, which round 18 fixed to require
+  // servers.manage rather than the scan-only servers.discover -- but this
+  // button had no permission awareness at all, so a discover-only user
+  // could click through and only find out with a 403 at the last step.
+  describe('disabledReason', () => {
+    it('disables the button and never calls onConnect when clicked', () => {
+      const onConnect = vi.fn()
+      render(
+        <TooltipProvider>
+          <MountDiscoveryBanner
+            mount={mount}
+            confidence="confirmed"
+            onConnect={onConnect}
+            disabledReason="This action requires the servers.manage permission, which this role doesn't have."
+          />
+        </TooltipProvider>,
+      )
+
+      const addButton = screen.getByRole('button', { name: 'Add' })
+      expect(addButton).toBeDisabled()
+
+      fireEvent.click(addButton)
+      expect(onConnect).not.toHaveBeenCalled()
+    })
+
+    it('stays enabled when disabledReason is not supplied (default, no regression)', () => {
+      render(<MountDiscoveryBanner mount={mount} confidence="confirmed" onConnect={vi.fn()} />)
+
+      expect(screen.getByRole('button', { name: 'Add' })).not.toBeDisabled()
     })
   })
 })

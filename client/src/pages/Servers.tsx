@@ -1903,6 +1903,7 @@ export default function Servers() {
               mount={candidateToDiscoveredMount(candidate)}
               confidence="confirmed"
               onConnect={setDiscoverySetupMount}
+              disabledReason={!canServersManage ? t('card.noPermissionManage') : null}
             />
           ))}
           {reviewCandidates.map(candidate => (
@@ -1912,6 +1913,7 @@ export default function Servers() {
               confidence="partial"
               reason={candidate.reason}
               onConnect={() => handleReviewCandidateConnect(candidate)}
+              disabledReason={!canServersManage ? t('card.noPermissionManage') : null}
             />
           ))}
           {inaccessibleCandidates.map(candidate => (
