@@ -83,6 +83,7 @@
   "ROLE_SELF_CAPABILITY_LOSS_CONFIRM": "Cela vous retirerait votre propre capacité à {{action}}",
   "ROLE_HAS_MEMBERS": "Ce rôle est encore détenu par {{count}} utilisateur(s). Indiquez reassignTo pour les réattribuer à un autre rôle d'abord.",
   "ROLE_IS_SEEDED": "Les rôles intégrés ne peuvent pas être supprimés.",
+  "ROLE_SEEDED_RENAME_REFUSED": "Les rôles intégrés ne peuvent pas être renommés.",
   "SERVER_RUNNING_LEGACY": "Arrêtez le serveur avant de supprimer des chunks. Les serveurs en cours d'exécution gardent les fichiers de sauvegarde ouverts et écraseront vos modifications à l'arrêt.",
   "DOCKER_UPDATER_NOT_CONFIGURED_LEGACY": "Le contrôleur de mise à jour Docker n'est pas configuré",
   "APPLY_IN_PROGRESS_LEGACY": "Une application de mise à jour est déjà en cours.",

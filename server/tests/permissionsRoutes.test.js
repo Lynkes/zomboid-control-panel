@@ -214,6 +214,30 @@ describe("PUT /roles/:id", () => {
     expect(res.getBody().code).toBe("ROLE_LOCKOUT_LAST_MANAGER");
     expect(res.getBody().params).toEqual({ action: "roles.manage" });
   });
+
+  // continuous-bug-hunt 2026-09-18, panel-user/role-truth round: renaming a
+  // seeded role used to throw via a bare `makeError(null, "Built-in roles
+  // cannot be renamed.", 403)` -- no code at all. routes/permissions.js only
+  // sets `body.code` `if (error.code)`, so the response reached the client
+  // with no code to translate through, and getUserErrorMessage() falls back
+  // to the raw English `error.message` for every locale. Confirms the
+  // refusal now carries a real, registered code an HTTP caller (and the
+  // client's getUserErrorMessage) can resolve to a translated string.
+  it("surfaces ROLE_SEEDED_RENAME_REFUSED as a 403 when renaming a seeded role, not a bare uncoded error", async () => {
+    const seededId = "role-seeded-moderator";
+    seedRole(seededId, "moderator", ["server.control"]);
+    rolesById.get(seededId).isSeeded = true; // seedRole() always sets false; flip it for this one role
+
+    const res = await runRoute("/roles/:id", "put", {
+      user: { userId: "u-admin", role: "admin" },
+      params: { id: seededId },
+      body: { name: "Renamed Moderator" },
+    });
+
+    expect(res.getStatusCode()).toBe(403);
+    expect(res.getBody().code).toBe("ROLE_SEEDED_RENAME_REFUSED");
+    expect(rolesById.get(seededId).name).toBe("moderator"); // untouched
+  });
 });
 
 describe("DELETE /roles/:id", () => {

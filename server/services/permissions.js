@@ -837,7 +837,11 @@ export async function updateRole(
   // name-only edit trips neither rule 1 nor rule 2. Refuse it outright,
   // the same way deleteRole() already refuses to delete a seeded role.
   if (existing.isSeeded && nextName !== existing.name) {
-    throw makeError(null, "Built-in roles cannot be renamed.", 403);
+    throw makeError(
+      ErrorCode.ROLE_SEEDED_RENAME_REFUSED,
+      "Built-in roles cannot be renamed.",
+      403,
+    );
   }
 
   if (roles.some((r) => String(r.id) !== String(id) && r.name === nextName)) {

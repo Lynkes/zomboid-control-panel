@@ -360,6 +360,17 @@ export const ErrorCode = Object.freeze({
    * delete button is disabled for it -- this closes that gap in the
    * service itself, not just the one screen that happened to check first. */
   ROLE_IS_SEEDED: "ROLE_IS_SEEDED",
+  /** server/services/permissions.js -- updateRole()'s seeded-name guard: a
+   * PUT on a seeded role (admin/technician/moderator) that tries to change
+   * its `name`. Hard refusal, no override -- a seeded role's name is a
+   * load-bearing string elsewhere (getRoleByName(req.user.role), USER_ROLES/
+   * DEFAULT_ROLE_CAPABILITIES keys), so renaming one would desync every
+   * member's stored role string from the roles collection in one write.
+   * Previously thrown with no code at all (a bare `makeError(null, "Built-in
+   * roles cannot be renamed.", 403)`), so the client had nothing to
+   * translate through and showed that literal English sentence to every
+   * locale -- continuous-bug-hunt 2026-09-18, panel-user/role-truth round. */
+  ROLE_SEEDED_RENAME_REFUSED: "ROLE_SEEDED_RENAME_REFUSED",
   /** server/services/auth.js -- createUser()/changeUserRoleById()'s
    * assertNoCapabilityEscalation(): the caller tried to create or reassign
    * a user into a role whose capabilities aren't a subset of their own.

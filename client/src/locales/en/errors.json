@@ -83,6 +83,7 @@
   "ROLE_SELF_CAPABILITY_LOSS_CONFIRM": "This would remove your own ability to {{action}}",
   "ROLE_HAS_MEMBERS": "{{count}} user(s) still hold this role. Pass reassignTo to move them to another role first.",
   "ROLE_IS_SEEDED": "Built-in roles cannot be deleted.",
+  "ROLE_SEEDED_RENAME_REFUSED": "Built-in roles cannot be renamed.",
   "SERVER_RUNNING_LEGACY": "Stop the server before deleting chunks. Running servers hold save files open and will overwrite your changes on shutdown.",
   "DOCKER_UPDATER_NOT_CONFIGURED_LEGACY": "Docker update controller is not configured",
   "APPLY_IN_PROGRESS_LEGACY": "An update apply is already in progress.",

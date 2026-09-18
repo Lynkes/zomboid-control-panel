@@ -83,6 +83,7 @@
   "ROLE_SELF_CAPABILITY_LOSS_CONFIRM": "Esto eliminaría tu propia capacidad para {{action}}",
   "ROLE_HAS_MEMBERS": "{{count}} usuario(s) todavía tienen este rol. Pasa reassignTo para moverlos antes a otro rol.",
   "ROLE_IS_SEEDED": "Los roles predefinidos no se pueden eliminar.",
+  "ROLE_SEEDED_RENAME_REFUSED": "Los roles predefinidos no se pueden renombrar.",
   "SERVER_RUNNING_LEGACY": "Detén el servidor antes de eliminar chunks. Los servidores en ejecución mantienen abiertos los archivos de guardado y sobrescribirán tus cambios al apagarse.",
   "DOCKER_UPDATER_NOT_CONFIGURED_LEGACY": "El controlador de actualizaciones de Docker no está configurado",
   "APPLY_IN_PROGRESS_LEGACY": "Ya hay una aplicación de actualización en curso.",

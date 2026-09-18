@@ -83,6 +83,7 @@
   "ROLE_SELF_CAPABILITY_LOSS_CONFIRM": "此操作將移除自身{{action}}的能力",
   "ROLE_HAS_MEMBERS": "仍有 {{count}} 位使用者持有此角色。請先通過 reassignTo 將其轉移至其他角色。",
   "ROLE_IS_SEEDED": "內建角色無法刪除。",
+  "ROLE_SEEDED_RENAME_REFUSED": "內建角色無法重新命名。",
   "SERVER_RUNNING_LEGACY": "刪除區塊前請先停止伺服器。執行中的伺服器會佔用存檔檔案，並在關閉時覆蓋您的更改。",
   "DOCKER_UPDATER_NOT_CONFIGURED_LEGACY": "尚未設定 Docker 更新控制器",
   "APPLY_IN_PROGRESS_LEGACY": "更新套用已在進行中。",

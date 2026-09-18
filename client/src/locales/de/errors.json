@@ -83,6 +83,7 @@
   "ROLE_SELF_CAPABILITY_LOSS_CONFIRM": "Dies würde dir folgendes Recht entziehen: {{action}}",
   "ROLE_HAS_MEMBERS": "Noch zugewiesene Benutzer: {{count}}. Übergib reassignTo, um sie zuerst einer anderen Rolle zuzuweisen.",
   "ROLE_IS_SEEDED": "Integrierte Rollen können nicht gelöscht werden.",
+  "ROLE_SEEDED_RENAME_REFUSED": "Integrierte Rollen können nicht umbenannt werden.",
   "SERVER_RUNNING_LEGACY": "Stoppe den Server, bevor du Chunks löschst. Laufende Server halten Spielstanddateien geöffnet und überschreiben deine Änderungen beim Herunterfahren.",
   "DOCKER_UPDATER_NOT_CONFIGURED_LEGACY": "Docker-Update-Controller ist nicht konfiguriert",
   "APPLY_IN_PROGRESS_LEGACY": "Eine Aktualisierung wird bereits angewendet.",

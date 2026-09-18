@@ -83,6 +83,7 @@
   "ROLE_SELF_CAPABILITY_LOSS_CONFIRM": "سيؤدي هذا إلى إزالة قدرتك أنت على {{action}}",
   "ROLE_HAS_MEMBERS": "لا يزال هذا الدور بحوزة {{count}} من المستخدمين. مرّر reassignTo لنقلهم إلى دور آخر أولًا.",
   "ROLE_IS_SEEDED": "لا يمكن حذف الأدوار المدمجة.",
+  "ROLE_SEEDED_RENAME_REFUSED": "لا يمكن إعادة تسمية الأدوار المدمجة.",
   "SERVER_RUNNING_LEGACY": "أوقف الخادم قبل حذف الـ chunks. فالخوادم العاملة تُبقي ملفات الحفظ مفتوحة وستستبدل تغييراتك عند الإغلاق.",
   "DOCKER_UPDATER_NOT_CONFIGURED_LEGACY": "وحدة التحكم بتحديث Docker غير مُعدّة",
   "APPLY_IN_PROGRESS_LEGACY": "هناك عملية تطبيق تحديث جارية بالفعل.",

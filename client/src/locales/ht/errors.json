@@ -83,6 +83,7 @@
   "ROLE_SELF_CAPABILITY_LOSS_CONFIRM": "Sa a ap retire kapasite pa ou pou {{action}}",
   "ROLE_HAS_MEMBERS": "{{count}} itilizatè toujou gen wòl sa a. Pase reassignTo pou deplase yo nan yon lòt wòl dabò.",
   "ROLE_IS_SEEDED": "Wòl entegre yo pa ka efase.",
+  "ROLE_SEEDED_RENAME_REFUSED": "Wòl entegre yo pa ka chanje non.",
   "SERVER_RUNNING_LEGACY": "Sispann sèvè a anvan w efase kawo. Sèvè k ap kouri kenbe fichye sovgad yo louvri epi yo ap ekrase chanjman ou yo lè yo fèmen.",
   "DOCKER_UPDATER_NOT_CONFIGURED_LEGACY": "Kontwolè mizajou Docker pa konfigire",
   "APPLY_IN_PROGRESS_LEGACY": "Gen yon aplikasyon mizajou k ap fèt deja.",
