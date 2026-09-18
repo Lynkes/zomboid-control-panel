@@ -17,6 +17,10 @@
     "eyebrow": "керування світом",
     "refreshPlayers": "оновити гравців"
   },
+  "common": {
+    "playersUnavailable": "список гравців недоступний",
+    "playersUnavailableTitle": "Список гравців недоступний"
+  },
   "statusBar": {
     "panelBridge": "PanelBridge",
     "online": "онлайн",

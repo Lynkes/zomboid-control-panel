@@ -5,6 +5,10 @@
     "eyebrow": "world control",
     "refreshPlayers": "refresh players"
   },
+  "common": {
+    "playersUnavailable": "player list unavailable",
+    "playersUnavailableTitle": "Player list unavailable"
+  },
   "statusBar": {
     "panelBridge": "PanelBridge",
     "online": "online",

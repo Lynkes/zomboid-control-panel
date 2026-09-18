@@ -5,6 +5,10 @@
     "eyebrow": "kontwòl mond",
     "refreshPlayers": "aktyalize jwè"
   },
+  "common": {
+    "playersUnavailable": "lis jwè pa disponib",
+    "playersUnavailableTitle": "Lis jwè pa disponib"
+  },
   "statusBar": {
     "panelBridge": "PanelBridge",
     "online": "anliy",

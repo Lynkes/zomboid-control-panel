@@ -27,6 +27,10 @@
     "eyebrow": "التحكم بالعالم",
     "refreshPlayers": "تحديث اللاعبين"
   },
+  "common": {
+    "playersUnavailable": "قائمة اللاعبين غير متاحة",
+    "playersUnavailableTitle": "قائمة اللاعبين غير متاحة"
+  },
   "statusBar": {
     "panelBridge": "PanelBridge",
     "online": "متصل",

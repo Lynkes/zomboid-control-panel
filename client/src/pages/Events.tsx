@@ -1142,6 +1142,21 @@ export default function Events() {
   ) as unknown as Record<EventSectionKey, EventSectionMeta>, [EVENT_SECTION_GROUPS])
   const [loading, setLoading] = useState<string | null>(null)
   const [players, setPlayers] = useState<Player[]>([])
+  // bug-hunt-2026-09-18 (round 6): fetchPlayers's catch below is a deliberate
+  // silent ignore -- the 10-15s poll will retry, no need to toast every miss
+  // -- but that left `players` at its initial [] with nothing to tell a
+  // failed/not-yet-finished fetch apart from a server that's genuinely
+  // empty. `players.length === 0` alone drove ~15 call sites' "No players
+  // online" copy, so a bridge hiccup on the very first load (or before it
+  // resolves at all) told the operator nobody was online when the real
+  // answer was "don't know yet". `playersLoaded` only flips true on a
+  // successful response, so it stays false through both "still loading" and
+  // "every attempt so far has failed" -- once true it stays true, since a
+  // LATER failure already correctly keeps showing the last known roster
+  // (setPlayers is simply never called on that path) rather than reverting
+  // to unknown.
+  const [playersLoaded, setPlayersLoaded] = useState(false)
+  const playersUnknown = !playersLoaded
   const [selectedPlayer, setSelectedPlayer] = useState<string>('')
   const [targetAll, setTargetAll] = useState(true)
 
@@ -1297,9 +1312,14 @@ export default function Events() {
       const data = await playersApi.getPlayers()
       if (data.players) {
         setPlayers(data.players)
+        setPlayersLoaded(true)
       }
     } catch {
-      // Silently ignore — player list will refresh on next interval
+      // Silently ignore — player list will refresh on next interval. Does
+      // NOT touch playersLoaded: a failure here must not flip an already-
+      // successful load back to "unknown" (the roster we already have is
+      // still the best information available), and must not manufacture a
+      // false "loaded" the first time either.
     }
   }, [])
 
@@ -2340,7 +2360,9 @@ export default function Events() {
                   <SelectValue placeholder={t('statusBar.selectPlayerPlaceholder')} />
                 </SelectTrigger>
                 <SelectContent>
-                  {players.length === 0 ? (
+                  {playersUnknown ? (
+                    <div className="px-2 py-1.5 font-mono text-[11px] text-muted-foreground">{t('common.playersUnavailable')}</div>
+                  ) : players.length === 0 ? (
                     <div className="px-2 py-1.5 font-mono text-[11px] text-muted-foreground">{t('statusBar.noPlayersOnline')}</div>
                   ) : (
                     players.map((player) => (
@@ -2361,7 +2383,7 @@ export default function Events() {
                 : 'border-border/60 bg-muted/30 text-muted-foreground'
             )}>
               <Users className="w-3.5 h-3.5" />
-              <span className="text-sm font-bold tabular-nums">{players.length}</span>
+              <span className="text-sm font-bold tabular-nums">{playersUnknown ? '—' : players.length}</span>
               <span className="text-xs font-medium opacity-80">{t('statusBar.onlineCount')}</span>
             </div>
           </div>
@@ -3124,19 +3146,19 @@ export default function Events() {
                   {t('quickSounds.hint')}
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  <DisabledReason reason={players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : null}>
+                  <DisabledReason reason={playersUnknown ? t('common.playersUnavailableTitle') : players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : null}>
                     <Button variant="outline" onClick={() => handleAction('Helicopter', triggerChopper)} disabled={loading !== null || players.length === 0} className="h-9 gap-2 text-xs font-medium">
                       {loading === 'Helicopter' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Crosshair className="w-3.5 h-3.5" />}
                       {t('quickSounds.helicopter')}
                     </Button>
                   </DisabledReason>
-                  <DisabledReason reason={players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : null}>
+                  <DisabledReason reason={playersUnknown ? t('common.playersUnavailableTitle') : players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : null}>
                     <Button variant="outline" onClick={() => handleAction('Gunshot', triggerGunshot)} disabled={loading !== null || players.length === 0} className="h-9 gap-2 text-xs font-medium">
                       {loading === 'Gunshot' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Volume2 className="w-3.5 h-3.5" />}
                       {t('quickSounds.gunshot')}
                     </Button>
                   </DisabledReason>
-                  <DisabledReason reason={players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : null}>
+                  <DisabledReason reason={playersUnknown ? t('common.playersUnavailableTitle') : players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : null}>
                     <Button
                       variant="outline"
                       onClick={() => handleAction('Lightning', () => triggerLightning(pickStrikeTarget()))}
@@ -3149,7 +3171,7 @@ export default function Events() {
                       {t('quickSounds.lightning')}
                     </Button>
                   </DisabledReason>
-                  <DisabledReason reason={players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : null}>
+                  <DisabledReason reason={playersUnknown ? t('common.playersUnavailableTitle') : players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : null}>
                     <Button
                       variant="outline"
                       onClick={() => handleAction('Thunder', () => triggerThunder(pickStrikeTarget()))}
@@ -3285,13 +3307,13 @@ export default function Events() {
                   </div>
                   <Slider aria-label={t('horde.sizeAria')} value={[hordeCount]} onValueChange={([val]) => setHordeCount(val)} min={10} max={500} step={10} />
                 </div>
-                <DisabledReason reason={players.length === 0 ? t('horde.noPlayersOnlineTitle') : !bridgeConnected ? t('horde.bridgeOfflineTitle') : null}>
+                <DisabledReason reason={playersUnknown ? t('common.playersUnavailableTitle') : players.length === 0 ? t('horde.noPlayersOnlineTitle') : !bridgeConnected ? t('horde.bridgeOfflineTitle') : null}>
                   <Button variant="outline" onClick={() => handleAction('Create horde', () => createHorde(hordeCount, pickStrikeTarget()))} disabled={loading !== null || !bridgeConnected || players.length === 0 || (!targetAll && !selectedPlayer)} className="h-9 gap-2 text-xs font-medium">
                     {loading === 'Create horde' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Skull className="w-3.5 h-3.5" />}
                     {t('horde.spawnNear', { target: targetAll ? t('horde.random') : selectedPlayer || t('horde.targetFallback') })}
                   </Button>
                 </DisabledReason>
-                <DisabledReason reason={players.length === 0 ? t('horde.noPlayersOnlineTitle') : !bridgeConnected ? t('horde.bridgeOfflineTitle') : null}>
+                <DisabledReason reason={playersUnknown ? t('common.playersUnavailableTitle') : players.length === 0 ? t('horde.noPlayersOnlineTitle') : !bridgeConnected ? t('horde.bridgeOfflineTitle') : null}>
                   <Button variant="outline" onClick={() => handleAction('Create horde (behind)', () => createHorde2(hordeCount, pickStrikeTarget()))} disabled={loading !== null || !bridgeConnected || players.length === 0 || (!targetAll && !selectedPlayer)} className="h-9 gap-2 text-xs font-medium">
                     {loading === 'Create horde (behind)' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Skull className="w-3.5 h-3.5" />}
                     {t('horde.spawnBehind', { target: targetAll ? t('horde.random') : selectedPlayer || t('horde.targetFallback') })}
@@ -3305,7 +3327,7 @@ export default function Events() {
                     <span className="font-mono text-[11px] tabular-nums text-warning">{clearZombiesRadius}</span>
                   </div>
                   <Slider aria-label={t('horde.clearRadiusAria')} value={[clearZombiesRadius]} onValueChange={([val]) => setClearZombiesRadius(val)} min={10} max={500} step={10} disabled={!bridgeConnected} />
-                  <DisabledReason reason={players.length === 0 ? t('horde.noPlayersOnlineTitle') : !bridgeConnected ? t('horde.bridgeOfflineTitle') : null}>
+                  <DisabledReason reason={playersUnknown ? t('common.playersUnavailableTitle') : players.length === 0 ? t('horde.noPlayersOnlineTitle') : !bridgeConnected ? t('horde.bridgeOfflineTitle') : null}>
                     <Button variant="outline" onClick={async () => {
                       // Same reversible-but-affects-someone-else tier as
                       // "clear all" -- warning, not destructive-red -- scoped
@@ -3373,7 +3395,9 @@ export default function Events() {
                     <HelpTip label={t('vehicles.spawnFor')}>{t('vehicles.spawnForTip')}</HelpTip>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
-                    {players.length === 0 ? (
+                    {playersUnknown ? (
+                      <p className="font-mono text-[11px] text-muted-foreground/70 italic">{t('common.playersUnavailable')}</p>
+                    ) : players.length === 0 ? (
                       <p className="font-mono text-[11px] text-muted-foreground/70 italic">{t('vehicles.noPlayersOnline')}</p>
                     ) : players.map((player) => (
                       <DisabledReason key={player.name} reason={!selectedVehicle ? t('vehicles.selectVehicleFirstTitle') : null}>
@@ -3403,7 +3427,9 @@ export default function Events() {
                       <SelectValue placeholder={t('teleport.selectPlayerPlaceholder')} />
                     </SelectTrigger>
                     <SelectContent>
-                      {players.length === 0 ? (
+                      {playersUnknown ? (
+                        <div className="px-2 py-1.5 font-mono text-[11px] text-muted-foreground">{t('common.playersUnavailable')}</div>
+                      ) : players.length === 0 ? (
                         <div className="px-2 py-1.5 font-mono text-[11px] text-muted-foreground">{t('teleport.noPlayersOnline')}</div>
                       ) : players.map((player) => (
                         <SelectItem key={player.name} value={player.name}>{player.name}</SelectItem>
@@ -3419,9 +3445,11 @@ export default function Events() {
                         {player.name}
                       </Button>
                     ))}
-                    {players.length <= 1 && (
+                    {playersUnknown ? (
+                      <p className="font-mono text-[11px] text-muted-foreground/70 italic">{t('common.playersUnavailable')}</p>
+                    ) : players.length <= 1 ? (
                       <p className="font-mono text-[11px] text-muted-foreground/70 italic">{t('teleport.needTwoPlayers')}</p>
-                    )}
+                    ) : null}
                   </div>
                 </div>
               </div>

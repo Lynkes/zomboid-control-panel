@@ -5,6 +5,10 @@
     "eyebrow": "contrôle du monde",
     "refreshPlayers": "actualiser les joueurs"
   },
+  "common": {
+    "playersUnavailable": "liste des joueurs indisponible",
+    "playersUnavailableTitle": "Liste des joueurs indisponible"
+  },
   "statusBar": {
     "panelBridge": "PanelBridge",
     "online": "en ligne",

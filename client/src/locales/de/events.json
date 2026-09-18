@@ -5,6 +5,10 @@
     "eyebrow": "Weltsteuerung",
     "refreshPlayers": "Spieler aktualisieren"
   },
+  "common": {
+    "playersUnavailable": "Spielerliste nicht verfügbar",
+    "playersUnavailableTitle": "Spielerliste nicht verfügbar"
+  },
   "statusBar": {
     "panelBridge": "PanelBridge",
     "online": "online",

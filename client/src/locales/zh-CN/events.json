@@ -5,6 +5,10 @@
     "eyebrow": "世界控制",
     "refreshPlayers": "刷新玩家"
   },
+  "common": {
+    "playersUnavailable": "玩家列表不可用",
+    "playersUnavailableTitle": "玩家列表不可用"
+  },
   "statusBar": {
     "panelBridge": "PanelBridge",
     "online": "在线",
