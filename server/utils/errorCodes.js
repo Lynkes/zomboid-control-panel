@@ -497,6 +497,17 @@ export const ErrorCode = Object.freeze({
   /** server/routes/backup.js -- POST /api/backup/delete-older-than, `days`
    * isn't a whole number >= 1. */
   BACKUP_INVALID_DAYS_PARAMETER: "BACKUP_INVALID_DAYS_PARAMETER",
+  /** server/routes/backup.js -- POST /api/backup/settings and POST
+   * /api/backup/delete-older-than, mirroring chunks.js's own
+   * expectedServerId/CHUNKS_STALE_SERVER_SCAN convention (round 23,
+   * pz-bughunt): the caller's own expectedServerId (optional -- undefined
+   * skips the check, for back-compat with a client that hasn't sent it
+   * yet) names a server that is no longer the active one. Same shared code
+   * across both routes since it's the identical concept at both sites, not
+   * a meaningfully different call site each needing its own wording (same
+   * policy chunks.js's shared CHUNKS_STALE_SERVER_SCAN already follows for
+   * its own 2 delete routes). */
+  BACKUP_ACTIVE_SERVER_CHANGED: "BACKUP_ACTIVE_SERVER_CHANGED",
   /** server/routes/backup.js -- POST /api/backup/upload, active server is
    * remote. Distinct from the create/restore remote-refusal codes above --
    * own wording, own call site. */

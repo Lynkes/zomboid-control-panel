@@ -143,6 +143,31 @@ router.post("/settings", requirePermission("backups.manage"), async (req, res) =
       });
     }
 
+    // continuous-bug-hunt round 23 (backup settings update has no server
+    // check): this route applies to whichever server backupService is
+    // currently scoped to (the active one), with no way for the caller to
+    // say which server it MEANT -- unlike delete/restore, which check the
+    // named backup file's own ownership. An operator who loads the Backups
+    // page, then switches the active server in another tab before saving,
+    // would silently apply their edited schedule/maxBackups/enabled toggle
+    // to the NEW server instead of the one they were looking at. Mirrors
+    // chunks.js's own expectedServerId/CHUNKS_STALE_SERVER_SCAN convention
+    // exactly: optional (undefined skips the check, so an old client that
+    // hasn't been updated to send it keeps working unchanged), refuses
+    // only on a REAL mismatch, never on absence.
+    if (req.body.expectedServerId !== undefined) {
+      const activeServer = await getActiveServer().catch(() => null);
+      const currentServerId = activeServer?.id ?? null;
+      if (req.body.expectedServerId !== currentServerId) {
+        return res.status(409).json({
+          success: false,
+          error:
+            "The active server changed since these settings were loaded. Reload backup settings before saving.",
+          code: ErrorCode.BACKUP_ACTIVE_SERVER_CHANGED,
+        });
+      }
+    }
+
     // Whitelist allowed backup settings to prevent prototype pollution
     const allowed = {};
     if (req.body.enabled !== undefined) {
@@ -470,6 +495,23 @@ router.post("/restore/:name", requirePermission("backups.restore"), async (req, 
 // Delete backups older than X days
 router.post("/delete-older-than", requirePermission("backups.manage"), async (req, res) => {
   try {
+    // continuous-bug-hunt round 23: same gap and same fix as POST
+    // /settings above -- this bulk-deletes real backup files for
+    // whichever server is currently active, with no way for the caller to
+    // confirm that's still the server they meant. See that route's own
+    // comment for the full reasoning; same shared error code.
+    if (req.body?.expectedServerId !== undefined) {
+      const activeServer = await getActiveServer().catch(() => null);
+      const currentServerId = activeServer?.id ?? null;
+      if (req.body.expectedServerId !== currentServerId) {
+        return res.status(409).json({
+          error:
+            "The active server changed since these backups were loaded. Reload before deleting.",
+          code: ErrorCode.BACKUP_ACTIVE_SERVER_CHANGED,
+        });
+      }
+    }
+
     const days = req.body?.days;
 
     // Number.isInteger, not just finite: a fractional value used to reach

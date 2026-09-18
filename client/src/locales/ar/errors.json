@@ -121,6 +121,7 @@
   "BACKUP_RESTORE_REMOTE_NOT_AVAILABLE": "استعادة النسخ الاحتياطية غير متاحة للخوادم البعيدة. فنظام ملفات الخادم غير قابل للوصول من هذه اللوحة.",
   "BACKUP_RESTORE_SERVER_RUNNING": "يجب إيقاف الخادم قبل استعادة نسخة احتياطية. يرجى إيقاف الخادم أولًا.",
   "BACKUP_INVALID_DAYS_PARAMETER": "معامل الأيام غير صالح. يجب أن يكون عددًا صحيحًا >= 1",
+  "BACKUP_ACTIVE_SERVER_CHANGED": "The active server changed since these settings were loaded. Reload backup settings before saving.",
   "BACKUP_UPLOAD_REMOTE_NOT_AVAILABLE": "رفع النسخ الاحتياطية غير متاح للخوادم البعيدة.",
   "BACKUP_UPLOAD_NO_FILE": "لم يُرفع أي ملف. أرسل محتوى الـ zip مع Content-Type: application/zip.",
   "BACKUP_UPLOAD_INVALID_ZIP_SIGNATURE": "لا يبدو الملف أرشيف .zip صالحًا.",

@@ -121,6 +121,7 @@
   "BACKUP_RESTORE_REMOTE_NOT_AVAILABLE": "La restauración de copias de seguridad no está disponible para servidores remotos. El sistema de archivos del servidor no es accesible desde este panel.",
   "BACKUP_RESTORE_SERVER_RUNNING": "El servidor debe estar detenido antes de restaurar una copia de seguridad. Detén primero el servidor.",
   "BACKUP_INVALID_DAYS_PARAMETER": "Parámetro de días no válido. Debe ser un número entero mayor o igual que 1",
+  "BACKUP_ACTIVE_SERVER_CHANGED": "The active server changed since these settings were loaded. Reload backup settings before saving.",
   "BACKUP_UPLOAD_REMOTE_NOT_AVAILABLE": "La subida de copias de seguridad no está disponible para servidores remotos.",
   "BACKUP_UPLOAD_NO_FILE": "No se subió ningún archivo. Envía el cuerpo del zip con Content-Type: application/zip.",
   "BACKUP_UPLOAD_INVALID_ZIP_SIGNATURE": "El archivo no parece un .zip válido.",

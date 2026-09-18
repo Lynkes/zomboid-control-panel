@@ -121,6 +121,7 @@
   "BACKUP_RESTORE_REMOTE_NOT_AVAILABLE": "遠端伺服器不支援備份還原。此面板無法訪問該伺服器的檔案系統。",
   "BACKUP_RESTORE_SERVER_RUNNING": "還原備份前必須先停止伺服器，請先停止伺服器。",
   "BACKUP_INVALID_DAYS_PARAMETER": "天數引數無效，必須為大於等於 1 的整數",
+  "BACKUP_ACTIVE_SERVER_CHANGED": "The active server changed since these settings were loaded. Reload backup settings before saving.",
   "BACKUP_UPLOAD_REMOTE_NOT_AVAILABLE": "遠端伺服器不支援上傳備份。",
   "BACKUP_UPLOAD_NO_FILE": "未上傳檔案。請以 Content-Type: application/zip 傳送 zip 資料。",
   "BACKUP_UPLOAD_INVALID_ZIP_SIGNATURE": "檔案看起來不是有效的 .zip 壓縮檔。",

@@ -121,6 +121,7 @@
   "BACKUP_RESTORE_REMOTE_NOT_AVAILABLE": "Backup restore is not available for remote servers. The server filesystem is not accessible from this panel.",
   "BACKUP_RESTORE_SERVER_RUNNING": "Server must be stopped before restoring a backup. Please stop the server first.",
   "BACKUP_INVALID_DAYS_PARAMETER": "Invalid days parameter. Must be a whole number >= 1",
+  "BACKUP_ACTIVE_SERVER_CHANGED": "The active server changed since these settings were loaded. Reload backup settings before saving.",
   "BACKUP_UPLOAD_REMOTE_NOT_AVAILABLE": "Backup upload is not available for remote servers.",
   "BACKUP_UPLOAD_NO_FILE": "No file uploaded. Send the zip body with Content-Type: application/zip.",
   "BACKUP_UPLOAD_INVALID_ZIP_SIGNATURE": "File does not look like a valid .zip archive.",

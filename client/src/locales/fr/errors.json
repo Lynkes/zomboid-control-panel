@@ -121,6 +121,7 @@
   "BACKUP_RESTORE_REMOTE_NOT_AVAILABLE": "La restauration de sauvegarde n'est pas disponible pour les serveurs distants. Le système de fichiers du serveur n'est pas accessible depuis ce panneau.",
   "BACKUP_RESTORE_SERVER_RUNNING": "Le serveur doit être arrêté avant de restaurer une sauvegarde. Veuillez d'abord arrêter le serveur.",
   "BACKUP_INVALID_DAYS_PARAMETER": "Paramètre de jours invalide. Doit être un nombre entier >= 1",
+  "BACKUP_ACTIVE_SERVER_CHANGED": "The active server changed since these settings were loaded. Reload backup settings before saving.",
   "BACKUP_UPLOAD_REMOTE_NOT_AVAILABLE": "L'import de sauvegarde n'est pas disponible pour les serveurs distants.",
   "BACKUP_UPLOAD_NO_FILE": "Aucun fichier envoyé. Envoyez le contenu du zip avec Content-Type: application/zip.",
   "BACKUP_UPLOAD_INVALID_ZIP_SIGNATURE": "Le fichier ne ressemble pas à une archive .zip valide.",
