@@ -195,6 +195,8 @@
     "broadcastSentTitle": "Diffusion envoyée",
     "broadcastSentAll": "Votre message a été diffusé à tous les joueurs",
     "broadcastSentTagged": "Envoyé avec l'étiquette [{{tag}}]",
-    "broadcastFailedFallback": "Échec de l'envoi de la diffusion"
+    "broadcastFailedFallback": "Échec de l'envoi de la diffusion",
+    "serverChangedSinceLoadTitle": "Serveur actif modifié",
+    "serverChangedSinceLoadDesc": "Le serveur actif vient de changer. Actualisation en cours — réessayez une fois la console rechargée, afin que cette action cible le bon serveur."
   }
 }

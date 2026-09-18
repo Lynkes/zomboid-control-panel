@@ -191,6 +191,8 @@
     "broadcastSentTitle": "廣播已傳送",
     "broadcastSentAll": "訊息已廣播給所有玩家",
     "broadcastSentTagged": "已使用 [{{tag}}] 標籤傳送",
-    "broadcastFailedFallback": "廣播發送失敗"
+    "broadcastFailedFallback": "廣播發送失敗",
+    "serverChangedSinceLoadTitle": "使用中的伺服器已變更",
+    "serverChangedSinceLoadDesc": "使用中的伺服器剛剛變更。正在重新整理——請等主控台重新載入後再試一次，以確保此操作作用於正確的伺服器。"
   }
 }

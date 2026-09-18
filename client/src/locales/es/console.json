@@ -195,6 +195,8 @@
     "broadcastSentTitle": "Difusión enviada",
     "broadcastSentAll": "El mensaje se difundió a todos los jugadores",
     "broadcastSentTagged": "Enviado con la etiqueta [{{tag}}]",
-    "broadcastFailedFallback": "No se pudo enviar la difusión"
+    "broadcastFailedFallback": "No se pudo enviar la difusión",
+    "serverChangedSinceLoadTitle": "Servidor activo cambiado",
+    "serverChangedSinceLoadDesc": "El servidor activo acaba de cambiar. Actualizando — vuelve a intentarlo cuando la consola se recargue, para que esta acción apunte al servidor correcto."
   }
 }

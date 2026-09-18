@@ -191,6 +191,8 @@
     "broadcastSentTitle": "广播已发送",
     "broadcastSentAll": "消息已广播给所有玩家",
     "broadcastSentTagged": "已使用 [{{tag}}] 标签发送",
-    "broadcastFailedFallback": "广播发送失败"
+    "broadcastFailedFallback": "广播发送失败",
+    "serverChangedSinceLoadTitle": "活动服务器已更改",
+    "serverChangedSinceLoadDesc": "活动服务器刚刚更改。正在刷新——请等控制台重新加载后再试一次，以确保此操作作用于正确的服务器。"
   }
 }

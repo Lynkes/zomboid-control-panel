@@ -209,6 +209,8 @@
     "broadcastSentTitle": "Розсилку надіслано",
     "broadcastSentAll": "Ваше повідомлення розіслано всім гравцям",
     "broadcastSentTagged": "Надіслано з тегом [{{tag}}]",
-    "broadcastFailedFallback": "Не вдалося надіслати розсилку"
+    "broadcastFailedFallback": "Не вдалося надіслати розсилку",
+    "serverChangedSinceLoadTitle": "Активний сервер змінено",
+    "serverChangedSinceLoadDesc": "Активний сервер щойно змінився. Оновлення — спробуйте ще раз після перезавантаження консолі, щоб ця дія стосувалася правильного сервера."
   }
 }

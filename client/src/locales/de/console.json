@@ -191,6 +191,8 @@
     "broadcastSentTitle": "Broadcast gesendet",
     "broadcastSentAll": "Deine Nachricht wurde an alle Spieler gesendet",
     "broadcastSentTagged": "Mit dem Tag [{{tag}}] gesendet",
-    "broadcastFailedFallback": "Broadcast konnte nicht gesendet werden"
+    "broadcastFailedFallback": "Broadcast konnte nicht gesendet werden",
+    "serverChangedSinceLoadTitle": "Aktiver Server geändert",
+    "serverChangedSinceLoadDesc": "Der aktive Server hat sich gerade geändert. Wird aktualisiert — versuche es erneut, sobald die Konsole neu geladen wurde, damit diese Aktion den richtigen Server betrifft."
   }
 }

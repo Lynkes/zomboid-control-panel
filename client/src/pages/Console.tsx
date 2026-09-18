@@ -291,6 +291,27 @@ export default function Console() {
   // lands after a newer call has already started is dropped instead of
   // applied.
   const consoleTargetRequestIdRef = useRef(0)
+  // bug-hunt-2026-09-18 (round 20): clearServerLog()'s confirm() dialog is a
+  // Promise that only resolves once the operator clicks Confirm/Cancel --
+  // while it's open, the active server can switch elsewhere (another tab,
+  // another admin), and serverApi.clearConsoleLog() resolves "the active
+  // server" server-side with no server id, same shape as Backups.tsx's own
+  // serverChangedSinceLoad fixes (pz-bughunt round 17). Confirming a dialog
+  // opened for server A while the backend has already moved on to server B
+  // silently cleared B's log, not A's -- the operator had no way to know.
+  // Same pattern: set true on activeServerChanged, checked right before the
+  // destructive call, cleared once loadConsoleTarget's fresh read for the
+  // new server lands.
+  const [serverChangedSinceLoad, setServerChangedSinceLoad] = useState(false)
+  // clearServerLog() reads THIS, not the state variable above, after its
+  // `await confirm(...)` -- a value read from a closure captured back when
+  // the button was clicked (i.e. the render active at click-time) would
+  // still see the OLD, pre-switch "false" no matter how many renders and
+  // state updates happened while the dialog sat open awaiting the
+  // operator's click. A ref has no such staleness: `.current` is always
+  // the value as of the exact instant it's read, not as of the instant the
+  // enclosing async function was invoked.
+  const serverChangedSinceLoadRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const { toast } = useToast()
@@ -367,8 +388,24 @@ export default function Console() {
       } finally {
         if (!cancelled && requestId === consoleTargetRequestIdRef.current) {
           setConsoleTargetLoading(false)
+          // See serverChangedSinceLoad's own comment above -- the brief
+          // guard window closes once this reload (whether it was the
+          // activeServerChanged-triggered one or a later one) has landed.
+          serverChangedSinceLoadRef.current = false
+          setServerChangedSinceLoad(false)
         }
       }
+    }
+
+    // bug-hunt-2026-09-18 (round 20): sets the guard BEFORE the reload
+    // starts, not after -- clearServerLog()'s confirm() dialog can resolve
+    // at any point during loadConsoleTarget()'s own await, and the guard
+    // must already be true for that entire window, not just once the fresh
+    // data has landed.
+    const handleActiveServerChanged = () => {
+      serverChangedSinceLoadRef.current = true
+      setServerChangedSinceLoad(true)
+      loadConsoleTarget()
     }
 
     loadConsoleTarget()
@@ -385,11 +422,11 @@ export default function Console() {
     // are just a display of past activity, not something a reload discards
     // meaningfully), so this can reload unconditionally like the other five
     // pages do, no ServerConfig-style block-and-warn needed.
-    if (socket) socket.on('activeServerChanged', loadConsoleTarget)
+    if (socket) socket.on('activeServerChanged', handleActiveServerChanged)
 
     return () => {
       cancelled = true
-      if (socket) socket.off('activeServerChanged', loadConsoleTarget)
+      if (socket) socket.off('activeServerChanged', handleActiveServerChanged)
     }
   }, [socket])
 
@@ -530,6 +567,20 @@ export default function Console() {
       confirmLabel: t('serverLog.clearConfirmButton'),
     })
     if (!confirmed) return
+    // bug-hunt-2026-09-18 (round 20): checked AFTER the confirm() await, not
+    // before -- the switch this guards against can happen at any point
+    // while the dialog was open, including after the operator had already
+    // started reading it. Reads the REF, not the state variable -- see
+    // serverChangedSinceLoadRef's own comment above for why the state
+    // value alone would still be stale here.
+    if (serverChangedSinceLoadRef.current) {
+      toast({
+        title: t('toasts.serverChangedSinceLoadTitle'),
+        description: t('toasts.serverChangedSinceLoadDesc'),
+        variant: 'destructive',
+      })
+      return
+    }
 
     try {
       await serverApi.clearConsoleLog()
@@ -1006,7 +1057,7 @@ export default function Console() {
               </Button>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="destructive" size="sm" className="h-7 px-2 font-mono text-[10px] uppercase tracking-[0.16em]" onClick={clearServerLog}>
+                  <Button variant="destructive" size="sm" className="h-7 px-2 font-mono text-[10px] uppercase tracking-[0.16em]" onClick={clearServerLog} disabled={serverChangedSinceLoad}>
                     <Trash2 className="w-3 h-3 me-1" />
                     {t('serverLog.clear')}
                   </Button>

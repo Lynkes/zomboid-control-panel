@@ -1545,6 +1545,21 @@ export default function Events() {
     const handleActiveServerChanged = () => {
       fetchPlayers()
       checkBridgeStatus()
+      // bug-hunt-2026-09-18 (round 20): `selectedPlayer` names a specific
+      // target for spawnHordeNear/spawnHordeBehind, clearZombiesNearPlayer,
+      // and the teleport commands below -- fetchPlayers() above refreshes
+      // the ROSTER (the dropdown's options), but never touched this
+      // separately-held SELECTION itself. A player picked from the old
+      // server's roster stayed selected across a switch: if the new
+      // server's roster happens to contain a different real person by the
+      // same name, an action fired right after the switch would silently
+      // target THEM instead of nobody/a re-picked name -- the operator's
+      // own click, applied to someone they never chose. Cleared here so a
+      // stale name can never survive the switch; every action that reads
+      // `selectedPlayer` already disables itself on `!selectedPlayer` (see
+      // the horde/teleport/clear-near buttons' own `disabled` props), so
+      // this alone re-arms the same guard those buttons already rely on.
+      setSelectedPlayer('')
     }
     socket.on('activeServerChanged', handleActiveServerChanged)
     return () => {

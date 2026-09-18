@@ -158,6 +158,8 @@
     "broadcastSentTitle": "Difizyon Voye",
     "broadcastSentAll": "Mesaj ou a voye bay tout jwè",
     "broadcastSentTagged": "Voye ak etikèt [{{tag}}] la",
-    "broadcastFailedFallback": "Voye difizyon echwe"
+    "broadcastFailedFallback": "Voye difizyon echwe",
+    "serverChangedSinceLoadTitle": "Sèvè aktif la chanje",
+    "serverChangedSinceLoadDesc": "Sèvè aktif la fèk chanje. N ap rafrechi — eseye ankò yon fwa konsòl la fin rechaje, pou aksyon sa a vize bon sèvè a."
   }
 }

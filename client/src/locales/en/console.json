@@ -158,6 +158,8 @@
     "broadcastSentTitle": "Broadcast Sent",
     "broadcastSentAll": "Your message was broadcast to all players",
     "broadcastSentTagged": "Sent with the [{{tag}}] tag",
-    "broadcastFailedFallback": "Failed to send broadcast"
+    "broadcastFailedFallback": "Failed to send broadcast",
+    "serverChangedSinceLoadTitle": "Active server changed",
+    "serverChangedSinceLoadDesc": "The active server just changed. Refreshing -- try again once the console reloads, so this action targets the right server."
   }
 }
