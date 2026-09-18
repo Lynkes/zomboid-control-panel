@@ -1018,6 +1018,10 @@ scheduler.setBackupService(backupService);
 scheduler.setDiscordBot(discordBot);
 scheduler.setIo(io);
 backupService.setDiscordBot(discordBot);
+// So createBackup() can refuse while a restart (manual or scheduled) is
+// mid-flight -- see backupService.js's own comment on this check for why a
+// backup taken during that window can silently archive a save mid-write.
+backupService.setScheduler(scheduler);
 
 // Start RCON auto-reconnect for automatic recovery
 rconService.startAutoReconnect();

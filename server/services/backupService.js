@@ -263,6 +263,7 @@ export class BackupService {
     this.backupHistory = [];
     this.discordBot = null;
     this.serverManager = null;
+    this.scheduler = null;
   }
 
   /**
@@ -275,6 +276,13 @@ export class BackupService {
 
   setServerManager(serverManager) {
     this.serverManager = serverManager;
+  }
+
+  // Read-only from here: only ever consulted for its .restartInProgress
+  // flag (see createBackup()'s guard), never mutated through this
+  // reference.
+  setScheduler(scheduler) {
+    this.scheduler = scheduler;
   }
 
   /**
@@ -488,6 +496,27 @@ export class BackupService {
     // was added.
     if (this.restoreInProgress && !options.isPreRestore) {
       return { success: false, message: "Restore in progress, please wait" };
+    }
+
+    // continuous-bug-hunt, 2026-09-18 (backup-integrity round): scheduler.js's
+    // own scheduled-backup cron job already refuses to fire while
+    // this.scheduler.restartInProgress is true (see its comment: a restart's
+    // warning countdown + RCON save + quit + relaunch all mutate savesPath
+    // for potentially minutes, so a backup taken mid-restart can archive a
+    // save mid-write -- "a corrupt or inconsistent snapshot that looks like
+    // a normal backup until someone tries to restore it"). That check lived
+    // ONLY in the scheduler's cron callback, one caller out of several --
+    // routes/backup.js's POST /create (manual "Create Backup Now") and any
+    // other direct caller of createBackup() had no such check at all and
+    // would archive the same mid-write state, reporting success:true with an
+    // empty skippedFiles (a torn save isn't a vanished file -- nothing here
+    // would ever notice). Centralized here instead of duplicated at every
+    // call site, the same way restoreInProgress already is. No isPreRestore-
+    // style exemption needed: unlike restoreBackup(), nothing in
+    // performRestart() ever calls createBackup() itself, so there is no
+    // legitimate caller this would wrongly refuse.
+    if (this.scheduler?.restartInProgress) {
+      return { success: false, message: "A server restart is in progress, please wait" };
     }
 
     this.backupInProgress = true;
