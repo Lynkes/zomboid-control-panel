@@ -908,7 +908,7 @@ function formatLuaNumber(newValue, originalValueStr) {
 
 // Modify a single value in the SandboxVars file content in-place
 // Preserves all comments and file structure
-function modifySandboxValue(
+export function modifySandboxValue(
   originalContent,
   key,
   newValue,
@@ -956,9 +956,30 @@ function modifySandboxValue(
         // The value alternation matches a full quoted string first so
         // values containing commas (e.g. comma-separated lists) aren't
         // truncated mid-string, which would corrupt the Lua syntax.
+        //
+        // continuous-bug-hunt, 2026-09-18 (settings-truth round): the lazy
+        // `[^\n]*?` prefix crosses arbitrary identifier characters to reach
+        // its target, and without a boundary check on the LEFT side of the
+        // key it happily matches the key as a bare substring of an earlier,
+        // longer identifier on the same line -- e.g. requesting "Speed" in a
+        // block that also has "WalkSpeed" above it matches "...Walk|Speed"
+        // and silently rewrites WalkSpeed's value instead, while "Speed"
+        // itself never changes. Confirmed via a standalone regex repro, not
+        // theoretical. The `(?<![A-Za-z0-9_])` lookbehind rejects any match
+        // position immediately preceded by an identifier character, so the
+        // key can only match at a real identifier boundary -- exactly what
+        // the validated `^[a-zA-Z_][a-zA-Z0-9_]*$` key format already
+        // guarantees "the whole key" looks like. This is the sole source of
+        // the "silent success, wrong value" reports: PUT /sandbox-option and
+        // panelBridge's live in-game option persistence have no read-back at
+        // all and would report success unconditionally; PUT /sandbox's own
+        // read-back (findUnpersistedSandboxKeys) does catch the requested
+        // key never changing, but never reports the OTHER key it silently
+        // clobbered as a side effect. Fixing the match itself, not just
+        // detecting its wrong output after the fact, closes both.
         const updatedBlock = blockSection.replace(
           new RegExp(
-            `(^(?!\\s*--)[^\\n]*?)(${escapedKey})(\\s*=\\s*)("(?:[^"\\\\]|\\\\.)*"|[^,\\n}]+)(,?)`,
+            `(^(?!\\s*--)[^\\n]*?)(?<![A-Za-z0-9_])(${escapedKey})(\\s*=\\s*)("(?:[^"\\\\]|\\\\.)*"|[^,\\n}]+)(,?)`,
             "m",
           ),
           (_, prefix, k, eq, oldVal, comma) =>
