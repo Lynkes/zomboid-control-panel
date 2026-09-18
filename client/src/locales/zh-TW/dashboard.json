@@ -357,6 +357,7 @@
   },
   "wipeDialog": {
     "title": "清除伺服器",
+    "serverChangedSinceOpen": "此對話方塊開啟期間，使用中的伺服器已變更。請取消並重新開啟「清除伺服器」，以便對目前使用中的伺服器進行操作。",
     "description": "選擇要從 <b>{{serverName}}</b> 中刪除的資料。伺服器必須處於停止狀態。",
     "defaultServerName": "當前活動的伺服器",
     "targets": {

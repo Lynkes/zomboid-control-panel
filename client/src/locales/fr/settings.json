@@ -849,6 +849,7 @@
     "inSync_many": "Synchronisé — {{count}} éléments"
   },
   "toasts": {
+    "backupPanelServerChanged": { "title": "Le serveur actif a changé", "description": "Le serveur actif a changé. Ce panneau est en cours d'actualisation pour le serveur actuellement actif — réessayez une fois l'opération terminée." },
     "recoveryCodesGenerated": {
       "title": "Codes de récupération générés",
       "description": "Enregistrez-les maintenant — ils ne peuvent plus être affichés ensuite."

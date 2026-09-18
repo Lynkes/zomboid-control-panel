@@ -374,6 +374,7 @@
   },
   "wipeDialog": {
     "title": "Borrar servidor por completo",
+    "serverChangedSinceOpen": "El servidor activo cambió mientras este cuadro de diálogo estaba abierto. Cancela y vuelve a abrir «Borrar servidor» para actuar sobre el servidor que está activo ahora.",
     "description": "Seleccionar qué datos eliminar de <b>{{serverName}}</b>. El servidor debe estar detenido.",
     "defaultServerName": "el servidor activo",
     "targets": {

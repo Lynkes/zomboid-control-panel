@@ -318,6 +318,7 @@
   },
   "wipeDialog": {
     "title": "Efase sèvè a",
+    "serverChangedSinceOpen": "Sèvè aktif la chanje pandan bwat dyalòg sa a te louvri. Anile epi louvri « Efase sèvè » ankò pou aji sou sèvè ki aktif kounye a.",
     "description": "Chwazi ki done pou efase nan <b>{{serverName}}</b>. Sèvè a dwe sispann.",
     "defaultServerName": "sèvè aktif la",
     "targets": {

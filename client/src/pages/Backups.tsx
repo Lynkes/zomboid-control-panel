@@ -329,6 +329,12 @@ export default function Backups() {
       // opened against.
       setRestoreDialog({ open: false, backupName: null })
       setDeleteDialog({ open: false, names: [] })
+      // pz-bughunt round 17 (every write that trusts the server-side active
+      // server): deleteOlderDialog's age threshold isn't tied to a specific
+      // backup name the way restoreDialog/deleteDialog are, but it's the
+      // same shape -- close it too rather than let a stale confirm apply to
+      // whichever server the backend now considers active.
+      setDeleteOlderDialog(false)
       refreshAll().finally(() => setServerChangedSinceLoad(false))
     }
     socket.on('activeServerChanged', handleActiveServerChanged)
@@ -573,6 +579,18 @@ export default function Backups() {
 
   const handleDeleteOlderThan = async () => {
     if (!canManageBackups) return
+    // pz-bughunt round 17 (every write that trusts the server-side active
+    // server): backupApi.deleteOlderThan() resolves "the active server"
+    // server-side with no server id, same shape as handleCreateBackup/
+    // handleRestoreBackup/handleDeleteBackups above -- this one was missed.
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.serverChangedSinceLoadTitle'),
+        description: t('toasts.serverChangedSinceLoadDesc'),
+        variant: 'destructive',
+      })
+      return
+    }
     setDeleteOlderDialog(false)
     setDeletingOlder(true)
     try {
@@ -603,6 +621,17 @@ export default function Backups() {
 
   const handleSaveSettings = async () => {
     if (!canManageBackups) return
+    // pz-bughunt round 17: backupApi.updateSettings() resolves "the active
+    // server" server-side with no server id -- schedule/maxBackups shown
+    // here were loaded for whichever server was active at that time.
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.serverChangedSinceLoadTitle'),
+        description: t('toasts.serverChangedSinceLoadDesc'),
+        variant: 'destructive',
+      })
+      return
+    }
     setSavingSettings(true)
     try {
       await backupApi.updateSettings({
@@ -629,6 +658,17 @@ export default function Backups() {
 
   const toggleBackupEnabled = async (enabled: boolean) => {
     if (!canManageBackups) return
+    // pz-bughunt round 17: same shape as handleSaveSettings above -- this
+    // toggle also calls backupApi.updateSettings() against "the active
+    // server" with no server id sent.
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.serverChangedSinceLoadTitle'),
+        description: t('toasts.serverChangedSinceLoadDesc'),
+        variant: 'destructive',
+      })
+      return
+    }
     try {
       await backupApi.updateSettings({ enabled })
       await fetchBackupStatus()
@@ -929,7 +969,7 @@ export default function Backups() {
               <Switch
                 checked={backupStatus?.enabled || false}
                 onCheckedChange={toggleBackupEnabled}
-                disabled={!canManageBackups || statusUnknown}
+                disabled={!canManageBackups || statusUnknown || serverChangedSinceLoad}
                 aria-label={t('statusCards.toggleAria')}
               />
             </DisabledReason>
@@ -1001,7 +1041,7 @@ export default function Backups() {
                 )}
               </div>
               <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : null}>
-                <Button onClick={handleSaveSettings} disabled={savingSettings || !canManageBackups} size="sm" className="h-10 gap-2 self-start sm:self-auto">
+                <Button onClick={handleSaveSettings} disabled={savingSettings || !canManageBackups || serverChangedSinceLoad} size="sm" className="h-10 gap-2 self-start sm:self-auto">
                   {savingSettings && <Loader2 className="w-4 h-4 me-2 animate-spin" />}
                   {t('settingsPanel.saveButton')}
                 </Button>
@@ -1094,7 +1134,7 @@ export default function Backups() {
                   variant="destructive"
                   size="sm"
                   onClick={() => setDeleteOlderDialog(true)}
-                  disabled={deletingOlder || backups.length === 0 || !canManageBackups}
+                  disabled={deletingOlder || backups.length === 0 || !canManageBackups || serverChangedSinceLoad}
                   className="h-10 gap-2"
                 >
                   {deletingOlder ? (

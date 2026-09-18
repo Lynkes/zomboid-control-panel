@@ -787,6 +787,8 @@
   "toasts": {
     "serverChangedSinceLoadTitle": "Active server changed",
     "serverChangedSinceLoadDesc": "The active server changed while you had an unsaved mod order. Discard or keep editing -- saving now would write it to the wrong server.",
+    "pendingAddServerChangedTitle": "تم تغيير الخادم النشط",
+    "pendingAddServerChangedDesc": "تغيّر الخادم النشط أثناء وجود تعديلات في قائمة انتظار للإضافة. تم البحث عن المعرّفات ومجلدات الخرائط المعروضة للخادم السابق — أغلق هذا المربع الحواري وابدأ من جديد للخادم النشط حاليًا.",
     "noActiveServerTitle": "لا يوجد خادم نشط",
     "noActiveServerDesc": "اختر خادمًا محليًا قبل اختيار مجلد الورشة.",
     "remoteServerTitle": "خادم بعيد",

@@ -574,6 +574,21 @@ export default function Settings() {
   >(null);
   const [backupSchedule, setBackupSchedule] = useState("0 */6 * * *");
   const [backupMaxCount, setBackupMaxCount] = useState(10);
+  // pz-bughunt round 17 (every write that trusts the server-side active
+  // server): backupApi.createBackup/deleteBackup/restoreBackup/updateSettings
+  // all resolve "the active server" server-side with no server id sent, the
+  // same shape as Mods.tsx's saveModOrder/Backups.tsx's own equivalent write
+  // paths (see Backups.tsx's serverChangedSinceLoad). This mini-panel is a
+  // second, independent island of the same backup UI embedded in Settings,
+  // and its own activeServerChanged handler used to only refetch the
+  // servers list and app-wide settings -- backups/backupStatus/backupSchedule/
+  // backupMaxCount were never refreshed AND nothing blocked a write from
+  // firing against the now-different active server using values loaded for
+  // the previous one. Mirrors Backups.tsx's own serverChangedSinceLoad shape
+  // exactly: true unconditionally on every activeServerChanged (this panel's
+  // data is ALWAYS "for some server", there is no clean/dirty distinction
+  // the way app settings has isDirty), cleared once a fresh refetch lands.
+  const [backupPanelServerChanged, setBackupPanelServerChanged] = useState(false);
 
   // Track if there are unsaved changes
   const isDirty =
@@ -1722,7 +1737,47 @@ export default function Settings() {
     fetchBackups();
   }, [fetchBackupStatus, fetchBackups]);
 
+  // See backupPanelServerChanged's own comment above. A second, independent
+  // 'activeServerChanged' listener (socket.on supports multiple handlers for
+  // one event) rather than folding into the fetchServers/fetchSettings
+  // effect above -- that effect is declared before fetchBackupStatus/
+  // fetchBackups exist yet, and this keeps the backup-panel guard's own
+  // diff scoped and easy to reason about independently of the pre-existing
+  // servers/app-settings reload logic.
+  useEffect(() => {
+    if (!socket) return;
+    const handleBackupPanelServerChanged = () => {
+      setBackupPanelServerChanged(true);
+      // The confirm dialog's own captured backup name shouldn't resolve
+      // against whichever server the backend now considers active --
+      // same reasoning as Backups.tsx closing its own restore/delete
+      // dialogs on this same event.
+      setRestoreConfirmBackup(null);
+      Promise.all([fetchBackupStatus(), fetchBackups()]).finally(() =>
+        setBackupPanelServerChanged(false),
+      );
+    };
+    socket.on("activeServerChanged", handleBackupPanelServerChanged);
+    return () => {
+      socket.off("activeServerChanged", handleBackupPanelServerChanged);
+    };
+  }, [socket, fetchBackupStatus, fetchBackups]);
+
   const handleCreateBackup = async () => {
+    if (backupPanelServerChanged) {
+      toast({
+        title: settingsFallback(
+          "toasts.backupPanelServerChanged.title",
+          "Active server changed",
+        ),
+        description: settingsFallback(
+          "toasts.backupPanelServerChanged.description",
+          "The active server changed. This panel is refreshing for the server that is active now -- try again once it's done.",
+        ),
+        variant: "destructive",
+      });
+      return;
+    }
     setCreatingBackup(true);
     try {
       const result = await backupApi.createBackup();
@@ -1750,6 +1805,20 @@ export default function Settings() {
   };
 
   const handleDeleteBackup = async (name: string) => {
+    if (backupPanelServerChanged) {
+      toast({
+        title: settingsFallback(
+          "toasts.backupPanelServerChanged.title",
+          "Active server changed",
+        ),
+        description: settingsFallback(
+          "toasts.backupPanelServerChanged.description",
+          "The active server changed. This panel is refreshing for the server that is active now -- try again once it's done.",
+        ),
+        variant: "destructive",
+      });
+      return;
+    }
     try {
       // DELETE /backup/:name always responds non-2xx on failure, so
       // handleResponse() throws into the catch below -- this never sees
@@ -1772,6 +1841,20 @@ export default function Settings() {
   };
 
   const handleRestoreBackup = async (name: string) => {
+    if (backupPanelServerChanged) {
+      toast({
+        title: settingsFallback(
+          "toasts.backupPanelServerChanged.title",
+          "Active server changed",
+        ),
+        description: settingsFallback(
+          "toasts.backupPanelServerChanged.description",
+          "The active server changed. This panel is refreshing for the server that is active now -- try again once it's done.",
+        ),
+        variant: "destructive",
+      });
+      return;
+    }
     setRestoringBackup(name);
     try {
       // POST /backup/restore/:name always responds non-2xx on failure, so
@@ -1826,6 +1909,20 @@ export default function Settings() {
       return;
     }
 
+    if (backupPanelServerChanged) {
+      toast({
+        title: settingsFallback(
+          "toasts.backupPanelServerChanged.title",
+          "Active server changed",
+        ),
+        description: settingsFallback(
+          "toasts.backupPanelServerChanged.description",
+          "The active server changed. This panel is refreshing for the server that is active now -- try again once it's done.",
+        ),
+        variant: "destructive",
+      });
+      return;
+    }
     setBackupLoading(true);
     try {
       await backupApi.updateSettings({
@@ -1852,6 +1949,20 @@ export default function Settings() {
   };
 
   const toggleBackupEnabled = async (enabled: boolean) => {
+    if (backupPanelServerChanged) {
+      toast({
+        title: settingsFallback(
+          "toasts.backupPanelServerChanged.title",
+          "Active server changed",
+        ),
+        description: settingsFallback(
+          "toasts.backupPanelServerChanged.description",
+          "The active server changed. This panel is refreshing for the server that is active now -- try again once it's done.",
+        ),
+        variant: "destructive",
+      });
+      return;
+    }
     setBackupLoading(true);
     try {
       await backupApi.updateSettings({ enabled });
@@ -5140,7 +5251,7 @@ export default function Settings() {
                   </div>
                   <Button
                     onClick={handleCreateBackup}
-                    disabled={creatingBackup || !backupStatus?.savesExists}
+                    disabled={creatingBackup || !backupStatus?.savesExists || backupPanelServerChanged}
                     className="gap-2"
                   >
                     {creatingBackup ? (
@@ -5201,7 +5312,7 @@ export default function Settings() {
                     <Switch
                       checked={backupStatus?.enabled || false}
                       onCheckedChange={toggleBackupEnabled}
-                      disabled={backupLoading || (!backupStatus && backupStatusLoadError)}
+                      disabled={backupLoading || (!backupStatus && backupStatusLoadError) || backupPanelServerChanged}
                       aria-label={t("ariaLabels.enableScheduledBackups")}
                     />
                   </div>
@@ -5243,7 +5354,7 @@ export default function Settings() {
                       <div className="sm:col-span-2">
                         <Button
                           onClick={handleSaveBackupSettings}
-                          disabled={backupLoading}
+                          disabled={backupLoading || backupPanelServerChanged}
                           variant="outline"
                           size="sm"
                         >

@@ -529,6 +529,8 @@
   "toasts": {
     "serverChangedSinceLoadTitle": "Active server changed",
     "serverChangedSinceLoadDesc": "The active server changed while you had an unsaved mod order. Discard or keep editing -- saving now would write it to the wrong server.",
+    "pendingAddServerChangedTitle": "Aktiver Server wurde geändert",
+    "pendingAddServerChangedDesc": "Der aktive Server hat sich geändert, während Mods zum Hinzufügen in der Warteschlange standen. Die angezeigten IDs und Kartenordner wurden für den vorherigen Server ermittelt — schließe diesen Dialog und beginne für den derzeit aktiven Server von vorn.",
     "noActiveServerTitle": "Kein aktiver Server",
     "noActiveServerDesc": "Wähle einen lokalen Server aus, bevor du einen Workshop-Ordner auswählst.",
     "remoteServerTitle": "Remote-Server",

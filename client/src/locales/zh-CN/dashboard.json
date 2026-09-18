@@ -318,6 +318,7 @@
   },
   "wipeDialog": {
     "title": "清除服务器",
+    "serverChangedSinceOpen": "此对话框打开期间活动服务器已更改。请取消并重新打开“清除服务器”，以对当前活动的服务器执行操作。",
     "description": "选择要从 <b>{{serverName}}</b> 中删除的数据。服务器必须处于停止状态。",
     "defaultServerName": "当前活动的服务器",
     "targets": {

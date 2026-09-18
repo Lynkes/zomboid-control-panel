@@ -209,6 +209,16 @@ function getModsNav(t: (key: string) => string): Array<{
 // actually available (no server-side episode id to build a tighter key on).
 const STEAM_API_ISSUE_DISMISSED_KEY = 'pz-mods-steam-api-issue-dismissed'
 
+// pz-bughunt round 17 (every write that trusts the server-side active
+// server): new copy below ships via this fallback rather than new locale
+// JSON keys, same call as Dashboard.tsx's own dashboardFallback -- a key
+// registered in NO locale always resolves to English for everyone, so
+// localeParity.test.ts's 9-locale key-SET parity has nothing to be out of
+// parity about.
+function modsFallback(key: string, fallback: string): string {
+  return resolveRegisteredTranslation('mods', key, undefined) ?? fallback
+}
+
 export default function Mods() {
   const { t, i18n } = useTranslation('mods')
   const MODS_NAV = useMemo(() => getModsNav(t), [t])
@@ -307,10 +317,36 @@ export default function Mods() {
   // confirmed was real: reorder mods on server A, switch to server B
   // elsewhere, hit "Save Order" -- server A's list gets written into
   // server B's real INI. Scoped to the confirmed Save Load Order path for
-  // now; the page's other write actions (writeToIni, batchRemove,
-  // deleteDiskMod, toggleModId, etc.) share the same no-server-id shape and
-  // are a flagged follow-up, not covered by this flag yet.
+  // now; other actions sharing the same no-server-id shape were a flagged
+  // follow-up, picked up by pz-bughunt round 17 below (see
+  // pendingAddServerChanged) -- one of the originally-named examples,
+  // writeToIni/modsToInstall, turned out to be unreachable in the current
+  // build (modsToInstall is only ever cleared/filtered, never populated, so
+  // handleWriteToIni's early "nothing to write" return always fires) --
+  // confirmed by grepping every setModsToInstall call site before treating
+  // it as a live risk. batchRemove/deleteDiskMod/toggleModId/etc. are a
+  // narrower, race-window-only class (a rendered list row stays clickable
+  // for the few hundred ms before a plain refetch lands) rather than an
+  // open-ended dirty-edit window like this one; reported to god, not fixed
+  // this round.
   const [serverChangedSinceLoad, setServerChangedSinceLoad] = useState(false)
+  // pz-bughunt round 17: modsApi.addModAdvanced (Add-mod-by-workshop-ID
+  // dialog) and modsApi.addModAdvanced-via-handleAddCollectionMods (Import
+  // Collection dialog) share the identical no-server-id shape as
+  // saveModOrder above, AND their payload is tied to a specific server the
+  // same way: discoverWorkshopMod()/handleImportCollection() call
+  // modsApi.discoverModIds/collectionDiff, which resolve mod-id/map-folder
+  // auto-detection from the ACTIVE server's own on-disk workshop mount at
+  // discovery time (see routes/mods.js's findModIdFromWorkshop). If the
+  // active server changes while either dialog is still open (discoveredMod
+  // or a pending collectionMods review), the ids/map-folders shown were
+  // resolved against the OLD server's mount and may not even apply to the
+  // NEW one -- clicking Add would write them into the new server's real ini
+  // regardless. One shared flag for both dialogs since they're the same
+  // hazard shape reached through two entry points, exactly like
+  // serverChangedSinceLoad above already covers two entry points
+  // (handleSaveModOrder, promoteModOverOpponent) for the reorder hazard.
+  const [pendingAddServerChanged, setPendingAddServerChanged] = useState(false)
   const [autoSortPreview, setAutoSortPreview] = useState<AutoSortResult | null>(null)
   const [draggedModIndex, setDraggedModIndex] = useState<number | null>(null)
   // Expand/collapse states
@@ -1321,6 +1357,17 @@ export default function Mods() {
   // Add mod with selected mod IDs
   const handleAddModAdvanced = async () => {
     if (!discoveredMod || busyRef.current || !canManageMods) return
+    if (pendingAddServerChanged) {
+      toast({
+        title: modsFallback('toasts.pendingAddServerChangedTitle', 'Active server changed'),
+        description: modsFallback(
+          'toasts.pendingAddServerChangedDesc',
+          'The active server changed while you had mods queued to add. The IDs and map folders shown were looked up for the previous server -- close this dialog and start over for the server that is active now.',
+        ),
+        variant: 'destructive',
+      })
+      return
+    }
     busyRef.current = true
 
     setLoading(true)
@@ -1729,6 +1776,17 @@ export default function Mods() {
 
   const handleAddCollectionMods = async () => {
     if (!canManageMods) return
+    if (pendingAddServerChanged) {
+      toast({
+        title: modsFallback('toasts.pendingAddServerChangedTitle', 'Active server changed'),
+        description: modsFallback(
+          'toasts.pendingAddServerChangedDesc',
+          'The active server changed while you had mods queued to add. The IDs and map folders shown were looked up for the previous server -- close this dialog and start over for the server that is active now.',
+        ),
+        variant: 'destructive',
+      })
+      return
+    }
     const selectedModsList = collectionMods.filter(m => m.selected)
 
     if (selectedModsList.length === 0) {
@@ -2069,6 +2127,41 @@ export default function Mods() {
   useEffect(() => {
     if (!socket) return
     const handleActiveServerChanged = () => {
+      // pz-bughunt round 17b (approved design call, closing the "race-
+      // window" class flagged in the round-17 report): toggleModId,
+      // batchToggleModIds, deleteDiskMod, batchDeleteDiskMods, batchRemove,
+      // removeFromIni, enableDiskMod all read their target id from a row in
+      // mods/disabledMods/ignoredMods rendered from the OLD server's data.
+      // Between this switch firing and fetchData() actually resolving
+      // below, those rows stayed fully visible and clickable, so a click in
+      // that window sent the OLD server's id as a write against the NEW
+      // active server. Rather than add a serverChangedSinceLoad-style check
+      // to seven separate handlers, clear the stale lists outright the
+      // moment the switch happens -- the same shape WorldMap.tsx already
+      // uses for its own player/vehicle/safehouse selection state: nothing
+      // stale survives to be clicked, so no per-handler guard is needed.
+      // Unconditional (not gated on hasModOrderChanged/pendingAddServerChanged
+      // below) since none of these three lists is what either of those
+      // guards protects -- orderedModIds/discoveredMod/collectionMods are
+      // untouched here, so a pending reorder or add-dialog stays intact.
+      setMods([])
+      setDisabledMods([])
+      setIgnoredMods([])
+
+      // See pendingAddServerChanged's own comment above -- independent of
+      // the reorder guard below, doesn't block fetchData() (neither dialog's
+      // state is derived from iniConfig/mods, so a refetch can't discard it).
+      if (discoveredMod !== null || collectionMods.length > 0) {
+        setPendingAddServerChanged(true)
+        toast({
+          title: modsFallback('toasts.pendingAddServerChangedTitle', 'Active server changed'),
+          description: modsFallback(
+            'toasts.pendingAddServerChangedDesc',
+            'The active server changed while you had mods queued to add. The IDs and map folders shown were looked up for the previous server -- close this dialog and start over for the server that is active now.',
+          ),
+          variant: 'destructive',
+        })
+      }
       if (hasModOrderChanged) {
         setServerChangedSinceLoad(true)
         toast({
@@ -2084,7 +2177,7 @@ export default function Mods() {
     return () => {
       socket.off('activeServerChanged', handleActiveServerChanged)
     }
-  }, [socket, fetchData, hasModOrderChanged, toast, t])
+  }, [socket, fetchData, hasModOrderChanged, discoveredMod, collectionMods.length, toast, t])
 
   // Once the user discards the stale reorder (the "Reset" button sets
   // orderedModIds back to iniConfig.modIds, making hasModOrderChanged
@@ -2097,6 +2190,16 @@ export default function Mods() {
       fetchData()
     }
   }, [serverChangedSinceLoad, hasModOrderChanged, fetchData])
+
+  // Same idea for the add-mod guard: once both dialogs are closed/cleared
+  // (Cancel, a successful Add, or the collection review being cleared), the
+  // stale-lookup risk is gone -- drop the flag so a later switch doesn't
+  // leave the NEXT open of either dialog wrongly pre-blocked.
+  useEffect(() => {
+    if (pendingAddServerChanged && discoveredMod === null && collectionMods.length === 0) {
+      setPendingAddServerChanged(false)
+    }
+  }, [pendingAddServerChanged, discoveredMod, collectionMods.length])
 
   const removeFromInstallList = (workshopId: string) => {
     setModsToInstall(prev => prev.filter(m => m.workshopId !== workshopId))
@@ -3193,7 +3296,7 @@ export default function Mods() {
                     <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
                     <Button
                       onClick={handleAddCollectionMods}
-                      disabled={loading || selectedCollectionCount === 0 || !canManageMods}
+                      disabled={loading || selectedCollectionCount === 0 || !canManageMods || pendingAddServerChanged}
                     >
                       {loading ? t('collectionDialog.adding') : t('collectionDialog.addToServer', { count: selectedCollectionCount })}
                     </Button>
@@ -3491,7 +3594,7 @@ export default function Mods() {
                     </Button>
                     <Button
                       onClick={handleAddModAdvanced}
-                      disabled={loading || !discoveredMod || discoveringMod || !canManageMods}
+                      disabled={loading || !discoveredMod || discoveringMod || !canManageMods || pendingAddServerChanged}
                       className="w-full sm:order-2 sm:w-auto"
                     >
                       {loading ? (

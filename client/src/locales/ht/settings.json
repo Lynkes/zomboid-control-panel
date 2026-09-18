@@ -758,6 +758,7 @@
   },
 
   "toasts": {
+    "backupPanelServerChanged": { "title": "Sèvè aktif la chanje", "description": "Sèvè aktif la chanje. Panèl sa a ap rafrechi pou sèvè ki aktif kounye a — eseye ankò lè fini." },
     "recoveryCodesGenerated": { "title": "Kòd rekiperasyon jenere", "description": "Sove yo kounye a — yo pa ka montre ankò." },
     "recoveryCodesFailed": { "title": "Pa t kapab jenere kòd rekiperasyon", "fallback": "Eseye ankò." },
     "invalidCorsOrigins": { "title": "Orijin CORS Envalid" },

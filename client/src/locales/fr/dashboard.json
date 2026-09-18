@@ -374,6 +374,7 @@
   },
   "wipeDialog": {
     "title": "Effacer le serveur",
+    "serverChangedSinceOpen": "Le serveur actif a changé pendant que cette boîte de dialogue était ouverte. Annulez et rouvrez « Effacer le serveur » pour agir sur le serveur actuellement actif.",
     "description": "Sélectionnez les données à supprimer de <b>{{serverName}}</b>. Le serveur doit être arrêté.",
     "defaultServerName": "le serveur actif",
     "targets": {

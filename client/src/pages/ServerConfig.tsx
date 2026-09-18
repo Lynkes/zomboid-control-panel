@@ -1549,6 +1549,21 @@ export default function ServerConfig() {
   }, [activeTab])
 
   const handleOptionChange = useCallback(async (optName: string, newValue: unknown, groupName: string) => {
+    // continuous-bug-hunt round 17 (every write that trusts the server-side
+    // active server): setSandboxOption/saveSandboxOption below both resolve
+    // "the active server" server-side with no server id -- same shape as
+    // handleSaveIni/handleSaveSandbox's own serverChangedSinceLoad guard,
+    // just reached from the "Active" tab's per-option controls instead of a
+    // single Save button. Unlike those two, this fires per click with no
+    // dirty-tracking of its own, so the guard has to sit right here.
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.error'),
+        description: t('toasts.serverChangedSinceLoad'),
+        variant: 'destructive',
+      })
+      return
+    }
     // Prevent duplicate inflight requests for the same option
     setSavingOptions(prev => {
       if (prev.has(optName)) return prev
@@ -1666,7 +1681,7 @@ export default function ServerConfig() {
         return next
       })
     }
-  }, [toast, t])
+  }, [toast, t, serverChangedSinceLoad])
 
   // File browser: open the dialog for a specific INI key
   const openFileBrowser = useCallback(async (key: string, extensions?: string[]) => {
@@ -1879,6 +1894,14 @@ export default function ServerConfig() {
   }
 
   const handleSaveSpawnPoints = async () => {
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.error'),
+        description: t('toasts.serverChangedSinceLoad'),
+        variant: 'destructive',
+      })
+      return
+    }
     setSaving(true)
     try {
       const result = editorMode === 'raw'
@@ -1903,6 +1926,14 @@ export default function ServerConfig() {
   }
 
   const handleSaveSpawnRegions = async () => {
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.error'),
+        description: t('toasts.serverChangedSinceLoad'),
+        variant: 'destructive',
+      })
+      return
+    }
     setSaving(true)
     try {
       const result = editorMode === 'raw'
@@ -2062,6 +2093,14 @@ export default function ServerConfig() {
 
   // Restore backup
   const handleRestoreBackup = async (filename: string) => {
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.error'),
+        description: t('toasts.serverChangedSinceLoad'),
+        variant: 'destructive',
+      })
+      return
+    }
     const ok = await confirm({
       title: t('restoreBackupConfirm.title'),
       description: t('restoreBackupConfirm.description', { filename }),
@@ -3647,7 +3686,7 @@ export default function ServerConfig() {
                     <ExternalLink className="h-3 w-3" /> {t('editorToolbar.map')}
                   </a>
                   {editorMode === 'raw' && (
-                    <Button onClick={handleSaveSpawnPoints} disabled={saving} variant="command" size="sm" className="h-7 gap-1.5 text-xs font-medium">
+                    <Button onClick={handleSaveSpawnPoints} disabled={saving || serverChangedSinceLoad} variant="command" size="sm" className="h-7 gap-1.5 text-xs font-medium">
                       {saving ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
                       ) : (
@@ -3757,7 +3796,7 @@ export default function ServerConfig() {
                       <TooltipContent>{t('editorToolbar.downloadSpawnRegionsTooltip')}</TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
-                  <Button onClick={handleSaveSpawnRegions} disabled={saving} variant="command" size="sm" className="h-7 gap-1.5 text-xs font-medium">
+                  <Button onClick={handleSaveSpawnRegions} disabled={saving || serverChangedSinceLoad} variant="command" size="sm" className="h-7 gap-1.5 text-xs font-medium">
                     {saving ? (
                       <Loader2 className="h-3 w-3 animate-spin" />
                     ) : (
@@ -4419,6 +4458,7 @@ export default function ServerConfig() {
                                 <Button
                                   variant="outline"
                                   size="sm"
+                                  disabled={serverChangedSinceLoad}
                                   onClick={() => handleRestoreBackup(backup.filename)}
                                 >
                                   <Upload className="w-4 h-4 me-1" />

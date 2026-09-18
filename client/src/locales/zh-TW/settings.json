@@ -847,6 +847,7 @@
     }
   },
   "toasts": {
+    "backupPanelServerChanged": { "title": "使用中的伺服器已變更", "description": "使用中的伺服器已變更。此面板正在為目前使用中的伺服器重新整理——完成後請再試一次。" },
     "recoveryCodesGenerated": {
       "title": "復原碼已產生",
       "description": "請立即儲存——之後將無法再次顯示。"

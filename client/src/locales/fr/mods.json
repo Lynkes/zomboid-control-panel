@@ -553,6 +553,8 @@
   "toasts": {
     "serverChangedSinceLoadTitle": "Active server changed",
     "serverChangedSinceLoadDesc": "The active server changed while you had an unsaved mod order. Discard or keep editing -- saving now would write it to the wrong server.",
+    "pendingAddServerChangedTitle": "Le serveur actif a changé",
+    "pendingAddServerChangedDesc": "Le serveur actif a changé alors que des mods étaient en file d'attente pour être ajoutés. Les ID et dossiers de carte affichés ont été recherchés pour le serveur précédent — fermez cette boîte de dialogue et recommencez pour le serveur actuellement actif.",
     "noActiveServerTitle": "Aucun serveur actif",
     "noActiveServerDesc": "Sélectionnez un serveur local avant de choisir un dossier Workshop.",
     "remoteServerTitle": "Serveur distant",

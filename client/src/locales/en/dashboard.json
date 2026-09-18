@@ -318,6 +318,7 @@
   },
   "wipeDialog": {
     "title": "Wipe server",
+    "serverChangedSinceOpen": "The active server changed while this dialog was open. Cancel and reopen Wipe Server to act on the server that is active now.",
     "description": "Select what data to delete from <b>{{serverName}}</b>. The server must be stopped.",
     "defaultServerName": "the active server",
     "targets": {

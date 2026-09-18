@@ -659,6 +659,8 @@
   "toasts": {
     "serverChangedSinceLoadTitle": "Active server changed",
     "serverChangedSinceLoadDesc": "The active server changed while you had an unsaved mod order. Discard or keep editing -- saving now would write it to the wrong server.",
+    "pendingAddServerChangedTitle": "Активний сервер змінено",
+    "pendingAddServerChangedDesc": "Активний сервер змінився, поки моди очікували на додавання. Показані ідентифікатори та папки карт було знайдено для попереднього сервера — закрийте це вікно й почніть спочатку для сервера, який активний зараз.",
     "noActiveServerTitle": "Немає активного сервера",
     "noActiveServerDesc": "Вибери локальний сервер, перш ніж обирати папку Workshop.",
     "remoteServerTitle": "Віддалений сервер",

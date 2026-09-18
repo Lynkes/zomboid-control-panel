@@ -849,6 +849,7 @@
     "inSync_many": "Sincronizado: {{count}} elementos"
   },
   "toasts": {
+    "backupPanelServerChanged": { "title": "El servidor activo ha cambiado", "description": "El servidor activo cambió. Este panel se está actualizando para el servidor que está activo ahora; inténtalo de nuevo cuando termine." },
     "recoveryCodesGenerated": {
       "title": "Códigos de recuperación generados",
       "description": "Guárdalos ahora: no se pueden volver a mostrar."

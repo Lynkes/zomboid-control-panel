@@ -529,6 +529,8 @@
   "toasts": {
     "serverChangedSinceLoadTitle": "Active server changed",
     "serverChangedSinceLoadDesc": "The active server changed while you had an unsaved mod order. Discard or keep editing -- saving now would write it to the wrong server.",
+    "pendingAddServerChangedTitle": "使用中的伺服器已變更",
+    "pendingAddServerChangedDesc": "在有模組排隊等待新增時，使用中的伺服器已變更。畫面顯示的 ID 與地圖資料夾是針對先前的伺服器查詢的——請關閉此對話方塊，並針對目前使用中的伺服器重新開始。",
     "noActiveServerTitle": "沒有活動伺服器",
     "noActiveServerDesc": "請先選擇本地伺服器，再選擇創意工坊資料夾。",
     "remoteServerTitle": "遠端伺服器",

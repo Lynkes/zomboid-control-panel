@@ -847,6 +847,7 @@
     }
   },
   "toasts": {
+    "backupPanelServerChanged": { "title": "活动服务器已更改", "description": "活动服务器已更改。此面板正在为当前活动的服务器刷新——完成后请重试。" },
     "recoveryCodesGenerated": {
       "title": "找回代码已生成",
       "description": "请立即保存——它们不会再次显示。"

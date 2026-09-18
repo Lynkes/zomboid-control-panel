@@ -865,6 +865,7 @@
     "inSync_many": "متزامن — العناصر: {{count}}"
   },
   "toasts": {
+    "backupPanelServerChanged": { "title": "تم تغيير الخادم النشط", "description": "تغيّر الخادم النشط. تقوم هذه اللوحة بالتحديث للخادم النشط حاليًا — أعد المحاولة بعد انتهائها." },
     "recoveryCodesGenerated": {
       "title": "تم توليد رموز الاسترداد",
       "description": "احفظها الآن — لا يمكن عرضها مرة أخرى."

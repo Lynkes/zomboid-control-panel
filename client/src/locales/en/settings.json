@@ -758,6 +758,7 @@
   },
 
   "toasts": {
+    "backupPanelServerChanged": { "title": "Active server changed", "description": "The active server changed. This panel is refreshing for the server that is active now -- try again once it's done." },
     "recoveryCodesGenerated": { "title": "Recovery codes generated", "description": "Save them now — they cannot be shown again." },
     "recoveryCodesFailed": { "title": "Could not generate recovery codes", "fallback": "Try again." },
     "invalidCorsOrigins": { "title": "Invalid CORS Origins" },

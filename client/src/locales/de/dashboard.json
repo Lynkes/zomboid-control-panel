@@ -318,6 +318,7 @@
   },
   "wipeDialog": {
     "title": "Server unwiderruflich löschen",
+    "serverChangedSinceOpen": "Der aktive Server hat sich geändert, während dieser Dialog geöffnet war. Brich ab und öffne „Server löschen“ erneut, um den derzeit aktiven Server zu bearbeiten.",
     "description": "Wähle aus, welche Daten von <b>{{serverName}}</b> gelöscht werden sollen. Der Server muss gestoppt sein.",
     "defaultServerName": "dem aktiven Server",
     "targets": {

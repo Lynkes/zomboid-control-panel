@@ -847,6 +847,7 @@
     }
   },
   "toasts": {
+    "backupPanelServerChanged": { "title": "Aktiver Server wurde geändert", "description": "Der aktive Server hat sich geändert. Dieses Panel wird für den derzeit aktiven Server aktualisiert — versuche es erneut, sobald das abgeschlossen ist." },
     "recoveryCodesGenerated": {
       "title": "Wiederherstellungscodes generiert",
       "description": "Speichere sie jetzt — sie können nicht erneut angezeigt werden."

@@ -339,6 +339,20 @@ export default function Dashboard() {
     variant?: 'destructive' | 'warning'
   } | null>(null)
   const [wipeDialog, setWipeDialog] = useState(false)
+  // continuous-bug-hunt round 17 (every write that trusts the server-side
+  // active server): serverApi.wipePreview()/wipe() both resolve "the active
+  // server" server-side with no server id in the request, same shape as
+  // Mods.tsx's saveModOrder() (see that page's serverChangedSinceLoad).
+  // Preview shows file counts/paths for whichever server was active when
+  // Preview was clicked; if the active server changes while this dialog is
+  // still open (another operator/tab switches it), clicking "Wipe Now"
+  // would silently delete the NEW active server's saves using targets
+  // chosen while looking at the OLD server's preview -- worse than the mod
+  // load-order case, since this is destructive and irreversible without a
+  // backup. Set true by the activeServerChanged handler below ONLY while
+  // this dialog is open; disables Preview/Wipe Now and shows an inline
+  // warning until the user cancels and reopens for the now-active server.
+  const [wipeServerChangedSinceOpen, setWipeServerChangedSinceOpen] = useState(false)
   const [wipeTargets, setWipeTargets] = useState<Record<string, boolean>>({ map: true, players: true, world: true, accounts: false })
   const [wipePreview, setWipePreview] = useState<{
     totalFiles: number; totalSize: number
@@ -688,6 +702,8 @@ export default function Dashboard() {
     const onActiveServer = (d?: { server?: ServerInstance | null }) => {
       if (d?.server !== undefined) setActiveServer(d.server); else fetchActiveServer()
       fetchStatus(); fetchComposedStatus(); fetchPlayers(); fetchBridgeStatus()
+      // See wipeServerChangedSinceOpen's own comment above.
+      if (wipeDialog) setWipeServerChangedSinceOpen(true)
     }
     const onBridgeMod = (d: { alive: boolean; version?: string; serverName?: string; playerCount?: number }) => {
       setBridgeStatus(prev => ({
@@ -712,7 +728,7 @@ export default function Dashboard() {
       socket.off('activeServerChanged', onActiveServer)
       socket.off('panelBridge:modStatus', onBridgeMod)
     }
-  }, [socket, fetchStatus, fetchComposedStatus, fetchPlayers, fetchBridgeStatus, fetchActiveServer])
+  }, [socket, fetchStatus, fetchComposedStatus, fetchPlayers, fetchBridgeStatus, fetchActiveServer, wipeDialog])
 
   // Zombie count changes continuously while the server runs -- unlike
   // bridgeStatus (pushed live over the socket), nothing pushes this, so it
@@ -764,6 +780,23 @@ export default function Dashboard() {
     if (socket.connected) subscribePerf()
     socket.on('connect', subscribePerf)
     const onSnapshot = (snap: Record<string, unknown>) => {
+      // pz-bughunt round 17 (Dashboard live perf chart after a server
+      // switch): perf:snapshot now carries a serverId (server/index.js's
+      // perfPollingInterval, mirroring getPerformanceHistory()'s own
+      // filter in database/init.js -- entry.serverId == null || entry.
+      // serverId === serverId). The "perf" room is one shared broadcast
+      // room, not scoped per server, so every subscribed client gets
+      // every tick regardless of which server it's for -- without this
+      // check, switching the active server kept appending the OLD
+      // server's samples into what still looks like a live chart for the
+      // NEW one. Same acceptance rule as the server-side filter: drop a
+      // snapshot tagged for a DIFFERENT server, but accept one with no
+      // serverId at all (null/undefined -- pre-fix legacy senders, or no
+      // active server known) rather than silently going quiet.
+      const snapServerId = snap.serverId as string | number | null | undefined
+      if (snapServerId != null && (activeServer == null || String(snapServerId) !== String(activeServer.id))) {
+        return
+      }
       const point: PerformancePoint = {
         time: new Date().toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' }),
         timestamp: new Date().toISOString(),
@@ -791,7 +824,7 @@ export default function Dashboard() {
       socket.off('connect', subscribePerf)
       socket.emit('unsubscribe:perf')
     }
-  }, [socket, showPerformanceCharts, i18n.language])
+  }, [socket, showPerformanceCharts, i18n.language, activeServer])
 
   useEffect(() => {
     const onVis = () => {
@@ -1546,6 +1579,7 @@ export default function Dashboard() {
                     // in the product has to live here, not in the attribute.
                     if (!canWipeServer) return
                     setWipePreview(null)
+                    setWipeServerChangedSinceOpen(false)
                     setWipeDialog(true)
                   }}
                   disabled={!hasServer || online || loading !== null || activeServer?.isRemote || !canWipeServer}
@@ -2009,6 +2043,7 @@ export default function Dashboard() {
                     onClick={() => {
                       if (!canWipeServer) return
                       setWipePreview(null)
+                      setWipeServerChangedSinceOpen(false)
                       setWipeDialog(true)
                     }}
                     title={online ? undefined : t('maintenance.wipeTooltipOffline')}
@@ -2086,7 +2121,7 @@ export default function Dashboard() {
       </AlertDialog>
 
       {/* ─── Wipe dialog ─────────────────────────────────────────────────── */}
-      <AlertDialog open={wipeDialog} onOpenChange={(open) => { if (!open && !wipeLoading) { setWipeDialog(false); setWipePreview(null) } }}>
+      <AlertDialog open={wipeDialog} onOpenChange={(open) => { if (!open && !wipeLoading) { setWipeDialog(false); setWipePreview(null); setWipeServerChangedSinceOpen(false) } }}>
         <AlertDialogContent className="glass border-border/50 max-h-[85vh] overflow-y-auto sm:max-h-[80vh]">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-3 text-xl">
@@ -2101,6 +2136,13 @@ export default function Dashboard() {
               />
             </AlertDialogDescription>
           </AlertDialogHeader>
+
+          {wipeServerChangedSinceOpen && (
+            <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>{dashboardFallback('wipeDialog.serverChangedSinceOpen', 'The active server changed while this dialog was open. Cancel and reopen Wipe Server to act on the server that is active now.')}</span>
+            </div>
+          )}
 
           <div className="space-y-3 py-2">
             {(['map', 'players', 'world', 'accounts'] as const).map((key) => (
@@ -2171,17 +2213,20 @@ export default function Dashboard() {
           )}
 
           <AlertDialogFooter className="gap-2 sm:gap-2">
-            <AlertDialogCancel className="mt-0" disabled={wipeLoading} onClick={() => { setWipeDialog(false); setWipePreview(null) }}>{t('wipeDialog.cancel')}</AlertDialogCancel>
+            <AlertDialogCancel className="mt-0" disabled={wipeLoading} onClick={() => { setWipeDialog(false); setWipePreview(null); setWipeServerChangedSinceOpen(false) }}>{t('wipeDialog.cancel')}</AlertDialogCancel>
             {!wipePreview ? (
               <Button
                 variant="warning"
-                disabled={!Object.values(wipeTargets).some(Boolean) || wipeLoading || !canWipeServer}
+                disabled={!Object.values(wipeTargets).some(Boolean) || wipeLoading || !canWipeServer || wipeServerChangedSinceOpen}
                 onClick={async () => {
                   // POST /server/wipe/preview requires server.wipe too --
                   // guarded here as well as on the DropdownMenuItem that
                   // opens this dialog, so this stays safe even if something
                   // else ever opens wipeDialog without checking first.
-                  if (wipeLoading || !canWipeServer) return
+                  // wipeServerChangedSinceOpen: see that state's own comment --
+                  // the function guard is the real gate, disabled= is only
+                  // the affordance (same convention as Console.tsx).
+                  if (wipeLoading || !canWipeServer || wipeServerChangedSinceOpen) return
                   setWipeLoading(true)
                   try {
                     const targets = Object.entries(wipeTargets).filter(([, v]) => v).map(([k]) => k)
@@ -2198,9 +2243,9 @@ export default function Dashboard() {
             ) : (
               <Button
                 variant="destructive"
-                disabled={wipeLoading || wipePreview.totalFiles === 0 || !canWipeServer}
+                disabled={wipeLoading || wipePreview.totalFiles === 0 || !canWipeServer || wipeServerChangedSinceOpen}
                 onClick={async () => {
-                  if (wipeLoading || !canWipeServer) return
+                  if (wipeLoading || !canWipeServer || wipeServerChangedSinceOpen) return
                   setWipeLoading(true)
                   setWipeBackupProgress(wipeCreateBackup ? { phase: 'preparing', percent: 0, message: t('wipeDialog.backupStarting') } : null)
                   try {
