@@ -2424,19 +2424,44 @@ export async function deletePlayerNote(playerName) {
 // Player Stats (playtime tracking)
 // ============================================
 
-export async function getPlayerStats() {
+// worker-pz-playtime-per-server, 2026-09-18 (operator decision: notes stay
+// shared across servers, playtime does not): `serverId` is optional and
+// undefined by default, same opt-in contract as getCommandHistory()/
+// getPlayerLogs() -- an existing caller that doesn't pass it keeps seeing
+// every row, unfiltered. When a caller opts in, a pre-fix row with no
+// `server_id` (recordPlayerSession() only started tagging this round) is
+// treated as that player's ONLY known figures until they reconnect and earn
+// a row tagged for a specific server -- it is never rewritten or merged, so
+// it keeps reading correctly for every server until then, and a tagged row
+// for the requested server (once one exists) always wins over it.
+export async function getPlayerStats(serverId = undefined) {
   const db = await getDb();
   if (!db.data.player_stats) db.data.player_stats = [];
-  return db.data.player_stats;
+  if (serverId === undefined) return db.data.player_stats;
+
+  const byName = new Map();
+  for (const stat of db.data.player_stats) {
+    if (stat.server_id != null && stat.server_id !== serverId) continue;
+    const key = stat.player_name.toLowerCase();
+    const existing = byName.get(key);
+    if (!existing || (existing.server_id == null && stat.server_id === serverId)) {
+      byName.set(key, stat);
+    }
+  }
+  return Array.from(byName.values());
 }
 
-export async function getPlayerStat(playerName) {
+export async function getPlayerStat(playerName, serverId = undefined) {
   const db = await getDb();
   if (!db.data.player_stats) db.data.player_stats = [];
+  const matches = db.data.player_stats.filter(
+    (p) => p.player_name.toLowerCase() === playerName.toLowerCase(),
+  );
+  if (serverId === undefined) return matches[0] || null;
   return (
-    db.data.player_stats.find(
-      (p) => p.player_name.toLowerCase() === playerName.toLowerCase(),
-    ) || null
+    matches.find((p) => p.server_id === serverId) ||
+    matches.find((p) => p.server_id == null) ||
+    null
   );
 }
 
@@ -2453,12 +2478,29 @@ export async function getPlayerStat(playerName) {
 // `sessionEnd - sessionStart` arithmetic naturally excludes the suspended
 // time once the player eventually disconnects. The session row stays one
 // contiguous session; only its computed duration is corrected.
-export async function recordPlayerSession(playerName, action) {
+// worker-pz-playtime-per-server, 2026-09-18 (operator decision: player
+// NOTES stay shared across servers, PLAYTIME does not): `serverId` is
+// optional and defaults to getActiveServerId() -- PanelBridge is the same
+// single active-server-tied singleton logPlayerAction()/logBridgeCommand()
+// already tag this way, so the default is an exact match for every
+// reachable caller today, not just a proxy. Matched strictly by
+// (player_name, server_id): a pre-fix row with no server_id is NEVER
+// reused or rewritten for a tagged session -- doing so would silently
+// reassign that player's whole prior playtime history to whichever server
+// happens to be active on their next connect. Instead a fresh row is
+// started for each (player, server) pair going forward; the untagged row
+// stays exactly as it was, still readable via getPlayerStat()/
+// getPlayerStats() as that player's figures until a tagged row exists.
+export async function recordPlayerSession(playerName, action, serverId = undefined) {
   const db = await getDb();
   if (!db.data.player_stats) db.data.player_stats = [];
 
+  const targetServerId = serverId !== undefined ? serverId : await getActiveServerId();
+
   let playerStat = db.data.player_stats.find(
-    (p) => p.player_name.toLowerCase() === playerName.toLowerCase(),
+    (p) =>
+      p.player_name.toLowerCase() === playerName.toLowerCase() &&
+      (p.server_id ?? null) === targetServerId,
   );
 
   const now = new Date().toISOString();
@@ -2467,6 +2509,7 @@ export async function recordPlayerSession(playerName, action) {
     playerStat = {
       id: generateId(),
       player_name: playerName,
+      server_id: targetServerId,
       total_playtime_seconds: 0,
       session_count: 0,
       first_seen: now,

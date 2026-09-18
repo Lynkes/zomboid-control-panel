@@ -1068,9 +1068,13 @@ router.delete('/notes/:playerName', requirePermission("players.moderate"), async
 // ============================================
 
 // Get all player stats
+// worker-pz-playtime-per-server, 2026-09-18: scope to whichever server is
+// active RIGHT NOW, same as GET /activity above -- playtime is a per-server
+// figure (unlike player notes, which stay shared on purpose).
 router.get('/stats', requirePermission("players.view"), async (req, res) => {
   try {
-    const stats = await getPlayerStats();
+    const activeServer = await getActiveServer();
+    const stats = await getPlayerStats(activeServer?.id ?? null);
     res.json({ success: true, stats });
   } catch (error) {
     log.error(`Failed to get player stats: ${error.message}`);
@@ -1081,7 +1085,8 @@ router.get('/stats', requirePermission("players.view"), async (req, res) => {
 // Get stats for specific player
 router.get('/stats/:playerName', requirePermission("players.view"), async (req, res) => {
   try {
-    const stat = await getPlayerStat(req.params.playerName);
+    const activeServer = await getActiveServer();
+    const stat = await getPlayerStat(req.params.playerName, activeServer?.id ?? null);
     res.json({ success: true, stat });
   } catch (error) {
     log.error(`Failed to get player stat: ${error.message}`);

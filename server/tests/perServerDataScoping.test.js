@@ -34,6 +34,9 @@ const {
   getSteamIdBans,
   addSteamIdBan,
   removeSteamIdBan,
+  recordPlayerSession,
+  getPlayerStats,
+  getPlayerStat,
 } = await import("../database/init.js");
 
 async function makeTwoServers() {
@@ -198,5 +201,83 @@ describe("SteamID bans: the SAME SteamID can be banned on one server and not ano
     const bansB = await getSteamIdBans();
     expect(bansB).toHaveLength(1);
     expect(bansB[0].reason).toBe("on B");
+  });
+});
+
+// worker-pz-playtime-per-server, 2026-09-18 (operator decision: player NOTES
+// stay shared across servers, PLAYTIME does not): player_stats/its nested
+// sessions were keyed by player_name alone, so the same player's playtime
+// mixed together across every managed server. Fixed the same additive way
+// as the six collections above, with one deliberate difference: a pre-fix
+// untagged row is NEVER migrated/rewritten on touch (unlike tracked_mods/
+// steamid_bans' migrate-on-touch) -- a new tagged row is started per
+// (player, server) pair instead, so the untagged row keeps reading exactly
+// as it did before this fix, on every server, until the player earns a
+// tagged row of their own.
+describe("Player playtime stats: total_playtime_seconds/sessions scoped per server", () => {
+  it("keeps the same player's playtime on server A and server B separate", async () => {
+    const { a, b } = await makeTwoServers();
+
+    await recordPlayerSession("Alice", "connect");
+    await recordPlayerSession("Alice", "disconnect"); // a few ms of playtime on A
+
+    await setActiveServer(b.id);
+    await recordPlayerSession("Alice", "connect");
+    await recordPlayerSession("Alice", "connect"); // second B session bumps session_count to 2
+    await recordPlayerSession("Alice", "disconnect");
+
+    const statOnA = await getPlayerStat("Alice", a.id);
+    const statOnB = await getPlayerStat("Alice", b.id);
+
+    expect(statOnA.session_count).toBe(1);
+    expect(statOnB.session_count).toBe(2);
+    expect(statOnA).not.toBe(statOnB);
+
+    const statsA = await getPlayerStats(a.id);
+    const statsB = await getPlayerStats(b.id);
+    expect(statsA.map((s) => s.player_name)).toEqual(["Alice"]);
+    expect(statsB.map((s) => s.player_name)).toEqual(["Alice"]);
+    expect(statsA[0].session_count).toBe(1);
+    expect(statsB[0].session_count).toBe(2);
+
+    // Unfiltered (no serverId argument) still sees every row for every server.
+    const allNamed = (await getPlayerStats()).filter((s) => s.player_name === "Alice");
+    expect(allNamed).toHaveLength(2);
+  });
+
+  it("a pre-fix untagged row is never rewritten, and stays readable on every server", async () => {
+    const { a, b } = await makeTwoServers();
+
+    // Simulate a real pre-fix legacy row: server_id=null, the same shape
+    // this player's data had before this fix started tagging writes.
+    await recordPlayerSession("Bob", "connect", null);
+    await recordPlayerSession("Bob", "disconnect", null);
+    const legacy = await getPlayerStat("Bob", null);
+    expect(legacy.server_id).toBeNull();
+
+    // Bob hasn't reconnected since the servers were created, so both server
+    // views still fall back to his legacy figures -- read-only, not migrated.
+    const onA = await getPlayerStat("Bob", a.id);
+    const onB = await getPlayerStat("Bob", b.id);
+    expect(onA.total_playtime_seconds).toBe(legacy.total_playtime_seconds);
+    expect(onB.total_playtime_seconds).toBe(legacy.total_playtime_seconds);
+    expect(onA.server_id).toBeNull();
+
+    // Bob connects for real on server A now -- a NEW row is created for A;
+    // the legacy row is untouched, and B still falls back to it.
+    await recordPlayerSession("Bob", "connect");
+    await recordPlayerSession("Bob", "disconnect");
+
+    const stillLegacy = await getPlayerStat("Bob"); // unfiltered, first match = the untouched legacy row
+    expect(stillLegacy.server_id).toBeNull();
+    expect(stillLegacy.session_count).toBe(1);
+
+    const freshOnA = await getPlayerStat("Bob", a.id);
+    expect(freshOnA.server_id).toBe(a.id);
+    expect(freshOnA.session_count).toBe(1);
+
+    const fallbackOnB = await getPlayerStat("Bob", b.id);
+    expect(fallbackOnB.server_id).toBeNull();
+    expect(fallbackOnB.session_count).toBe(1);
   });
 });
