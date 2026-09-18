@@ -124,6 +124,54 @@ describe("buildHostSignal", () => {
     // and get a confident "running" out the other side.
     expect(buildHostSignal("native", true, true).status).toBe("unknown");
   });
+
+  // continuous-bug-hunt round 28 (ux-proposals-need-backend-data): a native
+  // crash and a deliberate stop used to look identical -- both just
+  // "stopped", detail: null. stopReason (server/index.js's
+  // classifyStopReason() result) now fills that in for the stopped case
+  // only; a running server never shows a stale reason from its last stop.
+  describe("stopReason detail (round 28)", () => {
+    it("describes a deliberate operator stop", () => {
+      const signal = buildHostSignal("native", false, false, null, { reason: "stop" });
+      expect(signal.status).toBe("stopped");
+      expect(signal.detail).toBe("Stopped by an operator");
+    });
+
+    it("describes a restart in progress", () => {
+      const signal = buildHostSignal("native", false, false, null, { reason: "restart" });
+      expect(signal.detail).toBe("Restarting");
+    });
+
+    it("describes a crash with its exit code", () => {
+      const signal = buildHostSignal("native", false, false, null, {
+        reason: "crash",
+        exitCode: 1,
+        signal: null,
+      });
+      expect(signal.detail).toBe("Crashed (exit code 1)");
+    });
+
+    it("describes a crash with only a signal when no exit code was captured", () => {
+      const signal = buildHostSignal("native", false, false, null, {
+        reason: "crash",
+        exitCode: null,
+        signal: "SIGSEGV",
+      });
+      expect(signal.detail).toBe("Crashed (signal SIGSEGV)");
+    });
+
+    it("gives no detail for an unknown reason or no reason recorded at all", () => {
+      expect(buildHostSignal("native", false, false, null, { reason: "unknown" }).detail).toBeNull();
+      expect(buildHostSignal("native", false, false, null, null).detail).toBeNull();
+      expect(buildHostSignal("native", false).detail).toBeNull();
+    });
+
+    it("never shows a stop reason while the server is reported running", () => {
+      const signal = buildHostSignal("native", true, false, null, { reason: "crash", exitCode: 1 });
+      expect(signal.status).toBe("running");
+      expect(signal.detail).toBeNull();
+    });
+  });
 });
 
 describe("buildServerSignal", () => {

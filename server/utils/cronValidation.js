@@ -63,7 +63,11 @@ export function isSupportedFiveFieldCron(expression) {
   );
 }
 
-function expandCronField(field, max) {
+// round 28 (scheduled-task next-run data): exported so cronNextRun.js can
+// reuse the exact same 0-based field expansion this file's own DST checks
+// already rely on, instead of a second, independently-typed parser that
+// could disagree with THIS file about what a given cron field means.
+export function expandCronField(field, max) {
   const values = new Set();
 
   for (const part of field.split(",")) {
@@ -244,7 +248,9 @@ export function dstFallBackWarning(expression, timezone, label) {
 const DST_TRANSITION_SCAN_DAYS = 370; // > 1 full year, so every zone's transition(s) are covered regardless of today's date
 const DST_SPRING_FORWARD_MAX_FIRE_COMBINATIONS = 8; // (hour,minute) pairs; keeps the day-by-day scan cheap
 
-function utcOffsetMinutes(date, zone) {
+// round 28: exported for cronNextRun.js -- same reasoning as
+// expandCronField's own export comment above.
+export function utcOffsetMinutes(date, zone) {
   const value = new Intl.DateTimeFormat("en-US", {
     timeZone: zone,
     timeZoneName: "shortOffset",
@@ -257,7 +263,9 @@ function utcOffsetMinutes(date, zone) {
   return sign * (Number(match[2]) * 60 + Number(match[3] || 0));
 }
 
-function zonedDateParts(date, zone) {
+// round 28: exported for cronNextRun.js -- same reasoning as
+// expandCronField's own export comment above.
+export function zonedDateParts(date, zone) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: zone,
     year: "numeric",

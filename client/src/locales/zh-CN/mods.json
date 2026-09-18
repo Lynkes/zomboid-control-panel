@@ -618,7 +618,7 @@
     "removeFailedFallback": "移除模组失败",
     "modReEnabledTitle": "模组已重新启用",
     "modReEnabledDesc": "已重新加入服务器 INI。重启服务器以加载它。",
-    "additionalModsFoundSuffix": " {{count}} more mod(s) in this workshop item were not enabled: {{ids}}. Use Advanced Add or Sync Mod IDs to add them.",
+    "additionalModsFoundSuffix_other": " 此创意工坊项目中还有 {{count}} 个模组未启用：{{ids}}。使用“添加模组”或“同步 Mod ID”来添加它们。",
     "enableFailedFallbackShort": "启用模组失败",
     "modsReEnabledTitle": "模组已重新启用",
     "partialReEnableTitle": "部分重新启用",

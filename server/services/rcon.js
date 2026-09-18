@@ -1719,6 +1719,23 @@ export class RconService extends EventEmitter {
   }
 
   async quit({ skipLog = false, retryOnConnectionError = false } = {}) {
+    // continuous-bug-hunt round 28 (ux-proposals-need-backend-data): a
+    // native crash and a deliberate stop look identical on the client today.
+    // This is the ONE place a graceful shutdown is ever actually issued --
+    // routes/server.js's /stop, Discord's stop command, and every restart
+    // path (ServerManager.restartServer, scheduler.js's performRestart) all
+    // funnel through here, whatever their own caller-specific reasoning is.
+    // Recorded unconditionally (a quit ATTEMPT, not confirmed success --
+    // this file's own comment below explains why "success" is unreliable
+    // for this exact command) so checkServerStatusNow (server/index.js) can
+    // tell "someone told it to stop gracefully a moment ago" apart from a
+    // genuine crash the instant it observes the process actually exit.
+    // Deliberately does NOT itself decide stop vs restart -- ServerManager's
+    // own stopIntent (set by restartServer()/performRestart() BEFORE they
+    // call this) already carries that more specific answer when a caller
+    // knows it; this is only the fallback signal for a plain quit() with no
+    // more specific intent recorded anywhere, i.e. an ordinary stop.
+    this.lastQuitAttemptAt = new Date().toISOString();
     // The quit command will shutdown the server and close the connection.
     // This may result in connection errors, which are expected -- but
     // execute() has its own try/catch spanning its whole body that never

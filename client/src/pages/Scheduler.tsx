@@ -62,7 +62,7 @@ import {
 } from '@/components/ui/select'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useToast } from '@/components/ui/use-toast'
-import { schedulerApi, rconApi, serverApi, serversApi, ScheduleHistoryEntry, ServerInstance } from '@/lib/api'
+import { schedulerApi, rconApi, serverApi, serversApi, backupApi, ScheduleHistoryEntry, ServerInstance, BackupStatus } from '@/lib/api'
 import { resolveServerRunning } from '@/lib/serverStatus'
 import { EmptyState } from '@/components/EmptyState'
 import { NumberInput } from '@/components/NumberInput'
@@ -83,6 +83,13 @@ interface ScheduledTask {
   enabled: number
   last_run: string | null
   created_at: string
+  // continuous-bug-hunt round 28 (ux-proposals-need-backend-data): computed
+  // server-side by GET /scheduler/tasks (scheduler.getTaskNextRun) -- the
+  // live node-cron job's own next-fire time for an enabled task, or a plain
+  // cron_expression+timezone computation for a disabled one. null when the
+  // schedule has no server (an old cached response), or genuinely has no
+  // upcoming run.
+  next_run?: string | null
 }
 
 interface CronPreset {
@@ -389,9 +396,18 @@ export default function Scheduler() {
   const [history, setHistory] = useState<ScheduleHistoryEntry[]>([])
   const [presets, setPresets] = useState<CronPreset[]>([])
   const [servers, setServers] = useState<ServerInstance[]>([])
+  // continuous-bug-hunt round 28 (ux-proposals-need-backend-data): the
+  // backup-health card's last-attempt/result comes from backup's OWN status
+  // endpoint (backupApi.getStatus()), not the scheduler's -- see fetchData's
+  // own comment on the parallel fetch below.
+  const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null)
   const [status, setStatus] = useState<{
     activeTasks: number
     autoRestartEnabled: boolean
+    // round 28: the backup schedule's own next-run time, computed
+    // server-side (scheduler.getBackupNextRun()) -- distinct from the
+    // aggregate `nextRun` below (soonest across every job).
+    backupNextRun?: string | null
     // Fetched by every call site (server/services/scheduler.js's getStatus())
     // but, until this pass, never read anywhere on this page -- same
     // silent-drop shape as autoRestartEnabled below. Optional because older
@@ -486,17 +502,24 @@ export default function Scheduler() {
       // history endpoint 500ing) rejected the entire Promise.all and threw
       // away a perfectly good task list, replacing it with an empty-state
       // "no tasks scheduled" even though real tasks existed and loaded fine.
-      const [tasksData, presetsData, statusData, historyData, serversData] = await Promise.all([
+      const [tasksData, presetsData, statusData, historyData, serversData, backupStatusData] = await Promise.all([
         schedulerApi.getTasks(retries),
         schedulerApi.getCronPresets(retries).catch(() => ({ presets: [] as CronPreset[] })),
         schedulerApi.getStatus(retries).catch(() => null),
         schedulerApi.getHistory(EXECUTION_HISTORY_FETCH_LIMIT, undefined, retries).catch(() => ({ history: [] as ScheduleHistoryEntry[] })),
         serversApi.getAll(retries).catch(() => ({ servers: [] as ServerInstance[] })),
+        // continuous-bug-hunt round 28 (ux-proposals-need-backend-data):
+        // lastScheduledBackupAttempt only lives on backup's own status
+        // endpoint, not the scheduler's -- best-effort, same as the other
+        // secondary fetches above, so a backup-status hiccup can't blank the
+        // whole page.
+        backupApi.getStatus().catch(() => null),
       ])
       setTasks(tasksData.tasks || [])
       setPresets(presetsData.presets || [])
       setStatus(statusData)
       setHistory(historyData.history || [])
+      setBackupStatus(backupStatusData)
       const serverList: ServerInstance[] = serversData.servers || []
       setServers(serverList)
       // Default the create-task dialog's target server to the active one,
@@ -1410,6 +1433,44 @@ export default function Scheduler() {
               })}
             </p>
           )}
+          {/* continuous-bug-hunt round 28 (ux-proposals-need-backend-data):
+              backupScheduleEnabled (above) only ever said on/off -- an
+              operator couldn't tell from THIS page whether the schedule was
+              actually succeeding, when it last tried, or when it will try
+              next (Dashboard/Backups already surface last-attempt failure,
+              but not here, and neither page had a next-run time at all
+              until this round). Gated on backups being enabled: an off
+              schedule has no next run and no recent attempt worth showing. */}
+          {status?.backupScheduleEnabled && (
+            <div className="mt-2 space-y-1 rounded-md border border-border/50 bg-muted/20 px-3 py-2">
+              <p className="text-xs font-medium text-foreground/80">{t('timezone.backupHealthTitle')}</p>
+              {backupStatus?.lastScheduledBackupAttempt ? (
+                <p className={`flex items-center gap-1 text-xs ${backupStatus.lastScheduledBackupAttempt.success ? 'text-muted-foreground' : 'text-destructive'}`}>
+                  {backupStatus.lastScheduledBackupAttempt.success ? (
+                    <CheckCircle2 className="w-3 h-3 shrink-0" aria-hidden="true" />
+                  ) : (
+                    <XCircle className="w-3 h-3 shrink-0" aria-hidden="true" />
+                  )}
+                  <span className="truncate">
+                    {backupStatus.lastScheduledBackupAttempt.success
+                      ? t('timezone.backupLastAttemptOk', { date: new Date(backupStatus.lastScheduledBackupAttempt.executedAt).toLocaleString(i18n.language) })
+                      : t('timezone.backupLastAttemptFailed', {
+                          date: new Date(backupStatus.lastScheduledBackupAttempt.executedAt).toLocaleString(i18n.language),
+                          reason: backupStatus.lastScheduledBackupAttempt.message || t('scheduledTasks.lastRunFailedUnknownReason'),
+                        })}
+                  </span>
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">{t('timezone.backupNoAttemptYet')}</p>
+              )}
+              {status.backupNextRun && (
+                <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Clock className="w-3 h-3 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{t('timezone.backupNextRun', { date: new Date(status.backupNextRun).toLocaleString(i18n.language) })}</span>
+                </p>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -1826,6 +1887,19 @@ export default function Scheduler() {
                           }
                           return null
                         })()}
+                        {/* continuous-bug-hunt round 28 (ux-proposals-need-
+                            backend-data): GET /scheduler/tasks now computes
+                            next_run server-side (scheduler.getTaskNextRun) --
+                            naturally absent for a disabled task, which is
+                            exactly when there's nothing upcoming to show. */}
+                        {task.next_run && (
+                          <p className="flex items-center gap-1 text-[11px] text-muted-foreground/70 mt-1">
+                            <Clock className="w-3 h-3 shrink-0" aria-hidden="true" />
+                            <span className="truncate">
+                              {t('scheduledTasks.nextRun', { date: new Date(task.next_run).toLocaleString(i18n.language) })}
+                            </span>
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 self-end sm:self-auto">

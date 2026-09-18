@@ -197,7 +197,21 @@ router.put('/restart-warning', async (req, res) => {
 router.get('/tasks', async (req, res) => {
   try {
     const tasks = await getScheduledTasks();
-    res.json({ tasks });
+    // continuous-bug-hunt round 28 (ux-proposals-need-backend-data): the UX
+    // deep pass wanted a per-task next-run time on Scheduler but had no
+    // server data for it. getTaskNextRun() prefers the live node-cron job's
+    // own getNextRun() (the exact engine that will actually fire it) and
+    // falls back to a plain cron_expression+timezone computation for a
+    // disabled task. `scheduler` can be unset in a couple of narrow test/
+    // bootstrap paths (see the sibling routes in this file for the same
+    // optional-chaining pattern) -- degrades to next_run: null rather than
+    // 500ing the whole list over one missing field.
+    const scheduler = req.app.get('scheduler');
+    const tasksWithNextRun = tasks.map((task) => ({
+      ...task,
+      next_run: scheduler ? scheduler.getTaskNextRun(task) : null,
+    }));
+    res.json({ tasks: tasksWithNextRun });
   } catch (error) {
     log.error(`Failed to get scheduled tasks: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });

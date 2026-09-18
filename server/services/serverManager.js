@@ -516,6 +516,20 @@ export function scoreServerProcessOwnership(commandLine, descriptor = {}) {
 export class ServerManager {
   constructor({ lifecycleFactory = createLinuxServiceLifecycle } = {}) {
     this.serverProcess = null;
+    // continuous-bug-hunt round 28 (ux-proposals-need-backend-data): a
+    // native crash and a deliberate stop look IDENTICAL on the client today
+    // -- both just show "stopped". stopIntent is set by whichever manager
+    // method the panel itself calls to end the process on purpose
+    // (stopServer/restartServer) BEFORE it actually happens; lastExitInfo
+    // is a best-effort capture of the eventual exit code/signal from the
+    // real spawned child (see _attachExitTracking). server/index.js's
+    // checkServerStatusNow reads both the moment it observes running:true
+    // -> false, classifies the transition (stop/restart/crash/unknown), and
+    // consumes (clears) stopIntent so the NEXT stop is judged fresh rather
+    // than inheriting a stale intent from a transition the watchdog never
+    // got to observe.
+    this.stopIntent = null;
+    this.lastExitInfo = null;
     this.serverPath = process.env.PZ_SERVER_PATH || "";
     this.serverBat = process.env.PZ_SERVER_BAT || getDefaultStartupScript();
     this.savePath = process.env.PZ_SAVE_PATH || "";
@@ -1458,6 +1472,12 @@ export class ServerManager {
       throw new Error("Server stop in progress, try again in a moment");
     }
     this._starting = true;
+    // A fresh start must never inherit stop/crash bookkeeping from a
+    // PREVIOUS lifecycle -- e.g. a stopIntent the watchdog never got a
+    // chance to observe and consume, which would otherwise misattribute
+    // this NEXT run's eventual (unrelated) stop.
+    this.stopIntent = null;
+    this.lastExitInfo = null;
 
     try {
       // Force reload config from database before starting (settings may have
@@ -1772,6 +1792,7 @@ export class ServerManager {
           );
         }
 
+        this._attachExitTracking();
         await logServerEvent("server_start", "Server started via manager");
         log.info("Server start command executed");
         this._writePidFile(this.serverProcess.pid);
@@ -1889,6 +1910,7 @@ export class ServerManager {
         );
       }
 
+      this._attachExitTracking();
       await logServerEvent("server_start", "Server started via manager");
       log.info("Server start command executed");
       this._writePidFile(this.serverProcess.pid);
@@ -1970,6 +1992,29 @@ export class ServerManager {
       proc.once("exit", onExit);
       proc.once("error", onError);
       graceTimer = setTimeout(() => finish(null), 4000);
+    });
+  }
+
+  // continuous-bug-hunt round 28: called once a freshly-spawned process has
+  // survived _waitForImmediateCrash's own short-lived exit listener above
+  // (which removes itself once the grace window ends) -- this one stays
+  // attached for the process's whole remaining life, so whenever it
+  // eventually exits (deliberately stopped, restarted, or crashed hours or
+  // days later) the real exit code/signal lands in this.lastExitInfo for
+  // checkServerStatusNow (server/index.js) to read the next time it
+  // observes the running -> stopped transition. Best-effort: on Windows,
+  // when the JVM is launched via a cmd.exe wrapper (buildWindowsCmdLine),
+  // the exit code this sees is cmd.exe's own, which mirrors the last
+  // command's exit code in the common case but is not a hard guarantee for
+  // every possible launcher script -- still strictly more signal than
+  // reporting no exit info at all, and the classification in
+  // checkServerStatusNow only needs "zero/graceful vs non-zero/signalled",
+  // not perfect fidelity to the JVM's own code.
+  _attachExitTracking() {
+    const proc = this.serverProcess;
+    if (!proc) return;
+    proc.once("exit", (exitCode, signal) => {
+      this.lastExitInfo = { exitCode, signal, at: new Date().toISOString() };
     });
   }
 

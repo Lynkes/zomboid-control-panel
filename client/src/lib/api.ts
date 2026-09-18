@@ -3204,6 +3204,11 @@ export interface BackupStatus extends BackupSettings {
     message: string | null;
     executedAt: string;
   } | null;
+  // continuous-bug-hunt round 28 (ux-proposals-need-backend-data): composed
+  // at the route layer from the scheduler instance's own getBackupNextRun()
+  // (server/routes/backup.js's GET /status) -- null whenever backups are
+  // disabled (no schedule to compute a next run from).
+  backupNextRun?: string | null;
 }
 
 // backup.js/backupService.js's own shape (full .zip server backups --

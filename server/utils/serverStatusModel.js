@@ -53,12 +53,42 @@ export function resolveProvider(server) {
 // degrades to "unknown", the same fail-closed pattern as a failed native
 // scan -- never a silent fall-back to the local scan, which would just
 // reintroduce this bug with extra steps.
-export function buildHostSignal(provider, isRunning, scanFailed = false, dockerContainer = null) {
+// continuous-bug-hunt round 28 (ux-proposals-need-backend-data): turns
+// server/index.js's classifyStopReason() result (serverManager.lastStopReason
+// -- { reason: 'stop'|'restart'|'crash'|'unknown', exitCode, signal }) into
+// the human-readable line buildHostSignal's own `detail` field already
+// carries for other statuses (e.g. "Process detection failed"). Returns null
+// for 'unknown' (or no reason recorded at all, e.g. right after boot before
+// any transition has been observed) rather than guessing -- matches this
+// module's own existing fail-closed-to-null convention.
+function describeStopReason(stopReason) {
+  if (!stopReason) return null;
+  switch (stopReason.reason) {
+    case "stop":
+      return "Stopped by an operator";
+    case "restart":
+      return "Restarting";
+    case "crash":
+      return stopReason.exitCode !== null && stopReason.exitCode !== undefined
+        ? `Crashed (exit code ${stopReason.exitCode}${stopReason.signal ? `, signal ${stopReason.signal}` : ""})`
+        : stopReason.signal
+          ? `Crashed (signal ${stopReason.signal})`
+          : "Crashed unexpectedly";
+    default:
+      return null;
+  }
+}
+
+export function buildHostSignal(provider, isRunning, scanFailed = false, dockerContainer = null, stopReason = null) {
   if (provider === "native") {
     if (scanFailed) {
       return { status: "unknown", label: "Process", detail: "Process detection failed" };
     }
-    return { status: isRunning ? "running" : "stopped", label: "Process", detail: null };
+    return {
+      status: isRunning ? "running" : "stopped",
+      label: "Process",
+      detail: isRunning ? null : describeStopReason(stopReason),
+    };
   }
   if (provider === "docker-local" || provider === "docker-managed") {
     if (!dockerContainer?.handled) {
@@ -119,9 +149,12 @@ export function buildSummary(host, serverSignal) {
 // dockerContainer: the resolveManagedContainer() outcome for docker
 // providers. rcon/bridge: plain snapshots pulled from the live services by
 // the route handler, so this function stays framework-free and testable.
-export function composeServerStatus({ server, isRunning, scanFailed, rcon, bridge, dockerContainer }) {
+// stopReason (round 28): serverManager.lastStopReason as-is, or undefined/
+// null on a server that's running or has never been observed to stop --
+// describeStopReason handles both the same way (no detail).
+export function composeServerStatus({ server, isRunning, scanFailed, rcon, bridge, dockerContainer, stopReason }) {
   const provider = resolveProvider(server);
-  const host = buildHostSignal(provider, isRunning, scanFailed, dockerContainer);
+  const host = buildHostSignal(provider, isRunning, scanFailed, dockerContainer, stopReason);
   const serverSignal = buildServerSignal(rcon);
   const bridgeSignal = buildBridgeSignal(bridge);
   return {

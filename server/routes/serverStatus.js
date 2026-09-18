@@ -72,6 +72,11 @@ router.get("/active/status", async (req, res) => {
       isRunning: !!processDetails.running,
       scanFailed: !!processDetails.scanFailed,
       dockerContainer,
+      // round 28 (ux-proposals-need-backend-data): native-only, set by
+      // server/index.js's classifyStopReason() the moment the watchdog
+      // observes running:true -> false. See serverStatusModel.js's own
+      // describeStopReason for how this renders.
+      stopReason: serverManager?.lastStopReason,
       rcon: {
         ...rconConfig,
         connecting: !!(rconService?.connecting || rconService?.reconnecting),

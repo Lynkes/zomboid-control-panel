@@ -35,6 +35,7 @@ import {
   dstFallBackWarning,
   dstSpringForwardWarning,
 } from "../utils/cronValidation.js";
+import { computeNextRun } from "../utils/cronNextRun.js";
 import {
   defaultRestartWarningSettings,
   formatRestartWarning,
@@ -1363,6 +1364,17 @@ export class Scheduler {
 
     this.restartInProgress = true;
     this.restartCancelled = false; // Allow cancellation
+    // continuous-bug-hunt round 28 (ux-proposals-need-backend-data): this
+    // function does its own quit()+wait+start() sequence rather than going
+    // through ServerManager.restartServer() (which sets the identical
+    // stopIntent='restart' at its own entry, for its own separate callers)
+    // -- set here so checkServerStatusNow (server/index.js) can tell this
+    // upcoming stop apart from an unrelated deliberate stop or a genuine
+    // crash the moment it's observed. Set on the SAME serverManager instance
+    // the rest of this function already pins its stop/start target to
+    // (pinnedServerId, resolved above), not the shared singleton
+    // unconditionally.
+    serverManager.stopIntent = "restart";
     const warningMinutes =
       warningMinutesParam ??
       (parseInt(process.env.RESTART_WARNING_MINUTES, 10) || 5);
@@ -2107,6 +2119,46 @@ export class Scheduler {
     }
   }
 
+  // continuous-bug-hunt round 28 (ux-proposals-need-backend-data): a
+  // per-task next-run time for the Scheduler task list. Prefers the LIVE
+  // node-cron job's own getNextRun() when this task is currently scheduled
+  // (this.jobs) -- that's the exact engine that will actually fire it, so
+  // there's no way for this to disagree with reality the way a second,
+  // independent computation could. Falls back to computeNextRun() (a plain
+  // cron_expression + timezone calculation, no live job required) for a
+  // disabled task, which /tasks still needs to show but which
+  // scheduleTask() never hands to cron.schedule() in the first place.
+  getTaskNextRun(task) {
+    const job = this.jobs.get(task.id);
+    if (job && typeof job.getNextRun === "function") {
+      try {
+        const at = job.getNextRun();
+        if (at instanceof Date && Number.isFinite(at.getTime())) return at.toISOString();
+      } catch {
+        // Falls through to the offline computation below.
+      }
+    }
+    if (!task.enabled) return null;
+    return computeNextRun(task.cron_expression, this.effectiveTimezone);
+  }
+
+  // Same "prefer the live job" reasoning as getTaskNextRun above, for the
+  // backup schedule specifically -- this.backupJob is null whenever backups
+  // are disabled, in which case there is no next run to report (not a
+  // hypothetical one computed from whatever schedule string settings still
+  // remembers from before it was turned off).
+  getBackupNextRun() {
+    if (this.backupJob && typeof this.backupJob.getNextRun === "function") {
+      try {
+        const at = this.backupJob.getNextRun();
+        if (at instanceof Date && Number.isFinite(at.getTime())) return at.toISOString();
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
   getStatus() {
     const tasks = [];
     for (const [id] of this.jobs) {
@@ -2117,6 +2169,11 @@ export class Scheduler {
       activeTasks: tasks.length,
       autoRestartEnabled: !!this.autoRestartJob,
       backupScheduleEnabled: !!this.backupJob,
+      // round 28: distinct from the aggregate `nextRun` below (soonest
+      // across every job) -- Scheduler.tsx's own backup-health card needs
+      // the backup schedule's OWN next run specifically, not whichever job
+      // happens to be soonest overall.
+      backupNextRun: this.getBackupNextRun(),
       modUpdateRestartPending: this.modUpdateRestartPending,
       nextRun: this.getNextRun(),
       // Timezone-picker card (2026-08-29, hunt-wave5 follow-up): `timezone`

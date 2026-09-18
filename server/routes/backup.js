@@ -67,7 +67,19 @@ router.get("/status", requireAnyBackupCapability, async (req, res) => {
   try {
     const backupService = req.app.get("backupService");
     const status = await backupService.getStatus();
-    res.json(status);
+    // continuous-bug-hunt round 28 (ux-proposals-need-backend-data): the
+    // Scheduler page's backup-health card needs the backup schedule's own
+    // next-run time alongside lastScheduledBackupAttempt (already computed
+    // above by backupService.getStatus()) -- backupService itself has no
+    // reference to the scheduler instance, so this is composed at the route
+    // layer instead, same shape as GET /scheduler/tasks' own next_run.
+    // scheduler.getBackupNextRun() is null whenever backups are disabled
+    // (this.backupJob is null) -- no schedule, no hypothetical next run.
+    const scheduler = req.app.get("scheduler");
+    res.json({
+      ...status,
+      backupNextRun: scheduler ? scheduler.getBackupNextRun() : null,
+    });
   } catch (error) {
     log.error(`Failed to get backup status: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });

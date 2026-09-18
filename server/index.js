@@ -3001,6 +3001,77 @@ export async function getObservedServerRunning() {
 // identifying itself), so there is genuinely only one place left that reads,
 // compares, mutates and emits this decision -- the property this function's
 // own name has always implied.
+// continuous-bug-hunt round 28 (ux-proposals-need-backend-data): a native
+// crash and a deliberate stop looked identical to every client -- both just
+// showed "stopped". Called once, right when the watchdog below observes a
+// running:true -> false transition, never on every tick (see its own call
+// site) so it always reflects the specific stop that just happened, not a
+// stale earlier one.
+//
+// Precedence, most to least specific:
+// 1. serverManager.stopIntent -- set by ServerManager.restartServer() or
+//    scheduler.js's performRestart() (both set 'restart' before they do
+//    anything) or ServerManager.stopServer() (sets 'stop', but only if
+//    nothing more specific already claimed it -- see that method's own
+//    comment) BEFORE the process actually goes down. The single most
+//    reliable signal because it comes from the exact code that decided to
+//    stop the process, not an inference after the fact.
+// 2. rconService.lastQuitAttemptAt -- set unconditionally by every call to
+//    rcon.js's quit(), the one command that actually asks PZ to shut down
+//    gracefully. A quit attempt with no more specific stopIntent recorded
+//    (routes/server.js's ordinary /stop, or a Discord-triggered stop --
+//    neither goes through ServerManager.stopServer()/restartServer() for a
+//    graceful shutdown) is still a deliberate stop, just one this file
+//    can't name any more precisely than that. Time-bounded so a quit
+//    attempt from an unrelated, long-past request can't misattribute a
+//    LATER, genuinely unexpected exit.
+// 3. serverManager.lastExitInfo -- the real exit code/signal from the
+//    spawned child (best-effort, see _attachExitTracking's own comment on
+//    its Windows-wrapper caveat). A non-zero code or a signal with no
+//    deliberate-stop signal above it is the actual definition of "crashed"
+//    this feature exists to surface.
+// 4. Anything else: 'unknown' -- no confident claim, matches this codebase's
+//    existing fail-closed-to-"we don't know" convention (scanFailed,
+//    dockerContainer unresolved, etc.) rather than guessing.
+//
+// Both stopIntent and lastQuitAttemptAt are CONSUMED (cleared) here so the
+// next stop is judged fresh instead of inheriting this one's leftovers.
+const QUIT_ATTEMPT_RECENCY_MS = 60000;
+
+// Exported (and parameterized rather than reading the module-level
+// serverManager/rconService singletons directly) so this can be unit
+// tested against plain fake objects instead of needing to reach into
+// index.js's own unexported instances -- see
+// server/tests/classifyStopReason.test.js.
+export function classifyStopReason(serverManager, rconService) {
+  const intent = serverManager.stopIntent;
+  serverManager.stopIntent = null;
+  if (intent === "stop" || intent === "restart") {
+    return { reason: intent, exitCode: null, signal: null, at: new Date().toISOString() };
+  }
+
+  const quitAt = rconService.lastQuitAttemptAt;
+  rconService.lastQuitAttemptAt = null;
+  const quitRecent =
+    typeof quitAt === "string" &&
+    Date.now() - new Date(quitAt).getTime() < QUIT_ATTEMPT_RECENCY_MS;
+  if (quitRecent) {
+    return { reason: "stop", exitCode: null, signal: null, at: new Date().toISOString() };
+  }
+
+  const exitInfo = serverManager.lastExitInfo;
+  if (exitInfo && (exitInfo.exitCode !== 0 || exitInfo.signal)) {
+    return {
+      reason: "crash",
+      exitCode: exitInfo.exitCode ?? null,
+      signal: exitInfo.signal ?? null,
+      at: new Date().toISOString(),
+    };
+  }
+
+  return { reason: "unknown", exitCode: null, signal: null, at: new Date().toISOString() };
+}
+
 export async function checkServerStatusNow(detectionReason = "watchdog") {
   try {
     const running = await getObservedServerRunning();
@@ -3069,9 +3140,17 @@ export async function checkServerStatusNow(detectionReason = "watchdog") {
       );
       io.emit("server:status", { running, phase });
       if (runningChanged && !running) {
+        const stopReason = classifyStopReason(serverManager, rconService);
+        serverManager.lastStopReason = stopReason;
         logServerEvent(
           "server_stop",
-          `Server process exited (detected by ${detectionReason})`,
+          // "(detected by X)" stays an intact, standalone parenthetical --
+          // checkServerStatusNowDetectionReason.test.js already asserts on
+          // that exact substring for the pre-existing detectionReason
+          // feature; the new stop-reason info is appended after it rather
+          // than folded inside the same parens, so this addition can't
+          // silently break that existing contract.
+          `Server process exited (detected by ${detectionReason}) — reason: ${stopReason.reason}`,
         );
         discordBot
           .sendEventNotification("serverStop", {})
