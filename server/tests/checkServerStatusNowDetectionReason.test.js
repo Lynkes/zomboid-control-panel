@@ -8,6 +8,7 @@ vi.mock("../database/init.js", async (importOriginal) => {
 
 const { checkServerStatusNow, io } = await import("../index.js");
 const { ServerManager } = await import("../services/serverManager.js");
+const { DiscordBot } = await import("../services/discordBot.js");
 const { onLog } = await import("../utils/logger.js");
 
 // Bug hunt 2026-08-31 (consolidation, carded by Pam's completeness-claims
@@ -87,6 +88,90 @@ describe("checkServerStatusNow(detectionReason) -- the reason reaches both trans
         "server_stop",
         expect.stringContaining("(detected by integration-test-reason)"),
       );
+    } finally {
+      unsubscribe();
+    }
+  });
+});
+
+// god-dispatched continuous-bug-hunt, round 6: checkServerStatusNow() used
+// to return silently -- no emit, no state mutation at all -- the moment
+// getObservedServerRunning() came back null (scan failure with RCON/bridge
+// both down). Harmless on the very first tick, but once a REAL value had
+// already been observed and pushed to clients, a client relying solely on
+// that push for its live state (Layout.tsx's native-provider sidebar dot
+// has no independent REST poll, unlike Dashboard.tsx's 15s interval) was
+// stuck showing the stale last-known value forever -- silently disagreeing
+// with what a fresh GET /active/status would have honestly reported as
+// scanFailed/unknown. This locks in the fix: an unknown observation after a
+// known one is announced once (not spammed on every subsequent unknown
+// tick), and recovering from unknown back to the SAME value is
+// re-announced over the socket (so clients correct back from "unknown")
+// without firing a spurious Discord start/stop notification for a server
+// that never actually transitioned.
+describe("checkServerStatusNow(): scan-failure/unknown observation is announced, not silently dropped", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("emits phase:'unknown' once when a known state stops being observable, stays silent on repeat unknowns, and re-announces (without a Discord notification) on recovery to the same value", async () => {
+    const emitSpy = vi.spyOn(io, "emit").mockImplementation(() => {});
+    const discordSpy = vi
+      .spyOn(DiscordBot.prototype, "sendEventNotification")
+      .mockResolvedValue(undefined);
+    const logEntries = [];
+    const unsubscribe = onLog((entry) => logEntries.push(entry));
+    const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+    const scanSpy = vi.spyOn(ServerManager.prototype, "getServerProcessDetails");
+
+    try {
+      // Seed a known state: running.
+      scanSpy.mockResolvedValue({ running: true, scanFailed: false });
+      await checkServerStatusNow("seed");
+      await flush();
+      emitSpy.mockClear();
+      logEntries.length = 0;
+      discordSpy.mockClear();
+
+      // Scan starts failing -- observation becomes unknown. Must announce
+      // once, with no `running` field (never a bare `null` a client might
+      // not expect), and no Discord notification (nothing actually
+      // transitioned).
+      scanSpy.mockResolvedValue({ running: false, scanFailed: true });
+      await checkServerStatusNow("scan-hiccup");
+      await flush();
+      expect(emitSpy).toHaveBeenCalledWith("server:status", { phase: "unknown" });
+      expect(emitSpy).toHaveBeenCalledTimes(1);
+      expect(discordSpy).not.toHaveBeenCalled();
+      const becameUnknownLog = logEntries.find((e) =>
+        e.message.includes("Server state became unknown"),
+      );
+      expect(becameUnknownLog).toBeDefined();
+      expect(becameUnknownLog.message).toContain("(detected by scan-hiccup)");
+
+      // A second consecutive unknown tick must NOT re-emit -- one
+      // announcement per unknown streak, not one per tick.
+      emitSpy.mockClear();
+      await checkServerStatusNow("scan-hiccup");
+      await flush();
+      expect(emitSpy).not.toHaveBeenCalled();
+
+      // Recovery to the SAME value ("running") the client was last told:
+      // must still re-announce over the socket (client was shown "unknown"
+      // in between and needs the correction back)... phase is
+      // 'unresponsive', not 'running', because this test never mocks RCON
+      // as connected -- resolveServerPhase() correctly reports that; not
+      // what this test is proving.
+      emitSpy.mockClear();
+      discordSpy.mockClear();
+      scanSpy.mockResolvedValue({ running: true, scanFailed: false });
+      await checkServerStatusNow("scan-recovered");
+      await flush();
+      expect(emitSpy).toHaveBeenCalledWith("server:status", { running: true, phase: "unresponsive" });
+      // ...but `running` never actually changed (it was true before the
+      // blip and is true again), so no spurious serverStart notification.
+      expect(discordSpy).not.toHaveBeenCalled();
     } finally {
       unsubscribe();
     }

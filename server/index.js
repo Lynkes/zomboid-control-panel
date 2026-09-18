@@ -2922,6 +2922,10 @@ function stopPerfPolling() {
 let statusWatchdogInterval = null;
 let lastKnownRunning = null;
 let lastKnownPhase = null;
+// Distinct from `lastKnownRunning === null` (which also means "never
+// observed anything yet"). See checkServerStatusNow()'s own comment on the
+// `running === null` branch for why a THIRD state is needed here.
+let lastObservationWasUnknown = false;
 
 // Thin, no-arg wrapper over utils/serverStatus.js's shared
 // resolveObservedServerRunning() -- see that function's own doc comment for
@@ -2968,7 +2972,32 @@ export async function checkServerStatusNow(detectionReason = "watchdog") {
   try {
     const running = await getObservedServerRunning();
     if (running === null) {
-      log.debug("Status watchdog: server state is unknown; skipping transition");
+      // round-6 bug hunt: this used to return here unconditionally, with no
+      // emit and no state mutation at all. Fine the FIRST time this watchdog
+      // ever runs (there is no known state yet to contradict) -- but once a
+      // REAL value has been observed and observation then stops working
+      // (scan failure, RCON drop, and bridge all down at once -- see
+      // isServerObservedRunning()'s own null branch), every client relying
+      // solely on this push for its live state -- Layout.tsx's native-
+      // provider sidebar dot has no independent REST poll, unlike
+      // Dashboard.tsx's 15s interval -- was stuck showing the stale
+      // last-known value forever, silently disagreeing with what a fresh
+      // GET /active/status would have honestly reported as scanFailed/
+      // unknown. Emit once per unknown streak so clients fall back to their
+      // own scanFailed-aware fetch (Layout.tsx's onStatus already does this
+      // for anything that isn't a plain running boolean/known phase --
+      // `running` is deliberately omitted here, not sent as `null`, so a
+      // client whose merge logic assumes a boolean is untouched rather than
+      // handed a value it never expected).
+      if (lastKnownRunning !== null && !lastObservationWasUnknown) {
+        log.info(
+          `Server state became unknown (detected by ${detectionReason})`,
+        );
+        io.emit("server:status", { phase: "unknown" });
+      } else {
+        log.debug("Status watchdog: server state is unknown; skipping transition");
+      }
+      lastObservationWasUnknown = true;
       return;
     }
     // Display-only refinement of `running` -- see resolveServerPhase()'s own
@@ -2987,9 +3016,23 @@ export async function checkServerStatusNow(detectionReason = "watchdog") {
     // would freeze on whatever phase it first saw and never update -- the
     // exact "starting forever" lie this feature exists to avoid.
     const phaseChanged = lastKnownPhase !== null && phase !== lastKnownPhase;
-    if (runningChanged || phaseChanged) {
+    // A recovery FROM unknown back to the exact same value clients were
+    // last confidently told (it was "running", went unknown for a tick, and
+    // is confirmed "running" again -- no genuine runningChanged/phaseChanged
+    // at all) must still be RE-ANNOUNCED over the socket: clients were just
+    // shown "unknown" in between and need the correction back. Kept
+    // deliberately separate from runningChanged/phaseChanged below (rather
+    // than OR'd into them) so a mere unknown-blip recovery can trigger the
+    // client-facing re-emit without ALSO firing a spurious Discord
+    // serverStart/serverStop notification for a server that never actually
+    // transitioned.
+    const reannounceAfterUnknown = lastObservationWasUnknown;
+    lastObservationWasUnknown = false;
+    if (runningChanged || phaseChanged || reannounceAfterUnknown) {
       log.info(
-        `Server state changed → ${running ? "running" : "stopped"}${runningChanged ? "" : ` (phase: ${phase})`} (detected by ${detectionReason})`,
+        runningChanged || phaseChanged
+          ? `Server state changed → ${running ? "running" : "stopped"}${runningChanged ? "" : ` (phase: ${phase})`} (detected by ${detectionReason})`
+          : `Server state confirmed ${running ? "running" : "stopped"} (phase: ${phase}) after a brief unknown period (detected by ${detectionReason})`,
       );
       io.emit("server:status", { running, phase });
       if (runningChanged && !running) {
