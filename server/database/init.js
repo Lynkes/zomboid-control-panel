@@ -2481,7 +2481,19 @@ export async function recordPerformanceSnapshot(snapshot) {
   return entry;
 }
 
-export async function getPerformanceHistory(limit = 60) {
+// continuous-bug-hunt round 20 (charts mixing samples from two servers
+// after a switch): `serverId` is optional and undefined by default so
+// every EXISTING caller (the support-bundle export in particular, which
+// legitimately wants the full unfiltered history for offline diagnosis)
+// keeps its current behavior unchanged. When a caller passes it (the
+// operator-facing GET /debug/performance-history route does, scoped to
+// whichever server is active at request time), rows are filtered to that
+// server's own tagged snapshots -- a pre-fix legacy row with no `serverId`
+// field at all (recordPerformanceSnapshot() only started setting it this
+// round) is treated as "unknown, don't exclude" rather than vanishing the
+// instant this fix ships, since there is no way to retroactively know
+// which server an old untagged sample belonged to.
+export async function getPerformanceHistory(limit = 60, serverId = undefined) {
   const db = await getDb();
   if (!db.data.performance_history) return [];
   const safeLimit = parseClampedInteger(
@@ -2490,7 +2502,13 @@ export async function getPerformanceHistory(limit = 60) {
     1,
     RETENTION.performance_history,
   );
-  return db.data.performance_history.slice(-safeLimit);
+  const source =
+    serverId === undefined
+      ? db.data.performance_history
+      : db.data.performance_history.filter(
+          (entry) => entry.serverId == null || entry.serverId === serverId,
+        );
+  return source.slice(-safeLimit);
 }
 
 /**

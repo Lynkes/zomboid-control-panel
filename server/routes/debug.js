@@ -5850,7 +5850,13 @@ router.get("/worldmap", requirePermission("diagnostics.manage"), async (req, res
 router.get("/performance-history", requirePermission("diagnostics.manage"), async (req, res) => {
   try {
     const limit = parseClampedInteger(req.query.limit, 60, 1, 1440);
-    const history = await getPerformanceHistory(limit);
+    // continuous-bug-hunt round 20 (charts mixing samples from two servers
+    // after a switch): scope to whichever server is active RIGHT NOW, not
+    // the unfiltered global history -- see getPerformanceHistory()'s own
+    // comment for why undefined (every other caller) keeps the old
+    // unfiltered behavior and only this operator-facing route opts in.
+    const activeServer = await getActiveServer().catch(() => null);
+    const history = await getPerformanceHistory(limit, activeServer?.id ?? null);
     res.json({ history });
   } catch (error) {
     log.error(`Failed to get performance history: ${error.message}`);

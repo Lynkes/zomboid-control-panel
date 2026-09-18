@@ -1380,8 +1380,56 @@ export class ServerManager {
     };
   }
 
+  // continuous-bug-hunt round 20 (uptime that resets on a panel restart
+  // while the game kept running): the ONLY caller of this (getStatus()'s
+  // own `isRunning && !this.startTime` recovery branch, above the class)
+  // exists specifically so a panel restart doesn't lose a real server's
+  // uptime -- this.startTime is an in-memory field, wiped by construction
+  // on every panel process restart. Before this fix, that recovery was
+  // Linux/macOS-only (isWindows short-circuited to null unconditionally):
+  // on Windows, a panel restart while the game server kept running showed
+  // uptime resetting to 0 every time, indistinguishable from the server
+  // having actually just started -- on a platform this codebase otherwise
+  // treats as fully first-class (its own PowerShell/Win32_Process process
+  // scan sits right above this method, ~15 lines up). Uses the exact same
+  // Get-CimInstance Win32_Process convention as getServerProcessDetails()'s
+  // own Windows branch, filtered to this one pid's CreationDate (WMI
+  // process start time) -- [math]::Floor keeps the output a plain integer
+  // string, matching the Unix branch's own contract (whole seconds), no
+  // float/locale formatting to misparse on the JS side.
   async getProcessUptimeSeconds(pid) {
-    if (isWindows || !/^\d+$/.test(String(pid || ""))) return null;
+    if (!/^\d+$/.test(String(pid || ""))) return null;
+
+    if (isWindows) {
+      const powershellPath = path.join(
+        process.env.SystemRoot || "C:\\Windows",
+        "System32",
+        "WindowsPowerShell",
+        "v1.0",
+        "powershell.exe",
+      );
+      const powershellScript = `[math]::Floor(((Get-Date) - (Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CreationDate).TotalSeconds)`;
+      return new Promise((resolve) => {
+        execFile(
+          powershellPath,
+          [
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            powershellScript,
+          ],
+          { timeout: 5000 },
+          (error, stdout) => {
+            if (error) return resolve(null);
+            const seconds = Number.parseInt(String(stdout).trim(), 10);
+            resolve(Number.isFinite(seconds) && seconds >= 0 ? seconds : null);
+          },
+        );
+      });
+    }
 
     return new Promise((resolve) => {
       execFile(

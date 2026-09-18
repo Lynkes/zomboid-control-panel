@@ -2855,8 +2855,24 @@ async function startPerfPolling() {
       const pzMemBytes = await getPzProcessMemory();
       const disk = await getDiskSnapshot();
       const swap = await getSwapSnapshot();
+      // continuous-bug-hunt round 20 (charts mixing samples from two
+      // servers after a switch): every recorded/broadcast snapshot used to
+      // carry no server identity at all -- performance_history was one
+      // single global array shared across every managed server. On a panel
+      // with more than one server, switching the active server never
+      // scoped this collection in any way: the next chart read (GET
+      // /debug/performance-history) returned a straight time-ordered mix
+      // of whichever server(s) happened to be active during each sample's
+      // window, with nothing distinguishing a Server A sample from a
+      // Server B one. Tagging every snapshot with the server that was
+      // active AT SAMPLE TIME is the minimal fix that needs no schema
+      // migration -- getPerformanceHistory() (below) can now filter by it,
+      // and pre-fix legacy rows (serverId undefined) are treated as
+      // "unknown, don't exclude" rather than silently disappearing.
+      const activeServerForSnapshot = await getActiveServer().catch(() => null);
 
       const snapshot = {
+        serverId: activeServerForSnapshot?.id ?? null,
         // Host machine
         hostMemTotal: hostMem,
         hostMemUsed: hostMem - hostMemFree,
