@@ -42,8 +42,11 @@ function toIndicatorState(status: string): IndicatorState {
   return INDICATOR_STATE[status] ?? 'unknown'
 }
 
+// online's dot must stay visually distinct from unknown's (both would
+// otherwise render the same neutral gray dot) — this is the same
+// online/unknown split StatusIndicator.tsx uses elsewhere in the app.
 const DOT_CLASS: Record<IndicatorState, string> = {
-  online: 'bg-muted-foreground/50',
+  online: 'bg-success shadow-[0_0_4px_hsl(var(--success)/0.5)]',
   offline: 'bg-destructive',
   connecting: 'bg-warning animate-pulse',
   unknown: 'bg-muted-foreground/50',
