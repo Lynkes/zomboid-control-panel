@@ -1042,12 +1042,16 @@ export class ServerManager {
               ambiguous.push(String(cmd || "").slice(0, 240));
             };
             const lines = psStdout.split(/\r?\n/);
+            let sawMalformedRow = false;
             for (let raw of lines) {
               raw = raw.trim();
               if (!raw || raw.startsWith('"ProcessId"')) continue;
               // CSV: "<pid>","<cmd>" — strip outer quotes / un-double internal "" pairs.
               const csvMatch = raw.match(/^"([^"]*)","((?:[^"]|"")*)"$/);
-              if (!csvMatch) continue;
+              if (!csvMatch) {
+                sawMalformedRow = true;
+                continue;
+              }
               const pid = csvMatch[1];
               const cmd = csvMatch[2].replace(/""/g, '"');
               if (!cmd) continue;
@@ -1062,6 +1066,14 @@ export class ServerManager {
                 );
                 pushAmbiguous(cmd);
               }
+            }
+
+            if (sawMalformedRow && matched.length === 0 && ambiguous.length === 0) {
+              log.warn(
+                "getServerProcessDetails: Windows process scan returned unparseable output, cannot determine server state",
+              );
+              resolve({ running: false, matched: [], scanFailed: true });
+              return;
             }
 
             if (matched.length === 0 && ambiguous.length > 0) {
