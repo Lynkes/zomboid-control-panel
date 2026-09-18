@@ -1472,10 +1472,20 @@ export default function Mods() {
     busyRef.current = true
     setLoading(true)
     try {
-      await modsApi.addToIni(workshopId)
+      const result = await modsApi.addToIni(workshopId)
+      // continuous-bug-hunt round 27 (mod load order / Workshop collection
+      // import): a workshop item can declare several mod.info `id=` lines --
+      // addToIni only ever auto-enables the first one (by design, see its
+      // own comment server-side) and now reports the rest as
+      // alternativeModIds instead of silently discarding that information.
+      // Without this, an operator re-enabling a multi-mod workshop item had
+      // no way to learn the other mods existed at all.
+      const alternatives: string[] = result?.alternativeModIds || []
       toast({
         title: t('toasts.modReEnabledTitle'),
-        description: t('toasts.modReEnabledDesc'),
+        description: alternatives.length > 0
+          ? t('toasts.modReEnabledDesc') + t('toasts.additionalModsFoundSuffix', { count: alternatives.length, ids: alternatives.join(', ') })
+          : t('toasts.modReEnabledDesc'),
         variant: 'success' as const,
       })
       fetchData()
@@ -1500,10 +1510,17 @@ export default function Mods() {
     setLoading(true)
     let ok = 0
     let failed = 0
+    // continuous-bug-hunt round 27: same alternativeModIds surfacing as
+    // handleEnableMod above, aggregated across every workshop item in this
+    // batch rather than lost per-call.
+    const allAlternatives: string[] = []
     try {
       for (const id of workshopIds) {
         try {
-          await modsApi.addToIni(id)
+          const result = await modsApi.addToIni(id)
+          if (Array.isArray(result?.alternativeModIds)) {
+            allAlternatives.push(...result.alternativeModIds)
+          }
           ok++
         } catch {
           failed++
@@ -1511,7 +1528,8 @@ export default function Mods() {
       }
       toast({
         title: failed === 0 ? t('toasts.modsReEnabledTitle') : t('toasts.partialReEnableTitle'),
-        description: t('toasts.reEnabledDesc', { count: ok, failedSuffix: failed > 0 ? t('toasts.reEnableFailedSuffix', { count: failed }) : '' }),
+        description: t('toasts.reEnabledDesc', { count: ok, failedSuffix: failed > 0 ? t('toasts.reEnableFailedSuffix', { count: failed }) : '' })
+          + (allAlternatives.length > 0 ? t('toasts.additionalModsFoundSuffix', { count: allAlternatives.length, ids: allAlternatives.join(', ') }) : ''),
         variant: failed === 0 ? ('success' as const) : ('destructive' as const),
       })
       setSelectedMods(new Set())
@@ -1914,11 +1932,19 @@ export default function Mods() {
 
       const synced = result.syncedMods?.filter((m: { status?: string }) => m.status?.startsWith('added')).length || 0
       const missing = result.missingMods?.length || 0
+      // continuous-bug-hunt round 27: /sync-mod-ids already computed
+      // `alternatives` per workshop item (other mod.info `id=` entries it
+      // declared, beyond the one default it auto-enabled) -- this page
+      // never read that field at all. Aggregate and surface it the same
+      // way as handleEnableMod/handleBulkEnable above.
+      const alternatives: string[] = (result.syncedMods || [])
+        .flatMap((m: { alternatives?: string[] }) => m.alternatives || [])
 
       if (synced > 0 || missing > 0) {
         toast({
           title: t('toasts.modIdsSyncedTitle'),
-          description: t('toasts.modIdsSyncedDesc', { synced, missingSuffix: missing > 0 ? t('toasts.modIdsSyncedMissingSuffix', { count: missing }) : '' }),
+          description: t('toasts.modIdsSyncedDesc', { synced, missingSuffix: missing > 0 ? t('toasts.modIdsSyncedMissingSuffix', { count: missing }) : '' })
+            + (alternatives.length > 0 ? t('toasts.additionalModsFoundSuffix', { count: alternatives.length, ids: alternatives.join(', ') }) : ''),
         })
       } else {
         toast({

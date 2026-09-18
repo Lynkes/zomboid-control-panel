@@ -618,6 +618,7 @@
     "removeFailedFallback": "Retire mod la echwe",
     "modReEnabledTitle": "Mod Reaktive",
     "modReEnabledDesc": "Ajoute tounen nan INI sèvè a. Redemare sèvè a pou l chaje.",
+    "additionalModsFoundSuffix": " {{count}} more mod(s) in this workshop item were not enabled: {{ids}}. Use Advanced Add or Sync Mod IDs to add them.",
     "enableFailedFallbackShort": "Aktive mod la echwe",
     "modsReEnabledTitle": "Mods Reaktive",
     "partialReEnableTitle": "Reaktivasyon Pasyèl",

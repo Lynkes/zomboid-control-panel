@@ -2675,15 +2675,41 @@ router.post("/add-to-ini", async (req, res) => {
     // Do all async detection work BEFORE taking the lock
     let detectedModId = modId;
     let detectionSource = "provided";
+    // continuous-bug-hunt round 27 (mod load order / Workshop collection
+    // import): a single workshop item's mod.info can declare several `id=`
+    // lines (getModDetailsFromWorkshop's own comment; findModIdFromWorkshop
+    // below is explicitly documented as "return the first ID found (legacy
+    // behavior)"). This route only ever enabled that one default id in
+    // Mods=, with nothing telling the operator the workshop item actually
+    // bundled more mods -- WorkshopItems= (content downloaded/tracked) and
+    // Mods= (content enabled) silently drifted out of step for every extra
+    // bundled mod, invisibly, on the MAIN "add a mod" path (Mods.tsx's
+    // addToIni, called with no explicit modId for every ordinary add). The
+    // sibling /sync-mod-ids route already solved this correctly -- same
+    // "auto-enable the default, report the rest as `alternatives`" shape,
+    // deliberately NOT auto-enabling every bundled id unasked (a workshop
+    // item's other ids can be genuinely optional sub-content, not always
+    // meant to all load) -- this just brings /add-to-ini in line with that
+    // established pattern instead of silently discarding the same
+    // information the sync route already knows how to report.
+    let alternativeModIds = [];
 
     if (!detectedModId) {
       // First, try to find from already downloaded workshop folder
       if (serverPath) {
-        detectedModId = findModIdFromWorkshop(String(workshopId), serverPath);
-        if (detectedModId) {
+        const availableModIds = findAllModIdsFromWorkshop(
+          String(workshopId),
+          serverPath,
+        );
+        if (availableModIds.length > 0) {
+          detectedModId = availableModIds[0];
+          alternativeModIds = availableModIds.slice(1);
           detectionSource = "local-files";
           log.info(
-            `Auto-detected mod ID from local files: ${detectedModId} for workshop ${workshopId}`,
+            `Auto-detected mod ID from local files: ${detectedModId} for workshop ${workshopId}` +
+              (alternativeModIds.length > 0
+                ? ` (${alternativeModIds.length} additional mod id(s) in this workshop item not auto-enabled: ${alternativeModIds.join(", ")})`
+                : ""),
           );
         }
       }
@@ -2814,6 +2840,11 @@ router.post("/add-to-ini", async (req, res) => {
       modId: detectedModId || null,
       autoDetected: !modId && !!detectedModId,
       detectionSource: detectedModId ? detectionSource : null,
+      // Same field name/shape as /sync-mod-ids' own `alternatives` entry --
+      // other mod ids this workshop item declared that were NOT auto-
+      // enabled, so a caller can tell "this workshop item only ever had
+      // one mod" apart from "it had more, and we only turned one on."
+      alternativeModIds,
       totalWorkshopItems: result.totalWorkshopItems,
       mapFoldersAdded: addedMapFolders,
       note: detectedModId

@@ -876,6 +876,7 @@
     "removeFailedFallback": "تعذّرت إزالة المود",
     "modReEnabledTitle": "تمت إعادة تفعيل المود",
     "modReEnabledDesc": "أُعيد إلى ملف INI للخادم. أعد تشغيل الخادم ليُحمَّل.",
+    "additionalModsFoundSuffix": " {{count}} more mod(s) in this workshop item were not enabled: {{ids}}. Use Advanced Add or Sync Mod IDs to add them.",
     "enableFailedFallbackShort": "تعذّر تفعيل المود",
     "modsReEnabledTitle": "تمت إعادة تفعيل المودات",
     "partialReEnableTitle": "إعادة تفعيل جزئية",

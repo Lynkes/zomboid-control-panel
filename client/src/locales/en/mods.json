@@ -591,6 +591,7 @@
     "removeFailedFallback": "Failed to remove mod",
     "modReEnabledTitle": "Mod Re-enabled",
     "modReEnabledDesc": "Added back to server INI. Restart the server for it to load.",
+    "additionalModsFoundSuffix": " {{count}} more mod(s) in this workshop item were not enabled: {{ids}}. Use Advanced Add or Sync Mod IDs to add them.",
     "enableFailedFallbackShort": "Failed to enable mod",
     "modsReEnabledTitle": "Mods Re-enabled",
     "partialReEnableTitle": "Partial Re-enable",

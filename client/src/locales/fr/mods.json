@@ -642,6 +642,7 @@
     "removeFailedFallback": "Échec du retrait du mod",
     "modReEnabledTitle": "Mod réactivé",
     "modReEnabledDesc": "Rajouté à l'INI du serveur. Redémarrez le serveur pour qu'il se charge.",
+    "additionalModsFoundSuffix": " {{count}} more mod(s) in this workshop item were not enabled: {{ids}}. Use Advanced Add or Sync Mod IDs to add them.",
     "enableFailedFallbackShort": "Échec de l'activation du mod",
     "modsReEnabledTitle": "Mods réactivés",
     "partialReEnableTitle": "Réactivation partielle",

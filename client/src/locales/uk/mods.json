@@ -748,6 +748,7 @@
     "removeFailedFallback": "Не вдалося вилучити мод",
     "modReEnabledTitle": "Мод знову увімкнено",
     "modReEnabledDesc": "Повернуто до INI сервера. Перезапусти сервер, щоб він завантажився.",
+    "additionalModsFoundSuffix": " {{count}} more mod(s) in this workshop item were not enabled: {{ids}}. Use Advanced Add or Sync Mod IDs to add them.",
     "enableFailedFallbackShort": "Не вдалося увімкнути мод",
     "modsReEnabledTitle": "Моди знову увімкнено",
     "partialReEnableTitle": "Часткове увімкнення",
