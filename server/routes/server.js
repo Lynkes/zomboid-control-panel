@@ -6290,7 +6290,7 @@ function splitConsoleStreamLines(consoleLogPath, resumeFromSize, content) {
 // server-side fact (which file currently sits at this path), not
 // per-reader state, so there is no round-13b-style "one poller's entry
 // clobbers another's" risk here.
-let consoleStreamKnownIdentity = new Map(); // path -> {birthtimeMs, ino}
+let consoleStreamKnownIdentity = new Map(); // path -> {birthtimeMs, ino, ctimeMs, birthtimeProvenReal}
 
 // Returns true only when a PREVIOUSLY recorded identity for this exact
 // path no longer matches the file currently there -- deleted and
@@ -6310,8 +6310,45 @@ let consoleStreamKnownIdentity = new Map(); // path -> {birthtimeMs, ino}
 // in place (birthtime and inode both unchanged, only size and mtime
 // change), which an identity comparison alone would miss.
 function consoleLogIdentityChanged(consoleLogPath, stats) {
-  const current = { birthtimeMs: stats.birthtimeMs || 0, ino: stats.ino || 0 };
   const known = consoleStreamKnownIdentity.get(consoleLogPath);
+  const ctimeMs = stats.ctimeMs || 0;
+  const birthtimeMs = stats.birthtimeMs || 0;
+  // CI-red-2026-09-18 (round 33b, god's regression catch): Node's own docs
+  // warn that on a filesystem with no real creation-time tracking,
+  // stats.birthtime instead reports ctime -- which changes on every
+  // ordinary write, not just on create. Blindly OR-ing birthtime into the
+  // identity check (round 33's first attempt) would then misreport EVERY
+  // poll of a growing file on such a filesystem as a rotation. There is no
+  // way to tell "real birthtime, unchanged since creation" apart from
+  // "ctime-backed fake birthtime, freshly created" from a single stat()
+  // call alone -- both look identical (birthtimeMs === ctimeMs) at that
+  // exact moment. But a CTIME-BACKED value can NEVER show
+  // birthtimeMs !== ctimeMs at ANY stat call, ever, since it is literally
+  // the same underlying field -- so observing that inequality even once
+  // for a given path is conclusive proof this path's filesystem tracks a
+  // real, write-independent birth time. birthtimeProvenReal latches true
+  // the first time that happens and is never unset -- filesystem birthtime
+  // support does not change while the process runs. Kept PER-PATH (not a
+  // single global flag): two different consoleLogPath values (different
+  // servers' data directories) can genuinely sit on different filesystems
+  // with different birthtime support, so proof gathered for one path must
+  // not be assumed for another. Before it is proven for a path, birthtime
+  // is ignored there entirely and only inode is used -- the exact
+  // pre-round-33 behavior, so this is no worse than before on such a
+  // filesystem. In practice the proof establishes itself within the first
+  // couple of polls of any file that's actually growing (ctime overtakes a
+  // real birthtime the moment anything writes to it), so the residual gap
+  // -- an inode-reuse recreate going undetected -- is bounded to the brief
+  // window before any growth has been observed on that path yet.
+  const birthtimeProvenReal =
+    Boolean(known?.birthtimeProvenReal) ||
+    Boolean(birthtimeMs && ctimeMs && birthtimeMs !== ctimeMs);
+  const current = {
+    birthtimeMs,
+    ctimeMs,
+    ino: stats.ino || 0,
+    birthtimeProvenReal,
+  };
   consoleStreamKnownIdentity.set(consoleLogPath, current);
   // Never tracked this exact path before -- this is either this process's
   // genuine first-ever poll of it, OR the active server just switched to a
@@ -6326,13 +6363,24 @@ function consoleLogIdentityChanged(consoleLogPath, stats) {
   // ordinary case -- not on every page load, since the map is shared
   // across every poller, not per-client.
   if (!known) return true;
-  if (current.ino && known.ino) return current.ino !== known.ino;
-  // ino unavailable (rare, some virtual/network filesystems) -- fall back
-  // to birthtime, same defensive shape as LogTailer.js's own startOffsetFor.
-  if (current.birthtimeMs && known.birthtimeMs) {
-    return current.birthtimeMs !== known.birthtimeMs;
+  // Inode equality alone is not sufficient proof of "same file": a
+  // delete+recreate at the same path can have its inode number handed
+  // straight back by the filesystem (routine on tmpfs -- which is what
+  // os.tmpdir()/CI's /tmp commonly is on Linux, and not uncommon on ext4
+  // for a near-empty directory, exactly what a fresh temp dir or PZ's own
+  // Server/ folder looks like). birthtime, when proven real for this path
+  // (see above), is unaffected by inode reuse and catches that case.
+  const inoKnown = current.ino && known.ino;
+  if (inoKnown && current.ino !== known.ino) return true;
+  const birthtimeKnown = current.birthtimeMs && known.birthtimeMs;
+  if (
+    birthtimeProvenReal &&
+    birthtimeKnown &&
+    current.birthtimeMs !== known.birthtimeMs
+  ) {
+    return true;
   }
-  return false; // neither signal available -- no worse than before this fix
+  return false; // neither available/trustworthy signal differs -- no worse than before this fix
 }
 
 // Stream server console log (long-polling for new content)

@@ -61,7 +61,10 @@ vi.mock("../services/serverManager.js", async () => {
 // tests reach the download step (each is blocked by an earlier,
 // deterministic check -- minMemory:0 for /install, no server files for
 // /quick-setup), so these mocks are inert everywhere except that one test.
-const { httpsGetMock } = vi.hoisted(() => ({ httpsGetMock: vi.fn() }));
+const { httpsGetMock, execMock } = vi.hoisted(() => ({
+  httpsGetMock: vi.fn(),
+  execMock: vi.fn(),
+}));
 vi.mock("https", () => ({
   default: {
     get: (...args) => {
@@ -75,11 +78,20 @@ vi.mock("https", () => ({
     },
   },
 }));
+// CI-red-2026-09-18: ensureSteamCmdLinux() (server.js) never calls
+// https.get() at all -- it shells out to curl, falling back to wget, via
+// execAsync/child_process.exec. httpsGetMock only ever fires on the
+// Windows self-heal branch (provisionSteamCmdWindows); wrapped this in its
+// own vi.fn() too so the "did self-heal actually attempt a download"
+// assertion below can check the platform-correct mock instead of assuming
+// https on every OS.
 vi.mock("child_process", async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
-    exec: (_cmd, _opts, cb) => {
+    exec: (...args) => {
+      execMock(...args);
+      const cb = args[args.length - 1];
       cb(new Error("mock exec unavailable"));
       return new EventEmitter();
     },
@@ -122,6 +134,7 @@ beforeEach(() => {
     { id: "server-same", installPath },
   ]);
   httpsGetMock.mockReset();
+  execMock.mockReset();
   io.emit.mockReset();
 });
 
@@ -292,7 +305,19 @@ describe("POST /api/server/steam-update same-server lifecycle-lock guard", () =>
         expect(response.json).not.toHaveBeenCalledWith(
           expect.objectContaining({ code: LIFECYCLE_IN_PROGRESS_CODE }),
         );
-        await vi.waitFor(() => expect(httpsGetMock).toHaveBeenCalledTimes(1));
+        // CI-red-2026-09-18: which mock proves self-heal actually reached
+        // the network step is platform-dependent -- ensureSteamCmdWindows
+        // downloads via https.get, ensureSteamCmdLinux via curl/wget
+        // (execAsync/child_process.exec), never the other way round on
+        // either OS. Asserting the wrong one here is exactly how this test
+        // passed on the Windows dev machine it was written on but failed on
+        // CI's Linux runner (httpsGetMock stayed at 0 calls -- self-heal
+        // failed via the exec mock instead, never touching https at all).
+        if (process.platform === "win32") {
+          await vi.waitFor(() => expect(httpsGetMock).toHaveBeenCalledTimes(1));
+        } else {
+          await vi.waitFor(() => expect(execMock).toHaveBeenCalled());
+        }
         await vi.waitFor(() =>
           expect(io.emit).toHaveBeenCalledWith(
             "steam:complete",

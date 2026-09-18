@@ -106,6 +106,134 @@ describe("GET /console-log/stream: file identity survives a same-path recreate",
     ]);
   });
 
+  // bug-hunt-2026-09-18 (round: CI red after v1.3.7, Linux-only failure):
+  // this repo's CI runs on Linux, where os.tmpdir() (used by this very test
+  // file's beforeEach) is typically tmpfs -- a filesystem that routinely
+  // hands the just-freed inode straight back to the next file created at
+  // the same path, especially in a near-empty directory like this test's
+  // own fresh tmpdir. The test above passed reliably in local Windows dev
+  // (NTFS practically never reuses a file id that fast) but failed on the
+  // CI's Linux runner because consoleLogIdentityChanged() used to compare
+  // ONLY inode (falling back to birthtime solely when inode was
+  // unavailable) -- an inode-reuse recreate is invisible to an inode-only
+  // check. This test forces that exact scenario deterministically (same
+  // ino, genuinely different birthtime) regardless of host platform, so it
+  // can catch a regression here without depending on real filesystem
+  // reuse timing.
+  it("treats a same-path recreate as a rotation even when the filesystem reuses the old file's inode number (tmpfs-style)", async () => {
+    fs.writeFileSync(consoleLogPath, "Old session line 1\nOld session line 2\n");
+    const oldRawStats = fs.statSync(consoleLogPath);
+    const first = await poll(dataDir, 0);
+    const oldLastSize = first.currentSize;
+
+    const newSessionContent =
+      "New session line A\nNew session line B\nNew session line C\n";
+    expect(Buffer.byteLength(newSessionContent, "utf-8")).toBeGreaterThan(
+      oldLastSize,
+    );
+    recreateFile(consoleLogPath, newSessionContent);
+
+    const realStatSync = fs.statSync.bind(fs);
+    const statSpy = vi.spyOn(fs, "statSync").mockImplementationOnce((p) => {
+      const real = realStatSync(p);
+      // Simulate the filesystem handing the just-freed inode straight back
+      // to the recreated file, while birthtime -- genuinely different for a
+      // new file created moments later -- is the only signal left that can
+      // still tell the two apart. (Real birthtime is pinned explicitly
+      // rather than left to the host OS: NTFS "tunneling" reuses the
+      // original creation time for a fast unlink+recreate at the same
+      // path, so on Windows dev machines the two files' real birthtimeMs
+      // already tie regardless of this mock -- this test needs to isolate
+      // the "different birthtime" input on every platform, not just Linux
+      // tmpfs where it happens for a different, unrelated reason.)
+      // ctimeMs is left as the real, unmocked value on purpose: since the
+      // mocked birthtimeMs above deliberately differs from it, this single
+      // poll's own sample already proves (to consoleLogIdentityChanged's
+      // per-path birthtimeProvenReal latch, added in round 33b) that
+      // birthtime isn't ctime-backed here -- no separate warm-up poll
+      // needed to establish that proof before this assertion.
+      return Object.create(real, {
+        ino: { value: oldRawStats.ino, enumerable: true },
+        birthtimeMs: { value: real.birthtimeMs + 1000, enumerable: true },
+      });
+    });
+
+    let second;
+    try {
+      second = await poll(dataDir, oldLastSize);
+    } finally {
+      statSpy.mockRestore();
+    }
+    expect(second.rotated).toBe(true);
+    expect(second.newLines).toEqual([
+      "New session line A",
+      "New session line B",
+      "New session line C",
+    ]);
+  });
+
+  // bug-hunt-2026-09-18 (round 33b, god's regression catch on round 33's
+  // first attempt): Node's own docs warn that some filesystems have no
+  // real creation-time tracking and report ctime AS birthtime instead --
+  // on such a filesystem, "birthtime" changes on every ordinary write,
+  // just like ctime does. The very first version of the round-33 fix
+  // OR'd birthtime straight into the identity check with no such-filesystem
+  // guard: on that kind of filesystem, THIS test's own scenario (a SAME
+  // file simply growing) would have been misreported as rotated on every
+  // single poll, forcing a full re-read and duplicating every line
+  // already shown to the operator. Forces that exact filesystem shape
+  // deterministically (birthtimeMs === ctimeMs on every sample, both
+  // "advancing" together on the second poll the way a ctime-backed value
+  // would after a write) to prove consoleLogIdentityChanged() correctly
+  // refuses to trust birthtime as a signal here and falls back to inode
+  // alone, which agrees (same file, no rotation).
+  it("does not report a rotation for ordinary growth of the SAME file on a filesystem where birthtime is really ctime in disguise", async () => {
+    fs.writeFileSync(consoleLogPath, "Line 1\n");
+    const realStatSync = fs.statSync.bind(fs);
+
+    // Both polls are mocked explicitly (not left to real OS timing) so this
+    // test is deterministic on every platform: real birthtime/ctime CAN
+    // coincidentally tie on a fresh single-write file even on a filesystem
+    // with genuine creation-time tracking (nothing has touched the file's
+    // metadata since creation yet), which would make an unmocked first poll
+    // an unreliable way to force this specific filesystem shape.
+    let statSpy = vi.spyOn(fs, "statSync").mockImplementationOnce((p) => {
+      const real = realStatSync(p);
+      // Same value for both -- exactly what a ctime-backed "birthtime"
+      // looks like at any single moment, including right after creation.
+      return Object.create(real, {
+        birthtimeMs: { value: real.ctimeMs, enumerable: true },
+      });
+    });
+    const first = await poll(dataDir, 0);
+    statSpy.mockRestore();
+    expect(first.newLines).toEqual(["Line 1"]);
+
+    fs.appendFileSync(consoleLogPath, "Line 2\n");
+
+    statSpy = vi.spyOn(fs, "statSync").mockImplementationOnce((p) => {
+      const real = realStatSync(p);
+      // Same inode (it IS the same file, genuinely appended to) but
+      // birthtimeMs forced equal to ctimeMs -- and both moved forward from
+      // the first poll, exactly like a ctime-backed "birthtime" does after
+      // any write -- so a naive birthtime-differs check would (wrongly)
+      // see a change here even though nothing about the file's identity
+      // did.
+      return Object.create(real, {
+        birthtimeMs: { value: real.ctimeMs, enumerable: true },
+      });
+    });
+
+    let second;
+    try {
+      second = await poll(dataDir, first.currentSize);
+    } finally {
+      statSpy.mockRestore();
+    }
+    expect(second.rotated).toBeFalsy();
+    expect(second.newLines).toEqual(["Line 2"]);
+  });
+
   it("still behaves as a normal incremental read once identity is established and the SAME file just grows (no false rotation)", async () => {
     fs.writeFileSync(consoleLogPath, "Line 1\n");
     // This first poll is this process's first-ever look at this exact path,

@@ -110,7 +110,7 @@
     "recheckNoPermission": "Revérifier la connexion RCON nécessite la permission server.configure, que ce rôle n'a pas.",
     "destructiveConfirmTitle": "Exécuter « {{command}} » sur {{server}} ?",
     "destructiveConfirmDesc": "Cette commande brute est envoyée directement au serveur en cours d'exécution dès que vous confirmez. Elle peut déconnecter des joueurs, modifier qui peut accéder au serveur, changer ses paramètres ou l'arrêter, et la plupart de ces effets ne peuvent pas être annulés depuis cette console.",
-    "destructiveConfirmButton": "Exécuter la commande",
+    "destructiveConfirmButton": "Lancer la commande",
     "entries_many": "{{count}} entrées"
   },
   "quickCommands": {
