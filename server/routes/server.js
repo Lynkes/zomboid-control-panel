@@ -5653,13 +5653,30 @@ if ($result -eq 'OK') { Write-Output $dialog.SelectedPath } else { Write-Output 
       clearTimeout(timeoutId);
       const selectedPath = output.trim();
 
-      if (code !== 0 || errorOutput) {
+      // A real Cancel click still exits 0 (`$result -eq 'OK'` is false, but
+      // the script still reaches `Write-Output ''` and returns normally),
+      // and our own timeout-kill above closes with code:null (Node reports
+      // a signal-killed child that way, not a numeric exit code) -- both are
+      // an ordinary "nothing was picked", same shape as Linux's own
+      // cancelled case. A genuine non-zero exit only happens when the
+      // SCRIPT ITSELF failed (no interactive desktop session for the STA
+      // COM dialog, a missing assembly, ...) -- that must not collapse into
+      // "cancelled", or the operator sees a silently-closed dialog instead
+      // of the real reason nothing came back.
+      if (code !== 0 && code !== null) {
+        log.error(
+          `Folder browser dialog script failed (exit ${code}): ${errorOutput}`,
+        );
+        return res.status(500).json({
+          error: "Failed to open folder browser",
+          code: ErrorCode.BROWSE_FOLDER_OPEN_FAILED,
+        });
+      }
+
+      if (errorOutput) {
         log.warn(`Folder browser had issues: ${errorOutput}`);
       }
 
-      // A killed-by-timeout process closes with an empty selectedPath just
-      // like an ordinary Cancel click does, so this resolves the same way
-      // Linux's own cancelled case does -- no new response shape to learn.
       res.json({
         success: !!selectedPath,
         path: selectedPath || null,
