@@ -4,6 +4,7 @@ import { Trans, useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { reportClientError } from '@/lib/client-errors'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { useRequestGuard } from '@/hooks/useRequestGuard'
 import {
   Users,
   UserX,
@@ -623,19 +624,29 @@ export default function Players() {
     }
   }, [players.length, peakPlayers])
 
+  // bug-hunt-2026-09-18 (round 9, activeServerChanged race sweep): fetchPlayers
+  // runs both on a 15s poll (below) and on activeServerChanged, with no guard
+  // against the two overlapping -- a poll tick for the server that was active
+  // a moment ago, still in flight, could resolve AFTER the
+  // activeServerChanged-triggered call for the NEW server and overwrite it.
+  // playersGuard drops a response once a newer call has already started.
+  const playersGuard = useRequestGuard()
   const fetchPlayers = useCallback(async () => {
+    const requestId = playersGuard.next()
     try {
       const data = await playersApi.getPlayers({ retries: 0 })
+      if (playersGuard.isStale(requestId)) return
       if (data.players) {
         setPlayers(data.players)
         setLastRefresh(new Date())
       }
       setPlayersLoadError(null)
     } catch (error) {
+      if (playersGuard.isStale(requestId)) return
       reportClientError('Failed to fetch players.', error)
       setPlayersLoadError(getErrorMessage(error, t('loadErrors.players')))
     }
-  }, [t])
+  }, [t, playersGuard])
 
   // Gated on players.gm_tools -- the same capability GET /panel-bridge/players
   // (the route getAllPlayerDetails lives behind) actually requires, not the

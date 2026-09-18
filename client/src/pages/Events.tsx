@@ -69,6 +69,7 @@ import { DisabledReason } from '@/components/DisabledReason'
 import { HelpTip } from '@/components/HelpTip'
 import { cn } from '@/lib/utils'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { useRequestGuard } from '@/hooks/useRequestGuard'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import { useSocket } from '@/contexts/SocketContext'
 
@@ -1307,9 +1308,18 @@ export default function Events() {
     }
   }
 
+  // bug-hunt-2026-09-18 (round 9, activeServerChanged race sweep): this runs
+  // on a recurring poll AND on activeServerChanged, with no guard against
+  // the two overlapping -- a poll tick for the server that was active a
+  // moment ago, still in flight, could resolve AFTER the
+  // activeServerChanged-triggered call for the NEW server and overwrite it.
+  // playersGuard drops a response once a newer call has already started.
+  const playersGuard = useRequestGuard()
   const fetchPlayers = useCallback(async () => {
+    const requestId = playersGuard.next()
     try {
       const data = await playersApi.getPlayers()
+      if (playersGuard.isStale(requestId)) return
       if (data.players) {
         setPlayers(data.players)
         setPlayersLoaded(true)
@@ -1321,7 +1331,7 @@ export default function Events() {
       // still the best information available), and must not manufacture a
       // false "loaded" the first time either.
     }
-  }, [])
+  }, [playersGuard])
 
   const mountedRef = useRef(true)
   // Suppress climate-slider overwrites from the 10s bridge poll while the

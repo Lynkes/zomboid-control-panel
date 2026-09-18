@@ -31,6 +31,7 @@ import { HelpTip } from '@/components/HelpTip'
 import { cn } from '@/lib/utils'
 import { reportClientError } from '@/lib/client-errors'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { useRequestGuard } from '@/hooks/useRequestGuard'
 
 interface ChatMessage {
   id: string
@@ -138,16 +139,26 @@ export default function Chat() {
     }
   }, [chatHistory])
 
+  // bug-hunt-2026-09-18 (round 9, activeServerChanged race sweep): runs on a
+  // 15s poll AND on activeServerChanged, with no guard against the two
+  // overlapping -- a poll tick for the server that was active a moment ago,
+  // still in flight, could resolve AFTER the activeServerChanged-triggered
+  // call for the NEW server and overwrite it. playersGuard drops a response
+  // once a newer call has already started.
+  const playersGuard = useRequestGuard()
   const fetchPlayers = useCallback(async () => {
+    const requestId = playersGuard.next()
     try {
       const data = await playersApi.getPlayers()
+      if (playersGuard.isStale(requestId)) return
       if (data.players) {
         setPlayers(data.players)
       }
     } catch (error) {
+      if (playersGuard.isStale(requestId)) return
       reportClientError('Failed to fetch players.', error)
     }
-  }, [])
+  }, [playersGuard])
 
   useEffect(() => {
     fetchPlayers()

@@ -67,6 +67,7 @@ import { Input } from "@/components/ui/input";
 import { reportClientError } from "@/lib/client-errors";
 import { getUserErrorMessage } from "@/lib/errorMessage";
 import { translateDiagnosticCheck } from "@/lib/diagnosticsTranslation";
+import { useRequestGuard } from "@/hooks/useRequestGuard";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -1213,10 +1214,19 @@ export default function Debug() {
   };
 
   // Fetch smart diagnostics
+  // bug-hunt-2026-09-18 (round 9, activeServerChanged race sweep): runs on a
+  // 30s poll, on mount, AND on activeServerChanged, with no guard against
+  // overlapping calls -- a poll tick for the server that was active a
+  // moment ago, still in flight, could resolve AFTER the
+  // activeServerChanged-triggered call for the NEW server and overwrite it.
+  // diagnosticsGuard drops a response once a newer call has already started.
+  const diagnosticsGuard = useRequestGuard();
   const fetchDiagnostics = useCallback(async () => {
+    const requestId = diagnosticsGuard.next();
     setRefreshingDiagnostics(true);
     try {
       const res = await authFetch("/api/debug/diagnostics");
+      if (diagnosticsGuard.isStale(requestId)) return;
       if (res.status === 403) {
         setDiagnosticsPermissionDenied(true);
         return;
@@ -1224,6 +1234,7 @@ export default function Debug() {
       if (!res.ok) throw new Error(await parseDownloadError(res, `HTTP ${res.status}`));
       setDiagnosticsPermissionDenied(false);
       const data = await res.json();
+      if (diagnosticsGuard.isStale(requestId)) return;
       if (data?.checks) {
         setDiagnostics(data);
         setDiagnosticsError(null);
@@ -1246,13 +1257,14 @@ export default function Debug() {
         setDiagnosticsError(t("worldMapTab.unexpectedResponse"));
       }
     } catch (error) {
+      if (diagnosticsGuard.isStale(requestId)) return;
       const msg = getUserErrorMessage(error, t("worldMapTab.networkError"));
       setDiagnosticsError(msg);
       reportClientError("Failed to fetch diagnostics.", error);
     } finally {
-      setRefreshingDiagnostics(false);
+      if (!diagnosticsGuard.isStale(requestId)) setRefreshingDiagnostics(false);
     }
-  }, [authFetch, t]);
+  }, [authFetch, t, diagnosticsGuard]);
 
   const handleDiagnosticsFix = useCallback(
     async (check: DiagCheck) => {

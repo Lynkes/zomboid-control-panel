@@ -25,6 +25,7 @@ import {
   MountDiscoveryCandidate,
 } from '@/lib/api'
 import { useRuntimeInfo } from '@/hooks/useRuntimeInfo'
+import { useRequestGuard } from '@/hooks/useRequestGuard'
 import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
 import { formatUptime } from '@/lib/utils'
 import { resolveClientProvider, deriveDashboardStatus, waitForServerState } from '@/lib/serverStatus'
@@ -441,10 +442,24 @@ export default function Dashboard() {
   }
 
   /* ---------------------------- fetchers ---------------------------------- */
+  // bug-hunt-2026-09-18 (round 9, activeServerChanged race sweep): fetchStatus
+  // runs both on a 15s poll (below) and on activeServerChanged (onActiveServer
+  // above) with no ordering guard between the two -- a poll tick fired for
+  // the server that was active a moment ago, still in flight, could resolve
+  // AFTER the activeServerChanged-triggered call for the NEW server and
+  // silently overwrite it. statusGuard drops a response once a newer call
+  // for this same fetcher has already started.
+  const statusGuard = useRequestGuard()
   const fetchStatus = useCallback(async () => {
-    try { const data = await serverApi.getStatus({ retries: 0 }); setStatus(data); setFetchError(null); setLastUpdated(new Date()) }
-    catch { setFetchError(t('errors.failedToConnect')) }
-  }, [t])
+    const requestId = statusGuard.next()
+    try {
+      const data = await serverApi.getStatus({ retries: 0 })
+      if (statusGuard.isStale(requestId)) return
+      setStatus(data); setFetchError(null); setLastUpdated(new Date())
+    } catch {
+      if (!statusGuard.isStale(requestId)) setFetchError(t('errors.failedToConnect'))
+    }
+  }, [t, statusGuard])
 
   const fetchComposedStatus = useCallback(async () => {
     try { setComposedStatus(await serversApi.getComposedStatus({ retries: 0 })) }

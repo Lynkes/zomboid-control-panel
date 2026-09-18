@@ -121,6 +121,7 @@ import { useSocket } from "@/contexts/SocketContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme, type ThemeName } from "@/contexts/ThemeContext";
 import { platformTranslationKey, useRuntimeInfo } from "@/hooks/useRuntimeInfo";
+import { useRequestGuard } from "@/hooks/useRequestGuard";
 import { BridgeStatusBadge } from "@/components/BridgeStatusBadge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -1543,9 +1544,18 @@ export default function Settings() {
   }, [t, canViewBridgeStatus]);
 
   // Fetch servers list for install dropdown
+  // bug-hunt-2026-09-18 (round 9, activeServerChanged race sweep): called
+  // both on mount and on every activeServerChanged event, with no guard
+  // against the two (or two activeServerChanged calls back to back)
+  // overlapping -- an older call resolving after a newer one would
+  // overwrite the current server list with a stale isActive snapshot.
+  // serversGuard drops a response once a newer call has already started.
+  const serversGuard = useRequestGuard();
   const fetchServers = useCallback(async () => {
+    const requestId = serversGuard.next();
     try {
       const data = await serversApi.getAll();
+      if (serversGuard.isStale(requestId)) return;
       setServers(data.servers || []);
       setServersLoadError(false);
       // Auto-select active server
@@ -1554,10 +1564,11 @@ export default function Settings() {
         setSelectedInstallServerId(String(activeServer.id));
       }
     } catch (error) {
+      if (serversGuard.isStale(requestId)) return;
       reportClientError("Failed to fetch servers.", error);
       setServersLoadError(true);
     }
-  }, [selectedInstallServerId]);
+  }, [selectedInstallServerId, serversGuard]);
 
   // bug-hunt-2026-09-04: this listener used to reload the wrong state and
   // never reload the right one. configApi.getAppSettings()/PUT app-settings
