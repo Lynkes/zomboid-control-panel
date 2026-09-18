@@ -216,6 +216,7 @@
     "duplicateRemoteServerHint": "Correspond au nom, à l'hôte et au port d'un autre serveur distant.",
     "serverNameLabel": "Nom du serveur",
     "serverNameTip": "Cela doit correspondre au vrai nom interne de votre serveur — le nom du fichier .ini et du dossier de sauvegarde qu'il utilise (ex. servertest.ini → Saves/Multiplayer/servertest). Le modifier ici ne renomme aucun fichier ; cela indique simplement au panneau de pointer vers une autre configuration et un autre dossier de sauvegarde, qui peuvent ne pas exister.",
+    "serverNameInvalid": "Le nom du serveur ne peut contenir que des lettres, des chiffres, des espaces, des tirets et des underscores, et ne peut pas commencer ni se terminer par un espace.",
     "dockerContainerLabel": "Conteneur Docker géré",
     "dockerContainerPlaceholder": "Nom de conteneur explicite (optionnel)",
     "dockerContainerHint": "Nécessite PANEL_DOCKER_CONTROL_ENABLED et l'étiquette de conteneur zomboid-panel.managed=true.",

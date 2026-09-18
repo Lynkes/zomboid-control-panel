@@ -215,6 +215,7 @@
     "duplicateRemoteServerHint": "与另一台远程服务器的名称、主机和端口相同。",
     "serverNameLabel": "服务器名称",
     "serverNameTip": "这里必须和服务器真正使用的内部名称一致——也就是它所用的 .ini 文件名和存档文件夹名（例如 servertest.ini → Saves/Multiplayer/servertest）。在这里修改并不会重命名任何文件，只会让面板改为指向另一个配置和存档文件夹，而那个文件夹可能并不存在。",
+    "serverNameInvalid": "服务器名称只能包含字母、数字、空格、连字符和下划线，且不能以空格开头或结尾。",
     "dockerContainerLabel": "托管的 Docker 容器",
     "dockerContainerPlaceholder": "可选，指定容器名称",
     "dockerContainerHint": "需要启用 PANEL_DOCKER_CONTROL_ENABLED，并为容器设置标签 zomboid-panel.managed=true。",

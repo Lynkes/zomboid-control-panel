@@ -215,6 +215,7 @@
     "duplicateRemoteServerHint": "Matches another remote server's name, host, and port.",
     "serverNameLabel": "Server Name",
     "serverNameTip": "This must match your server's real internal name — the .ini filename and save folder it uses (e.g. servertest.ini → Saves/Multiplayer/servertest). Changing it here doesn't rename any files; it points the panel at a different config and save folder, which may not exist.",
+    "serverNameInvalid": "Server name can only contain letters, numbers, spaces, hyphens, and underscores, and can't start or end with a space.",
     "dockerContainerLabel": "Managed Docker Container",
     "dockerContainerPlaceholder": "Optional explicit container name",
     "dockerContainerHint": "Requires PANEL_DOCKER_CONTROL_ENABLED and the container label zomboid-panel.managed=true.",

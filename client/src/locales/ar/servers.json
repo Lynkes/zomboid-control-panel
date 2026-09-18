@@ -229,6 +229,7 @@
     "duplicateRemoteServerHint": "يطابق اسم خادم بعيد آخر ومضيفه ومنفذه.",
     "serverNameLabel": "اسم الخادم",
     "serverNameTip": "يجب أن يطابق هذا الاسمَ الداخلي الحقيقي لخادمك — أي اسم ملف الـ .ini ومجلد الحفظ الذي يستخدمه (مثل servertest.ini → Saves/Multiplayer/servertest). تغييره هنا لا يعيد تسمية أي ملفات؛ بل يوجّه اللوحة إلى ملف إعدادات ومجلد حفظ مختلفين، وقد لا يكونان موجودين أصلًا.",
+    "serverNameInvalid": "يمكن أن يحتوي اسم الخادم على أحرف وأرقام ومسافات وشرطات وشرطات سفلية فقط، ولا يمكن أن يبدأ أو ينتهي بمسافة.",
     "dockerContainerLabel": "حاوية Docker المُدارة",
     "dockerContainerPlaceholder": "اسم حاوية صريح اختياري",
     "dockerContainerHint": "يتطلب PANEL_DOCKER_CONTROL_ENABLED ووسم الحاوية zomboid-panel.managed=true.",

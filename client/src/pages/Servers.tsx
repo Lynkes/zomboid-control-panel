@@ -212,6 +212,23 @@ export function isValidGamePort(port: number): boolean {
   return Number.isInteger(port) && port >= 1 && port <= 65534
 }
 
+// bug-hunt-2026-09-18 (round 12, client-vs-server validation sweep): client
+// mirror of server/routes/servers.js's SERVER_NAME_REGEX -- the Edit Server
+// dialog's serverName field had no character-set check at all (only
+// maxLength={64}), so a name with e.g. a leading/trailing space or a slash
+// sailed past the disabled-button gate and only failed after the round trip,
+// with the server's specific 400 message swallowed into
+// toasts.updateServerFailed's generic fallback (getUserErrorMessage falls
+// back whenever the caught error carries no server-recognized code). Kept as
+// a literal copy of the server's regex, not a shared import, matching how
+// isValidPort/isValidGamePort above already mirror their own server-side
+// range checks rather than importing across the client/server boundary.
+const SERVER_NAME_REGEX =
+  /^[a-zA-Z0-9_-][a-zA-Z0-9_\- ]*[a-zA-Z0-9_-]$|^[a-zA-Z0-9_-]$/
+export function isValidServerName(value: string): boolean {
+  return typeof value === 'string' && SERVER_NAME_REGEX.test(value)
+}
+
 // Client-side mirror of server/services/serverManager.js's resolveLaunchMode()
 // -- a serverPath/installPath ending in .bat/.sh/.exe is CUSTOM LAUNCHER mode
 // (operator ruling 2026-08-27, card
@@ -415,6 +432,15 @@ export default function Servers() {
       s.rconPort === editingServer.rconPort
     )
   }, [editingServer, servers])
+
+  // Same "persistent inline marker, not just a save-time toast" reasoning as
+  // editDuplicateRemoteConflict above, for the server-side character-set
+  // rule isValidServerName mirrors (server/routes/servers.js's
+  // SERVER_NAME_REGEX).
+  const editServerNameInvalid = useMemo(() => {
+    if (!editingServer) return false
+    return !isValidServerName(editingServer.serverName)
+  }, [editingServer])
 
   // Detection state
   const [detecting, setDetecting] = useState(false)
@@ -1413,6 +1439,10 @@ export default function Servers() {
     }
     if (!Number.isFinite(editingServer.minMemory) || !Number.isFinite(editingServer.maxMemory)) {
       toast({ title: t('toasts.error'), description: t('toasts.memoryRequiredError'), variant: 'destructive' })
+      return
+    }
+    if (!isValidServerName(editingServer.serverName)) {
+      toast({ title: t('toasts.error'), description: t('editDialog.serverNameInvalid'), variant: 'destructive' })
       return
     }
 
@@ -2954,7 +2984,12 @@ export default function Servers() {
                     value={editingServer.serverName}
                     onChange={e => setEditingServer({ ...editingServer, serverName: e.target.value })}
                     maxLength={64}
+                    aria-invalid={editServerNameInvalid}
+                    className={editServerNameInvalid ? 'border-destructive/70' : ''}
                   />
+                  {editServerNameInvalid && (
+                    <p className="text-xs text-destructive">{t('editDialog.serverNameInvalid')}</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label>{t('editDialog.dockerContainerLabel')}</Label>
