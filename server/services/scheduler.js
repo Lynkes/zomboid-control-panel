@@ -496,7 +496,24 @@ export class Scheduler {
       log.debug(
         `Skipping duplicate execution of task ${task.name} (already running)`,
       );
-      return { success: false, message: "Already running" };
+      // scheduled-task-overlap-refusal-silent-in-history, continuous-bug-hunt
+      // round 10: every OTHER refusal this file can produce (a missed cron
+      // tick via onScheduleMissed, a busy lifecycle lock, RCON unreachable,
+      // a failed process scan, ...) already writes a Schedule History entry
+      // -- this was the one exception. A task whose previous run is still
+      // in flight when its next tick (or a manual "Run now" click) lands
+      // was refused with zero trace: not logged here, and node-cron itself
+      // considers this execution to have fired exactly on time (it has no
+      // idea our own callback short-circuited), so 'execution:missed' never
+      // fires for it either. The live "Run now" caller still sees the
+      // refusal via the {success:false} this already returned (routes/
+      // scheduler.js's socket emission), but Schedule History -- the
+      // durable audit trail onScheduleMissed's own comment above exists
+      // specifically to keep from going silent -- had nothing,
+      // indistinguishable from a healthy schedule with nothing due.
+      const message = "Already running";
+      await logScheduleExecution(task.id, task.name, task.command, false, message, 0);
+      return { success: false, message };
     }
 
     this.runningTasks.add(task.id);
