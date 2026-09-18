@@ -392,6 +392,11 @@ export default function Scheduler() {
   const [status, setStatus] = useState<{
     activeTasks: number
     autoRestartEnabled: boolean
+    // Fetched by every call site (server/services/scheduler.js's getStatus())
+    // but, until this pass, never read anywhere on this page -- same
+    // silent-drop shape as autoRestartEnabled below. Optional because older
+    // cached/mocked responses may predate this field.
+    backupScheduleEnabled?: boolean
     modUpdateRestartPending: boolean
     // Timezone-picker card (2026-08-29, hunt-wave5 follow-up): `timezone`
     // is the EFFECTIVE zone every schedule below actually runs in right
@@ -655,6 +660,31 @@ export default function Scheduler() {
     const id = setInterval(pull, 15000)
     return () => { cancelled = true; clearInterval(id) }
   }, [servers])
+
+  // A task's own `last_run` column (server/database/init.js's
+  // updateTaskLastRun()) is only ever written on the SUCCESS path of
+  // runTaskNow() -- a failed or refused run (RCON down, server already
+  // stopped, an overlapping execution) never touches it, so a repeatedly
+  // failing task can sit there with a stale or blank "Last run" and no sign
+  // anything is wrong. Execution History's own rows (logScheduleExecution)
+  // ARE written on every outcome including failure, so this cross-references
+  // the already-fetched `history` by task_id to show what actually happened
+  // last, not just the last time it happened to succeed. Same
+  // EXECUTION_HISTORY_FETCH_LIMIT caveat as the history card itself applies
+  // here -- a task whose real last attempt fell outside the fetched window
+  // simply isn't in this map, and the render below falls back to the plain
+  // (success-only) `last_run` date rather than asserting anything about it.
+  const latestRunByTaskId = useMemo(() => {
+    const map = new Map<number, ScheduleHistoryEntry>()
+    for (const entry of history) {
+      if (entry.task_id == null) continue
+      const existing = map.get(entry.task_id)
+      if (!existing || new Date(entry.executed_at).getTime() > new Date(existing.executed_at).getTime()) {
+        map.set(entry.task_id, entry)
+      }
+    }
+    return map
+  }, [history])
 
   // Resolve a task's target server name for display — "Unknown server" if
   // it was deleted since the task was created, "This server" (no badge
@@ -1364,6 +1394,22 @@ export default function Scheduler() {
           <p className="text-xs text-muted-foreground">
             {t('timezone.currentlyEffective', { tz: status?.timezone || '...' })}
           </p>
+          {/* autoRestartEnabled/backupScheduleEnabled were already fetched
+              into `status` but never rendered anywhere on this page -- an
+              operator with AUTO_RESTART_ENABLED set in the environment, or
+              whose automatic backup schedule stopped running, had no way to
+              tell from the Scheduler page itself, even though the card
+              above already claims both run in this timezone. Gated on
+              `status` being loaded so a fetch failure shows nothing here
+              rather than a misleading "off". */}
+          {status && (
+            <p className="text-xs text-muted-foreground">
+              {t('timezone.systemSchedules', {
+                backup: status.backupScheduleEnabled ? t('timezone.backupScheduleOn') : t('timezone.backupScheduleOff'),
+                autoRestart: status.autoRestartEnabled ? t('timezone.autoRestartOn') : t('timezone.autoRestartOff'),
+              })}
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -1699,7 +1745,12 @@ export default function Scheduler() {
         <CardContent className="p-4 pt-0">
           <ScrollArea className="h-[300px] sm:h-[400px]">
             {tasks.length === 0 ? (
-              <EmptyState type="noSchedule" title={t('scheduledTasks.emptyTitle')} description={t('scheduledTasks.emptyDesc')} />
+              <EmptyState
+                type="noSchedule"
+                title={t('scheduledTasks.emptyTitle')}
+                description={t('scheduledTasks.emptyDesc')}
+                action={{ label: t('scheduledTasks.emptyActionLabel'), onClick: () => { resetTaskForm(); setDialogOpen(true) } }}
+              />
             ) : (
               <div className="space-y-3">
                 {tasks.map((task) => (
@@ -1741,11 +1792,40 @@ export default function Scheduler() {
                         <p className="text-sm text-muted-foreground mt-1 truncate">
                           <code className="text-primary/90 font-mono text-xs">{task.command}</code>
                         </p>
-                        {task.last_run && (
-                          <p className="text-[11px] text-muted-foreground/70 mt-1">
-                            {t('scheduledTasks.lastRun', { date: new Date(task.last_run).toLocaleString(i18n.language) })}
-                          </p>
-                        )}
+                        {(() => {
+                          const latestRun = latestRunByTaskId.get(task.id)
+                          if (latestRun) {
+                            return (
+                              <p
+                                className={`flex items-center gap-1 text-[11px] mt-1 ${
+                                  latestRun.success ? 'text-muted-foreground/70' : 'text-destructive'
+                                }`}
+                              >
+                                {latestRun.success ? (
+                                  <CheckCircle2 className="w-3 h-3 shrink-0" aria-hidden="true" />
+                                ) : (
+                                  <XCircle className="w-3 h-3 shrink-0" aria-hidden="true" />
+                                )}
+                                <span className="truncate">
+                                  {latestRun.success
+                                    ? t('scheduledTasks.lastRun', { date: new Date(latestRun.executed_at).toLocaleString(i18n.language) })
+                                    : t('scheduledTasks.lastRunFailed', {
+                                        date: new Date(latestRun.executed_at).toLocaleString(i18n.language),
+                                        reason: latestRun.message || t('scheduledTasks.lastRunFailedUnknownReason'),
+                                      })}
+                                </span>
+                              </p>
+                            )
+                          }
+                          if (task.last_run) {
+                            return (
+                              <p className="text-[11px] text-muted-foreground/70 mt-1">
+                                {t('scheduledTasks.lastRun', { date: new Date(task.last_run).toLocaleString(i18n.language) })}
+                              </p>
+                            )
+                          }
+                          return null
+                        })()}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 self-end sm:self-auto">
@@ -1787,6 +1867,8 @@ export default function Scheduler() {
                             variant="ghost"
                             size="icon"
                             disabled={loading}
+                            // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Delete task"), matching Run Now/Edit's own title+aria-label split above; disables only on the page-wide loading flag, not a permission gate.
+                            title={t('scheduledTasks.deleteTitle')}
                             aria-label={t('scheduledTasks.deleteAria', { name: task.name })}
                           >
                             <Trash2 className="w-4 h-4 text-destructive" />

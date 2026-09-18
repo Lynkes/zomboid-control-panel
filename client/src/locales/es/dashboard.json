@@ -106,7 +106,8 @@
     "noPermissionControl": "Tu rol no tiene permiso para controlar el servidor.",
     "noPermissionWipe": "Tu rol no tiene permiso para borrar el mundo.",
     "noPermissionAutoStart": "Tu rol no tiene permiso para cambiar la configuración de inicio automático.",
-    "wipeMustStopFirst": "Detén el servidor antes de borrar."
+    "wipeMustStopFirst": "Detén el servidor antes de borrar.",
+    "saveNeedsRcon": "Conecta RCON para guardar el mundo."
   },
   "confirm": {
     "cancel": "Cancelar",
@@ -205,6 +206,8 @@
     "modUpdatesWaiting_other": "{{count}} actualizaciones de mod pendientes",
     "reviewMods": "Revisar mods",
     "noBackups": "Sin copias de seguridad",
+    "backupAttemptFailing": "La copia de seguridad programada está fallando",
+    "reviewBackups": "Revisar copias de seguridad",
     "modUpdatesWaiting_many": "{{count}} actualizaciones de mod pendientes"
   },
   "panelUpdateBanner": {
@@ -329,6 +332,7 @@
     "backupsStored_other": "{{count}} almacenadas",
     "backupsStoredLast_one": "{{count}} almacenada, última {{age}}",
     "backupsStoredLast_other": "{{count}} almacenadas, última {{age}}",
+    "backupsAttemptFailed": "intento fallido, {{age}}",
     "scheduleNoneActive": "ninguna activa",
     "scheduleActive_one": "{{count}} activa",
     "scheduleActive_other": "{{count}} activas",

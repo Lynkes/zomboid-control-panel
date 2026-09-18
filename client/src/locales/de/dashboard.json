@@ -105,7 +105,8 @@
     "noPermissionControl": "Ihre Rolle hat keine Berechtigung, den Server zu steuern.",
     "noPermissionWipe": "Ihre Rolle hat keine Berechtigung, die Welt zu löschen.",
     "noPermissionAutoStart": "Deine Rolle hat keine Berechtigung, die Autostart-Einstellung zu ändern.",
-    "wipeMustStopFirst": "Stoppen Sie den Server, bevor Sie ihn löschen."
+    "wipeMustStopFirst": "Stoppen Sie den Server, bevor Sie ihn löschen.",
+    "saveNeedsRcon": "Verbinde RCON, um die Welt zu speichern."
   },
   "confirm": {
     "cancel": "Abbrechen",
@@ -164,7 +165,9 @@
     "modUpdatesWaiting_one": "{{count}} Mod-Update wartet",
     "modUpdatesWaiting_other": "{{count}} Mod-Updates warten",
     "reviewMods": "Mods überprüfen",
-    "noBackups": "Keine Backups"
+    "noBackups": "Keine Backups",
+    "backupAttemptFailing": "Geplantes Backup schlägt fehl",
+    "reviewBackups": "Backups überprüfen"
   },
   "panelUpdateBanner": {
     "applyFailed": "Anwenden fehlgeschlagen",
@@ -287,6 +290,7 @@
     "backupsStored_other": "{{count}} gespeichert",
     "backupsStoredLast_one": "{{count}} gespeichert, zuletzt {{age}}",
     "backupsStoredLast_other": "{{count}} gespeichert, zuletzt {{age}}",
+    "backupsAttemptFailed": "Versuch fehlgeschlagen, {{age}}",
     "scheduleNoneActive": "keine aktiv",
     "scheduleActive_one": "{{count}} aktiv",
     "scheduleActive_other": "{{count}} aktiv"

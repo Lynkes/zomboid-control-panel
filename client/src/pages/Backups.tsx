@@ -791,7 +791,7 @@ export default function Backups() {
         icon={<Archive className="w-5 h-5 text-primary" />}
         actions={
           <>
-            <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : activeServerRemote ? t('pageHeader.remoteDisabledTitle') : null}>
+            <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : activeServerRemote ? t('pageHeader.remoteDisabledTitle') : restoreInProgressElsewhere ? t('permissions.restoreInProgress') : null}>
               <Button
                 onClick={handleCreateBackup}
                 disabled={creatingBackup || restoringBackup !== null || restoreInProgressElsewhere || !backupStatus?.savesExists || activeServerRemote || !canManageBackups || serverChangedSinceLoad}
@@ -815,7 +815,7 @@ export default function Backups() {
                 if (file) handleUploadFile(file)
               }}
             />
-            <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : activeServerRemote ? t('pageHeader.uploadTitleRemote') : null}>
+            <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : activeServerRemote ? t('pageHeader.uploadTitleRemote') : restoreInProgressElsewhere ? t('permissions.restoreInProgress') : null}>
               <Button
                 variant="outline"
                 onClick={() => fileInputRef.current?.click()}
@@ -888,8 +888,19 @@ export default function Backups() {
         </div>
       )}
 
-      {/* Status Cards */}
-      {backups.length > 0 && (
+      {/* Status Cards -- gated on backupsLoaded (the fetch has settled, whether
+          it found zero backups or many), not on backups.length > 0. This card
+          row is the ONLY place the Auto-Backup on/off state, its schedule, and
+          a failing-scheduled-attempt warning are shown -- gating it on having
+          at least one backup meant a server whose scheduled backups have been
+          failing since before the first one ever succeeded (backups.length
+          stays 0 forever) looked IDENTICAL to "auto-backup just isn't
+          configured", and the Auto-Backup toggle itself -- the only control on
+          this page that turns scheduling on -- was unreachable until the
+          operator manually created a first backup. Both are exactly the
+          "can't tell what state it's in" / "don't know what to do next"
+          failures this page exists to avoid. */}
+      {backupsLoaded && (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 stagger-in">
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
@@ -1062,14 +1073,22 @@ export default function Backups() {
 
       {/* Restore Progress — the server emits no progress events for restore (it's a
           silent extract + pre-restore-backup sequence that can run minutes), so this
-          is a static reassurance rather than a real progress readout. */}
-      {restoringBackup && (
+          is a static reassurance rather than a real progress readout.
+          Also covers restoreInProgressElsewhere (a restore this session didn't
+          start -- another tab, or already running when this page loaded):
+          before this, that case disabled Create/Upload/Restore with no visible
+          explanation ANYWHERE on the page -- the operator just saw greyed-out
+          buttons and had to guess why. See restoreInProgressElsewhere's own
+          comment above. */}
+      {(restoringBackup || restoreInProgressElsewhere) && (
         <Card className="border-warning/15 bg-warning/5">
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <Loader2 className="w-5 h-5 animate-spin text-warning shrink-0" />
               <div className="min-w-0">
-                <p className="font-medium truncate">{t('restoreProgress.title', { name: restoringBackup })}</p>
+                <p className="font-medium truncate">
+                  {restoringBackup ? t('restoreProgress.title', { name: restoringBackup }) : t('restoreProgress.titleUnknown')}
+                </p>
                 <p className="text-xs text-muted-foreground mt-0.5">{t('restoreProgress.note')}</p>
               </div>
             </div>
@@ -1179,7 +1198,7 @@ export default function Backups() {
               <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
             </div>
           ) : backups.length === 0 ? (
-            <EmptyState type="noData" title={t('mainCard.emptyTitle')} description={t('mainCard.emptyDesc')} action={canManageBackups ? { label: t('mainCard.emptyAction'), onClick: handleCreateBackup, variant: 'default' } : undefined} />
+            <EmptyState type="noData" title={t('mainCard.emptyTitle')} description={backupStatus?.enabled ? t('mainCard.emptyDescScheduled') : t('mainCard.emptyDesc')} action={canManageBackups ? { label: t('mainCard.emptyAction'), onClick: handleCreateBackup, variant: 'default' } : undefined} />
           ) : (
             <div className="space-y-2">
               {/* Select All Header */}
@@ -1279,7 +1298,7 @@ export default function Backups() {
                               <FileText className="w-4 h-4" />
                             </Button>
                           </DisabledReason>
-                          <DisabledReason reason={!canRestoreBackups ? t('permissions.noRestore') : null}>
+                          <DisabledReason reason={!canRestoreBackups ? t('permissions.noRestore') : restoreInProgressElsewhere ? t('permissions.restoreInProgress') : null}>
                             <Button
                               variant="ghost"
                               size="sm"

@@ -363,6 +363,10 @@ describe('Servers.tsx: capability gating', () => {
     const restartButton = await screen.findByRole('button', { name: /restart docker-b/i })
     expect(restartButton).not.toBeDisabled()
     fireEvent.click(restartButton)
+    // Restart now confirms first (same tier as Stop -- it disconnects
+    // connected players too), so the click above only opens the dialog.
+    const restartConfirmDialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(restartConfirmDialog).getByRole('button', { name: en.card.restartContainer }))
     await waitFor(() => expect(dockerRunAction).toHaveBeenCalledWith('docker-b', 'restart', 2))
 
     await waitFor(() => expect(discoverMounts).toHaveBeenCalled())

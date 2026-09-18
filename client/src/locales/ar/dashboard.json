@@ -179,7 +179,8 @@
     "noPermissionControl": "دورك لا يملك صلاحية التحكّم في الخادم.",
     "noPermissionWipe": "دورك لا يملك صلاحية مسح العالم.",
     "noPermissionAutoStart": "لا يملك دورك إذنًا لتغيير إعدادات البدء التلقائي.",
-    "wipeMustStopFirst": "أوقف الخادم قبل المسح."
+    "wipeMustStopFirst": "أوقف الخادم قبل المسح.",
+    "saveNeedsRcon": "وصّل RCON لحفظ العالم."
   },
   "confirm": {
     "cancel": "إلغاء",
@@ -278,6 +279,8 @@
     "modUpdatesWaiting_other": "تحديثات مودات بالانتظار: {{count}}",
     "reviewMods": "مراجعة المودات",
     "noBackups": "لا توجد نسخ احتياطية",
+    "backupAttemptFailing": "النسخة الاحتياطية المجدولة تفشل",
+    "reviewBackups": "مراجعة النسخ الاحتياطية",
     "modUpdatesWaiting_zero": "تحديثات مودات بالانتظار: {{count}}",
     "modUpdatesWaiting_two": "تحديثات مودات بالانتظار: {{count}}",
     "modUpdatesWaiting_few": "تحديثات مودات بالانتظار: {{count}}",
@@ -408,6 +411,7 @@
     "backupsStored_other": "{{count}} محفوظة",
     "backupsStoredLast_one": "{{count}} محفوظة، آخرها {{age}}",
     "backupsStoredLast_other": "{{count}} محفوظة، آخرها {{age}}",
+    "backupsAttemptFailed": "فشلت المحاولة، {{age}}",
     "scheduleNoneActive": "لا شيء نشط",
     "scheduleActive_one": "{{count}} نشطة",
     "scheduleActive_other": "{{count}} نشطة",

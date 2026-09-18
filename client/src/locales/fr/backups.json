@@ -2,7 +2,8 @@
   "permissions": {
     "noManage": "La gestion des sauvegardes nécessite la permission backups.manage, que ce rôle ne possède pas.",
     "noRestore": "La restauration d'une sauvegarde nécessite la permission backups.restore, que ce rôle ne possède pas.",
-    "noDownload": "Le téléchargement d'une sauvegarde nécessite la permission backups.download, que ce rôle ne possède pas."
+    "noDownload": "Le téléchargement d'une sauvegarde nécessite la permission backups.download, que ce rôle ne possède pas.",
+    "restoreInProgress": "Une restauration est déjà en cours pour ce serveur. Attendez qu'elle se termine avant de lancer une autre action de sauvegarde."
   },
   "pageHeader": {
     "title": "Sauvegardes du monde",
@@ -83,7 +84,8 @@
     "deleteSelected": "Supprimer ({{count}})",
     "deleteOlder": "Supprimer les anciennes",
     "emptyTitle": "Aucun filet de sécurité",
-    "emptyDesc": "Créez une sauvegarde avant de modifier les sauvegardes de jeu, les mods ou les paramètres du serveur — une mise à jour malheureuse suffit pour perdre votre progression.",
+    "emptyDesc": "Créez une sauvegarde maintenant, ou activez les sauvegardes planifiées ci-dessus, avant de modifier les sauvegardes de jeu, les mods ou les paramètres du serveur — une mise à jour malheureuse suffit pour perdre votre progression.",
+    "emptyDescScheduled": "Les sauvegardes planifiées sont activées — la première apparaîtra ici dès qu'elle s'exécutera. Créez-en une maintenant plutôt que d'attendre, avant de modifier les sauvegardes de jeu, les mods ou les paramètres du serveur.",
     "emptyAction": "Créer une sauvegarde",
     "selectAllLabel_one": "Tout sélectionner · {{count}} sauvegarde",
     "selectAllLabel_other": "Tout sélectionner · {{count}} sauvegardes",
@@ -199,6 +201,7 @@
   },
   "restoreProgress": {
     "title": "Restauration de {{name}}…",
+    "titleUnknown": "Une restauration est déjà en cours pour ce serveur…",
     "note": "Cela peut prendre quelques minutes selon la taille du monde. Ne fermez pas le panneau et ne quittez pas cette page."
   }
 }

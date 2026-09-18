@@ -2,7 +2,8 @@
   "permissions": {
     "noManage": "Gestionar copias de seguridad requiere el permiso backups.manage, del cual este rol no dispone.",
     "noRestore": "Restaurar una copia de seguridad requiere el permiso backups.restore, del cual este rol no dispone.",
-    "noDownload": "Descargar una copia de seguridad requiere el permiso backups.download, del cual este rol no dispone."
+    "noDownload": "Descargar una copia de seguridad requiere el permiso backups.download, del cual este rol no dispone.",
+    "restoreInProgress": "Ya hay una restauración en curso para este servidor. Espera a que termine antes de iniciar otra acción de copia de seguridad."
   },
   "pageHeader": {
     "title": "Copias de seguridad del mundo",
@@ -83,7 +84,8 @@
     "deleteSelected": "Eliminar ({{count}})",
     "deleteOlder": "Eliminar antiguas",
     "emptyTitle": "Sin red de seguridad",
-    "emptyDesc": "Crear una copia de seguridad antes de cambiar partidas guardadas, mods o ajustes del servidor: una sola actualización fallida puede hacer perder el progreso.",
+    "emptyDesc": "Crea una copia de seguridad ahora, o activa las copias programadas arriba, antes de cambiar partidas guardadas, mods o ajustes del servidor: una sola actualización fallida puede hacer perder el progreso.",
+    "emptyDescScheduled": "Las copias de seguridad programadas están activadas: la primera aparecerá aquí en cuanto se ejecute. Crea una ahora si no quieres esperar, antes de cambiar partidas guardadas, mods o ajustes del servidor.",
     "emptyAction": "Crear copia de seguridad",
     "selectAllLabel_one": "Seleccionar todo · {{count}} copia de seguridad",
     "selectAllLabel_other": "Seleccionar todo · {{count}} copias de seguridad",
@@ -199,6 +201,7 @@
   },
   "restoreProgress": {
     "title": "Restaurando {{name}}…",
+    "titleUnknown": "Ya hay una restauración en curso para este servidor…",
     "note": "Esto puede tardar unos minutos según el tamaño del mundo. No cierres el panel ni salgas de esta página."
   }
 }

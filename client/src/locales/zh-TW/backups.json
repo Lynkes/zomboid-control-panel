@@ -2,7 +2,8 @@
   "permissions": {
     "noManage": "管理備份需要 backups.manage 權限，而該角色沒有此權限。",
     "noRestore": "還原備份需要 backups.restore 權限，而該角色沒有此權限。",
-    "noDownload": "下載備份需要 backups.download 權限，而該角色沒有此權限。"
+    "noDownload": "下載備份需要 backups.download 權限，而該角色沒有此權限。",
+    "restoreInProgress": "此伺服器已有一個還原正在進行。請等它完成後再開始其他備份操作。"
   },
   "pageHeader": {
     "title": "伺服器備份管理",
@@ -82,7 +83,8 @@
     "deleteSelected": "刪除（{{count}}）",
     "deleteOlder": "刪除較舊備份",
     "emptyTitle": "沒有安全保障",
-    "emptyDesc": "在更改存檔、模組或伺服器設定前先建立備份——一次錯誤的更新就可能導致進度遺失。",
+    "emptyDesc": "現在建立一個備份，或在上方開啟排程備份，再更改存檔、模組或伺服器設定——一次錯誤的更新就可能導致進度遺失。",
+    "emptyDescScheduled": "排程備份已開啟——第一個備份執行後會顯示在這裡。若不想等待，現在就建立一個，再更改存檔、模組或伺服器設定。",
     "emptyAction": "建立備份",
     "selectAllLabel_one": "全選 · {{count}} 個備份",
     "selectAllLabel_other": "全選 · {{count}} 個備份",
@@ -193,6 +195,7 @@
   },
   "restoreProgress": {
     "title": "正在恢復 {{name}}…",
+    "titleUnknown": "此伺服器已有一個還原正在進行…",
     "note": "根據世界大小，可能需要幾分鐘。請勿關閉面板或離開此頁面。"
   }
 }

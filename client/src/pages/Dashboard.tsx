@@ -312,9 +312,19 @@ export default function Dashboard() {
     nextRun: { label: string; at: string } | null
     errorCount: number | null
     schedulerLoaded: boolean
+    // "no backups yet" (backupCount === 0) says nothing about a scheduler
+    // that HAS been running and failing every attempt (bad cron, unreachable
+    // backupsPath, disk full) -- lastBackup only ever updates on a success,
+    // so that case looked identical to a healthy one until now. Mirrors the
+    // exact same fields Backups.tsx's own statusCards already reads off
+    // BackupStatus (see that page's lastScheduledAttemptFailed), so this
+    // page's wording can't drift from that one's.
+    backupsEnabled: boolean
+    lastScheduledBackupAttempt: { success: boolean; message: string | null; executedAt: string } | null
   }>({
     lastBackup: null, backupCount: 0, modUpdatesAvailable: 0, modsTracked: 0,
     scheduledTasksCount: 0, nextRun: null, errorCount: null, schedulerLoaded: false,
+    backupsEnabled: false, lastScheduledBackupAttempt: null,
   })
 
   const initialLoadingRef = useRef(true)
@@ -606,6 +616,8 @@ export default function Dashboard() {
     setMaintenance(prev => ({
       lastBackup: backupRes.status === 'fulfilled' ? backupRes.value.lastBackup : prev.lastBackup,
       backupCount: backupRes.status === 'fulfilled' ? (backupRes.value.backupCount ?? 0) : prev.backupCount,
+      backupsEnabled: backupRes.status === 'fulfilled' ? !!backupRes.value.enabled : prev.backupsEnabled,
+      lastScheduledBackupAttempt: backupRes.status === 'fulfilled' ? (backupRes.value.lastScheduledBackupAttempt ?? null) : prev.lastScheduledBackupAttempt,
       modUpdatesAvailable: modsRes.status === 'fulfilled' ? ((modsRes.value as { updatesAvailable?: number }).updatesAvailable ?? 0) : prev.modUpdatesAvailable,
       modsTracked: modsRes.status === 'fulfilled' ? ((modsRes.value as { totalModsTracked?: number }).totalModsTracked ?? 0) : prev.modsTracked,
       scheduledTasksCount: tasksRes.status === 'fulfilled'
@@ -1179,6 +1191,25 @@ export default function Dashboard() {
         action: { label: t('verdict.reviewMods'), to: '/mods' },
       }
     }
+    // "No backups" (below) only fires on an empty archive -- it says nothing
+    // when the scheduler HAS produced backups before but every attempt since
+    // has been failing (bad cron target, unreachable backupsPath, disk
+    // full). lastBackup only ever updates on a success, so that failure was
+    // invisible here even though Backups.tsx's own status card already
+    // catches it (see BackupStatus.lastScheduledBackupAttempt's comment in
+    // lib/api.ts). Checked ahead of the empty-archive case: a specific "why
+    // it's failing" beats a generic "you have none yet" whenever both would
+    // otherwise be true at once.
+    if (maintenance.schedulerLoaded && !activeServer?.isRemote
+      && maintenance.backupsEnabled && maintenance.lastScheduledBackupAttempt
+      && !maintenance.lastScheduledBackupAttempt.success) {
+      return {
+        level: 'warning',
+        headline: t('verdict.backupAttemptFailing'),
+        detail: maintenance.lastScheduledBackupAttempt.message || undefined,
+        action: { label: t('verdict.reviewBackups'), to: '/backups' },
+      }
+    }
     /* Game errors are reported by the Errors row, which is already coloured by
        severity. Repeating the count here would say the same thing twice. */
     if (maintenance.schedulerLoaded && maintenance.backupCount === 0 && !activeServer?.isRemote) {
@@ -1197,11 +1228,19 @@ export default function Dashboard() {
   })()
 
   /* Readiness numbers live on the thing you act on, not in a read-only panel. */
-  const backupState = maintenance.lastBackup
-    ? t('workItems.backupsStoredLast', { count: maintenance.backupCount, age: formatAge(t, maintenance.lastBackup.created) })
-    : maintenance.backupCount > 0
-      ? t('workItems.backupsStored', { count: maintenance.backupCount })
-      : t('workItems.backupsNoneYet')
+  // Same condition as the verdict's own backup-attempt-failing case above --
+  // an active scheduler failure outranks even a healthy-looking stored count,
+  // since a past success doesn't mean the NEXT scheduled attempt will land.
+  const backupAttemptFailed = Boolean(
+    maintenance.backupsEnabled && maintenance.lastScheduledBackupAttempt && !maintenance.lastScheduledBackupAttempt.success,
+  )
+  const backupState = backupAttemptFailed && maintenance.lastScheduledBackupAttempt
+    ? t('workItems.backupsAttemptFailed', { age: formatAge(t, maintenance.lastScheduledBackupAttempt.executedAt) })
+    : maintenance.lastBackup
+      ? t('workItems.backupsStoredLast', { count: maintenance.backupCount, age: formatAge(t, maintenance.lastBackup.created) })
+      : maintenance.backupCount > 0
+        ? t('workItems.backupsStored', { count: maintenance.backupCount })
+        : t('workItems.backupsNoneYet')
 
   /* A count of tasks is trivia. The next time something will happen is the
      thing that decides whether you can walk away from the server. */
@@ -1255,7 +1294,7 @@ export default function Dashboard() {
       id: 'backups',
       to: '/backups', icon: Archive, label: t('workItems.backups'),
       state: backupState,
-      tone: maintenance.backupCount === 0 ? 'warning' : 'good',
+      tone: backupAttemptFailed ? 'bad' : maintenance.backupCount === 0 ? 'warning' : 'good',
     },
     { id: 'config', to: '/server-config', icon: Server, label: t('workItems.config') },
   ]
@@ -1484,7 +1523,18 @@ export default function Dashboard() {
                   <RotateCcw className="h-3.5 w-3.5" /> {t('actions.restart')}
                 </Button>
               </DisabledReason>
-              <DisabledReason reason={!canControlServer ? t('actions.noPermissionControl') : null}>
+              <DisabledReason reason={
+                !canControlServer ? t('actions.noPermissionControl')
+                // Save sends its command over RCON (serverApi.save) -- the
+                // button's disabled= already accounted for !rconConnected,
+                // but until now nothing explained it, unlike every other
+                // disabled control on this page (see DisabledReason's own
+                // contract). An operator watching the RCON connection line
+                // above go red had no way to connect that to this button
+                // going grey without already knowing the internals.
+                : !rconConnected ? t('actions.saveNeedsRcon')
+                : null
+              }>
                 <Button
                   onClick={saveWorld}
                   disabled={loading !== null || !rconConnected || !canControlServer}

@@ -1315,8 +1315,8 @@ export default function Servers() {
     // to back out. Reversible (start it again anytime), so this stays a
     // plain, non-destructive-styled confirm rather than full alarm styling.
     const ok = await confirm({
-      title: t('card.stopConfirmTitle'),
-      description: t('card.stopConfirmDescription'),
+      title: t('card.stopConfirmTitle', { name: server.name || server.serverName }),
+      description: t('card.stopConfirmDescription', { name: server.name || server.serverName }),
       confirmLabel: t('card.stop'),
       destructive: false,
     })
@@ -2269,7 +2269,7 @@ export default function Servers() {
                                 // here despite the ghost/icon-only styling everywhere else
                                 // on this row.
                                 const ok = await confirm({
-                                  title: t('card.stopContainerConfirmTitle'),
+                                  title: t('card.stopContainerConfirmTitle', { name: container.name }),
                                   description: t('card.stopContainerConfirmDescription', { name: container.name }),
                                   confirmLabel: t('card.stopContainer'),
                                 })
@@ -2285,7 +2285,23 @@ export default function Servers() {
                           <DisabledReason reason={!canDockerManage ? t('card.noPermissionDocker') : null}>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <Button size="iconDense" variant="ghost" disabled={pending || !canDockerManage} onClick={() => handleDockerAction(container, 'restart')} aria-label={t('card.restartContainerAria', { name: container.name })}>
+                              <Button size="iconDense" variant="ghost" disabled={pending || !canDockerManage} onClick={async () => {
+                                // Same disruption tier as Stop above (RCON save, then
+                                // Docker SIGTERM-then-SIGKILL) -- the container comes
+                                // back up on its own afterward, so this isn't styled
+                                // destructive-red like Stop, but connected players are
+                                // still kicked mid-restart. Before this, Restart was
+                                // the one action on this row a misclick fired with zero
+                                // confirmation, unlike its Start/Stop neighbours.
+                                const ok = await confirm({
+                                  title: t('card.restartContainerConfirmTitle', { name: container.name }),
+                                  description: t('card.restartContainerConfirmDescription', { name: container.name }),
+                                  confirmLabel: t('card.restartContainer'),
+                                  destructive: false,
+                                })
+                                if (!ok) return
+                                handleDockerAction(container, 'restart')
+                              }} aria-label={t('card.restartContainerAria', { name: container.name })}>
                                 {dockerActionPending === `restart-${container.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
                               </Button>
                             </TooltipTrigger>

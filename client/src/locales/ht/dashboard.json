@@ -105,7 +105,8 @@
     "noPermissionControl": "Wòl ou pa gen pèmisyon pou kontwole sèvè a.",
     "noPermissionWipe": "Wòl ou pa gen pèmisyon pou efase mond lan.",
     "noPermissionAutoStart": "Wòl ou pa gen pèmisyon pou chanje paramèt démarrage otomatik la.",
-    "wipeMustStopFirst": "Sispann sèvè a anvan ou efase l."
+    "wipeMustStopFirst": "Sispann sèvè a anvan ou efase l.",
+    "saveNeedsRcon": "Konekte RCON pou sove mond lan."
   },
   "confirm": {
     "cancel": "Anile",
@@ -164,7 +165,9 @@
     "modUpdatesWaiting_one": "{{count}} mizajou mod ap tann",
     "modUpdatesWaiting_other": "{{count}} mizajou mod ap tann",
     "reviewMods": "Egzamine mods",
-    "noBackups": "Pa gen kopi sovgad"
+    "noBackups": "Pa gen kopi sovgad",
+    "backupAttemptFailing": "Kopi sovgad pwograme a echwe",
+    "reviewBackups": "Egzamine kopi sovgad"
   },
   "panelUpdateBanner": {
     "applyFailed": "Aplikasyon echwe",
@@ -287,6 +290,7 @@
     "backupsStored_other": "{{count}} sere",
     "backupsStoredLast_one": "{{count}} sere, dènye {{age}}",
     "backupsStoredLast_other": "{{count}} sere, dènye {{age}}",
+    "backupsAttemptFailed": "tantativ echwe, {{age}}",
     "scheduleNoneActive": "okenn aktif",
     "scheduleActive_one": "{{count}} aktif",
     "scheduleActive_other": "{{count}} aktif"

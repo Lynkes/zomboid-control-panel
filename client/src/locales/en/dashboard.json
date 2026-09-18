@@ -105,7 +105,8 @@
     "noPermissionControl": "Your role doesn't have permission to control the server.",
     "noPermissionWipe": "Your role doesn't have permission to wipe the world.",
     "noPermissionAutoStart": "Your role doesn't have permission to change auto-start settings.",
-    "wipeMustStopFirst": "Stop the server before wiping."
+    "wipeMustStopFirst": "Stop the server before wiping.",
+    "saveNeedsRcon": "Connect RCON to save the world."
   },
   "confirm": {
     "cancel": "Cancel",
@@ -164,7 +165,9 @@
     "modUpdatesWaiting_one": "{{count}} mod update waiting",
     "modUpdatesWaiting_other": "{{count}} mod updates waiting",
     "reviewMods": "Review mods",
-    "noBackups": "No backups"
+    "noBackups": "No backups",
+    "backupAttemptFailing": "Scheduled backup failing",
+    "reviewBackups": "Review backups"
   },
   "panelUpdateBanner": {
     "applyFailed": "Apply failed",
@@ -287,6 +290,7 @@
     "backupsStored_other": "{{count}} stored",
     "backupsStoredLast_one": "{{count}} stored, last {{age}}",
     "backupsStoredLast_other": "{{count}} stored, last {{age}}",
+    "backupsAttemptFailed": "attempt failed, {{age}}",
     "scheduleNoneActive": "none active",
     "scheduleActive_one": "{{count}} active",
     "scheduleActive_other": "{{count}} active"

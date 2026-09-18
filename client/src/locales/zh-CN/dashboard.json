@@ -105,7 +105,8 @@
     "noPermissionControl": "您的角色没有控制服务器的权限。",
     "noPermissionWipe": "您的角色没有清除世界的权限。",
     "noPermissionAutoStart": "您的角色没有更改自动启动设置的权限。",
-    "wipeMustStopFirst": "请先停止服务器再清除。"
+    "wipeMustStopFirst": "请先停止服务器再清除。",
+    "saveNeedsRcon": "连接 RCON 才能保存世界。"
   },
   "confirm": {
     "cancel": "取消",
@@ -164,7 +165,9 @@
     "modUpdatesWaiting_one": "{{count}} 个模组更新待处理",
     "modUpdatesWaiting_other": "{{count}} 个模组更新待处理",
     "reviewMods": "查看模组",
-    "noBackups": "暂无备份"
+    "noBackups": "暂无备份",
+    "backupAttemptFailing": "计划备份失败",
+    "reviewBackups": "查看备份"
   },
   "panelUpdateBanner": {
     "applyFailed": "应用失败",
@@ -287,6 +290,7 @@
     "backupsStored_other": "已存储 {{count}} 个",
     "backupsStoredLast_one": "已存储 {{count}} 个，最近 {{age}}",
     "backupsStoredLast_other": "已存储 {{count}} 个，最近 {{age}}",
+    "backupsAttemptFailed": "尝试失败，{{age}}",
     "scheduleNoneActive": "无生效任务",
     "scheduleActive_one": "{{count}} 个生效中",
     "scheduleActive_other": "{{count}} 个生效中"

@@ -2,7 +2,8 @@
   "permissions": {
     "noManage": "Managing backups requires the backups.manage permission, which this role doesn't have.",
     "noRestore": "Restoring a backup requires the backups.restore permission, which this role doesn't have.",
-    "noDownload": "Downloading a backup requires the backups.download permission, which this role doesn't have."
+    "noDownload": "Downloading a backup requires the backups.download permission, which this role doesn't have.",
+    "restoreInProgress": "A restore is already running for this server. Wait for it to finish before starting another backup action."
   },
   "pageHeader": {
     "title": "World Backups",
@@ -75,6 +76,7 @@
   },
   "restoreProgress": {
     "title": "Restoring {{name}}…",
+    "titleUnknown": "A restore is already in progress for this server…",
     "note": "This can take a few minutes depending on world size. Don't close the panel or navigate away."
   },
   "mainCard": {
@@ -86,7 +88,8 @@
     "deleteSelected": "Delete ({{count}})",
     "deleteOlder": "Delete Older",
     "emptyTitle": "No safety net",
-    "emptyDesc": "Create a backup before changing saves, mods, or server settings — one bad update away from lost progress.",
+    "emptyDesc": "Create a backup now, or turn on scheduled backups above, before changing saves, mods, or server settings — one bad update away from lost progress.",
+    "emptyDescScheduled": "Scheduled backups are on — the first one will appear here once it runs. Create one now instead of waiting, before changing saves, mods, or server settings.",
     "emptyAction": "Create Backup",
     "selectAllLabel_one": "Select all · {{count}} backup",
     "selectAllLabel_other": "Select all · {{count}} backups",

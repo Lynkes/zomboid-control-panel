@@ -143,7 +143,8 @@
     "noPermissionControl": "Ваша роль не має дозволу керувати сервером.",
     "noPermissionWipe": "Ваша роль не має дозволу очищати світ.",
     "noPermissionAutoStart": "Ваша роль не має дозволу змінювати налаштування автозапуску.",
-    "wipeMustStopFirst": "Зупиніть сервер перед очищенням."
+    "wipeMustStopFirst": "Зупиніть сервер перед очищенням.",
+    "saveNeedsRcon": "Підключіть RCON, щоб зберегти світ."
   },
   "confirm": {
     "cancel": "Скасувати",
@@ -242,6 +243,8 @@
     "modUpdatesWaiting_other": "{{count}} оновлень модів очікують",
     "reviewMods": "Переглянути моди",
     "noBackups": "Немає резервних копій",
+    "backupAttemptFailing": "Заплановане резервне копіювання не вдається",
+    "reviewBackups": "Переглянути резервні копії",
     "modUpdatesWaiting_few": "{{count}} оновлень модів очікують",
     "modUpdatesWaiting_many": "{{count}} оновлень модів очікують"
   },
@@ -368,6 +371,7 @@
     "backupsStored_other": "{{count}} збережено",
     "backupsStoredLast_one": "{{count}} збережено, остання {{age}}",
     "backupsStoredLast_other": "{{count}} збережено, остання {{age}}",
+    "backupsAttemptFailed": "спроба невдала, {{age}}",
     "scheduleNoneActive": "немає активних",
     "scheduleActive_one": "{{count}} активне",
     "scheduleActive_other": "{{count}} активних",
