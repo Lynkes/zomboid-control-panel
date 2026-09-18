@@ -1,4 +1,11 @@
 {
+  "permissions": {
+    "noPanelSettings": "Sovgade paramèt sa yo mande pèmisyon panel.settings, ke wòl sa a pa genyen.",
+    "noDiagnosticsManage": "Aksyon sa a mande pèmisyon diagnostics.manage, ke wòl sa a pa genyen.",
+    "noServerConfigure": "Teste koneksyon RCON mande pèmisyon server.configure, ke wòl sa a pa genyen.",
+    "noBridgeSetup": "Aksyon sa a mande pèmisyon bridge.setup, ke wòl sa a pa genyen.",
+    "adminOnly": "Aksyon sa a rezève pou wòl administratè a."
+  },
   "ariaLabels": {
     "allowPrivateLan": "Otorize orijin prive ak LAN",
     "enablePublicIp": "Aktive rechèch adrès IP piblik",

@@ -104,6 +104,7 @@
     "connectRconNeedsHostRunning": "Zuerst den Server starten",
     "noPermissionControl": "Ihre Rolle hat keine Berechtigung, den Server zu steuern.",
     "noPermissionWipe": "Ihre Rolle hat keine Berechtigung, die Welt zu löschen.",
+    "noPermissionAutoStart": "Deine Rolle hat keine Berechtigung, die Autostart-Einstellung zu ändern.",
     "wipeMustStopFirst": "Stoppen Sie den Server, bevor Sie ihn löschen."
   },
   "confirm": {

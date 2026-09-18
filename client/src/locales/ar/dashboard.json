@@ -178,6 +178,7 @@
     "connectRconNeedsHostRunning": "شغّل الخادم أولًا",
     "noPermissionControl": "دورك لا يملك صلاحية التحكّم في الخادم.",
     "noPermissionWipe": "دورك لا يملك صلاحية مسح العالم.",
+    "noPermissionAutoStart": "لا يملك دورك إذنًا لتغيير إعدادات البدء التلقائي.",
     "wipeMustStopFirst": "أوقف الخادم قبل المسح."
   },
   "confirm": {

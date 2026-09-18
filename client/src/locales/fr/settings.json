@@ -1,4 +1,11 @@
 {
+  "permissions": {
+    "noPanelSettings": "L'enregistrement de ces paramètres nécessite la permission panel.settings, que ce rôle n'a pas.",
+    "noDiagnosticsManage": "Cette action nécessite la permission diagnostics.manage, que ce rôle n'a pas.",
+    "noServerConfigure": "Tester la connexion RCON nécessite la permission server.configure, que ce rôle n'a pas.",
+    "noBridgeSetup": "Cette action nécessite la permission bridge.setup, que ce rôle n'a pas.",
+    "adminOnly": "Cette action est réservée au rôle administrateur."
+  },
   "ariaLabels": {
     "allowPrivateLan": "Autoriser les origines privées et LAN",
     "enablePublicIp": "Activer la recherche d'IP publique",

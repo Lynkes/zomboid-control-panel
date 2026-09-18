@@ -380,6 +380,11 @@ export default function Dashboard() {
   // convention as every other capability check in the app.
   const canControlServer = can('server.control')
   const canWipeServer = can('server.wipe')
+  // pz-bughunt round 19 (client-vs-server permission gate sweep): PUT
+  // /config/app-settings (handleAutoStartChange below) is gated
+  // panel.settings server-side -- this checkbox had no client-side check
+  // at all, unlike the wipe/control actions above.
+  const canChangePanelSettings = can('panel.settings')
 
   /* ---------------------------- effects ----------------------------------- */
   useEffect(() => { initialLoadingRef.current = initialLoading }, [initialLoading])
@@ -615,6 +620,7 @@ export default function Dashboard() {
   }, [])
 
   const handleAutoStartChange = async (checked: boolean) => {
+    if (!canChangePanelSettings) return
     setAutoStartServer(checked)
     try {
       await configApi.updateAppSettings({ autoStartServer: checked })
@@ -2053,11 +2059,14 @@ export default function Dashboard() {
                   </Button>
                 </DisabledReason>
                 <label className="mt-1 flex cursor-pointer items-center gap-2 border-t border-border/30 px-1 pt-2">
-                  <Checkbox
-                    id="autoStartServer"
-                    checked={autoStartServer}
-                    onCheckedChange={(checked) => handleAutoStartChange(checked === true)}
-                  />
+                  <DisabledReason reason={!canChangePanelSettings ? t('actions.noPermissionAutoStart') : null}>
+                    <Checkbox
+                      id="autoStartServer"
+                      checked={autoStartServer}
+                      disabled={!canChangePanelSettings}
+                      onCheckedChange={(checked) => handleAutoStartChange(checked === true)}
+                    />
+                  </DisabledReason>
                   <Label htmlFor="autoStartServer" className="cursor-pointer text-[11px] text-muted-foreground">
                     {t('maintenance.autoStartLabel')}
                   </Label>

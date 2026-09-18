@@ -25,6 +25,7 @@ import {
 
 let mockCanControl = true
 let mockCanWipe = true
+let mockCanPanelSettings = true
 
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({
@@ -38,6 +39,7 @@ vi.mock('@/contexts/AuthContext', () => ({
     can: (capability: string) => {
       if (capability === 'server.control') return mockCanControl
       if (capability === 'server.wipe') return mockCanWipe
+      if (capability === 'panel.settings') return mockCanPanelSettings
       return true
     },
   }),
@@ -211,6 +213,35 @@ afterEach(() => {
   vi.clearAllMocks()
   mockCanControl = true
   mockCanWipe = true
+  mockCanPanelSettings = true
+})
+
+// pz-bughunt round 19 (client-vs-server permission gate sweep): PUT
+// /config/app-settings (handleAutoStartChange) is gated panel.settings
+// server-side -- this checkbox had no client-side capability check at all,
+// unlike Start/Stop/Wipe above (an earlier round already fixed those).
+describe('Dashboard.tsx: Auto-start on launch is gated on panel.settings', () => {
+  it('disables the checkbox and never calls updateAppSettings when the role lacks panel.settings', async () => {
+    mockCanPanelSettings = false
+    await setUpCommon()
+    const offline = makeServer()
+    getResolvedActive.mockResolvedValue({ server: offline })
+    getStatus.mockResolvedValue({
+      running: false, startTime: null, uptime: 0, serverPath: 'C:/servers/ashenwood',
+      serverPathConfigured: true, rcon: { host: '', port: 0, connected: false },
+    } as Awaited<ReturnType<typeof serverApi.getStatus>>)
+
+    renderDashboard()
+
+    await screen.findAllByRole('button', { name: 'Start' })
+    const checkbox = document.getElementById('autoStartServer')
+    expect(checkbox).toBeInTheDocument()
+    expect(checkbox).toBeDisabled()
+
+    fireEvent.click(checkbox!)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(updateAppSettings).not.toHaveBeenCalled()
+  })
 })
 
 describe('Dashboard.tsx: Start is gated on server.control at BOTH of its entry points', () => {

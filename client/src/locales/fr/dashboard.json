@@ -105,6 +105,7 @@
     "connectRconNeedsHostRunning": "Démarrez d'abord le serveur",
     "noPermissionControl": "Votre rôle n'a pas la permission de contrôler le serveur.",
     "noPermissionWipe": "Votre rôle n'a pas la permission d'effacer le monde.",
+    "noPermissionAutoStart": "Votre rôle n'a pas la permission de modifier le démarrage automatique.",
     "wipeMustStopFirst": "Arrêtez le serveur avant d'effacer."
   },
   "confirm": {

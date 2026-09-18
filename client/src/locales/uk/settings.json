@@ -1,4 +1,11 @@
 {
+  "permissions": {
+    "noPanelSettings": "Щоб зберегти ці налаштування, потрібен дозвіл panel.settings, якого ця роль не має.",
+    "noDiagnosticsManage": "Ця дія потребує дозволу diagnostics.manage, якого ця роль не має.",
+    "noServerConfigure": "Щоб перевірити з'єднання RCON, потрібен дозвіл server.configure, якого ця роль не має.",
+    "noBridgeSetup": "Ця дія потребує дозволу bridge.setup, якого ця роль не має.",
+    "adminOnly": "Ця дія доступна лише для ролі адміністратора."
+  },
   "__pendingPluralForms": [
     "backups.backupsStored_few",
     "backups.backupsStored_many",

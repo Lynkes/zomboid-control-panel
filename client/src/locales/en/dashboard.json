@@ -104,6 +104,7 @@
     "connectRconNeedsHostRunning": "Start the server first",
     "noPermissionControl": "Your role doesn't have permission to control the server.",
     "noPermissionWipe": "Your role doesn't have permission to wipe the world.",
+    "noPermissionAutoStart": "Your role doesn't have permission to change auto-start settings.",
     "wipeMustStopFirst": "Stop the server before wiping."
   },
   "confirm": {

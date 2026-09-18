@@ -420,6 +420,21 @@ export default function Settings() {
   const [applyRiskConfirmed, setApplyRiskConfirmed] = useState(false);
   const { toast } = useToast();
   const { user, authEnabled, logout, can } = useAuth();
+  // pz-bughunt round 19 (client-vs-server permission gate sweep): this
+  // whole page had almost no client-side capability check at all -- every
+  // one of these controls' server routes were already gated (confirmed by
+  // reading each route's own requirePermission()/requireRole() call), but
+  // the client showed every control fully enabled to any authenticated
+  // user regardless of role, so a role missing the capability only found
+  // out via a 403 after clicking. Same fix idiom as Console.tsx's Recheck
+  // button this same round: const declared once, checked in the handler
+  // (the real gate) AND passed to DisabledReason + disabled= (the
+  // affordance). Grouped here since several controls below share a
+  // capability.
+  const canSavePanelSettings = can("panel.settings"); // General Save, and WorkshopCollectionSyncCard's cookie persistCookies (same route, PUT /config/app-settings)
+  const canManageDiagnostics = can("diagnostics.manage"); // Access tab: Reload CORS Rules, Clear Blocked Log
+  const canConfigureServerSettings = can("server.configure"); // Connection tab: Test (RCON recheck)
+  const canSetupBridge = can("bridge.setup"); // Bridge tab: every write action on it
 
   // Change password state
   const [currentPassword, setCurrentPassword] = useState("");
@@ -1061,6 +1076,7 @@ export default function Settings() {
   };
 
   const handleSave = async () => {
+    if (!canSavePanelSettings) return;
     if (!isValidPort(Number(settings.panelPort))) {
       toast({
         title: t("toasts.invalidPanelPort.title"),
@@ -1129,6 +1145,7 @@ export default function Settings() {
   );
 
   const handleReloadCorsRules = async () => {
+    if (!canManageDiagnostics) return;
     setCorsUpdating(true);
     try {
       const data = await configApi.reloadCorsDiagnostics();
@@ -1151,6 +1168,7 @@ export default function Settings() {
   };
 
   const handleClearCorsBlocked = async () => {
+    if (!canManageDiagnostics) return;
     setCorsUpdating(true);
     try {
       const data = await configApi.clearCorsBlockedOrigins();
@@ -1236,6 +1254,12 @@ export default function Settings() {
 
   const restartPanelWithReconnect = useCallback(
     async (description: string, expectedVersion?: string | null) => {
+      // pz-bughunt round 19: POST /api/panel/restart is requireRole("admin")
+      // server-side -- guarded once here since this function has 3 call
+      // sites (General tab's own restart button, and both Updates-tab
+      // apply-update flows), catching all of them (and any future one)
+      // instead of relying on each call site to remember its own check.
+      if (user?.role !== "admin") return;
       setRestarting(true);
       setRestartWaitFailed(false);
       try {
@@ -1269,7 +1293,7 @@ export default function Settings() {
         });
       }
     },
-    [toast, t, pollForPanelReconnect],
+    [toast, t, pollForPanelReconnect, user],
   );
 
   // "Check again" on the hasn't-come-back message: does NOT re-POST
@@ -1334,6 +1358,13 @@ export default function Settings() {
   };
 
   const handleDownloadPanelUpdate = async () => {
+    // pz-bughunt round 19: POST /api/panel/update-download is gated
+    // requireRole("admin") server-side, not a named capability -- no
+    // can('...') equivalent exists for a role check, so this follows the
+    // same role === "admin" convention this file already uses for its
+    // Security tab's own admin-only card (regenerateJwt), rather than
+    // inventing a new mechanism.
+    if (user?.role !== "admin") return;
     if (!panelUpdateStatus?.updateAvailable) {
       toast({
         title: t("toasts.noUpdateAvailable.title"),
@@ -1526,6 +1557,7 @@ export default function Settings() {
   }, [socket, toast, fetchPanelUpdateStatus, t]);
 
   const handleTestRcon = async () => {
+    if (!canConfigureServerSettings) return;
     setTestingRcon(true);
     try {
       await configApi.testRcon();
@@ -1636,6 +1668,7 @@ export default function Settings() {
 
   // Install PanelBridge mod to selected server
   const handleInstallMod = async () => {
+    if (!canSetupBridge) return;
     if (!selectedInstallServerId) {
       toast({
         title: t("toasts.selectServer.title"),
@@ -2112,6 +2145,7 @@ export default function Settings() {
 
   // Auto-configure from active server settings (one-click setup)
   const handleAutoConfigure = async () => {
+    if (!canSetupBridge) return;
     setBridgeLoading(true);
     setBridgeError(null);
     try {
@@ -2136,6 +2170,7 @@ export default function Settings() {
   };
 
   const handleStopBridge = async () => {
+    if (!canSetupBridge) return;
     setBridgeLoading(true);
     try {
       await panelBridgeApi.stop();
@@ -2158,6 +2193,7 @@ export default function Settings() {
   };
 
   const handleManualConfigure = async () => {
+    if (!canSetupBridge) return;
     const trimmed = manualBridgePath.trim();
     if (!trimmed) return;
     setBridgeLoading(true);
@@ -2193,6 +2229,7 @@ export default function Settings() {
   });
 
   const handleListRemoteLogs = async () => {
+    if (!canSetupBridge) return;
     setLoadingRemoteLogs(true);
     setRemoteLogError(null);
     try {
@@ -2215,6 +2252,7 @@ export default function Settings() {
   };
 
   const handleCheckRemoteConfig = async () => {
+    if (!canSetupBridge) return;
     setLoadingRemoteConfig(true);
     setRemoteConfigError(null);
     try {
@@ -2237,6 +2275,7 @@ export default function Settings() {
   };
 
   const handleTailRemoteLog = async (name: string) => {
+    if (!canSetupBridge) return;
     setLoadingRemoteLogs(true);
     setRemoteLogError(null);
     try {
@@ -2262,6 +2301,7 @@ export default function Settings() {
   };
 
   const handleTestSftp = async () => {
+    if (!canSetupBridge) return;
     setTestingSftp(true);
     try {
       const result = await panelBridgeApi.testSftp(sftpConfig());
@@ -2278,6 +2318,7 @@ export default function Settings() {
   };
 
   const handleConfigureSftp = async () => {
+    if (!canSetupBridge) return;
     setBridgeLoading(true);
     setBridgeError(null);
     try {
@@ -2684,20 +2725,22 @@ export default function Settings() {
                 </p>
               </div>
             </div>
-            <Button
-              onClick={handleSave}
-              disabled={saving || Boolean(corsOriginValidationError)}
-              size="sm"
-              variant="warning"
-              className="self-start gap-2 sm:self-auto"
-            >
-              {saving ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Save className="h-4 w-4" />
-              )}
-              {t("unsavedBanner.saveButton")}
-            </Button>
+            <DisabledReason reason={!canSavePanelSettings ? t("permissions.noPanelSettings") : null}>
+              <Button
+                onClick={handleSave}
+                disabled={saving || Boolean(corsOriginValidationError) || !canSavePanelSettings}
+                size="sm"
+                variant="warning"
+                className="self-start gap-2 sm:self-auto"
+              >
+                {saving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                {t("unsavedBanner.saveButton")}
+              </Button>
+            </DisabledReason>
           </div>
         </div>
       )}
@@ -2742,10 +2785,11 @@ export default function Settings() {
         tone="config"
         icon={<Settings2 className="w-5 h-5" />}
         actions={
+          <DisabledReason reason={!canSavePanelSettings ? t("permissions.noPanelSettings") : null}>
           <Button
             variant="command"
             onClick={handleSave}
-            disabled={saving || !isDirty || Boolean(corsOriginValidationError)}
+            disabled={saving || !isDirty || Boolean(corsOriginValidationError) || !canSavePanelSettings}
             size="lg"
             className="w-full sm:w-auto gap-2"
           >
@@ -2760,6 +2804,7 @@ export default function Settings() {
                 ? t("saveButton.save")
                 : t("saveButton.noChanges")}
           </Button>
+          </DisabledReason>
         }
       />
 
@@ -2870,7 +2915,12 @@ export default function Settings() {
                     <AlertDialogTrigger asChild>
                       <Button
                         variant="outline"
-                        disabled={restarting || isDirty}
+                        disabled={restarting || isDirty || user?.role !== "admin"}
+                        // pz-bughunt round 19: same requireRole("admin")
+                        // route as the Updates tab's own restart action --
+                        // not wrapped in DisabledReason for the same
+                        // AlertDialogTrigger-asChild ref-forwarding reason.
+                        title={user?.role !== "admin" ? t("permissions.adminOnly") : undefined}
                         className="gap-2"
                       >
                         {restarting ? (
@@ -3143,25 +3193,28 @@ export default function Settings() {
                   )}
 
                   <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleReloadCorsRules}
-                      disabled={
-                        corsUpdating ||
-                        saving ||
-                        Boolean(corsOriginValidationError)
-                      }
-                      className="gap-2"
-                    >
-                      {corsUpdating ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <RefreshCw className="w-4 h-4" />
-                      )}
-                      {t("access.reloadRulesButton")}
-                    </Button>
+                    <DisabledReason reason={!canManageDiagnostics ? t("permissions.noDiagnosticsManage") : null}>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleReloadCorsRules}
+                        disabled={
+                          corsUpdating ||
+                          saving ||
+                          Boolean(corsOriginValidationError) ||
+                          !canManageDiagnostics
+                        }
+                        className="gap-2"
+                      >
+                        {corsUpdating ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="w-4 h-4" />
+                        )}
+                        {t("access.reloadRulesButton")}
+                      </Button>
+                    </DisabledReason>
                     <Button
                       type="button"
                       variant="ghost"
@@ -3175,17 +3228,19 @@ export default function Settings() {
                       />
                       {t("access.refreshDiagnosticsButton")}
                     </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleClearCorsBlocked}
-                      disabled={corsUpdating || !corsDiagnostics?.blockedCount}
-                      className="gap-2 text-muted-foreground"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      {t("access.clearBlockedLogButton")}
-                    </Button>
+                    <DisabledReason reason={!canManageDiagnostics ? t("permissions.noDiagnosticsManage") : null}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleClearCorsBlocked}
+                        disabled={corsUpdating || !corsDiagnostics?.blockedCount || !canManageDiagnostics}
+                        className="gap-2 text-muted-foreground"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        {t("access.clearBlockedLogButton")}
+                      </Button>
+                    </DisabledReason>
                   </div>
 
                   <div className="grid gap-3 text-xs sm:grid-cols-3">
@@ -3693,8 +3748,18 @@ export default function Settings() {
                               checkingPanelUpdate ||
                               downloadingPanelUpdate ||
                               restarting ||
-                              panelUpdatePreflight?.ok === false
+                              panelUpdatePreflight?.ok === false ||
+                              user?.role !== "admin"
                             }
+                            // Not wrapped in DisabledReason here -- it renders a
+                            // Tooltip, and nesting that between
+                            // AlertDialogTrigger's own asChild and this Button
+                            // breaks the ref Radix needs to forward (same
+                            // conflict the round-19 Console.tsx/Events.tsx fix
+                            // already worked around for a shared Tooltip
+                            // trigger). A plain title carries the reason
+                            // instead.
+                            title={user?.role !== "admin" ? t("permissions.adminOnly") : undefined}
                             className="gap-2"
                           >
                             {downloadingPanelUpdate ? (
@@ -3730,24 +3795,27 @@ export default function Settings() {
                         </AlertDialogContent>
                       </AlertDialog>
                     ) : (
-                      <Button
-                        onClick={handleDownloadPanelUpdate}
-                        disabled={
-                          !panelUpdateStatus?.updateAvailable ||
-                          checkingPanelUpdate ||
-                          downloadingPanelUpdate ||
-                          restarting ||
-                          panelUpdatePreflight?.ok === false
-                        }
-                        className="gap-2"
-                      >
-                        {downloadingPanelUpdate ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Download className="w-4 h-4" />
-                        )}
-                        {downloadingPanelUpdate ? t("updates.downloadingButton") : t("updates.downloadUpdateButton")}
-                      </Button>
+                      <DisabledReason reason={user?.role !== "admin" ? t("permissions.adminOnly") : null}>
+                        <Button
+                          onClick={handleDownloadPanelUpdate}
+                          disabled={
+                            !panelUpdateStatus?.updateAvailable ||
+                            checkingPanelUpdate ||
+                            downloadingPanelUpdate ||
+                            restarting ||
+                            panelUpdatePreflight?.ok === false ||
+                            user?.role !== "admin"
+                          }
+                          className="gap-2"
+                        >
+                          {downloadingPanelUpdate ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Download className="w-4 h-4" />
+                          )}
+                          {downloadingPanelUpdate ? t("updates.downloadingButton") : t("updates.downloadUpdateButton")}
+                        </Button>
+                      </DisabledReason>
                     )}
 
                     {!isDockerPanelUpdate && <AlertDialog
@@ -3766,8 +3834,15 @@ export default function Settings() {
                             isDirty ||
                             downloadingPanelUpdate ||
                             Boolean(panelUpdateStatus?.isDownloading) ||
-                            panelUpdatePreflight?.ok === false
+                            panelUpdatePreflight?.ok === false ||
+                            user?.role !== "admin"
                           }
+                          // pz-bughunt round 19: POST /api/panel/restart is
+                          // also requireRole("admin") server-side -- not
+                          // wrapped in DisabledReason for the same
+                          // AlertDialogTrigger-asChild ref-forwarding reason
+                          // as the Download/Apply button above.
+                          title={user?.role !== "admin" ? t("permissions.adminOnly") : undefined}
                           className="gap-2"
                         >
                           {restarting ? (
@@ -3843,13 +3918,14 @@ export default function Settings() {
                         <AlertDialogFooter>
                           <AlertDialogCancel>{t("updates.cancel")}</AlertDialogCancel>
                           <AlertDialogAction
-                            disabled={updateRestartIsRisky && !applyRiskConfirmed}
-                            onClick={() =>
+                            disabled={(updateRestartIsRisky && !applyRiskConfirmed) || user?.role !== "admin"}
+                            onClick={() => {
+                              if (user?.role !== "admin") return;
                               restartPanelWithReconnect(
                                 t("updates.applyingDownloadedToast"),
                                 panelUpdateStatus?.stagedUpdate?.version,
-                              )
-                            }
+                              );
+                            }}
                           >
                             {t("updates.restartAndApply")}
                           </AlertDialogAction>
@@ -4084,17 +4160,19 @@ export default function Settings() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                  <Button
-                    variant="outline"
-                    onClick={handleTestRcon}
-                    disabled={testingRcon}
-                    className="w-full sm:w-auto"
-                  >
-                    {testingRcon ? (
-                      <Loader2 className="w-4 h-4 me-2 animate-spin" />
-                    ) : null}
-                    {t("connection.testButton")}
-                  </Button>
+                  <DisabledReason reason={!canConfigureServerSettings ? t("permissions.noServerConfigure") : null}>
+                    <Button
+                      variant="outline"
+                      onClick={handleTestRcon}
+                      disabled={testingRcon || !canConfigureServerSettings}
+                      className="w-full sm:w-auto"
+                    >
+                      {testingRcon ? (
+                        <Loader2 className="w-4 h-4 me-2 animate-spin" />
+                      ) : null}
+                      {t("connection.testButton")}
+                    </Button>
+                  </DisabledReason>
                   <div className="flex items-center gap-2">
                     <Switch
                       checked={settings.autoReconnect}
@@ -4407,20 +4485,22 @@ export default function Settings() {
                       <AlertDescription className="space-y-3">
                         <p>{getBridgeStalenessBody(staleness)}</p>
                         {actionLabel && (
-                          <Button
-                            onClick={() => handleAutoConfigure()}
-                            disabled={bridgeLoading}
-                            size="sm"
-                            variant="outline"
-                            className="gap-2"
-                          >
-                            {bridgeLoading ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                              <RefreshCw className="w-3.5 h-3.5" />
-                            )}
-                            {actionLabel}
-                          </Button>
+                          <DisabledReason reason={!canSetupBridge ? t("permissions.noBridgeSetup") : null}>
+                            <Button
+                              onClick={() => handleAutoConfigure()}
+                              disabled={bridgeLoading || !canSetupBridge}
+                              size="sm"
+                              variant="outline"
+                              className="gap-2"
+                            >
+                              {bridgeLoading ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <RefreshCw className="w-3.5 h-3.5" />
+                              )}
+                              {actionLabel}
+                            </Button>
+                          </DisabledReason>
                         )}
                       </AlertDescription>
                     </Alert>
@@ -4456,14 +4536,16 @@ export default function Settings() {
                           <li><Trans t={t} i18nKey="bridge.localStep3" components={{ b: <strong className="text-foreground" /> }} /></li>
                           <li>{t("bridge.localStep4")}</li>
                         </ol>
-                        <Button
-                          onClick={() => handleAutoConfigure()}
-                          disabled={bridgeLoading}
-                          className="gap-2"
-                        >
-                          {bridgeLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-                          {t("bridge.autoSetupButton")}
-                        </Button>
+                        <DisabledReason reason={!canSetupBridge ? t("permissions.noBridgeSetup") : null}>
+                          <Button
+                            onClick={() => handleAutoConfigure()}
+                            disabled={bridgeLoading || !canSetupBridge}
+                            className="gap-2"
+                          >
+                            {bridgeLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                            {t("bridge.autoSetupButton")}
+                          </Button>
+                        </DisabledReason>
 
                         <div className="border-t border-border/50 pt-3 mt-1 space-y-2">
                           <p className="text-xs text-muted-foreground">
@@ -4476,16 +4558,18 @@ export default function Settings() {
                               placeholder="/home/pzuser/Zomboid/Lua/panelbridge/MyServer"
                               className="text-xs h-9"
                             />
-                            <Button
-                              onClick={handleManualConfigure}
-                              disabled={bridgeLoading || !manualBridgePath.trim()}
-                              variant="secondary"
-                              size="sm"
-                              className="shrink-0 gap-1.5"
-                            >
-                              {bridgeLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderOpen className="w-3.5 h-3.5" />}
-                              {t("bridge.connectButton")}
-                            </Button>
+                            <DisabledReason reason={!canSetupBridge ? t("permissions.noBridgeSetup") : null}>
+                              <Button
+                                onClick={handleManualConfigure}
+                                disabled={bridgeLoading || !manualBridgePath.trim() || !canSetupBridge}
+                                variant="secondary"
+                                size="sm"
+                                className="shrink-0 gap-1.5"
+                              >
+                                {bridgeLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderOpen className="w-3.5 h-3.5" />}
+                                {t("bridge.connectButton")}
+                              </Button>
+                            </DisabledReason>
                           </div>
                         </div>
                       </>
@@ -4684,20 +4768,22 @@ export default function Settings() {
                 {/* Control buttons when running */}
                 {bridgeStatus?.isRunning && (
                   <div className="flex flex-wrap gap-3">
-                    <Button
-                      onClick={handleStopBridge}
-                      disabled={bridgeLoading}
-                      variant="outline"
-                      size="sm"
-                      className="gap-2"
-                    >
-                      {bridgeLoading ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <XCircle className="w-4 h-4" />
-                      )}
-                      {t("bridge.stopBridge")}
-                    </Button>
+                    <DisabledReason reason={!canSetupBridge ? t("permissions.noBridgeSetup") : null}>
+                      <Button
+                        onClick={handleStopBridge}
+                        disabled={bridgeLoading || !canSetupBridge}
+                        variant="outline"
+                        size="sm"
+                        className="gap-2"
+                      >
+                        {bridgeLoading ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <XCircle className="w-4 h-4" />
+                        )}
+                        {t("bridge.stopBridge")}
+                      </Button>
+                    </DisabledReason>
                     <Button
                       onClick={handlePingMod}
                       variant="outline"
@@ -4800,8 +4886,8 @@ export default function Settings() {
                       </div>
                       <div className="flex flex-wrap items-end gap-3">
                         <div className="w-36 space-y-1.5"><Label htmlFor="sftp-poll">{t("bridge.syncIntervalLabel")}</Label><Input id="sftp-poll" inputMode="numeric" value={settings.panelBridgeSftpPollIntervalSeconds} onChange={(event) => updateSetting("panelBridgeSftpPollIntervalSeconds", event.target.value)} /></div>
-                        <Button type="button" variant="outline" onClick={handleTestSftp} disabled={testingSftp || bridgeLoading}>{testingSftp ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <Link className="me-2 h-4 w-4" />}{t("bridge.verifyAndPrepare")}</Button>
-                        <Button type="button" onClick={handleConfigureSftp} disabled={bridgeLoading}>{bridgeLoading ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <Cloud className="me-2 h-4 w-4" />}{t("bridge.startSftpBridge")}</Button>
+                        <DisabledReason reason={!canSetupBridge ? t("permissions.noBridgeSetup") : null}><Button type="button" variant="outline" onClick={handleTestSftp} disabled={testingSftp || bridgeLoading || !canSetupBridge}>{testingSftp ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <Link className="me-2 h-4 w-4" />}{t("bridge.verifyAndPrepare")}</Button></DisabledReason>
+                        <DisabledReason reason={!canSetupBridge ? t("permissions.noBridgeSetup") : null}><Button type="button" onClick={handleConfigureSftp} disabled={bridgeLoading || !canSetupBridge}>{bridgeLoading ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <Cloud className="me-2 h-4 w-4" />}{t("bridge.startSftpBridge")}</Button></DisabledReason>
                       </div>
                       {bridgeStatus?.transport?.type === "sftp" && <div className="space-y-1 text-xs text-muted-foreground"><p>SFTP {bridgeStatus.transport.running ? t("bridge.sftpRunning") : t("bridge.sftpStopped")}{bridgeStatus.transport.lastLatencyMs != null ? t("bridge.lastSyncSuffix", { ms: bridgeStatus.transport.lastLatencyMs }) : ""}</p>{bridgeStatus.transport.lastError && <p className="text-warning">{getSftpStatusMessage(bridgeStatus.transport)}</p>}</div>}
                     </div>
@@ -4838,15 +4924,17 @@ export default function Settings() {
                           placeholder="/home/pz/Zomboid/Server"
                         />
                       </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={handleCheckRemoteConfig}
-                        disabled={loadingRemoteConfig || !settings.panelBridgeSftpConfigPath.trim()}
-                      >
-                        {loadingRemoteConfig ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <FolderOpen className="me-2 h-4 w-4" />}
-                        {t("bridge.checkFolder")}
-                      </Button>
+                      <DisabledReason reason={!canSetupBridge ? t("permissions.noBridgeSetup") : null}>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={handleCheckRemoteConfig}
+                          disabled={loadingRemoteConfig || !settings.panelBridgeSftpConfigPath.trim() || !canSetupBridge}
+                        >
+                          {loadingRemoteConfig ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <FolderOpen className="me-2 h-4 w-4" />}
+                          {t("bridge.checkFolder")}
+                        </Button>
+                      </DisabledReason>
                     </div>
 
                     {remoteConfigError && (
@@ -4887,15 +4975,17 @@ export default function Settings() {
                           placeholder="/home/pz/Zomboid/Logs"
                         />
                       </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={handleListRemoteLogs}
-                        disabled={loadingRemoteLogs || !settings.panelBridgeSftpLogPath.trim()}
-                      >
-                        {loadingRemoteLogs ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <FolderOpen className="me-2 h-4 w-4" />}
-                        {t("bridge.listLogs")}
-                      </Button>
+                      <DisabledReason reason={!canSetupBridge ? t("permissions.noBridgeSetup") : null}>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={handleListRemoteLogs}
+                          disabled={loadingRemoteLogs || !settings.panelBridgeSftpLogPath.trim() || !canSetupBridge}
+                        >
+                          {loadingRemoteLogs ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <FolderOpen className="me-2 h-4 w-4" />}
+                          {t("bridge.listLogs")}
+                        </Button>
+                      </DisabledReason>
                     </div>
 
                     {remoteLogError && (
@@ -4911,7 +5001,9 @@ export default function Settings() {
                                 <button
                                   type="button"
                                   onClick={() => handleTailRemoteLog(file.name)}
-                                  className="min-w-0 flex-1 truncate text-start text-xs font-mono text-primary hover:underline"
+                                  disabled={!canSetupBridge}
+                                  title={!canSetupBridge ? t("permissions.noBridgeSetup") : undefined}
+                                  className="min-w-0 flex-1 truncate text-start text-xs font-mono text-primary hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
                                 >
                                   {file.name}
                                 </button>
@@ -4994,19 +5086,21 @@ export default function Settings() {
                         )}
                       </SelectContent>
                     </Select>
-                    <Button
-                      onClick={handleInstallMod}
-                      disabled={installingMod || !selectedInstallServerId || selectedInstallServer?.isRemote}
-                      className="gap-2"
-                      variant="outline"
-                    >
-                      {installingMod ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Download className="w-4 h-4" />
-                      )}
-                      {t("bridge.installButton")}
-                    </Button>
+                    <DisabledReason reason={!canSetupBridge ? t("permissions.noBridgeSetup") : null}>
+                      <Button
+                        onClick={handleInstallMod}
+                        disabled={installingMod || !selectedInstallServerId || selectedInstallServer?.isRemote || !canSetupBridge}
+                        className="gap-2"
+                        variant="outline"
+                      >
+                        {installingMod ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Download className="w-4 h-4" />
+                        )}
+                        {t("bridge.installButton")}
+                      </Button>
+                    </DisabledReason>
                   </div>
                   {selectedInstallServer?.isRemote && (
                     <p className="text-xs text-warning">

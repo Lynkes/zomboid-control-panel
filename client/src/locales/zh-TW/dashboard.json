@@ -104,6 +104,7 @@
     "connectRconNeedsHostRunning": "請先啟動伺服器",
     "noPermissionControl": "您的角色沒有控制伺服器的權限。",
     "noPermissionWipe": "您的角色沒有清除世界的權限。",
+    "noPermissionAutoStart": "您的角色沒有變更自動啟動設定的權限。",
     "wipeMustStopFirst": "請先停止伺服器再清除。"
   },
   "confirm": {

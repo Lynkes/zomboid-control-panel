@@ -142,6 +142,7 @@
     "connectRconNeedsHostRunning": "Спочатку запустіть сервер",
     "noPermissionControl": "Ваша роль не має дозволу керувати сервером.",
     "noPermissionWipe": "Ваша роль не має дозволу очищати світ.",
+    "noPermissionAutoStart": "Ваша роль не має дозволу змінювати налаштування автозапуску.",
     "wipeMustStopFirst": "Зупиніть сервер перед очищенням."
   },
   "confirm": {

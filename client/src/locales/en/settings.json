@@ -1,4 +1,11 @@
 {
+  "permissions": {
+    "noPanelSettings": "Saving these settings requires the panel.settings permission, which this role doesn't have.",
+    "noDiagnosticsManage": "This action requires the diagnostics.manage permission, which this role doesn't have.",
+    "noServerConfigure": "Testing the RCON connection requires the server.configure permission, which this role doesn't have.",
+    "noBridgeSetup": "This action requires the bridge.setup permission, which this role doesn't have.",
+    "adminOnly": "This action is restricted to the admin role."
+  },
   "ariaLabels": {
     "allowPrivateLan": "Allow private and LAN origins",
     "enablePublicIp": "Enable public IP lookup",

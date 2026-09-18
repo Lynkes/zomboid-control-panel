@@ -1,4 +1,11 @@
 {
+  "permissions": {
+    "noPanelSettings": "保存这些设置需要 panel.settings 权限，此角色没有该权限。",
+    "noDiagnosticsManage": "此操作需要 diagnostics.manage 权限，此角色没有该权限。",
+    "noServerConfigure": "测试 RCON 连接需要 server.configure 权限，此角色没有该权限。",
+    "noBridgeSetup": "此操作需要 bridge.setup 权限，此角色没有该权限。",
+    "adminOnly": "此操作仅限管理员角色执行。"
+  },
   "ariaLabels": {
     "allowPrivateLan": "允许私有及局域网来源",
     "enablePublicIp": "启用公网 IP 查询",

@@ -1,4 +1,11 @@
 {
+  "permissions": {
+    "noPanelSettings": "حفظ هذه الإعدادات يتطلب إذن panel.settings، وهذا الدور لا يملكه.",
+    "noDiagnosticsManage": "يتطلب هذا الإجراء إذن diagnostics.manage، وهذا الدور لا يملكه.",
+    "noServerConfigure": "يتطلب اختبار اتصال RCON إذن server.configure، وهذا الدور لا يملكه.",
+    "noBridgeSetup": "يتطلب هذا الإجراء إذن bridge.setup، وهذا الدور لا يملكه.",
+    "adminOnly": "هذا الإجراء مقتصر على دور المسؤول (admin)."
+  },
   "__pendingPluralForms": [
     "backups.backupsStored_few",
     "backups.backupsStored_many",

@@ -105,6 +105,7 @@
     "connectRconNeedsHostRunning": "Inicia el servidor primero",
     "noPermissionControl": "Tu rol no tiene permiso para controlar el servidor.",
     "noPermissionWipe": "Tu rol no tiene permiso para borrar el mundo.",
+    "noPermissionAutoStart": "Tu rol no tiene permiso para cambiar la configuración de inicio automático.",
     "wipeMustStopFirst": "Detén el servidor antes de borrar."
   },
   "confirm": {
