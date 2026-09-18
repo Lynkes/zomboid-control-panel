@@ -2126,11 +2126,20 @@ export default function Debug() {
   }, [confirm, t, runAction, bridgeDiagFetch, probeBridgeStats]);
 
   // Fetch log files list
+  // bug-hunt-2026-09-18 (round 10, activeServerChanged race sweep continued):
+  // runs on mount and on activeServerChanged only (no separate poll), but an
+  // in-flight mount call can still resolve after a fast activeServerChanged
+  // switch, or a manual refresh click can overlap an activeServerChanged
+  // reload -- same race shape as fetchDiagnostics above, narrower window.
+  const logFilesGuard = useRequestGuard();
   const fetchLogFiles = async () => {
+    const requestId = logFilesGuard.next();
     try {
       const res = await authFetch("/api/debug/logs/files");
+      if (logFilesGuard.isStale(requestId)) return;
       if (!res.ok) return;
       const data = await res.json();
+      if (logFilesGuard.isStale(requestId)) return;
       if (data.files) {
         setLogFiles(data.files);
       }
@@ -2177,12 +2186,18 @@ export default function Debug() {
     }
   }, [authFetch, perfRange, i18n.language]);
 
+  // Same race shape as fetchLogFiles above: mount + activeServerChanged +
+  // manual refresh button click can overlap.
+  const crashLogsGuard = useRequestGuard();
   const fetchCrashLogs = async () => {
+    const requestId = crashLogsGuard.next();
     setRefreshingCrashLogs(true);
     try {
       const res = await authFetch("/api/debug/crash-logs");
+      if (crashLogsGuard.isStale(requestId)) return;
       if (!res.ok) return;
       const data = await res.json();
+      if (crashLogsGuard.isStale(requestId)) return;
       if (data.crashLogs) {
         setCrashLogs(data.crashLogs);
         setCrashLogsTotalCount(
@@ -2192,7 +2207,7 @@ export default function Debug() {
     } catch {
       // Endpoint may not exist yet
     } finally {
-      setRefreshingCrashLogs(false);
+      if (!crashLogsGuard.isStale(requestId)) setRefreshingCrashLogs(false);
     }
   };
 
@@ -2218,12 +2233,18 @@ export default function Debug() {
   };
 
   // Fetch recent logs
+  // Same race shape as fetchLogFiles above: mount + activeServerChanged +
+  // manual refresh button click can overlap.
+  const logsGuard = useRequestGuard();
   const fetchLogs = async () => {
+    const requestId = logsGuard.next();
     setRefreshingLogs(true);
     try {
       const res = await authFetch("/api/debug/logs");
+      if (logsGuard.isStale(requestId)) return;
       if (!res.ok) return;
       const data = await res.json();
+      if (logsGuard.isStale(requestId)) return;
       if (data.logs) {
         setLogs(
           data.logs.map((log: Omit<LogEntry, "id">, i: number) => ({
@@ -2234,6 +2255,7 @@ export default function Debug() {
         );
       }
     } catch (error) {
+      if (logsGuard.isStale(requestId)) return;
       reportClientError("Failed to fetch logs.", error);
       toast({
         title: t("logsTab.logsFetchFailedTitle"),
@@ -2241,7 +2263,7 @@ export default function Debug() {
         variant: "destructive",
       });
     } finally {
-      setRefreshingLogs(false);
+      if (!logsGuard.isStale(requestId)) setRefreshingLogs(false);
     }
   };
 

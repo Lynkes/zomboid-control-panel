@@ -461,22 +461,46 @@ export default function Dashboard() {
     }
   }, [t, statusGuard])
 
+  // bug-hunt-2026-09-18 (round 10, activeServerChanged race sweep continued):
+  // same shape as fetchStatus above -- runs on both the 15s poll and
+  // activeServerChanged, so a slow poll response for the old server can
+  // still land after the new server's activeServerChanged-triggered call.
+  const composedStatusGuard = useRequestGuard()
   const fetchComposedStatus = useCallback(async () => {
-    try { setComposedStatus(await serversApi.getComposedStatus({ retries: 0 })) }
-    catch { setComposedStatus(null) }
-  }, [])
+    const requestId = composedStatusGuard.next()
+    try {
+      const data = await serversApi.getComposedStatus({ retries: 0 })
+      if (composedStatusGuard.isStale(requestId)) return
+      setComposedStatus(data)
+    } catch {
+      if (!composedStatusGuard.isStale(requestId)) setComposedStatus(null)
+    }
+  }, [composedStatusGuard])
 
   usePageShortcut('r', () => { if (loading === null) { fetchStatus(); fetchComposedStatus() } })
 
+  const playersGuard = useRequestGuard()
   const fetchPlayers = useCallback(async () => {
+    const requestId = playersGuard.next()
     try {
       const d = await playersApi.getPlayers({ retries: 0 })
+      if (playersGuard.isStale(requestId)) return
       if (d.players) setPlayers(d.players)
-    } catch { setPlayers([]) }
-  }, [])
+    } catch {
+      if (!playersGuard.isStale(requestId)) setPlayers([])
+    }
+  }, [playersGuard])
+  const bridgeStatusGuard = useRequestGuard()
   const fetchBridgeStatus = useCallback(async () => {
-    try { setBridgeStatus(await panelBridgeApi.getStatus()) } catch { setBridgeStatus(null) }
-  }, [])
+    const requestId = bridgeStatusGuard.next()
+    try {
+      const data = await panelBridgeApi.getStatus()
+      if (bridgeStatusGuard.isStale(requestId)) return
+      setBridgeStatus(data)
+    } catch {
+      if (!bridgeStatusGuard.isStale(requestId)) setBridgeStatus(null)
+    }
+  }, [bridgeStatusGuard])
   // Uses two distinct getters rather than one: getZombieCount is the
   // purpose-built number for the tile below; getWorldStats' only
   // non-duplicate field is the map name, shown next to the server name in
@@ -537,9 +561,21 @@ export default function Dashboard() {
       // Ignore settings fetch failures and keep the current fallback value.
     }
   }, [])
+  // fetchActiveServer runs on mount/bootstrap and again from onActiveServer
+  // below when activeServerChanged arrives with no `server` payload -- two
+  // overlapping calls can race the same way as fetchStatus's sibling
+  // fetchers above.
+  const activeServerGuard = useRequestGuard()
   const fetchActiveServer = useCallback(async () => {
-    try { const d = await serversApi.getResolvedActive(); setActiveServer(d.server ?? null) } catch { setActiveServer(null) }
-  }, [])
+    const requestId = activeServerGuard.next()
+    try {
+      const d = await serversApi.getResolvedActive()
+      if (activeServerGuard.isStale(requestId)) return
+      setActiveServer(d.server ?? null)
+    } catch {
+      if (!activeServerGuard.isStale(requestId)) setActiveServer(null)
+    }
+  }, [activeServerGuard])
   const fetchMaintenance = useCallback(async () => {
     const [backupRes, modsRes, tasksRes, schedRes, errorRes] = await Promise.allSettled([
       backupApi.getStatus(),
