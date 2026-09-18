@@ -1342,6 +1342,19 @@ export class RconService extends EventEmitter {
       };
     } catch (error) {
       const errorMsg = error.message || "Unknown error";
+      // sourceRcon.js's execute() tags this when its own socket.write()
+      // callback fired with an error -- the one point where we know FOR
+      // CERTAIN the command's bytes never left this process, as opposed to
+      // a timeout or a later socket close/error while genuinely awaiting a
+      // response (ambiguous: the server may well have received and
+      // processed it). round-8 bug hunt: every `commandSent` computed below
+      // used to only exclude the literal "RCON not connected" string,
+      // missing this case -- a write that failed outright (EPIPE,
+      // ECONNRESET on the write itself, "write after end", ...) still
+      // reported commandSent:true, which quit() then read as "the command
+      // reached the server and it's shutting down" even though it never
+      // did.
+      const writeNeverSent = Boolean(error.rconNeverSent);
 
       // Categorize errors for better handling
       const isConnectionError =
@@ -1397,7 +1410,9 @@ export class RconService extends EventEmitter {
             success: false,
             error: friendlyError,
             commandSent:
-              commandSent && !/^RCON not connected$/i.test(errorMsg.trim()),
+              commandSent &&
+              !writeNeverSent &&
+              !/^RCON not connected$/i.test(errorMsg.trim()),
             transportError: true,
           };
         }
@@ -1436,6 +1451,7 @@ export class RconService extends EventEmitter {
                 success: false,
                 error: retryMsg,
                 commandSent:
+                  !retryError.rconNeverSent &&
                   !/^RCON not connected$/i.test(retryError.message.trim()),
                 transportError: true,
               };
@@ -1480,7 +1496,7 @@ export class RconService extends EventEmitter {
               success: false,
               error: "RCON reconnection failed",
               code: ErrorCode.RCON_EXECUTE_DISCONNECTED,
-              commandSent,
+              commandSent: commandSent && !writeNeverSent,
               transportError: true,
             };
           }
@@ -1495,7 +1511,7 @@ export class RconService extends EventEmitter {
             success: false,
             error: reconnectMsg,
             code: this.getRconDisconnectCode(reconnectError.message),
-            commandSent,
+            commandSent: commandSent && !writeNeverSent,
             transportError: true,
           };
         }
