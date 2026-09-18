@@ -471,8 +471,53 @@ export class PanelUpdateChecker {
         const statusCode = res.statusCode || 0;
 
         if (statusCode === 404) {
-          res.resume();
-          resolve(null);
+          // continuous-bug-hunt, 2026-09-18 (update-check-truth round): this
+          // used to resolve(null) on ANY 404, unconditionally, on the
+          // assumption that api.github.com only ever returns 404 here for
+          // "this repo genuinely has no releases yet" -- a real, legitimate
+          // state early in a fork's life that checkForUpdate() correctly
+          // treats as "nothing to compare against, not an error" (clears
+          // lastError, no exception). But nothing here actually confirmed
+          // the response WAS from api.github.com's own release-lookup logic
+          // rather than some other 404 that merely arrived with that status
+          // code -- a captive portal, an SSL-inspecting corporate proxy, a
+          // misconfigured DNS override, or GitHub itself briefly serving an
+          // unrelated error page all produce a plain 404 too, and every one
+          // of those got silently reported as "checked, nothing new" with
+          // lastError cleared -- the exact "failed fetch shown as up to
+          // date" this file otherwise goes out of its way to avoid for
+          // every OTHER non-200 status just below. GitHub's real "no
+          // releases" 404 has a specific, documented JSON body shape
+          // ({"message":"Not Found","documentation_url":...}); anything
+          // else on a 404 is treated as a genuine failure instead, same as
+          // every other unexpected status.
+          let notFoundBody = "";
+          res.on("data", (chunk) => {
+            notFoundBody += chunk.toString();
+            if (notFoundBody.length > 4096) notFoundBody = notFoundBody.slice(0, 4096);
+          });
+          res.on("end", () => {
+            let looksLikeGitHubNotFound = false;
+            try {
+              const parsed = JSON.parse(notFoundBody);
+              looksLikeGitHubNotFound =
+                parsed &&
+                typeof parsed === "object" &&
+                typeof parsed.message === "string" &&
+                parsed.message.toLowerCase().includes("not found");
+            } catch {
+              looksLikeGitHubNotFound = false;
+            }
+            if (looksLikeGitHubNotFound) {
+              resolve(null);
+              return;
+            }
+            const err = new Error(
+              "GitHub API returned 404 for an unexpected reason (not a normal 'no releases published' response) -- check network/proxy configuration",
+            );
+            err.statusCode = 404;
+            reject(err);
+          });
           return;
         }
 
