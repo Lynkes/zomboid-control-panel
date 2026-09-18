@@ -27,6 +27,7 @@
     "renameTooltip": "Rename role",
     "deleteTooltip": "Delete role",
     "deleteSeededTooltip": "Built-in roles can't be deleted from this screen.",
+    "renameSeededTooltip": "Built-in roles can't be renamed.",
     "recoveryCapabilityHint": "Removing everyone's last holder of this capability locks administrators out — the panel refuses that change and tells you why.",
     "savingCell": "Saving…"
   },

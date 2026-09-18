@@ -25,6 +25,7 @@
     "renameTooltip": "重新命名角色",
     "deleteTooltip": "刪除角色",
     "deleteSeededTooltip": "內建角色無法在此頁面刪除。",
+    "renameSeededTooltip": "內建角色無法重新命名。",
     "recoveryCapabilityHint": "移除此權限項的最後一位持有者會導致管理員被鎖定在外——面板將拒絕此更改並說明原因。",
     "savingCell": "正在儲存…",
     "capabilityCount_one": "{{count}} 項權限",

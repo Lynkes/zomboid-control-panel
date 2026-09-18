@@ -105,6 +105,7 @@
     "noPermissionControl": "Wòl ou pa gen pèmisyon pou kontwole sèvè a.",
     "noPermissionWipe": "Wòl ou pa gen pèmisyon pou efase mond lan.",
     "noPermissionAutoStart": "Wòl ou pa gen pèmisyon pou chanje paramèt démarrage otomatik la.",
+    "noPermissionCreateBackup": "Wòl ou pa gen pèmisyon pou kreye sovgad.",
     "wipeMustStopFirst": "Sispann sèvè a anvan ou efase l.",
     "saveNeedsRcon": "Konekte RCON pou sove mond lan."
   },

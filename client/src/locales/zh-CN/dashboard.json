@@ -105,6 +105,7 @@
     "noPermissionControl": "您的角色没有控制服务器的权限。",
     "noPermissionWipe": "您的角色没有清除世界的权限。",
     "noPermissionAutoStart": "您的角色没有更改自动启动设置的权限。",
+    "noPermissionCreateBackup": "您的角色没有创建备份的权限。",
     "wipeMustStopFirst": "请先停止服务器再清除。",
     "saveNeedsRcon": "连接 RCON 才能保存世界。"
   },

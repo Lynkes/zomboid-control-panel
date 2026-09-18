@@ -179,6 +179,7 @@
     "noPermissionControl": "دورك لا يملك صلاحية التحكّم في الخادم.",
     "noPermissionWipe": "دورك لا يملك صلاحية مسح العالم.",
     "noPermissionAutoStart": "لا يملك دورك إذنًا لتغيير إعدادات البدء التلقائي.",
+    "noPermissionCreateBackup": "دورك لا يملك صلاحية إنشاء نسخ احتياطية.",
     "wipeMustStopFirst": "أوقف الخادم قبل المسح.",
     "saveNeedsRcon": "وصّل RCON لحفظ العالم."
   },

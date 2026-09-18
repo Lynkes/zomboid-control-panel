@@ -105,6 +105,7 @@
     "noPermissionControl": "Ihre Rolle hat keine Berechtigung, den Server zu steuern.",
     "noPermissionWipe": "Ihre Rolle hat keine Berechtigung, die Welt zu löschen.",
     "noPermissionAutoStart": "Deine Rolle hat keine Berechtigung, die Autostart-Einstellung zu ändern.",
+    "noPermissionCreateBackup": "Ihre Rolle hat keine Berechtigung, Sicherungen zu erstellen.",
     "wipeMustStopFirst": "Stoppen Sie den Server, bevor Sie ihn löschen.",
     "saveNeedsRcon": "Verbinde RCON, um die Welt zu speichern."
   },

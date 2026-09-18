@@ -26,6 +26,7 @@ import {
 let mockCanControl = true
 let mockCanWipe = true
 let mockCanPanelSettings = true
+let mockCanBackups = true
 
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({
@@ -40,6 +41,7 @@ vi.mock('@/contexts/AuthContext', () => ({
       if (capability === 'server.control') return mockCanControl
       if (capability === 'server.wipe') return mockCanWipe
       if (capability === 'panel.settings') return mockCanPanelSettings
+      if (capability === 'backups.manage') return mockCanBackups
       return true
     },
   }),
@@ -73,7 +75,7 @@ vi.mock('@/lib/api', async () => {
       getActivityLogs: vi.fn(),
     },
     panelBridgeApi: { ...actual.panelBridgeApi, getStatus: vi.fn() },
-    backupApi: { ...actual.backupApi, getStatus: vi.fn() },
+    backupApi: { ...actual.backupApi, getStatus: vi.fn(), createBackup: vi.fn() },
     configApi: {
       ...actual.configApi,
       getAppSettings: vi.fn(),
@@ -102,6 +104,7 @@ const getPlayers = vi.mocked(playersApi.getPlayers)
 const getActivityLogs = vi.mocked(playersApi.getActivityLogs)
 const getBridgeStatus = vi.mocked(panelBridgeApi.getStatus)
 const getBackupStatus = vi.mocked(backupApi.getStatus)
+const createBackup = vi.mocked(backupApi.createBackup)
 const getAppSettings = vi.mocked(configApi.getAppSettings)
 const updateAppSettings = vi.mocked(configApi.updateAppSettings)
 const getPerformanceHistory = vi.mocked(debugApi.getPerformanceHistory)
@@ -214,6 +217,7 @@ afterEach(() => {
   mockCanControl = true
   mockCanWipe = true
   mockCanPanelSettings = true
+  mockCanBackups = true
 })
 
 // pz-bughunt round 19 (client-vs-server permission gate sweep): PUT
@@ -593,5 +597,95 @@ describe('Dashboard.tsx: Wipe is gated on server.wipe, independently of server.c
     fireEvent.click(wipeNowButton)
 
     await waitFor(() => expect(wipe).toHaveBeenCalledTimes(1))
+  })
+})
+
+// pz-pam-r23: POST /backup/create (Create backup) is gated
+// requirePermission("backups.manage") server-side, confirmed via
+// server/routes/backup.js, but none of its 3 client call sites (verdict
+// band's own action, the "..." dropdown item, and the Maintenance
+// sidebar button) had any client-side check. Same offline-fixture
+// discipline as the Wipe suite above -- backupCount:0/hasServer/local
+// keeps every OTHER disabling condition false so canManageBackups is the
+// only thing left that could disable each control.
+describe('Dashboard.tsx: Create backup is gated on backups.manage at all 3 of its entry points', () => {
+  // The verdict band's own "no backups" case only fires once every
+  // higher-priority verdict branch is clear -- in particular `!online`
+  // (offline) preempts it with a "server stopped" verdict that carries no
+  // Create-backup action at all. Use an ONLINE, RCON-connected fixture so
+  // all 3 controls' shared preconditions (hasServer, !isRemote) are met
+  // AND the verdict band actually reaches its noBackups branch. Neither
+  // the dropdown item nor the sidebar button depend on online/offline
+  // state for Create backup (unlike Wipe above), so this fixture works
+  // for all 3 call sites.
+  async function setUpOnlineServerWithNoBackups() {
+    const online = makeServer()
+    getResolvedActive.mockResolvedValue({ server: online })
+    getStatus.mockResolvedValue({
+      running: true, startTime: '2026-08-27T00:00:00.000Z', uptime: 120, serverPath: 'C:/servers/ashenwood',
+      serverPathConfigured: true, rcon: { host: '127.0.0.1', port: 27015, connected: true },
+    } as Awaited<ReturnType<typeof serverApi.getStatus>>)
+    getBackupStatus.mockResolvedValue({ lastBackup: null, backupCount: 0 })
+  }
+
+  // maintenance.backupCount:0 makes BOTH the verdict band's own "Create
+  // backup" shortcut AND the sidebar Maintenance panel's button render at
+  // once, with the exact same accessible name ("Create backup") -- a
+  // singular getByRole/findByRole would be ambiguous. DOM order is stable
+  // (VerdictBand renders before the Maintenance sidebar section), so
+  // index [0] is the verdict band's action and [1] is the sidebar button.
+  async function findCreateBackupButtons() {
+    // findAllByRole resolves as soon as it sees ANY non-empty match -- the
+    // sidebar button (synchronous with the initial server/status fetch)
+    // renders well before the verdict band's own action, which depends on
+    // fetchMaintenance() resolving later in the bootstrap Promise.allSettled.
+    // waitFor the full count instead of trusting findAllByRole's first hit.
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /^create backup$/i })).toHaveLength(2))
+    const buttons = screen.getAllByRole('button', { name: /^create backup$/i })
+    return { verdictButton: buttons[0], sidebarButton: buttons[1] }
+  }
+
+  it('lacking backups.manage: the verdict shortcut, sidebar button, and dropdown item are all disabled and never call createBackup', async () => {
+    mockCanBackups = false
+    await setUpCommon()
+    await setUpOnlineServerWithNoBackups()
+
+    renderDashboard()
+
+    const { verdictButton, sidebarButton } = await findCreateBackupButtons()
+    expect(verdictButton).toBeDisabled()
+    expect(sidebarButton).toBeDisabled()
+    fireEvent.click(verdictButton)
+    fireEvent.click(sidebarButton)
+    expect(createBackup).not.toHaveBeenCalled()
+
+    const menu = await openMoreActionsMenu()
+    const dropdownItem = within(menu).getByRole('menuitem', { name: /create backup/i })
+    expect(dropdownItem).toHaveAttribute('aria-disabled', 'true')
+    fireEvent.click(dropdownItem)
+    expect(createBackup).not.toHaveBeenCalled()
+  })
+
+  it('holding backups.manage: the verdict shortcut, sidebar button, and dropdown item all reach the real createBackup API', async () => {
+    mockCanBackups = true
+    await setUpCommon()
+    await setUpOnlineServerWithNoBackups()
+    createBackup.mockResolvedValue({ success: true, backupName: 'test-backup' } as never)
+
+    renderDashboard()
+
+    const { verdictButton, sidebarButton } = await findCreateBackupButtons()
+    expect(verdictButton).not.toBeDisabled()
+    expect(sidebarButton).not.toBeDisabled()
+
+    fireEvent.click(sidebarButton)
+    await waitFor(() => expect(createBackup).toHaveBeenCalledTimes(1))
+
+    createBackup.mockClear()
+    const menu = await openMoreActionsMenu()
+    const dropdownItem = within(menu).getByRole('menuitem', { name: /create backup/i })
+    expect(dropdownItem).not.toHaveAttribute('aria-disabled', 'true')
+    fireEvent.click(dropdownItem)
+    await waitFor(() => expect(createBackup).toHaveBeenCalledTimes(1))
   })
 })

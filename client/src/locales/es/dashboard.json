@@ -106,6 +106,7 @@
     "noPermissionControl": "Tu rol no tiene permiso para controlar el servidor.",
     "noPermissionWipe": "Tu rol no tiene permiso para borrar el mundo.",
     "noPermissionAutoStart": "Tu rol no tiene permiso para cambiar la configuración de inicio automático.",
+    "noPermissionCreateBackup": "Tu rol no tiene permiso para crear copias de seguridad.",
     "wipeMustStopFirst": "Detén el servidor antes de borrar.",
     "saveNeedsRcon": "Conecta RCON para guardar el mundo."
   },

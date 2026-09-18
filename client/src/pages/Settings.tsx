@@ -6691,6 +6691,15 @@ function WorkshopCollectionSyncCard({
 }) {
   const { t, i18n } = useTranslation("settings");
   const { toast } = useToast();
+  // pz-pam-r23 (remaining client-side capability gates): persistCookies
+  // (below) is a thin wrapper around configApi.updateAppSettings(), same
+  // PUT /config/app-settings route as the General Save button -- gated
+  // requirePermission("panel.settings") server-side, confirmed via
+  // server/routes/config.js. This card is a separate function component
+  // (not sharing Settings.tsx's own canSavePanelSettings const), so it
+  // needs its own useAuth() call.
+  const { can } = useAuth();
+  const canPersistCookies = can("panel.settings");
   const [diff, setDiff] = useState<Awaited<
     ReturnType<typeof modsApi.collectionDiff>
   > | null>(null);
@@ -6816,6 +6825,7 @@ function WorkshopCollectionSyncCard({
     sessionId: string,
     loginSecure: string,
   ) => {
+    if (!canPersistCookies) return false;
     setSavingCookies(true);
     try {
       await persistCookies({
@@ -7353,16 +7363,18 @@ function WorkshopCollectionSyncCard({
             {!pasteOpen ? (
               <div className="flex flex-wrap gap-2">
                 {clipboardReadAvailable && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="default"
-                    onClick={handlePasteFromClipboard}
-                    disabled={savingCookies}
-                  >
-                    <Cloud className="w-3.5 h-3.5 me-1.5" />
-                    {t("workshopSync.pasteFromClipboard")}
-                  </Button>
+                  <DisabledReason reason={!canPersistCookies ? t("permissions.noPanelSettings") : null}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="default"
+                      onClick={handlePasteFromClipboard}
+                      disabled={savingCookies || !canPersistCookies}
+                    >
+                      <Cloud className="w-3.5 h-3.5 me-1.5" />
+                      {t("workshopSync.pasteFromClipboard")}
+                    </Button>
+                  </DisabledReason>
                 )}
                 <Button
                   type="button"
@@ -7399,19 +7411,21 @@ function WorkshopCollectionSyncCard({
                   className="font-mono text-xs"
                 />
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={handlePasteApply}
-                    disabled={!pasteText.trim() || savingCookies}
-                  >
-                    {savingCookies ? (
-                      <Loader2 className="w-3.5 h-3.5 me-1.5 animate-spin" />
-                    ) : (
-                      <Check className="w-3.5 h-3.5 me-1.5" />
-                    )}
-                    {savingCookies ? t("workshopSync.saving") : t("workshopSync.extractAndSave")}
-                  </Button>
+                  <DisabledReason reason={!canPersistCookies ? t("permissions.noPanelSettings") : null}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={handlePasteApply}
+                      disabled={!pasteText.trim() || savingCookies || !canPersistCookies}
+                    >
+                      {savingCookies ? (
+                        <Loader2 className="w-3.5 h-3.5 me-1.5 animate-spin" />
+                      ) : (
+                        <Check className="w-3.5 h-3.5 me-1.5" />
+                      )}
+                      {savingCookies ? t("workshopSync.saving") : t("workshopSync.extractAndSave")}
+                    </Button>
+                  </DisabledReason>
                   <Button
                     type="button"
                     size="sm"

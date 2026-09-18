@@ -25,6 +25,7 @@
     "renameTooltip": "Rolle umbenennen",
     "deleteTooltip": "Rolle löschen",
     "deleteSeededTooltip": "Integrierte Rollen können auf diesem Bildschirm nicht gelöscht werden.",
+    "renameSeededTooltip": "Integrierte Rollen können nicht umbenannt werden.",
     "recoveryCapabilityHint": "Wird die letzte Person mit diesem Recht entfernt, sperrt das Administratoren aus — das Panel verweigert diese Änderung und nennt den Grund.",
     "savingCell": "Wird gespeichert…",
     "capabilityCount_one": "{{count}} Recht",

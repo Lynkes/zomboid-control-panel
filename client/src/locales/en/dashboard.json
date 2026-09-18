@@ -105,6 +105,7 @@
     "noPermissionControl": "Your role doesn't have permission to control the server.",
     "noPermissionWipe": "Your role doesn't have permission to wipe the world.",
     "noPermissionAutoStart": "Your role doesn't have permission to change auto-start settings.",
+    "noPermissionCreateBackup": "Your role doesn't have permission to create backups.",
     "wipeMustStopFirst": "Stop the server before wiping.",
     "saveNeedsRcon": "Connect RCON to save the world."
   },

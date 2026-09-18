@@ -395,6 +395,12 @@ export default function Dashboard() {
   // panel.settings server-side -- this checkbox had no client-side check
   // at all, unlike the wipe/control actions above.
   const canChangePanelSettings = can('panel.settings')
+  // pz-pam-r23 (remaining client-side capability gates): POST
+  // /backup/create (Create backup, all 3 call sites below -- verdict
+  // action, the "..." dropdown, and the Maintenance sidebar button) is
+  // gated requirePermission("backups.manage") server-side, confirmed via
+  // server/routes/backup.js. None of the 3 had any client-side check.
+  const canManageBackups = can('backups.manage')
 
   /* ---------------------------- effects ----------------------------------- */
   useEffect(() => { initialLoadingRef.current = initialLoading }, [initialLoading])
@@ -1218,9 +1224,13 @@ export default function Dashboard() {
         headline: t('verdict.noBackups'),
         action: {
           label: t('actions.createBackup'),
-          onClick: () => { void handleAction('Create backup', () => backupApi.createBackup({ includeDb: true }).then(() => fetchMaintenance())) },
+          onClick: () => {
+            if (!canManageBackups) return
+            void handleAction('Create backup', () => backupApi.createBackup({ includeDb: true }).then(() => fetchMaintenance()))
+          },
           busy: loading === 'Create backup',
-          disabled: loading !== null,
+          disabled: loading !== null || !canManageBackups,
+          reason: !canManageBackups ? t('actions.noPermissionCreateBackup') : undefined,
         },
       }
     }
@@ -1554,12 +1564,23 @@ export default function Dashboard() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={() => handleAction('Create backup', () => backupApi.createBackup({ includeDb: true }).then(() => fetchMaintenance()))}
-                disabled={!hasServer || loading !== null || activeServer?.isRemote}
+              <DisabledReason
+                className="w-full"
+                reason={!canManageBackups ? t('actions.noPermissionCreateBackup') : null}
               >
-                <Archive className="me-2 h-4 w-4" /> {t('actions.createBackup')}
-              </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    // Same Radix quirk as Restart Now/Wipe Server above:
+                    // this onClick fires before the disabled prop is
+                    // consulted, so the real gate lives here too.
+                    if (!canManageBackups) return
+                    handleAction('Create backup', () => backupApi.createBackup({ includeDb: true }).then(() => fetchMaintenance()))
+                  }}
+                  disabled={!hasServer || loading !== null || activeServer?.isRemote || !canManageBackups}
+                >
+                  <Archive className="me-2 h-4 w-4" /> {t('actions.createBackup')}
+                </DropdownMenuItem>
+              </DisabledReason>
               <DropdownMenuItem onClick={fetchStatus}>
                 <RefreshCw className="me-2 h-4 w-4" /> {t('actions.refreshStatus')}
               </DropdownMenuItem>
@@ -2067,16 +2088,24 @@ export default function Dashboard() {
                     {lastUpdated ? lastUpdated.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' }) : '—'}
                   </span>
                 </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 w-full justify-start gap-2 text-xs"
-                  disabled={!hasServer || loading !== null || activeServer?.isRemote}
-                  onClick={() => handleAction('Create backup', () => backupApi.createBackup({ includeDb: true }).then(() => fetchMaintenance()))}
+                <DisabledReason
+                  className="w-full"
+                  reason={!canManageBackups ? t('actions.noPermissionCreateBackup') : null}
                 >
-                  {loading === 'Create backup' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Archive className="h-3 w-3" />}
-                  {t('maintenance.createBackup')}
-                </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 w-full justify-start gap-2 text-xs"
+                    disabled={!hasServer || loading !== null || activeServer?.isRemote || !canManageBackups}
+                    onClick={() => {
+                      if (!canManageBackups) return
+                      handleAction('Create backup', () => backupApi.createBackup({ includeDb: true }).then(() => fetchMaintenance()))
+                    }}
+                  >
+                    {loading === 'Create backup' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Archive className="h-3 w-3" />}
+                    {t('maintenance.createBackup')}
+                  </Button>
+                </DisabledReason>
                 <DisabledReason
                   className="w-full"
                   reason={

@@ -41,6 +41,7 @@
     "renameTooltip": "إعادة تسمية الدور",
     "deleteTooltip": "حذف الدور",
     "deleteSeededTooltip": "لا يمكن حذف الأدوار المدمجة من هذه الشاشة.",
+    "renameSeededTooltip": "لا يمكن إعادة تسمية الأدوار المدمجة.",
     "recoveryCapabilityHint": "إزالة آخر جهة تملك هذه الصلاحية تحجب المسؤولين عن الدخول — ولذلك ترفض اللوحة هذا التغيير وتوضّح لك السبب.",
     "savingCell": "جارٍ الحفظ…",
     "memberCount_zero": "عدد الأعضاء: {{count}}",

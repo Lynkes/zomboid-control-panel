@@ -106,6 +106,7 @@
     "noPermissionControl": "Votre rôle n'a pas la permission de contrôler le serveur.",
     "noPermissionWipe": "Votre rôle n'a pas la permission d'effacer le monde.",
     "noPermissionAutoStart": "Votre rôle n'a pas la permission de modifier le démarrage automatique.",
+    "noPermissionCreateBackup": "Votre rôle n'a pas la permission de créer des sauvegardes.",
     "wipeMustStopFirst": "Arrêtez le serveur avant d'effacer.",
     "saveNeedsRcon": "Connectez RCON pour sauvegarder le monde."
   },
