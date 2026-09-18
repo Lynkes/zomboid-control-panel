@@ -33,6 +33,7 @@ import {
   isValidIanaTimezone,
   isRawOffsetTimezone,
   dstFallBackWarning,
+  dstSpringForwardWarning,
 } from "../utils/cronValidation.js";
 import {
   defaultRestartWarningSettings,
@@ -471,11 +472,9 @@ export class Scheduler {
     // the API response (Scheduler.tsx reading that field is carded
     // separately). Non-null return is still truthy/`!== false`, so this
     // does not change either existing caller's success/failure check.
-    const dstWarning = dstFallBackWarning(
-      task.cron_expression,
-      this.effectiveTimezone,
-      task.name,
-    );
+    const dstWarning =
+      dstFallBackWarning(task.cron_expression, this.effectiveTimezone, task.name) ||
+      dstSpringForwardWarning(task.cron_expression, this.effectiveTimezone, task.name);
     if (dstWarning) log.warn(dstWarning);
     return { scheduled: true, dstWarning };
   }
@@ -1083,11 +1082,9 @@ export class Scheduler {
       // The backup settings save route (routes/backup.js, not this fence)
       // isn't touched here -- log only, same reasoning as setupAutoRestart's
       // own warning above.
-      const dstWarning = dstFallBackWarning(
-        settings.schedule,
-        this.effectiveTimezone,
-        "backup",
-      );
+      const dstWarning =
+        dstFallBackWarning(settings.schedule, this.effectiveTimezone, "backup") ||
+        dstSpringForwardWarning(settings.schedule, this.effectiveTimezone, "backup");
       if (dstWarning) log.warn(dstWarning);
     } catch (error) {
       log.error(`Failed to setup backup schedule: ${error.message}`);
@@ -1124,9 +1121,33 @@ export class Scheduler {
         // refuses or fails, so a silent no-op is the failure mode to catch.
         const result = await this.performRestart();
         if (!result?.success) {
-          log.error(
-            `Scheduled auto-restart did not complete: ${result?.message || "unknown error"}`,
-          );
+          const message = result?.message || result?.error || "unknown error";
+          log.error(`Scheduled auto-restart did not complete: ${message}`);
+          // continuous-bug-hunt round 17 (scheduler overlap sweep): unlike
+          // every OTHER refusal this function can produce (a busy
+          // lifecycle lock further along, an execution failure deep inside
+          // performRestart -- both already call logScheduleExecution
+          // themselves before returning/throwing), performRestart()'s two
+          // EARLIEST guards -- `this.restartInProgress` already true (a
+          // manual restart, a scheduled task's own "restart" command, or a
+          // still-running previous auto-restart tick overlapping this one),
+          // and a lifecycle lock already held by an unrelated in-flight
+          // operation (Steam update, wipe, ...) -- return {success:false}
+          // WITHOUT ever recording anything, because both checks fire
+          // BEFORE this.restartInProgress is set and before this function
+          // reaches its own logging. Before this fix, the auto-restart
+          // cron's OWN "next run" firing while blocked left ZERO trace in
+          // Schedule History -- indistinguishable from a healthy schedule
+          // with nothing due, the exact silent-refusal shape already fixed
+          // for runTaskNow()'s self-overlap case (see its own comment
+          // above) and for the scheduled backup's restart-overlap skip
+          // (setupBackupSchedule()'s cron callback above). Same
+          // "occasionally a harmless duplicate, never a contradiction"
+          // tradeoff executeTask()'s restart branch already accepts
+          // (see its own comment) rather than string-matching performRestart's
+          // refusal shapes to avoid an already-logged deep failure being
+          // recorded twice.
+          await logScheduleExecution(null, "Auto Restart", "restart", false, message, 0);
         }
       } catch (err) {
         // performRestart re-throws on failure. Verified against the
@@ -1151,11 +1172,9 @@ export class Scheduler {
 
     // Boot-time / env-driven, not a create/update API call -- log only,
     // same as the reasoning on scheduleTask()'s own warning above.
-    const dstWarning = dstFallBackWarning(
-      cronExpression,
-      this.effectiveTimezone,
-      "auto restart",
-    );
+    const dstWarning =
+      dstFallBackWarning(cronExpression, this.effectiveTimezone, "auto restart") ||
+      dstSpringForwardWarning(cronExpression, this.effectiveTimezone, "auto restart");
     if (dstWarning) log.warn(dstWarning);
   }
 
