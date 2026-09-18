@@ -2036,7 +2036,7 @@ export default function Dashboard() {
 
       {/* ─── Wipe dialog ─────────────────────────────────────────────────── */}
       <AlertDialog open={wipeDialog} onOpenChange={(open) => { if (!open && !wipeLoading) { setWipeDialog(false); setWipePreview(null) } }}>
-        <AlertDialogContent className="glass border-border/50">
+        <AlertDialogContent className="glass border-border/50 max-h-[85vh] overflow-y-auto sm:max-h-[80vh]">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-3 text-xl">
               <Trash2 className="h-5 w-5 text-destructive" /> {t('wipeDialog.title')}

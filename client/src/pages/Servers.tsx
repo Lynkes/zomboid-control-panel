@@ -3383,7 +3383,7 @@ export default function Servers() {
 
       {/* Steam Update/Verify Dialog */}
       <Dialog open={!!steamOperation} onOpenChange={(open) => !open && (!steamRunning || steamStalled) && setSteamOperation(null)}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto sm:max-h-[80vh]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {steamOperation?.type === 'verify' ? (

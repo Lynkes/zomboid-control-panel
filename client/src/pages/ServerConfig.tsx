@@ -4337,7 +4337,7 @@ export default function ServerConfig() {
         </div>
       )}
       <Dialog open={showBackups} onOpenChange={setShowBackups}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto sm:max-h-[80vh]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <RotateCcw className="w-5 h-5" />

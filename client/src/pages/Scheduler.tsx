@@ -1060,7 +1060,7 @@ export default function Scheduler() {
             </DialogTrigger>
           }
         />
-        <DialogContent>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-h-[80vh]">
             <DialogHeader>
               <DialogTitle>{editingTask ? t('dialog.editTitle') : t('dialog.createTitle')}</DialogTitle>
               <DialogDescription>
