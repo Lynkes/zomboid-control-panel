@@ -506,6 +506,50 @@ export const KNOWN_RCON_REJECTIONS = [
     describe: () =>
       "The server hit an internal error running that command. Check the PZ server log for details.",
   },
+  // continuous-bug-hunt round 31 (Events & Weather page hunt): lightning /
+  // thunder / createhorde -- LightningCommand.class / ThunderCommand.class /
+  // CreateHordeCommand.class, javap-c-confirmed against D:/pz-verify's real
+  // B42 jar -- all fall back to "use the executor's own player" when no
+  // username argument is given. GameServer.handleServerCommand(cmd, null)
+  // (the exact call every RCON command goes through, connection always
+  // null) hardcodes the executor username to the literal "admin" and never
+  // reaches the connection-based override branch at all -- so this fallback
+  // can NEVER resolve to a real player over RCON, and each command's own
+  // "no connection, no args" guard areturns this bare literal instead of
+  // running. Reachable in practice for lightning/thunder if a caller omits
+  // the username (Events.tsx's own pickStrikeTarget() already prevents this
+  // from the UI, see e5b3c368 -- this is the server-side backstop for any
+  // other caller). Bare, non-interpolated literal, shared by both classes.
+  {
+    pattern: /^\s*Pass a username\s*$/i,
+    describe: () => "No target player was given, and RCON has no player of its own to default to.",
+  },
+  // CreateHordeCommand.class: distinct final-else branch, reached when a
+  // username WAS given but getCommandArgsCount() != 2 (i.e. the RCON
+  // command was sent with the count but no username arg at all) -- the
+  // "target" local never gets assigned and this bare literal is returned.
+  // Not reachable from the current UI (Events.tsx's horde buttons use
+  // PanelBridge's CreateSwarm exclusively, not this RCON path at all -- see
+  // that page's own "use PanelBridge... for proper distance control"
+  // comment), but the route (POST /server/events/horde) and this service
+  // method are still directly callable without a username.
+  {
+    pattern: /^\s*Specify a player to create the horde near to\.\s*$/i,
+    describe: () => "No target player was given for the horde.",
+  },
+  // AlarmCommand.class: sounds the alarm at the EXECUTOR'S OWN in-game
+  // position -- GameServer.getPlayerByUserName(getExecutorUsername()), and
+  // (per the "Pass a username" note above) that's always the literal
+  // "admin" over RCON, which essentially never matches a real connected
+  // player's name. Even on the rare server where it does, this bare literal
+  // is what's returned when that player has no square or isn't inside a
+  // building room. In practice this means POST /server/alarm structurally
+  // cannot succeed over RCON on a normal server -- this at least stops it
+  // from being silently reported as "Alarm sounded" when nothing happened.
+  {
+    pattern: /^\s*Not in a room\s*$/i,
+    describe: () => "Not in a room. The alarm command sounds at the RCON admin's own in-game position, which doesn't exist as a real player over RCON -- this command cannot succeed here.",
+  },
 ];
 
 export class RconService extends EventEmitter {
@@ -1979,12 +2023,26 @@ export class RconService extends EventEmitter {
   }
 
   // Weather
+  // continuous-bug-hunt round 31 (Events & Weather page hunt):
+  // StartRainCommand.class, javap-c-confirmed against D:/pz-verify's real
+  // B42 jar, parses its argument as a PERCENTAGE and divides it by 100
+  // itself (Float.parseFloat(arg) / 100.0f) before calling
+  // ClimateManager.transmitServerStartRain(float). This method's own
+  // contract (validated 0-1, matching Events.tsx's rainIntensity/100 and
+  // panelBridgeApi.startRain's identical convention) was sending that 0-1
+  // fraction straight through as the raw RCON argument -- so PZ divided it
+  // by 100 A SECOND TIME, e.g. a 50% slider (0.5 here) reached the game as
+  // 0.005, and even the slider's maximum (1.0) reached the game as 0.01 --
+  // rain 100x too weak at best, 10,000x at the low end, easily mistaken for
+  // "did nothing" with no error anywhere to explain why. Scale back up to
+  // the percentage PZ's own command expects; this function's own public
+  // contract (0-1 in, validated) is unchanged.
   async startRain(intensity = null) {
     if (intensity !== null && intensity !== undefined) {
       const n = Number(intensity);
       if (!Number.isFinite(n) || n < 0 || n > 1)
         throw new Error("intensity must be 0-1");
-      return this.execute(`startrain ${n}`);
+      return this.execute(`startrain ${n * 100}`);
     }
     return this.execute("startrain");
   }
