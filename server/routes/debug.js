@@ -778,11 +778,20 @@ async function buildPzBuildInfo(activeServer) {
     const valueFor = (key) =>
       manifest.match(new RegExp(`"${key}"\\s+"([^"]+)"`))?.[1] || null;
     const lastUpdated = valueFor("LastUpdated");
+    // steamcmd-branch-truth, 2026-09-18: BetaKey can appear in both
+    // "UserConfig" (requested branch) and "MountedConfig" (actually
+    // installed branch) -- see updateChecker.js's getInstalledBuildInfo()
+    // for the full citation. This diagnostic export must report what's
+    // really on disk, not what was last requested, so it's scoped to
+    // MountedConfig the same way.
+    const mountedBetaKey = manifest.match(
+      /"MountedConfig"\s*\{[\s\S]*?"BetaKey"\s*"([^"]+)"/,
+    )?.[1];
     return {
       available: true,
       appId: valueFor("appid") || "380870",
       buildId: valueFor("buildid"),
-      branch: valueFor("BetaKey") || "public",
+      branch: mountedBetaKey || "public",
       lastUpdated: lastUpdated
         ? new Date(Number(lastUpdated) * 1000).toISOString()
         : null,
@@ -6582,6 +6591,7 @@ export {
   buildDiscordBotStatus,
   buildDockerContainerLogsText,
   buildManagedServiceLogsText,
+  buildPzBuildInfo,
 };
 // Exported for direct unit testing of the support-bundle raw-log redaction
 // (operator ruling, support-bundle-2026-08-30 follow-up) -- see
