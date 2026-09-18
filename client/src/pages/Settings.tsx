@@ -2826,7 +2826,15 @@ export default function Settings() {
       )}
 
       <PageHeader
-        title={t("pageHeader.title")}
+        title={
+          // pz-pam-r28: was hardcoded to the generic "Settings" on every
+          // tab -- landing on ?tab=roles from the USERS sidebar section's
+          // "Roles & Permissions" link never showed that label anywhere in
+          // the page chrome. Falls back to the generic title for the
+          // General tab and any unknown/legacy tab id.
+          settingsSections.find((s) => s.id === activeSection)?.label ??
+          t("pageHeader.title")
+        }
         description={
           settingsSections.find((s) => s.id === activeSection)?.description ??
           t("pageHeader.defaultDescription")
@@ -2835,26 +2843,36 @@ export default function Settings() {
         tone="config"
         icon={<Settings2 className="w-5 h-5" />}
         actions={
-          <DisabledReason reason={!canSavePanelSettings ? t("permissions.noPanelSettings") : null}>
-          <Button
-            variant="command"
-            onClick={handleSave}
-            disabled={saving || !isDirty || Boolean(corsOriginValidationError) || !canSavePanelSettings}
-            size="lg"
-            className="w-full sm:w-auto gap-2"
-          >
-            {saving ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : (
-              <Save className="w-5 h-5" />
-            )}
-            {saving
-              ? t("saveButton.saving")
-              : isDirty
-                ? t("saveButton.save")
-                : t("saveButton.noChanges")}
-          </Button>
-          </DisabledReason>
+          // pz-pam-r28: Users/Roles/SSO are embedded standalone components
+          // (RolesPermissions.tsx's own comment: "rendered inside a
+          // Settings tab panel instead of as its own route") with their
+          // own per-row save mechanics -- this button only ever saves the
+          // general app-settings object, so it stayed visible but
+          // semantically inert (always "No Changes") on those 3 tabs.
+          activeSection === "users" || activeSection === "roles" || activeSection === "sso"
+            ? undefined
+            : (
+              <DisabledReason reason={!canSavePanelSettings ? t("permissions.noPanelSettings") : null}>
+              <Button
+                variant="command"
+                onClick={handleSave}
+                disabled={saving || !isDirty || Boolean(corsOriginValidationError) || !canSavePanelSettings}
+                size="lg"
+                className="w-full sm:w-auto gap-2"
+              >
+                {saving ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Save className="w-5 h-5" />
+                )}
+                {saving
+                  ? t("saveButton.saving")
+                  : isDirty
+                    ? t("saveButton.save")
+                    : t("saveButton.noChanges")}
+              </Button>
+              </DisabledReason>
+            )
         }
       />
 
