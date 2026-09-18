@@ -1171,11 +1171,19 @@ export class Scheduler {
   // restart-now / the AUTO_RESTART_CRON job). performRestart() passes its
   // resolved target explicitly so a non-active-server restart's countdown
   // broadcasts to the RIGHT server, not whatever the admin UI is showing.
+  // Returns whether the RCON `servermsg` broadcast -- the ONE path that
+  // actually reaches every player's chat -- was actually delivered. Callers
+  // in the warning countdown use this to track whether players were really
+  // warned, not just whether the countdown loop kept running; see
+  // performRestart()'s own `failedWarningBroadcasts` comment for why this
+  // matters (round 11, notification delivery truth).
   async _broadcastRestartMessage(text, rconService = this.rconService) {
     // RCON `servermsg` — primary path, works on B41 + B42 without the mod.
+    let delivered = false;
     try {
       const r = await rconService.serverMessage(text, { skipLog: true });
-      if (!r?.success) {
+      delivered = Boolean(r?.success);
+      if (!delivered) {
         log.warn(
           `Restart broadcast (RCON) failed: ${r?.error || r?.response || "unknown"}`,
         );
@@ -1193,7 +1201,7 @@ export class Scheduler {
     // targeting a non-active server, since it has no per-server instancing
     // (same limitation as the `bridge:` scheduled-command guard) and firing
     // it here would send the message into the WRONG server's chat.
-    if (rconService !== this.rconService) return;
+    if (rconService !== this.rconService) return delivered;
     try {
       if (
         panelBridge &&
@@ -1209,6 +1217,7 @@ export class Scheduler {
     } catch (err) {
       log.debug(`Restart broadcast (bridge) threw: ${err.message}`);
     }
+    return delivered;
   }
 
   // Discord was already told the restart was coming, so it has to be told when
@@ -1480,6 +1489,23 @@ export class Scheduler {
 
       log.info("Auto-restart: RCON verified, sending warnings...");
 
+      // continuous-bug-hunt round 11 (notification delivery truth):
+      // _broadcastRestartMessage() is deliberately best-effort and never
+      // throws (RCON can legitimately drop mid-countdown after the
+      // just-passed connectivity check above -- a multi-minute warning
+      // sequence has plenty of time for that), so the loops below keep
+      // running warning-to-warning regardless of whether any single one
+      // actually reached a player. Before this fix, a broadcast failure was
+      // only ever a buried log.warn(): the restart could go on to succeed
+      // completely (world saved, server back up) and get logged to
+      // Schedule History as an unqualified "Server restarted successfully"
+      // even though players were NEVER actually warned it was coming. Track
+      // failures here and fold the count into that same success message
+      // instead of only the server log -- same reasoning as every other
+      // "don't let success:true imply more than what was actually
+      // verified" fix in this file.
+      let failedWarningBroadcasts = 0;
+
       // Notify Discord at the start of the restart sequence
       if (this.discordBot) {
         this.discordBot
@@ -1508,10 +1534,11 @@ export class Scheduler {
             await this._notifyRestartCancelled();
             return { success: false, message: "Restart cancelled" };
           }
-          await this._broadcastRestartMessage(
+          const delivered = await this._broadcastRestartMessage(
             formatRestartWarning(restartWarning, i, "minute"),
             rconService,
           );
+          if (!delivered) failedWarningBroadcasts++;
 
           if (i > 1) {
             await this.sleep(60000); // Wait 1 minute
@@ -1543,25 +1570,34 @@ export class Scheduler {
             await this._notifyRestartCancelled();
             return { success: false, message: "Restart cancelled" };
           }
-          await this._broadcastRestartMessage(
+          const delivered = await this._broadcastRestartMessage(
             formatRestartWarning(restartWarning, tick.count, "second"),
             rconService,
           );
+          if (!delivered) failedWarningBroadcasts++;
         }
 
         // One last second, then go.
         await this.sleep(1000);
-        await this._broadcastRestartMessage(
-          getRestartWarningNotice(restartWarning, "restarting"),
-          rconService,
-        );
+        if (
+          !(await this._broadcastRestartMessage(
+            getRestartWarningNotice(restartWarning, "restarting"),
+            rconService,
+          ))
+        ) {
+          failedWarningBroadcasts++;
+        }
         await this.sleep(2000);
       } else {
         // Immediate restart - just a brief message
-        await this._broadcastRestartMessage(
-          getRestartWarningNotice(restartWarning, "restarting"),
-          rconService,
-        );
+        if (
+          !(await this._broadcastRestartMessage(
+            getRestartWarningNotice(restartWarning, "restarting"),
+            rconService,
+          ))
+        ) {
+          failedWarningBroadcasts++;
+        }
         await this.sleep(2000);
       }
 
@@ -1921,20 +1957,24 @@ export class Scheduler {
         const rconStatus = rconConnected
           ? " (RCON connected)"
           : " (RCON not yet connected)";
+        const warningNote =
+          failedWarningBroadcasts > 0
+            ? ` -- ${failedWarningBroadcasts} restart warning broadcast(s) failed to send; players may not have been warned before this restart`
+            : "";
         await logScheduleExecution(
           null,
           label,
           "restart",
           true,
-          "Server restarted successfully" + rconStatus,
+          "Server restarted successfully" + rconStatus + warningNote,
           restartDuration,
         );
         logServerEvent(
           "auto_restart",
-          "Server restarted successfully" + rconStatus,
+          "Server restarted successfully" + rconStatus + warningNote,
         );
         log.info(
-          `Auto-restart completed successfully (took ${Math.round(restartDuration / 1000)}s)${rconStatus}`,
+          `Auto-restart completed successfully (took ${Math.round(restartDuration / 1000)}s)${rconStatus}${warningNote}`,
         );
       } else {
         await logScheduleExecution(
