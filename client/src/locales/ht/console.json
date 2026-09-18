@@ -45,6 +45,7 @@
     "clearConfirmTitle": "Efase jounal konsòl {{server}} a?",
     "clearConfirmDesc": "Aksyon sa a efase server-console.txt nèt sou disk la, se pa jis afichaj sa a. Pa gen fason pou anile.",
     "clearConfirmButton": "Efase dosye jounal la",
+    "clearNoPermission": "Efase jounal konsòl la mande pèmisyon server.configure, ki pa gen nan wòl sa a.",
     "streamUnavailable": "Flux jounal pa disponib — sèvè a ka òfliy",
     "retry": "eseye ankò",
     "notFoundTitle": "Jounal konsòl sèvè a pa jwenn",
@@ -109,9 +110,7 @@
     "save": "Sove",
     "showOptions": "Montre Opsyon",
     "checkMods": "Tcheke Mods",
-    "help": "Èd",
-    "serverInfo": "Enfòmasyon Sèvè",
-    "getMemory": "Jwenn Memwa"
+    "help": "Èd"
   },
   "broadcast": {
     "toggleLabel": "difizyon",

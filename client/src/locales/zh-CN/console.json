@@ -45,6 +45,7 @@
     "clearConfirmTitle": "删除服务器 {{server}} 的控制台日志？",
     "clearConfirmDesc": "此操作将永久删除磁盘上的 server-console.txt 文件，而不仅仅是当前显示内容，且无法撤销。",
     "clearConfirmButton": "删除日志文件",
+    "clearNoPermission": "清除控制台日志需要 server.configure 权限，此角色没有该权限。",
     "streamUnavailable": "日志流不可用——服务器可能已离线",
     "retry": "重试",
     "notFoundTitle": "未找到服务器控制台日志",
@@ -109,9 +110,7 @@
     "save": "保存",
     "showOptions": "显示选项",
     "checkMods": "检查模组",
-    "help": "帮助",
-    "serverInfo": "服务器信息",
-    "getMemory": "获取内存"
+    "help": "帮助"
   },
   "broadcast": {
     "toggleLabel": "广播",

@@ -63,6 +63,7 @@
     "clearConfirmTitle": "محو سجل وحدة تحكم الخادم {{server}}؟",
     "clearConfirmDesc": "سيؤدي هذا إلى محو الملف server-console.txt نهائيًا من القرص، وليس هذا العرض فقط. لا يمكن التراجع.",
     "clearConfirmButton": "محو ملف السجل",
+    "clearNoPermission": "يتطلب محو سجل وحدة التحكم صلاحية server.configure، وهذا الدور لا يملكها.",
     "streamUnavailable": "بث السجل غير متاح — قد يكون الخادم متوقفًا",
     "retry": "إعادة المحاولة",
     "notFoundTitle": "لم يُعثر على سجل وحدة تحكم الخادم",
@@ -139,9 +140,7 @@
     "save": "حفظ",
     "showOptions": "عرض الخيارات",
     "checkMods": "فحص المودات",
-    "help": "مساعدة",
-    "serverInfo": "معلومات الخادم",
-    "getMemory": "قراءة الذاكرة"
+    "help": "مساعدة"
   },
   "broadcast": {
     "toggleLabel": "بث",

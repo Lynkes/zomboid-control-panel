@@ -45,6 +45,7 @@
     "clearConfirmTitle": "Konsolenprotokoll für {{server}} löschen?",
     "clearConfirmDesc": "Dies löscht server-console.txt dauerhaft von der Festplatte, nicht nur diese Anzeige. Es gibt kein Rückgängigmachen.",
     "clearConfirmButton": "Protokolldatei löschen",
+    "clearNoPermission": "Das Löschen des Konsolenprotokolls erfordert die Berechtigung server.configure, die diese Rolle nicht hat.",
     "streamUnavailable": "Protokoll-Stream nicht verfügbar — Server ist möglicherweise offline",
     "retry": "erneut versuchen",
     "notFoundTitle": "Serverkonsolenprotokoll nicht gefunden",
@@ -109,9 +110,7 @@
     "save": "Speichern",
     "showOptions": "Optionen anzeigen",
     "checkMods": "Mods überprüfen",
-    "help": "Hilfe",
-    "serverInfo": "Serverinfo",
-    "getMemory": "Speicher abrufen"
+    "help": "Hilfe"
   },
   "broadcast": {
     "toggleLabel": "Broadcast",

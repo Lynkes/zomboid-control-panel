@@ -55,6 +55,7 @@
     "clearConfirmTitle": "Стерти журнал консолі сервера {{server}}?",
     "clearConfirmDesc": "Це назавжди стирає файл server-console.txt на диску, а не лише цей вивід. Скасувати неможливо.",
     "clearConfirmButton": "Стерти файл журналу",
+    "clearNoPermission": "Для стирання журналу консолі потрібен дозвіл server.configure, якого немає в цієї ролі.",
     "streamUnavailable": "Потік журналу недоступний — можливо, сервер офлайн",
     "retry": "повторити",
     "notFoundTitle": "Журнал консолі сервера не знайдено",
@@ -125,9 +126,7 @@
     "save": "Зберегти",
     "showOptions": "Показати параметри",
     "checkMods": "Перевірити моди",
-    "help": "Довідка",
-    "serverInfo": "Інфо сервера",
-    "getMemory": "Використання пам'яті"
+    "help": "Довідка"
   },
   "broadcast": {
     "toggleLabel": "розсилка",

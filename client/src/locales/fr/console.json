@@ -45,6 +45,7 @@
     "clearConfirmTitle": "Supprimer le journal de la console de {{server}} ?",
     "clearConfirmDesc": "Cette action supprime définitivement server-console.txt du disque, pas seulement cet affichage. Il n'y a pas d'annulation possible.",
     "clearConfirmButton": "Supprimer le fichier journal",
+    "clearNoPermission": "Supprimer le journal de la console nécessite la permission server.configure, que ce rôle n'a pas.",
     "streamUnavailable": "Flux du journal indisponible — le serveur est peut-être hors ligne",
     "retry": "réessayer",
     "notFoundTitle": "Journal de la console du serveur introuvable",
@@ -112,9 +113,7 @@
     "save": "Enregistrer",
     "showOptions": "Afficher les options",
     "checkMods": "Vérifier les mods",
-    "help": "Aide",
-    "serverInfo": "Infos serveur",
-    "getMemory": "Mémoire utilisée"
+    "help": "Aide"
   },
   "broadcast": {
     "toggleLabel": "diffusion",

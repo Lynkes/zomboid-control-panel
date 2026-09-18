@@ -45,6 +45,7 @@
     "clearConfirmTitle": "Erase the console log for {{server}}?",
     "clearConfirmDesc": "This permanently erases server-console.txt on disk, not just this display. There is no undo.",
     "clearConfirmButton": "Erase log file",
+    "clearNoPermission": "Erasing the console log requires the server.configure permission, which this role doesn't have.",
     "streamUnavailable": "Log stream unavailable — server may be offline",
     "retry": "retry",
     "notFoundTitle": "Server console log not found",
@@ -109,9 +110,7 @@
     "save": "Save",
     "showOptions": "Show Options",
     "checkMods": "Check Mods",
-    "help": "Help",
-    "serverInfo": "Server Info",
-    "getMemory": "Get Memory"
+    "help": "Help"
   },
   "broadcast": {
     "toggleLabel": "broadcast",

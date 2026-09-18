@@ -21,6 +21,7 @@ import { HelpTip } from '@/components/HelpTip'
 import { cn } from '@/lib/utils'
 import { getUserErrorMessage, getResultErrorMessage } from '@/lib/errorMessage'
 import { usePageShortcut } from '@/hooks/useKeyboardShortcuts'
+import { useRequestGuard } from '@/hooks/useRequestGuard'
 
 // rconService.execute() (server/services/rcon.js) attaches
 // `code: ErrorCode.RCON_EXECUTE_DISCONNECTED` to its response whenever a
@@ -201,15 +202,17 @@ const ServerLogLine = memo(function ServerLogLine({ line }: { line: string }) {
 })
 
 // `command` is the literal RCON command text sent to the server and must
-// stay untranslated; only the button label is looked up.
+// stay untranslated; only the button label is looked up. Every entry must be a
+// command the PZ server really registers (zombie.commands.serverCommands.*,
+// checked with javap against projectzomboid.jar): this list used to also carry
+// `serverinfo` and `getmemory`, which no PZ build defines -- both buttons just
+// returned PZ's "unknown command" reply.
 const quickCommandDefs = [
   { key: 'players', command: 'players' },
   { key: 'save', command: 'save' },
   { key: 'showOptions', command: 'showoptions' },
   { key: 'checkMods', command: 'checkModsNeedUpdate' },
   { key: 'help', command: 'help' },
-  { key: 'serverInfo', command: 'serverinfo' },
-  { key: 'getMemory', command: 'getmemory' },
 ] as const
 
 function getQuickCommands(t: TFunction<'console'>) {
@@ -227,6 +230,31 @@ function getQuickBroadcasts(t: TFunction<'console'>) {
     message: t(`broadcast.templates.${key}.message`),
   }))
 }
+
+// PZ's RCON parser (zombie.commands.CommandBase, javap-checked against
+// projectzomboid.jar) tokenizes the command line with ([^"]\S*|".*?")\s* and
+// then deletes every double quote from each token -- there is NO escape syntax.
+// A message containing `"` therefore split into extra tokens (the old
+// `\"` escaping here did nothing), servermsg's single-argument pattern no
+// longer matched, and PZ answered with servermsg's help text instead of
+// broadcasting. Same for a newline typed into the broadcast box. Mirrors
+// RconService.sanitizeServerMessage (server/services/rcon.js), which the
+// scheduler's announcements already go through: quotes/backslashes/control
+// characters are removed and whitespace runs collapse to one space.
+function sanitizeBroadcastText(input: string): string {
+  return input
+    .replace(/[‘’]/g, "'")
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/["“”\\]|\p{Cc}/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+// PZ answers a servermsg whose arguments it could not parse with the command's
+// help text ("... Use: /servermsg "My Message""), which arrives as an ordinary
+// successful RCON reply. rconService.serverMessage() detects the same reply
+// server-side for scheduled broadcasts; this is the console page's own copy.
+const SERVERMSG_REJECTED_PATTERN = /Use:\s*\/servermsg/i
 
 // No pagination on this panel -- when a fetch returns exactly this many
 // rows, older commands may exist and be silently excluded (server allows
@@ -356,6 +384,22 @@ export default function Console() {
   const serverLogIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const serverLogSizeRef = useRef(0) // Track size without recreating interval
   const hasActiveServer = !!activeServer
+  // Identity of the server every panel below is showing. hasActiveServer /
+  // hasServerLogSource / hasRconConfig are booleans, so they do NOT change when
+  // the operator switches between two servers that are both set up -- the
+  // effects keyed only on them never re-ran, leaving the previous server's log
+  // lines, command history, RCON status and log offset on screen (and the
+  // stream polling the new server's file from the old server's byte offset).
+  const activeServerId = activeServer?.id ?? null
+  // One guard per fetch flow (see useRequestGuard): a response that lands after
+  // a newer call for the same flow started -- typically one issued for the
+  // server that was active a moment ago -- is dropped instead of applied.
+  const historyGuard = useRequestGuard()
+  const rconStatusGuard = useRequestGuard()
+  // Same idea for the server log, whose initial load and 2s stream polls share
+  // one flow: bumped every time the polling effect (re)starts or stops, so a
+  // response requested before that moment is ignored.
+  const serverLogGenerationRef = useRef(0)
   const hasServerLogSource = !!activeServer && !activeServer.isRemote && Boolean(activeServer.zomboidDataPath || activeServer.installPath)
   const hasRconConfig = !!activeServer && Boolean(activeServer.rconHost && activeServer.rconPort && activeServer.rconPassword)
   const serverLogUnavailable = !hasServerLogSource
@@ -465,7 +509,11 @@ export default function Console() {
   }, [history, historySearch])
 
   const fetchHistory = useCallback(async () => {
-    if (!hasActiveServer) {
+    const ticket = historyGuard.next()
+    // GET /rcon/history requires rcon.execute (it returns every command ever
+    // typed, secrets included -- server/routes/rcon.js). Without it the fetch
+    // could only 403 and pop a "History Unavailable" toast on every visit.
+    if (!hasActiveServer || !canExecuteRcon) {
       setHistory([])
       setCommandCache([])
       setHistoryLoadError(null)
@@ -477,9 +525,11 @@ export default function Console() {
     setHistoryLoadError(null)
     try {
       const data = await rconApi.getHistory(COMMAND_HISTORY_FETCH_LIMIT)
+      if (historyGuard.isStale(ticket)) return
       setHistory(data.history || [])
       setCommandCache(data.history?.map((h: CommandEntry) => h.command).reverse() || [])
     } catch {
+      if (historyGuard.isStale(ticket)) return
       setHistoryLoadError(t('toasts.historyUnavailableDesc'))
       toast({
         title: t('toasts.historyUnavailableTitle'),
@@ -487,12 +537,18 @@ export default function Console() {
         variant: 'destructive',
       })
     } finally {
-      setHistoryLoading(false)
+      if (!historyGuard.isStale(ticket)) setHistoryLoading(false)
     }
-  }, [hasActiveServer, toast, t])
+  }, [hasActiveServer, canExecuteRcon, historyGuard, toast, t])
 
   const testRconConnection = useCallback(async () => {
-    if (!hasRconConfig) {
+    const ticket = rconStatusGuard.next()
+    // POST /config/test-rcon requires server.configure (not rcon.execute). A
+    // role without it used to hit a 403 on mount, which the catch below reads
+    // as "host unreachable" -- a false red banner that also disables the
+    // command input for a role that CAN run commands. Leave the status
+    // unknown instead; running a command still updates it.
+    if (!hasRconConfig || !canConfigureServer) {
       setRconConnected(null)
       setRconFailureReason(null)
       setTestingConnection(false)
@@ -502,9 +558,11 @@ export default function Console() {
     setTestingConnection(true)
     try {
       const result = await configApi.testRcon()
+      if (rconStatusGuard.isStale(ticket)) return
       setRconConnected(result.success && result.connected)
       setRconFailureReason(null)
     } catch (err) {
+      if (rconStatusGuard.isStale(ticket)) return
       setRconConnected(false)
       // handleResponse() (lib/api.ts) throws on a 200 `{success:false}` body
       // too, so the unreachable/auth_failed split from the response payload
@@ -513,12 +571,13 @@ export default function Console() {
       const data = err instanceof ApiError ? (err.data as { error?: string } | undefined) : undefined
       setRconFailureReason(data?.error === 'auth_failed' ? 'auth_failed' : 'unreachable')
     } finally {
-      setTestingConnection(false)
+      if (!rconStatusGuard.isStale(ticket)) setTestingConnection(false)
     }
-  }, [hasRconConfig])
+  }, [hasRconConfig, canConfigureServer, rconStatusGuard])
 
   // Server Console Log functions
   const fetchServerLog = useCallback(async (initial = false) => {
+    const generation = serverLogGenerationRef.current
     if (!hasServerLogSource) {
       if (initial) {
         setServerLogLines([])
@@ -541,6 +600,7 @@ export default function Console() {
         setServerLogError(null)
         serverLogErrorCountRef.current = 0
         const data = await serverApi.getConsoleLog(1000)
+        if (generation !== serverLogGenerationRef.current) return
         setServerLogLines(data.lines || [])
         setServerLogSize(data.size || 0)
         serverLogSizeRef.current = data.size || 0
@@ -549,6 +609,7 @@ export default function Console() {
       } else {
         // Stream new content - use ref to avoid stale closure
         const data = await serverApi.streamConsoleLog(serverLogSizeRef.current)
+        if (generation !== serverLogGenerationRef.current) return
         if (data.newLines && data.newLines.length > 0) {
           setServerLogLines(prev => [...prev, ...data.newLines].slice(-500))
         }
@@ -565,16 +626,21 @@ export default function Console() {
         }
       }
     } catch {
+      if (generation !== serverLogGenerationRef.current) return
       serverLogErrorCountRef.current += 1
       if (serverLogErrorCountRef.current >= 3) {
         setServerLogError(t('serverLog.streamUnavailable'))
       }
     } finally {
-      setServerLogLoading(false)
+      if (generation === serverLogGenerationRef.current) setServerLogLoading(false)
     }
   }, [hasServerLogSource, t])
 
   const clearServerLog = async () => {
+    // POST /server/console-log/clear is gated server-side on server.configure
+    // (server/routes/server.js); the button's disabled state alone is not a
+    // gate, so the handler refuses too.
+    if (!canConfigureServer) return
     const confirmed = await confirm({
       // Names the server the same way every other destructive confirm in
       // this app does (Mods.tsx, ServerConfig.tsx, Servers.tsx, Users.tsx) --
@@ -619,6 +685,35 @@ export default function Console() {
     }
   }
 
+  // The active server changed to a different one: everything below that
+  // describes the previous server -- its log lines, log path/offset, RCON
+  // output, command history, connection status -- is cleared before the
+  // effects further down (declared after this one, so they run after it in the
+  // same commit) load the new server's data. Without this the old server's
+  // output stayed under the new server's name until (and unless) fresh data
+  // replaced it. `undefined` = first render, nothing to reset yet.
+  const shownServerIdRef = useRef<string | number | null | undefined>(undefined)
+  useEffect(() => {
+    const previous = shownServerIdRef.current
+    shownServerIdRef.current = activeServerId
+    if (previous === undefined || previous === activeServerId) return
+    setLiveLog([])
+    setHistory([])
+    setCommandCache([])
+    setCommandHistoryIndex(-1)
+    setCommandDraft('')
+    setHistoryLoadError(null)
+    setRconConnected(null)
+    setRconFailureReason(null)
+    setServerLogLines([])
+    setServerLogSize(0)
+    serverLogSizeRef.current = 0
+    setServerLogPath('')
+    setServerLogExists(false)
+    setServerLogError(null)
+    serverLogErrorCountRef.current = 0
+  }, [activeServerId])
+
   // Ref to track paused state for interval callback (avoids stale closure)
   const serverLogPausedRef = useRef(serverLogPaused)
   useEffect(() => {
@@ -627,6 +722,9 @@ export default function Console() {
 
   // Start/stop server log polling
   useEffect(() => {
+    // Any response requested before this (re)start belongs to the previous
+    // server / source and must not be applied -- see serverLogGenerationRef.
+    serverLogGenerationRef.current += 1
     if (!hasServerLogSource) {
       if (serverLogIntervalRef.current) {
         clearInterval(serverLogIntervalRef.current)
@@ -646,12 +744,13 @@ export default function Console() {
     }, 2000)
     
     return () => {
+      serverLogGenerationRef.current += 1
       if (serverLogIntervalRef.current) {
         clearInterval(serverLogIntervalRef.current)
         serverLogIntervalRef.current = null
       }
     }
-  }, [fetchServerLog, hasServerLogSource])
+  }, [fetchServerLog, hasServerLogSource, activeServerId])
 
   // Auto-scroll server log
   useEffect(() => {
@@ -668,12 +767,15 @@ export default function Console() {
     if (hasRconConfig) {
       testRconConnection()
     } else {
+      // Drop an in-flight probe issued for the server that was active before.
+      rconStatusGuard.next()
+      setTestingConnection(false)
       setRconConnected(null)
       setRconFailureReason(null)
     }
     // Auto-focus input on mount
     inputRef.current?.focus()
-  }, [fetchHistory, hasActiveServer, hasRconConfig, testRconConnection])
+  }, [fetchHistory, hasActiveServer, hasRconConfig, testRconConnection, rconStatusGuard, activeServerId])
 
   useEffect(() => {
     if (socket) {
@@ -729,9 +831,27 @@ export default function Console() {
     }
   }, [liveLog])
 
+  // RCON commands and broadcasts carry no server id: the backend resolves
+  // "the active server" when the request arrives. Between an activeServerChanged
+  // event and the reload that lands the new server's data, this page still
+  // shows the previous server, so a command sent in that window would run on a
+  // server other than the one the operator is looking at (same window
+  // clearServerLog guards). Reads the ref, not the state -- see
+  // serverChangedSinceLoadRef.
+  const warnIfServerChanged = () => {
+    if (!serverChangedSinceLoadRef.current) return false
+    toast({
+      title: t('toasts.serverChangedSinceLoadTitle'),
+      description: t('toasts.serverChangedSinceLoadDesc'),
+      variant: 'destructive',
+    })
+    return true
+  }
+
   const executeCommand = async () => {
     if (!command.trim()) return
     if (!canExecuteRcon) return
+    if (warnIfServerChanged()) return
 
     setLoading(true)
     try {
@@ -874,10 +994,21 @@ export default function Console() {
   const sendAnnouncement = async () => {
     if (!announcement.trim()) return
     if (!canExecuteRcon) return
+    if (warnIfServerChanged()) return
+
+    const cleaned = sanitizeBroadcastText(announcement)
+    if (!cleaned) {
+      // Nothing but quotes/control characters -- there is no message to send.
+      toast({
+        title: t('toasts.errorTitle'),
+        description: t('toasts.broadcastFailedFallback'),
+        variant: 'destructive',
+      })
+      return
+    }
 
     setSendingAnnouncement(true)
     try {
-      const cleaned = announcement.replace(/"/g, '\\"')
       const cmd = selectedChannel === 'all'
         ? `servermsg "${cleaned}"`
         : `servermsg "[${selectedChannel.toUpperCase()}] ${cleaned}"`
@@ -902,7 +1033,15 @@ export default function Console() {
       // rcon.execute, which this function already requires (see the early
       // return above). A manual push would double the entry.
 
-      if (result.success) {
+      if (result.success && typeof result.response === 'string' && SERVERMSG_REJECTED_PATTERN.test(result.response)) {
+        // PZ replied with servermsg's help text: nothing was broadcast, so
+        // keep the draft in the box instead of announcing success.
+        toast({
+          title: t('toasts.errorTitle'),
+          description: t('toasts.broadcastFailedFallback'),
+          variant: 'destructive',
+        })
+      } else if (result.success) {
         toast({
           title: t('toasts.broadcastSentTitle'),
           description: selectedChannel === 'all'
@@ -1074,15 +1213,17 @@ export default function Console() {
               >
                 <RefreshCw className="w-3.5 h-3.5" />
               </Button>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="destructive" size="sm" className="h-7 px-2 font-mono text-[10px] uppercase tracking-[0.16em]" onClick={clearServerLog} disabled={serverChangedSinceLoad}>
-                    <Trash2 className="w-3 h-3 me-1" />
-                    {t('serverLog.clear')}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t('serverLog.clearTooltip')}</TooltipContent>
-              </Tooltip>
+              <DisabledReason reason={!canConfigureServer ? t('serverLog.clearNoPermission') : null}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="destructive" size="sm" className="h-7 px-2 font-mono text-[10px] uppercase tracking-[0.16em]" onClick={clearServerLog} disabled={serverChangedSinceLoad || !canConfigureServer}>
+                      <Trash2 className="w-3 h-3 me-1" />
+                      {t('serverLog.clear')}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t('serverLog.clearTooltip')}</TooltipContent>
+                </Tooltip>
+              </DisabledReason>
             </div>
           </div>
 
@@ -1372,12 +1513,13 @@ export default function Console() {
             </div>
             <DisabledReason reason={
               !canExecuteRcon ? t('rcon.noPermission')
-                : rconConnected === false ? t('rcon.disconnectedUseRecheck')
-                  : null
+                : serverChangedSinceLoad ? t('toasts.serverChangedSinceLoadDesc')
+                  : rconConnected === false ? t('rcon.disconnectedUseRecheck')
+                    : null
             }>
               <Button
                 onClick={executeCommand}
-                disabled={loading || !command.trim() || !hasRconConfig || rconConnected === false || !canExecuteRcon}
+                disabled={loading || !command.trim() || !hasRconConfig || rconConnected === false || !canExecuteRcon || serverChangedSinceLoad}
                 aria-label={t('rcon.executeAria')}
                 className="font-mono text-[11px] uppercase tracking-[0.18em]"
               >
@@ -1457,10 +1599,10 @@ export default function Console() {
                   <p className="text-xs text-muted-foreground">
                     <Trans i18nKey="broadcast.sendsVia" t={t} components={{ code: <code className="text-foreground/80" /> }} />
                   </p>
-                  <DisabledReason reason={!canExecuteRcon ? t('rcon.noPermission') : null}>
+                  <DisabledReason reason={!canExecuteRcon ? t('rcon.noPermission') : serverChangedSinceLoad ? t('toasts.serverChangedSinceLoadDesc') : null}>
                     <Button
                       onClick={sendAnnouncement}
-                      disabled={sendingAnnouncement || !announcement.trim() || !hasRconConfig || rconConnected === false || !canExecuteRcon}
+                      disabled={sendingAnnouncement || !announcement.trim() || !hasRconConfig || rconConnected === false || !canExecuteRcon || serverChangedSinceLoad}
                     >
                       {sendingAnnouncement ? (
                         <Loader2 className="w-4 h-4 animate-spin me-2" />

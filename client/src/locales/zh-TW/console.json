@@ -45,6 +45,7 @@
     "clearConfirmTitle": "刪除伺服器 {{server}} 的主控台日誌？",
     "clearConfirmDesc": "此操作將永久刪除磁碟上的 server-console.txt 檔案，而不僅僅是當前顯示內容，且無法撤銷。",
     "clearConfirmButton": "刪除日誌檔案",
+    "clearNoPermission": "清除主控台日誌需要 server.configure 權限，此角色沒有該權限。",
     "streamUnavailable": "日誌流無法使用——伺服器可能已離線",
     "retry": "重試",
     "notFoundTitle": "未找到伺服器主控台日誌",
@@ -109,9 +110,7 @@
     "save": "儲存",
     "showOptions": "顯示選項",
     "checkMods": "檢查模組",
-    "help": "幫助",
-    "serverInfo": "伺服器資訊",
-    "getMemory": "取得記憶體"
+    "help": "幫助"
   },
   "broadcast": {
     "toggleLabel": "廣播",

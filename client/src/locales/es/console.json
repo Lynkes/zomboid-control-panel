@@ -45,6 +45,7 @@
     "clearConfirmTitle": "¿Eliminar el registro de la consola de {{server}}?",
     "clearConfirmDesc": "Esto elimina permanentemente server-console.txt del disco, no solo esta vista. No hay forma de deshacerlo.",
     "clearConfirmButton": "Eliminar archivo de registro",
+    "clearNoPermission": "Eliminar el registro de la consola requiere el permiso server.configure, que este rol no tiene.",
     "streamUnavailable": "Flujo de registro no disponible — el servidor podría estar sin conexión",
     "retry": "reintentar",
     "notFoundTitle": "No se encontró el registro de consola del servidor",
@@ -112,9 +113,7 @@
     "save": "Guardar",
     "showOptions": "Mostrar opciones",
     "checkMods": "Comprobar mods",
-    "help": "Ayuda",
-    "serverInfo": "Información del servidor",
-    "getMemory": "Obtener memoria"
+    "help": "Ayuda"
   },
   "broadcast": {
     "toggleLabel": "difusión",
