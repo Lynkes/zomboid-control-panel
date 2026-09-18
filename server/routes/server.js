@@ -4684,13 +4684,33 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
       // Clear active operation
       clearActiveSteamOperation(normalizedPath);
 
-      const success = code === 0;
+      // continuous-bug-hunt, 2026-09-18 (steamcmd-success-truth round):
+      // SteamCMD is well documented to exit 0 even when +app_update failed
+      // partway -- a rejected/incomplete download, a corrupted manifest, a
+      // disk-space failure, or a config-resolution failure all print one or
+      // more "ERROR!"-prefixed lines (or, for the config case specifically,
+      // "Missing configuration") and then still let the child process exit
+      // 0. code===0 alone was trusted as sufficient proof of success here,
+      // the identical exit-0-lies gap POST /install already closed via
+      // hasPzInstallMarker() (2026-08-26) -- that exact fix doesn't
+      // transfer to this route unmodified, though: this one updates/
+      // validates an ALREADY-installed server, so the marker files it
+      // would check are already sitting on disk from before this run and
+      // prove nothing about whether THIS update actually succeeded. The
+      // signal that does exist here is SteamCMD's own captured output --
+      // scan it for its own documented failure lines before trusting the
+      // exit code, same distrust, different evidence.
+      const steamCmdReportedError =
+        /^\s*ERROR!/im.test(output) || /missing configuration/i.test(output);
+      const success = code === 0 && !steamCmdReportedError;
       const steamDepotAccessDenied =
         /app ['"]?380870['"]? state is 0x6/i.test(output) ||
         /manifest.*access denied/i.test(output);
       const failureMessage = steamDepotAccessDenied
         ? "SteamCMD could not access a Project Zomboid depot manifest. Your installed server files were not changed. Retry later; if it persists, update using a Steam account that owns Project Zomboid."
-        : `Server ${operation} failed with code ${code}`;
+        : steamCmdReportedError
+          ? `SteamCMD exited cleanly (code 0) but reported an error in its own output during the ${operation} -- check the SteamCMD log above for the exact line. Your installed server files may be incomplete or unchanged.`
+          : `Server ${operation} failed with code ${code}`;
 
       // "update" vs "verification" is a word choice, not a value -- own
       // codes per direction, not a shared template with `operation`
