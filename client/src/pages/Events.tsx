@@ -1365,10 +1365,24 @@ export default function Events() {
     timeSpeedDirtyUntilRef.current = Date.now() + 2500
   }, [])
 
+  // continuous-bug-hunt round 26 (PanelBridge command queue and response
+  // matching): same race shape as fetchPlayers above (round 9), on the SAME
+  // page, but this one was left ungated -- Events.activeServerRaceOrder.
+  // test.tsx's own setUpCommon() even says so explicitly ("this race only
+  // concerns fetchPlayers"). checkBridgeStatus runs on a 10s poll AND on
+  // activeServerChanged; a poll tick for the server that was active a
+  // moment ago, still in flight, can resolve AFTER the
+  // activeServerChanged-triggered call for the NEW server and overwrite its
+  // weather/climate sliders/game time/utilities status with the OLD
+  // server's stale bridge data. bridgeStatusGuard drops a response once a
+  // newer call has already started -- same mechanism, separate instance
+  // (per useRequestGuard's own doc comment: one guard per fetch flow).
+  const bridgeStatusGuard = useRequestGuard()
   const checkBridgeStatus = useCallback(async () => {
+    const requestId = bridgeStatusGuard.next()
     try {
       const status = await panelBridgeApi.getStatus()
-      if (!mountedRef.current) return
+      if (!mountedRef.current || bridgeStatusGuard.isStale(requestId)) return
       setBridgeConnected(status.modConnected)
       setBridgeStatusLoading(false)
       // status.connection.summary is {key, params, text} -- resolve through
@@ -1394,7 +1408,7 @@ export default function Events() {
         // actually drive. Fired independently so it can only ever add data,
         // never hold up the rest of this poll tick.
         panelBridgeApi.getWeather().then((weatherResult) => {
-          if (!mountedRef.current) return
+          if (!mountedRef.current || bridgeStatusGuard.isStale(requestId)) return
           if (weatherResult.success && weatherResult.data) {
             const w = weatherResult.data
             setLiveWeather({
@@ -1412,7 +1426,7 @@ export default function Events() {
           panelBridgeApi.getGameTime(),
           panelBridgeApi.getUtilitiesStatus(),
         ])
-        if (!mountedRef.current) return
+        if (!mountedRef.current || bridgeStatusGuard.isStale(requestId)) return
 
         if (floatsRes.status === 'fulfilled' && floatsRes.value.success && floatsRes.value.data?.floats) {
           const floats = floatsRes.value.data.floats
@@ -1478,14 +1492,14 @@ export default function Events() {
         setUtilitiesStatus(null)
       }
     } catch (error) {
-      if (mountedRef.current) {
+      if (mountedRef.current && !bridgeStatusGuard.isStale(requestId)) {
         setBridgeConnected(false)
         setBridgeStatusLoading(false)
         setBridgeConnectionSummary(t('toasts.unableToReadBridgeStatus'))
         setUtilitiesStatus(null)
       }
     }
-  }, [])
+  }, [bridgeStatusGuard])
 
   // Same getWeather() read as checkBridgeStatus's own poll tick above, split
   // out so a toggle that just changed weather state can reconcile with the

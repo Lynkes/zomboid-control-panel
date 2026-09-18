@@ -47,7 +47,14 @@ vi.mock('@/lib/api', async () => {
   return {
     ...actual,
     playersApi: { ...actual.playersApi, getPlayers: vi.fn() },
-    panelBridgeApi: { ...actual.panelBridgeApi, getStatus: vi.fn() },
+    panelBridgeApi: {
+      ...actual.panelBridgeApi,
+      getStatus: vi.fn(),
+      getWeather: vi.fn(),
+      getClimateFloats: vi.fn(),
+      getGameTime: vi.fn(),
+      getUtilitiesStatus: vi.fn(),
+    },
   }
 })
 
@@ -75,6 +82,10 @@ function emitActiveServerChanged() {
 
 const getPlayers = vi.mocked(playersApi.getPlayers)
 const getBridgeStatus = vi.mocked(panelBridgeApi.getStatus)
+const getWeather = vi.mocked(panelBridgeApi.getWeather)
+const getClimateFloats = vi.mocked(panelBridgeApi.getClimateFloats)
+const getGameTime = vi.mocked(panelBridgeApi.getGameTime)
+const getUtilitiesStatus = vi.mocked(panelBridgeApi.getUtilitiesStatus)
 
 function setUpCommon() {
   // modConnected: false keeps checkBridgeStatus() from cascading into
@@ -150,5 +161,83 @@ describe('Events.tsx: an older, slower player-list response must not overwrite a
     await act(async () => { await Promise.resolve() })
     expect(screen.getByText('Bob')).toBeInTheDocument()
     expect(screen.queryByText('Alice')).not.toBeInTheDocument()
+  })
+})
+
+// continuous-bug-hunt round 26 (PanelBridge command queue and response
+// matching): checkBridgeStatus runs on a 10s poll AND on activeServerChanged,
+// exactly like fetchPlayers above -- but it was left ungated (see
+// setUpCommon's own comment: "this race only concerns fetchPlayers"). A poll
+// tick for the server that was active a moment ago, still in flight, can
+// resolve AFTER the activeServerChanged-triggered call for the NEW server
+// and silently revert the "Bridge connected" status badge (and everything
+// gated on it) back to the OLD server's stale connectivity state. Fixed via
+// the same shared useRequestGuard hook (bridgeStatusGuard in Events.tsx).
+//
+// Exercises the top-of-page connection badge (statusBar.online/offline)
+// rather than the deeper weather/climate/utilities cascade checkBridgeStatus
+// also drives once connected -- that cascade is reached through the exact
+// same guarded getStatus() await, so gating that one call is sufficient to
+// prove the fix; the badge is the simplest observable that doesn't require
+// navigating into a specific section first.
+describe('Events.tsx: an older, slower bridge-connectivity response must not overwrite a newer one', () => {
+  it('keeps the newer server\'s connection status when an earlier in-flight checkBridgeStatus resolves AFTER the activeServerChanged one', async () => {
+    // Defensive resets: vi.clearAllMocks() (afterEach) clears call history
+    // but not a still-queued mockResolvedValue/Once implementation from a
+    // prior test in this file (e.g. setUpCommon's own
+    // getBridgeStatus.mockResolvedValue) -- start from a clean slate.
+    getBridgeStatus.mockReset()
+    getPlayers.mockResolvedValue({ players: [] } as never)
+    // checkBridgeStatus fires these unconditionally once modConnected is
+    // true -- an unmocked vi.fn() returns undefined, and calling .then() on
+    // that throws synchronously inside checkBridgeStatus's own try block,
+    // landing in its catch and forcing bridgeConnected back to false
+    // regardless of what getStatus() itself resolved. Give them all a
+    // trivial, non-throwing shape so this test isolates the getStatus()
+    // race alone.
+    getWeather.mockResolvedValue({ success: false } as never)
+    getClimateFloats.mockResolvedValue({ success: false } as never)
+    getGameTime.mockResolvedValue({ success: false } as never)
+    getUtilitiesStatus.mockResolvedValue({ success: false } as never)
+
+    // Call #1 (mount): resolves fast, server A is connected.
+    getBridgeStatus.mockResolvedValueOnce({ modConnected: true } as never)
+    renderEvents()
+    // The bridge badge's own "online" collides with the page's unrelated
+    // player-count status text (statusBar.onlineCount is the identical
+    // literal string) -- assert the count, not mere presence.
+    await waitFor(() => expect(screen.getAllByText(enEvents.statusBar.online)).toHaveLength(2))
+    expect(getBridgeStatus).toHaveBeenCalledTimes(1)
+
+    // Call #2 (a later poll tick): held open -- stands in for a slow/
+    // delayed response for whichever server was active when it was issued.
+    let resolveStalePoll: (value: Awaited<ReturnType<typeof panelBridgeApi.getStatus>>) => void = () => {}
+    const stalePoll = new Promise<Awaited<ReturnType<typeof panelBridgeApi.getStatus>>>((resolve) => { resolveStalePoll = resolve })
+    getBridgeStatus.mockImplementationOnce(() => stalePoll)
+    await act(async () => { emitActiveServerChanged() })
+    expect(getBridgeStatus).toHaveBeenCalledTimes(2)
+
+    // Call #3 (a second activeServerChanged, e.g. the operator switching
+    // again before call #2 ever answered): resolves immediately, server B
+    // is connected too -- kept "online" throughout so the ONLY thing this
+    // test isolates is whether the stale call #2 can revert it, not a
+    // true/false transition that a coincidental extra render could fake.
+    getBridgeStatus.mockImplementationOnce(() => Promise.resolve({ modConnected: true } as never))
+    await act(async () => { emitActiveServerChanged() })
+    expect(getBridgeStatus).toHaveBeenCalledTimes(3)
+    await waitFor(() => expect(screen.getAllByText(enEvents.statusBar.online)).toHaveLength(2))
+
+    // The stale call #2 finally lands, arriving strictly after call #3's
+    // already-applied, newer response -- reporting server A as DISCONNECTED
+    // (e.g. its bridge dropped while the operator had already moved on).
+    await act(async () => { resolveStalePoll({ modConnected: false } as never) })
+
+    // The bug: unfixed code has nothing gating this late apply, so it
+    // silently flips the badge to "offline" even though server B (still
+    // confirmed connected) is the active one. Give the (buggy) late apply a
+    // tick to land before asserting the negative.
+    await act(async () => { await Promise.resolve() })
+    expect(screen.getAllByText(enEvents.statusBar.online)).toHaveLength(2)
+    expect(screen.queryByText(enEvents.statusBar.offline)).not.toBeInTheDocument()
   })
 })
