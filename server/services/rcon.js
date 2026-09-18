@@ -1776,17 +1776,35 @@ export class RconService extends EventEmitter {
   }
 
   parsePlayers(response) {
-    // Parse the players response
-    // Format typically: "Players connected (X):\n-username\n-username2"
+    // Parse the players response. Format bytecode-confirmed 2026-09-18
+    // against zombie.commands.serverCommands.PlayersCommand.Command() (real
+    // PZ server jar, javap -p -c -constants): GameServer.rcon(cmd) always
+    // calls handleServerCommand(cmd, null) -- a null UdpConnection -- so
+    // that class's own `this.connection == null` branch is always taken,
+    // meaning the row separator is unconditionally a real "\n", never the
+    // "<LINE>" client-markup token used for in-game chat replies. Exact
+    // shape: "Players connected (X):\n-username1\n-username2\n" (trailing
+    // \n, no extra whitespace anywhere -- the "-" sits directly against the
+    // raw username on both sides).
     const players = [];
     if (!response) return players;
 
     const lines = response.split("\n");
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith("-")) {
+    for (const rawLine of lines) {
+      // Strip only a stray trailing \r (defensive; PZ itself never emits
+      // one per the format above) -- do NOT trim the line, or the name
+      // extracted from it, any further than that. This used to call
+      // `.trim()` on the whole line AND AGAIN on the substring after the
+      // "-", which silently ate any leading/trailing whitespace that was
+      // part of the player's actual username (Steam persona names can
+      // start or end with a space) -- a player named " Bob" or "Bob " came
+      // back from this parser, and therefore from the dashboard, the
+      // Players page, and kick/ban-by-name lookups, as plain "Bob" --
+      // indistinguishable from a different player of the same trimmed name.
+      const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+      if (line.startsWith("-")) {
         players.push({
-          name: trimmed.substring(1).trim(),
+          name: line.substring(1),
           online: true,
         });
       }
