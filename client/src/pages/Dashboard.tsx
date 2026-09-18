@@ -943,12 +943,16 @@ export default function Dashboard() {
       // -- watch the dashboard for live status" never claimed completion --
       // just with the variant downgraded from success to the same neutral
       // 'default' Servers.tsx uses for its own unconfirmed case, instead of
-      // inventing new copy. Force-stop's copy is NOT varied here: there is
-      // no existing "force-stop requested, unconfirmed" string anywhere in
-      // this codebase to reuse (Servers.tsx has no inline force-stop at
-      // all), so its toast stays exactly as it was before this fix -- only
-      // its button re-enable timing is fixed, same as the other two. Flagged
-      // to god rather than invented.
+      // inventing new copy.
+      // bug-hunt-2026-09-18 (round 23, operator design call:
+      // force-stop-has-no-unconfirmed-copy): force-stop's copy USED TO stay
+      // unvaried here -- there was no "force-stop requested, unconfirmed"
+      // string anywhere in the codebase to reuse, and this floor doesn't
+      // invent new user-facing copy on its own. Flagged to the operator
+      // instead; they picked reusing the Stop wording's shape. New
+      // successCopy.forceStopRequested below, checked before
+      // forceStopOutcomeCopy so a known bad save outcome (a more specific,
+      // more urgent fact) still wins when both are true at once.
       if (scriptWarnings && scriptWarnings.length > 0) {
         toast({
           title: t('successCopy.startServerScriptBackup.title'),
@@ -963,6 +967,12 @@ export default function Dashboard() {
         })
       } else if (forceStopOutcomeCopy) {
         toast({ title: forceStopOutcomeCopy.title, description: forceStopOutcomeCopy.description, variant: 'warning' as const })
+      } else if (action === 'Force stop server' && confirmed === false) {
+        toast({
+          title: t('successCopy.forceStopRequested.title'),
+          description: t('successCopy.forceStopRequested.description'),
+          variant: 'default' as const,
+        })
       } else {
         const honestlyUnconfirmed = action === 'Start server' && confirmed === false
         toast({ title: copy.title, description: copy.description, variant: honestlyUnconfirmed ? 'default' as const : 'success' as const })
@@ -1126,6 +1136,18 @@ export default function Dashboard() {
       return {
         level: hostUnknown ? 'warning' : 'critical',
         headline: hostUnknown ? t('verdict.serverStatusUnknown') : t('verdict.serverStopped'),
+        // bug-hunt-2026-09-18 (round 23, dashboard-crash-vs-stop-surface):
+        // composedStatus.host.detail already carries Jim's r28
+        // describeStopReason() line (1a460da9) -- "Stopped by an operator"
+        // vs "Crashed (exit code 1)" etc -- and Servers.tsx's own server
+        // card already renders the identical field via
+        // ServerStatusBadge.tsx's signal.detail. The Dashboard verdict
+        // never rendered it at all, so a crash and a deliberate stop looked
+        // identical here even though the data distinguishing them was
+        // already being fetched. Excluded for hostUnknown: that status
+        // carries its own different detail (e.g. "Process detection
+        // failed"), already fully explained by serverStatusUnknown above.
+        detail: !hostUnknown ? (composedStatus?.host.detail ?? undefined) : undefined,
         // Omit the shortcut entirely rather than show it disabled with no
         // explanation -- VerdictAction has no reason/tooltip support, same
         // treatment isRemote/hostUnknown already get here. The header Start
@@ -1713,6 +1735,20 @@ export default function Dashboard() {
               {latest && (
                 <span className="font-mono text-[11px] tabular-nums text-foreground/85">
                   v{panelUpdate.currentVersion} <span className="text-muted-foreground/60">→</span> v{latest}
+                </span>
+              )}
+              {panelUpdate.lastCheck && (
+                // bug-hunt-2026-09-18 (round 23, operator design call:
+                // stale-last-known-good-update-result-needs-a-qualifier):
+                // this banner is driven purely by updateAvailable, a
+                // boolean that stays true across however many later checks
+                // have failed since -- with no qualifier it reads as a
+                // fresh result even after days of a broken check. Reuses
+                // this file's own formatAge() (already used for player
+                // join times etc.) rather than inventing a second
+                // "N days ago" formatter.
+                <span className="font-mono text-[10px] tabular-nums text-muted-foreground/60">
+                  {t('panelUpdateBanner.checkedAgo', { age: formatAge(t, panelUpdate.lastCheck) })}
                 </span>
               )}
             </div>

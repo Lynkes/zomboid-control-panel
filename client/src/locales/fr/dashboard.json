@@ -148,6 +148,10 @@
       "title": "Arrêt demandé",
       "description": "Le serveur sauvegarde et s'arrête proprement — cela peut prendre un moment sur un grand monde. Le badge de statut se mettra à jour une fois l'arrêt confirmé."
     },
+    "forceStopRequested": {
+      "title": "Arrêt forcé demandé",
+      "description": "Le signal d'arrêt a été envoyé — surveillez le tableau de bord pour la confirmation."
+    },
     "forceStopServer": {
       "title": "Arrêt forcé du serveur",
       "description": "Le monde a été sauvegardé, puis le processus du jeu a été arrêté."
@@ -215,6 +219,7 @@
     "applyFailed": "Échec de l'application",
     "updateStaged": "Mise à jour prête",
     "panelUpdate": "Mise à jour du panneau",
+    "checkedAgo": "Vérifié {{age}}",
     "lastApplyFailedDesc": "La dernière tentative d'application a échoué — voir Paramètres pour le diagnostic.",
     "stagedDesc": "Téléchargée et prête. Redémarrez le panneau pour l'appliquer.",
     "newVersionDesc": "Une nouvelle version du panneau est disponible.",

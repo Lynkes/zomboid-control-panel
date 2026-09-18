@@ -147,6 +147,10 @@
       "title": "已請求關閉",
       "description": "伺服器正在儲存並正常關閉——大型存檔可能需要一些時間。狀態徽標會在確認已停止後更新。"
     },
+    "forceStopRequested": {
+      "title": "已請求強制停止",
+      "description": "已傳送停止信號——請在儀表板上檢視確認。"
+    },
     "forceStopServer": {
       "title": "伺服器已強制停止",
       "description": "世界已儲存，然後遊戲程序已停止。"
@@ -213,6 +217,7 @@
     "applyFailed": "套用失敗",
     "updateStaged": "更新已就緒",
     "panelUpdate": "面板更新",
+    "checkedAgo": "上次檢查{{age}}",
     "lastApplyFailedDesc": "上次套用嘗試失敗——請檢視設定以取得診斷資訊。",
     "stagedDesc": "已下載並準備就緒。重新啟動面板即可套用。",
     "newVersionDesc": "有新的面板版本可用。",

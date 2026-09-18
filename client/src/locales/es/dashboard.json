@@ -148,6 +148,10 @@
       "title": "Apagado solicitado",
       "description": "El servidor está guardando y cerrando de forma ordenada — puede tardar un momento en un mundo grande. La insignia de estado se actualizará una vez que se confirme la detención."
     },
+    "forceStopRequested": {
+      "title": "Detención forzada solicitada",
+      "description": "Se envió la señal de detención — consulta el tablero para la confirmación."
+    },
     "forceStopServer": {
       "title": "Servidor detenido a la fuerza",
       "description": "Se guardó el mundo y luego se detuvo el proceso del juego."
@@ -215,6 +219,7 @@
     "applyFailed": "Error al aplicar",
     "updateStaged": "Actualización preparada",
     "panelUpdate": "Actualización del panel",
+    "checkedAgo": "Comprobado {{age}}",
     "lastApplyFailedDesc": "El último intento de aplicar falló — ver Ajustes para el diagnóstico.",
     "stagedDesc": "Descargada y lista. Reiniciar el panel para aplicarla.",
     "newVersionDesc": "Hay una nueva versión del panel disponible.",
