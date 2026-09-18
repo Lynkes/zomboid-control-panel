@@ -3268,6 +3268,9 @@
           },
           "6": {
             "label": "Sehr oft"
+          },
+          "7": {
+            "label": "Always Tries"
           }
         }
       },
@@ -3292,6 +3295,9 @@
           },
           "6": {
             "label": "Sehr oft"
+          },
+          "7": {
+            "label": "Always Tries"
           }
         }
       }

@@ -2197,16 +2197,20 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     label: 'Alarm Battery Decay',
     description: 'How long alarm batteries last after power shuts off.',
     type: 'select',
+    // 2026-09-18, round 15 (sandbox schema ground truth): bytecode-confirmed
+    // `newEnumOption("AlarmDecay", 6, 2)` -- real range is 1-6. The trailing
+    // 7/8/9 ("2 - 6 Months"/"6 - 12 Months"/"Disabled") were copy-pasted
+    // from the adjacent WaterShut/ElecShut entries below, which genuinely
+    // ARE a 9-choice enum (`newEnumOption(..., 9, 2)`, both confirmed) --
+    // picking one of those three for AlarmDecay would be rejected by B42's
+    // real sandbox loader.
     options: [
       { value: 1, label: 'Instant' },
       { value: 2, label: '0 - 30 Days' },
       { value: 3, label: '0 - 2 Months' },
       { value: 4, label: '0 - 6 Months' },
       { value: 5, label: '0 - 1 Year' },
-      { value: 6, label: '0 - 5 Years' },
-      { value: 7, label: '2 - 6 Months' },
-      { value: 8, label: '6 - 12 Months' },
-      { value: 9, label: 'Disabled' }
+      { value: 6, label: '0 - 5 Years' }
     ],
     default: 2,
     category: 'environment',
@@ -2989,8 +2993,11 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     label: 'Generator Tile Range',
     description: 'Horizontal range of generators in tiles.',
     type: 'number',
+    // 2026-09-18, round 15: bytecode-confirmed
+    // `newIntegerOption("GeneratorTileRange", 1, 100, 20)` -- real max 100,
+    // was 50 (too tight -- blocked a real, accepted value).
     min: 1,
-    max: 50,
+    max: 100,
     default: 20,
     category: 'survival',
     section: 'settings'
@@ -3000,8 +3007,12 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     label: 'Generator Vertical Range',
     description: 'Vertical range of generators in floors.',
     type: 'number',
-    min: 0,
-    max: 10,
+    // 2026-09-18, round 15: bytecode-confirmed
+    // `newIntegerOption("GeneratorVerticalPowerRange", 1, 15, 3)` -- min was
+    // too loose (0, real min is 1) and max too tight (10, real max 15) at
+    // the same time.
+    min: 1,
+    max: 15,
     default: 3,
     category: 'survival',
     section: 'settings'
@@ -3104,8 +3115,10 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     label: 'Firearm Noise Multiplier',
     description: 'Multiplier for gun noise attracting zombies.',
     type: 'number',
-    min: 0,
-    max: 100,
+    // 2026-09-18, round 15: bytecode-confirmed
+    // `newDoubleOption("FirearmNoiseMultiplier", 0.2, 2.0, 1.0)`.
+    min: 0.2,
+    max: 2,
     default: 1.0,
     category: 'combat',
     section: 'settings'
@@ -3115,8 +3128,11 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     label: 'Firearm Jam Multiplier',
     description: 'Multiplier for jamming chance.',
     type: 'number',
+    // 2026-09-18, round 15: bytecode-confirmed
+    // `newDoubleOption("FirearmJamMultiplier", 0.0, 10.0, 0.0)` -- max was
+    // 100, real max 10.
     min: 0,
-    max: 100,
+    max: 10,
     default: 1.0,
     category: 'combat',
     section: 'settings'
@@ -3126,8 +3142,11 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     label: 'Firearm Moodle Multiplier',
     description: 'Multiplier for panic/stress from gun use.',
     type: 'number',
+    // 2026-09-18, round 15: bytecode-confirmed
+    // `newDoubleOption("FirearmMoodleMultiplier", 0.0, 10.0, 1.0)` -- max
+    // was 100, real max 10.
     min: 0,
-    max: 100,
+    max: 10,
     default: 1.0,
     category: 'combat',
     section: 'settings'
@@ -3137,8 +3156,11 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     label: 'Firearm Weather Multiplier',
     description: 'Multiplier for rain affecting gun condition.',
     type: 'number',
+    // 2026-09-18, round 15: bytecode-confirmed
+    // `newDoubleOption("FirearmWeatherMultiplier", 0.0, 10.0, 1.0)` -- max
+    // was 100, real max 10.
     min: 0,
-    max: 100,
+    max: 10,
     default: 1.0,
     category: 'combat',
     section: 'settings'
@@ -3746,7 +3768,10 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     label: 'Farming Speed',
     description: 'Growth speed multiplier. Lower = faster.',
     type: 'number',
-    min: 0.01,
+    // 2026-09-18, round 15: bytecode-confirmed
+    // `newDoubleOption("FarmingSpeedNew", 0.1, 100.0, 1.0)` -- min was
+    // 0.01, real min 0.1.
+    min: 0.1,
     max: 100,
     default: 1.0,
     category: 'animals',
@@ -3757,8 +3782,11 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     label: 'Farming Amount',
     description: 'Multiplier for number of crops harvested.',
     type: 'number',
-    min: 0.01,
-    max: 100,
+    // 2026-09-18, round 15: bytecode-confirmed
+    // `newDoubleOption("FarmingAmountNew", 0.1, 10.0, 1.0)` -- min was
+    // 0.01 (real 0.1) and max was 100 (real 10) at the same time.
+    min: 0.1,
+    max: 10,
     default: 1.0,
     category: 'animals',
     section: 'settings'
@@ -3810,13 +3838,22 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     label: 'Vehicle Story Chance',
     description: 'Chance of finding story-decorated vehicles.',
     type: 'select',
+    // 2026-09-18, round 15: bytecode-confirmed
+    // `newEnumOption("VehicleStoryChance", 7, 3)` -- real range is 1-7, was
+    // missing the 7th tier. No Sandbox_VehicleStoryChance_optionN override
+    // exists in the game's own EN translation file, so it falls back to the
+    // same generic frequency label set already used for 1-6 here -- pinned
+    // by the sibling SurvivorHouseChance entry below (which DOES have its
+    // own translated options and is bytecode-confirmed 1-7), whose own
+    // option 7 is "Always Tries".
     options: [
       { value: 1, label: 'Never' },
       { value: 2, label: 'Extremely Rare' },
       { value: 3, label: 'Rare' },
       { value: 4, label: 'Sometimes' },
       { value: 5, label: 'Often' },
-      { value: 6, label: 'Very Often' }
+      { value: 6, label: 'Very Often' },
+      { value: 7, label: 'Always Tries' }
     ],
     default: 3,
     category: 'world',
@@ -3827,13 +3864,17 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     label: 'Zone Story Chance',
     description: 'Chance of encountering zone-based story setups.',
     type: 'select',
+    // 2026-09-18, round 15: bytecode-confirmed
+    // `newEnumOption("ZoneStoryChance", 7, 3)` -- same missing-7th-tier
+    // shape and same generic-label reasoning as VehicleStoryChance above.
     options: [
       { value: 1, label: 'Never' },
       { value: 2, label: 'Extremely Rare' },
       { value: 3, label: 'Rare' },
       { value: 4, label: 'Sometimes' },
       { value: 5, label: 'Often' },
-      { value: 6, label: 'Very Often' }
+      { value: 6, label: 'Very Often' },
+      { value: 7, label: 'Always Tries' }
     ],
     default: 3,
     category: 'world',
@@ -4123,12 +4164,17 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     label: 'Spawn Zone Clear',
     description: 'Distance around spawn points cleared of zombies.',
     type: 'select',
+    // 2026-09-18, round 15: bytecode-confirmed
+    // `newEnumOption("ZombieLore.PlayerSpawnZombieRemoval", 4, 1)` -- real
+    // range is 1-4. "Very Large" (5) doesn't exist in the real game; this
+    // field had no resolvable translation-group match for the earlier
+    // (2026-08-26) translation-based audit either, so it was left
+    // unresolved/unverified there -- the bytecode read here is definitive.
     options: [
       { value: 1, label: 'None' },
       { value: 2, label: 'Small' },
       { value: 3, label: 'Medium' },
-      { value: 4, label: 'Large' },
-      { value: 5, label: 'Very Large' }
+      { value: 4, label: 'Large' }
     ],
     default: 1,
     category: 'zombieLore',
@@ -4139,7 +4185,12 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     label: 'Zombies To Damage Fences',
     description: 'Minimum zombies needed to damage a fence.',
     type: 'number',
-    min: 1,
+    // 2026-09-18, round 15: bytecode-confirmed
+    // `newIntegerOption("ZombieLore.FenceThumpersRequired", -1, 100, 50)`
+    // -- min was 1, real min -1 (too tight -- -1 is a real, accepted
+    // sentinel value in this field, per this game's usual convention for
+    // it elsewhere).
+    min: -1,
     max: 100,
     default: 25,
     category: 'zombieLore',
@@ -4150,7 +4201,13 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     label: 'Fence Damage Multiplier',
     description: 'Multiplier for damage zombies do to fences.',
     type: 'number',
-    min: 0,
+    // 2026-09-18, round 15: bytecode-confirmed
+    // `newDoubleOption("ZombieLore.FenceDamageMultiplier", 0.01, 100.0,
+    // 1.0)` -- min was 0, real min 0.01 (the class file's own double
+    // constant is 0.009999999776482582, the exact double value of a 0.01f
+    // float widened to double -- using the clean 0.01 here is the same
+    // bound for any value an operator could actually type).
+    min: 0.01,
     max: 100,
     default: 1.0,
     category: 'zombieLore',
@@ -4253,8 +4310,11 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     label: 'Peak Day',
     description: 'Day when zombie population peaks.',
     type: 'number',
+    // 2026-09-18, round 15: bytecode-confirmed
+    // `newIntegerOption("ZombieConfig.PopulationPeakDay", 1, 365, 28)` --
+    // max was 3650, real max 365.
     min: 1,
-    max: 3650,
+    max: 365,
     default: 28,
     category: 'zombiePopulation',
     section: 'ZombieConfig'
@@ -4308,7 +4368,10 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     label: 'Follow Sound Distance',
     description: 'How far zombies will follow sounds in cells.',
     type: 'number',
-    min: 1,
+    // 2026-09-18, round 15: bytecode-confirmed
+    // `newIntegerOption("ZombieConfig.FollowSoundDistance", 10, 1000, 100)`
+    // -- min was 1, real min 10 (too loose).
+    min: 10,
     max: 1000,
     default: 100,
     category: 'zombiePopulation',
@@ -4352,7 +4415,10 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     label: 'Rally Group Separation',
     description: 'Minimum distance between rally groups.',
     type: 'number',
-    min: 1,
+    // 2026-09-18, round 15: bytecode-confirmed
+    // `newIntegerOption("ZombieConfig.RallyGroupSeparation", 5, 25, 15)` --
+    // min was 1, real min 5 (too loose).
+    min: 5,
     max: 25,
     default: 15,
     category: 'zombiePopulation',
@@ -4374,8 +4440,12 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     label: 'Zombies Count Before Delete',
     description: 'Minimum zombie count in a cell before deletion can occur.',
     type: 'number',
-    min: 10,
-    max: 500,
+    // 2026-09-18, round 15: bytecode-confirmed
+    // `newIntegerOption("ZombieConfig.ZombiesCountBeforeDelete", 0, 5000,
+    // 300)` -- min was 10 (too tight, real min 0) and max was 500 (too
+    // loose, real max 5000) at the same time.
+    min: 0,
+    max: 5000,
     default: 300,
     category: 'zombiePopulation',
     section: 'ZombieConfig'

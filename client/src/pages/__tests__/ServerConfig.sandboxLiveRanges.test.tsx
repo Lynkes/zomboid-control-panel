@@ -50,11 +50,11 @@ afterEach(() => {
   localStorage.clear()
 })
 
-// SANDBOX_SCHEMA declares ZombiesCountBeforeDelete as { min: 10, max: 500,
-// section: 'ZombieConfig' }. 600 is out of range against that stale table
-// but within a live bound this test supplies (10-1000) -- exactly the
-// "the table said 500, the running game allows more" scenario bernanas
-// reported.
+// SANDBOX_SCHEMA declares ZombiesCountBeforeDelete as { min: 0, max: 5000,
+// section: 'ZombieConfig' } (bytecode-confirmed against the real B42 jar,
+// 2026-09-18 round 15). 6000 is out of range against that table but within
+// a live bound this test supplies (10-10000) -- exactly the "the table said
+// a lower max, the running game allows more" scenario bernanas reported.
 function sandboxDataWithZombieDeleteCount(value: number) {
   return {
     VERSION: 1,
@@ -111,15 +111,15 @@ describe('ServerConfig.tsx: Sandbox tab prefers a live PanelBridge range over th
     await waitFor(() => expect(sendCommand).toHaveBeenCalledWith('getAllSandboxOptions', {}, expect.anything()))
   })
 
-  it('a value the stale schema rejects (600 > its hardcoded max 500) no longer blocks Save when the live bridge reports a wider bound', async () => {
+  it('a value the stale schema rejects (6000 > its hardcoded max 5000) no longer blocks Save when the live bridge reports a wider bound', async () => {
     mockCommonLoads()
-    getSandbox.mockResolvedValue({ sandbox: sandboxDataWithZombieDeleteCount(600) } as never)
+    getSandbox.mockResolvedValue({ sandbox: sandboxDataWithZombieDeleteCount(6000) } as never)
     sendCommand.mockResolvedValue({
       success: true,
       data: {
         options: {
           ZombieConfig: [
-            { name: 'ZombieConfig.ZombiesCountBeforeDelete', shortName: 'ZombiesCountBeforeDelete', tableName: 'ZombieConfig', type: 'number', min: 10, max: 1000, value: 600 },
+            { name: 'ZombieConfig.ZombiesCountBeforeDelete', shortName: 'ZombiesCountBeforeDelete', tableName: 'ZombieConfig', type: 'number', min: 10, max: 10000, value: 6000 },
           ],
         },
         groups: [{ name: 'ZombieConfig', count: 1 }],
@@ -133,8 +133,8 @@ describe('ServerConfig.tsx: Sandbox tab prefers a live PanelBridge range over th
     await waitFor(() => expect(sendCommand).toHaveBeenCalled())
 
     // The live range must actually reach the row: the displayed range label
-    // should read the live 10-1000, not the stale schema's 10-500.
-    await waitFor(() => expect(screen.getByText('10 – 1000')).toBeInTheDocument())
+    // should read the live 10-10000, not the stale schema's 0-5000.
+    await waitFor(() => expect(screen.getByText('10 – 10000')).toBeInTheDocument())
 
     const saveButton = await screen.findByRole('button', { name: /save & reload/i })
     // No local edit was made (hasSandboxChanges is false), so this alone
@@ -146,9 +146,9 @@ describe('ServerConfig.tsx: Sandbox tab prefers a live PanelBridge range over th
     expect(screen.queryByText(/fix invalid values before saving/i)).not.toBeInTheDocument()
   })
 
-  it('falls back to the stale schema range (and still flags 600 as invalid) when the bridge is unreachable -- never blocks the tab itself', async () => {
+  it('falls back to the stale schema range (and still flags 6000 as invalid) when the bridge is unreachable -- never blocks the tab itself', async () => {
     mockCommonLoads()
-    getSandbox.mockResolvedValue({ sandbox: sandboxDataWithZombieDeleteCount(600) } as never)
+    getSandbox.mockResolvedValue({ sandbox: sandboxDataWithZombieDeleteCount(6000) } as never)
     sendCommand.mockRejectedValue(new Error('network error'))
 
     renderServerConfigOnSandboxTab()

@@ -15,6 +15,7 @@
     "knownStalePzReferences": {
       "animals.AnimalAgeModifier": "PZ's own Sandbox_AnimalAgeModifier_option* has only 3 entries (Very Fast/Fast/Normal). Every sibling Animal*Modifier setting (AnimalStatsModifier, AnimalMetaStatsModifier, AnimalPregnancyTime, AnimalMilkIncModifier, AnimalWoolIncModifier, AnimalEggHatch) correctly matches the fuller 6-item AnimalSpeed-family scale (Ultra Fast..Very Slow) content-for-content, and AnimalAgeModifier's own description (\"Speed at which animals age\") fits that same family -- PZ's reference here looks stale/vestigial, not our schema. Confirmed with the operator during the 2026-08-26 enum audit; filed for a live-game check, not asserted as fact."
     },
+    "2026-09-18Addendum": "Two hand-applied corrections, both cross-checked against a SEPARATE, bytecode-level extraction of zombie.SandboxOptions's own constructor (server/__fixtures__/pzSandboxOptions.json, via scripts/jar-audit/extract-sandbox-options.mjs) rather than this fixture's own translation-file technique -- applied here because this fixture's own extractor script is not present in this repo to regenerate it, and leaving it disagreeing with SANDBOX_SCHEMA would just make this gate fail on a correct schema. (1) world.VehicleStoryChance and world.ZoneStoryChance each gained a 7th options entry (\"Always Tries\", matching world.SurvivorHouseChance's own translated option 7 verbatim): bytecode reads `newEnumOption(\"VehicleStoryChance\", 7, 3)` / `newEnumOption(\"ZoneStoryChance\", 7, 3)` directly (numChoices=7), but neither field has its own Sandbox_<key>_optionN override in the EN translate file, so this fixture's translation-based technique undercounted at 6. (2) environment.AlarmDecay was trimmed from 9 options down to the real 6: bytecode reads `newEnumOption(\"AlarmDecay\", 6, 2)` (numChoices=6), but this fixture's technique apparently matched AlarmDecay against the same shared frequency-label translation group as the neighbouring WaterShut/ElecShut settings (which genuinely ARE `newEnumOption(..., 9, 2)`, 9 choices, bytecode-confirmed) -- values 7-9 (\"2 - 6 Months\"/\"6 - 12 Months\"/\"Disabled\") are not valid for AlarmDecay and B42's real sandbox loader rejects them.",
     "settingCount": 80
   },
   "settings": {
@@ -974,33 +975,6 @@
           "es": "0 - 5 años",
           "fr": "0 - 5 années",
           "zh-CN": "0-5 年",
-          "ht": null
-        },
-        {
-          "value": 7,
-          "en": "2 - 6 Months",
-          "de": "2-6 Monate",
-          "es": "2 - 6 meses",
-          "fr": "2 - 6 mois",
-          "zh-CN": "2-6 个月",
-          "ht": null
-        },
-        {
-          "value": 8,
-          "en": "6 - 12 Months",
-          "de": "6-12 Monate",
-          "es": "6 - 12 meses",
-          "fr": "6 - 12 mois",
-          "zh-CN": "6-12 个月",
-          "ht": null
-        },
-        {
-          "value": 9,
-          "en": "Disabled",
-          "de": "Deaktiviert",
-          "es": "Desactivado",
-          "fr": "Désactivée",
-          "zh-CN": "禁用",
           "ht": null
         }
       ]
@@ -3945,6 +3919,15 @@
           "fr": "Très souvent",
           "zh-CN": "非常频繁",
           "ht": null
+        },
+        {
+          "value": 7,
+          "en": "Always Tries",
+          "de": "Immer versuchen",
+          "es": "Siempre Intenta",
+          "fr": "Le plus possible",
+          "zh-CN": "总是尝试",
+          "ht": null
         }
       ]
     },
@@ -4006,6 +3989,15 @@
           "es": "Muy frecuentemente",
           "fr": "Très souvent",
           "zh-CN": "非常频繁",
+          "ht": null
+        },
+        {
+          "value": 7,
+          "en": "Always Tries",
+          "de": "Immer versuchen",
+          "es": "Siempre Intenta",
+          "fr": "Le plus possible",
+          "zh-CN": "总是尝试",
           "ht": null
         }
       ]
