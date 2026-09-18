@@ -101,7 +101,33 @@ export async function saveTemplate(input) {
     };
   }
 
-  const template = hasId && input.schemaVersion ? input : createTemplate(input || {});
+  // continuous-bug-hunt round 24 (template export/import safety sweep):
+  // this "full exported object" branch used to keep input.meta.id VERBATIM
+  // -- saveUserTemplate() below looks up the target row by that exact id,
+  // so POSTing a previously-exported user template back through this same
+  // route (client/src/lib/api.ts's own templatesApi.create doc comment:
+  // "or a full exported template object re-saved as a new user template")
+  // silently OVERWROTE the original template of that id in place instead
+  // of creating an independent second one -- no confirmation, no diff, no
+  // error. Two ways to hit it for real: re-uploading the same exported
+  // .pztemplate.json a second time (e.g. a double-submit, or "restore this
+  // from my backup file" after editing a few fields), or two operators
+  // exchanging exported templates where one re-saves the other's file
+  // expecting a NEW template, not a takeover of whichever of THEIR OWN
+  // existing templates happens to share that id. The sibling endpoint for
+  // this exact same job, POST /templates/import (importTemplate() above),
+  // already got this right -- it always mints a fresh id and never trusts
+  // the incoming one. Matching that here (instead of only one of the two
+  // "turn an exported JSON into a saved template" doors being safe) closes
+  // it: every other field of the exported object (schemaVersion, tags,
+  // pzBuild, iniExclusions customizations, sandboxVars, serverIni, mods,
+  // map, difficulty) is preserved exactly as submitted, only meta.id is
+  // never trusted from the caller. The built-in-id rejection above is
+  // unaffected (and still tested independently) -- it still runs first,
+  // against the ORIGINAL submitted id, before this ever mints a new one.
+  const template = hasId && input.schemaVersion
+    ? { ...input, meta: { ...input.meta, id: randomUUID() } }
+    : createTemplate(input || {});
   const { valid, errors } = validateTemplate(template);
   if (!valid) {
     const joined = errors.join("; ");

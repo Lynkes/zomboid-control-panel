@@ -89,8 +89,24 @@ router.get("/:id/export", async (req, res) => {
   try {
     const result = await exportTemplate(req.params.id);
     if (!result.success) return res.status(404).json(result);
+    // continuous-bug-hunt round 24: req.params.id is only ever reachable
+    // this far when it's an EXACT match for a real template's own id
+    // (exportTemplate -> getTemplate returns not-found otherwise, handled
+    // above) -- today that's always either a developer-authored built-in
+    // id or a server-minted randomUUID(), neither of which can carry a
+    // `"`/CR/LF. But this header is built directly from that untrusted URL
+    // segment with no sanitization, unlike the identical filename-in-
+    // Content-Disposition site in routes/debug.js (getlog/download,
+    // `filename.replace(/["\r\n]/g, "")`) -- so a stored template whose id
+    // was never actually forced through the current id-minting path (e.g.
+    // a row saved before that guarantee existed) can still break out of
+    // the filename="..." attribute and inject a second `filename=`
+    // directive, which some browsers honor over the first. Matches that
+    // existing sibling convention instead of leaving this one site as the
+    // only unsanitized one.
+    const safeId = String(req.params.id).replace(/["\r\n]/g, "");
     res
-      .set("Content-Disposition", `attachment; filename="${req.params.id}.json"`)
+      .set("Content-Disposition", `attachment; filename="${safeId}.json"`)
       .json(result.template);
   } catch (error) {
     log.error(`Failed to export template: ${error.message}`);
