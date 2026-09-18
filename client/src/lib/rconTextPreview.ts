@@ -21,7 +21,10 @@
 
 // Mirrors server/services/rcon.js's LATIN_TRANSLITERATION_MAP exactly --
 // keep the two in sync if that table ever changes.
-const LATIN_TRANSLITERATION_MAP: Record<string, string> = {
+// Exported (round 16b, bug-hunt-2026-09-18) so a drift-detection test
+// (server/tests/rconTextPreviewDrift.test.js) can assert equality against
+// server/services/rcon.js's own LATIN_TRANSLITERATION_MAP directly.
+export const LATIN_TRANSLITERATION_MAP: Record<string, string> = {
   à: 'a', á: 'a', â: 'a', ã: 'a', ä: 'a', å: 'a',
   À: 'A', Á: 'A', Â: 'A', Ã: 'A', Ä: 'A', Å: 'A',
   ç: 'c', Ç: 'C',

@@ -79,7 +79,11 @@ const RCON_ERROR_CLASSIFICATIONS = [
 // Latin-1 Supplement + Latin Extended-A (players.js's own SAFE_TEXT_REGEX
 // accepts exactly this range, À-ɏ) -- other scripts still fall
 // through to foldToRconAscii()'s final drop, same as before.
-const LATIN_TRANSLITERATION_MAP = {
+// Exported (round 16b, bug-hunt-2026-09-18) so a drift-detection test can
+// assert equality against client/src/lib/rconTextPreview.ts's own hand copy
+// of this exact table, rather than only exercising it indirectly through
+// foldToRconAscii()'s behavior over a corpus.
+export const LATIN_TRANSLITERATION_MAP = {
   à: "a", á: "a", â: "a", ã: "a", ä: "a", å: "a",
   À: "A", Á: "A", Â: "A", Ã: "A", Ä: "A", Å: "A",
   ç: "c", Ç: "C",
