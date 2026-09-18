@@ -1,5 +1,6 @@
+import React from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, act, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, act, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Settings from '../Settings'
@@ -15,6 +16,52 @@ import {
 // and silently overwrite it. Same shape as Dashboard's fetchStatus fix
 // (Dashboard.activeServerRaceOrder.test.tsx), reusing the shared
 // useRequestGuard hook via `serversGuard`.
+
+// bug-hunt-2026-09-18 (round 11): a real pointer interaction on a Radix
+// Select throws in jsdom -- same workaround as
+// Events.safehouseAddPlayerPicker.test.tsx/Events.vehicleSirenControl.test.tsx:
+// swap the picker for a native <select>, which drives the same
+// onValueChange. Settings.tsx's Bridge tab (the only tab rendered by
+// renderSettings() below) has exactly one <Select> -- the install-server
+// picker -- so this mock is unambiguous within this file.
+vi.mock('@/components/ui/select', () => {
+  function collectItems(children: React.ReactNode): Array<{ value: string; label: React.ReactNode }> {
+    const items: Array<{ value: string; label: React.ReactNode }> = []
+    React.Children.forEach(children, (child) => {
+      if (!React.isValidElement(child)) return
+      const nested = (child.props as { children?: React.ReactNode }).children
+      React.Children.forEach(nested, (item) => {
+        if (React.isValidElement(item) && (item.props as { value?: string }).value !== undefined) {
+          items.push({ value: (item.props as { value: string }).value, label: (item.props as { children?: React.ReactNode }).children })
+        }
+      })
+    })
+    return items
+  }
+  function Select({ value, onValueChange, disabled, children }: { value: string; onValueChange: (v: string) => void; disabled?: boolean; children: React.ReactNode }) {
+    return (
+      <select
+        aria-label="install-server"
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onValueChange(e.target.value)}
+      >
+        <option value="" disabled></option>
+        {collectItems(children).map((it) => (
+          <option key={it.value} value={it.value}>{it.label}</option>
+        ))}
+      </select>
+    )
+  }
+  return {
+    Select,
+    SelectTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    SelectValue: () => null,
+    SelectContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    SelectItem: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  }
+})
+Element.prototype.scrollIntoView = vi.fn()
 
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({
@@ -136,11 +183,8 @@ describe('Settings.tsx: an older, slower server-list response must not overwrite
     // sets selectedInstallServerId once (fetchServers' own auto-select
     // branch), which matters below: with it already non-empty, neither of
     // the two activeServerChanged calls in this test re-triggers that
-    // branch, so this test isolates the race on `servers` state alone
-    // (a separate, unguarded bug exists in that auto-select branch itself --
-    // it reads selectedInstallServerId from its OWN call's stale closure,
-    // not the current value, and a late-resolving call can stomp a newer
-    // manual selection; out of scope for this fix, flagged separately).
+    // branch (see the second test below for that branch's own, separate
+    // race), so this test isolates the race on `servers` state alone.
     getAll.mockResolvedValueOnce({ servers: [makeServer({ id: 1, name: 'Ashenwood', rconHost: '10.0.0.5', rconPort: 27015 })] })
     renderSettings()
     await screen.findByText('Ashenwood')
@@ -170,5 +214,65 @@ describe('Settings.tsx: an older, slower server-list response must not overwrite
     expect(screen.getByText('Winterhaven')).toBeInTheDocument()
     expect(screen.getByText('10.0.0.9:27020')).toBeInTheDocument()
     expect(screen.queryByText('Ashenwood')).not.toBeInTheDocument()
+  })
+
+  // bug-hunt-2026-09-18 (round 10 finding, round 11 fix): fetchServers'
+  // auto-select-active-server branch used to read selectedInstallServerId
+  // from its OWN call's closure instead of current state -- a call issued
+  // while nothing was selected yet (so its closure captured "") that stays
+  // in flight across a manual pick would still see its own stale, captured
+  // "falsy" reading on resolution and silently overwrite the user's pick.
+  // Note this is NOT the same race as the test above: serversGuard's
+  // isStale() check only orders overlapping fetchServers CALLS against each
+  // other -- the call below is the only (and therefore newest, never
+  // "stale") fetchServers call in flight, so the guard alone does not (and
+  // is not meant to) protect this branch.
+  it('does not let a late-resolving auto-select response overwrite a manual server selection', async () => {
+    setUpCommon()
+
+    // Mount resolves with two servers, NEITHER active -- fetchServers' own
+    // auto-select branch is skipped (no activeServer found), so
+    // selectedInstallServerId stays "" even after this call settles. This
+    // is what lets the next call's closure also capture "".
+    getAll.mockResolvedValueOnce({
+      servers: [
+        makeServer({ id: 1, name: 'Ashenwood', isActive: false, rconHost: '10.0.0.5', rconPort: 27015 }),
+        makeServer({ id: 2, name: 'Winterhaven', isActive: false, rconHost: '10.0.0.9', rconPort: 27020 }),
+      ],
+    })
+    renderSettings()
+    await screen.findByText(/Ashenwood/)
+    const select = await screen.findByRole('combobox', { name: 'install-server' })
+    expect((select as HTMLSelectElement).value).toBe('')
+
+    // A second fetchServers call (activeServerChanged) starts while
+    // selectedInstallServerId is still "" -- its closure captures that same
+    // falsy value. Held open: stands in for a slow response.
+    let resolveStaleCall: (value: Awaited<ReturnType<typeof serversApi.getAll>>) => void = () => {}
+    const staleCall = new Promise<Awaited<ReturnType<typeof serversApi.getAll>>>((resolve) => { resolveStaleCall = resolve })
+    getAll.mockImplementationOnce(() => staleCall)
+    await act(async () => { emitActiveServerChanged() })
+
+    // While that call is still in flight, the admin manually picks
+    // Winterhaven from the dropdown.
+    await act(async () => { fireEvent.change(select, { target: { value: '2' } }) })
+    expect((select as HTMLSelectElement).value).toBe('2')
+
+    // The stale call finally lands, reporting Ashenwood as now active --
+    // exercising the exact auto-select branch that used to fire off this
+    // call's own captured (falsy) selectedInstallServerId.
+    await act(async () => {
+      resolveStaleCall({
+        servers: [
+          makeServer({ id: 1, name: 'Ashenwood', isActive: true, rconHost: '10.0.0.5', rconPort: 27015 }),
+          makeServer({ id: 2, name: 'Winterhaven', isActive: false, rconHost: '10.0.0.9', rconPort: 27020 }),
+        ],
+      })
+    })
+
+    // The bug: unfixed code reads its own stale closure ("") instead of the
+    // live selection and silently reverts the dropdown to Ashenwood (id 1)
+    // even though the admin explicitly picked Winterhaven (id 2).
+    expect((select as HTMLSelectElement).value).toBe('2')
   })
 })

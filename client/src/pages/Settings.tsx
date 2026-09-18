@@ -1558,17 +1558,28 @@ export default function Settings() {
       if (serversGuard.isStale(requestId)) return;
       setServers(data.servers || []);
       setServersLoadError(false);
-      // Auto-select active server
+      // Auto-select active server, first load only. bug-hunt-2026-09-18
+      // (round 10): this used to read `selectedInstallServerId` from this
+      // async function's OWN closure instead of current state -- the guard
+      // above only orders overlapping fetchServers CALLS against each
+      // other, it says nothing about a manual selection the user made
+      // while THIS (not-superseded, not "stale" by that guard) call was
+      // still in flight. A call issued while nothing was selected yet, then
+      // left in flight across a manual pick, would still see its own
+      // captured `!selectedInstallServerId === true` on resolution and
+      // silently overwrite the user's pick. The functional setState
+      // updater always reads live state at apply time instead, so a
+      // manual selection made at any point before this resolves wins.
       const activeServer = data.servers?.find((s) => s.isActive);
-      if (activeServer && !selectedInstallServerId) {
-        setSelectedInstallServerId(String(activeServer.id));
+      if (activeServer) {
+        setSelectedInstallServerId((prev) => prev || String(activeServer.id));
       }
     } catch (error) {
       if (serversGuard.isStale(requestId)) return;
       reportClientError("Failed to fetch servers.", error);
       setServersLoadError(true);
     }
-  }, [selectedInstallServerId, serversGuard]);
+  }, [serversGuard]);
 
   // bug-hunt-2026-09-04: this listener used to reload the wrong state and
   // never reload the right one. configApi.getAppSettings()/PUT app-settings
