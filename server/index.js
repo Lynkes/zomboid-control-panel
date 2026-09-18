@@ -2078,6 +2078,39 @@ export async function handlePanelUpdateDownload(req, res) {
               params: sanitizeErrorParams({ reason }),
             });
           }
+
+          // quit()'s success:true means the RCON "quit" command was
+          // acknowledged or its connection reset -- see rcon.js's own
+          // comment on quit(). Neither proves the JVM has actually finished
+          // exiting: PZ can spend many more seconds flushing world state to
+          // disk after the RCON listener already dropped. downloadUpdate()
+          // below recreates the all-in-one container this same process runs
+          // in, which would kill that in-flight write exactly like starting
+          // a new JVM over a still-running one elsewhere in this codebase
+          // (/wipe, /delete-files, template-apply) -- same corruption class,
+          // just triggered by a container recreation instead of a second
+          // process. Poll the same process-state check those routes rely on
+          // before letting the destructive step proceed, same bound as
+          // restartServer()'s own wait-for-death loop.
+          let stopConfirmed = false;
+          for (let attempt = 0; attempt < 30; attempt++) {
+            const recheck = await serverManager.getServerProcessDetails();
+            if (!recheck || recheck.scanFailed) break;
+            if (!recheck.running) {
+              stopConfirmed = true;
+              break;
+            }
+            await serverManager.sleep(1000);
+          }
+          if (!stopConfirmed) {
+            return res.status(503).json({
+              success: false,
+              error:
+                "The world was saved and a shutdown was sent, but the server process has not confirmed stopped yet. The Docker update was not applied -- wait for it to fully exit and try again.",
+              code: ErrorCode.SERVER_STATE_UNKNOWN,
+            });
+          }
+
           await logServerEvent(
             "server_stop",
             "Server stopped before Docker panel update",
