@@ -343,6 +343,23 @@ describe("Linux managed-service lifecycle", () => {
     ]);
   });
 
+  it("refuses activation while the previous instance is still deactivating", async () => {
+    const lifecycle = new LinuxServiceLifecycle(server, "systemd", {
+      platform: "linux",
+      containerized: false,
+      execFile: vi.fn(async () => ({
+        code: 0,
+        stdout:
+          "LoadState=loaded\nActiveState=deactivating\nEnvironment=ZOMBOID_PANEL_SERVER_ID=alpha-1\n",
+        stderr: "",
+      })),
+    });
+
+    const result = await lifecycle.preflightActivation();
+
+    expect(result.ready).toBe(false);
+  });
+
   describe("OpenRC status() scanFailed (2026-08-31 services sweep regression)", () => {
     function openrcLifecycle(execFile) {
       return new LinuxServiceLifecycle(server, "openrc", {

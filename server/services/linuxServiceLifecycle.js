@@ -500,12 +500,19 @@ export class LinuxServiceLifecycle {
           "The registered service belongs to another server profile or lacks the panel ownership marker",
       };
     }
-    if (status.running) {
+    // Mirrors status()/run()'s stateUnknown gate (2026-09-17 sibling fix):
+    // inspect()'s raw `running` excludes "deactivating" (the previous
+    // instance is still shutting down, not yet confirmed dead), so without
+    // this check a service caught mid-stop read as `running: false` and
+    // this function declared it ready to adopt -- activating on top of a
+    // process that hasn't actually exited yet.
+    if (status.running || ["unknown", "deactivating"].includes(status.activeState)) {
       return {
         ready: false,
         ...status,
-        error:
-          "The managed service is already running. Stop it before activation; the panel will not silently adopt it.",
+        error: status.running
+          ? "The managed service is already running. Stop it before activation; the panel will not silently adopt it."
+          : "The managed service state could not be confirmed. Wait for it to settle and verify it is stopped before activation; the panel will not silently adopt it.",
       };
     }
     return { ready: true, conflict: false, ...status };
