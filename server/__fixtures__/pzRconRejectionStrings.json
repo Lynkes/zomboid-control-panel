@@ -1,9 +1,10 @@
 {
   "_provenance": {
     "pzAppId": "108600",
-    "pzBuildId": "24909800",
-    "extractedAt": "2026-08-29",
-    "jarSourcePath": "projectzomboid.jar (repo root of the PZ Steam install)",
+    "pzBuildId": null,
+    "pzGitVersionRevision": "70207f62e0",
+    "extractedAt": "2026-09-18",
+    "jarSourcePath": "D:/pz-verify/server/java/projectzomboid.jar (operator's dedicated test server install -- a bare dedicated-server folder, not a full Steam library, so appmanifest_108600.acf isn't present alongside it and pzBuildId could not be resolved; pzGitVersionRevision above is PZ's own embedded zombie/GitVersion revision string, read from the same jar, as a substitute traceable identifier)",
     "classesScanned": 72,
     "technique": "Structural JVM constant-pool parse via scripts/jar-audit/classfile-parser.mjs (parseClass), not a flat strings/grep pass -- every value here is a genuine CONSTANT_Utf8 entry from the class file.",
     "note": "Every UTF8 constant-pool string from every zombie/commands/serverCommands/*.class plus zombie/network/GameServer.class (the command dispatcher, where 'Unknown command' lives -- not in any per-command class), zombie/network/BanSystem.class and zombie/network/ServerWorldDatabase.class (+ its LogonResult inner class) -- added hunt-wave11-2026-08-29 because banuser/unbanuser/adduser/removeuserfromwhitelist's own command classes carry no rejection text of their own; they return whatever these two classes' methods hand back. server/tests/rconRejectionGroundTruth.test.js asserts every pattern in rcon.js's KNOWN_RCON_REJECTIONS matches at least one string somewhere in this corpus. A pattern matching nothing here is not a fixture bug -- it means the live jar no longer contains that text, which is exactly the drift this fixture exists to catch."
@@ -6039,7 +6040,6 @@
       "Lookup"
     ],
     "zombie/network/GameServer.class": [
-      "java/lang/Short",
       "zombie/core/Core",
       "java/lang/Object",
       "<init>",
@@ -6168,7 +6168,7 @@
       "println",
       "(Ljava/lang/String;[Ljava/lang/Object;)V",
       "zombie/GitVersion",
-      "b0bbce05d5",
+      "70207f62e0",
       "revision=%s",
       "zombie/iso/worldgen/WorldGenUtils",
       "Lzombie/iso/worldgen/WorldGenUtils;",
@@ -6794,6 +6794,7 @@
       "(Lzombie/characters/IsoPlayer;)Z",
       "zombie/core/network/ByteBufferReader",
       "getShort",
+      "java/lang/Short",
       "(S)Ljava/lang/Short;",
       "(Ljava/lang/Object;)Ljava/lang/Object;",
       "getUTF",
@@ -7610,7 +7611,6 @@
       "EatBody",
       "position",
       "ReceiveEatBody: failed",
-      "remaining",
       "zombie/core/raknet/RakVoice",
       "SetChannelsRouting",
       "(JZ[IS)V",
@@ -7842,7 +7842,6 @@
       "zombie/network/GameServer$1",
       "NO_FREE_SLOT",
       "ConstantValue",
-      "MAX_RADIO_DATA_SIZE",
       "TimeLimitForProcessPackets",
       "PacketsUpdateRate",
       "FPS",

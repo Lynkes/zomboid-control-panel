@@ -403,6 +403,17 @@ export const KNOWN_RCON_REJECTIONS = [
     // "worth having as a backstop pattern even if it's not expected to
     // normally fire." Bare, non-interpolated literal -- no anchoring risk
     // regardless of the backstop framing. Applies to banuser/unbanuser.
+    // 2026-09-18, round 10 (rcon-rejections-missing-for-steamid-commands):
+    // also confirmed BYTECODE-TRACED (javap -c, not just constant-pool
+    // presence) for banid -- BanSteamIDCommand.Command() returns whatever
+    // BanSystem.BanUserBySteamID() returns, and that method's very first
+    // check is the identical capability gate, `areturn`ing this exact
+    // string when the RCON connection's role lacks BanUnbanUser. NOT
+    // reachable via unbanid: UnbanSteamIDCommand.Command() calls the same
+    // BanUserBySteamID() but immediately `pop`s its return value and always
+    // returns a fixed "SteamID X is now unbanned" instead (see the
+    // dedicated no-rejection-text note below) -- confirmed by reading the
+    // actual bytecode instruction sequence, not inferred.
     pattern: /^\s*You don't have capability to ban\/unban users\.\s*$/i,
     describe: () => "You don't have capability to ban/unban users.",
   },
@@ -415,6 +426,82 @@ export const KNOWN_RCON_REJECTIONS = [
   // unrecognized after this fix -- inventing an attribution for either would
   // be worse than leaving them out (same standard Pam's original commit
   // held to for these same four commands).
+  //
+  // 2026-09-18, round 10 (card rcon-rejections-missing-for-steamid-commands,
+  // Pam's finding): banid/unbanid/addSteamID/removeSteamID had NO entries at
+  // all -- a real PZ refusal for any of the four read as a plain RCON reply,
+  // indistinguishable from success (and banId() below persists a local ban
+  // record on that false "success"). Every pattern below is bytecode-traced
+  // (javap -c -p -constants, not a flat strings/constant-pool guess) against
+  // the actual dedicated-server jar at
+  // D:/pz-verify/server/java/projectzomboid.jar (the operator's own
+  // verify/test server install) -- confirmed by reading each command class's
+  // Command() method instruction-by-instruction to see exactly which
+  // `areturn` each string reaches, not just that the string exists
+  // somewhere in the class. Command-name/RequiredCapability annotations in
+  // the same classes confirm the RCON verb each maps to: BanSteamIDCommand
+  // (name=banid), UnbanSteamIDCommand (name=unbanid), AddSteamIDCommand
+  // (name=addsteamid), RemoveSteamIDCommand (name=removesteamid).
+  {
+    // banid / unbanid -- BanSteamIDCommand.Command() / UnbanSteamIDCommand.Command():
+    // both classes gate on SteamUtils.isSteamModeEnabled() as their very
+    // first check and `areturn` this exact, bare, non-interpolated literal
+    // when it's false (a non-Steam / direct-connect-only dedicated server).
+    pattern: /^\s*Server is not in Steam mode\s*$/i,
+    describe: () =>
+      "Server is not in Steam mode. SteamID-based ban/whitelist commands require a Steam-mode dedicated server.",
+  },
+  {
+    // banid / unbanid -- BanSteamIDCommand.Command() / UnbanSteamIDCommand.Command():
+    // second check, SteamUtils.isValidSteamID(arg) false. Bounded by the
+    // literal `Expected SteamID but got "` prefix and closing `"` around the
+    // interpolated argument the admin typed -- not attacker-controlled (no
+    // player name involved), but anchored the same strict way regardless.
+    pattern: /^Expected SteamID but got ".*"\s*$/i,
+    describe: (text) => `${text}. That value isn't a valid SteamID64.`,
+  },
+  {
+    // addSteamID / removeSteamID -- AddSteamIDCommand.Command() /
+    // RemoveSteamIDCommand.Command(): both call
+    // ServerWorldDatabase.isValidUserName(arg) (PZ's own method name for
+    // this check, despite validating a steamID here) as their first gate.
+    // Bounded by the literal `Invalid steamID "` prefix and closing `"`
+    // around the interpolated argument.
+    pattern: /^Invalid steamID ".*"\s*$/i,
+    describe: (text) => `${text}. That value isn't a valid SteamID64.`,
+  },
+  {
+    // addSteamID -- AddSteamIDCommand.Command(): isSteamIDAllowed(arg)
+    // already true. The class ALSO carries a differently-worded,
+    // executor-name-interpolated variant ("<executor> tried to create user
+    // with SteamID <id> but it already exists...") that bytecode confirms is
+    // written to the admin log (ZLogger.write) and NEVER returned to the
+    // RCON caller -- only this shorter, two-placeholder-free form is the
+    // actual `areturn`ed reply. Bounded by the fixed `SteamID ` prefix and
+    // ` already exists in allowed SteamIDs` suffix around the interpolated id.
+    pattern: /^SteamID .+ already exists in allowed SteamIDs\s*$/i,
+    describe: () => "That SteamID is already on the allowed list.",
+  },
+  {
+    // removeSteamID -- RemoveSteamIDCommand.Command(): isSteamIDAllowed(arg)
+    // is false (nothing to remove). Same log-line-vs-actual-reply split as
+    // addSteamID's "already exists" above, bytecode-confirmed the same way
+    // -- this shorter form (PZ's own grammar: "doesn't exists", not fixed
+    // here) is what's actually returned. Bounded the same way.
+    pattern: /^SteamID .+ doesn't exists in allowed SteamIDs\s*$/i,
+    describe: () => "That SteamID is not on the allowed list.",
+  },
+  {
+    // addSteamID / removeSteamID -- AddSteamIDCommand.Command() /
+    // RemoveSteamIDCommand.Command(): both wrap their database call in a
+    // try/catch(SQLException) that logs the real exception server-side
+    // (ExceptionLogger.logException) and `areturn`s this bare, generic
+    // literal as the RCON reply instead of ever propagating the DB error
+    // text itself.
+    pattern: /^\s*exception occurs\s*$/i,
+    describe: () =>
+      "The server hit an internal error running that command. Check the PZ server log for details.",
+  },
 ];
 
 export class RconService extends EventEmitter {
