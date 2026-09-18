@@ -601,7 +601,11 @@ export default function Backups() {
       // the catch below too, never in a result.success === false branch
       // here. Confirmed no other codepath in this handler returns
       // success: false with a 2xx status.
-      const result = await backupApi.deleteOlderThan(deleteOlderDays)
+      // pz-bughunt round 18: expectedServerId is defense in depth alongside
+      // the serverChangedSinceLoad guard above -- see server/routes/
+      // backup.js's POST /delete-older-than for the server-side check this
+      // enables (409 BACKUP_ACTIVE_SERVER_CHANGED on a real mismatch).
+      const result = await backupApi.deleteOlderThan(deleteOlderDays, activeServerId)
       toast({
         title: t('toasts.oldBackupsRemovedTitle'),
         description: result.message || t('toasts.oldBackupsRemovedFallback', { count: result.deleted || 0 }),
@@ -634,11 +638,14 @@ export default function Backups() {
     }
     setSavingSettings(true)
     try {
+      // pz-bughunt round 18: expectedServerId is defense in depth alongside
+      // the serverChangedSinceLoad guard above -- see server/routes/
+      // backup.js's POST /settings for the server-side check this enables.
       await backupApi.updateSettings({
         enabled: backupStatus?.enabled || false,
         schedule: backupSchedule,
         maxBackups: backupMaxCount,
-      })
+      }, activeServerId)
       await fetchBackupStatus()
       toast({
         title: t('toasts.planUpdatedTitle'),
@@ -670,7 +677,9 @@ export default function Backups() {
       return
     }
     try {
-      await backupApi.updateSettings({ enabled })
+      // pz-bughunt round 18: same defense-in-depth expectedServerId as
+      // handleSaveSettings above.
+      await backupApi.updateSettings({ enabled }, activeServerId)
       await fetchBackupStatus()
       toast({
         title: enabled ? t('toasts.autoArmedTitle') : t('toasts.autoStoodDownTitle'),

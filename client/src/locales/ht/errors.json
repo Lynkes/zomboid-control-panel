@@ -121,7 +121,7 @@
   "BACKUP_RESTORE_REMOTE_NOT_AVAILABLE": "Retabli kopi sovgad pa disponib pou sèvè aleka. Sistèm dosye sèvè a pa aksesib soti nan panèl sa a.",
   "BACKUP_RESTORE_SERVER_RUNNING": "Sèvè a dwe sispann anvan w retabli yon kopi sovgad. Tanpri sispann sèvè a dabò.",
   "BACKUP_INVALID_DAYS_PARAMETER": "Paramèt jou envalid. Dwe yon nonm antye >= 1",
-  "BACKUP_ACTIVE_SERVER_CHANGED": "The active server changed since these settings were loaded. Reload backup settings before saving.",
+  "BACKUP_ACTIVE_SERVER_CHANGED": "Sèvè aktif la chanje depi paramèt sa yo te chaje. Rechaje paramèt sovgad yo anvan ou anrejistre.",
   "BACKUP_UPLOAD_REMOTE_NOT_AVAILABLE": "Telechajman kopi sovgad pa disponib pou sèvè aleka.",
   "BACKUP_UPLOAD_NO_FILE": "Pa gen dosye telechaje. Voye kò zip la ak Content-Type: application/zip.",
   "BACKUP_UPLOAD_INVALID_ZIP_SIGNATURE": "Dosye a pa sanble ak yon achiv .zip valid.",

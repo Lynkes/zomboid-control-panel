@@ -3242,11 +3242,23 @@ export const backupApi = {
   getSnapshot: (name: string): Promise<{ success: boolean; snapshot?: BackupSnapshot; message?: string }> =>
     apiGet(`/backup/${encodeURIComponent(name)}/snapshot`),
 
-  // Update backup settings
+  // Update backup settings.
+  // expectedServerId: the active server's own id captured when the caller
+  // last loaded its backup settings (null if none was active then). Lets
+  // the server refuse the write with 409 BACKUP_ACTIVE_SERVER_CHANGED if
+  // the active server moved out from under it in the meantime -- optional
+  // and omitted entirely (not sent as null) when a caller doesn't pass it,
+  // so an older/unrelated caller keeps today's unchecked behavior. Mirrors
+  // chunks.js's own expectedServerId convention; see server/routes/
+  // backup.js's POST /settings for the exact match rule.
   updateSettings: (
     settings: Partial<BackupSettings>,
+    expectedServerId?: string | number | null,
   ): Promise<{ success: boolean; settings: BackupSettings }> =>
-    apiPost("/backup/settings", settings),
+    apiPost(
+      "/backup/settings",
+      expectedServerId !== undefined ? { ...settings, expectedServerId } : settings,
+    ),
 
   // Create a manual backup. POST /backup/create awaits the full archive
   // (server/routes/backup.js -> backupService.createBackup()) before
@@ -3292,16 +3304,25 @@ export const backupApi = {
       { timeout: 10 * 60 * 1000 },
     ),
 
-  // Delete backups older than X days
+  // Delete backups older than X days.
+  // expectedServerId: same contract as updateSettings above -- omitted
+  // entirely when not passed, otherwise lets the server refuse with 409
+  // BACKUP_ACTIVE_SERVER_CHANGED if the active server moved since the
+  // caller loaded the list it's pruning by age.
   deleteOlderThan: (
     days: number,
+    expectedServerId?: string | number | null,
   ): Promise<{
     success: boolean;
     deleted?: number;
     failed?: number;
     deletedNames?: string[];
     message?: string;
-  }> => apiPost("/backup/delete-older-than", { days }),
+  }> =>
+    apiPost(
+      "/backup/delete-older-than",
+      expectedServerId !== undefined ? { days, expectedServerId } : { days },
+    ),
 
   // Get download URL for a backup (use downloadBackup for authenticated downloads)
   getDownloadUrl: (name: string): string =>

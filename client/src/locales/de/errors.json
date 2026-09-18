@@ -121,7 +121,7 @@
   "BACKUP_RESTORE_REMOTE_NOT_AVAILABLE": "Die Backup-Wiederherstellung ist für externe Server nicht verfügbar. Das Server-Dateisystem ist von diesem Panel aus nicht zugänglich.",
   "BACKUP_RESTORE_SERVER_RUNNING": "Der Server muss gestoppt werden, bevor ein Backup wiederhergestellt wird. Stoppe zuerst den Server.",
   "BACKUP_INVALID_DAYS_PARAMETER": "Ungültiger days-Parameter. Muss eine ganze Zahl ≥ 1 sein",
-  "BACKUP_ACTIVE_SERVER_CHANGED": "The active server changed since these settings were loaded. Reload backup settings before saving.",
+  "BACKUP_ACTIVE_SERVER_CHANGED": "Der aktive Server hat sich geändert, seit diese Einstellungen geladen wurden. Lade die Sicherungseinstellungen neu, bevor du speicherst.",
   "BACKUP_UPLOAD_REMOTE_NOT_AVAILABLE": "Der Backup-Upload ist für externe Server nicht verfügbar.",
   "BACKUP_UPLOAD_NO_FILE": "Keine Datei hochgeladen. Sende den ZIP-Inhalt mit Content-Type: application/zip.",
   "BACKUP_UPLOAD_INVALID_ZIP_SIGNATURE": "Die Datei sieht nicht wie ein gültiges .zip-Archiv aus.",

@@ -589,6 +589,19 @@ export default function Settings() {
   // data is ALWAYS "for some server", there is no clean/dirty distinction
   // the way app settings has isDirty), cleared once a fresh refetch lands.
   const [backupPanelServerChanged, setBackupPanelServerChanged] = useState(false);
+  // pz-bughunt round 18: the active server's own id, captured whenever this
+  // panel (re)loads its backup data (see fetchBackupActiveServerId below,
+  // called alongside fetchBackupStatus/fetchBackups in both the mount
+  // effect and the activeServerChanged handler). Sent as expectedServerId
+  // on the write calls below as defense in depth alongside
+  // backupPanelServerChanged -- see server/routes/backup.js's POST
+  // /settings for the server-side check this enables (409
+  // BACKUP_ACTIVE_SERVER_CHANGED on a real mismatch). null means "no
+  // active server was resolved at that load", a real, checkable value, not
+  // "unknown" -- matches getActiveServer()'s own `?.id ?? null` shape.
+  const [backupActiveServerId, setBackupActiveServerId] = useState<
+    string | number | null
+  >(null);
 
   // Track if there are unsaved changes
   const isDirty =
@@ -1732,10 +1745,26 @@ export default function Settings() {
     }
   }, []);
 
+  // pz-bughunt round 18: see backupActiveServerId's own comment above.
+  // Failure here just leaves the previous captured id in place -- the
+  // expectedServerId it feeds is defense in depth on top of
+  // backupPanelServerChanged, not the only thing standing between a click
+  // and a wrong-server write, so there's nothing to surface to the user
+  // over a failed refresh of it specifically.
+  const fetchBackupActiveServerId = useCallback(async () => {
+    try {
+      const { server } = await serversApi.getResolvedActive();
+      setBackupActiveServerId(server?.id ?? null);
+    } catch {
+      // Leave the previously captured value in place.
+    }
+  }, []);
+
   useEffect(() => {
     fetchBackupStatus();
     fetchBackups();
-  }, [fetchBackupStatus, fetchBackups]);
+    fetchBackupActiveServerId();
+  }, [fetchBackupStatus, fetchBackups, fetchBackupActiveServerId]);
 
   // See backupPanelServerChanged's own comment above. A second, independent
   // 'activeServerChanged' listener (socket.on supports multiple handlers for
@@ -1753,15 +1782,17 @@ export default function Settings() {
       // same reasoning as Backups.tsx closing its own restore/delete
       // dialogs on this same event.
       setRestoreConfirmBackup(null);
-      Promise.all([fetchBackupStatus(), fetchBackups()]).finally(() =>
-        setBackupPanelServerChanged(false),
-      );
+      Promise.all([
+        fetchBackupStatus(),
+        fetchBackups(),
+        fetchBackupActiveServerId(),
+      ]).finally(() => setBackupPanelServerChanged(false));
     };
     socket.on("activeServerChanged", handleBackupPanelServerChanged);
     return () => {
       socket.off("activeServerChanged", handleBackupPanelServerChanged);
     };
-  }, [socket, fetchBackupStatus, fetchBackups]);
+  }, [socket, fetchBackupStatus, fetchBackups, fetchBackupActiveServerId]);
 
   const handleCreateBackup = async () => {
     if (backupPanelServerChanged) {
@@ -1925,11 +1956,16 @@ export default function Settings() {
     }
     setBackupLoading(true);
     try {
-      await backupApi.updateSettings({
-        enabled: backupStatus?.enabled || false,
-        schedule: backupSchedule,
-        maxBackups: backupMaxCount,
-      });
+      // pz-bughunt round 18: expectedServerId is defense in depth alongside
+      // backupPanelServerChanged above.
+      await backupApi.updateSettings(
+        {
+          enabled: backupStatus?.enabled || false,
+          schedule: backupSchedule,
+          maxBackups: backupMaxCount,
+        },
+        backupActiveServerId,
+      );
       await fetchBackupStatus();
       toast({
         title: t("toasts.backupSettingsSaved.title"),
@@ -1965,7 +2001,9 @@ export default function Settings() {
     }
     setBackupLoading(true);
     try {
-      await backupApi.updateSettings({ enabled });
+      // pz-bughunt round 18: same defense-in-depth expectedServerId as
+      // handleSaveBackupSettings above.
+      await backupApi.updateSettings({ enabled }, backupActiveServerId);
       await fetchBackupStatus();
       toast({
         title: enabled
