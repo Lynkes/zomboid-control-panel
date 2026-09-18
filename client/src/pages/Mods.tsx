@@ -1993,8 +1993,27 @@ export default function Mods() {
   // Used by the inline "Make X win" buttons inside each conflict pair card.
   // Saves immediately and optimistically updates the conflict scan's load-order map
   // so the winner indicators flip without a full rescan.
+  //
+  // continuous-bug-hunt: this calls modsApi.saveModOrder() exactly like
+  // handleSaveModOrder above, which resolves the active server fresh
+  // server-side per request (see that function's own bug-hunt-2026-09-04/05
+  // comment) -- the identical cross-server-write hazard. handleSaveModOrder
+  // guards it with serverChangedSinceLoad, but this path didn't: switch
+  // active server while a reorder is pending (which is what sets
+  // serverChangedSinceLoad and blocks fetchData, per the effect below), then
+  // click "Make X win" on a conflict pair computed from the now-stale
+  // iniConfig/orderedModIds -- it would write server A's stale order into
+  // server B's real INI with no warning at all. Same guard, same message.
   const promoteModOverOpponent = async (winnerModId: string, winnerName: string, loserModId: string, loserName: string) => {
     if (busyRef.current || !canManageMods) return
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.serverChangedSinceLoadTitle'),
+        description: t('toasts.serverChangedSinceLoadDesc'),
+        variant: 'destructive',
+      })
+      return
+    }
     const source = (iniConfig?.modIds && iniConfig.modIds.length > 0) ? iniConfig.modIds : orderedModIds
     const next = [...source]
     const wi = next.indexOf(winnerModId)
