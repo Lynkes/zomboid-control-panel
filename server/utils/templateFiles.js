@@ -154,7 +154,28 @@ export function applySandboxValue(content, section, key, value) {
   const block = content.slice(blockRange.openAt, blockRange.closeAt);
   const after = content.slice(blockRange.closeAt);
   let applied = false;
-  const pattern = new RegExp(`(^(?!\\s*--)[^\\n]*?)(${escapeRegExp(key)})(\\s*=\\s*)${valuePattern}`, "m");
+  // continuous-bug-hunt round 16 (template apply/import/export truth): the
+  // lazy `[^\n]*?` prefix crosses arbitrary identifier characters to reach
+  // its target, and without a boundary check on the LEFT side of the key it
+  // happily matches the key as a bare SUBSTRING of an earlier, longer
+  // identifier on the same line -- e.g. a template setting "Speed" in a
+  // block that also has "WalkSpeed" above it matches "...Walk|Speed" and
+  // silently rewrites WalkSpeed's value instead, while "Speed" itself never
+  // changes and is still reported as applied. This is the identical defect
+  // routes/serverFiles.js's modifySandboxValue() was fixed for (2026-09-18,
+  // settings-truth round, see that function's own comment for the full
+  // repro) -- confirmed by inspection to be a SEPARATE, independent
+  // implementation of the same "nested-block key rewrite" operation used by
+  // template apply specifically, which the earlier fix never touched. Same
+  // fix: `(?<![A-Za-z0-9_])` rejects any match position immediately
+  // preceded by an identifier character, so the key can only match at a
+  // real identifier boundary -- exactly what the validated
+  // `^[a-zA-Z_][a-zA-Z0-9_]*$` key format above already guarantees "the
+  // whole key" looks like.
+  const pattern = new RegExp(
+    `(^(?!\\s*--)[^\\n]*?)(?<![A-Za-z0-9_])(${escapeRegExp(key)})(\\s*=\\s*)${valuePattern}`,
+    "m",
+  );
   const nextBlock = block.replace(pattern, (full, prefix, k, eq, oldVal, comma) => {
     applied = true;
     return `${prefix}${k}${eq}${formatLuaValue(value)}${comma}`;

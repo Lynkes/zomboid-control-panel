@@ -121,6 +121,70 @@ describe("sandbox lua helpers", () => {
     expect(applied).toBe(false);
   });
 
+  // continuous-bug-hunt round 16 (template apply/import/export truth): same
+  // defect class as routes/serverFiles.js's modifySandboxValue (fixed
+  // earlier the same day, see that fix's own comment for the full repro) --
+  // a SEPARATE, independent implementation of the same "nested-block key
+  // rewrite" operation, used specifically by template apply
+  // (templateService.js's prepareSandboxChange), was never given the same
+  // fix. The nested-block regex's lazy `[^\n]*?` prefix has no boundary
+  // check on the left side of the key, so applying a template that sets
+  // "Speed" in a block that also has a longer key ENDING in "Speed" earlier
+  // in the same block (e.g. "WalkSpeed") matched the key as a bare
+  // substring of that longer identifier and silently rewrote WalkSpeed's
+  // value instead -- while reporting "Speed" as successfully applied
+  // (mergeSandboxSections' `applied` list), even though it never changed.
+  it("applySandboxValue updates the exact requested key and leaves a longer key ending in the same substring untouched (does not silently clobber the wrong key)", () => {
+    const collisionContent = [
+      "SandboxVars = {",
+      "    VERSION = 4,",
+      "    ZombieLore = {",
+      "        WalkSpeed = 1,",
+      "        Speed = 2,",
+      "    },",
+      "}",
+      "",
+    ].join("\n");
+
+    const { content, applied } = applySandboxValue(
+      collisionContent,
+      "ZombieLore",
+      "Speed",
+      9,
+    );
+
+    expect(applied).toBe(true);
+    expect(readSandboxValue(content, "ZombieLore", "Speed")).toBe(9);
+    expect(readSandboxValue(content, "ZombieLore", "WalkSpeed")).toBe(1);
+  });
+
+  // Same collision through the actual template-apply path (mergeSandboxSections,
+  // called by templateService.js's prepareSandboxChange) -- proves the fix
+  // holds through the real caller, not just the lower-level function in
+  // isolation, and that "applied" (what an operator sees reported back after
+  // an apply) reflects the key that was truly requested.
+  it("mergeSandboxSections protects a template apply from the same collision", () => {
+    const collisionContent = [
+      "SandboxVars = {",
+      "    VERSION = 4,",
+      "    ZombieLore = {",
+      "        WalkSpeed = 1,",
+      "        Speed = 2,",
+      "    },",
+      "}",
+      "",
+    ].join("\n");
+
+    const { content, applied, skipped } = mergeSandboxSections(collisionContent, {
+      ZombieLore: { Speed: 9 },
+    });
+
+    expect(skipped).toEqual([]);
+    expect(applied).toEqual([{ section: "ZombieLore", key: "Speed" }]);
+    expect(readSandboxValue(content, "ZombieLore", "Speed")).toBe(9);
+    expect(readSandboxValue(content, "ZombieLore", "WalkSpeed")).toBe(1);
+  });
+
   it("mergeSandboxSections applies every key across sections and reports skips", () => {
     const { content, applied, skipped } = mergeSandboxSections(luaContent, {
       settings: { Zombies: 5 },
