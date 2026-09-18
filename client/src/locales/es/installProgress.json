@@ -13,6 +13,7 @@
   "STARTUP_SCRIPT_CREATED": "Script de inicio personalizado creado: {{scriptName}}",
   "INSTALL_STARTUP_SCRIPT_FAILED": "No se pudo generar el script de inicio personalizado de este servidor ({{reason}}). El servidor aún se puede iniciar: usará el script predeterminado hasta que se regenere, lo cual también ocurre automáticamente la próxima vez que lo inicies.",
   "INSTALL_MISSING_GAME_FILES": "SteamCMD informó éxito, pero no se encontraron archivos de juego reconocibles en la ruta de instalación. Revisa el registro de SteamCMD anterior en busca de un error oculto (un límite de tasa o una descarga interrumpida aún pueden terminar con código 0) y verifica la ruta de instalación antes de iniciar este servidor.",
+  "INSTALL_STEAMCMD_REPORTED_ERROR": "SteamCMD finalizó limpiamente (código 0), pero informó un error en su propia salida — revisa el registro de SteamCMD anterior para ver la línea exacta. Esto puede ocurrir cuando el disco se llena a mitad de la descarga o un error del lado de Steam la interrumpe; la instalación no se completó. Libera espacio o vuelve a intentarlo, y luego reinstala.",
   "PANELBRIDGE_AUTO_INSTALLED": "Mod de PanelBridge instalado automáticamente",
   "INSTALL_COMPLETE_SUCCESS": "Servidor instalado correctamente",
   "INSTALL_FAILED_EXIT_CODE": "La instalación falló con el código de salida {{code}}",

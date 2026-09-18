@@ -142,6 +142,17 @@ export const ProgressCode = Object.freeze({
    * contents or sizes. Same `warnings`-array delivery as
    * INSTALL_RCON_INI_PRECREATE_FAILED above. No params. */
   INSTALL_MISSING_GAME_FILES: "INSTALL_MISSING_GAME_FILES",
+  /** POST /api/server/install -- steamcmd.on("close") with exit code 0 but
+   * an "ERROR!"-prefixed line (or "Missing configuration") in SteamCMD's own
+   * captured stdout/stderr -- the same exit-0-lies gap /steam-update's
+   * steamCmdReportedError check already closes for update/verify, applied
+   * here too (install-wizard-hunt, 2026-09-18). A disk-full write failure
+   * partway through the download is the concrete case this catches that
+   * INSTALL_MISSING_GAME_FILES above can miss: the small launcher/metadata
+   * marker files can already exist on disk before the write failure hits
+   * the large game data, so hasPzInstallMarker() alone would still call
+   * that partial install usable. No params. */
+  INSTALL_STEAMCMD_REPORTED_ERROR: "INSTALL_STEAMCMD_REPORTED_ERROR",
   /** POST /api/server/install -- PanelBridge.lua was copied into the fresh
    * install automatically. No params. */
   PANELBRIDGE_AUTO_INSTALLED: "PANELBRIDGE_AUTO_INSTALLED",

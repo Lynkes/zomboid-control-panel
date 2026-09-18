@@ -13,6 +13,7 @@
   "STARTUP_SCRIPT_CREATED": "Script de démarrage personnalisé créé : {{scriptName}}",
   "INSTALL_STARTUP_SCRIPT_FAILED": "Impossible de générer le script de démarrage personnalisé de ce serveur ({{reason}}). Le serveur peut toujours être démarré — il utilisera le script par défaut jusqu'à ce que celui-ci soit régénéré, ce qui se produit aussi automatiquement au prochain démarrage.",
   "INSTALL_MISSING_GAME_FILES": "SteamCMD a signalé un succès, mais aucun fichier de jeu reconnaissable n'a été trouvé à l'emplacement d'installation. Vérifiez le journal SteamCMD ci-dessus pour une erreur cachée (une limitation de débit ou un téléchargement interrompu peut tout de même se terminer avec le code 0), et vérifiez le chemin d'installation avant de démarrer ce serveur.",
+  "INSTALL_STEAMCMD_REPORTED_ERROR": "SteamCMD s'est arrêté normalement (code 0), mais a signalé une erreur dans sa propre sortie — vérifiez le journal SteamCMD ci-dessus pour la ligne exacte. Cela peut se produire lorsque le disque se remplit en cours de téléchargement ou qu'une erreur côté Steam l'interrompt ; l'installation ne s'est pas terminée. Libérez de l'espace ou réessayez, puis réinstallez.",
   "PANELBRIDGE_AUTO_INSTALLED": "Mod PanelBridge installé automatiquement",
   "INSTALL_COMPLETE_SUCCESS": "Serveur installé avec succès",
   "INSTALL_FAILED_EXIT_CODE": "Échec de l'installation, code de sortie {{code}}",

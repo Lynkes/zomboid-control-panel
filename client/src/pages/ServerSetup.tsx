@@ -304,6 +304,18 @@ export default function ServerSetup() {
   const [installStalled, setInstallStalled] = useState(false);
   const [installViaSteamCmd, setInstallViaSteamCmd] = useState(false);
   const installLastActivityRef = useRef<number>(0);
+  // install-events-cross-install-contamination, 2026-09-18: POST /install's
+  // concurrency guard is scoped per installPath, so two operators (or one
+  // operator running two setup wizards in two tabs) CAN legitimately run two
+  // installs at once -- install:log/install:complete now carry the exact
+  // installPath string this wizard sent (see server/routes/server.js's
+  // installEventScope), mirroring Servers.tsx's steamOperationInstallPathRef
+  // fix for the identical steam:*/steam-update contamination. Set to the
+  // exact installPath this client just sent right before firing POST
+  // /install (before the await, so a fast broadcast racing the awaited
+  // response is never filtered out as unrecognized) and compared as an exact
+  // string against what the server echoes back.
+  const installOperationPathRef = useRef<string | null>(null);
   const [logs, setLogs] = useState<InstallLog[]>([]);
   const [installComplete, setInstallComplete] = useState(false);
   // A leftover marker from a PREVIOUS page load (see readInstallInFlightMarker
@@ -546,7 +558,12 @@ export default function ServerSetup() {
       text: string;
       progressCode?: string;
       params?: Record<string, string | number>;
+      installPath?: string;
     }) => {
+      // Cross-install contamination guard: a DIFFERENT install's log line
+      // must never land in this wizard's log panel. See
+      // installOperationPathRef's own comment above.
+      if (data.installPath !== installOperationPathRef.current) return;
       installLastActivityRef.current = Date.now();
       setInstallStalled(false);
       const text = data.text.trim();
@@ -616,6 +633,12 @@ export default function ServerSetup() {
       params?: Record<string, string | number>;
       warnings?: Array<{ progressCode?: string; message: string; params?: Record<string, string | number> }>;
     }) => {
+      // Cross-install contamination guard: a DIFFERENT install's outcome
+      // must never resolve THIS wizard's install (registering/activating the
+      // wrong server, or reporting a still-running install as failed). See
+      // installOperationPathRef's own comment above.
+      if (data.installPath !== installOperationPathRef.current) return;
+      installOperationPathRef.current = null;
       // The socket connection (and this handler) is the ONLY place that ever
       // learns the true outcome -- clear the in-flight marker on both success
       // and failure, not just success, so a reload after this point has
@@ -1007,6 +1030,11 @@ export default function ServerSetup() {
     setLogs([]);
     setInstallProgress(null);
     addLog("info", t("toasts.startingInstallLog"));
+    // Set before the request fires (not after it resolves) so a fast
+    // install:log/install:complete broadcast racing the awaited response
+    // below is never filtered out as "unrecognized" -- see the ref's own
+    // comment.
+    installOperationPathRef.current = installPath;
 
     try {
       await serverApi.install({
@@ -1031,6 +1059,7 @@ export default function ServerSetup() {
       // still tell the user something was attempted, instead of forgetting.
       writeInstallInFlightMarker({ installPath, serverName, startedAt: Date.now() });
     } catch (error) {
+      installOperationPathRef.current = null;
       const rawMessage = rawErrorMessageIntentional(error, t("common.unknownError"));
       const displayMessage = getUserErrorMessage(error, t("common.unknownError"));
       const msg = installationErrorGuidance(rawMessage, displayMessage, t, serverPlatform);

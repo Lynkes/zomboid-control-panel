@@ -13,6 +13,7 @@
   "STARTUP_SCRIPT_CREATED": "Created custom startup script: {{scriptName}}",
   "INSTALL_STARTUP_SCRIPT_FAILED": "Could not generate this server's custom startup script ({{reason}}). The server can still be started — it will use the default script until this regenerates, which also happens automatically the next time you start it.",
   "INSTALL_MISSING_GAME_FILES": "SteamCMD reported success, but no recognizable game files were found at the install path. Check the SteamCMD log above for a hidden error (a rate limit or an interrupted download can still exit 0), and verify the install path before starting this server.",
+  "INSTALL_STEAMCMD_REPORTED_ERROR": "SteamCMD exited cleanly (code 0) but reported an error in its own output — check the SteamCMD log above for the exact line. This can happen when the disk fills up mid-download or a Steam-side error interrupts it partway; the install did not complete. Free up space or retry, then reinstall.",
   "PANELBRIDGE_AUTO_INSTALLED": "PanelBridge mod installed automatically",
   "INSTALL_COMPLETE_SUCCESS": "Server installed successfully",
   "INSTALL_FAILED_EXIT_CODE": "Installation failed with exit code {{code}}",

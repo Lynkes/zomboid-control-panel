@@ -13,6 +13,7 @@
   "STARTUP_SCRIPT_CREATED": "Benutzerdefiniertes Startskript erstellt: {{scriptName}}",
   "INSTALL_STARTUP_SCRIPT_FAILED": "Das benutzerdefinierte Startskript für diesen Server konnte nicht erstellt werden ({{reason}}). Der Server kann trotzdem gestartet werden — er verwendet bis zur Neuerstellung das Standardskript, was ebenfalls automatisch beim nächsten Start geschieht.",
   "INSTALL_MISSING_GAME_FILES": "SteamCMD hat Erfolg gemeldet, aber am Installationspfad wurden keine erkennbaren Spieldateien gefunden. Prüfe das SteamCMD-Protokoll oben auf einen versteckten Fehler (ein Rate-Limit oder ein unterbrochener Download können trotzdem mit Code 0 enden) und überprüfe den Installationspfad, bevor du diesen Server startest.",
+  "INSTALL_STEAMCMD_REPORTED_ERROR": "SteamCMD wurde zwar sauber beendet (Code 0), hat aber in seiner eigenen Ausgabe einen Fehler gemeldet — prüfe das SteamCMD-Protokoll oben auf die genaue Zeile. Das kann passieren, wenn der Speicherplatz während des Downloads voll wird oder ein Steam-seitiger Fehler ihn unterbricht; die Installation wurde nicht abgeschlossen. Schaffe Speicherplatz oder versuche es erneut und installiere dann neu.",
   "PANELBRIDGE_AUTO_INSTALLED": "PanelBridge-Mod automatisch installiert",
   "INSTALL_COMPLETE_SUCCESS": "Server erfolgreich installiert",
   "INSTALL_FAILED_EXIT_CODE": "Installation fehlgeschlagen, Exit-Code {{code}}",

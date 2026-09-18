@@ -3282,6 +3282,22 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
 
     const io = req.app.get("io");
 
+    // install-events-cross-install-contamination, 2026-09-18: this route's
+    // concurrency guard is scoped per installPath (see hasActiveSteamOperation
+    // above), so two operators (or one operator running two setup wizards)
+    // CAN legitimately install two different new servers at the same time --
+    // the exact shape steam-update-events-cross-server-contamination already
+    // found and fixed for /steam-update's steam:start/steam:log/steam:complete.
+    // install:log/install:complete had the identical gap: every connected
+    // client received every event with no identifier at all, so a second
+    // wizard's log lines interleaved into the first one's panel, and its
+    // install:complete could resolve the WRONG wizard as success/failure
+    // (registering/activating the wrong server, or reporting a still-running
+    // install as failed). Same fix, same shape: installPath (the exact string
+    // this request received) rides on every emit so the client can filter to
+    // only the operation its own wizard started.
+    const installEventScope = { installPath };
+
     // Spawn SteamCMD process
     const spawnOpts = { cwd: steamcmdPath };
     if (!isWindows) {
@@ -3324,7 +3340,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
 
       for (const line of lines) {
         if (line.trim()) {
-          emitRawSteamCmdLine(io, "install:log", "stdout", line);
+          emitRawSteamCmdLine(io, "install:log", "stdout", line, installEventScope);
           log.info(`SteamCMD: ${line}`);
         }
       }
@@ -3344,7 +3360,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
 
       for (const line of lines) {
         if (line.trim()) {
-          emitRawSteamCmdLine(io, "install:log", "stderr", line);
+          emitRawSteamCmdLine(io, "install:log", "stderr", line, installEventScope);
           log.warn(`SteamCMD stderr: ${line}`);
         }
       }
@@ -3353,15 +3369,45 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
     steamcmd.on("close", async (code) => {
       // Flush any remaining buffered output
       if (stdoutBuffer.trim()) {
-        emitRawSteamCmdLine(io, "install:log", "stdout", stdoutBuffer.trim());
+        emitRawSteamCmdLine(io, "install:log", "stdout", stdoutBuffer.trim(), installEventScope);
         log.info(`SteamCMD: ${stdoutBuffer.trim()}`);
       }
       if (stderrBuffer.trim()) {
-        emitRawSteamCmdLine(io, "install:log", "stderr", stderrBuffer.trim());
+        emitRawSteamCmdLine(io, "install:log", "stderr", stderrBuffer.trim(), installEventScope);
         log.warn(`SteamCMD stderr: ${stderrBuffer.trim()}`);
       }
 
-      if (code === 0) {
+      // continuous-bug-hunt, 2026-09-18 (install-wizard-hunt): SteamCMD is
+      // well documented to exit 0 even when +app_update failed partway -- a
+      // disk-full write failure, a rejected/incomplete download, or a
+      // config-resolution failure all print one or more "ERROR!"-prefixed
+      // lines (or, for the config case, "Missing configuration") and then
+      // still exit 0. Exactly the same gap /steam-update's own
+      // steamcmd-success-truth fix closed for update/verify (see that
+      // route's steamCmdReportedError, same regex) -- it never transferred
+      // here. hasPzInstallMarker() below only proves SOME marker file
+      // exists; on a disk-full download those small launcher/metadata files
+      // can already be on disk before the write failure hits the large game
+      // data, so a marker being present does not contradict SteamCMD having
+      // just reported ERROR! in the same run. Checked before hasPzInstallMarker,
+      // not as a replacement for it -- either signal alone can miss a partial
+      // install; both together catch more than either would.
+      const steamCmdReportedError =
+        /^\s*ERROR!/im.test(output) || /missing configuration/i.test(output);
+
+      if (code === 0 && steamCmdReportedError) {
+        log.error(
+          "SteamCMD exited cleanly (code 0) but reported an error in its own output during the install",
+        );
+        io.emit("install:complete", {
+          success: false,
+          message:
+            "SteamCMD exited cleanly (code 0) but reported an error in its own output -- check the SteamCMD log above for the exact line. This can happen when the disk fills up mid-download or a Steam-side error interrupts it partway; the install did not complete. Free up space or retry, then reinstall.",
+          output,
+          progressCode: ProgressCode.INSTALL_STEAMCMD_REPORTED_ERROR,
+          ...installEventScope,
+        });
+      } else if (code === 0) {
         log.info("PZ server installation completed successfully");
 
         // The game files installed -- that part is done and expensive to
@@ -3401,6 +3447,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
                 ? ProgressCode.DATA_FOLDER_USING_CONFIGURED
                 : ProgressCode.DATA_FOLDER_USING_ISOLATED,
               params: { path: zomboidPath },
+              ...installEventScope,
             });
           }
 
@@ -3454,6 +3501,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
               reason: dirError.code || dirError.message,
               ...(bareMetalCommand ? { command: bareMetalCommand } : {}),
             },
+            ...installEventScope,
           });
           clearActiveSteamOperation(normalizedPath);
           return;
@@ -3473,6 +3521,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
               text: `RCON settings saved (port: ${rconPort})`,
               progressCode: ProgressCode.RCON_SETTINGS_SAVED,
               params: { port: rconPort },
+              ...installEventScope,
             });
           } catch (rconSettingsError) {
             log.error(`Failed to save RCON settings: ${rconSettingsError.message}`);
@@ -3522,11 +3571,13 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
                   type: "stdout",
                   text: "Pre-created server INI with RCON credentials",
                   progressCode: ProgressCode.INI_PRECREATED_WITH_RCON,
+                  ...installEventScope,
                 }
               : {
                   type: "stdout",
                   text: "Pre-created server INI with UPnP setting",
                   progressCode: ProgressCode.INI_PRECREATED_WITH_UPNP,
+                  ...installEventScope,
                 });
           }
         } catch (iniError) {
@@ -3582,6 +3633,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
             text: `Created custom startup script: ${scriptName}`,
             progressCode: ProgressCode.STARTUP_SCRIPT_CREATED,
             params: { scriptName },
+            ...installEventScope,
           });
         } catch (batchError) {
           log.warn(`Failed to create startup scripts: ${batchError.message}`);
@@ -3653,6 +3705,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
                 type: "stdout",
                 text: "PanelBridge mod installed automatically",
                 progressCode: ProgressCode.PANELBRIDGE_AUTO_INSTALLED,
+                ...installEventScope,
               });
               log.info("PanelBridge mod auto-installed to server");
             }
@@ -3678,6 +3731,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
           maxMemory: safeMaxMemory,
           progressCode: ProgressCode.INSTALL_COMPLETE_SUCCESS,
           warnings,
+          ...installEventScope,
         });
       } else if (killedByWatchdog) {
         const idleMinutes = STEAM_OPERATION_IDLE_TIMEOUT_MS / 60000;
@@ -3690,6 +3744,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
           output,
           progressCode: ProgressCode.INSTALL_WATCHDOG_KILLED,
           params: { minutes: idleMinutes },
+          ...installEventScope,
         });
       } else {
         log.error(`SteamCMD exited with code ${code}`);
@@ -3699,6 +3754,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
           output,
           progressCode: ProgressCode.INSTALL_FAILED_EXIT_CODE,
           params: { code },
+          ...installEventScope,
         });
       }
 
@@ -3716,6 +3772,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
         message: `Failed to run SteamCMD: ${sanitizeError(error.message)}`,
         progressCode: ProgressCode.STEAMCMD_RUN_FAILED,
         params: { reason: sanitizeError(error.message) },
+        ...installEventScope,
       });
     });
 

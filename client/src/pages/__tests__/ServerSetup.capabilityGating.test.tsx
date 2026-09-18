@@ -70,6 +70,7 @@ vi.mock("@/lib/api", async () => {
       start: vi.fn(),
       getBranches: vi.fn().mockResolvedValue({ branches: [] }),
       downloadSteamCmd: vi.fn(),
+      quickSetup: vi.fn(),
     },
     serversApi: { ...actual.serversApi, create: vi.fn(), activate: vi.fn() },
   };
@@ -85,6 +86,7 @@ const start = vi.mocked(serverApi.start);
 const downloadSteamCmd = vi.mocked(serverApi.downloadSteamCmd);
 const create = vi.mocked(serversApi.create);
 const activate = vi.mocked(serversApi.activate);
+const quickSetup = vi.mocked(serverApi.quickSetup);
 
 // Minimal fake matching only what ServerSetup actually calls (on/off/emit) --
 // same shape as ServerSetup.resumeAndActivate.test.tsx's helper.
@@ -233,7 +235,7 @@ describe("ServerSetup.tsx: Start Server Now (shared by both post-install complet
   // quick-setup completion screen (3 steps) is far less form-filling than
   // the full wizard's 4, and proves the shared handler's guard either way.
   async function reachQuickPostCreate() {
-    const { socket, trigger } = createFakeSocket();
+    const { socket } = createFakeSocket();
     const { container } = renderServerSetup(socket);
 
     fireEvent.click(screen.getByText(enServerSetup.modeSelect.quickCard.title, { selector: "h3" }));
@@ -255,9 +257,13 @@ describe("ServerSetup.tsx: Start Server Now (shared by both post-install complet
 
     await screen.findByText(enServerSetup.quick.step3.title);
 
-    create.mockResolvedValue({ server: { id: 1 } } as Awaited<ReturnType<typeof serversApi.create>>);
-    activate.mockResolvedValue({ success: true } as Awaited<ReturnType<typeof serversApi.activate>>);
-    trigger("install:complete", {
+    // handleQuickSetup (unlike handleInstall) is fully HTTP-await-driven --
+    // no socket event is ever involved in Quick Setup's real completion, so
+    // driving this through the real Create button (rather than faking an
+    // install:complete broadcast this flow never listens for) is both more
+    // correct and immune to install:complete's cross-install installPath
+    // filter, which only tracks the full wizard's own POST /install call.
+    quickSetup.mockResolvedValue({
       success: true,
       serverName: "myserver",
       installPath: "/opt/pz-server",
@@ -266,8 +272,11 @@ describe("ServerSetup.tsx: Start Server Now (shared by both post-install complet
       serverPort: 16261,
       minMemory: 4096,
       maxMemory: 8192,
-      branch: "public",
-    });
+      warnings: [],
+    } as unknown as Awaited<ReturnType<typeof serverApi.quickSetup>>);
+    create.mockResolvedValue({ server: { id: 1 } } as Awaited<ReturnType<typeof serversApi.create>>);
+    activate.mockResolvedValue({ success: true } as Awaited<ReturnType<typeof serversApi.activate>>);
+    fireEvent.click(screen.getByRole("button", { name: enServerSetup.quick.step3.createButton }));
 
     return screen.findByRole("button", { name: enServerSetup.common.startServerButton });
   }
