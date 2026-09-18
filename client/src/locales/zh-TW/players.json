@@ -179,6 +179,8 @@
     "description": "將 {{player}} 踢出伺服器",
     "reasonLabel": "原因（可選）",
     "reasonPlaceholder": "輸入原因…",
+    "reasonAlteredNote": "伺服器只會傳送：「{{preview}}」",
+    "reasonAlteredToEmpty": "這些字元都無法傳送到伺服器——該玩家將看不到任何原因。",
     "submit": "踢出玩家"
   },
   "banDialog": {
@@ -186,6 +188,8 @@
     "description": "將 {{player}} 從伺服器封鎖",
     "reasonLabel": "原因（可選）",
     "reasonPlaceholder": "輸入原因…",
+    "reasonAlteredNote": "伺服器只會傳送：「{{preview}}」",
+    "reasonAlteredToEmpty": "這些字元都無法傳送到伺服器——該玩家將看不到任何原因。",
     "banIpLabel": "同時封鎖 IP 地址",
     "banIpTip": "還會封鎖該 IP 地址，而不僅是帳號——可能影響同一網路下的其他人，且本面板沒有單獨檢視或解除 IP 封鎖的入口。",
     "cancel": "取消",

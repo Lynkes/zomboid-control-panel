@@ -205,6 +205,8 @@
     "description": "طرد {{player}} من الخادم",
     "reasonLabel": "السبب (اختياري)",
     "reasonPlaceholder": "أدخل السبب...",
+    "reasonAlteredNote": "سيرسل الخادم فقط: \"{{preview}}\"",
+    "reasonAlteredToEmpty": "لا يمكن إرسال أي من هذه الأحرف إلى الخادم — لن يرى هذا اللاعب أي سبب على الإطلاق.",
     "submit": "طرد اللاعب"
   },
   "banDialog": {
@@ -212,6 +214,8 @@
     "description": "حظر {{player}} من الخادم",
     "reasonLabel": "السبب (اختياري)",
     "reasonPlaceholder": "أدخل السبب...",
+    "reasonAlteredNote": "سيرسل الخادم فقط: \"{{preview}}\"",
+    "reasonAlteredToEmpty": "لا يمكن إرسال أي من هذه الأحرف إلى الخادم — لن يرى هذا اللاعب أي سبب على الإطلاق.",
     "banIpLabel": "حظر عنوان IP أيضًا",
     "banIpTip": "يحظر عنوان IP أيضًا، وليس الحساب فقط — قد يؤثر على آخرين على نفس الشبكة، ولا تملك هذه اللوحة طريقة لمراجعة أو رفع حظر IP بشكل منفصل.",
     "cancel": "إلغاء",

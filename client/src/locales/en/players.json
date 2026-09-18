@@ -179,6 +179,8 @@
     "description": "Kick {{player}} from the server",
     "reasonLabel": "Reason (optional)",
     "reasonPlaceholder": "Enter reason...",
+    "reasonAlteredNote": "The server will only send: \"{{preview}}\"",
+    "reasonAlteredToEmpty": "None of these characters can be sent to the server — this player will see no reason at all.",
     "submit": "Kick Player"
   },
   "banDialog": {
@@ -186,6 +188,8 @@
     "description": "Ban {{player}} from the server",
     "reasonLabel": "Reason (optional)",
     "reasonPlaceholder": "Enter reason...",
+    "reasonAlteredNote": "The server will only send: \"{{preview}}\"",
+    "reasonAlteredToEmpty": "None of these characters can be sent to the server — this player will see no reason at all.",
     "banIpLabel": "Also ban IP address",
     "banIpTip": "Also blocks the IP, not just the account — can affect others on the same network, and this panel has no way to review or lift IP bans separately.",
     "cancel": "Cancel",

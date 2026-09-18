@@ -182,6 +182,8 @@
     "description": "Expulsar a {{player}} del servidor",
     "reasonLabel": "Motivo (opcional)",
     "reasonPlaceholder": "Escribir motivo...",
+    "reasonAlteredNote": "El servidor solo enviará: «{{preview}}»",
+    "reasonAlteredToEmpty": "Ninguno de estos caracteres se puede enviar al servidor — este jugador no verá ningún motivo.",
     "submit": "Expulsar jugador"
   },
   "banDialog": {
@@ -189,6 +191,8 @@
     "description": "Banear a {{player}} del servidor",
     "reasonLabel": "Motivo (opcional)",
     "reasonPlaceholder": "Escribir motivo...",
+    "reasonAlteredNote": "El servidor solo enviará: «{{preview}}»",
+    "reasonAlteredToEmpty": "Ninguno de estos caracteres se puede enviar al servidor — este jugador no verá ningún motivo.",
     "banIpLabel": "También banear la dirección IP",
     "banIpTip": "También bloquea la IP, no solo la cuenta — puede afectar a otras personas en la misma red, y este panel no permite revisar ni levantar baneos de IP por separado.",
     "cancel": "Cancelar",

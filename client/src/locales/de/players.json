@@ -179,6 +179,8 @@
     "description": "{{player}} vom Server kicken",
     "reasonLabel": "Grund (optional)",
     "reasonPlaceholder": "Grund eingeben …",
+    "reasonAlteredNote": "Der Server sendet nur: „{{preview}}“",
+    "reasonAlteredToEmpty": "Keines dieser Zeichen kann an den Server gesendet werden — dieser Spieler sieht überhaupt keinen Grund.",
     "submit": "Spieler kicken"
   },
   "banDialog": {
@@ -186,6 +188,8 @@
     "description": "{{player}} vom Server bannen",
     "reasonLabel": "Grund (optional)",
     "reasonPlaceholder": "Grund eingeben …",
+    "reasonAlteredNote": "Der Server sendet nur: „{{preview}}“",
+    "reasonAlteredToEmpty": "Keines dieser Zeichen kann an den Server gesendet werden — dieser Spieler sieht überhaupt keinen Grund.",
     "banIpLabel": "IP-Adresse ebenfalls bannen",
     "banIpTip": "Blockiert zusätzlich die IP, nicht nur das Konto — kann andere im selben Netzwerk betreffen, und dieses Panel bietet keine eigene Möglichkeit, IP-Sperren später zu überprüfen oder aufzuheben.",
     "cancel": "Abbrechen",

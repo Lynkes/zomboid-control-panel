@@ -179,6 +179,8 @@
     "description": "将 {{player}} 踢出服务器",
     "reasonLabel": "原因（可选）",
     "reasonPlaceholder": "输入原因…",
+    "reasonAlteredNote": "服务器只会发送：「{{preview}}」",
+    "reasonAlteredToEmpty": "这些字符都无法发送到服务器——该玩家将看不到任何原因。",
     "submit": "踢出玩家"
   },
   "banDialog": {
@@ -186,6 +188,8 @@
     "description": "将 {{player}} 从服务器封禁",
     "reasonLabel": "原因（可选）",
     "reasonPlaceholder": "输入原因…",
+    "reasonAlteredNote": "服务器只会发送：「{{preview}}」",
+    "reasonAlteredToEmpty": "这些字符都无法发送到服务器——该玩家将看不到任何原因。",
     "banIpLabel": "同时封禁 IP 地址",
     "banIpTip": "还会封禁该 IP 地址，而不仅是账号——可能影响同一网络下的其他人，且本面板没有单独查看或解除 IP 封禁的入口。",
     "cancel": "取消",

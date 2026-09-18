@@ -4,6 +4,7 @@ import { Trans, useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { reportClientError } from '@/lib/client-errors'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { previewBanReason, banReasonWillBeAltered } from '@/lib/rconTextPreview'
 import { useRequestGuard } from '@/hooks/useRequestGuard'
 import {
   Users,
@@ -2365,6 +2366,13 @@ export default function Players() {
                             onChange={(e) => setKickReason(e.target.value)}
                             placeholder={t('kickDialog.reasonPlaceholder')}
                           />
+                          {banReasonWillBeAltered(kickReason) && (
+                            <p className="mt-1 text-xs text-warning">
+                              {previewBanReason(kickReason)
+                                ? t('kickDialog.reasonAlteredNote', { preview: previewBanReason(kickReason) })
+                                : t('kickDialog.reasonAlteredToEmpty')}
+                            </p>
+                          )}
                         </div>
                       </div>
                       <DialogFooter>
@@ -2404,6 +2412,13 @@ export default function Players() {
                             onChange={(e) => setBanReason(e.target.value)}
                             placeholder={t('banDialog.reasonPlaceholder')}
                           />
+                          {banReasonWillBeAltered(banReason) && (
+                            <p className="mt-1 text-xs text-warning">
+                              {previewBanReason(banReason)
+                                ? t('banDialog.reasonAlteredNote', { preview: previewBanReason(banReason) })
+                                : t('banDialog.reasonAlteredToEmpty')}
+                            </p>
+                          )}
                         </div>
                         <div className="flex items-center gap-2">
                           <Checkbox

@@ -179,6 +179,8 @@
     "description": "Mete {{player}} deyò sèvè a",
     "reasonLabel": "Rezon (opsyonèl)",
     "reasonPlaceholder": "Antre rezon an...",
+    "reasonAlteredNote": "Sèvè a ap voye sèlman: \"{{preview}}\"",
+    "reasonAlteredToEmpty": "Okenn nan karaktè sa yo pa ka voye bay sèvè a — jwè sa a p ap wè okenn rezon.",
     "submit": "Mete Jwè a Deyò"
   },
   "banDialog": {
@@ -186,6 +188,8 @@
     "description": "Bani {{player}} sòti sèvè a",
     "reasonLabel": "Rezon (opsyonèl)",
     "reasonPlaceholder": "Antre rezon an...",
+    "reasonAlteredNote": "Sèvè a ap voye sèlman: \"{{preview}}\"",
+    "reasonAlteredToEmpty": "Okenn nan karaktè sa yo pa ka voye bay sèvè a — jwè sa a p ap wè okenn rezon.",
     "banIpLabel": "Bani adrès IP tou",
     "banIpTip": "Anplis, li bloke adrès IP a, pa sèlman kont lan — sa ka afekte lòt moun sou menm rezo a, e panel sa a pa gen fason pou revize oswa retire yon ban IP apa.",
     "cancel": "Anile",
