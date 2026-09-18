@@ -464,6 +464,66 @@ describe("PUT /api/servers/:id", () => {
     );
   });
 
+  // pz-logs-viewer bug hunt, 2026-09-18: this route already reloads
+  // serverManager/rconService when the active server's own fields change
+  // (the two tests above), but never repointed the shared LogTailer --
+  // unlike POST /:id/activate, which does so via reloadServicesForNewActiveServer
+  // (see the "switching the active server must repoint the LogTailer"
+  // describe block below). Editing zomboidDataPath on the ALREADY-active
+  // server (no switch, just a path correction) left chat/death detection
+  // silently tailing the old path indefinitely.
+  it("repoints the LogTailer via discordBot when an active server's zomboidDataPath (or another serverManager-relevant field) changes", async () => {
+    updateServer.mockResolvedValue({ id: 1, name: "Test Server", isActive: true });
+    const response = createResponse();
+    const reloadConfig = vi.fn(async () => {});
+    const discordBot = { logTailer: { reloadConfig } };
+
+    await getUpdateHandler()(
+      {
+        params: { id: "1" },
+        body: { serverPort: 16262 },
+        app: { get: (key) => (key === "discordBot" ? discordBot : undefined) },
+      },
+      response,
+    );
+
+    expect(reloadConfig).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not repoint the LogTailer when only unrelated fields change", async () => {
+    updateServer.mockResolvedValue({ id: 1, name: "Test Server", isActive: true });
+    const response = createResponse();
+    const reloadConfig = vi.fn(async () => {});
+    const discordBot = { logTailer: { reloadConfig } };
+
+    await getUpdateHandler()(
+      {
+        params: { id: "1" },
+        body: { name: "Renamed" },
+        app: { get: (key) => (key === "discordBot" ? discordBot : undefined) },
+      },
+      response,
+    );
+
+    expect(reloadConfig).not.toHaveBeenCalled();
+  });
+
+  it("does not crash when discordBot or its logTailer is unavailable during an active server update", async () => {
+    updateServer.mockResolvedValue({ id: 1, name: "Test Server", isActive: true });
+    const response = createResponse();
+
+    await getUpdateHandler()(
+      {
+        params: { id: "1" },
+        body: { serverPort: 16262 },
+        app: { get: () => undefined },
+      },
+      response,
+    );
+
+    expect(response.status).not.toHaveBeenCalledWith(500);
+  });
+
   it("persists a custom start command when updating a server", async () => {
     const response = createResponse();
     const startCommand = "start-server.sh -servername DoomerZ";

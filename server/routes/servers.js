@@ -1519,6 +1519,32 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
         }
       }
 
+      // serverManagerFieldsChanged includes zomboidDataPath -- the exact
+      // value LogTailer resolves its watched console/chat/user log paths
+      // from (see logTailer.js's findLogPath()). Without this, editing the
+      // ACTIVE server's own zomboidDataPath/serverName here (as opposed to
+      // switching to a different server via /:id/activate, which already
+      // calls discordBot.logTailer.reloadConfig() through
+      // reloadServicesForNewActiveServer) left the tailer pinned to the OLD
+      // path indefinitely -- same "wrong server's logs, no error, nothing
+      // in the UI" failure mode as the /:id/activate gap this route's
+      // sibling comment describes, just reached by editing the active
+      // profile in place instead of switching away from it. discordBot is
+      // the only handle routes have on the shared LogTailer instance (it is
+      // never registered on the app directly).
+      const discordBot = req.app.get("discordBot");
+      if (serverManagerFieldsChanged && discordBot?.logTailer?.reloadConfig) {
+        try {
+          await discordBot.logTailer.reloadConfig();
+          log.info(`LogTailer repointed after active server update: ${server.name}`);
+        } catch (e) {
+          log.warn(`LogTailer reload failed after active server update: ${e.message}`);
+          reloadWarnings.push(
+            "Log tailer failed to reload; restart the panel before relying on chat/death detection for the updated path",
+          );
+        }
+      }
+
       if (rconFieldsChanged && rconService?.reloadConfig) {
         try {
           if (rconService.isConnected && rconService.isConnected()) {
