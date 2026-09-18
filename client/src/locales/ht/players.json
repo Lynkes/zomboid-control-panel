@@ -217,6 +217,12 @@
     "placeholder": "Chwazi yon nivo...",
     "submit": "Defini Nivo a"
   },
+  "confirmLastAdmin": {
+    "title": "Retire dènye admin lan?",
+    "description": "{{player}} se sèl kont ki gen nivo aksè admin. Si w retire l, pèsonn pap gen kòmand admin konplè nan jwèt la jistan yon moun resevwa l ankò isit la.",
+    "confirm": "Retire aksè admin",
+    "cancel": "Anile"
+  },
   "teleportDialog": {
     "title": "Teleporte Jwè a",
     "description": "Teleporte {{player}} nan kowòdone",

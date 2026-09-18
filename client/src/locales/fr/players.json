@@ -220,6 +220,12 @@
     "placeholder": "Sélectionner un niveau...",
     "submit": "Définir le niveau"
   },
+  "confirmLastAdmin": {
+    "title": "Retirer le dernier administrateur ?",
+    "description": "{{player}} est le seul compte avec le niveau d'accès admin. Le retirer laissera personne avec des commandes d'administrateur complètes en jeu tant qu'il ne sera pas accordé de nouveau depuis ici.",
+    "confirm": "Retirer l'accès administrateur",
+    "cancel": "Annuler"
+  },
   "teleportDialog": {
     "title": "Téléporter le joueur",
     "description": "Téléporter {{player}} vers des coordonnées",

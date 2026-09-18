@@ -1715,6 +1715,13 @@ export const ErrorCode = Object.freeze({
    * joined) as a param -- same shape as AUTH_INVALID_ROLE's `{{roles}}`
    * above. */
   PLAYERS_INVALID_ACCESS_LEVEL: "PLAYERS_INVALID_ACCESS_LEVEL",
+  /** server/routes/players.js -- POST /api/players/access-level, the
+   * target account is a local server's only whitelisted account with the
+   * 'admin' role and the request would demote/remove it without a
+   * `confirm: true` override. Carries `{{username}}` as a param. Warn-
+   * then-confirm, not a hard refusal -- see the route's own comment for
+   * why this differs from ROLE_LOCKOUT_LAST_MANAGER. */
+  PLAYERS_LAST_ADMIN_ACCESS_LEVEL_CONFIRM: "PLAYERS_LAST_ADMIN_ACCESS_LEVEL_CONFIRM",
   /** server/routes/players.js (sites: /whitelist/add, /adduser) --
    * optional `password` fails its alphanumeric-plus-symbols/length format
    * check. Identical wording/meaning both sites, shared code. */

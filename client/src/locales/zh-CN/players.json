@@ -217,6 +217,12 @@
     "placeholder": "选择等级…",
     "submit": "设置等级"
   },
+  "confirmLastAdmin": {
+    "title": "移除最后一位管理员？",
+    "description": "{{player}} 是唯一拥有 admin 权限等级的账号。移除后，在此处重新授予之前将没有人拥有完整的游戏内管理员命令。",
+    "confirm": "移除管理员权限",
+    "cancel": "取消"
+  },
   "teleportDialog": {
     "title": "传送玩家",
     "description": "将 {{player}} 传送到指定坐标",

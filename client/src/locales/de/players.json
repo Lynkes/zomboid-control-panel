@@ -217,6 +217,12 @@
     "placeholder": "Ebene auswählen …",
     "submit": "Ebene festlegen"
   },
+  "confirmLastAdmin": {
+    "title": "Letzten Admin entfernen?",
+    "description": "{{player}} ist das einzige Konto mit der Zugriffsebene admin. Wird sie entfernt, hat niemand mehr vollständige Admin-Befehle im Spiel, bis sie hier erneut vergeben wird.",
+    "confirm": "Admin-Zugriff entfernen",
+    "cancel": "Abbrechen"
+  },
   "teleportDialog": {
     "title": "Spieler teleportieren",
     "description": "{{player}} zu Koordinaten teleportieren",

@@ -303,7 +303,7 @@ router.post('/unban', requirePermission("players.moderate"), async (req, res) =>
 router.post('/access-level', requirePermission("players.moderate"), async (req, res) => {
   try {
     const rconService = req.app.get('rconService');
-    const { username, level } = req.body || {};
+    const { username, level, confirm } = req.body || {};
 
     if (!username || !level) {
       return res.status(400).json({ error: 'Username and level are required', code: ErrorCode.PLAYERS_ACCESS_LEVEL_FIELDS_REQUIRED });
@@ -350,6 +350,53 @@ router.post('/access-level', requirePermission("players.moderate"), async (req, 
         code: ErrorCode.PLAYERS_INVALID_ACCESS_LEVEL,
         params: { validLevels: validLevels.join(', ') },
       });
+    }
+
+    // continuous-bug-hunt round 29 (card: guard-against-removing-last-admin):
+    // panel-users/roles already refuses outright (services/permissions.js's
+    // checkLockoutRulesForCapabilityChange / services/auth.js's
+    // assertNoRecoveryLockout) because THAT lockout has no recovery path --
+    // if the last roles.manage/users.manage user is gone, nobody can ever
+    // undo it through the panel again. This is different: PZ's own in-game
+    // "admin" access level is granted by RCON's setaccesslevel, and RCON
+    // authenticates with the server's admin password, not with any player's
+    // whitelist role -- so an operator who removes the last in-game admin
+    // can always re-grant it through this exact same panel a moment later.
+    // Recoverable, not catastrophic -- so this warns instead of refusing,
+    // matching ROLE_SELF_CAPABILITY_LOSS_CONFIRM's confirm-then-retry shape
+    // (RolesPermissions.tsx) rather than ROLE_LOCKOUT_LAST_MANAGER's hard
+    // refusal. Only checkable for a local server: the whitelist table
+    // listWhitelistAccounts() reads is a file on this machine's disk, not
+    // something RCON or a remote server exposes -- for a remote server (or
+    // if the file can't be read) this silently skips rather than guessing,
+    // since a wrong "you're removing the last admin" claim would be worse
+    // than no warning at all.
+    if (level !== 'admin' && !confirm && activeServer && !activeServer.isRemote) {
+      try {
+        const whitelistResult = await listWhitelistAccounts(
+          activeServer.zomboidDataPath,
+          activeServer.serverName,
+        );
+        if (whitelistResult.available) {
+          const targetAccount = whitelistResult.accounts.find(
+            (account) =>
+              typeof account.username === 'string' &&
+              account.username.toLowerCase() === username.toLowerCase(),
+          );
+          const adminCount = whitelistResult.accounts.filter((account) => account.role === 'admin').length;
+          if (targetAccount?.role === 'admin' && adminCount === 1) {
+            return res.status(409).json({
+              error: `${username} is the only account with the admin access level. Removing it will leave nobody with full admin commands in-game until it is granted again.`,
+              code: ErrorCode.PLAYERS_LAST_ADMIN_ACCESS_LEVEL_CONFIRM,
+              params: { username },
+            });
+          }
+        }
+      } catch (error) {
+        log.warn(`Could not check for last-admin lockout before /access-level: ${error.message}`);
+        // Fall through -- don't block the action just because the safety
+        // check itself failed to read the whitelist database.
+      }
     }
 
     const result = await rconService.setAccessLevel(username, level);

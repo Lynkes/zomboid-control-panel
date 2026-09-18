@@ -94,7 +94,7 @@ import { EmptyState } from '@/components/EmptyState'
 import { HelpTip } from '@/components/HelpTip'
 import { SpawnBrowser } from '@/components/SpawnBrowser'
 import { NumberInput } from '@/components/NumberInput'
-import { playersApi, panelBridgeApi, configApi } from '@/lib/api'
+import { playersApi, panelBridgeApi, configApi, ApiError } from '@/lib/api'
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
 import { PageHeader } from '@/components/PageHeader'
 import { DisabledReason } from '@/components/DisabledReason'
@@ -1235,9 +1235,46 @@ export default function Players() {
     }, steamId)
   }
 
-  const handleSetAccessLevel = () => {
+  // continuous-bug-hunt round 29 (card: guard-against-removing-last-admin):
+  // server/routes/players.js's POST /access-level refuses a demotion away
+  // from admin for a local server's only admin account UNLESS the request
+  // carries confirm: true, returning PLAYERS_LAST_ADMIN_ACCESS_LEVEL_CONFIRM
+  // so this can ask first rather than silently going through -- same
+  // confirm-then-retry shape as RolesPermissions.tsx's
+  // ROLE_SELF_CAPABILITY_LOSS_CONFIRM handling. Not routed through
+  // handleAction: a cancelled confirm must not surface as a failure toast,
+  // and handleAction has no hook for "the user said no, say nothing".
+  const handleSetAccessLevel = async (confirmOverride = false) => {
     if (!selectedPlayer || !accessLevel) return
-    handleAction(t('actions.setAccessLevel'), () => playersApi.setAccessLevel(selectedPlayer, accessLevel), undefined, selectedPlayer)
+    setLoading(true)
+    try {
+      await playersApi.setAccessLevel(selectedPlayer, accessLevel, confirmOverride)
+      toast({
+        title: t('toasts.successTitle'),
+        description: t('toasts.successDescForPlayer', { action: t('actions.setAccessLevel'), player: selectedPlayer }),
+        variant: 'success' as const,
+      })
+      fetchPlayers()
+    } catch (error) {
+      if (!confirmOverride && error instanceof ApiError && error.code === 'PLAYERS_LAST_ADMIN_ACCESS_LEVEL_CONFIRM') {
+        setLoading(false)
+        const ok = await confirm({
+          title: t('confirmLastAdmin.title'),
+          description: t('confirmLastAdmin.description', { player: selectedPlayer }),
+          confirmLabel: t('confirmLastAdmin.confirm'),
+          cancelLabel: t('confirmLastAdmin.cancel'),
+        })
+        if (ok) await handleSetAccessLevel(true)
+        return
+      }
+      toast({
+        title: t('toasts.errorTitle'),
+        description: getUserErrorMessage(error, t('toasts.actionFailedFallback')),
+        variant: 'destructive',
+      })
+    } finally {
+      setLoading(false)
+    }
   }
 
   // Direct spawn handlers used by the SpawnBrowser dialog. They intentionally
@@ -2580,7 +2617,7 @@ export default function Players() {
                         </Select>
                       </div>
                       <DialogFooter>
-                        <Button onClick={handleSetAccessLevel} disabled={loading || !accessLevel}>
+                        <Button onClick={() => handleSetAccessLevel()} disabled={loading || !accessLevel}>
                           {t('accessLevelDialog.submit')}
                         </Button>
                       </DialogFooter>

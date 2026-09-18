@@ -404,6 +404,7 @@
   "PLAYERS_INVALID_BAN_IP": "banIp muss ein Boolean sein",
   "PLAYERS_ACCESS_LEVEL_FIELDS_REQUIRED": "Benutzername und Stufe sind erforderlich",
   "PLAYERS_INVALID_ACCESS_LEVEL": "Ungültige Zugriffsstufe. Gültig: {{validLevels}}",
+  "PLAYERS_LAST_ADMIN_ACCESS_LEVEL_CONFIRM": "{{username}} ist das einzige Konto mit der Zugriffsebene \"admin\". Wird sie entfernt, hat niemand mehr vollständige Admin-Befehle im Spiel, bis sie erneut vergeben wird.",
   "PLAYERS_INVALID_PASSWORD": "Ungültiges Passwortformat",
   "PLAYERS_TELEPORT_INVALID_COORDINATES": "Ungültige Koordinaten (x/y: 0 bis 24000, z: 0 bis 8)",
   "PLAYERS_TELEPORT_INVALID_PLAYER1": "Ungültiges Format für player1",

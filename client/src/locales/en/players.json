@@ -217,6 +217,12 @@
     "placeholder": "Select level...",
     "submit": "Set Level"
   },
+  "confirmLastAdmin": {
+    "title": "Remove the last admin?",
+    "description": "{{player}} is the only account with the admin access level. Removing it will leave nobody with full admin commands in-game until it is granted again from here.",
+    "confirm": "Remove admin access",
+    "cancel": "Cancel"
+  },
   "teleportDialog": {
     "title": "Teleport Player",
     "description": "Teleport {{player}} to coordinates",

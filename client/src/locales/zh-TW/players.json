@@ -217,6 +217,12 @@
     "placeholder": "選擇等級…",
     "submit": "設定等級"
   },
+  "confirmLastAdmin": {
+    "title": "移除最後一位管理員？",
+    "description": "{{player}} 是唯一擁有 admin 權限等級的帳號。移除後，在此處重新授予之前將沒有人擁有完整的遊戲內管理員指令。",
+    "confirm": "移除管理員權限",
+    "cancel": "取消"
+  },
   "teleportDialog": {
     "title": "傳送玩家",
     "description": "將 {{player}} 傳送到指定座標",

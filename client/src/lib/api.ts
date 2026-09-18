@@ -814,8 +814,8 @@ export const playersApi = {
   ban: (username: string, banIp?: boolean, reason?: string) =>
     apiPost("/players/ban", { username, banIp, reason }),
   unban: (username: string) => apiPost("/players/unban", { username }),
-  setAccessLevel: (username: string, level: string) =>
-    apiPost("/players/access-level", { username, level }),
+  setAccessLevel: (username: string, level: string, confirm?: boolean) =>
+    apiPost("/players/access-level", { username, level, confirm }),
   addToWhitelist: (username: string, password: string) =>
     apiPost("/players/whitelist/add", { username, password }),
   removeFromWhitelist: (username: string) =>
