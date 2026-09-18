@@ -277,6 +277,20 @@ export default function Console() {
   const [showHistory, setShowHistory] = useState(false)
   const [commandDraft, setCommandDraft] = useState('') // saves in-progress text while browsing history
   const liveLogIdRef = useRef(0) // monotonic counter for stable liveLog keys
+  // bug-hunt-2026-09-18 (round 8): loadConsoleTarget runs once on mount AND
+  // again on every 'activeServerChanged' socket event, all sharing this one
+  // effect's `cancelled` flag -- but that flag only flips on UNMOUNT, not
+  // between two overlapping calls to the same function while it's still
+  // mounted. Switching the active server twice in quick succession (or once,
+  // right after mount, before the initial GET /servers lands) fires two
+  // overlapping requests; whichever RESPONSE arrives last wins regardless of
+  // which request was SENT last -- an older, slower response can overwrite
+  // the newer one it should have lost to. Mirrors RolesPermissions.tsx's
+  // pendingCapabilitiesRef guard: a monotonic counter bumped at the start of
+  // each call, checked again when it resolves, so a stale response that
+  // lands after a newer call has already started is dropped instead of
+  // applied.
+  const consoleTargetRequestIdRef = useRef(0)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const { toast } = useToast()
@@ -331,18 +345,19 @@ export default function Console() {
     let cancelled = false
 
     const loadConsoleTarget = async () => {
+      const requestId = ++consoleTargetRequestIdRef.current
       try {
         const data = await serversApi.getAll()
-        if (cancelled) return
+        if (cancelled || requestId !== consoleTargetRequestIdRef.current) return
 
         const nextActiveServer = data.servers.find(server => server.isActive) ?? data.servers[0] ?? null
         setActiveServer(nextActiveServer)
       } catch {
-        if (!cancelled) {
+        if (!cancelled && requestId === consoleTargetRequestIdRef.current) {
           setActiveServer(null)
         }
       } finally {
-        if (!cancelled) {
+        if (!cancelled && requestId === consoleTargetRequestIdRef.current) {
           setConsoleTargetLoading(false)
         }
       }
