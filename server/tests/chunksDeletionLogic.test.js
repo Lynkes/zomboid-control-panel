@@ -396,6 +396,61 @@ describe("partial failure: does the response report what actually happened?", ()
     expect(fs.existsSync(badChunkPath), "the chunk that failed to delete must still be there").toBe(true);
   });
 
+  it("delete-chunks: every selected chunk failing to delete reports success:false, not the same success:true a partial failure gets", async () => {
+    const badChunkA = path.join(savePath, "map", "0", "0.bin");
+    const badChunkB = path.join(savePath, "map", "40", "0.bin");
+    writeDirDeep(badChunkA);
+    writeDirDeep(badChunkB);
+
+    const res = await postAs("/delete-chunks", {
+      saveName: SAVE_NAME,
+      chunks: [
+        { file: "0/0.bin", x: 0, y: 0 },
+        { file: "40/0.bin", x: 40, y: 0 },
+      ],
+    });
+
+    expect(res.getStatusCode()).toBe(200);
+    const body = res.getBody();
+    // Unlike the partial-failure test above (deleted:1, success:true), zero
+    // successes with real errors present must not claim success -- the
+    // client's shared handleResponse() (api.ts) throws on any success:false
+    // body, which is what routes this into ChunkCleaner.tsx's actual
+    // failure toast instead of its misleading "N deleted, M failed" one.
+    expect(body.success).toBe(false);
+    expect(body.deleted).toBe(0);
+    expect(body.errors).toHaveLength(2);
+    expect(typeof body.error).toBe("string");
+    expect(body.error).toMatch(/every selected chunk failed/i);
+    expect(fs.existsSync(badChunkA)).toBe(true);
+    expect(fs.existsSync(badChunkB)).toBe(true);
+  });
+
+  it("delete-region: every selected chunk failing to delete reports success:false, not the same success:true a partial failure gets", async () => {
+    const badChunkA = path.join(savePath, "map", "2", "2.bin");
+    const badChunkB = path.join(savePath, "map", "2", "3.bin");
+    writeDirDeep(badChunkA);
+    writeDirDeep(badChunkB);
+
+    const res = await postAs("/delete-region", {
+      saveName: SAVE_NAME,
+      minX: 0,
+      maxX: 5,
+      minY: 0,
+      maxY: 5,
+    });
+
+    expect(res.getStatusCode()).toBe(200);
+    const body = res.getBody();
+    expect(body.success).toBe(false);
+    expect(body.deleted).toBe(0);
+    expect(body.errors).toHaveLength(2);
+    expect(typeof body.error).toBe("string");
+    expect(body.error).toMatch(/every selected chunk failed/i);
+    expect(fs.existsSync(badChunkA)).toBe(true);
+    expect(fs.existsSync(badChunkB)).toBe(true);
+  });
+
   it("delete-region: a clean delete with no failures omits errors entirely, not an empty array -- nothing in the client reads this response today (deleteRegion has zero callers), but the shape must still match delete-chunks' convention exactly", async () => {
     const onlyChunk = path.join(savePath, "map", "2", "2.bin");
     writeFileDeep(onlyChunk, "a");

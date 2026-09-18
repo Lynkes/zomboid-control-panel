@@ -1735,13 +1735,30 @@ router.post("/delete-chunks", requirePermission("chunks.manage"), async (req, re
     // must not report chunks we just deleted.
     invalidateMapFolderScan(path.join(savePath, "map"));
 
+    // god-dispatched round 3, 2026-09-18: `success: true` used to be
+    // unconditional here -- honest for a PARTIAL failure (deleted > 0: real
+    // work happened, the `errors` array and the client's own dedicated
+    // "partially deleted" toast already surface the rest), but a LIE for a
+    // TOTAL one (every targeted chunk failed to delete, chunks.length > 0
+    // guarantees there was something to attempt). The client's shared
+    // handleResponse() (api.ts) already treats any `success: false` body as
+    // a thrown ApiError regardless of HTTP status, so flipping this is
+    // enough on its own to route a total failure into ChunkCleaner.tsx's
+    // existing generic failure toast instead of its misleading
+    // "N deleted, M failed" partial-success one -- no client change needed.
+    const allFailed = deleted === 0 && errors.length > 0;
     res.json({
-      success: true,
+      success: !allFailed,
       deleted,
       vehiclesDeleted: vehiclesResult.deleted || 0,
       cellFilesRemoved: cellCleanup.removed.length,
       errors: errors.length > 0 ? errors : undefined,
       backupCreated: createBackup,
+      ...(allFailed
+        ? {
+            error: `Every selected chunk failed to delete (${errors.length} error${errors.length === 1 ? "" : "s"}): ${errors[0]}`,
+          }
+        : {}),
     });
   } catch (error) {
     log.error(`Failed to delete chunks: ${error.message}`);
@@ -2274,14 +2291,26 @@ router.post("/delete-region", requirePermission("chunks.manage"), async (req, re
     // must not report chunks we just deleted.
     invalidateMapFolderScan(mapPath);
 
+    // Same fix and reasoning as /delete-chunks above: `success` must
+    // reflect a TOTAL failure (deleted:0 with real errors, guaranteed
+    // something was attempted -- the `chunksToDelete.length === 0` case
+    // above already returned early). A partial failure (deleted > 0) stays
+    // `success: true`, same as /delete-chunks -- real work happened and the
+    // `errors` array already carries the rest.
+    const allFailed = deleted === 0 && errors.length > 0;
     res.json({
-      success: true,
+      success: !allFailed,
       deleted,
       vehiclesDeleted: vehiclesResult.deleted || 0,
       cellFilesRemoved: cellCleanup.removed.length,
       errors: errors.length > 0 ? errors : undefined,
       region: { minX, maxX, minY, maxY },
       inverted: invert,
+      ...(allFailed
+        ? {
+            error: `Every selected chunk failed to delete (${errors.length} error${errors.length === 1 ? "" : "s"}): ${errors[0]}`,
+          }
+        : {}),
     });
   } catch (error) {
     log.error(`Failed to delete region: ${error.message}`);
