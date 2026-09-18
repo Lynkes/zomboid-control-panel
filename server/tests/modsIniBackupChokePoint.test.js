@@ -229,6 +229,76 @@ describe("mods.js ini writes: a failed backup warns but never blocks the edit", 
   });
 });
 
+// bug-hunt-2026-09-18 (round 16b, follow-up to round 16's identical bug in
+// server.js): a real PZ-written server .ini is CRLF (confirmed against a
+// live B42 dedicated-server install -- every line \r\n, zero bare \n).
+// mods.js's readTextFile() (its only way of reading an ini before editing
+// it) unconditionally normalizes CRLF->LF on read; nothing downstream ever
+// converted it back before writeIniWithBackup() wrote it to disk -- so
+// EVERY one of mods.js's ~19 ini-rewriting routes silently converted the
+// operator's whole file to LF on every mod add/remove/load-order save, not
+// just the Mods=/WorkshopItems=/Map= line actually changed. Fixed centrally
+// in configBackup.js's writeIniWithBackup() (reusing server/utils/
+// iniKeyWrite.js's withOriginalLineEnding()/restoreLineEnding(), the same
+// helpers server.js's sibling bug was fixed with earlier tonight) rather
+// than at each mods.js call site.
+describe("mods.js ini writes preserve the live file's CRLF line endings", () => {
+  let dataRoot;
+  let configPath;
+  let iniPath;
+
+  beforeEach(() => {
+    dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mods-ini-crlf-"));
+    configPath = path.join(dataRoot, "Server");
+    fs.mkdirSync(configPath, { recursive: true });
+    iniPath = path.join(configPath, "TestServer.ini");
+    fs.writeFileSync(
+      iniPath,
+      "PVP=false\r\nMods=ExistingMod\r\nWorkshopItems=1111111111\r\nMap=Muldraugh, KY\r\n",
+      "utf-8",
+    );
+    getActiveServer.mockReset().mockResolvedValue({
+      id: "server-1",
+      serverConfigPath: configPath,
+      serverName: "TestServer",
+      isRemote: false,
+    });
+  });
+
+  afterEach(() => {
+    fs.rmSync(dataRoot, { recursive: true, force: true });
+  });
+
+  it("POST /toggle-mod-id keeps every line CRLF, not just the Mods= line it touched", async () => {
+    const res = await runRoute("/toggle-mod-id", "post", {
+      body: { modId: "NewMod", enabled: true },
+    });
+
+    expect(res.getStatusCode()).toBe(200);
+    const content = fs.readFileSync(iniPath, "utf-8");
+    const lfCount = (content.match(/\n/g) || []).length;
+    const crlfCount = (content.match(/\r\n/g) || []).length;
+    expect(crlfCount).toBe(lfCount);
+    expect(crlfCount).toBeGreaterThan(0);
+    expect(content).toContain("PVP=false\r\n");
+    expect(content).toMatch(/^Mods=.*NewMod.*\r\n/m);
+  });
+
+  it("POST /write-to-ini keeps every line CRLF", async () => {
+    const res = await runRoute("/write-to-ini", "post", {
+      body: { mods: [{ workshopId: "2222222222", modId: "AnotherMod" }] },
+    });
+
+    expect(res.getStatusCode()).toBe(200);
+    const content = fs.readFileSync(iniPath, "utf-8");
+    const lfCount = (content.match(/\n/g) || []).length;
+    const crlfCount = (content.match(/\r\n/g) || []).length;
+    expect(crlfCount).toBe(lfCount);
+    expect(crlfCount).toBeGreaterThan(0);
+    expect(content).toContain("PVP=false\r\n");
+  });
+});
+
 // sibling-convention sweep, 2026-09-08: /batch-remove caps its own
 // workshopIds array at 500 "to prevent abuse". /batch-delete-disk-mods
 // (the more destructive of the two -- it deletes real files from disk, not
