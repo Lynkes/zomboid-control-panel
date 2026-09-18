@@ -214,6 +214,63 @@ describe("sandbox lua helpers", () => {
       'Base.Hat, Base."Weird"',
     );
   });
+
+  // continuous-bug-hunt round 30 (card: consolidate-nested-sandbox-writer):
+  // diffing this writer against its sibling routes/serverFiles.js's
+  // modifySandboxValue against a real save (D:/pz-verify) found exactly one
+  // behavioral disagreement across nested tables, missing keys, quoting,
+  // CRLF and comments: that sibling preserves a field's existing decimal
+  // format (writing an integer over a field that was "0.05" produces "3.0",
+  // not "3") via formatLuaNumber; this file's formatLuaValue always emitted
+  // String(value), silently dropping it. Both parse identically in Lua, but
+  // an operator diffing the file (or a tool doing its own string-based
+  // scan) sees the field's apparent type change on every template apply
+  // that touches it. Fixed to match.
+  it("preserves a top-level field's existing decimal format when the new value is a whole number", () => {
+    const withFloat = luaContent.replace("Zombies = 4,", "ClayRiverChance = 0.05,\n    Zombies = 4,");
+    const { content, applied } = applySandboxValue(withFloat, "settings", "ClayRiverChance", 3);
+    expect(applied).toBe(true);
+    expect(content).toContain("ClayRiverChance = 3.0,");
+  });
+
+  it("preserves a nested block field's existing decimal format the same way", () => {
+    const { content, applied } = applySandboxValue(luaContent, "MultiplierConfig", "Global", 2);
+    expect(applied).toBe(true);
+    expect(content).toContain("Global = 2.0,");
+  });
+
+  it("does not add a decimal point when the original field was already a whole number", () => {
+    const { content } = applySandboxValue(luaContent, "settings", "Zombies", 7);
+    expect(content).toContain("Zombies = 7,");
+    expect(content).not.toContain("Zombies = 7.0,");
+  });
+
+  // getKnownSectionRanges used to list only 5 of routes/serverFiles.js's 7
+  // known nested-block names (missing Music/Debug) -- a same-named key
+  // under either block would not have been excluded from a top-level
+  // "settings" rewrite here, unlike its sibling. No real save checked
+  // defines either block, so this pins the exclusion directly rather than
+  // via a real-file fixture.
+  it("excludes Music and Debug nested-block contents from a top-level settings rewrite, matching serverFiles.js", () => {
+    const withMusicAndDebug = [
+      "SandboxVars = {",
+      "    Zombies = 4,",
+      "    Music = {",
+      "        Zombies = 999,",
+      "    },",
+      "    Debug = {",
+      "        Zombies = 888,",
+      "    },",
+      "}",
+      "",
+    ].join("\n");
+
+    const { content, applied } = applySandboxValue(withMusicAndDebug, "settings", "Zombies", 5);
+    expect(applied).toBe(true);
+    expect(readSandboxValue(content, "settings", "Zombies")).toBe(5);
+    expect(content).toContain("Zombies = 999,");
+    expect(content).toContain("Zombies = 888,");
+  });
 });
 
 describe("backupFile / writeFile", () => {
