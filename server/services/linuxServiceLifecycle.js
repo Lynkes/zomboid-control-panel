@@ -537,7 +537,7 @@ export class LinuxServiceLifecycle {
     }
     return {
       running: status.running,
-      scanFailed: status.activeState === "unknown",
+      scanFailed: ["unknown", "deactivating"].includes(status.activeState),
       activeState: status.activeState,
       error: status.error,
     };
@@ -572,7 +572,9 @@ export class LinuxServiceLifecycle {
     // start/stop attempt below, which genuinely execs the command and
     // reports confirmed:false honestly if that fails too -- never a free
     // pass to declare victory over an answer we never actually got.
-    const stateUnknown = current.activeState === "unknown";
+    const stateUnknown = ["unknown", "deactivating"].includes(
+      current.activeState,
+    );
     if (action === "start" && current.running && !stateUnknown) {
       return { success: true, confirmed: true, message: "Server is already running" };
     }
