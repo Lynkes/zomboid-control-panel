@@ -1357,7 +1357,9 @@ export class Scheduler {
           return { success: false, wasRunning: false, message: errorMsg };
         }
 
-        // Server wasn't running - just start it. Already-stopped, so config
+        // Server wasn't running - start it through the owning lifecycle
+        // provider. A managed container must never fall through to the native
+        // JVM path: that would create a second server outside Docker.
         // files are already static -- same coverage as the main branch
         // below, see _backupConfigBeforeRestart()'s own comment. Also
         // refresh the launch target first, same as the manual /start route
@@ -1368,12 +1370,20 @@ export class Scheduler {
           "Auto-restart triggered but server was not running - starting server",
         );
         const restartTarget = await this._backupConfigBeforeRestart(pinnedServerId);
-        await refreshLaunchTargetBeforeStart(restartTarget, {
-          managedHandled: false,
-        });
-        const started = await serverManager.startServer({
+        const managedStart = await runManagedLifecycle("start", {
           serverId: pinnedServerId,
         });
+        let started;
+        if (managedStart.handled) {
+          started = managedStart;
+        } else {
+          await refreshLaunchTargetBeforeStart(restartTarget, {
+            managedHandled: false,
+          });
+          started = await serverManager.startServer({
+            serverId: pinnedServerId,
+          });
+        }
         if (!started?.success) {
           log.warn(
             `Auto-restart: start command reported failure: ${started?.error || started?.message || "unknown error"}`,
