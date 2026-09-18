@@ -100,7 +100,8 @@
     "keyboardHint": "// enter · 執行 · ↑↓ 歷史記錄",
     "noResponseFallback": "無響應",
     "noPermission": "您的角色沒有執行 RCON 命令的權限。",
-    "disconnectedUseRecheck": "RCON 當前無法訪問 -- 請先點選上方的\"重新檢查\"，然後再試一次。"
+    "disconnectedUseRecheck": "RCON 當前無法訪問 -- 請先點選上方的\"重新檢查\"，然後再試一次。",
+    "recheckNoPermission": "重新檢查 RCON 連線需要 server.configure 權限，此角色沒有該權限。"
   },
   "quickCommands": {
     "players": "玩家",

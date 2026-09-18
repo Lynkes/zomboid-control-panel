@@ -72,6 +72,7 @@ import { getUserErrorMessage } from '@/lib/errorMessage'
 import { useRequestGuard } from '@/hooks/useRequestGuard'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import { useSocket } from '@/contexts/SocketContext'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface Player {
   name: string
@@ -1093,6 +1094,19 @@ interface ActivityEntry {
 
 export default function Events() {
   const { t, i18n } = useTranslation('events')
+  const { can } = useAuth()
+  // bug-hunt-2026-09-18 (round 19, client-vs-server permission gate sweep):
+  // this page had NO capability checks at all -- server.js's lightning/
+  // thunder/horde routes and panelBridge.js's targeted sound/noise routes
+  // are gated on players.endanger_or_impersonate specifically (a role can
+  // hold the page's baseline server.world_events without it, per
+  // roles.json's own description contrasting the two), but every one of
+  // this page's controls that reach them was fully enabled regardless,
+  // surfacing the refusal only as a 403 after the click. Clearing zombies
+  // (not spawning them) and the plain world-wide chopper/gunshot/alarm
+  // triggers stay ungated here -- they're server.world_events, the page's
+  // own broadly-held baseline, not this specific mismatch.
+  const canEndangerOrImpersonate = can('players.endanger_or_impersonate')
   const vehicles = useMemo(() => getVehiclePresets(t), [t])
   const bridgeOperationTemplates = useMemo(() => getBridgeOperationTemplates(t), [t])
   const bridgeOperationForms = useMemo(() => getBridgeOperationForms(t), [t])
@@ -3168,11 +3182,11 @@ export default function Events() {
                       {t('quickSounds.gunshot')}
                     </Button>
                   </DisabledReason>
-                  <DisabledReason reason={playersUnknown ? t('common.playersUnavailableTitle') : players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : null}>
+                  <DisabledReason reason={!canEndangerOrImpersonate ? t('common.noPermissionEndangerOrImpersonate') : playersUnknown ? t('common.playersUnavailableTitle') : players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : null}>
                     <Button
                       variant="outline"
                       onClick={() => handleAction('Lightning', () => triggerLightning(pickStrikeTarget()))}
-                      disabled={loading !== null || players.length === 0}
+                      disabled={loading !== null || players.length === 0 || !canEndangerOrImpersonate}
                       // eslint-disable-next-line local/no-dead-disabled-title -- already split (this file's own precedent, cited in the rule's docs): the disabled-reason (no players online) lives in the DisabledReason wrapper above; this title carries only the enabled-state hint. Marker added 2026-08-27.
                       title={players.length === 0 ? undefined : t('quickSounds.lightningTooltip')}
                       className="h-9 gap-2 text-xs font-medium text-amber-400/90 hover:text-amber-400 hover:border-amber-400/40"
@@ -3181,11 +3195,11 @@ export default function Events() {
                       {t('quickSounds.lightning')}
                     </Button>
                   </DisabledReason>
-                  <DisabledReason reason={playersUnknown ? t('common.playersUnavailableTitle') : players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : null}>
+                  <DisabledReason reason={!canEndangerOrImpersonate ? t('common.noPermissionEndangerOrImpersonate') : playersUnknown ? t('common.playersUnavailableTitle') : players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : null}>
                     <Button
                       variant="outline"
                       onClick={() => handleAction('Thunder', () => triggerThunder(pickStrikeTarget()))}
-                      disabled={loading !== null || players.length === 0}
+                      disabled={loading !== null || players.length === 0 || !canEndangerOrImpersonate}
                       // eslint-disable-next-line local/no-dead-disabled-title -- already split (this file's own precedent, cited in the rule's docs): the disabled-reason (no players online) lives in the DisabledReason wrapper above; this title carries only the enabled-state hint. Marker added 2026-08-27.
                       title={players.length === 0 ? undefined : t('quickSounds.thunderTooltip')}
                       className="h-9 gap-2 text-xs font-medium"
@@ -3251,18 +3265,24 @@ export default function Events() {
                     </span>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" onClick={() => handleBridgeAction('Gunshot Sound', () => panelBridgeApi.triggerGunshotBridge({ username: selectedPlayer || undefined }))} disabled={bridgeLoading !== null || !bridgeConnected || targetAll || !selectedPlayer} className="h-9 gap-2 text-xs font-medium">
-                      {bridgeLoading === 'Gunshot Sound' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Volume2 className="w-3.5 h-3.5" />}
-                      {t('targetedSounds.gunshot')}
-                    </Button>
-                    <Button variant="outline" onClick={() => handleBridgeAction('Alarm Sound', () => panelBridgeApi.triggerAlarmBridge({ username: selectedPlayer || undefined }))} disabled={bridgeLoading !== null || !bridgeConnected || targetAll || !selectedPlayer} className="h-9 gap-2 text-xs font-medium">
-                      {bridgeLoading === 'Alarm Sound' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bell className="w-3.5 h-3.5" />}
-                      {t('targetedSounds.alarm')}
-                    </Button>
-                    <Button variant="outline" onClick={() => handleBridgeAction('Custom Noise', () => panelBridgeApi.createNoise({ username: selectedPlayer, radius: soundRadius, volume: soundVolume }))} disabled={bridgeLoading !== null || !bridgeConnected || targetAll || !selectedPlayer} className="h-9 gap-2 text-xs font-medium">
-                      {bridgeLoading === 'Custom Noise' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Megaphone className="w-3.5 h-3.5" />}
-                      {t('targetedSounds.noise')}
-                    </Button>
+                    <DisabledReason reason={!canEndangerOrImpersonate ? t('common.noPermissionEndangerOrImpersonate') : null}>
+                      <Button variant="outline" onClick={() => handleBridgeAction('Gunshot Sound', () => panelBridgeApi.triggerGunshotBridge({ username: selectedPlayer || undefined }))} disabled={bridgeLoading !== null || !bridgeConnected || targetAll || !selectedPlayer || !canEndangerOrImpersonate} className="h-9 gap-2 text-xs font-medium">
+                        {bridgeLoading === 'Gunshot Sound' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Volume2 className="w-3.5 h-3.5" />}
+                        {t('targetedSounds.gunshot')}
+                      </Button>
+                    </DisabledReason>
+                    <DisabledReason reason={!canEndangerOrImpersonate ? t('common.noPermissionEndangerOrImpersonate') : null}>
+                      <Button variant="outline" onClick={() => handleBridgeAction('Alarm Sound', () => panelBridgeApi.triggerAlarmBridge({ username: selectedPlayer || undefined }))} disabled={bridgeLoading !== null || !bridgeConnected || targetAll || !selectedPlayer || !canEndangerOrImpersonate} className="h-9 gap-2 text-xs font-medium">
+                        {bridgeLoading === 'Alarm Sound' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bell className="w-3.5 h-3.5" />}
+                        {t('targetedSounds.alarm')}
+                      </Button>
+                    </DisabledReason>
+                    <DisabledReason reason={!canEndangerOrImpersonate ? t('common.noPermissionEndangerOrImpersonate') : null}>
+                      <Button variant="outline" onClick={() => handleBridgeAction('Custom Noise', () => panelBridgeApi.createNoise({ username: selectedPlayer, radius: soundRadius, volume: soundVolume }))} disabled={bridgeLoading !== null || !bridgeConnected || targetAll || !selectedPlayer || !canEndangerOrImpersonate} className="h-9 gap-2 text-xs font-medium">
+                        {bridgeLoading === 'Custom Noise' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Megaphone className="w-3.5 h-3.5" />}
+                        {t('targetedSounds.noise')}
+                      </Button>
+                    </DisabledReason>
                   </div>
                 </div>
 
@@ -3286,18 +3306,24 @@ export default function Events() {
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" onClick={() => handleBridgeAction('Gunshot at Coords', () => panelBridgeApi.triggerGunshotBridge({ x: soundCoordX as number, y: soundCoordY as number }))} disabled={bridgeLoading !== null || !bridgeConnected || !hasValidSoundCoords} className="h-9 gap-2 text-xs font-medium">
-                      {bridgeLoading === 'Gunshot at Coords' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Volume2 className="w-3.5 h-3.5" />}
-                      {t('targetedSounds.gunshot')}
-                    </Button>
-                    <Button variant="outline" onClick={() => handleBridgeAction('Alarm at Coords', () => panelBridgeApi.triggerAlarmBridge({ x: soundCoordX as number, y: soundCoordY as number }))} disabled={bridgeLoading !== null || !bridgeConnected || !hasValidSoundCoords} className="h-9 gap-2 text-xs font-medium">
-                      {bridgeLoading === 'Alarm at Coords' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bell className="w-3.5 h-3.5" />}
-                      {t('targetedSounds.alarm')}
-                    </Button>
-                    <Button variant="outline" onClick={() => handleBridgeAction('Noise at Coords', () => panelBridgeApi.createNoise({ x: soundCoordX as number, y: soundCoordY as number, radius: soundRadius, volume: soundVolume }))} disabled={bridgeLoading !== null || !bridgeConnected || !hasValidSoundCoords} className="h-9 gap-2 text-xs font-medium">
-                      {bridgeLoading === 'Noise at Coords' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Megaphone className="w-3.5 h-3.5" />}
-                      {t('targetedSounds.noise')}
-                    </Button>
+                    <DisabledReason reason={!canEndangerOrImpersonate ? t('common.noPermissionEndangerOrImpersonate') : null}>
+                      <Button variant="outline" onClick={() => handleBridgeAction('Gunshot at Coords', () => panelBridgeApi.triggerGunshotBridge({ x: soundCoordX as number, y: soundCoordY as number }))} disabled={bridgeLoading !== null || !bridgeConnected || !hasValidSoundCoords || !canEndangerOrImpersonate} className="h-9 gap-2 text-xs font-medium">
+                        {bridgeLoading === 'Gunshot at Coords' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Volume2 className="w-3.5 h-3.5" />}
+                        {t('targetedSounds.gunshot')}
+                      </Button>
+                    </DisabledReason>
+                    <DisabledReason reason={!canEndangerOrImpersonate ? t('common.noPermissionEndangerOrImpersonate') : null}>
+                      <Button variant="outline" onClick={() => handleBridgeAction('Alarm at Coords', () => panelBridgeApi.triggerAlarmBridge({ x: soundCoordX as number, y: soundCoordY as number }))} disabled={bridgeLoading !== null || !bridgeConnected || !hasValidSoundCoords || !canEndangerOrImpersonate} className="h-9 gap-2 text-xs font-medium">
+                        {bridgeLoading === 'Alarm at Coords' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bell className="w-3.5 h-3.5" />}
+                        {t('targetedSounds.alarm')}
+                      </Button>
+                    </DisabledReason>
+                    <DisabledReason reason={!canEndangerOrImpersonate ? t('common.noPermissionEndangerOrImpersonate') : null}>
+                      <Button variant="outline" onClick={() => handleBridgeAction('Noise at Coords', () => panelBridgeApi.createNoise({ x: soundCoordX as number, y: soundCoordY as number, radius: soundRadius, volume: soundVolume }))} disabled={bridgeLoading !== null || !bridgeConnected || !hasValidSoundCoords || !canEndangerOrImpersonate} className="h-9 gap-2 text-xs font-medium">
+                        {bridgeLoading === 'Noise at Coords' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Megaphone className="w-3.5 h-3.5" />}
+                        {t('targetedSounds.noise')}
+                      </Button>
+                    </DisabledReason>
                   </div>
                 </div>
               </div>
@@ -3317,14 +3343,14 @@ export default function Events() {
                   </div>
                   <Slider aria-label={t('horde.sizeAria')} value={[hordeCount]} onValueChange={([val]) => setHordeCount(val)} min={10} max={500} step={10} />
                 </div>
-                <DisabledReason reason={playersUnknown ? t('common.playersUnavailableTitle') : players.length === 0 ? t('horde.noPlayersOnlineTitle') : !bridgeConnected ? t('horde.bridgeOfflineTitle') : null}>
-                  <Button variant="outline" onClick={() => handleAction('Create horde', () => createHorde(hordeCount, pickStrikeTarget()))} disabled={loading !== null || !bridgeConnected || players.length === 0 || (!targetAll && !selectedPlayer)} className="h-9 gap-2 text-xs font-medium">
+                <DisabledReason reason={!canEndangerOrImpersonate ? t('common.noPermissionEndangerOrImpersonate') : playersUnknown ? t('common.playersUnavailableTitle') : players.length === 0 ? t('horde.noPlayersOnlineTitle') : !bridgeConnected ? t('horde.bridgeOfflineTitle') : null}>
+                  <Button variant="outline" onClick={() => handleAction('Create horde', () => createHorde(hordeCount, pickStrikeTarget()))} disabled={loading !== null || !bridgeConnected || players.length === 0 || (!targetAll && !selectedPlayer) || !canEndangerOrImpersonate} className="h-9 gap-2 text-xs font-medium">
                     {loading === 'Create horde' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Skull className="w-3.5 h-3.5" />}
                     {t('horde.spawnNear', { target: targetAll ? t('horde.random') : selectedPlayer || t('horde.targetFallback') })}
                   </Button>
                 </DisabledReason>
-                <DisabledReason reason={playersUnknown ? t('common.playersUnavailableTitle') : players.length === 0 ? t('horde.noPlayersOnlineTitle') : !bridgeConnected ? t('horde.bridgeOfflineTitle') : null}>
-                  <Button variant="outline" onClick={() => handleAction('Create horde (behind)', () => createHorde2(hordeCount, pickStrikeTarget()))} disabled={loading !== null || !bridgeConnected || players.length === 0 || (!targetAll && !selectedPlayer)} className="h-9 gap-2 text-xs font-medium">
+                <DisabledReason reason={!canEndangerOrImpersonate ? t('common.noPermissionEndangerOrImpersonate') : playersUnknown ? t('common.playersUnavailableTitle') : players.length === 0 ? t('horde.noPlayersOnlineTitle') : !bridgeConnected ? t('horde.bridgeOfflineTitle') : null}>
+                  <Button variant="outline" onClick={() => handleAction('Create horde (behind)', () => createHorde2(hordeCount, pickStrikeTarget()))} disabled={loading !== null || !bridgeConnected || players.length === 0 || (!targetAll && !selectedPlayer) || !canEndangerOrImpersonate} className="h-9 gap-2 text-xs font-medium">
                     {loading === 'Create horde (behind)' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Skull className="w-3.5 h-3.5" />}
                     {t('horde.spawnBehind', { target: targetAll ? t('horde.random') : selectedPlayer || t('horde.targetFallback') })}
                   </Button>

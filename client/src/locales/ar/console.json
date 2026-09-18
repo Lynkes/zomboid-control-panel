@@ -127,6 +127,7 @@
     "noResponseFallback": "لا يوجد رد",
     "noPermission": "دورك لا يملك صلاحية تنفيذ أوامر RCON.",
     "disconnectedUseRecheck": "تعذّر الوصول إلى RCON حاليًا — اختر «إعادة فحص» أعلاه قبل المحاولة مجددًا.",
+    "recheckNoPermission": "تتطلب إعادة فحص اتصال RCON صلاحية server.configure، وهذا الدور لا يملكها.",
     "entries_zero": "الإدخالات: {{count}}",
     "entries_two": "الإدخالات: {{count}}",
     "entries_few": "الإدخالات: {{count}}",

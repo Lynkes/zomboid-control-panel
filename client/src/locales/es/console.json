@@ -103,6 +103,7 @@
     "noResponseFallback": "Sin respuesta",
     "noPermission": "Tu rol no tiene permiso para ejecutar comandos RCON.",
     "disconnectedUseRecheck": "RCON no está disponible en este momento -- selecciona \"Volver a comprobar\" arriba antes de intentarlo de nuevo.",
+    "recheckNoPermission": "Volver a comprobar la conexión RCON requiere el permiso server.configure, que este rol no tiene.",
     "entries_many": "{{count}} entradas"
   },
   "quickCommands": {

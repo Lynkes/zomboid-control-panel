@@ -29,7 +29,8 @@
   },
   "common": {
     "playersUnavailable": "قائمة اللاعبين غير متاحة",
-    "playersUnavailableTitle": "قائمة اللاعبين غير متاحة"
+    "playersUnavailableTitle": "قائمة اللاعبين غير متاحة",
+    "noPermissionEndangerOrImpersonate": "يتطلب هذا الإجراء صلاحية players.endanger_or_impersonate، وهذا الدور لا يملكها."
   },
   "statusBar": {
     "panelBridge": "PanelBridge",

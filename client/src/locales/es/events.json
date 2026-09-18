@@ -7,7 +7,8 @@
   },
   "common": {
     "playersUnavailable": "lista de jugadores no disponible",
-    "playersUnavailableTitle": "Lista de jugadores no disponible"
+    "playersUnavailableTitle": "Lista de jugadores no disponible",
+    "noPermissionEndangerOrImpersonate": "Esta acción requiere el permiso players.endanger_or_impersonate, que este rol no tiene."
   },
   "statusBar": {
     "panelBridge": "PanelBridge",

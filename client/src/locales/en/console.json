@@ -100,7 +100,8 @@
     "keyboardHint": "// enter · run · ↑↓ history",
     "noResponseFallback": "No response",
     "noPermission": "Your role doesn't have permission to run RCON commands.",
-    "disconnectedUseRecheck": "RCON is currently unreachable -- select Recheck above before trying again."
+    "disconnectedUseRecheck": "RCON is currently unreachable -- select Recheck above before trying again.",
+    "recheckNoPermission": "Rechecking the RCON connection requires the server.configure permission, which this role doesn't have."
   },
   "quickCommands": {
     "players": "Players",

@@ -184,6 +184,49 @@ describe("ServerSetup.tsx: Save SteamCMD path gates on panel.settings, not serve
   });
 });
 
+// bug-hunt-2026-09-18 (round 19, client-vs-server permission gate sweep):
+// handleBrowseFolder -- shared by all 6 "browse for a folder" buttons on
+// this page -- ultimately drives POST /list-directory and POST
+// /browse-folder (server/routes/server.js), both gated on server.install,
+// but had no client-side check of any kind. A role holding server.install
+// but not e.g. panel.settings (the stock TECHNICIAN case the describe block
+// above already covers for Save Path) was never at risk here since
+// TECHNICIAN holds server.install -- this proves the OTHER direction: a
+// role that lacks server.install entirely.
+describe("ServerSetup.tsx: Browse folder buttons (shared handleBrowseFolder) gate on server.install", () => {
+  async function openManualSteamCmdBrowseButton() {
+    renderServerSetup();
+    fireEvent.click(screen.getByText(enServerSetup.modeSelect.fullCard.title, { selector: "h3" }));
+    await screen.findByText(enServerSetup.full.step1.title);
+    fireEvent.click(screen.getByRole("button", { name: enServerSetup.full.step1.manualTrigger }));
+    await screen.findByPlaceholderText(enServerSetup.full.step1.manualPathPlaceholder);
+    // Both the auto-download section's own browse button and this manual
+    // section's browse button share the same aria-label -- the manual
+    // section's is the one rendered after the manual path input, so it's
+    // the last of the two in DOM order.
+    const browseButtons = screen.getAllByRole("button", { name: enServerSetup.common.browseFolderAriaSteamCmd });
+    return browseButtons[browseButtons.length - 1];
+  }
+
+  it("disables the Browse button and never opens the folder dialog when the role lacks server.install", async () => {
+    mockCan = (capability) => capability !== "server.install";
+    const browseButton = await openManualSteamCmdBrowseButton();
+
+    expect(browseButton).toBeDisabled();
+    fireEvent.click(browseButton);
+    expect(screen.queryByText(enServerSetup.common.selectSteamCmdFolderTitle)).not.toBeInTheDocument();
+  });
+
+  it("enables the Browse button and opens the folder dialog when the role holds server.install", async () => {
+    mockCan = () => true;
+    const browseButton = await openManualSteamCmdBrowseButton();
+
+    expect(browseButton).not.toBeDisabled();
+    fireEvent.click(browseButton);
+    await screen.findByText(enServerSetup.common.selectSteamCmdFolderTitle);
+  });
+});
+
 describe("ServerSetup.tsx: Start Server Now (shared by both post-install completion screens) gates on server.control", () => {
   // Both the full-wizard and quick-setup "Start Server Now" buttons call the
   // same extracted handleStartServerNow (ServerSetup.tsx) -- reaching the

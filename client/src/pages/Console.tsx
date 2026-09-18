@@ -306,6 +306,14 @@ export default function Console() {
   // visible buttons: the command input's Enter key calls executeCommand
   // directly, bypassing whatever the Run button's disabled state says.
   const canExecuteRcon = can('rcon.execute')
+  // bug-hunt-2026-09-18 (round 19, client-vs-server permission gate sweep):
+  // testRconConnection() below calls configApi.testRcon(), which hits POST
+  // /config/test-rcon -- gated server-side on server.configure, NOT
+  // rcon.execute (a distinct route from rcon.js's own /rcon/test, which IS
+  // double-gated rcon.execute+servers.manage). The Recheck button had no
+  // permission check at all, so a role holding rcon.execute but not
+  // server.configure saw it fully enabled and only found out with a 403.
+  const canConfigureServer = can('server.configure')
 
   // Server Console Log state
   const [serverLogLines, setServerLogLines] = useState<string[]>([])
@@ -1130,16 +1138,18 @@ export default function Console() {
                 </span>
               )}
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 font-mono text-[10px] uppercase tracking-[0.16em]"
-              onClick={testRconConnection}
-              disabled={testingConnection || !hasRconConfig}
-            >
-              <RefreshCw className={cn('w-3 h-3 me-1', testingConnection && 'animate-spin')} />
-              {t('rcon.recheck')}
-            </Button>
+            <DisabledReason reason={!canConfigureServer ? t('rcon.recheckNoPermission') : null}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 font-mono text-[10px] uppercase tracking-[0.16em]"
+                onClick={testRconConnection}
+                disabled={testingConnection || !hasRconConfig || !canConfigureServer}
+              >
+                <RefreshCw className={cn('w-3 h-3 me-1', testingConnection && 'animate-spin')} />
+                {t('rcon.recheck')}
+              </Button>
+            </DisabledReason>
           </div>
 
           {!hasRconConfig && (

@@ -19,7 +19,8 @@
   },
   "common": {
     "playersUnavailable": "список гравців недоступний",
-    "playersUnavailableTitle": "Список гравців недоступний"
+    "playersUnavailableTitle": "Список гравців недоступний",
+    "noPermissionEndangerOrImpersonate": "Ця дія потребує дозволу players.endanger_or_impersonate, якого немає в цієї ролі."
   },
   "statusBar": {
     "panelBridge": "PanelBridge",

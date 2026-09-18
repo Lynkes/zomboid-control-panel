@@ -7,7 +7,8 @@
   },
   "common": {
     "playersUnavailable": "玩家列表無法使用",
-    "playersUnavailableTitle": "玩家列表無法使用"
+    "playersUnavailableTitle": "玩家列表無法使用",
+    "noPermissionEndangerOrImpersonate": "此操作需要 players.endanger_or_impersonate 權限，此角色沒有該權限。"
   },
   "statusBar": {
     "panelBridge": "PanelBridge",

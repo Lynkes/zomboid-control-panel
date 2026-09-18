@@ -100,7 +100,8 @@
     "keyboardHint": "// Enter · ausführen · ↑↓ Verlauf",
     "noResponseFallback": "Keine Antwort",
     "noPermission": "Ihre Rolle hat keine Berechtigung, RCON-Befehle auszuführen.",
-    "disconnectedUseRecheck": "RCON ist derzeit nicht erreichbar -- wähle oben \"Erneut prüfen\", bevor du es erneut versuchst."
+    "disconnectedUseRecheck": "RCON ist derzeit nicht erreichbar -- wähle oben \"Erneut prüfen\", bevor du es erneut versuchst.",
+    "recheckNoPermission": "Die RCON-Verbindung erneut zu prüfen erfordert die Berechtigung server.configure, die diese Rolle nicht hat."
   },
   "quickCommands": {
     "players": "Spieler",

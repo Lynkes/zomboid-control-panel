@@ -100,7 +100,8 @@
     "keyboardHint": "// antre · kouri · ↑↓ istwa",
     "noResponseFallback": "Pa gen repons",
     "noPermission": "Wòl ou pa gen pèmisyon pou egzekite kòmand RCON.",
-    "disconnectedUseRecheck": "RCON pa aksesib kounye a -- chwazi \"Tcheke ankò\" anwo a anvan w eseye ankò."
+    "disconnectedUseRecheck": "RCON pa aksesib kounye a -- chwazi \"Tcheke ankò\" anwo a anvan w eseye ankò.",
+    "recheckNoPermission": "Tcheke koneksyon RCON ankò mande pèmisyon server.configure, ki pa gen nan wòl sa a."
   },
   "quickCommands": {
     "players": "Jwè",

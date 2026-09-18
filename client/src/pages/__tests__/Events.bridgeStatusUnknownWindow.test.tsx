@@ -15,6 +15,23 @@ import { playersApi, panelBridgeApi } from '@/lib/api'
 // without a third loading state, the badge shows "offline" the instant this
 // page mounts, before any answer has come back at all.
 
+// bug-hunt-2026-09-18 (round 19): Events.tsx now calls useAuth() to gate
+// its players.endanger_or_impersonate-only controls (lightning/thunder/
+// horde/targeted sounds) -- default every existing test in this file to a
+// fully-permitted role so none of their prior behavior changes.
+vi.mock('@/contexts/AuthContext', () => ({
+  useAuth: () => ({
+    user: { id: 'u1', username: 'someone', role: 'admin', capabilities: [] },
+    authEnabled: true,
+    isAuthenticated: true,
+    isLoading: false,
+    needsSetup: false,
+    logout: vi.fn(),
+    getToken: () => 'fake-token',
+    can: () => true,
+  }),
+}))
+
 vi.mock('@/lib/api', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api')
   return {

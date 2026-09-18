@@ -916,11 +916,21 @@ export default function ServerSetup() {
     initial?: string;
   } | null>(null);
 
+  // bug-hunt-2026-09-18 (round 19, client-vs-server permission gate sweep):
+  // whatever dialog this opens ultimately drives POST /list-directory and
+  // POST /browse-folder (server/routes/server.js), both gated on
+  // server.install -- the SAME capability every other mutating action on
+  // this page already guards with `if (!canInstall) return` before this
+  // fix. All 6 call sites below had no client-side check of any kind, so a
+  // user lacking server.install could open the folder browser and only
+  // find out via a 403 mid-navigation, on a control that looked identical
+  // to every properly-gated one beside it.
   const handleBrowseFolder = (
     setter: (path: string) => void,
     description: string,
     currentPath?: string,
   ) => {
+    if (!canInstall) return;
     setBrowseSetter({ fn: setter, title: description, initial: currentPath });
     setBrowseOpen(true);
   };
@@ -1532,13 +1542,24 @@ export default function ServerSetup() {
                                 steamCmdPath,
                               )
                             }
-                            disabled={downloadingSteamCmd}
+                            disabled={downloadingSteamCmd || !canInstall}
                             aria-label={t("common.browseFolderAriaSteamCmd")}
                           >
                             <FolderOpen className="w-4 h-4" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>{t("common.browseFolder")}</TooltipContent>
+                        {/* bug-hunt-2026-09-18 (round 19): swaps to the
+                            no-permission explanation instead of the generic
+                            "Browse folder" hint when server.install is
+                            missing -- this button already has a Tooltip for
+                            its normal purpose, so DisabledReason's OWN
+                            tooltip (which nests a second, independent Radix
+                            Tooltip/TooltipTrigger asChild around its child)
+                            cannot also wrap it without breaking ref
+                            forwarding on the shared trigger. */}
+                        <TooltipContent>
+                          {!canInstall ? t("common.noPermissionInstall") : t("common.browseFolder")}
+                        </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
                   </div>
@@ -1615,20 +1636,23 @@ export default function ServerSetup() {
                       className="font-mono flex-1"
                       maxLength={260}
                     />
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() =>
-                        handleBrowseFolder(
-                          setSteamCmdPath,
-                          t("common.selectSteamCmdFolderTitle"),
-                          steamCmdPath,
-                        )
-                      }
-                      aria-label={t("common.browseFolderAriaSteamCmd")}
-                    >
-                      <FolderOpen className="w-4 h-4" />
-                    </Button>
+                    <DisabledReason reason={!canInstall ? t("common.noPermissionInstall") : null}>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() =>
+                          handleBrowseFolder(
+                            setSteamCmdPath,
+                            t("common.selectSteamCmdFolderTitle"),
+                            steamCmdPath,
+                          )
+                        }
+                        disabled={!canInstall}
+                        aria-label={t("common.browseFolderAriaSteamCmd")}
+                      >
+                        <FolderOpen className="w-4 h-4" />
+                      </Button>
+                    </DisabledReason>
                     <DisabledReason reason={!canSaveSteamCmdPath ? t("common.noPermissionSettings") : null}>
                       <Button onClick={handleSaveSteamCmdPath} disabled={!canSaveSteamCmdPath}>
                         {t("full.step1.savePathButton")}
@@ -1713,12 +1737,18 @@ export default function ServerSetup() {
                         installPath,
                       )
                     }
+                    disabled={!canInstall}
                     aria-label={t("common.browseFolderAriaInstall")}
                   >
                     <FolderOpen className="w-4 h-4" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>{t("common.browseFolder")}</TooltipContent>
+                {/* Same nested-Tooltip constraint as the SteamCMD browse
+                    button above -- swap this Tooltip's own text instead of
+                    wrapping in DisabledReason. */}
+                <TooltipContent>
+                  {!canInstall ? t("common.noPermissionInstall") : t("common.browseFolder")}
+                </TooltipContent>
               </Tooltip>
             </TooltipProvider>
           </div>
@@ -1844,20 +1874,23 @@ export default function ServerSetup() {
                         className="font-mono flex-1"
                         maxLength={260}
                       />
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={() =>
-                          handleBrowseFolder(
-                            setZomboidDataPath,
-                            t("common.selectConfigFolderTitle"),
-                            zomboidDataPath,
-                          )
-                        }
-                        aria-label={t("common.browseFolderAriaConfig")}
-                      >
-                        <FolderOpen className="w-4 h-4" />
-                      </Button>
+                      <DisabledReason reason={!canInstall ? t("common.noPermissionInstall") : null}>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() =>
+                            handleBrowseFolder(
+                              setZomboidDataPath,
+                              t("common.selectConfigFolderTitle"),
+                              zomboidDataPath,
+                            )
+                          }
+                          disabled={!canInstall}
+                          aria-label={t("common.browseFolderAriaConfig")}
+                        >
+                          <FolderOpen className="w-4 h-4" />
+                        </Button>
+                      </DisabledReason>
                     </div>
                     <p className="text-xs text-muted-foreground">
                       {t("common.customConfigLocationHelp")}
@@ -2451,12 +2484,18 @@ export default function ServerSetup() {
                       installPath,
                     )
                   }
+                  disabled={!canInstall}
                   aria-label={t("common.browseFolderAriaServerFiles")}
                 >
                   <FolderOpen className="w-4 h-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>{t("common.browseFolder")}</TooltipContent>
+              {/* Same nested-Tooltip constraint as the other browse buttons
+                  above -- swap this Tooltip's own text instead of wrapping
+                  in DisabledReason. */}
+              <TooltipContent>
+                {!canInstall ? t("common.noPermissionInstall") : t("common.browseFolder")}
+              </TooltipContent>
             </Tooltip>
           </TooltipProvider>
         </div>
@@ -2760,20 +2799,23 @@ export default function ServerSetup() {
                       className="font-mono flex-1"
                       maxLength={260}
                     />
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() =>
-                        handleBrowseFolder(
-                          setZomboidDataPath,
-                          t("common.selectConfigFolderTitle"),
-                          zomboidDataPath,
-                        )
-                      }
-                      aria-label={t("common.browseFolderAriaConfig")}
-                    >
-                      <FolderOpen className="w-4 h-4" />
-                    </Button>
+                    <DisabledReason reason={!canInstall ? t("common.noPermissionInstall") : null}>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() =>
+                          handleBrowseFolder(
+                            setZomboidDataPath,
+                            t("common.selectConfigFolderTitle"),
+                            zomboidDataPath,
+                          )
+                        }
+                        disabled={!canInstall}
+                        aria-label={t("common.browseFolderAriaConfig")}
+                      >
+                        <FolderOpen className="w-4 h-4" />
+                      </Button>
+                    </DisabledReason>
                   </div>
                   <p className="text-xs text-muted-foreground">
                     {t("common.customConfigLocationHelp")}

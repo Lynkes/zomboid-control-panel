@@ -7,7 +7,8 @@
   },
   "common": {
     "playersUnavailable": "player list unavailable",
-    "playersUnavailableTitle": "Player list unavailable"
+    "playersUnavailableTitle": "Player list unavailable",
+    "noPermissionEndangerOrImpersonate": "This action requires the players.endanger_or_impersonate permission, which this role doesn't have."
   },
   "statusBar": {
     "panelBridge": "PanelBridge",

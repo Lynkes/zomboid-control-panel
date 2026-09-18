@@ -7,7 +7,8 @@
   },
   "common": {
     "playersUnavailable": "liste des joueurs indisponible",
-    "playersUnavailableTitle": "Liste des joueurs indisponible"
+    "playersUnavailableTitle": "Liste des joueurs indisponible",
+    "noPermissionEndangerOrImpersonate": "Cette action nécessite la permission players.endanger_or_impersonate, que ce rôle n'a pas."
   },
   "statusBar": {
     "panelBridge": "PanelBridge",
