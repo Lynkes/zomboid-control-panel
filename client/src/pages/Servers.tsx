@@ -2912,7 +2912,7 @@ export default function Servers() {
 
       {/* Edit Dialog */}
       <Dialog open={!!editingServer} onOpenChange={() => setEditingServer(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto sm:max-h-[80vh]">
           <DialogHeader>
             <DialogTitle>{t('editDialog.title')}</DialogTitle>
             <DialogDescription>
