@@ -2359,8 +2359,33 @@ export default function WorldMap() {
       setContextMenu({
         screenX: mx,
         screenY: my,
-        worldX: wp.x,
-        worldY: wp.y,
+        // 2026-09-18, round 13 (map coordinate math): screenToTile() is the
+        // exact geometric inverse of the isometric projection, so wp.x/wp.y
+        // land wherever inside a tile's footprint the cursor actually was
+        // (e.g. 10486.73) -- that fractional part is meaningful for the
+        // hover crosshair (which re-projects it to draw at the literal
+        // cursor position, see cursorWorldPos above), but every ACTION here
+        // (teleport, item drop, spawn, lightning, noise, airdrop) targets a
+        // SQUARE, not a continuous point. PZ's own float->square conversion
+        // is zombie.core.math.PZMath.fastfloor() (bytecode-confirmed against
+        // the real server jar, javap -p -c -constants: `(int)x`, minus 1 if
+        // that truncated towards zero instead of down -- true floor,
+        // including negative coordinates) -- NOT round-to-nearest. Several
+        // callers below already applied their own Math.round() to this
+        // value before rounding was known to be the wrong operation (e.g.
+        // teleportPlayerTo, the spawn/drop dialogs' initial x/y), and others
+        // never rounded at all (triggerLightningAt, createNoiseAt,
+        // callAirdrop, and the repeat-last-drop/saved-package drop paths,
+        // which sent the raw fractional value straight to the mod bridge).
+        // Flooring once here, at the single point every one of those reads
+        // from, fixes all of them at once: teleport/drop no longer land on
+        // the tile diagonally adjacent to the one actually clicked whenever
+        // the click fell in the "far" half of a tile's footprint, and
+        // negative-coordinate clicks (west/north of the map origin) no
+        // longer diverge further still, since JS Math.round(-0.5) is 0 but
+        // PZ's own fastfloor(-0.5) is -1.
+        worldX: Math.floor(wp.x),
+        worldY: Math.floor(wp.y),
         player: clickedPlayer,
         vehicle: clickedVehicle,
       })
@@ -4302,7 +4327,10 @@ function easeOutCubic(t: number): number {
 }
 
 // Game tile → DZI full-res pixel (isometric projection)
-function gameTileToDzi(gx: number, gy: number, cfg: MapConfig) {
+// Exported for direct unit testing of the inverse-isometric round trip and
+// the floor-vs-round square-selection math -- see
+// WorldMap.clickToSquareFlooring.test.tsx.
+export function gameTileToDzi(gx: number, gy: number, cfg: MapConfig) {
   return {
     x: cfg.isoX0 + (gx - gy) * cfg.isoHalfSqr,
     y: cfg.isoY0 + (gx + gy) * cfg.isoQuarterSqr,
@@ -4310,7 +4338,7 @@ function gameTileToDzi(gx: number, gy: number, cfg: MapConfig) {
 }
 
 // DZI full-res pixel → game tile (inverse isometric)
-function dziToGameTile(dziX: number, dziY: number, cfg: MapConfig) {
+export function dziToGameTile(dziX: number, dziY: number, cfg: MapConfig) {
   const dx = dziX - cfg.isoX0
   const dy = dziY - cfg.isoY0
   return {
