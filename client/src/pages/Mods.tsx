@@ -71,7 +71,7 @@ import { Switch } from '@/components/ui/switch'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { reportClientError, reportClientWarning } from '@/lib/client-errors'
-import { getUserErrorMessage } from '@/lib/errorMessage'
+import { getUserErrorMessage, getResultErrorMessage } from '@/lib/errorMessage'
 import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
 import {
   Dialog,
@@ -1149,9 +1149,22 @@ export default function Mods() {
           variant: 'default',
         })
       } else if (result?.error) {
+        // bug-hunt-2026-09-18 (round 14, raw result.error sweep): this
+        // branch is only reached for modChecker.js's checkForUpdates()
+        // outer catch-all (`{ error: error.message }`, no code today --
+        // the ACF_NOT_FOUND case above is filtered out first) -- but
+        // nothing prevents a future code being added to that catch.
+        // getResultErrorMessage() (not getUserErrorMessage() -- `result` is
+        // a parsed response body, not a caught ApiError, so
+        // getUserErrorMessage()'s params extraction can't see it; see that
+        // function's own comment, found via this same round's Debug.tsx
+        // fix) is byte-identical to the old String(result.error) when no
+        // code resolves, so applying it here costs nothing today and stops
+        // a later server-side code addition -- including one with a
+        // {{placeholder}} -- from being shown raw or half-translated forever.
         toast({
           title: t('toasts.updateCheckFailedTitle'),
-          description: String(result.error),
+          description: getResultErrorMessage(result, String(result.error)),
           variant: 'destructive',
         })
       } else if (result?.skipped) {

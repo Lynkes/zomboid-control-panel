@@ -65,7 +65,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { reportClientError } from "@/lib/client-errors";
-import { getUserErrorMessage } from "@/lib/errorMessage";
+import { getUserErrorMessage, getResultErrorMessage } from "@/lib/errorMessage";
 import { translateDiagnosticCheck } from "@/lib/diagnosticsTranslation";
 import { useRequestGuard } from "@/hooks/useRequestGuard";
 import { Label } from "@/components/ui/label";
@@ -2733,9 +2733,21 @@ export default function Debug() {
         setEditingPaths(false);
         fetchSystemInfo();
       } else {
+        // bug-hunt-2026-09-18 (round 14, raw result.error sweep): POST
+        // /api/debug/paths (server/routes/debug.js -> utils/paths.js's
+        // setDataPaths()) attaches no `code` today -- every failure branch
+        // is deliberate, self-contained English validation text. Routed
+        // through getResultErrorMessage() anyway (the parsed-response-body
+        // sibling of getUserErrorMessage(), see its own comment -- this
+        // shape carries a `code`+`params` in the body, not on a thrown
+        // ApiError): it falls through to data.error unchanged when no code
+        // resolves (byte-identical to the old `data.error || fallback`), so
+        // this costs nothing today and stops a future coded failure on this
+        // path from being shown raw forever, the same fix applied to
+        // Console.tsx's RCON toasts.
         toast({
           title: t("common.errorTitle"),
-          description: data.error || t("systemTab.updatePathsFailedFallback"),
+          description: getResultErrorMessage(data, t("systemTab.updatePathsFailedFallback")),
           variant: "destructive",
         });
       }

@@ -104,6 +104,30 @@ function wrapUncodedServerError(status: number | undefined, message: string): st
   return resolveRegisteredTranslation('errors', GENERIC_SERVER_ERROR_KEY, { detail })
 }
 
+// Sibling to getUserErrorMessage() below, for the OTHER common error shape
+// in this app: a 200 OK response body carrying { error, code?, params? } (a
+// route's own "success: false" convention -- e.g. rconService.execute(),
+// setDataPaths()) rather than a thrown/caught ApiError. getUserErrorMessage()
+// only reads params off error.data.params on a genuine ApiError instance;
+// a plain result object has no such path, so passing one through it (round
+// 14 bug-hunt, found via Debug.tsx's WRITABLE_PATH_DATA_BAREMETAL needing
+// its {{path}} param) silently drops any code that needs a placeholder --
+// `translated` comes back null even though the code itself resolves fine,
+// and the raw, untranslated message is shown instead with no visible sign
+// anything went wrong. Call this instead wherever the value being displayed
+// came from a parsed response body rather than a caught exception.
+export function getResultErrorMessage(
+  result: { code?: unknown; error?: unknown; params?: unknown } | null | undefined,
+  fallback: string,
+): string {
+  const code = typeof result?.code === 'string' && result.code ? result.code : undefined
+  const params = extractTranslationParams(result?.params)
+  const translated = code ? getRegisteredTranslation(code, params) : null
+  if (translated) return translated
+  const message = typeof result?.error === 'string' ? result.error.trim() : ''
+  return message || fallback
+}
+
 export function getUserErrorMessage(error: unknown, fallback: string): string {
   const code = extractErrorCode(error)
   const params = extractErrorParams(error)
