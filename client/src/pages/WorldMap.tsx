@@ -80,7 +80,9 @@ import { getUserErrorMessage } from '@/lib/errorMessage'
 import { useToast } from '@/components/ui/use-toast'
 import { cn, copyText } from '@/lib/utils'
 import { createInFlightGate } from '@/lib/inFlightGate'
+import { useRequestGuard } from '@/hooks/useRequestGuard'
 import { resolveFallbackTile, conservativeRenderedMaxLevel } from './worldMapTileFallback'
+import { FLOOR_MIN, FLOOR_MAX, clampFloor } from './worldMapFloorBounds'
 import { buildTileQuery } from './worldMapTileUrl'
 import { mapConfigsEqual } from './worldMapConfigEqual'
 import { bridgeSupportsPlayerStatus } from './worldMapBridgeVersion'
@@ -636,6 +638,34 @@ export default function WorldMap() {
   const animFrameRef = useRef<number>(0)
   const playerFetchGateRef = useRef(createInFlightGate())
   const overlayFetchGateRef = useRef(createInFlightGate())
+  // continuous-bug-hunt round 26 (PanelBridge command queue and response
+  // matching): the in-flight gates above only ever stop the SAME fetch from
+  // overlapping itself -- they don't know whether a response, once it
+  // lands, is still for the server that's active NOW. fetchPlayerPositions/
+  // checkBridgeStatus/fetchOverlays all run on their own poll AND get
+  // implicitly re-triggered by the activeServerChanged handler clearing
+  // state below; a poll tick already in flight for the server that was
+  // active a moment ago can resolve AFTER the switch and repaint the map
+  // with the OLD server's players/vehicles/safehouses/bridge status under
+  // the NEW server's identity. Same race class already fixed via
+  // useRequestGuard on Dashboard/Console/Chat/Debug/Settings/Players/Events
+  // (round 9/10) -- WorldMap never got the same treatment. One instance per
+  // fetch flow, per that hook's own doc comment.
+  const playerPositionsGuard = useRequestGuard()
+  const bridgeStatusGuard = useRequestGuard()
+  const overlaysGuard = useRequestGuard()
+  // Latest-closure refs so the activeServerChanged handler (declared above
+  // these three fetchers in source order) can call the CURRENT version of
+  // each without waiting for its own poll interval -- same established
+  // pattern as bridgeVersionRef just above. Without this, switching servers
+  // only cleared state; the actual re-fetch (and the guard bump that marks
+  // any already-in-flight old-server response stale) waited for the next
+  // natural poll tick, up to POLL_INTERVAL/15s later -- a window where a
+  // slow in-flight response for the PREVIOUS server could still land and
+  // repaint the just-cleared map with its data under the new server's name.
+  const fetchPlayerPositionsRef = useRef<() => Promise<void> | void>(() => {})
+  const checkBridgeStatusRef = useRef<() => Promise<void> | void>(() => {})
+  const fetchOverlaysRef = useRef<() => Promise<void> | void>(() => {})
   const playersRef = useRef<MapPlayer[]>([])
   const pointerDownRef = useRef<{ x: number; y: number } | null>(null)
   const drawRequestRef = useRef<number>(0)
@@ -765,7 +795,7 @@ export default function WorldMap() {
 
   // Change floor — clears tile cache since tiles differ per floor
   const changeFloor = useCallback((newFloor: number) => {
-    const clamped = Math.max(-1, Math.min(7, newFloor))
+    const clamped = clampFloor(newFloor)
     setFloor(clamped)
     floorRef.current = clamped
     // Mark all in-flight loads as orphaned so their callbacks are no-ops
@@ -895,6 +925,14 @@ export default function WorldMap() {
       setContextMenu(null)
       hasFittedRef.current = false
       detectServerVersion(cancelledRef)
+      // continuous-bug-hunt round 26: re-fetch immediately (bumps each
+      // guard right now) instead of waiting for the next natural poll tick
+      // -- see fetchPlayerPositionsRef's own comment above for why this
+      // can't just call fetchPlayerPositions/checkBridgeStatus/fetchOverlays
+      // directly from here.
+      fetchPlayerPositionsRef.current()
+      checkBridgeStatusRef.current()
+      fetchOverlaysRef.current()
     }
     socket.on('activeServerChanged', handleActiveServerChanged)
     return () => {
@@ -1343,10 +1381,19 @@ export default function WorldMap() {
       setLoading(false)
       return
     }
+    // Bump the guard BEFORE the in-flight gate check, not after: a call
+    // that arrives while the gate is already held (e.g. handleActiveServer
+    // Changed firing while the previous server's poll tick is still in
+    // flight) must still mark that earlier call's requestId stale, even
+    // though this call itself does no new fetch -- otherwise the gate
+    // silently swallows the very call meant to invalidate it, and the
+    // in-flight response goes on to land as if nothing had changed.
+    const requestId = playerPositionsGuard.next()
     if (!playerFetchGateRef.current.enter()) return
 
     try {
       const res = await panelBridgeApi.getServerInfo()
+      if (playerPositionsGuard.isStale(requestId)) return
       const rawPlayers = res.success && res.data?.players
         ? (Array.isArray(res.data.players) ? res.data.players : Object.values(res.data.players))
         : null
@@ -1381,12 +1428,13 @@ export default function WorldMap() {
         })
       }
     } catch {
-      setBridgeConnected(false)
+      if (!playerPositionsGuard.isStale(requestId)) setBridgeConnected(false)
     } finally {
       playerFetchGateRef.current.leave()
       setLoading(false)
     }
-  }, [hasActiveServer])
+  }, [hasActiveServer, playerPositionsGuard])
+  useEffect(() => { fetchPlayerPositionsRef.current = fetchPlayerPositions }, [fetchPlayerPositions])
 
   const checkBridgeStatus = useCallback(async () => {
     if (!hasActiveServer) {
@@ -1396,22 +1444,31 @@ export default function WorldMap() {
       return
     }
 
+    const requestId = bridgeStatusGuard.next()
     setBridgeLoading(true)
     try {
       const res = await panelBridgeApi.getStatus()
+      if (bridgeStatusGuard.isStale(requestId)) return
       setBridgeConnected(res.modConnected === true)
       setBridgeVersion(res.modStatus?.version || null)
     } catch {
-      setBridgeConnected(false)
-      setBridgeVersion(null)
+      if (!bridgeStatusGuard.isStale(requestId)) {
+        setBridgeConnected(false)
+        setBridgeVersion(null)
+      }
     } finally {
       setBridgeLoading(false)
     }
-  }, [hasActiveServer])
+  }, [hasActiveServer, bridgeStatusGuard])
+  useEffect(() => { checkBridgeStatusRef.current = checkBridgeStatus }, [checkBridgeStatus])
 
   // Fetch vehicles + safehouses from PanelBridge
   const fetchOverlays = useCallback(async () => {
     if (!mountedRef.current || !hasActiveServer) return
+    // Same ordering reasoning as fetchPlayerPositions' own comment: bump
+    // before the in-flight gate check so a call arriving while the gate is
+    // already held still invalidates the earlier one.
+    const requestId = overlaysGuard.next()
     if (!overlayFetchGateRef.current.enter()) return
     try {
       const [vRes, persistedRes, sRes] = await Promise.allSettled([
@@ -1424,7 +1481,7 @@ export default function WorldMap() {
         showVehicles ? mapApi.vehicles() : Promise.resolve(null),
         panelBridgeApi.sendCommand('getSafehouses'),
       ])
-      if (!mountedRef.current) return
+      if (!mountedRef.current || overlaysGuard.isStale(requestId)) return
       if (showVehicles) {
         const vehicleById = new Map<number, MapVehicle>()
         if (persistedRes.status === 'fulfilled' && persistedRes.value) {
@@ -1454,7 +1511,8 @@ export default function WorldMap() {
     } finally {
       overlayFetchGateRef.current.leave()
     }
-  }, [hasActiveServer, showVehicles])
+  }, [hasActiveServer, showVehicles, overlaysGuard])
+  useEffect(() => { fetchOverlaysRef.current = fetchOverlays }, [fetchOverlays])
 
   // ─── Polling ────────────────────────────────────────────
   useEffect(() => {
@@ -2901,7 +2959,15 @@ export default function WorldMap() {
               <div className="flex flex-col items-center p-1 gap-px">
                 <button
                   onClick={() => changeFloor(floor + 1)}
-                  disabled={floor >= 29}
+                  // continuous-bug-hunt round 26 (god's own catch): was the
+                  // literal `floor >= 29`, drifted from changeFloor's own
+                  // clamp (worldMapFloorBounds.ts, -1..7) -- Floor Up stayed
+                  // clickable at floor 7, and every extra click was a no-op
+                  // changeFloor(8) that still cleared the tile cache and
+                  // reset the failure/backoff state for no reason. Now reads
+                  // the same shared constant the clamp uses so the two can't
+                  // diverge again.
+                  disabled={floor >= FLOOR_MAX}
                   aria-label={t('controlRail.floorUp')}
                   className="h-6 w-9 rounded-sm border border-transparent hover:border-border/50 hover:bg-muted/60 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:border-transparent"
                   // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (t('controlRail.floorUp') = "Floor up"), same text as the aria-label, unrelated to why the button disables at the floor cap. Triaged 2026-08-27, no disabled-reason text to lose.
@@ -2924,7 +2990,7 @@ export default function WorldMap() {
                 </button>
                 <button
                   onClick={() => changeFloor(floor - 1)}
-                  disabled={floor <= -1}
+                  disabled={floor <= FLOOR_MIN}
                   aria-label={t('controlRail.floorDown')}
                   className="h-6 w-9 rounded-sm border border-transparent hover:border-border/50 hover:bg-muted/60 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:border-transparent"
                   // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (t('controlRail.floorDown') = "Floor down"), same text as the aria-label, unrelated to why the button disables at the floor minimum. Triaged 2026-08-27, no disabled-reason text to lose.

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, act, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { SocketContext } from '@/contexts/SocketContext'
@@ -7,25 +7,26 @@ import type { Socket } from 'socket.io-client'
 import WorldMap from '../WorldMap'
 import { panelBridgeApi, serversApi, updateApi, mapApi, type ServerInstance } from '@/lib/api'
 
-// unknown-window-instances-outside-the-bridge, 2026-09-10: detectServerVersion
-// used to assert setHasActiveServer(false) on a REJECTED getResolvedActive
-// call -- indistinguishable from a genuinely confirmed "no active server."
-// That false cascades through every hasActiveServer-gated effect
-// (checkBridgeStatus, fetchPlayerPositions, the players/vehicles/safehouses
-// cleanup effect), including forcibly zeroing bridgeConnected -- an
-// otherwise-independent, already-correctly-fail-closed signal -- before it
-// ever gets to report its own honest status. Unlike Docker's dockerAvailable
-// (a 10s poll that self-heals), this only re-runs on mount or an
-// 'activeServerChanged' socket event, so a wrong false here can be
-// effectively permanent for the rest of the page load.
+// continuous-bug-hunt round 26 (PanelBridge command queue and response
+// matching): fetchPlayerPositions runs on a 3s poll (POLL_INTERVAL) AND is
+// now also fired directly by the activeServerChanged handler (see
+// fetchPlayerPositionsRef's own comment in WorldMap.tsx), with nothing
+// before this fix to stop an OLDER poll tick -- already in flight for the
+// server that was active a moment ago -- from resolving AFTER the switch
+// and repainting the just-cleared map with the previous server's stale
+// player positions. Same shape as Players/Events/Dashboard's own
+// activeServerRaceOrder fixes (round 9/10), via the shared useRequestGuard
+// hook (playerPositionsGuard in WorldMap.tsx) -- WorldMap never got the
+// same treatment until now.
 //
-// This test proves the fix by its OBSERVABLE consequence: with the bug,
-// hasActiveServer getting stuck at false permanently disables the
-// fetchPlayerPositions poll (`if (!hasActiveServer) return`, WorldMap.tsx),
-// so the player marker and "Bridge connected" badge never come back even
-// once the bridge itself is answering again. With the fix, hasActiveServer
-// stays true across the rejected refetch, so the very next poll tick
-// (POLL_INTERVAL = 3000ms, real timers -- not simulated) recovers both.
+// The extra wrinkle this test also proves: WorldMap's fetchPlayerPositions
+// has its OWN in-flight gate (playerFetchGateRef) on top of the guard. The
+// activeServerChanged-triggered call can arrive while that gate is still
+// held by the stale poll tick, meaning it does no new fetch of its own --
+// but it must still bump the guard so the stale tick's own eventual
+// response is recognized as stale once it finally lands. Getting that
+// ordering backwards (checking the gate before bumping the guard) would
+// silently defeat the whole fix.
 
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({
@@ -106,9 +107,6 @@ class StubResizeObserver {
   disconnect() {}
 }
 
-// Minimal fake socket -- just enough of the on/off/emit shape WorldMap uses
-// (socket.on('activeServerChanged', handler) / socket.off(...)) to trigger
-// detectServerVersion a second time without a real socket.io connection.
 function makeFakeSocket() {
   const listeners = new Map<string, Set<(...args: unknown[]) => void>>()
   const fake = {
@@ -170,51 +168,53 @@ async function setUp() {
   })
   mapVehicles.mockResolvedValue({ vehicles: [] })
   getBridgeStatus.mockResolvedValue({ modConnected: true, modStatus: { version: '1.7.40' } } as Awaited<ReturnType<typeof panelBridgeApi.getStatus>>)
+  getResolvedActive.mockResolvedValue({ server: testServer })
 }
 
-describe('WorldMap.tsx: a rejected active-server check must not permanently kill live tracking', () => {
-  it('recovers player tracking on the next poll after a transient active-server-check failure, instead of staying stuck', async () => {
+describe('WorldMap.tsx: a stale in-flight player-position response must not repaint the map after a server switch', () => {
+  it('drops an old-server response that lands after activeServerChanged, even when the gate blocks the switch-triggered refetch itself', async () => {
     await setUp()
-    getResolvedActive.mockResolvedValueOnce({ server: testServer })
-    getServerInfo.mockResolvedValue({ success: true, data: { players: [{ name: 'Kate', x: 10000, y: 10000 }] } } as Awaited<ReturnType<typeof panelBridgeApi.getServerInfo>>)
+
+    // Mount: resolves fast with server A's player, Alice.
+    getServerInfo.mockResolvedValueOnce({ success: true, data: { players: [{ name: 'Alice', x: 10000, y: 10000 }] } } as Awaited<ReturnType<typeof panelBridgeApi.getServerInfo>>)
 
     const socket = makeFakeSocket()
     renderWorldMap(socket)
+    await screen.findByRole('button', { name: /pan to alice/i }, { timeout: 5000 })
 
-    // Initial load succeeds: player marker present, bridge shows connected.
-    await screen.findByRole('button', { name: /pan to kate/i }, { timeout: 5000 })
-    await waitFor(() => expect(screen.getByRole('link', { name: /bridge connected/i })).toBeInTheDocument())
+    // A later poll tick (still "server A" from WorldMap's own point of view)
+    // fires and is held open -- stands in for a slow/degraded response that
+    // hasn't come back yet when the operator switches servers.
+    let resolveStalePoll: (value: Awaited<ReturnType<typeof panelBridgeApi.getServerInfo>>) => void = () => {}
+    const stalePoll = new Promise<Awaited<ReturnType<typeof panelBridgeApi.getServerInfo>>>((resolve) => { resolveStalePoll = resolve })
+    getServerInfo.mockImplementationOnce(() => stalePoll)
+    await waitFor(() => expect(getServerInfo).toHaveBeenCalledTimes(2), { timeout: 5000 })
 
-    // Simulate the active server "changing" (the only other trigger for
-    // detectServerVersion besides mount) with the status check itself
-    // failing this time -- a transient blip, not a real removal.
-    getResolvedActive.mockRejectedValueOnce(new Error('network blip'))
-    socket.emit('activeServerChanged')
+    // Next getServerInfo call (whichever one actually reaches the network --
+    // may be the switch-triggered call, or the next natural poll tick,
+    // depending on exactly when the in-flight gate releases) resolves with
+    // server B's player, Bob.
+    getServerInfo.mockImplementation(() => Promise.resolve({ success: true, data: { players: [{ name: 'Bob', x: 5000, y: 5000 }] } } as Awaited<ReturnType<typeof panelBridgeApi.getServerInfo>>))
 
-    // handleActiveServerChanged clears players unconditionally up front
-    // (existing, intentional behavior, unrelated to this fix). Since round
-    // 26 (PanelBridge command queue and response matching), it ALSO
-    // eagerly re-fetches immediately on the same event -- see
-    // fetchPlayerPositionsRef's own comment in WorldMap.tsx -- so with
-    // getServerInfo mocked to always resolve the same Kate fixture, the
-    // "cleared" state can be gone again within the same tick, too brief a
-    // window for waitFor's own polling interval to reliably observe. No
-    // longer asserted as its own step; the recovery checks below already
-    // prove hasActiveServer didn't get stuck, which is this test's own
-    // actual subject.
+    // Switch servers while the stale poll is still in flight.
+    await act(async () => { socket.emit('activeServerChanged') })
 
-    // The real fix under test: hasActiveServer must have stayed true
-    // despite the rejected check, so live tracking recovers on its own --
-    // now near-immediately via the eager re-fetch above, with the 3s poll
-    // interval as a second-chance path either way -- with no further
-    // socket event and no page reload. Real timers throughout.
+    // handleActiveServerChanged clears players unconditionally up front.
+    await waitFor(() => expect(screen.queryByRole('button', { name: /pan to alice/i })).toBeNull())
+
+    // The stale call finally lands, arriving strictly after the switch.
+    await act(async () => { resolveStalePoll({ success: true, data: { players: [{ name: 'Alice', x: 10000, y: 10000 }] } } as Awaited<ReturnType<typeof panelBridgeApi.getServerInfo>>) })
+    // Give the (buggy, pre-fix) late apply a tick to land before asserting
+    // the negative.
+    await act(async () => { await Promise.resolve() })
+    expect(screen.queryByRole('button', { name: /pan to alice/i })).toBeNull()
+
+    // Server B's data eventually shows up (either from the switch-triggered
+    // call or the next natural poll tick, both real -- POLL_INTERVAL = 3s).
     await waitFor(
-      () => expect(screen.getByRole('link', { name: /bridge connected/i })).toBeInTheDocument(),
+      () => expect(screen.getByRole('button', { name: /pan to bob/i })).toBeInTheDocument(),
       { timeout: 6000 },
     )
-    await waitFor(
-      () => expect(screen.getByRole('button', { name: /pan to kate/i })).toBeInTheDocument(),
-      { timeout: 6000 },
-    )
+    expect(screen.queryByRole('button', { name: /pan to alice/i })).toBeNull()
   }, 15000)
 })
