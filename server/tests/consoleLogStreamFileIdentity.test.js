@@ -76,14 +76,38 @@ describe("GET /console-log/stream: file identity survives a same-path recreate",
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
+  // CI-red-2026-09-18 (round 33c, god's second catch): a PZ console log
+  // that's about to be recreated by a restart has almost always been
+  // written to (grown) many times over the course of a real session
+  // first -- it is not, in practice, a file that gets created and
+  // recreated in the very same instant with zero writes in between. The
+  // birthtimeProvenReal latch (round 33b) needs at least one poll AFTER a
+  // real append to ever prove itself for a path -- skipping straight from
+  // "just created" to "recreated" leaves the latch unproven, which is
+  // EXACTLY the documented residual gap (see consoleLogIdentityChanged's
+  // own comment), not a new bug: on a Linux tmpfs run where the recreated
+  // file's inode gets reused, an unproven-latch poll can only fall back to
+  // inode, and inode alone cannot see the reuse. This test now models that
+  // realistic prior activity -- an append, a real delay (so ctime
+  // genuinely advances past the recorded birthtime on any filesystem with
+  // true creation-time tracking), and a poll of the grown file -- BEFORE
+  // the recreate, so the latch is already proven the way it would be for
+  // any real PZ server by the time an operator would ever see a restart.
   it("treats a same-path recreate that is already LARGER than lastSize as a rotation, not silent growth", async () => {
-    fs.writeFileSync(consoleLogPath, "Old session line 1\nOld session line 2\n");
+    fs.writeFileSync(consoleLogPath, "Old session line 1\n");
     const first = await poll(dataDir, 0);
-    expect(first.newLines).toEqual([
-      "Old session line 1",
-      "Old session line 2",
-    ]);
-    const oldLastSize = first.currentSize;
+    expect(first.newLines).toEqual(["Old session line 1"]);
+
+    // Real prior activity on the old file, the way an actual PZ session
+    // grows server-console.txt for as long as the server has been up --
+    // not the single-write-then-immediately-recreated shape the original
+    // version of this test used, which never gave the identity latch a
+    // chance to prove itself before the recreate.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    fs.appendFileSync(consoleLogPath, "Old session line 2\n");
+    const grown = await poll(dataDir, first.currentSize);
+    expect(grown.newLines).toEqual(["Old session line 2"]);
+    const oldLastSize = grown.currentSize;
 
     // PZ "restarts": the console log is deleted and a brand-new file is
     // written in its place, and by the time the panel polls again that
