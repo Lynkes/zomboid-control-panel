@@ -3635,8 +3635,17 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     label: 'Maximum Rat Index',
     description: 'Maximum rat infestation level. 0 = no rats.',
     type: 'number',
+    // 2026-09-18, round 14 (sandbox option table vs the real game):
+    // bytecode-confirmed (javap -p -c -constants against
+    // D:/pz-verify/server/java/projectzomboid.jar's zombie.SandboxOptions
+    // constructor -- `newIntegerOption("MaximumRatIndex", 0, 50, 25)`) real
+    // max is 50, not 100. A value the operator typed in (0,100] above 50
+    // passed this panel's own validation (parseNumericSettingValue enforces
+    // min/max straight from this entry) and got saved, but B42's real
+    // sandbox loader rejects anything over 50 -- the exact "saved a value
+    // that then locked the setting" shape this round was dispatched to find.
     min: 0,
-    max: 100,
+    max: 50,
     default: 25,
     category: 'animals',
     section: 'settings'
@@ -3646,8 +3655,13 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     label: 'Days Until Max Rat Index',
     description: 'How many days until rat population peaks.',
     type: 'number',
-    min: 1,
-    max: 3650,
+    // Same citation as MaximumRatIndex above --
+    // `newIntegerOption("DaysUntilMaximumRatIndex", 0, 365, 90)`. min was
+    // too TIGHT (1, when 0 is a real, accepted value -- "peaks on day one")
+    // and max was too LOOSE (3650, ten times the real 365) at the same
+    // time.
+    min: 0,
+    max: 365,
     default: 90,
     category: 'animals',
     section: 'settings'
