@@ -59,7 +59,23 @@ router.get("/discover-mounts", requirePermission("servers.discover"), async (req
 // POST /api/servers/create-from-discovery — turn a discover-mounts result
 // into a fully-populated local server profile, reading RCON settings from
 // the discovered server's own INI instead of asking the user to retype them.
-router.post("/create-from-discovery", requirePermission("servers.discover"), async (req, res) => {
+//
+// continuous-bug-hunt round 18 (auth audit): this used to be gated on
+// servers.discover -- the SCAN capability (its own description in
+// services/permissions.js: "Scan any path on the host filesystem you
+// specify... including reading and parsing .ini config files"), a read-
+// shaped permission. This route's actual effect is createServer() below --
+// the exact same database write servers.js's own POST / (create) route
+// gates on servers.manage ("Add, edit, remove or activate a configured
+// server entry"). The two capabilities are independently grantable (see
+// server/tests/helpers/mockPermissionsDb.js: TECHNICIAN_CAPABILITIES has
+// servers.manage but not servers.discover) -- a custom role holding ONLY
+// servers.discover could silently create a fully-configured server profile,
+// including an RCON password read straight off disk, bypassing whatever
+// protection servers.manage was meant to represent. GET /discover-mounts
+// just above stays on servers.discover -- it only ever reads/scans, never
+// persists anything.
+router.post("/create-from-discovery", requirePermission("servers.manage"), async (req, res) => {
   try {
     const { installPath, dataPath, serverName, name } = req.body || {};
     if (
