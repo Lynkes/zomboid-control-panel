@@ -33,5 +33,6 @@
   "STEAMCMD_EXTRACTION_FAILED": "Entpacken fehlgeschlagen: {{reason}}",
   "STEAMCMD_32BIT_LIB_WARNING": "Warnung: 32-Bit-Bibliotheken konnten nicht überprüft werden. Falls SteamCMD fehlschlägt, installieren: yum install glibc.i686 libstdc++.i686 (CentOS/RHEL) oder apt install lib32gcc-s1 (Debian/Ubuntu)",
   "STEAMCMD_SETUP_FAILED": "SteamCMD-Einrichtung fehlgeschlagen, Code {{code}}",
-  "STEAMCMD_SELF_SETUP_UNEXPECTED_ERROR": "SteamCMD-Einrichtung unerwartet fehlgeschlagen: {{reason}}"
+  "STEAMCMD_SELF_SETUP_UNEXPECTED_ERROR": "SteamCMD-Einrichtung unerwartet fehlgeschlagen: {{reason}}",
+  "STEAMCMD_SELF_HEAL_FAILED": "SteamCMD-Automatikdownload fehlgeschlagen: {{reason}}"
 }

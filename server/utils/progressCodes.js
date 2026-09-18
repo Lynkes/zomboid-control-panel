@@ -246,4 +246,16 @@ export const ProgressCode = Object.freeze({
    * or 7) but the binary still isn't at the expected path afterward.
    * Params: {reason}. */
   STEAMCMD_SELF_SETUP_UNEXPECTED_ERROR: "STEAMCMD_SELF_SETUP_UNEXPECTED_ERROR",
+  /** install-selfheal-background, 2026-09-18: POST /install and POST
+   * /steam-update both now respond immediately and run self-heal (a missing
+   * SteamCMD auto-download) in the background instead of holding the HTTP
+   * response open for it (see server.js's own comment at the point they
+   * respond). ensureSteamCmdInstalled() already emits its own detailed
+   * steamcmd:status error (STEAMCMD_DOWNLOAD_FAILED/EXTRACTION_FAILED/
+   * SETUP_FAILED/etc.) when self-heal itself fails -- this is the
+   * install:complete/steam:complete that ends THIS operation's own UI state
+   * (re-enables the button, clears the "installing"/"running" spinner)
+   * afterward, since the response can no longer carry that outcome.
+   * Params: {reason}. */
+  STEAMCMD_SELF_HEAL_FAILED: "STEAMCMD_SELF_HEAL_FAILED",
 });

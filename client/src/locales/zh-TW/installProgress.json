@@ -33,5 +33,6 @@
   "STEAMCMD_EXTRACTION_FAILED": "解壓失敗：{{reason}}",
   "STEAMCMD_32BIT_LIB_WARNING": "警告：無法校驗 32 位庫。如果 SteamCMD 執行失敗，請安裝：yum install glibc.i686 libstdc++.i686（CentOS/RHEL）或 apt install lib32gcc-s1（Debian/Ubuntu）",
   "STEAMCMD_SETUP_FAILED": "SteamCMD 設定失敗，代碼為 {{code}}",
-  "STEAMCMD_SELF_SETUP_UNEXPECTED_ERROR": "SteamCMD 設定意外失敗：{{reason}}"
+  "STEAMCMD_SELF_SETUP_UNEXPECTED_ERROR": "SteamCMD 設定意外失敗：{{reason}}",
+  "STEAMCMD_SELF_HEAL_FAILED": "SteamCMD 自動下載失敗：{{reason}}"
 }

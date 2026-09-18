@@ -33,5 +33,6 @@
   "STEAMCMD_EXTRACTION_FAILED": "Error al extraer: {{reason}}",
   "STEAMCMD_32BIT_LIB_WARNING": "Advertencia: no se pudieron verificar las bibliotecas de 32 bits. Si SteamCMD falla, instala: yum install glibc.i686 libstdc++.i686 (CentOS/RHEL) o apt install lib32gcc-s1 (Debian/Ubuntu)",
   "STEAMCMD_SETUP_FAILED": "La configuración de SteamCMD falló con el código {{code}}",
-  "STEAMCMD_SELF_SETUP_UNEXPECTED_ERROR": "La configuración de SteamCMD falló de forma inesperada: {{reason}}"
+  "STEAMCMD_SELF_SETUP_UNEXPECTED_ERROR": "La configuración de SteamCMD falló de forma inesperada: {{reason}}",
+  "STEAMCMD_SELF_HEAL_FAILED": "La descarga automática de SteamCMD falló: {{reason}}"
 }

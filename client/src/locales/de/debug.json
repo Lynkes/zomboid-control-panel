@@ -15,14 +15,14 @@
     "fullLogTooltip": "Nur das eigene Anwendungsprotokoll dieses Panels — keine Zomboid-Server-Protokolle oder Absturzberichte. Dafür das Support-Paket verwenden."
   },
   "tabs": {
-    "diagnostics": "Diagnose",
+    "diagnostics": "Prüfungen & Korrekturen",
     "worldMap": "Weltkarte",
     "bridge": "PanelBridge",
     "performance": "Leistung",
     "activity": "Aktivität",
     "logs": "Protokolle",
     "crashes": "Abstürze",
-    "health": "Zustand",
+    "health": "Live-Status",
     "system": "Umgebung"
   },
   "fixActions": {
@@ -243,6 +243,7 @@
     "overallPending": "Prüfungen laufen…",
     "lastChecked": "Zuletzt geprüft: {{time}} · {{duration}}ms · aktualisiert automatisch alle 30s",
     "runningDescription": "Intelligente Prüfungen für Dienste, Pfade, Speicher und Updates…",
+    "tabSubtitle": "Prüft deine Einrichtung auf Probleme und bietet Korrekturen mit einem Klick.",
     "categories": {
       "services": "Kerndienste",
       "bridge": "PanelBridge-IPC",
@@ -1461,6 +1462,7 @@
   },
   "healthTab": {
     "systemStatusTitle": "Systemstatus",
+    "tabSubtitle": "Live-Status dieses Panel-Prozesses: Arbeitsspeicher, Laufzeit und verbundene Dienste.",
     "healthy": "Betriebsbereit",
     "checking": "Wird geprüft...",
     "issuesDetected": "Probleme erkannt",

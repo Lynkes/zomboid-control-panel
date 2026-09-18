@@ -15,14 +15,14 @@
     "fullLogTooltip": "This panel's own application log only — not Zomboid server logs or crash dumps. Use the support bundle for those."
   },
   "tabs": {
-    "diagnostics": "Diagnostics",
+    "diagnostics": "Checks & Fixes",
     "worldMap": "World Map",
     "bridge": "PanelBridge",
     "performance": "Performance",
     "activity": "Activity",
     "logs": "Logs",
     "crashes": "Crashes",
-    "health": "Health",
+    "health": "Live Status",
     "system": "Environment"
   },
   "fixActions": {
@@ -243,6 +243,7 @@
     "overallPending": "Running checks…",
     "lastChecked": "Last checked {{time}} · {{duration}}ms · auto-refreshes every 30s",
     "runningDescription": "Running smart checks across services, paths, storage, and updates…",
+    "tabSubtitle": "Checks your setup for problems and offers one-click fixes.",
     "categories": {
       "services": "Core Services",
       "bridge": "PanelBridge IPC",
@@ -1461,6 +1462,7 @@
   },
   "healthTab": {
     "systemStatusTitle": "System Status",
+    "tabSubtitle": "Live status of this panel process: memory, uptime, and connected services.",
     "healthy": "Healthy",
     "checking": "Checking...",
     "issuesDetected": "Issues Detected",

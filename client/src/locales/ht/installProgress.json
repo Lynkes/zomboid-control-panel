@@ -33,5 +33,6 @@
   "STEAMCMD_EXTRACTION_FAILED": "Dekonpresyon echwe: {{reason}}",
   "STEAMCMD_32BIT_LIB_WARNING": "Avètisman: Pa t kapab verifye lib 32-bit yo. Si SteamCMD echwe, enstale: yum install glibc.i686 libstdc++.i686 (CentOS/RHEL) oswa apt install lib32gcc-s1 (Debian/Ubuntu)",
   "STEAMCMD_SETUP_FAILED": "Konfigirasyon SteamCMD echwe ak kòd {{code}}",
-  "STEAMCMD_SELF_SETUP_UNEXPECTED_ERROR": "Konfigirasyon SteamCMD echwe san atann: {{reason}}"
+  "STEAMCMD_SELF_SETUP_UNEXPECTED_ERROR": "Konfigirasyon SteamCMD echwe san atann: {{reason}}",
+  "STEAMCMD_SELF_HEAL_FAILED": "Telechajman otomatik SteamCMD echwe: {{reason}}"
 }

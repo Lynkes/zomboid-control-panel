@@ -3194,6 +3194,9 @@ export default function Debug() {
 
         {/* Diagnostics Tab — Smart health checks with green/amber/red */}
         <TabsContent value="diagnostics" className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            {t("diagnostics.tabSubtitle")}
+          </p>
           {diagnosticsError && (
             <Card className="border-2 border-destructive/50 bg-destructive/5">
               <CardContent className="pt-6">
@@ -6320,6 +6323,9 @@ export default function Debug() {
 
         {/* Health Tab */}
         <TabsContent value="health" className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            {t("healthTab.tabSubtitle")}
+          </p>
           {healthError && (
             <Card className="border-2 border-destructive/50 bg-destructive/5">
               <CardContent className="pt-6">

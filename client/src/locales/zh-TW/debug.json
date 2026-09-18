@@ -15,14 +15,14 @@
     "fullLogTooltip": "僅此面板自身的應用程式日誌——不含 Zomboid 伺服器日誌或當機傾印。如需這些內容，請使用支援包。"
   },
   "tabs": {
-    "diagnostics": "診斷",
+    "diagnostics": "檢查與修復",
     "worldMap": "世界地圖",
     "bridge": "PanelBridge",
     "performance": "效能",
     "activity": "活動",
     "logs": "日誌",
     "crashes": "當機記錄",
-    "health": "健康狀態",
+    "health": "即時狀態",
     "system": "環境"
   },
   "fixActions": {
@@ -243,6 +243,7 @@
     "overallPending": "正在執行檢查…",
     "lastChecked": "上次檢查：{{time}} · {{duration}} 毫秒 · 每 30 秒自動重新整理",
     "runningDescription": "正在對服務、路徑、儲存和更新執行智慧檢查……",
+    "tabSubtitle": "檢查您的設定是否有問題，並提供一鍵修復。",
     "categories": {
       "services": "核心服務",
       "bridge": "PanelBridge IPC",
@@ -1461,6 +1462,7 @@
   },
   "healthTab": {
     "systemStatusTitle": "系統狀態",
+    "tabSubtitle": "此面板程序的即時狀態：記憶體、運行時間和已連線的服務。",
     "healthy": "健康",
     "checking": "正在檢查…",
     "issuesDetected": "檢測到問題",

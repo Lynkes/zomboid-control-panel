@@ -621,10 +621,6 @@ export const ErrorCode = Object.freeze({
    * Docker-specific addendum stays English-only in the `error` fallback
    * text, a known partial-translation gap, not a bug. */
   WRITABLE_PATH_ERROR: "WRITABLE_PATH_ERROR",
-  /** server/routes/server.js (sites: /install, /steam-update) --
-   * auto-download of steamcmd (ensureSteamCmdInstalled, either platform as
-   * of windows-steamcmd-selfheal, 2026-09-10) itself failed. */
-  STEAMCMD_AUTO_DOWNLOAD_FAILED: "STEAMCMD_AUTO_DOWNLOAD_FAILED",
   /** server/routes/server.js -- POST /api/server/install, another Steam
    * operation already running for this install path. Own code from the
    * /steam-update variant below -- "for this path" vs "for this server" are
@@ -675,9 +671,14 @@ export const ErrorCode = Object.freeze({
    * second call arrives while one is already downloading/extracting; also
    * returned (as of windows-steamcmd-selfheal, 2026-09-10) by /install and
    * /steam-update's own auto-heal (ensureSteamCmdInstalled) when a manual
-   * download is already claiming the same guard, mapped to a 409 there too
-   * instead of falling into STEAMCMD_AUTO_DOWNLOAD_FAILED's 500. Both entry
-   * points check/claim the SAME module-level steamcmdDownloadInProgress
+   * download is already claiming the same guard -- mapped to this same 409
+   * synchronously, before either route responds (install-selfheal-
+   * background, 2026-09-18: self-heal itself now runs in the background
+   * after the response, so this is the one self-heal failure shape that can
+   * still reach the client as an HTTP error; every other self-heal failure
+   * surfaces as install:complete/steam:complete instead, see
+   * ProgressCode.STEAMCMD_SELF_HEAL_FAILED). Both entry points check/claim
+   * the SAME module-level steamcmdDownloadInProgress
    * flag -- deliberately its own flag rather than reusing
    * activeSteamOperations (path-keyed, used by /steam-update and /install
    * for the SteamCMD *process* itself) -- this guards the earlier

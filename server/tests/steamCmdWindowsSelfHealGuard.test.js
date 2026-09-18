@@ -235,7 +235,7 @@ describe("Windows SteamCMD self-heal shares one download guard with the manual d
     );
   });
 
-  it("Windows now ATTEMPTS self-heal instead of hard-failing 400 -- surfaces the shared 500 STEAMCMD_AUTO_DOWNLOAD_FAILED shape when the attempt itself fails", async () => {
+  it("Windows now ATTEMPTS self-heal instead of hard-failing 400 -- surfaces the failure over install:complete once self-heal (now backgrounded, install-selfheal-background 2026-09-18) actually fails", async () => {
     httpsGetMock.mockImplementation(() => {
       const req = new EventEmitter();
       req.destroy = vi.fn();
@@ -263,15 +263,31 @@ describe("Windows SteamCMD self-heal shares one download guard with the manual d
       response,
     );
 
-    // Pre-fix: deterministic 400 STEAMCMD_NOT_FOUND_AT_PATH, https.get never
-    // called at all. Post-fix: self-heal is attempted (proven by the mocked
-    // https.get actually firing) and its failure surfaces as the same 500
-    // STEAMCMD_AUTO_DOWNLOAD_FAILED shape Linux already used.
-    expect(httpsGetMock).toHaveBeenCalledTimes(1);
-    expect(response.status).toHaveBeenCalledWith(500);
+    // install-selfheal-background, 2026-09-18: the HTTP response no longer
+    // waits for self-heal -- it returns success immediately (self-heal and
+    // the real install both run in the background from here, see
+    // server.js's own comment at the point it responds), so this call
+    // resolves before https.get() has even fired.
+    expect(response.status).not.toHaveBeenCalled();
     expect(response.json).toHaveBeenCalledWith(
-      expect.objectContaining({ code: "STEAMCMD_AUTO_DOWNLOAD_FAILED" }),
+      expect.objectContaining({ success: true }),
     );
-    expect(response.status).not.toHaveBeenCalledWith(400);
+
+    // Pre-fix (windows-steamcmd-selfheal, 2026-09-10): deterministic 400
+    // STEAMCMD_NOT_FOUND_AT_PATH, https.get never called at all. Post-fix:
+    // self-heal is attempted (proven by the mocked https.get actually
+    // firing) and, once it fails, the operation's own outcome -- previously
+    // an HTTP 500 STEAMCMD_AUTO_DOWNLOAD_FAILED, now impossible since the
+    // response is already sent -- surfaces as install:complete instead.
+    await vi.waitFor(() => expect(httpsGetMock).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(io.emit).toHaveBeenCalledWith(
+        "install:complete",
+        expect.objectContaining({
+          success: false,
+          progressCode: "STEAMCMD_SELF_HEAL_FAILED",
+        }),
+      ),
+    );
   });
 });

@@ -61,9 +61,11 @@ vi.mock("../services/serverManager.js", async () => {
 // tests reach the download step (each is blocked by an earlier,
 // deterministic check -- minMemory:0 for /install, no server files for
 // /quick-setup), so these mocks are inert everywhere except that one test.
+const { httpsGetMock } = vi.hoisted(() => ({ httpsGetMock: vi.fn() }));
 vi.mock("https", () => ({
   default: {
-    get: () => {
+    get: (...args) => {
+      httpsGetMock(...args);
       const req = new EventEmitter();
       req.destroy = () => {};
       queueMicrotask(() =>
@@ -119,13 +121,22 @@ beforeEach(() => {
   getServersMock.mockReset().mockResolvedValue([
     { id: "server-same", installPath },
   ]);
+  httpsGetMock.mockReset();
+  io.emit.mockReset();
 });
 
 afterEach(() => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-const app = { get: () => undefined };
+// install-selfheal-background, 2026-09-18: a genuine app always registers
+// io (server/index.js), so self-heal's own background failure path can
+// always emit install:complete/steam:complete on it -- gave this a real
+// stub instead of `undefined` so that background continuation (now
+// unawaited by the route handler itself) doesn't throw trying to call
+// .emit() on it in the one test below that lets self-heal actually run.
+const io = { emit: vi.fn() };
+const app = { get: (key) => (key === "io" ? io : undefined) };
 
 describe("POST /api/server/install same-server lifecycle-lock guard", () => {
   it("refuses with 409 SERVER_LIFECYCLE_IN_PROGRESS when the held lock names the SAME resolved server (installPath matches a configured server's id)", async () => {
@@ -257,9 +268,15 @@ describe("POST /api/server/steam-update same-server lifecycle-lock guard", () =>
   // path this file didn't otherwise exercise). Both platforms now self-heal
   // via ensureSteamCmdInstalled -- the https/child_process mocks above make
   // that self-heal fail fast and deterministically on EITHER platform, so
-  // this runs everywhere now instead of Windows-only, asserting the new
-  // shared failure shape (500 STEAMCMD_AUTO_DOWNLOAD_FAILED) both platforms
-  // produce when auto-heal itself fails.
+  // this runs everywhere now instead of Windows-only.
+  //
+  // install-selfheal-background, 2026-09-18: self-heal no longer holds the
+  // HTTP response open (see server.js's own comment at the point it
+  // responds), so "got past the guard" is proven by the immediate success
+  // response instead of the old synchronous 500 -- and self-heal's own
+  // failure, no longer able to reach the client as an HTTP error, is proven
+  // via the steam:complete it now emits once the backgrounded attempt
+  // settles.
   it(
     "does NOT refuse via the lock guard when the held lock names a DIFFERENT server -- proceeds to the (mocked-to-fail) steamcmd auto-download instead",
     async () => {
@@ -268,12 +285,22 @@ describe("POST /api/server/steam-update same-server lifecycle-lock guard", () =>
         const handler = getHandler("/steam-update");
         const response = createResponse();
         await handler({ app, body: { steamcmdPath, installPath } }, response);
-        expect(response.status).toHaveBeenCalledWith(500);
+        expect(response.status).not.toHaveBeenCalled();
         expect(response.json).toHaveBeenCalledWith(
-          expect.objectContaining({ code: "STEAMCMD_AUTO_DOWNLOAD_FAILED" }),
+          expect.objectContaining({ success: true }),
         );
         expect(response.json).not.toHaveBeenCalledWith(
           expect.objectContaining({ code: LIFECYCLE_IN_PROGRESS_CODE }),
+        );
+        await vi.waitFor(() => expect(httpsGetMock).toHaveBeenCalledTimes(1));
+        await vi.waitFor(() =>
+          expect(io.emit).toHaveBeenCalledWith(
+            "steam:complete",
+            expect.objectContaining({
+              success: false,
+              progressCode: "STEAMCMD_SELF_HEAL_FAILED",
+            }),
+          ),
         );
       } finally {
         lock.release();

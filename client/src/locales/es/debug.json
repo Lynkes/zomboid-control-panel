@@ -15,14 +15,14 @@
     "fullLogTooltip": "Solo el registro de la aplicación de este panel — no incluye los registros del servidor de Zomboid ni los volcados de fallos. Usa el paquete de soporte para eso."
   },
   "tabs": {
-    "diagnostics": "Diagnóstico",
+    "diagnostics": "Comprobaciones y correcciones",
     "worldMap": "Mapa del mundo",
     "bridge": "PanelBridge",
     "performance": "Rendimiento",
     "activity": "Actividad",
     "logs": "Registros",
     "crashes": "Fallos",
-    "health": "Estado",
+    "health": "Estado en vivo",
     "system": "Entorno"
   },
   "fixActions": {
@@ -248,6 +248,7 @@
     "overallPending": "Ejecutando comprobaciones…",
     "lastChecked": "Última comprobación: {{time}} · {{duration}} ms · se actualiza automáticamente cada 30 s",
     "runningDescription": "Ejecutando comprobaciones inteligentes de servicios, rutas, almacenamiento y actualizaciones…",
+    "tabSubtitle": "Revisa tu configuración en busca de problemas y ofrece correcciones con un clic.",
     "categories": {
       "services": "Servicios principales",
       "bridge": "IPC de PanelBridge",
@@ -1481,6 +1482,7 @@
   },
   "healthTab": {
     "systemStatusTitle": "Estado del sistema",
+    "tabSubtitle": "Estado en vivo de este proceso del panel: memoria, tiempo activo y servicios conectados.",
     "healthy": "Correcto",
     "checking": "Comprobando…",
     "issuesDetected": "Problemas detectados",

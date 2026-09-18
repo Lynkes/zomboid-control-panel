@@ -33,5 +33,6 @@
   "STEAMCMD_EXTRACTION_FAILED": "فشل الاستخراج: {{reason}}",
   "STEAMCMD_32BIT_LIB_WARNING": "تحذير: تعذّر التحقق من مكتبات 32 بت. إذا فشل SteamCMD، فثبّتها بالأمر: yum install glibc.i686 libstdc++.i686 (CentOS/RHEL) أو الأمر: apt install lib32gcc-s1 (Debian/Ubuntu)",
   "STEAMCMD_SETUP_FAILED": "فشل إعداد SteamCMD بالرمز {{code}}",
-  "STEAMCMD_SELF_SETUP_UNEXPECTED_ERROR": "فشل إعداد SteamCMD بشكل غير متوقع: {{reason}}"
+  "STEAMCMD_SELF_SETUP_UNEXPECTED_ERROR": "فشل إعداد SteamCMD بشكل غير متوقع: {{reason}}",
+  "STEAMCMD_SELF_HEAL_FAILED": "فشل التنزيل التلقائي لـ SteamCMD: {{reason}}"
 }

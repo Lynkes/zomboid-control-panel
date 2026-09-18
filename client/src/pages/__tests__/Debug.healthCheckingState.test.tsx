@@ -75,7 +75,10 @@ async function openHealthTab() {
   // Radix's TabsTrigger switches on mousedown, not click (see
   // @radix-ui/react-tabs) -- fireEvent.click alone never flips the tab
   // (established pattern, e.g. Console.test.tsx's openRconTab).
-  const tab = await screen.findByRole('tab', { name: /health/i })
+  // Renamed from "Health" to "Live Status" (debug-tabs-steamcmd-bg,
+  // 2026-09-18) so it reads distinctly from the Checks & Fixes tab -- see
+  // Debug.tsx's own tabs.health translation key.
+  const tab = await screen.findByRole('tab', { name: /live status/i })
   fireEvent.mouseDown(tab, { button: 0 })
 }
 

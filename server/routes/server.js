@@ -3224,30 +3224,31 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
     // executable from it -- see saveAndResolveSteamCmdExe's header comment
     // (CodeQL js/command-line-injection #12).
     let steamcmdExe = await saveAndResolveSteamCmdExe(steamcmdPath);
-    if (!steamcmdExe || !fs.existsSync(steamcmdExe)) {
-      try {
-        steamcmdExe = await ensureSteamCmdInstalled(
-          steamcmdPath,
-          req.app.get("io"),
-        );
-      } catch (dlErr) {
-        if (dlErr.code === ErrorCode.STEAMCMD_DOWNLOAD_ALREADY_IN_PROGRESS) {
-          return res.status(409).json({ error: dlErr.message, code: dlErr.code });
-        }
-        return res.status(500).json({
-          error: `SteamCMD not found and auto-download failed: ${sanitizeError(dlErr.message)}`,
-          code: ErrorCode.STEAMCMD_AUTO_DOWNLOAD_FAILED,
-        });
-      }
-    }
+    const needsSteamCmdSelfHeal = !steamcmdExe || !fs.existsSync(steamcmdExe);
 
-    // Prevent concurrent operations on the same install path
+    // Prevent concurrent operations on the same install path -- checked (and
+    // claimed, below) before self-heal now instead of after it, so a second
+    // request for the SAME path is refused immediately instead of only after
+    // self-heal has already run in the background for the first one.
     const normalizedPath = path.normalize(installPath).toLowerCase();
     if (hasActiveSteamOperation(normalizedPath)) {
       return res.status(409).json({
         error:
           "A Steam operation is already in progress for this path. Please wait for it to complete.",
         code: ErrorCode.STEAM_OPERATION_IN_PROGRESS_PATH,
+      });
+    }
+
+    // install-selfheal-background, 2026-09-18: steamcmdDownloadInProgress is
+    // the single-flight guard ensureSteamCmdInstalled() itself claims
+    // synchronously (see its own comment) -- checked here too so a request
+    // that would only discover the conflict once self-heal starts in the
+    // background below still gets the same immediate 409 it always has,
+    // instead of a misleading "Installation started" followed by a failure.
+    if (needsSteamCmdSelfHeal && steamcmdDownloadInProgress) {
+      return res.status(409).json({
+        error: "A SteamCMD download is already in progress",
+        code: ErrorCode.STEAMCMD_DOWNLOAD_ALREADY_IN_PROGRESS,
       });
     }
 
@@ -3264,21 +3265,6 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
       serverName,
     });
     activeOperationPath = normalizedPath;
-
-    // Build SteamCMD command
-    // App ID 380870 is Project Zomboid Dedicated Server
-    const betaArgs = getBetaArgs(selectedBranch);
-    const loginArgs = await getSteamLoginArgs();
-    const steamcmdArgs = [
-      "+force_install_dir",
-      installPath,
-      ...loginArgs,
-      "+app_update",
-      "380870",
-      ...betaArgs,
-      "validate",
-      "+quit",
-    ];
 
     const io = req.app.get("io");
 
@@ -3298,496 +3284,569 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
     // only the operation its own wizard started.
     const installEventScope = { installPath };
 
-    // Spawn SteamCMD process
-    const spawnOpts = { cwd: steamcmdPath };
-    if (!isWindows) {
-      spawnOpts.env = buildLinuxSteamCmdEnv(steamcmdPath);
-    }
-    const steamcmd = spawn(steamcmdExe, steamcmdArgs, spawnOpts);
-    // A signal-killed process reports code=null to the close handler below,
-    // not the exit code INSTALL_FAILED_EXIT_CODE's message names -- tracked
-    // so that branch can say "stalled and was stopped" instead of the
-    // literal word "null" (2026-08-26 install-failure hunt finding #1).
-    let killedByWatchdog = false;
-    activeSteamOperations.get(normalizedPath).watchdog = setInterval(() => {
-      const activeOperation = activeSteamOperations.get(normalizedPath);
-      if (!activeOperation) return;
-      if (!isSteamOperationIdle(activeOperation)) return;
-
-      log.error(
-        `SteamCMD ${activeOperation.type} produced no output for ${STEAM_OPERATION_IDLE_TIMEOUT_MS / 60000} minutes; terminating the stalled process`,
-      );
-      killedByWatchdog = true;
-      steamcmd.kill();
-    }, 30_000);
-    activeSteamOperations.get(normalizedPath).watchdog.unref?.();
-
-    let output = "";
-    let stdoutBuffer = "";
-    let stderrBuffer = "";
-
-    steamcmd.stdout.on("data", (data) => {
-      const operation = activeSteamOperations.get(normalizedPath);
-      if (operation) operation.lastOutputAt = Date.now();
-      const text = data.toString();
-      output += text;
-      stdoutBuffer += text;
-
-      // Split by newlines and emit each line for real-time streaming
-      const lines = stdoutBuffer.split(/\r?\n/);
-      // Keep the last incomplete line in the buffer
-      stdoutBuffer = lines.pop() || "";
-
-      for (const line of lines) {
-        if (line.trim()) {
-          emitRawSteamCmdLine(io, "install:log", "stdout", line, installEventScope);
-          log.info(`SteamCMD: ${line}`);
-        }
-      }
-    });
-
-    steamcmd.stderr.on("data", (data) => {
-      const operation = activeSteamOperations.get(normalizedPath);
-      if (operation) operation.lastOutputAt = Date.now();
-      const text = data.toString();
-      output += text;
-      stderrBuffer += text;
-
-      // Split by newlines and emit each line for real-time streaming
-      const lines = stderrBuffer.split(/\r?\n/);
-      // Keep the last incomplete line in the buffer
-      stderrBuffer = lines.pop() || "";
-
-      for (const line of lines) {
-        if (line.trim()) {
-          emitRawSteamCmdLine(io, "install:log", "stderr", line, installEventScope);
-          log.warn(`SteamCMD stderr: ${line}`);
-        }
-      }
-    });
-
-    steamcmd.on("close", async (code) => {
-      // Flush any remaining buffered output
-      if (stdoutBuffer.trim()) {
-        emitRawSteamCmdLine(io, "install:log", "stdout", stdoutBuffer.trim(), installEventScope);
-        log.info(`SteamCMD: ${stdoutBuffer.trim()}`);
-      }
-      if (stderrBuffer.trim()) {
-        emitRawSteamCmdLine(io, "install:log", "stderr", stderrBuffer.trim(), installEventScope);
-        log.warn(`SteamCMD stderr: ${stderrBuffer.trim()}`);
-      }
-
-      // continuous-bug-hunt, 2026-09-18 (install-wizard-hunt): SteamCMD is
-      // well documented to exit 0 even when +app_update failed partway -- a
-      // disk-full write failure, a rejected/incomplete download, or a
-      // config-resolution failure all print one or more "ERROR!"-prefixed
-      // lines (or, for the config case, "Missing configuration") and then
-      // still exit 0. Exactly the same gap /steam-update's own
-      // steamcmd-success-truth fix closed for update/verify (see that
-      // route's steamCmdReportedError, same regex) -- it never transferred
-      // here. hasPzInstallMarker() below only proves SOME marker file
-      // exists; on a disk-full download those small launcher/metadata files
-      // can already be on disk before the write failure hits the large game
-      // data, so a marker being present does not contradict SteamCMD having
-      // just reported ERROR! in the same run. Checked before hasPzInstallMarker,
-      // not as a replacement for it -- either signal alone can miss a partial
-      // install; both together catch more than either would.
-      const steamCmdReportedError =
-        /^\s*ERROR!/im.test(output) || /missing configuration/i.test(output);
-
-      if (code === 0 && steamCmdReportedError) {
-        log.error(
-          "SteamCMD exited cleanly (code 0) but reported an error in its own output during the install",
-        );
-        io.emit("install:complete", {
-          success: false,
-          message:
-            "SteamCMD exited cleanly (code 0) but reported an error in its own output -- check the SteamCMD log above for the exact line. This can happen when the disk fills up mid-download or a Steam-side error interrupts it partway; the install did not complete. Free up space or retry, then reinstall.",
-          output,
-          progressCode: ProgressCode.INSTALL_STEAMCMD_REPORTED_ERROR,
-          ...installEventScope,
-        });
-      } else if (code === 0) {
-        log.info("PZ server installation completed successfully");
-
-        // The game files installed -- that part is done and expensive to
-        // redo, so success:false is never used for a failure past this
-        // point (2026-08-26 install-failure hunt finding #6). A step below
-        // that fails but self-heals on the next POST /server/start (the INI
-        // pre-create, the startup script) is instead collected here and
-        // sent as a `warnings` array alongside success:true, so the
-        // operator sees it without being told to reinstall over it.
-        const warnings = [];
-
-        // Auto-update settings with new paths. Wrapped: these were bare
-        // awaits with nothing catching a throw, and this app's
-        // unhandledRejection handler (server/index.js) kills the whole
-        // panel process on an uncaught rejection -- so a transient
-        // settings-write failure here used to take the panel down mid-
-        // install instead of just leaving a setting unsaved. The game
-        // files already installed successfully at this point, so this
-        // follows the same warnings-array convention as the other
-        // self-healing failures below rather than reporting success:false.
-        try {
-          await setSetting("serverPath", installPath);
-          await setSetting("serverName", serverName);
-          await setSetting("minMemory", minMemory);
-          await setSetting("maxMemory", maxMemory);
-          await setSetting("serverPort", serverPort);
-          await setSetting("useUpnp", useUpnp);
-
-          if (zomboidDataPath) {
-            await setSetting("zomboidDataPath", zomboidDataPath);
-          } else {
-            await setSetting("zomboidDataPath", zomboidPath);
-            io.emit("install:log", {
-              type: "stdout",
-              text: `Using ${usesEnvironmentDataPath ? "configured" : "isolated"} data folder: ${zomboidPath}`,
-              progressCode: usesEnvironmentDataPath
-                ? ProgressCode.DATA_FOLDER_USING_CONFIGURED
-                : ProgressCode.DATA_FOLDER_USING_ISOLATED,
-              params: { path: zomboidPath },
-              ...installEventScope,
-            });
-          }
-
-          await setSetting("serverConfigPath", serverConfigPath);
-        } catch (settingsError) {
-          log.error(`Failed to save install settings: ${settingsError.message}`);
-          warnings.push({
-            progressCode: ProgressCode.INSTALL_SETTINGS_SAVE_FAILED,
-            message: `Server files installed, but some install settings could not be saved (${sanitizeError(settingsError.message)}). Re-check them under Settings once the panel is back up.`,
-            params: { fields: "serverPath, serverName, memory, port, UPnP, data paths", reason: sanitizeError(settingsError.message) },
-          });
-        }
-
-        // Re-check after the download in case a mounted path changed while
-        // SteamCMD was running.
-        try {
-          ensureWritableDirectory(serverConfigPath);
-        } catch (dirError) {
-          // Keep the raw errno in the log even though the operator-facing
-          // text below is friendlier -- someone debugging still needs it.
-          log.error(
-            `Data folder is not writable: ${zomboidPath} (${dirError.message})`,
-          );
-          // Reuses formatWritablePathError -- the SAME container-aware
-          // guidance the pre-download check above already gives, instead of
-          // this "re-check after the download" duplicate growing its own,
-          // Linux-only message that never checked isContainer (found
-          // 2026-08-29, "raw EACCES with no pointer to the fix" hunt: it
-          // told a Docker operator to run a command inside the ephemeral
-          // container that can't fix a host-side bind-mount ownership
-          // mismatch at all). The concrete `sudo install -d` example is
-          // still worth keeping for bare metal specifically -- more
-          // actionable than the shared message's generic chown/chmod
-          // pointer -- so it rides along as an extra param rather than
-          // being lost.
-          const writableError = formatWritablePathError("data", zomboidPath);
-          const bareMetalCommand =
-            writableError.code === ErrorCode.WRITABLE_PATH_DATA_BAREMETAL
-              ? `sudo install -d -m 0755 -o "$(whoami)" -g "$(whoami)" "${zomboidPath}"`
-              : null;
-          io.emit("install:complete", {
-            success: false,
-            message: bareMetalCommand
-              ? `${writableError.message} For example: ${bareMetalCommand}`
-              : writableError.message,
-            installPath,
-            serverName,
-            progressCode: writableError.code,
-            params: {
-              ...writableError.params,
-              reason: dirError.code || dirError.message,
-              ...(bareMetalCommand ? { command: bareMetalCommand } : {}),
-            },
-            ...installEventScope,
-          });
-          clearActiveSteamOperation(normalizedPath);
-          return;
-        }
-
-        // Save RCON settings for later use. Same crash exposure and same
-        // fix as the settings block above -- a bare await here previously
-        // meant a failed RCON settings write could take the whole panel
-        // down instead of just leaving RCON unconfigured.
-        if (rconPassword) {
-          try {
-            await setSetting("rconPassword", rconPassword);
-            await setSetting("rconPort", rconPort);
-            await setSetting("rconHost", resolveEnvRconHost());
-            io.emit("install:log", {
-              type: "stdout",
-              text: `RCON settings saved (port: ${rconPort})`,
-              progressCode: ProgressCode.RCON_SETTINGS_SAVED,
-              params: { port: rconPort },
-              ...installEventScope,
-            });
-          } catch (rconSettingsError) {
-            log.error(`Failed to save RCON settings: ${rconSettingsError.message}`);
-            warnings.push({
-              progressCode: ProgressCode.INSTALL_SETTINGS_SAVE_FAILED,
-              message: `Server files installed, but the RCON password/port could not be saved (${sanitizeError(rconSettingsError.message)}). Re-check them under Settings once the panel is back up.`,
-              params: { fields: "RCON password, port, host", reason: sanitizeError(rconSettingsError.message) },
-            });
-          }
-        }
-
-        // Pre-create the INI with RCON + UPnP settings so PZ reads them on
-        // first boot (PZ reads the INI at startup -- if we wait until
-        // after, they won't take effect). Previously this whole block only
-        // ran `if (rconPassword)`, which meant a server installed without
-        // an RCON password never got its UPnP choice written either, even
-        // though the two have nothing to do with each other -- the
-        // wizard's UPnP checkbox saved a global legacy setting nothing
-        // ever read, and never touched this server's own .ini at all
-        // (2026-08-26, same-night audit alongside the adminPassword fix:
-        // "wire it, don't remove it"). Decoupled from rconPassword so a
-        // server's UPnP choice reaches its .ini regardless.
-        try {
-          const iniPath = path.join(serverConfigPath, `${serverName}.ini`);
-          if (!fs.existsSync(iniPath)) {
-            if (!fs.existsSync(serverConfigPath)) {
-              fs.mkdirSync(serverConfigPath, { recursive: true });
-            }
-            const lines = [
-              "# Auto-generated by Zomboid Control Panel",
-              "# PZ will add remaining default settings on first server start",
-              `UPnP=${useUpnp ? "true" : "false"}`,
-            ];
-            if (rconPassword) {
-              const safeRconPw = sanitizeIniValue(rconPassword);
-              lines.push(`RCONPort=${safeRconPort}`, `RCONPassword=${safeRconPw}`);
-            }
-            writeFileAtomic(iniPath, lines.join("\n") + "\n", {
-              encoding: "utf-8",
-              mode: 0o600,
-            });
-            log.info(
-              `Pre-created INI at ${iniPath} (UPnP=${useUpnp}${rconPassword ? ", RCON configured" : ""})`,
-            );
-            io.emit("install:log", rconPassword
-              ? {
-                  type: "stdout",
-                  text: "Pre-created server INI with RCON credentials",
-                  progressCode: ProgressCode.INI_PRECREATED_WITH_RCON,
-                  ...installEventScope,
-                }
-              : {
-                  type: "stdout",
-                  text: "Pre-created server INI with UPnP setting",
-                  progressCode: ProgressCode.INI_PRECREATED_WITH_UPNP,
-                  ...installEventScope,
-                });
-          }
-        } catch (iniError) {
-          log.warn(`Failed to pre-create INI: ${iniError.message}`);
-          const permissionHint =
-            iniError.code === "EACCES"
-              ? ` ${formatWritablePathError("data", serverConfigPath).message}`
-              : "";
-          warnings.push({
-            progressCode: ProgressCode.INSTALL_RCON_INI_PRECREATE_FAILED,
-            message: `Could not pre-write ${rconPassword ? "the RCON password" : "the UPnP setting"} into the server config (${sanitizeError(iniError.message)}).${permissionHint} This is retried automatically the next time you start the server.`,
-            params: { reason: sanitizeError(iniError.message) },
-          });
-        }
-
-        // Generate custom startup scripts (both .bat and .sh)
-        try {
-          const scripts = generateStartupScripts({
-            installPath,
-            serverName,
-            minMemory: safeMinMemory,
-            maxMemory: safeMaxMemory,
-            zomboidDataPath: zomboidPath,
-            adminPassword: safeAdminPassword,
-            serverPort: safeServerPort,
-            useNoSteam,
-            useDebug,
-          });
-
-          const batchPath = path.join(
-            installPath,
-            `StartServer_${serverName}.bat`,
-          );
-          writeFileAtomic(batchPath, scripts.bat, "utf8");
-          log.info(`Created custom startup batch: ${batchPath}`);
-
-          const shellPath = path.join(
-            installPath,
-            `start-server_${serverName}.sh`,
-          );
-          writeFileAtomic(shellPath, scripts.sh.replace(/\r\n/g, "\n"), {
-            encoding: "utf8",
-            mode: 0o750,
-          });
-          log.info(`Created custom startup script: ${shellPath}`);
-
-          const scriptName =
-            process.platform === "win32"
-              ? `StartServer_${serverName}.bat`
-              : `start-server_${serverName}.sh`;
-          io.emit("install:log", {
-            type: "stdout",
-            text: `Created custom startup script: ${scriptName}`,
-            progressCode: ProgressCode.STARTUP_SCRIPT_CREATED,
-            params: { scriptName },
-            ...installEventScope,
-          });
-        } catch (batchError) {
-          log.warn(`Failed to create startup scripts: ${batchError.message}`);
-          warnings.push({
-            progressCode: ProgressCode.INSTALL_STARTUP_SCRIPT_FAILED,
-            message: `Could not generate this server's custom startup script (${sanitizeError(batchError.message)}). The server can still be started -- it will use the default script until this regenerates, which also happens automatically on the next start.`,
-            params: { reason: sanitizeError(batchError.message) },
-          });
-        }
-
-        logServerEvent(
-          "server_install",
-          `Installed PZ server to ${installPath} (${selectedBranch} branch)`,
-        );
-
-        // 2026-08-26 bug hunt: exit code 0 was trusted as sufficient proof
-        // the game files were actually installed -- SteamCMD can exit 0
-        // after a rate-limited, interrupted, or otherwise incomplete
-        // download. The self-install-steamcmd-itself step above already
-        // does an existsSync check on its own output for exactly this
-        // reason; this carries that same habit to the install that
-        // actually matters. Same PZ_INSTALL_MARKERS list DELETE
-        // /delete-files uses to confirm a folder is a real PZ install --
-        // one marker present is enough to call this usable, not a deep
-        // validation.
-        if (!hasPzInstallMarker(installPath)) {
-          log.warn(
-            `SteamCMD exited 0 but no recognizable PZ server files were found at ${installPath}`,
-          );
-          warnings.push({
-            progressCode: ProgressCode.INSTALL_MISSING_GAME_FILES,
-            message:
-              "SteamCMD reported success, but no recognizable game files were found at the install path. Check the SteamCMD log above for a hidden error (a rate limit or an interrupted download can still exit 0), and verify the install path before starting this server.",
-          });
-        }
-
-        // Auto-install PanelBridge mod to the server
-        try {
-          const possibleModPaths = [
-            path.join(process.cwd(), "pz-mod", "PanelBridge"),
-            path.join(path.dirname(process.execPath), "pz-mod", "PanelBridge"),
-          ];
-
-          let modSourcePath = null;
-          for (const p of possibleModPaths) {
-            if (fs.existsSync(p)) {
-              modSourcePath = p;
-              break;
-            }
-          }
-
-          if (modSourcePath) {
-            const sourceLuaFile = path.join(
-              modSourcePath,
-              "media",
-              "lua",
-              "server",
-              "PanelBridge.lua",
-            );
-            const destLuaDir = path.join(installPath, "media", "lua", "server");
-            const destLuaFile = path.join(destLuaDir, "PanelBridge.lua");
-
-            if (fs.existsSync(sourceLuaFile)) {
-              if (!fs.existsSync(destLuaDir)) {
-                fs.mkdirSync(destLuaDir, { recursive: true });
-              }
-              fs.copyFileSync(sourceLuaFile, destLuaFile);
-              io.emit("install:log", {
-                type: "stdout",
-                text: "PanelBridge mod installed automatically",
-                progressCode: ProgressCode.PANELBRIDGE_AUTO_INSTALLED,
-                ...installEventScope,
-              });
-              log.info("PanelBridge mod auto-installed to server");
-            }
-          }
-        } catch (modError) {
-          log.warn(
-            `Failed to auto-install PanelBridge mod: ${modError.message}`,
-          );
-        }
-
-        io.emit("install:complete", {
-          success: true,
-          message: "Server installed successfully",
-          installPath,
-          serverName,
-          zomboidDataPath: zomboidPath, // Send back the computed data path
-          serverConfigPath,
-          branch: selectedBranch,
-          rconPort: safeRconPort,
-          hasRconPassword: !!rconPassword,
-          serverPort: safeServerPort,
-          minMemory: safeMinMemory,
-          maxMemory: safeMaxMemory,
-          progressCode: ProgressCode.INSTALL_COMPLETE_SUCCESS,
-          warnings,
-          ...installEventScope,
-        });
-      } else if (killedByWatchdog) {
-        const idleMinutes = STEAM_OPERATION_IDLE_TIMEOUT_MS / 60000;
-        log.error(
-          `SteamCMD produced no output for ${idleMinutes} minutes and was stopped`,
-        );
-        io.emit("install:complete", {
-          success: false,
-          message: `Installation was stopped after ${idleMinutes} minutes with no output from SteamCMD -- it may have stalled or lost its connection. Try again.`,
-          output,
-          progressCode: ProgressCode.INSTALL_WATCHDOG_KILLED,
-          params: { minutes: idleMinutes },
-          ...installEventScope,
-        });
-      } else {
-        log.error(`SteamCMD exited with code ${code}`);
-        io.emit("install:complete", {
-          success: false,
-          message: `Installation failed with exit code ${code}`,
-          output,
-          progressCode: ProgressCode.INSTALL_FAILED_EXIT_CODE,
-          params: { code },
-          ...installEventScope,
-        });
-      }
-
-      // Clear active operation
-      clearActiveSteamOperation(normalizedPath);
-    });
-
-    steamcmd.on("error", (error) => {
-      // Clear active operation on error
-      clearActiveSteamOperation(normalizedPath);
-
-      log.error(`SteamCMD error: ${error.message}`);
-      io.emit("install:complete", {
-        success: false,
-        message: `Failed to run SteamCMD: ${sanitizeError(error.message)}`,
-        progressCode: ProgressCode.STEAMCMD_RUN_FAILED,
-        params: { reason: sanitizeError(error.message) },
-        ...installEventScope,
-      });
-    });
-
-    // All of steamcmd's own listeners are attached synchronously above --
-    // this await, unlike one placed between spawn() and those .on() calls,
-    // cannot lose an early 'close'/'error'/data event to a gap where
-    // nothing was listening yet.
-    await recordActiveSteamOperationPid(normalizedPath, steamcmd.pid);
-
-    // Return immediately - progress is sent via Socket.IO
+    // install-selfheal-background, 2026-09-18 (should-steamcmd-self-heal-
+    // hold-the-http-response-or-run-in-background): ensureSteamCmdInstalled's
+    // own download+extract+first-run can take minutes -- awaiting it here,
+    // before responding (as this route used to), held this HTTP response
+    // open the whole time, well past the client's own default request
+    // timeout (client/src/lib/api.ts's fetchTimeout is 15s for this call),
+    // so a self-heal that was still genuinely running server-side showed up
+    // to the operator as "Installation failed" while the panel kept working
+    // underneath. Respond now -- the same "the request only confirms this
+    // was launched, the real outcome arrives over the socket" contract the
+    // real SteamCMD spawn below (and POST /steam-update) already use --
+    // and run self-heal + the real install in the background. Every
+    // failure branch from here on emits its own install:complete (scoped by
+    // installEventScope, same as every other failure branch below) instead
+    // of an HTTP error, since the response is already sent; the client's
+    // handleInstallComplete already treats that identically to the old
+    // HTTP-error catch path (see its own comment).
     res.json({
       success: true,
       message: "Installation started. Check the log for progress.",
       installPath,
       branch: selectedBranch,
+    });
+
+    (async () => {
+      try {
+        if (needsSteamCmdSelfHeal) {
+          steamcmdExe = await ensureSteamCmdInstalled(steamcmdPath, io);
+        }
+
+        // Build SteamCMD command
+        // App ID 380870 is Project Zomboid Dedicated Server
+        const betaArgs = getBetaArgs(selectedBranch);
+        const loginArgs = await getSteamLoginArgs();
+        const steamcmdArgs = [
+          "+force_install_dir",
+          installPath,
+          ...loginArgs,
+          "+app_update",
+          "380870",
+          ...betaArgs,
+          "validate",
+          "+quit",
+        ];
+
+        // Spawn SteamCMD process
+        const spawnOpts = { cwd: steamcmdPath };
+        if (!isWindows) {
+          spawnOpts.env = buildLinuxSteamCmdEnv(steamcmdPath);
+        }
+        const steamcmd = spawn(steamcmdExe, steamcmdArgs, spawnOpts);
+        // A signal-killed process reports code=null to the close handler below,
+        // not the exit code INSTALL_FAILED_EXIT_CODE's message names -- tracked
+        // so that branch can say "stalled and was stopped" instead of the
+        // literal word "null" (2026-08-26 install-failure hunt finding #1).
+        let killedByWatchdog = false;
+        activeSteamOperations.get(normalizedPath).watchdog = setInterval(() => {
+          const activeOperation = activeSteamOperations.get(normalizedPath);
+          if (!activeOperation) return;
+          if (!isSteamOperationIdle(activeOperation)) return;
+
+          log.error(
+            `SteamCMD ${activeOperation.type} produced no output for ${STEAM_OPERATION_IDLE_TIMEOUT_MS / 60000} minutes; terminating the stalled process`,
+          );
+          killedByWatchdog = true;
+          steamcmd.kill();
+        }, 30_000);
+        activeSteamOperations.get(normalizedPath).watchdog.unref?.();
+
+        let output = "";
+        let stdoutBuffer = "";
+        let stderrBuffer = "";
+
+        steamcmd.stdout.on("data", (data) => {
+          const operation = activeSteamOperations.get(normalizedPath);
+          if (operation) operation.lastOutputAt = Date.now();
+          const text = data.toString();
+          output += text;
+          stdoutBuffer += text;
+
+          // Split by newlines and emit each line for real-time streaming
+          const lines = stdoutBuffer.split(/\r?\n/);
+          // Keep the last incomplete line in the buffer
+          stdoutBuffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (line.trim()) {
+              emitRawSteamCmdLine(io, "install:log", "stdout", line, installEventScope);
+              log.info(`SteamCMD: ${line}`);
+            }
+          }
+        });
+
+        steamcmd.stderr.on("data", (data) => {
+          const operation = activeSteamOperations.get(normalizedPath);
+          if (operation) operation.lastOutputAt = Date.now();
+          const text = data.toString();
+          output += text;
+          stderrBuffer += text;
+
+          // Split by newlines and emit each line for real-time streaming
+          const lines = stderrBuffer.split(/\r?\n/);
+          // Keep the last incomplete line in the buffer
+          stderrBuffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (line.trim()) {
+              emitRawSteamCmdLine(io, "install:log", "stderr", line, installEventScope);
+              log.warn(`SteamCMD stderr: ${line}`);
+            }
+          }
+        });
+
+        steamcmd.on("close", async (code) => {
+          // Flush any remaining buffered output
+          if (stdoutBuffer.trim()) {
+            emitRawSteamCmdLine(io, "install:log", "stdout", stdoutBuffer.trim(), installEventScope);
+            log.info(`SteamCMD: ${stdoutBuffer.trim()}`);
+          }
+          if (stderrBuffer.trim()) {
+            emitRawSteamCmdLine(io, "install:log", "stderr", stderrBuffer.trim(), installEventScope);
+            log.warn(`SteamCMD stderr: ${stderrBuffer.trim()}`);
+          }
+
+          // continuous-bug-hunt, 2026-09-18 (install-wizard-hunt): SteamCMD is
+          // well documented to exit 0 even when +app_update failed partway -- a
+          // disk-full write failure, a rejected/incomplete download, or a
+          // config-resolution failure all print one or more "ERROR!"-prefixed
+          // lines (or, for the config case, "Missing configuration") and then
+          // still exit 0. Exactly the same gap /steam-update's own
+          // steamcmd-success-truth fix closed for update/verify (see that
+          // route's steamCmdReportedError, same regex) -- it never transferred
+          // here. hasPzInstallMarker() below only proves SOME marker file
+          // exists; on a disk-full download those small launcher/metadata files
+          // can already be on disk before the write failure hits the large game
+          // data, so a marker being present does not contradict SteamCMD having
+          // just reported ERROR! in the same run. Checked before hasPzInstallMarker,
+          // not as a replacement for it -- either signal alone can miss a partial
+          // install; both together catch more than either would.
+          const steamCmdReportedError =
+            /^\s*ERROR!/im.test(output) || /missing configuration/i.test(output);
+
+          if (code === 0 && steamCmdReportedError) {
+            log.error(
+              "SteamCMD exited cleanly (code 0) but reported an error in its own output during the install",
+            );
+            io.emit("install:complete", {
+              success: false,
+              message:
+                "SteamCMD exited cleanly (code 0) but reported an error in its own output -- check the SteamCMD log above for the exact line. This can happen when the disk fills up mid-download or a Steam-side error interrupts it partway; the install did not complete. Free up space or retry, then reinstall.",
+              output,
+              progressCode: ProgressCode.INSTALL_STEAMCMD_REPORTED_ERROR,
+              ...installEventScope,
+            });
+          } else if (code === 0) {
+            log.info("PZ server installation completed successfully");
+
+            // The game files installed -- that part is done and expensive to
+            // redo, so success:false is never used for a failure past this
+            // point (2026-08-26 install-failure hunt finding #6). A step below
+            // that fails but self-heals on the next POST /server/start (the INI
+            // pre-create, the startup script) is instead collected here and
+            // sent as a `warnings` array alongside success:true, so the
+            // operator sees it without being told to reinstall over it.
+            const warnings = [];
+
+            // Auto-update settings with new paths. Wrapped: these were bare
+            // awaits with nothing catching a throw, and this app's
+            // unhandledRejection handler (server/index.js) kills the whole
+            // panel process on an uncaught rejection -- so a transient
+            // settings-write failure here used to take the panel down mid-
+            // install instead of just leaving a setting unsaved. The game
+            // files already installed successfully at this point, so this
+            // follows the same warnings-array convention as the other
+            // self-healing failures below rather than reporting success:false.
+            try {
+              await setSetting("serverPath", installPath);
+              await setSetting("serverName", serverName);
+              await setSetting("minMemory", minMemory);
+              await setSetting("maxMemory", maxMemory);
+              await setSetting("serverPort", serverPort);
+              await setSetting("useUpnp", useUpnp);
+
+              if (zomboidDataPath) {
+                await setSetting("zomboidDataPath", zomboidDataPath);
+              } else {
+                await setSetting("zomboidDataPath", zomboidPath);
+                io.emit("install:log", {
+                  type: "stdout",
+                  text: `Using ${usesEnvironmentDataPath ? "configured" : "isolated"} data folder: ${zomboidPath}`,
+                  progressCode: usesEnvironmentDataPath
+                    ? ProgressCode.DATA_FOLDER_USING_CONFIGURED
+                    : ProgressCode.DATA_FOLDER_USING_ISOLATED,
+                  params: { path: zomboidPath },
+                  ...installEventScope,
+                });
+              }
+
+              await setSetting("serverConfigPath", serverConfigPath);
+            } catch (settingsError) {
+              log.error(`Failed to save install settings: ${settingsError.message}`);
+              warnings.push({
+                progressCode: ProgressCode.INSTALL_SETTINGS_SAVE_FAILED,
+                message: `Server files installed, but some install settings could not be saved (${sanitizeError(settingsError.message)}). Re-check them under Settings once the panel is back up.`,
+                params: { fields: "serverPath, serverName, memory, port, UPnP, data paths", reason: sanitizeError(settingsError.message) },
+              });
+            }
+
+            // Re-check after the download in case a mounted path changed while
+            // SteamCMD was running.
+            try {
+              ensureWritableDirectory(serverConfigPath);
+            } catch (dirError) {
+              // Keep the raw errno in the log even though the operator-facing
+              // text below is friendlier -- someone debugging still needs it.
+              log.error(
+                `Data folder is not writable: ${zomboidPath} (${dirError.message})`,
+              );
+              // Reuses formatWritablePathError -- the SAME container-aware
+              // guidance the pre-download check above already gives, instead of
+              // this "re-check after the download" duplicate growing its own,
+              // Linux-only message that never checked isContainer (found
+              // 2026-08-29, "raw EACCES with no pointer to the fix" hunt: it
+              // told a Docker operator to run a command inside the ephemeral
+              // container that can't fix a host-side bind-mount ownership
+              // mismatch at all). The concrete `sudo install -d` example is
+              // still worth keeping for bare metal specifically -- more
+              // actionable than the shared message's generic chown/chmod
+              // pointer -- so it rides along as an extra param rather than
+              // being lost.
+              const writableError = formatWritablePathError("data", zomboidPath);
+              const bareMetalCommand =
+                writableError.code === ErrorCode.WRITABLE_PATH_DATA_BAREMETAL
+                  ? `sudo install -d -m 0755 -o "$(whoami)" -g "$(whoami)" "${zomboidPath}"`
+                  : null;
+              io.emit("install:complete", {
+                success: false,
+                message: bareMetalCommand
+                  ? `${writableError.message} For example: ${bareMetalCommand}`
+                  : writableError.message,
+                installPath,
+                serverName,
+                progressCode: writableError.code,
+                params: {
+                  ...writableError.params,
+                  reason: dirError.code || dirError.message,
+                  ...(bareMetalCommand ? { command: bareMetalCommand } : {}),
+                },
+                ...installEventScope,
+              });
+              clearActiveSteamOperation(normalizedPath);
+              return;
+            }
+
+            // Save RCON settings for later use. Same crash exposure and same
+            // fix as the settings block above -- a bare await here previously
+            // meant a failed RCON settings write could take the whole panel
+            // down instead of just leaving RCON unconfigured.
+            if (rconPassword) {
+              try {
+                await setSetting("rconPassword", rconPassword);
+                await setSetting("rconPort", rconPort);
+                await setSetting("rconHost", resolveEnvRconHost());
+                io.emit("install:log", {
+                  type: "stdout",
+                  text: `RCON settings saved (port: ${rconPort})`,
+                  progressCode: ProgressCode.RCON_SETTINGS_SAVED,
+                  params: { port: rconPort },
+                  ...installEventScope,
+                });
+              } catch (rconSettingsError) {
+                log.error(`Failed to save RCON settings: ${rconSettingsError.message}`);
+                warnings.push({
+                  progressCode: ProgressCode.INSTALL_SETTINGS_SAVE_FAILED,
+                  message: `Server files installed, but the RCON password/port could not be saved (${sanitizeError(rconSettingsError.message)}). Re-check them under Settings once the panel is back up.`,
+                  params: { fields: "RCON password, port, host", reason: sanitizeError(rconSettingsError.message) },
+                });
+              }
+            }
+
+            // Pre-create the INI with RCON + UPnP settings so PZ reads them on
+            // first boot (PZ reads the INI at startup -- if we wait until
+            // after, they won't take effect). Previously this whole block only
+            // ran `if (rconPassword)`, which meant a server installed without
+            // an RCON password never got its UPnP choice written either, even
+            // though the two have nothing to do with each other -- the
+            // wizard's UPnP checkbox saved a global legacy setting nothing
+            // ever read, and never touched this server's own .ini at all
+            // (2026-08-26, same-night audit alongside the adminPassword fix:
+            // "wire it, don't remove it"). Decoupled from rconPassword so a
+            // server's UPnP choice reaches its .ini regardless.
+            try {
+              const iniPath = path.join(serverConfigPath, `${serverName}.ini`);
+              if (!fs.existsSync(iniPath)) {
+                if (!fs.existsSync(serverConfigPath)) {
+                  fs.mkdirSync(serverConfigPath, { recursive: true });
+                }
+                const lines = [
+                  "# Auto-generated by Zomboid Control Panel",
+                  "# PZ will add remaining default settings on first server start",
+                  `UPnP=${useUpnp ? "true" : "false"}`,
+                ];
+                if (rconPassword) {
+                  const safeRconPw = sanitizeIniValue(rconPassword);
+                  lines.push(`RCONPort=${safeRconPort}`, `RCONPassword=${safeRconPw}`);
+                }
+                writeFileAtomic(iniPath, lines.join("\n") + "\n", {
+                  encoding: "utf-8",
+                  mode: 0o600,
+                });
+                log.info(
+                  `Pre-created INI at ${iniPath} (UPnP=${useUpnp}${rconPassword ? ", RCON configured" : ""})`,
+                );
+                io.emit("install:log", rconPassword
+                  ? {
+                      type: "stdout",
+                      text: "Pre-created server INI with RCON credentials",
+                      progressCode: ProgressCode.INI_PRECREATED_WITH_RCON,
+                      ...installEventScope,
+                    }
+                  : {
+                      type: "stdout",
+                      text: "Pre-created server INI with UPnP setting",
+                      progressCode: ProgressCode.INI_PRECREATED_WITH_UPNP,
+                      ...installEventScope,
+                    });
+              }
+            } catch (iniError) {
+              log.warn(`Failed to pre-create INI: ${iniError.message}`);
+              const permissionHint =
+                iniError.code === "EACCES"
+                  ? ` ${formatWritablePathError("data", serverConfigPath).message}`
+                  : "";
+              warnings.push({
+                progressCode: ProgressCode.INSTALL_RCON_INI_PRECREATE_FAILED,
+                message: `Could not pre-write ${rconPassword ? "the RCON password" : "the UPnP setting"} into the server config (${sanitizeError(iniError.message)}).${permissionHint} This is retried automatically the next time you start the server.`,
+                params: { reason: sanitizeError(iniError.message) },
+              });
+            }
+
+            // Generate custom startup scripts (both .bat and .sh)
+            try {
+              const scripts = generateStartupScripts({
+                installPath,
+                serverName,
+                minMemory: safeMinMemory,
+                maxMemory: safeMaxMemory,
+                zomboidDataPath: zomboidPath,
+                adminPassword: safeAdminPassword,
+                serverPort: safeServerPort,
+                useNoSteam,
+                useDebug,
+              });
+
+              const batchPath = path.join(
+                installPath,
+                `StartServer_${serverName}.bat`,
+              );
+              writeFileAtomic(batchPath, scripts.bat, "utf8");
+              log.info(`Created custom startup batch: ${batchPath}`);
+
+              const shellPath = path.join(
+                installPath,
+                `start-server_${serverName}.sh`,
+              );
+              writeFileAtomic(shellPath, scripts.sh.replace(/\r\n/g, "\n"), {
+                encoding: "utf8",
+                mode: 0o750,
+              });
+              log.info(`Created custom startup script: ${shellPath}`);
+
+              const scriptName =
+                process.platform === "win32"
+                  ? `StartServer_${serverName}.bat`
+                  : `start-server_${serverName}.sh`;
+              io.emit("install:log", {
+                type: "stdout",
+                text: `Created custom startup script: ${scriptName}`,
+                progressCode: ProgressCode.STARTUP_SCRIPT_CREATED,
+                params: { scriptName },
+                ...installEventScope,
+              });
+            } catch (batchError) {
+              log.warn(`Failed to create startup scripts: ${batchError.message}`);
+              warnings.push({
+                progressCode: ProgressCode.INSTALL_STARTUP_SCRIPT_FAILED,
+                message: `Could not generate this server's custom startup script (${sanitizeError(batchError.message)}). The server can still be started -- it will use the default script until this regenerates, which also happens automatically on the next start.`,
+                params: { reason: sanitizeError(batchError.message) },
+              });
+            }
+
+            logServerEvent(
+              "server_install",
+              `Installed PZ server to ${installPath} (${selectedBranch} branch)`,
+            );
+
+            // 2026-08-26 bug hunt: exit code 0 was trusted as sufficient proof
+            // the game files were actually installed -- SteamCMD can exit 0
+            // after a rate-limited, interrupted, or otherwise incomplete
+            // download. The self-install-steamcmd-itself step above already
+            // does an existsSync check on its own output for exactly this
+            // reason; this carries that same habit to the install that
+            // actually matters. Same PZ_INSTALL_MARKERS list DELETE
+            // /delete-files uses to confirm a folder is a real PZ install --
+            // one marker present is enough to call this usable, not a deep
+            // validation.
+            if (!hasPzInstallMarker(installPath)) {
+              log.warn(
+                `SteamCMD exited 0 but no recognizable PZ server files were found at ${installPath}`,
+              );
+              warnings.push({
+                progressCode: ProgressCode.INSTALL_MISSING_GAME_FILES,
+                message:
+                  "SteamCMD reported success, but no recognizable game files were found at the install path. Check the SteamCMD log above for a hidden error (a rate limit or an interrupted download can still exit 0), and verify the install path before starting this server.",
+              });
+            }
+
+            // Auto-install PanelBridge mod to the server
+            try {
+              const possibleModPaths = [
+                path.join(process.cwd(), "pz-mod", "PanelBridge"),
+                path.join(path.dirname(process.execPath), "pz-mod", "PanelBridge"),
+              ];
+
+              let modSourcePath = null;
+              for (const p of possibleModPaths) {
+                if (fs.existsSync(p)) {
+                  modSourcePath = p;
+                  break;
+                }
+              }
+
+              if (modSourcePath) {
+                const sourceLuaFile = path.join(
+                  modSourcePath,
+                  "media",
+                  "lua",
+                  "server",
+                  "PanelBridge.lua",
+                );
+                const destLuaDir = path.join(installPath, "media", "lua", "server");
+                const destLuaFile = path.join(destLuaDir, "PanelBridge.lua");
+
+                if (fs.existsSync(sourceLuaFile)) {
+                  if (!fs.existsSync(destLuaDir)) {
+                    fs.mkdirSync(destLuaDir, { recursive: true });
+                  }
+                  fs.copyFileSync(sourceLuaFile, destLuaFile);
+                  io.emit("install:log", {
+                    type: "stdout",
+                    text: "PanelBridge mod installed automatically",
+                    progressCode: ProgressCode.PANELBRIDGE_AUTO_INSTALLED,
+                    ...installEventScope,
+                  });
+                  log.info("PanelBridge mod auto-installed to server");
+                }
+              }
+            } catch (modError) {
+              log.warn(
+                `Failed to auto-install PanelBridge mod: ${modError.message}`,
+              );
+            }
+
+            io.emit("install:complete", {
+              success: true,
+              message: "Server installed successfully",
+              installPath,
+              serverName,
+              zomboidDataPath: zomboidPath, // Send back the computed data path
+              serverConfigPath,
+              branch: selectedBranch,
+              rconPort: safeRconPort,
+              hasRconPassword: !!rconPassword,
+              serverPort: safeServerPort,
+              minMemory: safeMinMemory,
+              maxMemory: safeMaxMemory,
+              progressCode: ProgressCode.INSTALL_COMPLETE_SUCCESS,
+              warnings,
+              ...installEventScope,
+            });
+          } else if (killedByWatchdog) {
+            const idleMinutes = STEAM_OPERATION_IDLE_TIMEOUT_MS / 60000;
+            log.error(
+              `SteamCMD produced no output for ${idleMinutes} minutes and was stopped`,
+            );
+            io.emit("install:complete", {
+              success: false,
+              message: `Installation was stopped after ${idleMinutes} minutes with no output from SteamCMD -- it may have stalled or lost its connection. Try again.`,
+              output,
+              progressCode: ProgressCode.INSTALL_WATCHDOG_KILLED,
+              params: { minutes: idleMinutes },
+              ...installEventScope,
+            });
+          } else {
+            log.error(`SteamCMD exited with code ${code}`);
+            io.emit("install:complete", {
+              success: false,
+              message: `Installation failed with exit code ${code}`,
+              output,
+              progressCode: ProgressCode.INSTALL_FAILED_EXIT_CODE,
+              params: { code },
+              ...installEventScope,
+            });
+          }
+
+          // Clear active operation
+          clearActiveSteamOperation(normalizedPath);
+        });
+
+        steamcmd.on("error", (error) => {
+          // Clear active operation on error
+          clearActiveSteamOperation(normalizedPath);
+
+          log.error(`SteamCMD error: ${error.message}`);
+          io.emit("install:complete", {
+            success: false,
+            message: `Failed to run SteamCMD: ${sanitizeError(error.message)}`,
+            progressCode: ProgressCode.STEAMCMD_RUN_FAILED,
+            params: { reason: sanitizeError(error.message) },
+            ...installEventScope,
+          });
+        });
+
+        // All of steamcmd's own listeners are attached synchronously above --
+        // this await, unlike one placed between spawn() and those .on() calls,
+        // cannot lose an early 'close'/'error'/data event to a gap where
+        // nothing was listening yet.
+        await recordActiveSteamOperationPid(normalizedPath, steamcmd.pid);
+      } catch (err) {
+        // Self-heal (or anything before the real SteamCMD process attaches
+        // its own listeners) failed -- the HTTP response was already sent
+        // above, so report it the same way every other failure past that
+        // point does: install:complete over the socket, not an HTTP error.
+        clearActiveSteamOperation(normalizedPath);
+        log.error(`Installation error: ${err.message}`);
+        const isDownloadConflict =
+          err.code === ErrorCode.STEAMCMD_DOWNLOAD_ALREADY_IN_PROGRESS;
+        io.emit("install:complete", {
+          success: false,
+          message: isDownloadConflict
+            ? err.message
+            : needsSteamCmdSelfHeal
+              ? `SteamCMD not found and auto-download failed: ${sanitizeError(err.message)}`
+              : `Installation error: ${sanitizeError(err.message)}`,
+          progressCode: isDownloadConflict
+            ? err.code
+            : needsSteamCmdSelfHeal
+              ? ProgressCode.STEAMCMD_SELF_HEAL_FAILED
+              : undefined,
+          ...(needsSteamCmdSelfHeal && !isDownloadConflict
+            ? { params: { reason: sanitizeError(err.message) } }
+            : {}),
+          ...installEventScope,
+        });
+      }
+    })().catch((err) => {
+      // Last-resort backstop: every branch above already has its own
+      // try/catch and never rethrows -- this only exists so a genuine bug
+      // in it becomes a logged error instead of an unhandled rejection
+      // (server/index.js's own handler kills the whole panel process on
+      // one of those).
+      log.error(`Unexpected error after install self-heal: ${err.message}`);
+      clearActiveSteamOperation(normalizedPath);
     });
   } catch (error) {
     if (activeOperationPath) {
@@ -4586,22 +4645,7 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
     // executable from it -- see saveAndResolveSteamCmdExe's header comment
     // (CodeQL js/command-line-injection #13).
     let steamcmdExe = await saveAndResolveSteamCmdExe(steamcmdPath);
-    if (!steamcmdExe || !fs.existsSync(steamcmdExe)) {
-      try {
-        steamcmdExe = await ensureSteamCmdInstalled(
-          steamcmdPath,
-          req.app.get("io"),
-        );
-      } catch (dlErr) {
-        if (dlErr.code === ErrorCode.STEAMCMD_DOWNLOAD_ALREADY_IN_PROGRESS) {
-          return res.status(409).json({ error: dlErr.message, code: dlErr.code });
-        }
-        return res.status(500).json({
-          error: `SteamCMD not found and auto-download failed: ${sanitizeError(dlErr.message)}`,
-          code: ErrorCode.STEAMCMD_AUTO_DOWNLOAD_FAILED,
-        });
-      }
-    }
+    const needsSteamCmdSelfHeal = !steamcmdExe || !fs.existsSync(steamcmdExe);
 
     try {
       const recovery = recoverMismatchedSteamBranchManifest(
@@ -4629,8 +4673,8 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
     }
 
     // Prevent concurrent operations on the same install path. Deliberately
-    // placed HERE -- after every await above (saveAndResolveSteamCmdExe,
-    // ensureSteamCmdInstalled), not before them -- matching POST /install's
+    // placed HERE -- before self-heal now, not after it (see
+    // install-selfheal-background below for why) -- matching POST /install's
     // check/claim placement (which does it in this same order, right before
     // its own activeSteamOperations.set()). This check used to sit BEFORE
     // saveAndResolveSteamCmdExe's await, which meant two concurrent
@@ -4650,6 +4694,19 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
       });
     }
 
+    // install-selfheal-background, 2026-09-18: same fix as POST /install --
+    // steamcmdDownloadInProgress is the single-flight guard
+    // ensureSteamCmdInstalled() itself claims synchronously. Checked here
+    // too so a request that would only discover the conflict once self-heal
+    // starts in the background below still gets the same immediate 409 it
+    // always has, instead of a misleading "started" followed by a failure.
+    if (needsSteamCmdSelfHeal && steamcmdDownloadInProgress) {
+      return res.status(409).json({
+        error: "A SteamCMD download is already in progress",
+        code: ErrorCode.STEAMCMD_DOWNLOAD_ALREADY_IN_PROGRESS,
+      });
+    }
+
     const operation = validateFiles ? "verification" : "update";
     log.info(`Starting PZ server ${operation} (branch: ${selectedBranch})...`);
 
@@ -4661,20 +4718,6 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
       branch: selectedBranch,
     });
     activeOperationPath = normalizedPath;
-
-    // Build SteamCMD command
-    const betaArgs = getBetaArgs(selectedBranch);
-    const loginArgs = await getSteamLoginArgs();
-    const steamcmdArgs = [
-      "+force_install_dir",
-      installPath,
-      ...loginArgs,
-      "+app_update",
-      "380870",
-      ...betaArgs,
-      "validate",
-      "+quit",
-    ];
 
     const io = req.app.get("io");
 
@@ -4694,186 +4737,251 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
     // the operation its own open dialog started.
     const steamEventScope = { installPath };
 
-    // Emit start event
-    io.emit("steam:start", {
-      type: validateFiles ? "verify" : "update",
-      message: validateFiles ? "Verifying game files..." : "Updating server...",
-      progressCode: validateFiles
-        ? ProgressCode.STEAM_START_VERIFY
-        : ProgressCode.STEAM_START_UPDATE,
-      ...steamEventScope,
-    });
-
-    const updateSpawnOpts = { cwd: steamcmdPath };
-    if (!isWindows) {
-      updateSpawnOpts.env = buildLinuxSteamCmdEnv(steamcmdPath);
-    }
-    const steamcmd = spawn(steamcmdExe, steamcmdArgs, updateSpawnOpts);
-    activeSteamOperations.get(normalizedPath).watchdog = setInterval(() => {
-      const activeOperation = activeSteamOperations.get(normalizedPath);
-      if (!activeOperation) return;
-      if (!isSteamOperationIdle(activeOperation)) return;
-
-      log.error(
-        `SteamCMD ${activeOperation.type} produced no output for ${STEAM_OPERATION_IDLE_TIMEOUT_MS / 60000} minutes; terminating the stalled process`,
-      );
-      steamcmd.kill();
-    }, 30_000);
-    activeSteamOperations.get(normalizedPath).watchdog.unref?.();
-
-    let output = "";
-    let stdoutBuffer = "";
-    let stderrBuffer = "";
-
-    steamcmd.stdout.on("data", (data) => {
-      const operation = activeSteamOperations.get(normalizedPath);
-      if (operation) operation.lastOutputAt = Date.now();
-      const text = data.toString();
-      output += text;
-      stdoutBuffer += text;
-
-      const lines = stdoutBuffer.split(/\r?\n/);
-      stdoutBuffer = lines.pop() || "";
-
-      for (const line of lines) {
-        if (line.trim()) {
-          emitRawSteamCmdLine(io, "steam:log", "stdout", line, steamEventScope);
-          log.info(`SteamCMD: ${line}`);
-        }
-      }
-    });
-
-    steamcmd.stderr.on("data", (data) => {
-      const operation = activeSteamOperations.get(normalizedPath);
-      if (operation) operation.lastOutputAt = Date.now();
-      const text = data.toString();
-      output += text;
-      stderrBuffer += text;
-
-      // Buffer stderr lines like stdout for consistent output
-      const lines = stderrBuffer.split(/\r?\n/);
-      stderrBuffer = lines.pop() || "";
-
-      for (const line of lines) {
-        if (line.trim()) {
-          emitRawSteamCmdLine(io, "steam:log", "stderr", line, steamEventScope);
-          log.warn(`SteamCMD stderr: ${line}`);
-        }
-      }
-    });
-
-    steamcmd.on("close", (code) => {
-      // Flush remaining buffers
-      if (stdoutBuffer.trim()) {
-        emitRawSteamCmdLine(io, "steam:log", "stdout", stdoutBuffer.trim(), steamEventScope);
-      }
-      if (stderrBuffer.trim()) {
-        emitRawSteamCmdLine(io, "steam:log", "stderr", stderrBuffer.trim(), steamEventScope);
-      }
-
-      // Clear active operation
-      clearActiveSteamOperation(normalizedPath);
-
-      // continuous-bug-hunt, 2026-09-18 (steamcmd-success-truth round):
-      // SteamCMD is well documented to exit 0 even when +app_update failed
-      // partway -- a rejected/incomplete download, a corrupted manifest, a
-      // disk-space failure, or a config-resolution failure all print one or
-      // more "ERROR!"-prefixed lines (or, for the config case specifically,
-      // "Missing configuration") and then still let the child process exit
-      // 0. code===0 alone was trusted as sufficient proof of success here,
-      // the identical exit-0-lies gap POST /install already closed via
-      // hasPzInstallMarker() (2026-08-26) -- that exact fix doesn't
-      // transfer to this route unmodified, though: this one updates/
-      // validates an ALREADY-installed server, so the marker files it
-      // would check are already sitting on disk from before this run and
-      // prove nothing about whether THIS update actually succeeded. The
-      // signal that does exist here is SteamCMD's own captured output --
-      // scan it for its own documented failure lines before trusting the
-      // exit code, same distrust, different evidence.
-      const steamCmdReportedError =
-        /^\s*ERROR!/im.test(output) || /missing configuration/i.test(output);
-      const success = code === 0 && !steamCmdReportedError;
-      const steamDepotAccessDenied =
-        /app ['"]?380870['"]? state is 0x6/i.test(output) ||
-        /manifest.*access denied/i.test(output);
-      const failureMessage = steamDepotAccessDenied
-        ? "SteamCMD could not access a Project Zomboid depot manifest. Your installed server files were not changed. Retry later; if it persists, update using a Steam account that owns Project Zomboid."
-        : steamCmdReportedError
-          ? `SteamCMD exited cleanly (code 0) but reported an error in its own output during the ${operation} -- check the SteamCMD log above for the exact line. Your installed server files may be incomplete or unchanged.`
-          : `Server ${operation} failed with code ${code}`;
-
-      // "update" vs "verification" is a word choice, not a value -- own
-      // codes per direction, not a shared template with `operation`
-      // substituted in (see ProgressCode's file header, params-vs-variant
-      // rule). steamDepotAccessDenied is independent of that distinction.
-      let completeProgressCode;
-      let completeParams;
-      if (success) {
-        completeProgressCode = validateFiles
-          ? ProgressCode.STEAM_VERIFY_COMPLETE_SUCCESS
-          : ProgressCode.STEAM_UPDATE_COMPLETE_SUCCESS;
-      } else if (steamDepotAccessDenied) {
-        completeProgressCode = ProgressCode.STEAM_DEPOT_ACCESS_DENIED;
-      } else {
-        completeProgressCode = validateFiles
-          ? ProgressCode.STEAM_VERIFY_FAILED
-          : ProgressCode.STEAM_UPDATE_FAILED;
-        completeParams = { code };
-      }
-
-      io.emit("steam:complete", {
-        success,
-        message: success
-          ? `Server ${operation} completed successfully`
-          : failureMessage,
-        progressCode: completeProgressCode,
-        ...(completeParams ? { params: completeParams } : {}),
-        ...steamEventScope,
-      });
-
-      // After successful update, re-check update status so banner clears
-      if (success) {
-        try {
-          const updateChecker = req.app.get("updateChecker");
-          if (updateChecker) {
-            setTimeout(() => updateChecker.checkForUpdates(true), 3000);
-          }
-        } catch (e) {
-          // Non-critical
-        }
-      }
-
-      logServerEvent(
-        success ? "server_update" : "server_update_failed",
-        `Server ${operation} ${success ? "completed" : "failed"}`,
-      ).catch((e) => log.error("Failed to log server event:", e));
-
-      log.info(`SteamCMD ${operation} finished with code ${code}`);
-    });
-
-    steamcmd.on("error", (error) => {
-      // Clear active operation on error
-      clearActiveSteamOperation(normalizedPath);
-
-      io.emit("steam:complete", {
-        success: false,
-        message: `Failed to run SteamCMD: ${sanitizeError(error.message)}`,
-        progressCode: ProgressCode.STEAMCMD_RUN_FAILED,
-        params: { reason: sanitizeError(error.message) },
-        ...steamEventScope,
-      });
-      log.error(`SteamCMD error: ${error.message}`);
-    });
-
-    // All of steamcmd's own listeners are attached synchronously above --
-    // this await, unlike one placed between spawn() and those .on() calls,
-    // cannot lose an early 'close'/'error'/data event to a gap where
-    // nothing was listening yet.
-    await recordActiveSteamOperationPid(normalizedPath, steamcmd.pid);
-
+    // install-selfheal-background, 2026-09-18 (should-steamcmd-self-heal-
+    // hold-the-http-response-or-run-in-background): see POST /install's own
+    // comment for the full reasoning -- ensureSteamCmdInstalled's
+    // download+extract+first-run can take minutes, so awaiting it before
+    // responding (as this route used to) held the HTTP response open well
+    // past the client's own request timeout. Respond now and run self-heal
+    // + the real update/verify in the background; every failure branch from
+    // here on emits its own steam:complete (scoped by steamEventScope, same
+    // as every other failure branch below) instead of an HTTP error.
     res.json({
       success: true,
       message: `Server ${operation} started`,
+    });
+
+    (async () => {
+      try {
+        if (needsSteamCmdSelfHeal) {
+          steamcmdExe = await ensureSteamCmdInstalled(steamcmdPath, io);
+        }
+
+        // Build SteamCMD command
+        const betaArgs = getBetaArgs(selectedBranch);
+        const loginArgs = await getSteamLoginArgs();
+        const steamcmdArgs = [
+          "+force_install_dir",
+          installPath,
+          ...loginArgs,
+          "+app_update",
+          "380870",
+          ...betaArgs,
+          "validate",
+          "+quit",
+        ];
+
+        // Emit start event
+        io.emit("steam:start", {
+          type: validateFiles ? "verify" : "update",
+          message: validateFiles ? "Verifying game files..." : "Updating server...",
+          progressCode: validateFiles
+            ? ProgressCode.STEAM_START_VERIFY
+            : ProgressCode.STEAM_START_UPDATE,
+          ...steamEventScope,
+        });
+
+        const updateSpawnOpts = { cwd: steamcmdPath };
+        if (!isWindows) {
+          updateSpawnOpts.env = buildLinuxSteamCmdEnv(steamcmdPath);
+        }
+        const steamcmd = spawn(steamcmdExe, steamcmdArgs, updateSpawnOpts);
+        activeSteamOperations.get(normalizedPath).watchdog = setInterval(() => {
+          const activeOperation = activeSteamOperations.get(normalizedPath);
+          if (!activeOperation) return;
+          if (!isSteamOperationIdle(activeOperation)) return;
+
+          log.error(
+            `SteamCMD ${activeOperation.type} produced no output for ${STEAM_OPERATION_IDLE_TIMEOUT_MS / 60000} minutes; terminating the stalled process`,
+          );
+          steamcmd.kill();
+        }, 30_000);
+        activeSteamOperations.get(normalizedPath).watchdog.unref?.();
+
+        let output = "";
+        let stdoutBuffer = "";
+        let stderrBuffer = "";
+
+        steamcmd.stdout.on("data", (data) => {
+          const operation = activeSteamOperations.get(normalizedPath);
+          if (operation) operation.lastOutputAt = Date.now();
+          const text = data.toString();
+          output += text;
+          stdoutBuffer += text;
+
+          const lines = stdoutBuffer.split(/\r?\n/);
+          stdoutBuffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (line.trim()) {
+              emitRawSteamCmdLine(io, "steam:log", "stdout", line, steamEventScope);
+              log.info(`SteamCMD: ${line}`);
+            }
+          }
+        });
+
+        steamcmd.stderr.on("data", (data) => {
+          const operation = activeSteamOperations.get(normalizedPath);
+          if (operation) operation.lastOutputAt = Date.now();
+          const text = data.toString();
+          output += text;
+          stderrBuffer += text;
+
+          // Buffer stderr lines like stdout for consistent output
+          const lines = stderrBuffer.split(/\r?\n/);
+          stderrBuffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (line.trim()) {
+              emitRawSteamCmdLine(io, "steam:log", "stderr", line, steamEventScope);
+              log.warn(`SteamCMD stderr: ${line}`);
+            }
+          }
+        });
+
+        steamcmd.on("close", (code) => {
+          // Flush remaining buffers
+          if (stdoutBuffer.trim()) {
+            emitRawSteamCmdLine(io, "steam:log", "stdout", stdoutBuffer.trim(), steamEventScope);
+          }
+          if (stderrBuffer.trim()) {
+            emitRawSteamCmdLine(io, "steam:log", "stderr", stderrBuffer.trim(), steamEventScope);
+          }
+
+          // Clear active operation
+          clearActiveSteamOperation(normalizedPath);
+
+          // continuous-bug-hunt, 2026-09-18 (steamcmd-success-truth round):
+          // SteamCMD is well documented to exit 0 even when +app_update failed
+          // partway -- a rejected/incomplete download, a corrupted manifest, a
+          // disk-space failure, or a config-resolution failure all print one or
+          // more "ERROR!"-prefixed lines (or, for the config case specifically,
+          // "Missing configuration") and then still let the child process exit
+          // 0. code===0 alone was trusted as sufficient proof of success here,
+          // the identical exit-0-lies gap POST /install already closed via
+          // hasPzInstallMarker() (2026-08-26) -- that exact fix doesn't
+          // transfer to this route unmodified, though: this one updates/
+          // validates an ALREADY-installed server, so the marker files it
+          // would check are already sitting on disk from before this run and
+          // prove nothing about whether THIS update actually succeeded. The
+          // signal that does exist here is SteamCMD's own captured output --
+          // scan it for its own documented failure lines before trusting the
+          // exit code, same distrust, different evidence.
+          const steamCmdReportedError =
+            /^\s*ERROR!/im.test(output) || /missing configuration/i.test(output);
+          const success = code === 0 && !steamCmdReportedError;
+          const steamDepotAccessDenied =
+            /app ['"]?380870['"]? state is 0x6/i.test(output) ||
+            /manifest.*access denied/i.test(output);
+          const failureMessage = steamDepotAccessDenied
+            ? "SteamCMD could not access a Project Zomboid depot manifest. Your installed server files were not changed. Retry later; if it persists, update using a Steam account that owns Project Zomboid."
+            : steamCmdReportedError
+              ? `SteamCMD exited cleanly (code 0) but reported an error in its own output during the ${operation} -- check the SteamCMD log above for the exact line. Your installed server files may be incomplete or unchanged.`
+              : `Server ${operation} failed with code ${code}`;
+
+          // "update" vs "verification" is a word choice, not a value -- own
+          // codes per direction, not a shared template with `operation`
+          // substituted in (see ProgressCode's file header, params-vs-variant
+          // rule). steamDepotAccessDenied is independent of that distinction.
+          let completeProgressCode;
+          let completeParams;
+          if (success) {
+            completeProgressCode = validateFiles
+              ? ProgressCode.STEAM_VERIFY_COMPLETE_SUCCESS
+              : ProgressCode.STEAM_UPDATE_COMPLETE_SUCCESS;
+          } else if (steamDepotAccessDenied) {
+            completeProgressCode = ProgressCode.STEAM_DEPOT_ACCESS_DENIED;
+          } else {
+            completeProgressCode = validateFiles
+              ? ProgressCode.STEAM_VERIFY_FAILED
+              : ProgressCode.STEAM_UPDATE_FAILED;
+            completeParams = { code };
+          }
+
+          io.emit("steam:complete", {
+            success,
+            message: success
+              ? `Server ${operation} completed successfully`
+              : failureMessage,
+            progressCode: completeProgressCode,
+            ...(completeParams ? { params: completeParams } : {}),
+            ...steamEventScope,
+          });
+
+          // After successful update, re-check update status so banner clears
+          if (success) {
+            try {
+              const updateChecker = req.app.get("updateChecker");
+              if (updateChecker) {
+                setTimeout(() => updateChecker.checkForUpdates(true), 3000);
+              }
+            } catch (e) {
+              // Non-critical
+            }
+          }
+
+          logServerEvent(
+            success ? "server_update" : "server_update_failed",
+            `Server ${operation} ${success ? "completed" : "failed"}`,
+          ).catch((e) => log.error("Failed to log server event:", e));
+
+          log.info(`SteamCMD ${operation} finished with code ${code}`);
+        });
+
+        steamcmd.on("error", (error) => {
+          // Clear active operation on error
+          clearActiveSteamOperation(normalizedPath);
+
+          io.emit("steam:complete", {
+            success: false,
+            message: `Failed to run SteamCMD: ${sanitizeError(error.message)}`,
+            progressCode: ProgressCode.STEAMCMD_RUN_FAILED,
+            params: { reason: sanitizeError(error.message) },
+            ...steamEventScope,
+          });
+          log.error(`SteamCMD error: ${error.message}`);
+        });
+
+        // All of steamcmd's own listeners are attached synchronously above --
+        // this await, unlike one placed between spawn() and those .on() calls,
+        // cannot lose an early 'close'/'error'/data event to a gap where
+        // nothing was listening yet.
+        await recordActiveSteamOperationPid(normalizedPath, steamcmd.pid);
+      } catch (err) {
+        // Self-heal (or anything before the real SteamCMD process attaches
+        // its own listeners) failed -- the HTTP response was already sent
+        // above, so report it the same way every other failure past that
+        // point does: steam:complete over the socket, not an HTTP error.
+        clearActiveSteamOperation(normalizedPath);
+        log.error(`Steam update failed: ${err.message}`);
+        const isDownloadConflict =
+          err.code === ErrorCode.STEAMCMD_DOWNLOAD_ALREADY_IN_PROGRESS;
+        io.emit("steam:complete", {
+          success: false,
+          message: isDownloadConflict
+            ? err.message
+            : needsSteamCmdSelfHeal
+              ? `SteamCMD not found and auto-download failed: ${sanitizeError(err.message)}`
+              : `Steam ${operation} error: ${sanitizeError(err.message)}`,
+          progressCode: isDownloadConflict
+            ? err.code
+            : needsSteamCmdSelfHeal
+              ? ProgressCode.STEAMCMD_SELF_HEAL_FAILED
+              : undefined,
+          ...(needsSteamCmdSelfHeal && !isDownloadConflict
+            ? { params: { reason: sanitizeError(err.message) } }
+            : {}),
+          ...steamEventScope,
+        });
+      }
+    })().catch((err) => {
+      // Last-resort backstop: every branch above already has its own
+      // try/catch and never rethrows -- this only exists so a genuine bug
+      // in it becomes a logged error instead of an unhandled rejection
+      // (server/index.js's own handler kills the whole panel process on
+      // one of those).
+      log.error(`Unexpected error after steam-update self-heal: ${err.message}`);
+      clearActiveSteamOperation(normalizedPath);
     });
   } catch (error) {
     if (activeOperationPath) {

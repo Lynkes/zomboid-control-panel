@@ -101,14 +101,14 @@
     "fullLogTooltip": "سجل تطبيق هذه اللوحة نفسه فقط — لا يتضمن سجلات خادم Zomboid أو تفريغات الأعطال. استخدم حزمة الدعم للحصول على ذلك."
   },
   "tabs": {
-    "diagnostics": "التشخيصات",
+    "diagnostics": "الفحوصات والإصلاحات",
     "worldMap": "خريطة العالم",
     "bridge": "PanelBridge",
     "performance": "الأداء",
     "activity": "النشاط",
     "logs": "السجلات",
     "crashes": "الأعطال",
-    "health": "الصحة",
+    "health": "الحالة المباشرة",
     "system": "البيئة"
   },
   "fixActions": {
@@ -349,6 +349,7 @@
     "overallPending": "جارٍ تنفيذ الفحوص…",
     "lastChecked": "آخر فحص {{time}} · {{duration}} م.ث · يتحدّث تلقائيًا كل 30 ث",
     "runningDescription": "جارٍ تنفيذ فحوص ذكية على الخدمات والمسارات والتخزين والتحديثات…",
+    "tabSubtitle": "يفحص إعداداتك بحثًا عن المشاكل ويقدم إصلاحات بنقرة واحدة.",
     "categories": {
       "services": "الخدمات الأساسية",
       "bridge": "اتصال PanelBridge (IPC)",
@@ -1627,6 +1628,7 @@
   },
   "healthTab": {
     "systemStatusTitle": "حالة النظام",
+    "tabSubtitle": "الحالة المباشرة لعملية اللوحة هذه: الذاكرة، مدة التشغيل، والخدمات المتصلة.",
     "healthy": "سليم",
     "checking": "جارٍ الفحص...",
     "issuesDetected": "تم اكتشاف مشكلات",
