@@ -143,3 +143,64 @@ describe("applyUpnpToIni() leaves a free-text UPnP= collision untouched", () => 
     expect(content.match(/^UPnP=/gm)).toHaveLength(1);
   });
 });
+
+// bug-hunt-2026-09-18 (round: ini save round-trip): a real PZ-written
+// server .ini is CRLF (confirmed against a live B42 dedicated-server
+// install -- every one of its ~420 lines ends \r\n, zero bare \n). All
+// three routes above (and ensureRconConfigured(), pinned separately in
+// ensureRconConfigured.test.js) used to unconditionally
+// `.replace(/\r\n/g, "\n")` the file on read so their anchored `m`-flag
+// regexes have one predictable line terminator, then wrote that LF-only
+// string straight back -- silently converting the WHOLE file's line
+// endings on every save, not just the 1-2 lines actually being changed.
+// serverFiles.js's toIni() already had this exact bug and was fixed for it
+// (573f63fd); these four call sites (they don't go through toIni()) never
+// got the same fix until now (server/utils/iniKeyWrite.js's
+// withOriginalLineEnding()/restoreLineEnding()). Seeds a CRLF fixture and
+// asserts every line -- not just the one being edited -- is still CRLF
+// afterward.
+describe("CRLF round-trip: a real PZ-written CRLF .ini keeps its line endings after a save", () => {
+  function seedCrlfFixture() {
+    const crlfContent = fs
+      .readFileSync(iniPath, "utf-8")
+      .replace(/\n/g, "\r\n");
+    fs.writeFileSync(iniPath, crlfContent, "utf-8");
+  }
+
+  function assertAllLinesCrlf(content) {
+    const lfCount = (content.match(/\n/g) || []).length;
+    const crlfCount = (content.match(/\r\n/g) || []).length;
+    expect(crlfCount).toBe(lfCount);
+    expect(crlfCount).toBeGreaterThan(0);
+  }
+
+  it("POST /configure-rcon preserves CRLF across the whole file", async () => {
+    seedCrlfFixture();
+    const handler = getHandler("/configure-rcon");
+    await handler(
+      fakeReq({ rconPassword: "brand-new-secret", rconPort: 27020 }),
+      createResponse(),
+    );
+    const content = fs.readFileSync(iniPath, "utf-8");
+    assertAllLinesCrlf(content);
+    expect(content).toContain("RCONPassword=brand-new-secret\r\n");
+  });
+
+  it("POST /configure-network preserves CRLF across the whole file", async () => {
+    seedCrlfFixture();
+    const handler = getHandler("/configure-network");
+    await handler(fakeReq({ serverPort: 17000, useUpnp: false }), createResponse());
+    const content = fs.readFileSync(iniPath, "utf-8");
+    assertAllLinesCrlf(content);
+    expect(content).toContain("DefaultPort=17000\r\n");
+  });
+
+  it("applyUpnpToIni() preserves CRLF across the whole file", async () => {
+    seedCrlfFixture();
+    const result = await applyUpnpToIni(serverConfigPath, "servertest", false);
+    expect(result).toEqual({ applied: true });
+    const content = fs.readFileSync(iniPath, "utf-8");
+    assertAllLinesCrlf(content);
+    expect(content).toContain("UPnP=false\r\n");
+  });
+});

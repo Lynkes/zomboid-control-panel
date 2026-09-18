@@ -17,7 +17,12 @@ import {
   getServers,
 } from "../database/init.js";
 import { sanitizeError, sanitizeIniValue } from "../utils/sanitize.js";
-import { hasIniKeyValue, setIniKeyLine } from "../utils/iniKeyWrite.js";
+import {
+  hasIniKeyValue,
+  setIniKeyLine,
+  withOriginalLineEnding,
+  restoreLineEnding,
+} from "../utils/iniKeyWrite.js";
 import {
   resolveLaunchMode,
   ServerManager,
@@ -892,7 +897,10 @@ export async function ensureRconConfigured() {
       }
 
       // INI exists — check if RCON is already configured correctly
-      let content = fs.readFileSync(iniPath, "utf-8").replace(/\r\n/g, "\n");
+      const { content: normalized, lineEnding } = withOriginalLineEnding(
+        fs.readFileSync(iniPath, "utf-8"),
+      );
+      let content = normalized;
       const hasCorrectPassword = hasIniKeyValue(content, "RCONPassword", rconPassword);
       const hasCorrectPort = hasIniKeyValue(content, "RCONPort", rconPort);
 
@@ -909,7 +917,7 @@ export async function ensureRconConfigured() {
       content = setIniKeyLine(content, "RCONPassword", safePassword);
       content = setIniKeyLine(content, "RCONPort", rconPort);
 
-      writeFileAtomic(iniPath, content, { encoding: "utf-8", mode: 0o600 });
+      writeFileAtomic(iniPath, restoreLineEnding(content, lineEnding), { encoding: "utf-8", mode: 0o600 });
       log.info("RCON auto-configured successfully in server .ini file");
       return true;
     });
@@ -4141,14 +4149,17 @@ router.post("/configure-rcon", requirePermission("server.configure"), async (req
     // Read and update the ini file. Locked per-path so this can't interleave
     // with ensureRconConfigured() or another config-save racing the same file.
     await withFileLock(iniPath, async () => {
-      let content = fs.readFileSync(iniPath, "utf-8").replace(/\r\n/g, "\n");
+      const { content: normalized, lineEnding } = withOriginalLineEnding(
+        fs.readFileSync(iniPath, "utf-8"),
+      );
+      let content = normalized;
 
       // Update RCONPassword (sanitize to prevent INI injection via newlines)
       const safePassword = sanitizeIniValue(rconPassword);
       content = setIniKeyLine(content, "RCONPassword", safePassword);
       content = setIniKeyLine(content, "RCONPort", rconPort);
 
-      writeFileAtomic(iniPath, content, { encoding: "utf-8", mode: 0o600 });
+      writeFileAtomic(iniPath, restoreLineEnding(content, lineEnding), { encoding: "utf-8", mode: 0o600 });
     });
 
     // Also save to app settings
@@ -4185,10 +4196,12 @@ export async function applyUpnpToIni(serverConfigPath, serverName, useUpnp) {
   }
   try {
     await withFileLock(iniPath, async () => {
-      let content = fs.readFileSync(iniPath, "utf-8").replace(/\r\n/g, "\n");
+      const { content: normalized, lineEnding } = withOriginalLineEnding(
+        fs.readFileSync(iniPath, "utf-8"),
+      );
       const upnpValue = useUpnp ? "true" : "false";
-      content = setIniKeyLine(content, "UPnP", upnpValue);
-      writeFileAtomic(iniPath, content, { encoding: "utf-8", mode: 0o600 });
+      const content = setIniKeyLine(normalized, "UPnP", upnpValue);
+      writeFileAtomic(iniPath, restoreLineEnding(content, lineEnding), { encoding: "utf-8", mode: 0o600 });
     });
     return { applied: true };
   } catch (error) {
@@ -4234,13 +4247,16 @@ router.post("/configure-network", requirePermission("server.configure"), async (
     // Read and update the ini file. Locked per-path for the same reason as
     // the RCON-config endpoint above.
     await withFileLock(iniPath, async () => {
-      let content = fs.readFileSync(iniPath, "utf-8").replace(/\r\n/g, "\n");
+      const { content: normalized, lineEnding } = withOriginalLineEnding(
+        fs.readFileSync(iniPath, "utf-8"),
+      );
+      let content = normalized;
 
       // Update DefaultPort, then UDPPort (DefaultPort + 1)
       content = setIniKeyLine(content, "DefaultPort", serverPort);
       content = setIniKeyLine(content, "UDPPort", serverPort + 1);
 
-      writeFileAtomic(iniPath, content, { encoding: "utf-8", mode: 0o600 });
+      writeFileAtomic(iniPath, restoreLineEnding(content, lineEnding), { encoding: "utf-8", mode: 0o600 });
     });
 
     // UPnP itself is applyUpnpToIni()'s own concern now -- shared with
