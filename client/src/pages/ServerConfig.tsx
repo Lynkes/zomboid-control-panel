@@ -2337,12 +2337,19 @@ export default function ServerConfig() {
   // Discard all unsaved INI changes (sticky save bar)
   const discardIniChanges = useCallback(() => {
     setIniSettings({ ...originalIniSettings })
-  }, [originalIniSettings])
+    // bug-hunt-2026-09-18 (round 22): hasIniChanges compares rawContent
+    // against originalRawContent while editorMode === 'raw' instead of
+    // iniSettings -- resetting only iniSettings left the raw textarea (and
+    // the "Unsaved changes" badge it drives) untouched, so Discard silently
+    // did nothing visible in raw mode.
+    if (editorMode === 'raw') setRawContent(originalRawContent)
+  }, [originalIniSettings, editorMode, originalRawContent])
 
   // Discard all unsaved Sandbox changes (sticky save bar)
   const discardSandboxChanges = useCallback(() => {
     if (originalSandboxData) setSandboxData(JSON.parse(JSON.stringify(originalSandboxData)))
-  }, [originalSandboxData])
+    if (editorMode === 'raw') setRawContent(originalRawContent)
+  }, [originalSandboxData, editorMode, originalRawContent])
 
   // Reset individual Sandbox setting to original loaded value
   const resetSandboxValue = useCallback((setting: SandboxSetting) => {

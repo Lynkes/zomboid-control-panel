@@ -4,16 +4,14 @@ import { MemoryRouter } from 'react-router-dom'
 import ServerConfig from '../ServerConfig'
 import { serverApi, serverFilesApi, serversApi } from '@/lib/api'
 
-// bug-hunt-2026-09-18 (round 21, UX follow-up, commit 14fed308's own
-// original question): discardIniChanges()/discardSandboxChanges() (the
-// sticky save bar's "Discard" button) only reassign LOCAL React state back
-// to originalIniSettings/originalSandboxData -- neither one calls the
-// server at all. The button was nonetheless disabled whenever
-// serverMayBeRunning was true, the same guard the Save button correctly
-// uses (Save genuinely writes to the server, so a running server matters
-// there) -- making it impossible for an operator to back out an unsaved
-// edit for exactly the reason they most want to: the server turned out to
-// be running while they were mid-edit.
+// bug-hunt-2026-09-18 (round 22, flagged in round 21 and left out of scope
+// there): hasIniChanges compares rawContent against originalRawContent
+// while editorMode === 'raw' (a separate tracked-changes signal from
+// iniSettings), but discardIniChanges()/discardSandboxChanges() only ever
+// reset the STRUCTURED state (iniSettings/sandboxData) -- so clicking
+// Discard while in the raw editor left the textarea's edited content in
+// place and the "Unsaved changes" badge still showing, i.e. Discard
+// silently did nothing visible in raw mode.
 
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({
@@ -67,8 +65,8 @@ function renderServerConfig() {
   )
 }
 
-describe('ServerConfig.tsx: Discard is not gated on serverMayBeRunning (it never calls the server)', () => {
-  it('stays enabled while the server may be running, and clicking it does not attempt a save', async () => {
+describe('ServerConfig.tsx: Discard in raw mode clears the raw textarea and the Unsaved changes badge', () => {
+  it('restores the original raw content and hides the badge when Discard is clicked', async () => {
     getResolvedActive.mockResolvedValue({
       server: { id: 1, name: 'Server A', serverName: 'servera', isRemote: false } as never,
     })
@@ -76,13 +74,10 @@ describe('ServerConfig.tsx: Discard is not gated on serverMayBeRunning (it never
     getIni.mockResolvedValue({ settings: { PVP: 'false' }, path: '/a', serverName: 'servera' } as never)
     getActive.mockResolvedValue({ server: { id: 1, isRemote: false } } as never)
     getRaw.mockResolvedValue({ content: 'PVP=false' } as never)
-    // Native provider, running: true -- serverRunning resolves true, so
-    // serverMayBeRunning (serverRunning !== false) is true too.
-    getStatus.mockResolvedValue({ running: true } as never)
+    getStatus.mockResolvedValue({ running: false } as never)
 
     renderServerConfig()
     await waitFor(() => expect(getIni).toHaveBeenCalledTimes(1))
-    // Let refreshServerState's own fetch land before asserting on its result.
     await waitFor(() => expect(getStatus).toHaveBeenCalled())
 
     const rawToggles = await screen.findAllByRole('button', { name: /raw/i })
@@ -94,15 +89,12 @@ describe('ServerConfig.tsx: Discard is not gated on serverMayBeRunning (it never
     })
 
     await screen.findByText('Unsaved changes')
-    // This is the round's actual fix under test: Discard must stay enabled
-    // regardless of serverMayBeRunning, since it never calls the server.
-    // (Separately: raw-mode discard not clearing the "Unsaved changes"
-    // badge, flagged here in round 21, was fixed in round 22 -- see
-    // ServerConfig.discardRawModeClearsBadge.test.tsx.)
-    const discardButton = await screen.findByRole('button', { name: /discard/i })
-    expect(discardButton).not.toBeDisabled()
 
+    const discardButton = await screen.findByRole('button', { name: /discard/i })
     fireEvent.click(discardButton)
+
+    await waitFor(() => expect(textarea).toHaveValue('PVP=false'))
+    expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument()
     expect(saveIni).not.toHaveBeenCalled()
   })
 })

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   MessagesSquare,
@@ -76,7 +76,22 @@ const GENERAL_CHAT_AUTHOR = 'Admin'
 
 export default function Chat() {
   const { t, i18n } = useTranslation('chat')
-  const defaultPresets = t('presets.default', { returnObjects: true }) as string[]
+  // bug-hunt-2026-09-18 (round 22): i18next's returnObjects always returns a
+  // freshly-copied array (never the same reference twice, even for the same
+  // key/language -- see i18next's translate(), which does
+  // `const copy = resTypeIsArray ? [] : {}`), so computing this inline on
+  // every render fed a runaway loop into the settings-load effect below:
+  // that effect depends on [defaultPresets], and whenever saved presets are
+  // empty it calls setPresets(defaultPresets) with a brand-new reference
+  // every time -- React never sees the same value twice, so it never bails
+  // out of re-rendering, which recomputes defaultPresets again, which
+  // re-fires the effect again, forever (this is also why a NON-empty saved
+  // list never hung: setPresets(saved) passes the same settings-response
+  // reference back each time, so React bails out after the first update).
+  // Memoizing on language keeps the array identity stable across unrelated
+  // re-renders, so the effect only ever legitimately re-fires on a real
+  // language change.
+  const defaultPresets = useMemo(() => t('presets.default', { returnObjects: true }) as string[], [t, i18n.language])
   const [message, setMessage] = useState('')
   const [players, setPlayers] = useState<Player[]>([])
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([])
