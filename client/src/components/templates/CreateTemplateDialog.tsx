@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { useToast } from '@/components/ui/use-toast'
+import { useSocket } from '@/contexts/SocketContext'
 import { serverFilesApi, templatesApi } from '@/lib/api'
 import { buildTemplateCapture, TemplateCapture } from '@/lib/templateBuilder'
 import { getUserErrorMessage } from '@/lib/errorMessage'
@@ -28,6 +29,7 @@ interface CreateTemplateDialogProps {
 export function CreateTemplateDialog({ open, onClose, onCreated }: CreateTemplateDialogProps) {
   const { t } = useTranslation('templateCreateDialog')
   const { toast } = useToast()
+  const socket = useSocket()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [tags, setTags] = useState('')
@@ -48,6 +50,21 @@ export function CreateTemplateDialog({ open, onClose, onCreated }: CreateTemplat
       .catch(() => setError(t('failedToReadConfig')))
       .finally(() => setLoading(false))
   }, [open, t])
+
+  // This dialog captures the active server's live INI/Sandbox once on open
+  // (getIni/getSandbox above) with no re-check afterward, so switching the
+  // active server elsewhere while it stayed open let "Save as new template"
+  // silently save the OLD server's config with no on-screen indication --
+  // same class of bug TemplatePreviewDialog.tsx fixed in round 18. Same
+  // fix: close outright the instant the active server changes.
+  useEffect(() => {
+    if (!socket || !open) return
+    const handleActiveServerChanged = () => onClose()
+    socket.on('activeServerChanged', handleActiveServerChanged)
+    return () => {
+      socket.off('activeServerChanged', handleActiveServerChanged)
+    }
+  }, [socket, open, onClose])
 
   const handleSave = async () => {
     if (!capture || !name.trim()) return
