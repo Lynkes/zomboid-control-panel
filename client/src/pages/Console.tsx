@@ -243,6 +243,17 @@ export default function Console() {
   const [activeServer, setActiveServer] = useState<ServerInstance | null>(null)
   const [consoleTargetLoading, setConsoleTargetLoading] = useState(true)
   const [history, setHistory] = useState<CommandEntry[]>([])
+  // bug-hunt-2026-09-18 (round 5): fetchHistory's failure branch used to only
+  // pop a toast (gone in a few seconds) and leave `history` at its initial
+  // `[]` -- indistinguishable from a server that genuinely has no command
+  // history yet. Opening this panel after the toast expired (or never seeing
+  // it because the panel was collapsed on load, its default state) showed a
+  // confident "No command history" with no way to tell the fetch had failed
+  // or retry it short of an unrelated action that happens to call
+  // fetchHistory again. historyLoading/historyLoadError make that a real
+  // loading/error state instead of a silent empty one.
+  const [historyLoading, setHistoryLoading] = useState(true)
+  const [historyLoadError, setHistoryLoadError] = useState<string | null>(null)
   const [liveLog, setLiveLog] = useState<RconResponse[]>([])
   const [loading, setLoading] = useState(false)
   const [commandHistoryIndex, setCommandHistoryIndex] = useState(-1)
@@ -383,19 +394,26 @@ export default function Console() {
     if (!hasActiveServer) {
       setHistory([])
       setCommandCache([])
+      setHistoryLoadError(null)
+      setHistoryLoading(false)
       return
     }
 
+    setHistoryLoading(true)
+    setHistoryLoadError(null)
     try {
       const data = await rconApi.getHistory(COMMAND_HISTORY_FETCH_LIMIT)
       setHistory(data.history || [])
       setCommandCache(data.history?.map((h: CommandEntry) => h.command).reverse() || [])
     } catch {
+      setHistoryLoadError(t('toasts.historyUnavailableDesc'))
       toast({
         title: t('toasts.historyUnavailableTitle'),
         description: t('toasts.historyUnavailableDesc'),
         variant: 'destructive',
       })
+    } finally {
+      setHistoryLoading(false)
     }
   }, [hasActiveServer, toast, t])
 
@@ -1368,7 +1386,19 @@ export default function Console() {
                   />
                 </div>
                 <ScrollArea className="h-[16rem] min-h-[200px] sm:h-[20rem] rounded-lg border border-border/30 bg-background/40">
-                  {history.length === 0 ? (
+                  {historyLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : historyLoadError ? (
+                    <EmptyState
+                      compact
+                      type="noData"
+                      title={t('toasts.historyUnavailableTitle')}
+                      description={historyLoadError}
+                      action={{ label: t('serverLog.retry'), onClick: fetchHistory }}
+                    />
+                  ) : history.length === 0 ? (
                     <EmptyState compact type="noData" title={t('history.emptyTitle')} description={t('history.emptyDesc')} />
                   ) : (
                     <div className="space-y-1 p-2">
