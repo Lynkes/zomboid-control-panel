@@ -11,12 +11,10 @@
     "sidebarAriaLabel": "侧边栏",
     "dashboard": "仪表盘",
     "sections": {
-      "live": "实时",
+      "server": "服务器",
       "world": "世界",
-      "config": "配置",
-      "maintain": "维护",
-      "servers": "服务器",
-      "settingsAndTools": "设置与工具"
+      "users": "用户",
+      "panel": "面板"
     },
     "items": {
       "serverConsole": "服务器控制台",
@@ -35,7 +33,10 @@
       "browsePublic": "浏览公共服务器",
       "discord": "Discord",
       "panelSettings": "面板设置",
-      "debugLogs": "调试日志"
+      "debugLogs": "调试日志",
+      "panelUsers": "面板用户",
+      "rolesPermissions": "角色与权限",
+      "singleSignOn": "单点登录"
     },
     "notAvailableRemote": "远程（仅 RCON）服务器不支持此功能",
     "localBadge": "本地",

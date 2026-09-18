@@ -11,12 +11,10 @@
     "sidebarAriaLabel": "側邊欄",
     "dashboard": "儀表板",
     "sections": {
-      "live": "即時",
+      "server": "伺服器",
       "world": "世界",
-      "config": "設定",
-      "maintain": "維護",
-      "servers": "伺服器",
-      "settingsAndTools": "設定與工具"
+      "users": "使用者",
+      "panel": "面板"
     },
     "items": {
       "serverConsole": "伺服器主控台",
@@ -35,7 +33,10 @@
       "browsePublic": "瀏覽公共伺服器",
       "discord": "Discord",
       "panelSettings": "面板設定",
-      "debugLogs": "除錯日誌"
+      "debugLogs": "除錯日誌",
+      "panelUsers": "面板使用者",
+      "rolesPermissions": "角色與權限",
+      "singleSignOn": "單一登入"
     },
     "notAvailableRemote": "遠端（僅 RCON）伺服器不支援此功能",
     "localBadge": "本地",

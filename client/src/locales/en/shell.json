@@ -11,12 +11,10 @@
     "sidebarAriaLabel": "Sidebar",
     "dashboard": "Dashboard",
     "sections": {
-      "live": "Live",
+      "server": "Server",
       "world": "World",
-      "config": "Config",
-      "maintain": "Maintain",
-      "servers": "Servers",
-      "settingsAndTools": "Settings & Tools"
+      "users": "Users",
+      "panel": "Panel"
     },
     "items": {
       "serverConsole": "Server Console",
@@ -32,10 +30,13 @@
       "mapCleanup": "Map Cleanup",
       "myServers": "My Servers",
       "serverSetup": "Server Setup",
-      "browsePublic": "Browse Public",
+      "browsePublic": "Browse Public Servers",
       "discord": "Discord",
       "panelSettings": "Panel Settings",
-      "debugLogs": "Debug Logs"
+      "debugLogs": "Debug Logs",
+      "panelUsers": "Panel Users",
+      "rolesPermissions": "Roles & Permissions",
+      "singleSignOn": "Single Sign-On"
     },
     "notAvailableRemote": "Not available for remote (RCON-only) servers",
     "localBadge": "Local",

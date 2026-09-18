@@ -11,12 +11,10 @@
     "sidebarAriaLabel": "Ba lateral",
     "dashboard": "Tablo",
     "sections": {
-      "live": "An dirèk",
+      "server": "Sèvè",
       "world": "Mond",
-      "config": "Konfig",
-      "maintain": "Antretyen",
-      "servers": "Sèvè",
-      "settingsAndTools": "Paramèt ak zouti"
+      "users": "Itilizatè",
+      "panel": "Panèl"
     },
     "items": {
       "serverConsole": "Konsòl Sèvè",
@@ -32,10 +30,13 @@
       "mapCleanup": "Netwayaj Kat",
       "myServers": "Sèvè m yo",
       "serverSetup": "Konfigirasyon Enstalasyon",
-      "browsePublic": "Gade Piblik",
+      "browsePublic": "Gade Sèvè Piblik",
       "discord": "Discord",
       "panelSettings": "Paramèt Panèl",
-      "debugLogs": "Jounal Debogaj"
+      "debugLogs": "Jounal Debogaj",
+      "panelUsers": "Itilizatè Panèl",
+      "rolesPermissions": "Wòl ak Otorizasyon",
+      "singleSignOn": "Yon Sèl Koneksyon"
     },
     "notAvailableRemote": "Pa disponib pou sèvè aleka (RCON sèlman)",
     "localBadge": "Lokal",

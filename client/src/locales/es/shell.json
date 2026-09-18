@@ -11,12 +11,10 @@
     "sidebarAriaLabel": "Barra lateral",
     "dashboard": "Tablero",
     "sections": {
-      "live": "En vivo",
+      "server": "Servidor",
       "world": "Mundo",
-      "config": "Configuración",
-      "maintain": "Mantenimiento",
-      "servers": "Servidores",
-      "settingsAndTools": "Ajustes y herramientas"
+      "users": "Usuarios",
+      "panel": "Panel"
     },
     "items": {
       "serverConsole": "Consola del servidor",
@@ -32,10 +30,13 @@
       "mapCleanup": "Limpieza del mapa",
       "myServers": "Mis servidores",
       "serverSetup": "Configurar servidor",
-      "browsePublic": "Explorar públicos",
+      "browsePublic": "Explorar servidores públicos",
       "discord": "Discord",
       "panelSettings": "Ajustes del panel",
-      "debugLogs": "Registros de depuración"
+      "debugLogs": "Registros de depuración",
+      "panelUsers": "Usuarios del panel",
+      "rolesPermissions": "Roles y permisos",
+      "singleSignOn": "Inicio de sesión único"
     },
     "notAvailableRemote": "No disponible para servidores remotos (solo RCON)",
     "localBadge": "Local",
