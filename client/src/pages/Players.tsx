@@ -1140,7 +1140,17 @@ export default function Players() {
   // verify-gated at all) both return undefined -- no override, plain
   // success toast, exactly as before this fix.
   const bridgeVerifyToastOverride = (actionLabel: string, actionKey: string, data: unknown) => {
-    const state = getBridgeVerifiedState(actionKey, data as { verified?: unknown } | null | undefined)
+    const responseData = data as { verified?: unknown; clientSync?: unknown } | null | undefined
+    if (responseData?.clientSync === 'requested') {
+      return {
+        toastOverride: {
+          title: actionLabel,
+          description: t('toasts.bridgeUnverifiedDesc', { action: actionLabel }),
+          variant: 'default' as const,
+        },
+      }
+    }
+    const state = getBridgeVerifiedState(actionKey, responseData)
     if (state === 'unverifiable') {
       return {
         toastOverride: {

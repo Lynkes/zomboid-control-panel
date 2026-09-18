@@ -135,7 +135,7 @@ describe('Mods.tsx: Check Updates translates a coded failure instead of showing 
     renderMods()
     await waitForLoaded()
 
-    const checkButton = await screen.findByRole('button', { name: /check updates/i })
+    const checkButton = await screen.findByRole('button', { name: /scan for updates/i })
     fireEvent.click(checkButton)
 
     await waitFor(() =>
@@ -163,7 +163,7 @@ describe('Mods.tsx: Check Updates translates a coded failure instead of showing 
     renderMods()
     await waitForLoaded()
 
-    const checkButton = await screen.findByRole('button', { name: /check updates/i })
+    const checkButton = await screen.findByRole('button', { name: /scan for updates/i })
     fireEvent.click(checkButton)
 
     await waitFor(() =>

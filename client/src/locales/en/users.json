@@ -23,7 +23,8 @@
     "lastSignIn": "Last sign-in",
     "never": "Never",
     "actions": "Actions",
-    "removeTooltip": "Remove {{username}}"
+    "removeTooltip": "Remove {{username}}",
+    "linkSsoTooltip": "Link SSO to {{username}}"
   },
   "deleteDialog": {
     "title": "Remove {{username}}?",
@@ -37,6 +38,7 @@
     "description": "Create a login for someone else. They'll use this username and password to sign in.",
     "usernameLabel": "Username",
     "usernamePlaceholder": "e.g. jsmith",
+    "usernameHint": "Use a local username, not an email address. Link Google/SSO after creating the account.",
     "passwordLabel": "Password",
     "passwordHint": "Use at least 6 characters.",
     "confirmPasswordLabel": "Confirm password",
@@ -58,6 +60,10 @@
     "userDeletedTitle": "Account removed",
     "userDeletedDescription": "{{username}} can no longer sign in.",
     "actionFailedTitle": "Action failed",
-    "unknownError": "Unknown error"
+    "unknownError": "Unknown error",
+    "ssoLinkedTitle": "SSO linked",
+    "ssoLinkedDescription": "The external identity is now linked to this account.",
+    "ssoLinkExpired": "The SSO linking session expired. Start the link again.",
+    "ssoLinkFailed": "The SSO identity could not be linked to this account."
   }
 }

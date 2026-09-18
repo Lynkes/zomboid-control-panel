@@ -265,6 +265,24 @@
     "title": "لا يوجد لاعبون على الخريطة",
     "subtitle": "تظهر مواقع اللاعبين عند اتصال PanelBridge"
   },
+  "poi": {
+    "label": "نقاط الاهتمام",
+    "selected": "محدد",
+    "searchPlaceholder": "ابحث عن مكان...",
+    "detectingMap": "جارٍ اكتشاف الخريطة...",
+    "unavailable": "نقاط الاهتمام غير متاحة",
+    "unavailableB41": "نقاط الاهتمام غير متاحة في B41",
+    "searchAria": "البحث عن أماكن على الخريطة",
+    "clearSearch": "مسح بحث الأماكن",
+    "categoryAria": "اختر أنواع النقاط المهمة",
+    "categoryFilterLabel": "أنواع النقاط المهمة",
+    "selectedCategoryCount": "{{count}} أنواع",
+    "clearCategories": "مسح الأنواع",
+    "allCategories": "كل الفئات",
+    "noResults": "لم يتم العثور على أماكن",
+    "showingOnMap": "{{count}} أماكن ظاهرة على الخريطة",
+    "categories": { "town": "بلدات", "medical": "طبي", "police": "شرطة", "fire": "إطفاء", "gun": "أسلحة", "shop": "متاجر", "gas": "وقود", "military": "عسكري", "landmark": "معالم", "industrial": "صناعة" }
+  },
   "airdropPresets": {
     "military": {
       "label": "عسكرية",

@@ -28,7 +28,8 @@
     "fixPath": "Fix path",
     "sync": "Sync",
     "syncTooltip": "Sync tracked mods from server INI config",
-    "checkUpdates": "Check Updates",
+    "checkUpdates": "Scan for Updates",
+    "checkUpdatesTooltip": "Checks Steam timestamps and refreshes the update list. It does not download or install mods.",
     "lastCheckedAgo": "{{when}} ago",
     "lastCheckedOn": "Last checked {{when}}",
     "neverChecked": "Never checked",
@@ -53,8 +54,8 @@
   "staleFlag": {
     "reported_one": "{{count}} mod update reported by Steam — flags out of sync",
     "reported_other": "{{count}} mod updates reported by Steam — flags out of sync",
-    "desc": "The Workshop folder shows newer files than the panel has on record. Run a check to update the per-mod state.",
-    "checkNow": "Check Now"
+    "desc": "Checks Steam for newer files and refreshes per-mod update flags. It does not download or install anything.",
+    "checkNow": "Scan Again"
   },
   "removedFromWorkshop": {
     "title_one": "{{count}} mod no longer exists on the Steam Workshop",

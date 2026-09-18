@@ -28,6 +28,26 @@ import {
   collectKnownSecretValues,
   redactKnownSecrets,
 } from "../utils/discordMessageRedaction.js";
+
+const DISCORD_OPERATION_TIMEOUT_MS = 30 * 1000;
+
+function withDiscordTimeout(operation, label = "operation") {
+  const promise = Promise.resolve(operation);
+  promise.catch(() => {});
+  let timeoutId;
+  const timeout = new Promise((_resolve, reject) => {
+    timeoutId = setTimeout(() => {
+      const error = new Error(
+        `Discord ${label} timed out after ${DISCORD_OPERATION_TIMEOUT_MS}ms (ETIMEDOUT)`,
+      );
+      error.code = "ETIMEDOUT";
+      reject(error);
+    }, DISCORD_OPERATION_TIMEOUT_MS);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    clearTimeout(timeoutId);
+  });
+}
 import {
   acquireLifecycleLock,
   lifecycleInProgressResponse,
@@ -263,6 +283,8 @@ export class DiscordBot {
     // real lifecycle notifications forever.
     this._lastLifecycleState = null; // 'running' | 'stopped' | null
     this._lastLifecycleAt = 0;
+    this._lifecycleNotificationChain = Promise.resolve();
+    this._lifecycleNotificationGeneration = 0;
 
     // Throttles the "game server unreachable" reply so a busy Discord channel
     // gets told once rather than once per message.
@@ -285,6 +307,7 @@ export class DiscordBot {
     this._chatRelayChain = Promise.resolve();
     this._chatRelayPending = 0;
     this._chatRelayDropped = 0;
+    this._chatRelayGeneration = 0;
 
     // Setup Chat Bridge listener
     if (this.logTailer) {
@@ -308,11 +331,16 @@ export class DiscordBot {
       }
       return;
     }
+    const generation = this._chatRelayGeneration;
     this._chatRelayPending++;
     this._chatRelayChain = this._chatRelayChain
-      .then(() => this.handleGameChat(data))
+      .then(() => {
+        if (generation !== this._chatRelayGeneration) return;
+        return this.handleGameChat(data);
+      })
       .catch((e) => log.debug(`Game chat relay failed: ${e.message}`))
       .finally(() => {
+        if (generation !== this._chatRelayGeneration) return;
         this._chatRelayPending--;
         if (this._chatRelayPending === 0 && this._chatRelayDropped > 0) {
           log.info(
@@ -456,13 +484,39 @@ export class DiscordBot {
   }
 
   async sendEventNotification(eventType, variables = {}) {
+    const isLifecycle =
+      eventType === "serverStart" || eventType === "serverStop";
+    if (!isLifecycle) {
+      return this._sendEventNotification(eventType, variables);
+    }
+
+    const generation = this._lifecycleNotificationGeneration;
+    const run = this._lifecycleNotificationChain.then(
+      () => this._sendEventNotification(eventType, variables, generation),
+      () => this._sendEventNotification(eventType, variables, generation),
+    );
+    this._lifecycleNotificationChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  async _sendEventNotification(
+    eventType,
+    variables = {},
+    generation = this._lifecycleNotificationGeneration,
+  ) {
+    const isLifecycle =
+      eventType === "serverStart" || eventType === "serverStop";
+    if (isLifecycle && generation !== this._lifecycleNotificationGeneration) {
+      return false;
+    }
     if (!this.isRunning || !this.channelId) return;
 
     // Dedupe lifecycle transitions — these events can fire from multiple
     // code paths for the same real state change (HTTP route + watchdog +
     // RCON-disconnect handler all observe the same stop, etc.).
-    const isLifecycle =
-      eventType === "serverStart" || eventType === "serverStop";
     let newState = null;
     if (isLifecycle) {
       newState = eventType === "serverStart" ? "running" : "stopped";
@@ -540,7 +594,7 @@ export class DiscordBot {
     // Only commit lifecycle dedupe state on a successful send. If the send
     // failed (circuit open, missing perms, channel deleted), keep the old
     // state so the next attempt isn't suppressed.
-    if (isLifecycle && sent) {
+    if (isLifecycle && generation === this._lifecycleNotificationGeneration && sent) {
       this._lastLifecycleState = newState;
       this._lastLifecycleAt = Date.now();
     }
@@ -560,6 +614,7 @@ export class DiscordBot {
     await setSetting("discordChannelId", channelId || "");
 
     const previousGuildId = this.guildId;
+    const previousToken = this.token;
     const rolesChanged =
       this.adminRoleId !== (adminRoleId || null) ||
       this.modRoleId !== (modRoleId || null);
@@ -582,10 +637,13 @@ export class DiscordBot {
         const rest = new REST({
           version: "10",
           makeRequest: _safeDiscordMakeRequest,
-        }).setToken(this.token);
-        await rest.put(
-          Routes.applicationGuildCommands(this.client.user.id, previousGuildId),
-          { body: [] },
+        }).setToken(previousToken || this.token);
+        await withDiscordTimeout(
+          rest.put(
+            Routes.applicationGuildCommands(this.client.user.id, previousGuildId),
+            { body: [] },
+          ),
+          "old guild command cleanup",
         );
         log.info(
           `Cleared slash commands from previous guild ${previousGuildId}`,
@@ -632,9 +690,12 @@ export class DiscordBot {
             version: "10",
             makeRequest: _safeDiscordMakeRequest,
           }).setToken(token);
-          await rest.put(
-            Routes.applicationGuildCommands(applicationId, guildId),
-            { body: [] },
+          await withDiscordTimeout(
+            rest.put(
+              Routes.applicationGuildCommands(applicationId, guildId),
+              { body: [] },
+            ),
+            "command reset",
           );
           log.info(`Cleared slash commands from guild ${guildId}`);
         }
@@ -846,9 +907,12 @@ export class DiscordBot {
     this._registerInFlight = (async () => {
       try {
         log.info("Registering Discord slash commands...");
-        await rest.put(
-          Routes.applicationGuildCommands(targetUserId, targetGuildId),
-          { body: commands },
+        await withDiscordTimeout(
+          rest.put(
+            Routes.applicationGuildCommands(targetUserId, targetGuildId),
+            { body: commands },
+          ),
+          "command registration",
         );
         this._registeredGuildId = targetGuildId;
         log.info(`Registered ${commands.length} Discord commands`);
@@ -1511,7 +1575,6 @@ export class DiscordBot {
     // avoid. This does not change discord.js's own retry behavior; it only
     // stops US from waiting on it past a sane ceiling so the breaker can do
     // its job. See server/tests/linuxDiscordSendTimeout.test.js.
-    const SEND_TIMEOUT_MS = 30 * 1000;
     const now = Date.now();
     const breaker = this._breakerFor(channelId);
 
@@ -1521,7 +1584,10 @@ export class DiscordBot {
     }
 
     try {
-      const channel = await this.client.channels.fetch(channelId);
+      const channel = await withDiscordTimeout(
+        this.client.channels.fetch(channelId),
+        "channel lookup",
+      );
       if (!channel?.isTextBased?.() || typeof channel.send !== "function") {
         throw new Error("Configured channel is not a sendable text channel");
       }
@@ -1544,24 +1610,7 @@ export class DiscordBot {
         typeof message === "string" && message.length > 2000
           ? `${message.slice(0, 1997)}...`
           : message;
-      const sendPromise = channel.send(safeMessage);
-      // If the timeout wins the race, the original send is still pending
-      // somewhere inside discord.js's retry loop — swallow whatever it
-      // eventually does so it can't surface as an unhandled rejection long
-      // after we've stopped waiting on it.
-      sendPromise.catch(() => {});
-      await Promise.race([
-        sendPromise,
-        new Promise((_resolve, reject) =>
-          setTimeout(() => {
-            const timeoutError = new Error(
-              `Discord send timed out after ${SEND_TIMEOUT_MS}ms (ETIMEDOUT)`,
-            );
-            timeoutError.code = "ETIMEDOUT";
-            reject(timeoutError);
-          }, SEND_TIMEOUT_MS),
-        ),
-      ]);
+      await withDiscordTimeout(channel.send(safeMessage), "send");
       if (breaker.failures > 0 || breaker.suppressed > 0) {
         if (breaker.suppressed > 0) {
           log.info(
@@ -2078,6 +2127,15 @@ export class DiscordBot {
     this._stopping = true;
     try {
       this._stopPresenceUpdates();
+      // Invalidate work queued before this lifecycle boundary even when a
+      // failed start already destroyed the client. Otherwise a later start can
+      // relay stale game chat or commit stale lifecycle dedupe state.
+      this._chatRelayGeneration++;
+      this._chatRelayChain = Promise.resolve();
+      this._chatRelayPending = 0;
+      this._chatRelayDropped = 0;
+      this._lifecycleNotificationGeneration++;
+      this._lifecycleNotificationChain = Promise.resolve();
       // Detach the chatMessage listener so a swapped LogTailer (e.g. a
       // restart of the panel-managed game-server changes the tailer instance)
       // doesn't leak handlers across bot lifecycles. Done outside the client
@@ -2102,9 +2160,6 @@ export class DiscordBot {
         // Reset breaker state too — stale failure counts shouldn't carry over.
         this._channelBreakers.clear();
         this._gatewayDegradedSince = null;
-        this._chatRelayChain = Promise.resolve();
-        this._chatRelayPending = 0;
-        this._chatRelayDropped = 0;
         // Drop registration tracking; a fresh start() should re-register.
         this._registerInFlight = null;
         this._registeredGuildId = null;

@@ -217,4 +217,43 @@ describe('WorldMap.tsx: a rejected active-server check must not permanently kill
       { timeout: 6000 },
     )
   }, 15000)
+
+  it('ignores an older in-flight map detection after the active server changes', async () => {
+    await setUp()
+
+    let releaseInitialStatus!: (value: { gameVersion?: string }) => void
+    let releaseInitialServer!: (value: { server: ServerInstance }) => void
+    const initialStatus = new Promise<{ gameVersion?: string }>((resolve) => {
+      releaseInitialStatus = resolve
+    })
+    const initialServer = new Promise<{ server: ServerInstance }>((resolve) => {
+      releaseInitialServer = resolve
+    })
+
+    getUpdateStatus
+      .mockImplementationOnce(() => initialStatus as ReturnType<typeof updateApi.getStatus>)
+      .mockResolvedValueOnce({ gameVersion: '41.78.16' } as Awaited<ReturnType<typeof updateApi.getStatus>>)
+    getResolvedActive
+      .mockImplementationOnce(() => initialServer as ReturnType<typeof serversApi.getResolvedActive>)
+      .mockResolvedValueOnce({ server: testServer })
+    getServerInfo.mockResolvedValue({ success: true, data: { players: [] } } as Awaited<ReturnType<typeof panelBridgeApi.getServerInfo>>)
+
+    const socket = makeFakeSocket()
+    renderWorldMap(socket)
+    await waitFor(() => expect(socket.on).toHaveBeenCalledWith('activeServerChanged', expect.any(Function)))
+
+    socket.emit('activeServerChanged')
+
+    const search = await screen.findByRole('textbox', { name: 'Search map places' })
+    await waitFor(() => expect(search).toHaveAttribute('placeholder', 'POIs unavailable on B41'))
+    expect(search).toBeDisabled()
+
+    // The old mount detection resolves after the newer B41 detection. Its
+    // B42 result must not replace the active server's B41 map state.
+    releaseInitialStatus({})
+    releaseInitialServer({ server: testServer })
+    await waitFor(() => expect(mapResolve).toHaveBeenCalled())
+    expect(search).toHaveAttribute('placeholder', 'POIs unavailable on B41')
+    expect(search).toBeDisabled()
+  }, 10000)
 })

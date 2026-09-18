@@ -278,7 +278,7 @@ describe("createRole / updateRole -- capability-escalation guard (assertNoRoleEd
   });
 });
 
-// docs/qa/kevin-access-control-french-usability.md Finding 1: deleteRole()
+// Access-control audit Finding 1: deleteRole()
 // used to have no isSeeded check at all -- a seeded role with zero current
 // members could be deleted outright via a direct call/API request, even
 // though RolesPermissions.tsx's delete button is disabled for isSeeded

@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -36,6 +36,47 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Reject release tag outside main
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --no-tags
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Release tag $GITHUB_REF_NAME does not point to a commit on main."
+            exit 1
+          fi
+
+      - name: Require changelog entry before building release artifacts
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_version="${GITHUB_REF_NAME#v}"
+          if ! awk -v version="$release_version" '
+            index($0, "## [" version "]") == 1 { found = 1; next }
+            found && index($0, "## [") == 1 { exit }
+            found && $0 ~ /[^[:space:]]/ { content = 1 }
+            END { exit !(found && content) }
+          ' CHANGELOG.md; then
+            echo "::error::CHANGELOG.md must contain a non-empty '## [$release_version]' section before release artifacts are built."
+            exit 1
+          fi
+
+      - name: Reject obsolete standalone release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          obsolete=$(git ls-files | grep -E '(^|/)release-notes-[^/]+\.md$' || true)
+          if [ -n "$obsolete" ]; then
+            echo "::error title=Obsolete standalone release notes tracked::"
+            printf '%s\n' "$obsolete"
+            exit 1
+          fi
+          echo "No obsolete standalone release-note files are tracked."
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -43,11 +84,14 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Verify package version matches release tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: node scripts/verify-package-version.mjs "${{ github.ref_name }}"
+
       # npm ci is fragile on the ubuntu-22.04 leg of this matrix: the
       # lockfile's linux gnu/musl split optional deps (rollup/lightningcss,
-      # pulled in via vite) don't reliably carry libc metadata (verified
-      # 2026-08-22, see docs/build/verification.md), same reasoning as the
-      # Dockerfile's own install steps. npm install re-resolves optional
+      # pulled in via vite) don't reliably carry libc metadata, same reasoning
+      # as the Dockerfile's own install steps. npm install re-resolves optional
       # deps against the runner instead of trusting the lockfile's entry.
       - name: Install dependencies
         run: npm install --no-audit --prefer-offline --include=optional
@@ -112,10 +156,31 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout release files
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Verify existing release points to this tag commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_tag="${GITHUB_REF_NAME}"
+          release_target="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${release_tag}" --jq '.target_commitish' 2>/dev/null || true)"
+          if [ -n "$release_target" ]; then
+            release_target_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${release_target}" --jq '.sha')"
+            if [ "$release_target_sha" != "$GITHUB_SHA" ]; then
+              echo "::error::Existing release ${release_tag} targets ${release_target_sha}, but this workflow is building ${GITHUB_SHA}. Refusing to replace its assets."
+              exit 1
+            fi
+            echo "Existing release ${release_tag} targets the current tag commit."
+          else
+            echo "No existing release for ${release_tag}; the publish step may create it."
+          fi
 
       - name: Download Windows archive
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -169,13 +234,8 @@ jobs:
             echo "Release $release_tag already exists; uploading assets."
           else
             release_version="${release_tag#v}"
-            # Match the heading by string prefix, not by regex. The previous version used
-            # "^## \\[" inside an awk STRING, where the escape is implementation-defined:
-            # gawk strips the backslash, turning [1.1.55] into a character class that cannot
-            # match "## [1.1.55]", so the section was never found and every release silently
-            # fell back to the placeholder below. mawk keeps it and the same line works. A
-            # release note that depends on which awk the runner ships is not worth debugging
-            # twice - index() has no escaping to get wrong.
+            # Match the heading by string prefix, not by regex. index() keeps the
+            # release-note extraction independent of the runner's awk regex rules.
             awk -v version="$release_version" '
               index($0, "## [" version "]") == 1 { in_section = 1; next }
               in_section && index($0, "## [") == 1 { exit }
@@ -183,17 +243,8 @@ jobs:
             ' CHANGELOG.md > release-notes.md
 
             if [ ! -s release-notes.md ]; then
-              # Do not fail the release HERE for a missing changelog entry -- the
-              # artifacts still need to ship, and this branch only runs at all for
-              # a release that bypassed release.ps1 (its own pre-flight blocks a
-              # missing heading before anything is built). A bypass is usually an
-              # emergency, which is the worst moment to withhold an upload. The
-              # "Fail if CHANGELOG entry was missing" step at the end of this job
-              # fails the job loudly AFTER assets are uploaded -- see that step for
-              # why this one only records the fact instead of stopping here.
-              echo "::warning title=No changelog entry::CHANGELOG.md has no '## [${release_version}]' section. Publishing a placeholder instead of real release notes."
-              printf 'Release %s\n\nSee CHANGELOG.md for details.\n' "$release_tag" > release-notes.md
-              echo "changelog_missing=true" >> "$GITHUB_OUTPUT"
+              echo "::error title=No changelog entry::CHANGELOG.md has no non-empty '## [${release_version}]' section."
+              exit 1
             fi
 
             gh release create "$release_tag" \
@@ -232,17 +283,4 @@ jobs:
             echo "Upload attempt $attempt failed; retrying in 5s..."
             sleep 5
           done
-          exit 1
-
-      # Runs last, deliberately: assets are already uploaded above by the time
-      # this can fail, so a bypass release (one that skipped release.ps1's own
-      # pre-flight block) still ships its binaries even though this makes the
-      # job -- and the workflow run -- red. release.ps1 itself refuses to reach
-      # this workflow at all when CHANGELOG.md has no matching heading; this is
-      # only reachable by pushing a v* tag some other way. Loud, not silent,
-      # without withholding the artifacts a real emergency release needs.
-      - name: Fail if the release shipped without a CHANGELOG entry
-        if: steps.create-release.outputs.changelog_missing == 'true'
-        run: |
-          echo "::error title=No changelog entry::Release ${GITHUB_REF_NAME} shipped with assets uploaded, but CHANGELOG.md had no '## [${GITHUB_REF_NAME#v}]' section, so its release notes are a placeholder. Add the section, update the release notes (gh release edit ${GITHUB_REF_NAME} --notes-file <file>), and find out how this tag was pushed without going through release.ps1's pre-flight check."
           exit 1

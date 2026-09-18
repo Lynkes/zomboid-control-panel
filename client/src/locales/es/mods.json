@@ -28,7 +28,8 @@
     "fixPath": "Corregir ruta",
     "sync": "Sincronizar",
     "syncTooltip": "Sincronizar los mods en seguimiento desde la configuración INI del servidor",
-    "checkUpdates": "Comprobar actualizaciones",
+    "checkUpdates": "Buscar actualizaciones",
+    "checkUpdatesTooltip": "Comprueba las marcas de tiempo de Steam y actualiza la lista de actualizaciones. No descarga ni instala mods.",
     "lastCheckedAgo": "hace {{when}}",
     "lastCheckedOn": "Última comprobación: {{when}}",
     "neverChecked": "Nunca comprobado",
@@ -54,8 +55,8 @@
   "staleFlag": {
     "reported_one": "{{count}} actualización de mod reportada por Steam — indicadores desincronizados",
     "reported_other": "{{count}} actualizaciones de mod reportadas por Steam — indicadores desincronizados",
-    "desc": "La carpeta de Workshop muestra archivos más recientes que los registrados por el panel. Ejecutar una comprobación para actualizar el estado de cada mod.",
-    "checkNow": "Comprobar ahora",
+    "desc": "Comprueba si Steam tiene archivos más recientes y actualiza las marcas de cada mod. No descarga ni instala nada.",
+    "checkNow": "Volver a escanear",
     "reported_many": "{{count}} actualizaciones de mod reportadas por Steam — indicadores desincronizados"
   },
   "removedFromWorkshop": {

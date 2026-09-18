@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
-import { Users as UsersIcon, UserPlus, ShieldAlert, Loader2, ArrowRight, Trash2 } from 'lucide-react'
+import { Users as UsersIcon, UserPlus, ShieldAlert, Loader2, ArrowRight, Trash2, Link2 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import { PageHeader } from '@/components/PageHeader'
@@ -70,6 +70,7 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
   const { toast } = useToast()
   const { user: currentUser } = useAuth()
   const confirm = useConfirm()
+  const canLinkSso = currentUser?.role === 'admin'
 
   const [users, setUsers] = useState<ManagedUserAccount[] | null>(null)
   const [roles, setRoles] = useState<RoleInfo[]>([])
@@ -86,6 +87,7 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
   const [formError, setFormError] = useState<string | null>(null)
 
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set())
+  const [linkingUserId, setLinkingUserId] = useState<string | null>(null)
 
   // Focus-restore-after-delete pattern (Pam found the shape; see the block
   // comment above the effect below for the full writeup) -- REPLICATE THIS
@@ -179,6 +181,38 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
     fetchAll()
   }, [fetchAll])
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const success = params.get('oidcSuccess')
+    const error = params.get('oidcError')
+    if (!success && !error) return
+
+    if (success === 'linked') {
+      toast({
+        title: t('toasts.ssoLinkedTitle'),
+        description: t('toasts.ssoLinkedDescription'),
+        variant: 'success',
+      })
+    } else if (error === 'link_expired') {
+      toast({
+        title: t('toasts.actionFailedTitle'),
+        description: t('toasts.ssoLinkExpired'),
+        variant: 'destructive',
+      })
+    } else if (error === 'link_failed') {
+      toast({
+        title: t('toasts.actionFailedTitle'),
+        description: t('toasts.ssoLinkFailed'),
+        variant: 'destructive',
+      })
+    }
+
+    params.delete('oidcSuccess')
+    params.delete('oidcError')
+    const query = params.toString()
+    window.history.replaceState(null, '', window.location.pathname + (query ? `?${query}` : '') + window.location.hash)
+  }, [t, toast])
+
   function openCreateDialog() {
     setUsername('')
     setPassword('')
@@ -259,6 +293,21 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
         next.delete(user.id)
         return next
       })
+    }
+  }
+
+  async function handleLinkSso(user: ManagedUserAccount) {
+    setLinkingUserId(user.id)
+    try {
+      const { authorizationUrl } = await usersApi.startExternalIdentityLink(user.id)
+      window.location.assign(authorizationUrl)
+    } catch (error) {
+      toast({
+        title: t('toasts.actionFailedTitle'),
+        description: getUserErrorMessage(error, t('toasts.unknownError')),
+        variant: 'destructive',
+      })
+      setLinkingUserId(null)
     }
   }
 
@@ -418,9 +467,24 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
                           {user.lastLogin ? new Date(user.lastLogin).toLocaleString(i18n.language) : t('table.never')}
                         </td>
                         <td className="px-4 py-2.5 text-end">
-                          {!isSelf && (
-                            deleting ? (
-                              <Loader2 className="ms-auto h-4 w-4 animate-spin text-muted-foreground" />
+                          <div className="flex justify-end gap-1">
+                            {canLinkSso && linkingUserId === user.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                            ) : canLinkSso ? (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                title={t('table.linkSsoTooltip', { username: user.username })}
+                                aria-label={t('table.linkSsoTooltip', { username: user.username })}
+                                onClick={() => handleLinkSso(user)}
+                                disabled={linkingUserId !== null || deleting}
+                              >
+                                <Link2 className="h-4 w-4" />
+                              </Button>
+                            ) : null}
+                            {!isSelf && (deleting ? (
+                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                             ) : (
                               <Button
                                 ref={(el) => {
@@ -436,8 +500,8 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
                               >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
-                            )
-                          )}
+                            ))}
+                          </div>
                         </td>
                       </tr>
                     )
@@ -474,6 +538,7 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
                 placeholder={t('createDialog.usernamePlaceholder')}
                 autoComplete="off"
               />
+              <p className="text-xs text-muted-foreground">{t('createDialog.usernameHint')}</p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="new-user-password">{t('createDialog.passwordLabel')}</Label>

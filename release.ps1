@@ -7,7 +7,7 @@
     (no external Dev1/ working copy, no \\garage SMB deploy — that
     infrastructure is retired; live deployment now happens separately via
     Docker on the production host):
-    0. Pre-flight checks (uncommitted changes)
+    0. Pre-flight checks (clean main branch)
     1. Bumps version in package.json — auto-increments if no -Version given
     2. Builds the client (Vite/React)
     3. Builds Windows + Linux binaries (esbuild + pkg) and packages archives
@@ -104,6 +104,25 @@ function Get-NextPatchVersion($currentVersion, $label) {
         throw "$label version is not a numeric SemVer: $currentVersion"
     }
     return "$($match.Groups['major'].Value).$($match.Groups['minor'].Value).$([int]$match.Groups['patch'].Value + 1)"
+}
+
+function Compare-SemVer($left, $right) {
+    $leftParts = ([string]$left -split '\.') | ForEach-Object { [int]$_ }
+    $rightParts = ([string]$right -split '\.') | ForEach-Object { [int]$_ }
+    for ($index = 0; $index -lt 3; $index++) {
+        if ($leftParts[$index] -ne $rightParts[$index]) {
+            return $leftParts[$index] - $rightParts[$index]
+        }
+    }
+    return 0
+}
+
+function Get-LatestGitHubReleaseVersion {
+    $tag = (& gh release view --repo $GitHubRepo --json tagName --jq '.tagName' 2>$null | Select-Object -First 1).Trim()
+    if ($LASTEXITCODE -ne 0 -or $tag -notmatch '^v\d+\.\d+\.\d+$') {
+        throw "Could not determine the latest numeric GitHub release tag"
+    }
+    return $tag.Substring(1)
 }
 
 function Read-BuildMetadata($path, $label) {
@@ -267,6 +286,16 @@ if (-not $PanelBridgeVersion) {
 
 $TagName = "v$Version"
 if (-not $ReleaseTitle) { $ReleaseTitle = "$TagName" }
+if ($Version -notmatch '^\d+\.\d+\.\d+$') {
+    throw "Release version is not a numeric SemVer: $Version"
+}
+if (-not $DryRun -and -not $SkipGitHub) {
+    $latestGitHubVersion = Get-LatestGitHubReleaseVersion
+    if ((Compare-SemVer $Version $latestGitHubVersion) -le 0) {
+        throw "Release version $Version must be newer than the latest GitHub release $latestGitHubVersion"
+    }
+    Write-Ok "Release version $Version is newer than GitHub $latestGitHubVersion"
+}
 
 Write-Host ""
 Write-Host "============================================" -ForegroundColor White
@@ -284,13 +313,67 @@ Write-Host ""
 Write-Step "0/6" "Pre-flight checks"
 
 Push-Location $RepoDir
-try { $gitStatus = git status --porcelain 2>$null } catch { $gitStatus = $null }
-$untrackedFiles = @(git ls-files --others --exclude-standard 2>$null)
-Pop-Location
+try {
+    $gitStatus = git status --porcelain 2>$null
+    $currentBranch = (git branch --show-current 2>$null).Trim()
+    $upstreamBranch = (git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>$null).Trim()
+    $headCommit = (git rev-parse HEAD 2>$null).Trim()
+    $originMainCommit = $null
+    $existingRemoteTag = @()
+    if (-not $DryRun -and -not $SkipGitHub) {
+        git fetch origin main --quiet
+        if ($LASTEXITCODE -ne 0) { throw "Could not refresh origin/main before release" }
+        $originMainCommit = (git rev-parse origin/main 2>$null).Trim()
+        $existingRemoteTag = @(git ls-remote --tags origin "refs/tags/$TagName" 2>$null)
+        if ($LASTEXITCODE -ne 0) { throw "Could not check whether $TagName already exists on origin" }
+    }
+} catch { throw } finally { Pop-Location }
+$untrackedFiles = @(git -C $RepoDir ls-files --others --exclude-standard 2>$null)
+$trackedStandaloneReleaseNotes = @(git -C $RepoDir ls-files 2>$null | Where-Object { $_ -match '(^|/)release-notes-[^/]+\.md$' })
+if ($trackedStandaloneReleaseNotes.Count -gt 0) {
+    $trackedStandaloneReleaseNotes | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkYellow }
+    throw "Obsolete standalone release-note files are tracked. Put release prose in CHANGELOG.md instead."
+}
+if ($ReleaseNotes) {
+    $releaseNotesName = Split-Path -Leaf $ReleaseNotes
+    if ($releaseNotesName -match '^release-notes-[^/]+\.md$') {
+        throw "Do not pass obsolete standalone release-note files to -ReleaseNotes. Put release prose in CHANGELOG.md instead."
+    }
+}
+Write-Ok "No obsolete standalone release-note files"
+if (-not $DryRun -and -not $SkipGitHub) {
+    if ($currentBranch -ne "main") {
+        throw "Releases must be run from the main branch; current branch is '$currentBranch'."
+    }
+    if ($upstreamBranch -ne "origin/main") {
+        throw "Releases require an origin/main upstream; current upstream is '$upstreamBranch'."
+    }
+    if ($headCommit -ne $originMainCommit) {
+        throw "Local main is not at origin/main. Pull/rebase before releasing."
+    }
+    if ($existingRemoteTag.Count -gt 0) {
+        throw "Remote tag $TagName already exists; refusing to attach a release to an unknown commit."
+    }
+    Write-Ok "Release source is cleanly based on origin/main"
+} elseif ($currentBranch -ne "main") {
+    Write-Warn "Dry run or GitHub publishing is skipped on branch '$currentBranch'"
+}
+if (-not $DryRun) {
+    $packageVersionCheck = Join-Path $RepoDir "scripts\verify-package-version.mjs"
+    if (-not (Test-Path $packageVersionCheck)) {
+        throw "Package version parity checker is missing: $packageVersionCheck"
+    }
+    & node $packageVersionCheck
+    if ($LASTEXITCODE -ne 0) { throw "Package version parity check failed" }
+    Write-Ok "Package and lockfile versions are internally consistent"
+}
 if ($gitStatus) {
     Write-Warn "Uncommitted changes detected:"
     $gitStatus | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkYellow }
-    Write-Warn "Continuing with uncommitted changes."
+    if (-not $DryRun) {
+        throw "Working tree is dirty. Commit or stash all changes before releasing."
+    }
+    Write-Warn "Dry run only; uncommitted changes are present."
 } else {
     Write-Ok "No uncommitted changes"
 }
@@ -522,6 +605,7 @@ if ($SkipBuild) {
             @{ platform = "linux"; kind = "binary"; file = "ZomboidControlPanel";              path = $linuxBin },
             @{ platform = "win";   kind = "archive"; file = "ZomboidControlPanel-windows.zip"; path = $zipPath },
             @{ platform = "linux"; kind = "archive"; file = "ZomboidControlPanel-linux.tar.gz"; path = $tarPath },
+            @{ platform = "browser"; kind = "extension"; file = "zomboid-panel-extension.zip"; path = (Join-Path $RepoDir "release\zomboid-panel-extension.zip") },
             @{ platform = "docker"; kind = "compose"; file = "docker-compose.install.yml";     path = (Join-Path $RepoDir "docker-compose.install.yml") },
             @{ platform = "docker"; kind = "dockerfile"; file = "Dockerfile";                  path = (Join-Path $RepoDir "Dockerfile") }
         )
@@ -620,6 +704,8 @@ if ($SkipDocker) {
 # ============================================
 Write-Step "5/6" "Committing and pushing to GitHub"
 
+$releaseCommit = $headCommit
+
 if ($SkipGitHub) {
     Write-Skip "GitHub push skipped (-SkipGitHub)"
 } elseif ($DryRun) {
@@ -635,8 +721,10 @@ if ($SkipGitHub) {
             git commit -m "Release $TagName"
             if ($LASTEXITCODE -ne 0) { throw "Git commit failed" }
 
-            git push
+            git push origin main
             if ($LASTEXITCODE -ne 0) { throw "Git push failed" }
+
+            $releaseCommit = (git rev-parse HEAD).Trim()
 
             Write-Ok "Committed and pushed to GitHub"
         } else {
@@ -667,6 +755,7 @@ if ($SkipGitHub) {
         (Join-Path $RepoDir $WinExePath),
         (Join-Path $RepoDir $LinuxBinPath),
         (Join-Path $RepoDir $ChecksumsPath),
+        (Join-Path $RepoDir "release\zomboid-panel-extension.zip"),
         (Join-Path $RepoDir "docker-compose.install.yml"),
         (Join-Path $RepoDir "Dockerfile")
     )
@@ -682,7 +771,8 @@ if ($SkipGitHub) {
         "release", "create", $TagName,
         "--repo", $GitHubRepo,
         "--title", $ReleaseTitle,
-        "--latest"
+        "--latest",
+        "--target", $releaseCommit
     )
 
     # Add release notes

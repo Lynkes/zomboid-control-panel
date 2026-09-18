@@ -165,6 +165,40 @@ describe('Mods -- Steam API health indicator', () => {
   })
 })
 
+describe('Mods -- Check Updates reveals the result', () => {
+  it('refreshes the list and turns on Updates Only when Steam reports an update', async () => {
+    const initialMod = {
+      id: 1, workshop_id: '123456789', name: 'Updated Mod',
+      last_updated: '', last_checked: null, update_available: 0, created_at: '',
+    }
+    const refreshedMod = {
+      ...initialMod, last_checked: '2026-09-14T12:00:00.000Z', update_available: 1,
+    }
+    primeReadMocks({}, [initialMod])
+    getTrackedMods.mockReset()
+      .mockResolvedValueOnce({ mods: [initialMod] } as any)
+      .mockResolvedValue({ mods: [refreshedMod] } as any)
+    getCurrentConfig.mockResolvedValue({
+      configured: true, modIds: [], workshopIds: ['123456789'], maps: [], totalMods: 1,
+    } as any)
+    checkUpdates.mockResolvedValue({
+      updated: true,
+      mods: [{ workshopId: '123456789', name: 'Updated Mod' }],
+    } as any)
+
+    renderMods()
+    fireEvent.click(await screen.findByRole('button', { name: /scan for updates/i }))
+
+    await waitFor(() => expect(checkUpdates).toHaveBeenCalled())
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /updates only/i })).toHaveAttribute('aria-pressed', 'true')
+    })
+    expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({
+      description: '1 mod has updates available',
+    }))
+  })
+})
+
 describe('Mods -- removed-from-Workshop warning', () => {
   it('does not render when removedWorkshopIds is empty', async () => {
     primeReadMocks({ removedWorkshopIds: [] })
@@ -283,7 +317,7 @@ describe('Mods -- Workshop ACF not found is informational, not an alarm (GitHub 
     } as any)
     renderMods()
 
-    fireEvent.click(await screen.findByRole('button', { name: /check updates/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /scan for updates/i }))
 
     await waitFor(() => expect(toastSpy).toHaveBeenCalled())
     expect(toastSpy).toHaveBeenCalledWith(
@@ -308,7 +342,7 @@ describe('Mods -- Workshop ACF not found is informational, not an alarm (GitHub 
     } as any)
     renderMods()
 
-    fireEvent.click(await screen.findByRole('button', { name: /check updates/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /scan for updates/i }))
 
     await waitFor(() =>
       expect(toastSpy).toHaveBeenCalledWith(

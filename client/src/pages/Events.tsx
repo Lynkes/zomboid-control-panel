@@ -63,6 +63,7 @@ import { Switch } from '@/components/ui/switch'
 import { useToast } from '@/components/ui/use-toast'
 import { rconApi, serverApi, playersApi, panelBridgeApi, ApiError, BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS } from '@/lib/api'
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
+import { buildTeleportPlayerCommand, buildTeleportToCommand } from '@/lib/teleportCommands'
 import { Link } from 'react-router-dom'
 import { PageHeader } from '@/components/PageHeader'
 import { DisabledReason } from '@/components/DisabledReason'
@@ -1731,13 +1732,26 @@ export default function Events() {
   const handleBridgeAction = useCallback(async (action: string, fn: () => Promise<unknown>, onSettled?: (success: boolean) => void | Promise<void>) => {
     setBridgeLoading(action)
     try {
-      await fn()
+      const result = await fn()
       const successCopy = getEventSuccessCopy(action, t)
-      toast({
-        title: successCopy.title,
-        description: successCopy.description,
-        variant: 'success' as const,
-      })
+      const isUnverifiable = result
+        && typeof result === 'object'
+        && 'data' in result
+        && result.data
+        && typeof result.data === 'object'
+        && 'verified' in result.data
+        && result.data.verified === 'unverifiable'
+      toast(isUnverifiable
+        ? {
+            title: successCopy.title,
+            description: t('toasts.bridgeUnverifiedDesc', { action: successCopy.title }),
+            variant: 'default' as const,
+          }
+        : {
+            title: successCopy.title,
+            description: successCopy.description,
+            variant: 'success' as const,
+          })
       pushActivity(successCopy.title, true)
       await onSettled?.(true)
     } catch (error) {
@@ -1786,6 +1800,22 @@ export default function Events() {
       if (override) {
         toast(override)
         pushActivity(override.title, true)
+      } else if (
+        result
+        && typeof result === 'object'
+        && 'data' in result
+        && result.data
+        && typeof result.data === 'object'
+        && 'verified' in result.data
+        && result.data.verified === 'unverifiable'
+      ) {
+        const successCopy = getEventSuccessCopy(action, t)
+        toast({
+          title: successCopy.title,
+          description: t('toasts.bridgeUnverifiedDesc', { action: successCopy.title }),
+          variant: 'default' as const,
+        })
+        pushActivity(successCopy.title, true)
       } else {
         const successCopy = getEventSuccessCopy(action, t)
         toast({
@@ -1964,17 +1994,12 @@ export default function Events() {
 
   // Teleport commands
   // teleportto only works if admin is in-game and teleports themselves
-  // For teleporting other players, use teleport command with player name and coordinates
+  // For teleporting other players, include the selected player explicitly.
   const teleportToCoords = (x: number, y: number, z: number, targetPlayer?: string) => {
-    if (targetPlayer) {
-      // Teleport specific player to coordinates
-      return executeCommand(`teleport "${targetPlayer}" ${x},${y},${z}`)
-    }
-    // Self-teleport (requires admin to be in-game)
-    return executeCommand(`teleportto ${x},${y},${z}`)
+    return executeCommand(buildTeleportToCommand(x, y, z, targetPlayer))
   }
   const teleportPlayerToPlayer = (player1: string, player2: string) =>
-    executeCommand(`teleport "${player1}" "${player2}"`)
+    executeCommand(buildTeleportPlayerCommand(player1, player2))
 
   // Vehicle commands
   const spawnVehicle = (vehicleId: string, username: string) =>
@@ -3554,8 +3579,8 @@ export default function Events() {
                   </Button>
                   <Button
                     variant="outline"
-                    onClick={() => handleAction('Teleport player', () => teleportToCoords(teleportCoordX as number, teleportCoordY as number, teleportCoordZ as number, getTargetPlayer()))}
-                    disabled={loading !== null || !hasValidTeleportCoords || targetAll || !selectedPlayer}
+                    onClick={() => handleAction('Teleport player', () => teleportToCoords(teleportCoordX as number, teleportCoordY as number, teleportCoordZ as number, selectedPlayer))}
+                    disabled={loading !== null || !hasValidTeleportCoords || !selectedPlayer}
                     // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (this file's own precedent, cited in the rule's docs as "Teleport Player/Self"); an unconditional action description, no branch of it explains any of the four disable conditions. Triaged 2026-08-27.
                     title={t('teleport.teleportPlayerTitle')}
                     className="h-9 gap-2 text-xs font-medium"

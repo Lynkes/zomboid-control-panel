@@ -31,15 +31,15 @@ vi.mock("../database/init.js", () => ({
 
 const { DiscordBot } = await import("../services/discordBot.js");
 
-function makeBotWithFakeClient(sendImpl) {
+function makeBotWithFakeClient(sendImpl, fetchImpl = null) {
   const bot = new DiscordBot(null, null, null, null);
   bot.channelId = "channel-1";
   bot.client = {
     channels: {
-      fetch: async () => ({
-        isTextBased: () => true,
-        send: sendImpl,
-      }),
+      fetch: fetchImpl || (async () => ({
+          isTextBased: () => true,
+          send: sendImpl,
+        })),
     },
   };
   return bot;
@@ -68,6 +68,18 @@ describe("DiscordBot._sendToChannel() — a send that never settles", () => {
     const result = await resultPromise;
 
     expect(result).toBe(false);
+    expect(bot._breakerFor("channel-1").failures).toBe(1);
+  });
+
+  it("also bounds a channel lookup that never settles", async () => {
+    const send = vi.fn();
+    const bot = makeBotWithFakeClient(send, () => new Promise(() => {}));
+
+    const resultPromise = bot._sendToChannel("channel-1", "hello");
+    await vi.advanceTimersByTimeAsync(31_000);
+
+    expect(await resultPromise).toBe(false);
+    expect(send).not.toHaveBeenCalled();
     expect(bot._breakerFor("channel-1").failures).toBe(1);
   });
 

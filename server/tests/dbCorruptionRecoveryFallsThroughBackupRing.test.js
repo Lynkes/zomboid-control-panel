@@ -108,7 +108,7 @@ describe("getDb() corruption recovery: falls through the whole backup ring", () 
     expect(db.data.servers).toEqual([]);
     // Migrated on load, same as any fresh-default init -- not 1 (defaultData's
     // literal) any more.
-    expect(db.data._schemaVersion).toBe(3);
+    expect(db.data._schemaVersion).toBe(4);
   });
 
   it("still falls back to defaultData when db.json is corrupt and no backup exists at all", async () => {

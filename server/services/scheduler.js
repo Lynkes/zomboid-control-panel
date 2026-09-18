@@ -84,7 +84,7 @@ const SCHEDULABLE_BRIDGE_ACTIONS = new Set([
 // the same power routes/rcon.js gates behind rcon.execute. executeTask()'s
 // dispatch and routes/scheduler.js's write-time/run-time permission checks
 // both call this so the two can never silently drift apart on what counts
-// as "safe" -- see docs/qa/kevin-adversarial-findings.md Finding 1.
+// as "safe" -- see the scheduler permission audit.
 export function classifyScheduledCommand(command) {
   const commandLower = String(command ?? "").toLowerCase();
   if (commandLower === "restart") return "restart";
@@ -109,7 +109,7 @@ function parseBridgeActionName(rawCommand) {
 // The single source of truth for which panel capability a scheduled command
 // requires -- the SAME capability its direct/interactive equivalent route
 // requires, because scheduling an action must not cost less than performing
-// it (docs/qa/kevin-adversarial-findings.md Finding 1 established this for
+// it (the scheduler permission audit established this for
 // raw/rcon.execute specifically; this generalises it to the other three
 // curated classifications, closing the gap Finding 1's own fix never
 // checked -- automation.manage was verified against rcon.execute, never
@@ -1305,7 +1305,7 @@ export class Scheduler {
       // Schedule History's task-name column for this run. Every call site
       // left this at the default "Auto Restart" before this label existed,
       // even a human clicking Restart Now -- see
-      // docs/qa/kevin-adversarial-findings.md Finding 3. Callers that ARE a
+      // the restart-outcome audit. Callers that ARE a
       // live, request-bound manual trigger should pass "Manual restart";
       // genuinely unattended triggers (the AUTO_RESTART_CRON job, a
       // mod-update restart, a scheduled task's cron fire) keep the default.

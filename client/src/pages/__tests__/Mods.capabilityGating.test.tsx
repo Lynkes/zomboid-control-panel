@@ -181,7 +181,7 @@ describe('Mods.tsx capability gating -- mods.manage', () => {
     renderMods()
     await waitForLoaded()
 
-    const buttons = await screen.findAllByRole('button', { name: /check updates/i })
+    const buttons = await screen.findAllByRole('button', { name: /scan for updates/i })
     for (const btn of buttons) {
       expect(btn).toBeDisabled()
       fireEvent.click(btn)
@@ -197,7 +197,7 @@ describe('Mods.tsx capability gating -- mods.manage', () => {
     renderMods()
     await waitForLoaded()
 
-    const [btn] = await screen.findAllByRole('button', { name: /check updates/i })
+    const [btn] = await screen.findAllByRole('button', { name: /scan for updates/i })
     expect(btn).not.toBeDisabled()
     fireEvent.click(btn)
     await waitFor(() => expect(checkUpdates).toHaveBeenCalled())

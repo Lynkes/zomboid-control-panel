@@ -6,6 +6,12 @@ import { ConfirmProvider } from '@/contexts/ConfirmContext'
 import Events from '../Events'
 import { playersApi, panelBridgeApi } from '@/lib/api'
 
+const toastSpy = vi.fn()
+
+vi.mock('@/components/ui/use-toast', () => ({
+  useToast: () => ({ toast: toastSpy, dismiss: vi.fn(), toasts: [] }),
+}))
+
 // wired-no-ui-2026-08-30: generateWeather (POST /panel-bridge/weather/generate)
 // had a live, gated route and Lua handler but zero client callers -- distinct
 // from triggerBlizzard/triggerTropicalStorm/triggerStorm, which each fire one
@@ -84,6 +90,7 @@ async function openSevereSection() {
 }
 
 beforeEach(() => {
+  toastSpy.mockReset()
   getPlayers.mockReset().mockResolvedValue({ players: [] } as never)
   getStatus.mockReset().mockResolvedValue({ modConnected: true } as never)
   getClimateFloats.mockReset().mockResolvedValue({ success: false } as never)
@@ -101,6 +108,30 @@ describe('Events -- custom weather front sends the correct strength and frontTyp
     screen.getByRole('button', { name: 'generate front' }).click()
 
     await waitFor(() => expect(generateWeather).toHaveBeenCalledWith(0.5, 0))
+    await waitFor(() => expect(toastSpy).toHaveBeenCalled())
+  })
+
+  it('keeps an unverifiable weather request neutral instead of presenting confirmed success', async () => {
+    generateWeather.mockResolvedValue({
+      success: true,
+      data: { verified: 'unverifiable' },
+    } as never)
+    renderEvents()
+    await openSevereSection()
+
+    screen.getByRole('button', { name: 'generate front' }).click()
+
+    await waitFor(() => expect(generateWeather).toHaveBeenCalledWith(0.5, 0))
+    await expect(generateWeather.mock.results[0]?.value).resolves.toEqual({
+      success: true,
+      data: { verified: 'unverifiable' },
+    })
+    await waitFor(() => {
+      expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({
+        description: expect.stringMatching(/was sent, but the mod could not confirm it took effect/i),
+        variant: 'default',
+      }))
+    })
   })
 
   // Selecting "cold front" / "warm front" and confirming generateWeather is

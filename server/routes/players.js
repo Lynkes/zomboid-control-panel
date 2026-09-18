@@ -247,8 +247,8 @@ router.post('/ban', requirePermission("players.moderate"), async (req, res) => {
     // actually went to the server, and can differ from what was typed.
     // Logging the raw `reason` here would leave the panel's own record
     // (both this debug line and the persisted activity log below)
-    // disagreeing with reality, which is exactly the mismatch Kevin's fix
-    // existed to close (docs/qa/kevin-adversarial-findings.md Finding 2).
+    // disagreeing with reality, which is exactly the mismatch the audit fix
+    // existed to close.
     // Fallback to `reason` covers a path that somehow doesn't return
     // sentReason, so this never logs "undefined".
     const sentReason = result?.sentReason ?? reason;

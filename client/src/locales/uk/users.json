@@ -23,7 +23,8 @@
     "lastSignIn": "Останній вхід",
     "never": "Ніколи",
     "actions": "Дії",
-    "removeTooltip": "Видалити {{username}}"
+    "removeTooltip": "Видалити {{username}}",
+    "linkSsoTooltip": "Пов’язати SSO з {{username}}"
   },
   "deleteDialog": {
     "title": "Видалити {{username}}?",
@@ -37,6 +38,7 @@
     "description": "Створіть дані для входу іншій людині. Вона входитиме за цим іменем користувача та паролем.",
     "usernameLabel": "Ім’я користувача",
     "usernamePlaceholder": "напр. jsmith",
+    "usernameHint": "Використовуйте локальне ім’я користувача, а не електронну адресу. Пов’яжіть Google/SSO після створення.",
     "passwordLabel": "Пароль",
     "passwordHint": "Використайте щонайменше 6 символів.",
     "confirmPasswordLabel": "Підтвердьте пароль",
@@ -58,6 +60,10 @@
     "userDeletedTitle": "Обліковий запис видалено",
     "userDeletedDescription": "{{username}} більше не може входити.",
     "actionFailedTitle": "Не вдалося виконати дію",
-    "unknownError": "Невідома помилка"
+    "unknownError": "Невідома помилка",
+    "ssoLinkedTitle": "SSO пов’язано",
+    "ssoLinkedDescription": "Зовнішню особу тепер пов’язано з цим обліковим записом.",
+    "ssoLinkExpired": "Сеанс пов’язування SSO завершився. Почніть знову.",
+    "ssoLinkFailed": "Не вдалося пов’язати особу SSO з цим обліковим записом."
   }
 }

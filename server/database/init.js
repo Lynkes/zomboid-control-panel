@@ -172,7 +172,7 @@ const defaultData = {
 // Schema Migrations
 // ============================================
 
-const CURRENT_SCHEMA_VERSION = 3;
+const CURRENT_SCHEMA_VERSION = 4;
 
 // Migration 2 seed: a SNAPSHOT of what every requireRole(...) call site in
 // the app actually granted at the moment this migration was written --
@@ -320,6 +320,21 @@ export function runMigrations(data) {
         !role.capabilities.includes("backups.download")
       ) {
         role.capabilities.push("backups.download");
+      }
+    }
+  }
+
+  // Migration 4: players.endanger_or_impersonate was split out of the
+  // existing world-event permissions after schema v3 shipped. Fresh admin
+  // seeds already include it, but existing role-admin rows do not.
+  if (version < 4) {
+    for (const role of data.roles || []) {
+      if (
+        role.id === "role-admin" &&
+        Array.isArray(role.capabilities) &&
+        !role.capabilities.includes("players.endanger_or_impersonate")
+      ) {
+        role.capabilities.push("players.endanger_or_impersonate");
       }
     }
   }

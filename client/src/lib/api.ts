@@ -3894,6 +3894,9 @@ export const usersApi = {
   }): Promise<{ success: boolean; user: ManagedUserAccount }> =>
     apiPost("/auth/users", data),
 
+  startExternalIdentityLink: (userId: string): Promise<{ authorizationUrl: string }> =>
+    apiPost("/auth/oidc/link", { userId }),
+
   assignRole: (
     userId: string,
     roleId: string,
