@@ -1,7 +1,7 @@
 import express from 'express';
 import { createLogger } from '../utils/logger.js';
 const log = createLogger('API:RCON');
-import { getCommandHistory } from '../database/init.js';
+import { getCommandHistory, getActiveServer } from '../database/init.js';
 import { PZ_COMMANDS } from '../utils/commands.js';
 import {
   parseBoundedInteger,
@@ -322,7 +322,13 @@ router.post('/disconnect', requirePermission('rcon.execute'), async (req, res) =
 router.get('/history', requirePermission('rcon.execute'), async (req, res) => {
   try {
     const limit = parseClampedInteger(req.query.limit, 100, 1, 1000);
-    const history = await getCommandHistory(limit);
+    // continuous-bug-hunt round 21: scope to whichever server is active
+    // RIGHT NOW, not the unfiltered global history -- see
+    // getCommandHistory()'s own comment for why undefined (every other
+    // caller, all diagnostic/support-bundle collectors) keeps the old
+    // unfiltered behavior and only this operator-facing route opts in.
+    const activeServer = await getActiveServer().catch(() => null);
+    const history = await getCommandHistory(limit, activeServer?.id ?? null);
     res.json({ history });
   } catch (error) {
     log.error(`Failed to get command history: ${error.message}`);

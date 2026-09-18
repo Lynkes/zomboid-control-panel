@@ -1183,3 +1183,69 @@ describe("POST /api/servers/:id/activate: switching the active server must repoi
     expect(response.status).not.toHaveBeenCalledWith(500);
   });
 });
+
+// continuous-bug-hunt round 21 (other per-server data kept in one global
+// store): index.js's own 5s player-roster poll (lastPlayerList/
+// playerBaselineReady) shares the SAME rconService singleton every other
+// reload step above already repoints, but nothing ever reset those two
+// module-level fields on a switch -- for up to 5s after activating a
+// different server, the player count fed into perf snapshots and every
+// 'players:update' socket emission still reflected the PREVIOUS server's
+// roster. reloadServicesForNewActiveServer() now calls
+// resetPlayerPollingBaseline() (registered on the app by index.js,
+// mirroring resyncPanelBridgeForActiveServer's own registration) the same
+// unconditional, best-effort way it already handles every other reload.
+describe("POST /api/servers/:id/activate: switching the active server must reset the player-polling baseline", () => {
+  let io;
+  let resetPlayerPollingBaseline;
+
+  function buildReq(id) {
+    return {
+      params: { id },
+      user: { role: "admin" },
+      app: {
+        get: (key) =>
+          ({ io, modChecker: null, discordBot: null, resetPlayerPollingBaseline })[key],
+      },
+    };
+  }
+
+  beforeEach(() => {
+    setActiveServer.mockReset();
+    io = { emit: vi.fn() };
+  });
+
+  it("calls resetPlayerPollingBaseline when activating a different server", async () => {
+    setActiveServer.mockResolvedValue({ id: "2", name: "Server B" });
+    resetPlayerPollingBaseline = vi.fn();
+
+    const response = createResponse();
+    await runRoute("/:id/activate", "post", buildReq("2"), response);
+
+    expect(resetPlayerPollingBaseline).toHaveBeenCalledTimes(1);
+    expect(response.status).not.toHaveBeenCalledWith(500);
+  });
+
+  it("does not crash activation when resetPlayerPollingBaseline is unavailable", async () => {
+    setActiveServer.mockResolvedValue({ id: "2", name: "Server B" });
+    resetPlayerPollingBaseline = undefined;
+
+    const response = createResponse();
+    await runRoute("/:id/activate", "post", buildReq("2"), response);
+
+    expect(response.status).not.toHaveBeenCalledWith(500);
+  });
+
+  it("still reports success when resetPlayerPollingBaseline throws (best-effort, same posture as the other reloads)", async () => {
+    setActiveServer.mockResolvedValue({ id: "2", name: "Server B" });
+    resetPlayerPollingBaseline = vi.fn(() => {
+      throw new Error("unexpected");
+    });
+
+    const response = createResponse();
+    await runRoute("/:id/activate", "post", buildReq("2"), response);
+
+    expect(resetPlayerPollingBaseline).toHaveBeenCalledTimes(1);
+    expect(response.status).not.toHaveBeenCalledWith(500);
+  });
+});

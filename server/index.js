@@ -1386,6 +1386,7 @@ panelBridge.on("playerDisconnect", (playerName) => {
 app.set("rconService", rconService);
 app.set("serverManager", serverManager);
 app.set("resyncPanelBridgeForActiveServer", resyncPanelBridgeForActiveServer);
+app.set("resetPlayerPollingBaseline", resetPlayerPollingBaseline);
 app.set("dockerClient", dockerClient);
 app.set("modChecker", modChecker);
 app.set("scheduler", scheduler);
@@ -2592,13 +2593,29 @@ let playerBaselineReady = false;
 let playerPollingInterval = null;
 let rconConnectedAt = 0; // timestamp of last RCON connect — used for grace period
 
+// continuous-bug-hunt round 21 (other per-server data kept in one global
+// store): lastPlayerList/playerBaselineReady are module-level state fed by
+// this SAME rconService singleton reloadServicesForNewActiveServer()
+// (routes/servers.js) already repoints on every active-server switch --
+// but nothing ever reset THESE two, so for up to 5s after switching
+// servers (this poll's own interval), the player count fed into perf
+// snapshots (index.js's own startPerfPolling(), round 20) and every
+// 'players:update' socket emission still showed the PREVIOUS server's
+// roster. Exposed the same reset startPlayerPolling() already does on
+// ordinary startup so reloadServicesForNewActiveServer() can call it too,
+// via the same req.app.get(...) pattern that function already uses for
+// LogTailer/PanelBridge -- registered right below, next to the function.
+function resetPlayerPollingBaseline() {
+  lastPlayerList = [];
+  playerBaselineReady = false;
+}
+
 function startPlayerPolling() {
   // Poll every 5 seconds for player changes
   if (playerPollingInterval) {
     clearInterval(playerPollingInterval);
   }
-  lastPlayerList = [];
-  playerBaselineReady = false;
+  resetPlayerPollingBaseline();
 
   playerPollingInterval = setInterval(async () => {
     try {

@@ -730,7 +730,19 @@ router.get('/history', async (req, res) => {
     if (req.query.taskId !== undefined && taskId === null) {
       return res.status(400).json({ error: 'Invalid task ID', code: ErrorCode.SCHEDULER_INVALID_TASK_ID });
     }
-    const history = await getScheduleHistory(limit, taskId);
+    // continuous-bug-hunt round 21: scope the general (no explicit taskId)
+    // view to the currently active server -- a specific taskId is already
+    // unambiguously scoped by that task's own server_id (a task can
+    // legitimately target a server OTHER than the active one), so adding
+    // the active-server filter on top of an explicit taskId would wrongly
+    // return nothing for a valid task that just isn't for today's active
+    // server.
+    let serverId;
+    if (taskId === null) {
+      const activeServer = await getActiveServer().catch(() => null);
+      serverId = activeServer?.id ?? null;
+    }
+    const history = await getScheduleHistory(limit, taskId, serverId);
     res.json({ history });
   } catch (error) {
     log.error(`Failed to get schedule history: ${error.message}`);

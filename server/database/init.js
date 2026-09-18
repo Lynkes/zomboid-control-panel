@@ -1326,6 +1326,19 @@ export async function logCommand(command, response, success = true) {
 
   const entry = {
     id: generateId(),
+    // continuous-bug-hunt round 21 (other per-server data kept in one
+    // global store): RconService never tracked which server a command
+    // targeted (see the round's own memory note) -- getActiveServerId()
+    // is the same "whichever server is active right now" proxy
+    // tracked_mods/ignored_mods already use for the same reason, and the
+    // overwhelmingly common case (the shared RconService singleton acting
+    // on the active server). Known, accepted limitation shared with those
+    // two: a scheduled task's own THROWAWAY RconService instance targeting
+    // a server OTHER than the active one still gets tagged with whichever
+    // server happens to be active when the command runs, not its real
+    // target -- narrower than the untagged-forever status quo, not a new
+    // risk class.
+    server_id: await getActiveServerId(),
     command: redactedCommand,
     response: truncatedResponse,
     success: success ? 1 : 0,
@@ -1337,10 +1350,20 @@ export async function logCommand(command, response, success = true) {
   return entry;
 }
 
-export async function getCommandHistory(limit = 100) {
+// serverId optional and undefined by default so every existing caller
+// (Console.tsx's own history view is the only one today, but this mirrors
+// getPerformanceHistory()'s own round-20 contract for any future one)
+// keeps its current behavior unless it explicitly opts in.
+export async function getCommandHistory(limit = 100, serverId = undefined) {
   const db = await getDb();
   const safeLimit = parseClampedInteger(limit, 100, 1, RETENTION.command_history);
-  return db.data.command_history.slice(0, safeLimit);
+  const source =
+    serverId === undefined
+      ? db.data.command_history
+      : db.data.command_history.filter(
+          (entry) => entry.server_id == null || entry.server_id === serverId,
+        );
+  return source.slice(0, safeLimit);
 }
 
 // ============================================
@@ -1370,6 +1393,15 @@ export async function logBridgeCommand(
 
   const entry = {
     id: generateId(),
+    // continuous-bug-hunt round 21 (other per-server data kept in one
+    // global store): PanelBridge is a single module-level singleton tied
+    // to whatever server is currently active (it has no per-server
+    // instancing, unlike RconService's throwaway-instance escape hatch --
+    // see scheduler.js's own "bridge: actions only support the currently
+    // active server" comment), so getActiveServerId() is an exact match
+    // here, not just a proxy: every logBridgeCommand() call genuinely IS
+    // about whichever server is active at the moment it fires.
+    server_id: await getActiveServerId(),
     action,
     args: args || {},
     result: truncatedResult,
@@ -1383,11 +1415,15 @@ export async function logBridgeCommand(
   return entry;
 }
 
-export async function getBridgeLogs(limit = 100) {
+export async function getBridgeLogs(limit = 100, serverId = undefined) {
   const db = await getDb();
   if (!db.data.bridge_logs) return [];
+  let logs = db.data.bridge_logs;
+  if (serverId !== undefined) {
+    logs = logs.filter((e) => e.server_id == null || e.server_id === serverId);
+  }
   const safeLimit = parseClampedInteger(limit, 100, 1, RETENTION.bridge_logs);
-  return db.data.bridge_logs.slice(0, safeLimit);
+  return logs.slice(0, safeLimit);
 }
 
 // ============================================
@@ -1509,6 +1545,18 @@ const SYSTEM_TASK_NAME_KEYS = {
   "Auto Restart": "autoRestart",
 };
 
+// continuous-bug-hunt round 21 (other per-server data kept in one global
+// store): schedule_history had no server identity at all. A NAMED task
+// (taskId given) already has its own true server_id on the scheduled_tasks
+// row itself (round 17-adjacent server_id field) -- reusing THAT is more
+// accurate than a proxy, since a task can legitimately target a server
+// other than the one currently active (its own throwaway RconService/
+// ServerManager instance, see executeTask()'s _resolveServicesForTask()).
+// taskId===null entries (AUTO_RESTART_CRON, the scheduled backup job) have
+// no task row to read from, but both of those always run against whichever
+// server is currently active (setupAutoRestart()/setupBackupSchedule()'s
+// cron callbacks never pass an override), so getActiveServerId() is the
+// correct answer for exactly those two, not just a fallback proxy.
 export async function logScheduleExecution(
   taskId,
   taskName,
@@ -1520,8 +1568,18 @@ export async function logScheduleExecution(
   const db = await getDb();
   if (!db.data.schedule_history) db.data.schedule_history = [];
 
+  let serverId = null;
+  if (taskId != null) {
+    const task = db.data.scheduled_tasks?.find((t) => t.id === taskId);
+    serverId = task?.server_id ?? null;
+  }
+  if (serverId == null) {
+    serverId = await getActiveServerId();
+  }
+
   const entry = {
     id: generateId(),
+    server_id: serverId,
     task_id: taskId,
     task_name: taskName,
     task_name_key: SYSTEM_TASK_NAME_KEYS[taskName] ?? null,
@@ -1537,13 +1595,16 @@ export async function logScheduleExecution(
   return entry;
 }
 
-export async function getScheduleHistory(limit = 100, taskId = null) {
+export async function getScheduleHistory(limit = 100, taskId = null, serverId = undefined) {
   const db = await getDb();
   if (!db.data.schedule_history) return [];
 
   let history = db.data.schedule_history;
   if (taskId !== null) {
     history = history.filter((h) => h.task_id === taskId);
+  }
+  if (serverId !== undefined) {
+    history = history.filter((h) => h.server_id == null || h.server_id === serverId);
   }
   const safeLimit = parseClampedInteger(limit, 100, 1, RETENTION.schedule_history);
   return history.slice(0, safeLimit);
@@ -1575,10 +1636,19 @@ export async function getLatestScheduleExecutionByCommand(command) {
 // Player Logs
 // ============================================
 
+// continuous-bug-hunt round 21 (other per-server data kept in one global
+// store): every kick/ban/access-level/whitelist action a moderator takes
+// used to land in one global player_logs array with no server identity at
+// all -- switching the active server never scoped this audit trail, so
+// GET /activity mixed moderation history from every managed server
+// together. Tagged with getActiveServerId() (same proxy tracked_mods/
+// ignored_mods already use) at write time; filtered at read time, tolerant
+// of pre-fix untagged rows.
 export async function logPlayerAction(playerName, action, details = null) {
   const db = await getDb();
   const entry = {
     id: generateId(),
+    server_id: await getActiveServerId(),
     player_name: playerName,
     action,
     details,
@@ -1590,11 +1660,14 @@ export async function logPlayerAction(playerName, action, details = null) {
   return entry;
 }
 
-export async function getPlayerLogs(playerName = null, limit = 100) {
+export async function getPlayerLogs(playerName = null, limit = 100, serverId = undefined) {
   const db = await getDb();
   let logs = db.data.player_logs;
   if (playerName) {
     logs = logs.filter((l) => l.player_name === playerName);
+  }
+  if (serverId !== undefined) {
+    logs = logs.filter((l) => l.server_id == null || l.server_id === serverId);
   }
   const safeLimit = parseClampedInteger(limit, 100, 1, RETENTION.player_logs);
   return logs.slice(0, safeLimit);
@@ -1611,6 +1684,12 @@ export async function logServerEvent(eventType, message = null) {
     const db = await getDb();
     const entry = {
       id: generateId(),
+      // continuous-bug-hunt round 21 (other per-server data kept in one
+      // global store): same fix as command_history/player_logs -- tagged
+      // with getActiveServerId() at write time so GET /debug/activity can
+      // scope this feed to the currently active server instead of showing
+      // every managed server's events mixed together.
+      server_id: await getActiveServerId(),
       event_type: eventType,
       message,
       created_at: new Date().toISOString(),
@@ -1623,6 +1702,20 @@ export async function logServerEvent(eventType, message = null) {
     log.warn(`Could not record server event ${eventType}: ${error.message}`);
     return null;
   }
+}
+
+// serverId optional and undefined by default, same contract as
+// getCommandHistory()/getPlayerLogs() -- existing direct db.data.server_events
+// readers (the support-bundle collector) are unaffected until they opt in.
+export async function getServerEvents(limit = 100, serverId = undefined) {
+  const db = await getDb();
+  if (!db.data.server_events) return [];
+  let events = db.data.server_events;
+  if (serverId !== undefined) {
+    events = events.filter((e) => e.server_id == null || e.server_id === serverId);
+  }
+  const safeLimit = parseClampedInteger(limit, 100, 1, RETENTION.server_events);
+  return events.slice(0, safeLimit);
 }
 
 // ============================================
@@ -2636,21 +2729,48 @@ export async function deleteUserTemplate(id) {
 // SteamID Ban Tracking
 // ============================================
 
+// continuous-bug-hunt round 21 (other per-server data kept in one global
+// store): this was a single flat list keyed on steamId ALONE, shared
+// across every managed server -- not just a display-mixing issue like the
+// log collections above, a real FUNCTIONAL one: banning the same Steam
+// account on a second managed server silently did nothing to this record,
+// because addSteamIdBan()'s own duplicate check (`.some(b => b.steamId ===
+// steamId)`) fired globally, and the panel's own GET /steamid-bans list
+// (players.js) is this table's only reader -- an operator running two
+// distinct servers (say a PVE box and a PVP box) who bans a griefer's
+// SteamID on each would see only ONE entry either way, indistinguishable
+// from "banned everywhere" when it might only be banned on one. Same
+// server_id + legacy-migrate-on-touch pattern as getTrackedMods()/
+// addTrackedMod() above.
 export async function getSteamIdBans() {
   const db = await getDb();
   if (!db.data.steamid_bans) db.data.steamid_bans = [];
-  return db.data.steamid_bans;
+  const serverId = await getActiveServerId();
+  if (!serverId) return db.data.steamid_bans; // no servers yet -> return all (legacy)
+  return db.data.steamid_bans.filter(
+    (b) => b.server_id === serverId || !b.server_id,
+  );
 }
 
 export async function addSteamIdBan(steamId, reason = null) {
   const db = await getDb();
   if (!db.data.steamid_bans) db.data.steamid_bans = [];
+  const serverId = await getActiveServerId();
 
-  // Don't add duplicates
-  if (db.data.steamid_bans.some((b) => b.steamId === steamId)) return;
+  // Don't add a duplicate for THIS server -- the same steamId can
+  // legitimately be banned on one managed server and not another.
+  const existing = db.data.steamid_bans.find(
+    (b) => b.steamId === steamId && (b.server_id === serverId || !b.server_id),
+  );
+  if (existing) {
+    if (!existing.server_id && serverId) existing.server_id = serverId; // migrate legacy
+    scheduleWrite();
+    return;
+  }
 
   db.data.steamid_bans.push({
     steamId,
+    server_id: serverId,
     reason: reason || null,
     banned_at: new Date().toISOString(),
   });
@@ -2660,8 +2780,11 @@ export async function addSteamIdBan(steamId, reason = null) {
 export async function removeSteamIdBan(steamId) {
   const db = await getDb();
   if (!db.data.steamid_bans) return false;
+  const serverId = await getActiveServerId();
 
-  const index = db.data.steamid_bans.findIndex((b) => b.steamId === steamId);
+  const index = db.data.steamid_bans.findIndex(
+    (b) => b.steamId === steamId && (b.server_id === serverId || !b.server_id),
+  );
   if (index === -1) return false;
 
   db.data.steamid_bans.splice(index, 1);

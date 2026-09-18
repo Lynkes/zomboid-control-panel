@@ -27,6 +27,7 @@ import {
   getCommandHistory,
   getBridgeLogs,
   getPlayerLogs,
+  getServerEvents,
   getDb,
   getActiveServer,
   getServers,
@@ -6403,11 +6404,19 @@ router.get("/activity", requirePermission("diagnostics.manage"), async (req, res
       });
     }
 
+    // continuous-bug-hunt round 21: scope every source in this feed to
+    // whichever server is active RIGHT NOW -- this route was combining
+    // RCON/bridge/player/server history from every managed server into
+    // one mixed timeline, the same class of bug round 20 fixed for the
+    // performance chart.
+    const activeServerForFeed = await getActiveServer().catch(() => null);
+    const feedServerId = activeServerForFeed?.id ?? null;
+
     const entries = [];
 
     // RCON command history
     if (source === "all" || source === "rcon") {
-      const rconHistory = await getCommandHistory(limit);
+      const rconHistory = await getCommandHistory(limit, feedServerId);
       for (const cmd of rconHistory) {
         entries.push({
           id: cmd.id,
@@ -6422,7 +6431,7 @@ router.get("/activity", requirePermission("diagnostics.manage"), async (req, res
 
     // Bridge command history
     if (source === "all" || source === "bridge") {
-      const bridgeHistory = await getBridgeLogs(limit);
+      const bridgeHistory = await getBridgeLogs(limit, feedServerId);
       for (const cmd of bridgeHistory) {
         const detail =
           cmd.success === 1
@@ -6447,7 +6456,7 @@ router.get("/activity", requirePermission("diagnostics.manage"), async (req, res
     // without it already returned. source === "all" without it just skips
     // this block, same as if no player logs existed.
     if ((source === "all" || source === "player") && canViewPlayers) {
-      const playerLogs = await getPlayerLogs(null, limit);
+      const playerLogs = await getPlayerLogs(null, limit, feedServerId);
       for (const log of playerLogs) {
         entries.push({
           id: log.id,
@@ -6462,8 +6471,7 @@ router.get("/activity", requirePermission("diagnostics.manage"), async (req, res
 
     // Server events
     if (source === "all" || source === "server") {
-      const db = await getDb();
-      const serverEvents = (db.data.server_events || []).slice(0, limit);
+      const serverEvents = await getServerEvents(limit, feedServerId);
       for (const evt of serverEvents) {
         entries.push({
           id: evt.id,

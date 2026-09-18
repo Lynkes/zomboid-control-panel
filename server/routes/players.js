@@ -151,9 +151,14 @@ async function setPlayerMode(req, bridgeAction, rconMethod, username, enabled) {
 router.get('/activity', requirePermission("players.view"), async (req, res) => {
   try {
     const { player, limit = 100 } = req.query;
+    // continuous-bug-hunt round 21: scope to whichever server is active
+    // RIGHT NOW so switching servers doesn't show a mixed moderation
+    // history from every managed server together.
+    const activeServer = await getActiveServer();
     const logs = await getPlayerLogs(
       player || null,
       normalizePlayerLogLimit(limit),
+      activeServer?.id ?? null,
     );
     res.json({ success: true, logs });
   } catch (error) {

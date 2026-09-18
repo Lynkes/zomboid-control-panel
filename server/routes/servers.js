@@ -1734,6 +1734,22 @@ async function reloadServicesForNewActiveServer(req, server) {
   // Best-effort: keep PanelBridge.lua current on servers the panel can
   // reach directly on disk. Never let an install failure block activation.
   autoInstallBridgeIfNeeded(server);
+
+  // continuous-bug-hunt round 21: index.js's own 5s player-roster poll
+  // shares this same rconService singleton but never got repointed here --
+  // for up to 5s after this switch, the player count fed into perf
+  // snapshots and every 'players:update' socket emission still showed the
+  // PREVIOUS server's roster. See index.js's resetPlayerPollingBaseline()
+  // for the full reasoning. Best-effort, same posture as every other
+  // reload step above: never let this block a successful activation.
+  try {
+    const resetPlayerPollingBaseline = req.app.get("resetPlayerPollingBaseline");
+    if (typeof resetPlayerPollingBaseline === "function") {
+      resetPlayerPollingBaseline();
+    }
+  } catch (pollErr) {
+    log.warn(`Failed to reset player-polling baseline for new server: ${pollErr.message}`);
+  }
 }
 
 // Set active server
