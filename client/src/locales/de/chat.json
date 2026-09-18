@@ -80,6 +80,13 @@
     "admin": "Admin",
     "player": "Spieler"
   },
+  "channelTags": {
+    "whisper": "[Flüstern]",
+    "faction": "[Fraktion]",
+    "safehouse": "[Unterschlupf]",
+    "radio": "[Funk]",
+    "shout": "[Ruf]"
+  },
   "presets": {
     "default": [
       "Der Server wird in 5 Minuten neu gestartet!",

@@ -82,6 +82,13 @@
     "admin": "Admin",
     "player": "Joueur"
   },
+  "channelTags": {
+    "whisper": "[Chuchotement]",
+    "faction": "[Faction]",
+    "safehouse": "[Refuge]",
+    "radio": "[Radio]",
+    "shout": "[Cri]"
+  },
   "presets": {
     "default": [
       "Le serveur redémarre dans 5 minutes !",

@@ -80,6 +80,13 @@
     "admin": "Admin",
     "player": "Player"
   },
+  "channelTags": {
+    "whisper": "[Whisper]",
+    "faction": "[Faction]",
+    "safehouse": "[Safehouse]",
+    "radio": "[Radio]",
+    "shout": "[Shout]"
+  },
   "presets": {
     "default": [
       "Server will restart in 5 minutes!",

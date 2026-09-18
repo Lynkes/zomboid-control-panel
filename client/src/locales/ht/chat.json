@@ -80,6 +80,13 @@
     "admin": "Admin",
     "player": "Jwè"
   },
+  "channelTags": {
+    "whisper": "[Chwichotman]",
+    "faction": "[Faksyon]",
+    "safehouse": "[Kay Refij]",
+    "radio": "[Radyo]",
+    "shout": "[Rele]"
+  },
   "presets": {
     "default": [
       "Sèvè a ap redemare nan 5 minit!",

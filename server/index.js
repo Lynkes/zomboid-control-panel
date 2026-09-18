@@ -3236,6 +3236,30 @@ export function resolvePanelPort(rawValue, { onInvalid } = {}) {
   return 3001;
 }
 
+// Shapes the socket.io "chat:message" payload sent for each logTailer
+// 'chatMessage' event. Pulled out as its own function (rather than inlined
+// in the listener below) so the mapping -- in particular, that
+// sourceChatType survives the trip -- is unit-testable without booting the
+// whole server. sourceChatType is the PZ chat room's real title (e.g.
+// "Private" for a whisper, "Faction", "Safehouse", "Radio", "Shout"), not
+// just the 3-way admin/server/general `type` bucket Chat.tsx styles by --
+// dropping it here (as this payload used to) meant the client had no way to
+// tell a private whisper between two players apart from ordinary public
+// chat, even though logTailer.js had already done the work of computing it
+// (see chatMessageKey/collectChatRoomIds) and discordBot.js's chat relay
+// already depends on this exact same field to keep private channels out of
+// Discord (PUBLIC_CHAT_TYPES in discordBot.js).
+export function buildChatSocketPayload(data, id) {
+  return {
+    id,
+    type: data.type || "general",
+    author: data.author,
+    message: data.message,
+    timestamp: data.timestamp,
+    sourceChatType: data.sourceChatType,
+  };
+}
+
 // Initialize and start server
 async function start() {
   try {
@@ -3403,13 +3427,10 @@ async function start() {
     // and the client discards a message whose id it has already seen.
     let chatMessageSeq = 0;
     logTailer.on("chatMessage", (data) => {
-      io.emit("chat:message", {
-        id: `${Date.now()}-${chatMessageSeq++}`,
-        type: data.type || "general",
-        author: data.author,
-        message: data.message,
-        timestamp: data.timestamp,
-      });
+      io.emit(
+        "chat:message",
+        buildChatSocketPayload(data, `${Date.now()}-${chatMessageSeq++}`),
+      );
     });
 
     // Player death events parsed from B42 user.txt — forward to Discord

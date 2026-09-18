@@ -80,6 +80,13 @@
     "admin": "管理員",
     "player": "玩家"
   },
+  "channelTags": {
+    "whisper": "[密語]",
+    "faction": "[陣營]",
+    "safehouse": "[安全屋]",
+    "radio": "[無線電]",
+    "shout": "[喊叫]"
+  },
   "presets": {
     "default": [
       "伺服器將在 5 分鐘後重新啟動！",

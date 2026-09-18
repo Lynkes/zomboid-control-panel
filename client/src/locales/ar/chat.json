@@ -98,6 +98,13 @@
     "admin": "مسؤول",
     "player": "لاعب"
   },
+  "channelTags": {
+    "whisper": "[همس]",
+    "faction": "[فصيل]",
+    "safehouse": "[ملجأ آمن]",
+    "radio": "[راديو]",
+    "shout": "[صراخ]"
+  },
   "presets": {
     "default": [
       "سيُعاد تشغيل الخادم خلال 5 دقائق!",

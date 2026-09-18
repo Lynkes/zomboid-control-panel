@@ -82,6 +82,13 @@
     "admin": "Administrador",
     "player": "Jugador"
   },
+  "channelTags": {
+    "whisper": "[Susurro]",
+    "faction": "[Facción]",
+    "safehouse": "[Refugio]",
+    "radio": "[Radio]",
+    "shout": "[Grito]"
+  },
   "presets": {
     "default": [
       "¡El servidor se reiniciará en 5 minutos!",

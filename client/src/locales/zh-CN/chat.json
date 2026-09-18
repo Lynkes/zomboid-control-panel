@@ -80,6 +80,13 @@
     "admin": "管理员",
     "player": "玩家"
   },
+  "channelTags": {
+    "whisper": "[密语]",
+    "faction": "[阵营]",
+    "safehouse": "[安全屋]",
+    "radio": "[电台]",
+    "shout": "[喊叫]"
+  },
   "presets": {
     "default": [
       "服务器将在 5 分钟后重启！",
