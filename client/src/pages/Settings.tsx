@@ -391,6 +391,11 @@ export default function Settings() {
   const [corsLoading, setCorsLoading] = useState(false);
   const [corsUpdating, setCorsUpdating] = useState(false);
   const [testingRcon, setTestingRcon] = useState(false);
+  // pz-bughunt round 20 (UX sense check): the RCON test's result was only
+  // ever shown as a transient toast -- once it faded, there was no way to
+  // tell whether the last test passed without clicking it again. Keep the
+  // last outcome visible next to the button.
+  const [rconTestResult, setRconTestResult] = useState<{ ok: boolean; at: number } | null>(null);
   const [restarting, setRestarting] = useState(false);
   const restartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restartPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -1561,12 +1566,14 @@ export default function Settings() {
     setTestingRcon(true);
     try {
       await configApi.testRcon();
+      setRconTestResult({ ok: true, at: Date.now() });
       toast({
         title: t("toasts.rconConnected.title"),
         description: t("toasts.rconConnected.description"),
         variant: "success" as const,
       });
     } catch (error) {
+      setRconTestResult({ ok: false, at: Date.now() });
       toast({
         title: t("toasts.rconFailed.title"),
         description:
@@ -4173,6 +4180,24 @@ export default function Settings() {
                       {t("connection.testButton")}
                     </Button>
                   </DisabledReason>
+                  {!testingRcon && rconTestResult && (
+                    <span
+                      className={cn(
+                        "flex items-center gap-1.5 text-xs",
+                        rconTestResult.ok ? "text-success" : "text-destructive",
+                      )}
+                    >
+                      {rconTestResult.ok ? (
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                      ) : (
+                        <XCircle className="w-3.5 h-3.5" />
+                      )}
+                      {rconTestResult.ok
+                        ? t("connection.testResultOk")
+                        : t("connection.testResultFailed")}{" "}
+                      {new Date(rconTestResult.at).toLocaleTimeString(i18n.language)}
+                    </span>
+                  )}
                   <div className="flex items-center gap-2">
                     <Switch
                       checked={settings.autoReconnect}
@@ -4241,6 +4266,9 @@ export default function Settings() {
                     </Label>
                     <p className="text-xs text-muted-foreground">
                       {t("connection.autoStartDesc")}
+                    </p>
+                    <p className="text-xs text-primary/80">
+                      {t("connection.autoStartSaveHint")}
                     </p>
                   </div>
                   <Switch
@@ -4664,10 +4692,20 @@ export default function Settings() {
                             {Object.entries(bridgeStatus.connection.checks).map(
                               ([key, val]) => {
                                 if (key === "statusAgeMs") return null;
-                                const label = key
-                                  .replace(/([A-Z])/g, " $1")
-                                  .replace(/^./, (s) => s.toUpperCase())
-                                  .trim();
+                                // pz-bughunt round 20 (UX sense check): this
+                                // used to render the raw camelCase key
+                                // (humanized via regex only) with no i18n at
+                                // all, so non-English operators saw English
+                                // fragments mid-page. t() with the old
+                                // humanized text as defaultValue keeps this
+                                // safe for any future check key the server
+                                // adds before a translation exists for it.
+                                const label = t(`bridge.checksLabels.${key}`, {
+                                  defaultValue: key
+                                    .replace(/([A-Z])/g, " $1")
+                                    .replace(/^./, (s) => s.toUpperCase())
+                                    .trim(),
+                                });
                                 const passed = val === true;
                                 return (
                                   <div
@@ -5381,18 +5419,20 @@ export default function Settings() {
                       {t("backups.cardDesc")}
                     </CardDescription>
                   </div>
-                  <Button
-                    onClick={handleCreateBackup}
-                    disabled={creatingBackup || !backupStatus?.savesExists || backupPanelServerChanged}
-                    className="gap-2"
-                  >
-                    {creatingBackup ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Archive className="w-4 h-4" />
-                    )}
-                    {creatingBackup ? t("backups.creatingButton") : t("backups.backupNowButton")}
-                  </Button>
+                  <DisabledReason reason={backupPanelServerChanged ? t("toasts.backupPanelServerChanged.description") : null}>
+                    <Button
+                      onClick={handleCreateBackup}
+                      disabled={creatingBackup || !backupStatus?.savesExists || backupPanelServerChanged}
+                      className="gap-2"
+                    >
+                      {creatingBackup ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Archive className="w-4 h-4" />
+                      )}
+                      {creatingBackup ? t("backups.creatingButton") : t("backups.backupNowButton")}
+                    </Button>
+                  </DisabledReason>
                 </div>
               </CardHeader>
               <CardContent className="space-y-6">
@@ -5441,12 +5481,14 @@ export default function Settings() {
                           : t("backups.scheduledDesc")}
                       </p>
                     </div>
-                    <Switch
-                      checked={backupStatus?.enabled || false}
-                      onCheckedChange={toggleBackupEnabled}
-                      disabled={backupLoading || (!backupStatus && backupStatusLoadError) || backupPanelServerChanged}
-                      aria-label={t("ariaLabels.enableScheduledBackups")}
-                    />
+                    <DisabledReason reason={backupPanelServerChanged ? t("toasts.backupPanelServerChanged.description") : null}>
+                      <Switch
+                        checked={backupStatus?.enabled || false}
+                        onCheckedChange={toggleBackupEnabled}
+                        disabled={backupLoading || (!backupStatus && backupStatusLoadError) || backupPanelServerChanged}
+                        aria-label={t("ariaLabels.enableScheduledBackups")}
+                      />
+                    </DisabledReason>
                   </div>
 
                   {backupStatus?.enabled && (
@@ -5484,17 +5526,19 @@ export default function Settings() {
                         </p>
                       </div>
                       <div className="sm:col-span-2">
-                        <Button
-                          onClick={handleSaveBackupSettings}
-                          disabled={backupLoading || backupPanelServerChanged}
-                          variant="outline"
-                          size="sm"
-                        >
-                          {backupLoading && (
-                            <Loader2 className="w-4 h-4 me-2 animate-spin" />
-                          )}
-                          {t("backups.saveScheduleButton")}
-                        </Button>
+                        <DisabledReason reason={backupPanelServerChanged ? t("toasts.backupPanelServerChanged.description") : null}>
+                          <Button
+                            onClick={handleSaveBackupSettings}
+                            disabled={backupLoading || backupPanelServerChanged}
+                            variant="outline"
+                            size="sm"
+                          >
+                            {backupLoading && (
+                              <Loader2 className="w-4 h-4 me-2 animate-spin" />
+                            )}
+                            {t("backups.saveScheduleButton")}
+                          </Button>
+                        </DisabledReason>
                       </div>
                     </div>
                   )}
@@ -5608,6 +5652,7 @@ export default function Settings() {
                                 onClick={() =>
                                   backupApi.downloadBackup(backup.name)
                                 }
+                                title={t("backups.downloadTitle")}
                               >
                                 <Download className="w-4 h-4" />
                               </Button>
@@ -5617,6 +5662,7 @@ export default function Settings() {
                                     variant="ghost"
                                     size="sm"
                                     className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                                    title={t("backups.deleteTitle")}
                                   >
                                     <Trash2 className="w-4 h-4" />
                                   </Button>

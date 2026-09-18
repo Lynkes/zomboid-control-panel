@@ -295,6 +295,8 @@
     "cardTitle": "RCON Connection",
     "cardDesc": "Test the connection and set reconnect behavior. Host, port, and password are configured per-server on the Servers page.",
     "testButton": "Test Connection",
+    "testResultOk": "Connected",
+    "testResultFailed": "Failed",
     "autoReconnectLabel": "Auto-reconnect on disconnect",
     "reconnectIntervalLabel": "Reconnect Interval (seconds)",
     "perServerNote": "RCON is configured per-server:",
@@ -304,10 +306,26 @@
     "startupCardTitle": "Server Startup",
     "startupCardDesc": "Whether the panel launches the game server for you.",
     "autoStartLabel": "Start the game server when the panel starts",
-    "autoStartDesc": "Skipped automatically when the RCON port is already in use, so a server that is already running is never duplicated. Needs a local install path; servers hosted by a provider are started by the provider."
+    "autoStartDesc": "Skipped automatically when the RCON port is already in use, so a server that is already running is never duplicated. Needs a local install path; servers hosted by a provider are started by the provider.",
+    "autoStartSaveHint": "Saved together with the rest of the General tab's settings -- remember to click Save there. (The matching checkbox on the Dashboard saves immediately when toggled.)"
   },
 
   "bridge": {
+    "checksLabels": {
+      "bridgePathConfigured": "Bridge path configured",
+      "bridgePathExists": "Bridge directory exists",
+      "bridgePathReadable": "Bridge directory readable",
+      "bridgePathWritable": "Bridge directory writable",
+      "inboxDirPresent": "Inbox folder present",
+      "outboxDirPresent": "Outbox folder present",
+      "commandsFilePresent": "Commands file present",
+      "commandsFileReadable": "Commands file readable",
+      "resultsFilePresent": "Results file present",
+      "resultsFileReadable": "Results file readable",
+      "statusFilePresent": "Status file present",
+      "statusFileReadable": "Status file readable",
+      "statusFresh": "Status is fresh"
+    },
     "cardTitle": "Panel Bridge",
     "cardDesc": "Connects this panel to the live game for weather, utilities, richer chat, and other in-world actions",
     "howItWorksButton": "How it works",
@@ -510,6 +528,8 @@
     "loadFailedDescription": "This isn't necessarily an empty list — the backup list request failed. Reopen this page to try again.",
     "statusLoadFailed": "Couldn't check whether scheduled backups are on — this toggle is disabled until it loads. Reopen this page to try again.",
     "restoreTitle": "Restore this backup (server must be stopped)",
+    "downloadTitle": "Download this backup",
+    "deleteTitle": "Delete this backup",
     "restoreDialogTitle": "Restore Backup",
     "restoreDialogIntro": "This will restore <b>{{name}}</b> and <b>OVERWRITE</b> the current world data.",
     "restoreMustBeStopped": "Server must be <b>STOPPED</b>",

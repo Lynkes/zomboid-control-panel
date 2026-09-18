@@ -295,6 +295,8 @@
     "cardTitle": "Koneksyon RCON",
     "cardDesc": "Teste koneksyon an epi mete konpòtman rekoneksyon. Lame, pò, ak modpas konfigire pou chak sèvè sou paj Sèvè yo.",
     "testButton": "Teste Koneksyon",
+    "testResultOk": "Konekte",
+    "testResultFailed": "Echwe",
     "autoReconnectLabel": "Rekonekte otomatikman lè li dekonekte",
     "reconnectIntervalLabel": "Entèval Rekoneksyon (segonn)",
     "perServerNote": "RCON konfigire pou chak sèvè:",
@@ -304,10 +306,26 @@
     "startupCardTitle": "Demaraj Sèvè",
     "startupCardDesc": "Si panèl la lanse sèvè jwèt la pou ou.",
     "autoStartLabel": "Demare sèvè jwèt la lè panèl la demare",
-    "autoStartDesc": "Sote otomatikman lè pò RCON la deja an itilizasyon, kidonk yon sèvè ki deja ap fonksyone pa janm double. Bezwen yon chemen enstalasyon lokal; sèvè ki lame pa yon founisè demare pa founisè a."
+    "autoStartDesc": "Sote otomatikman lè pò RCON la deja an itilizasyon, kidonk yon sèvè ki deja ap fonksyone pa janm double. Bezwen yon chemen enstalasyon lokal; sèvè ki lame pa yon founisè demare pa founisè a.",
+    "autoStartSaveHint": "Sove ansanm ak lòt paramèt Onglè Jeneral la — sonje klike sou Anrejistre la pou aplike l. (Kaz ekivalan an sou Dashboard la sove imedyatman lè w chanje l.)"
   },
 
   "bridge": {
+    "checksLabels": {
+      "bridgePathConfigured": "Chemen bridge konfigire",
+      "bridgePathExists": "Dosye bridge la egziste",
+      "bridgePathReadable": "Dosye bridge la ka li",
+      "bridgePathWritable": "Dosye bridge la ka ekri",
+      "inboxDirPresent": "Dosye Inbox prezan",
+      "outboxDirPresent": "Dosye Outbox prezan",
+      "commandsFilePresent": "Fichye kòmand prezan",
+      "commandsFileReadable": "Fichye kòmand ka li",
+      "resultsFilePresent": "Fichye rezilta prezan",
+      "resultsFileReadable": "Fichye rezilta ka li",
+      "statusFilePresent": "Fichye estati prezan",
+      "statusFileReadable": "Fichye estati ka li",
+      "statusFresh": "Estati a fre"
+    },
     "cardTitle": "Panel Bridge",
     "cardDesc": "Konekte panèl sa a nan jwèt la an dirèk pou tan, zouti, chat pi rich, ak lòt aksyon nan mond lan",
     "howItWorksButton": "Kijan li fonksyone",
@@ -510,6 +528,8 @@
     "loadFailedDescription": "Sa a pa nesesèman yon lis vid — demann lis kopi sovgad la echwe. Louvri paj sa a ankò pou eseye ankò.",
     "statusLoadFailed": "Pa t kapab tcheke si kopi sovgad pwograme yo aktive — bouton sa a dezaktive jistan li chaje. Louvri paj sa a ankò pou eseye ankò.",
     "restoreTitle": "Retabli kopi sovgad sa a (sèvè a dwe sispann)",
+    "downloadTitle": "Telechaje kopi sovgad sa a",
+    "deleteTitle": "Efase kopi sovgad sa a",
     "restoreDialogTitle": "Retabli Kopi Sovgad",
     "restoreDialogIntro": "Sa a ap retabli <b>{{name}}</b> epi <b>EKRASE</b> done mond aktyèl yo.",
     "restoreMustBeStopped": "Sèvè a dwe <b>SISPANN</b>",
