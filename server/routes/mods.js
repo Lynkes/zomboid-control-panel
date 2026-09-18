@@ -8673,12 +8673,18 @@ router.post("/batch-delete-disk-mods", async (req, res) => {
       });
     }
 
-    // Capture all mod IDs BEFORE we start deleting.
+    // Capture all mod IDs AND map folders BEFORE we start deleting -- both
+    // are read off the workshop folders this route is about to rmSync, the
+    // same ordering deleteModFromDiskAndIni() (the single-mod sibling this
+    // route duplicates instead of calling) already gets right.
     const allModIdsToStrip = new Set();
+    const allMapFoldersToStrip = new Set();
     for (const wsId of cleaned) {
       if (serverPath) {
         for (const m of findAllModIdsFromWorkshop(wsId, serverPath))
           allModIdsToStrip.add(m);
+        for (const folder of findMapFoldersFromWorkshop(wsId, serverPath))
+          allMapFoldersToStrip.add(folder);
       }
     }
 
@@ -8707,6 +8713,27 @@ router.post("/batch-delete-disk-mods", async (req, res) => {
         content = content.replace(
           /^[ \t]*Mods[ \t]*=.*/m,
           `Mods=${sanitizeModIdList(modsList)}`,
+        );
+      }
+      // continuous-bug-hunt, 2026-09-18 (mod-list-drift round): this route
+      // deletes the ENTIRE workshop folder per id below (fs.rmSync,
+      // recursive) -- including any map content it owns -- but, unlike its
+      // single-mod sibling deleteModFromDiskAndIni() (used by /delete-disk-mod
+      // and /purge), never removed the matching Map= entries. The server's
+      // Map= line kept naming a folder that no longer existed on disk after
+      // a batch delete, silently, with the response reporting success and no
+      // hint anything Map=-related happened. Same fallback as the sibling:
+      // Map= may never be empty, or PZ has nothing to boot into.
+      const mapMatch = content.match(/^[ \t]*Map[ \t]*=[ \t]*(.*)$/m);
+      if (mapMatch && allMapFoldersToStrip.size > 0) {
+        let mapList = mapMatch[1]
+          .split(";")
+          .filter(Boolean)
+          .filter((m) => !allMapFoldersToStrip.has(m));
+        if (mapList.length === 0) mapList = ["Muldraugh, KY"];
+        content = content.replace(
+          /^[ \t]*Map[ \t]*=.*/m,
+          `Map=${sanitizeIniList(mapList)}`,
         );
       }
       backupWarning = backupWarningFor(
@@ -8759,13 +8786,14 @@ router.post("/batch-delete-disk-mods", async (req, res) => {
 
     const deletedCount = results.filter((r) => r.deletedFromDisk).length;
     log.info(
-      `Batch deleted ${deletedCount}/${cleaned.length} disk mods (mod IDs stripped: ${allModIdsToStrip.size})`,
+      `Batch deleted ${deletedCount}/${cleaned.length} disk mods (mod IDs stripped: ${allModIdsToStrip.size}, map folders stripped: ${allMapFoldersToStrip.size})`,
     );
     res.json({
       success: true,
       total: cleaned.length,
       deletedFromDisk: deletedCount,
       modIdsStripped: allModIdsToStrip.size,
+      mapFoldersStripped: allMapFoldersToStrip.size,
       results,
       ...(backupWarning ? { backupWarning } : {}),
     });
