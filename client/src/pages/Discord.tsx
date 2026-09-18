@@ -1812,23 +1812,29 @@ export default function Discord() {
                             admin: t("management.commandPermissions.tierAdmin"),
                           };
                           return (
-                            <Button
+                            <DisabledReason
                               key={tier}
-                              variant={variant}
-                              size="sm"
-                              className="h-7 gap-1 px-2 text-xs"
-                              onClick={() =>
-                                setCommandPermissions((prev) => ({
-                                  ...prev,
-                                  [c.cmd]: tier,
-                                }))
-                              }
+                              reason={!canManageIntegrations ? t("shared.noPermission") : null}
                             >
-                              {icons[tier]}
-                              <span className="hidden sm:inline">
-                                {tierLabels[tier]}
-                              </span>
-                            </Button>
+                              <Button
+                                variant={variant}
+                                size="sm"
+                                className="h-7 gap-1 px-2 text-xs"
+                                disabled={!canManageIntegrations}
+                                onClick={() => {
+                                  if (!canManageIntegrations) return;
+                                  setCommandPermissions((prev) => ({
+                                    ...prev,
+                                    [c.cmd]: tier,
+                                  }));
+                                }}
+                              >
+                                {icons[tier]}
+                                <span className="hidden sm:inline">
+                                  {tierLabels[tier]}
+                                </span>
+                              </Button>
+                            </DisabledReason>
                           );
                         },
                       )}
