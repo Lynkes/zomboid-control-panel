@@ -386,6 +386,17 @@ export default function Players() {
   const [steamIdBanDialogOpen, setSteamIdBanDialogOpen] = useState(false)
   const [voiceBanDialogOpen, setVoiceBanDialogOpen] = useState(false)
   const [addUserDialogOpen, setAddUserDialogOpen] = useState(false)
+  // bug-hunt-2026-09-18 (round 21, UX follow-up): the dossier's own "Add to
+  // Whitelist" menu item reuses this exact dialog/state (same
+  // playersApi.addUser() call either way -- there is no separate
+  // "whitelist an existing player" endpoint) rather than opening a second
+  // one, but the dialog's title/description/submit label always said "Add
+  // User" regardless of which entry point opened it -- reading as "create a
+  // brand new account" even when the operator just picked an ALREADY-KNOWN
+  // player from the dossier to whitelist. Defaults to the standalone
+  // ActionTile's own framing; the dossier's "Add to Whitelist" click sets
+  // this to 'addToWhitelist' before opening.
+  const [addUserDialogMode, setAddUserDialogMode] = useState<'createAccount' | 'addToWhitelist'>('createAccount')
   const [itemBrowserOpen, setItemBrowserOpen] = useState(false)
   const [vehicleBrowserOpen, setVehicleBrowserOpen] = useState(false)
 
@@ -1005,10 +1016,18 @@ export default function Players() {
   // noclip/teleport bridge actions below, when the mod couldn't confirm the
   // change) resolves to `{ toastOverride }` instead -- runtime-checked here
   // rather than widening `fn`'s type, so every other caller is unaffected.
+  // bug-hunt-2026-09-18 (round 21, UX follow-up): the generic success toast
+  // used to say only "{{action}} completed" -- correct, but silent about
+  // WHICH player it happened to, on a page whose whole job is acting on
+  // one player at a time. `player` is optional (a create-a-new-account
+  // action like Add User, or the rare handleAction call with no single
+  // clear target, can omit it) and purely additive: every existing caller
+  // that doesn't pass one keeps the exact prior toast text.
   const handleAction = async (
     action: string,
     fn: () => Promise<unknown>,
     closeDialog?: () => void,
+    player?: string,
   ) => {
     setLoading(true)
     try {
@@ -1020,7 +1039,9 @@ export default function Players() {
       toast(
         override ?? {
           title: t('toasts.successTitle'),
-          description: t('toasts.successDesc', { action }),
+          description: player
+            ? t('toasts.successDescForPlayer', { action, player })
+            : t('toasts.successDesc', { action }),
           variant: 'success' as const,
         },
       )
@@ -1044,7 +1065,7 @@ export default function Players() {
       setKickReason('')
       setSelectedPlayer('')
       searchInputRef.current?.focus()
-    })
+    }, selectedPlayer)
   }
 
   // Overwrites the target player's XP/perks/skills/traits/inventory/wornItems --
@@ -1093,7 +1114,7 @@ export default function Players() {
       setBanIp(false)
       setSelectedPlayer('')
       searchInputRef.current?.focus()
-    })
+    }, selectedPlayer)
   }
 
   const handleUnban = () => {
@@ -1101,7 +1122,7 @@ export default function Players() {
     handleAction(t('actions.unbanPlayer'), () => playersApi.unban(unbanUsername), () => {
       setUnbanUsername('')
       setUnbanDialogOpen(false)
-    })
+    }, unbanUsername)
   }
 
   const handleUnbanSteamId = () => {
@@ -1110,7 +1131,7 @@ export default function Players() {
       setUnbanSteamId('')
       setUnbanSteamIdDialogOpen(false)
       setBannedSteamIds(prev => prev.filter(b => b.steamId !== unbanSteamId))
-    })
+    }, unbanSteamId)
   }
 
   // Builds the { toastOverride } handleAction reads instead of its default
@@ -1158,7 +1179,7 @@ export default function Players() {
       setTeleportY('')
       setTeleportZ('0')
       setTeleportTarget('')
-    })
+    }, target)
   }
 
   const handleSteamIdBan = () => {
@@ -1170,7 +1191,7 @@ export default function Players() {
       setBanSteamId('')
       setSteamBanReason('')
       void fetchBannedSteamIds()
-    })
+    }, steamId)
   }
 
   const handleAddUser = () => {
@@ -1195,7 +1216,7 @@ export default function Players() {
       setAddUserUsername('')
       setAddUserPassword('')
       void fetchWhitelist()
-    })
+    }, addUserUsername.trim())
   }
 
   const handleAddAllowedSteamId = () => {
@@ -1211,12 +1232,12 @@ export default function Players() {
     handleAction(t('actions.addAllowedSteamId'), () => playersApi.addAllowedSteamId(steamId), () => {
       setAllowedSteamIdInput('')
       void fetchWhitelist()
-    })
+    }, steamId)
   }
 
   const handleSetAccessLevel = () => {
     if (!selectedPlayer || !accessLevel) return
-    handleAction(t('actions.setAccessLevel'), () => playersApi.setAccessLevel(selectedPlayer, accessLevel))
+    handleAction(t('actions.setAccessLevel'), () => playersApi.setAccessLevel(selectedPlayer, accessLevel), undefined, selectedPlayer)
   }
 
   // Direct spawn handlers used by the SpawnBrowser dialog. They intentionally
@@ -1277,7 +1298,7 @@ export default function Players() {
 
   const handleAddXp = () => {
     if (!selectedPlayer || !selectedPerk) return
-    handleAction(t('actions.addXp'), () => playersApi.addXp(selectedPlayer, selectedPerk, xpAmount))
+    handleAction(t('actions.addXp'), () => playersApi.addXp(selectedPlayer, selectedPerk, xpAmount), undefined, selectedPlayer)
   }
 
   const handleGodMode = (enabled: boolean) => {
@@ -1297,7 +1318,7 @@ export default function Players() {
         }))
       }
       return bridgeVerifyToastOverride(label, 'setGodMode', response?.data)
-    })
+    }, undefined, player)
   }
 
   const handleInvisible = (enabled: boolean) => {
@@ -1314,7 +1335,7 @@ export default function Players() {
         }))
       }
       return bridgeVerifyToastOverride(label, 'setInvisible', response?.data)
-    })
+    }, undefined, player)
   }
 
   const handleNoclip = (enabled: boolean) => {
@@ -1331,7 +1352,7 @@ export default function Players() {
         }))
       }
       return bridgeVerifyToastOverride(label, 'setNoclip', response?.data)
-    })
+    }, undefined, player)
   }
 
   const handleHealPlayer = () => {
@@ -1340,7 +1361,7 @@ export default function Players() {
     handleAction(t('actions.healPlayer'),
       async () => {
         await panelBridgeApi.sendCommand('healPlayer', { username: player })
-      })
+      }, undefined, player)
   }
 
   // Permanent character loss in a permadeath game, inflicted on someone
@@ -1377,7 +1398,7 @@ export default function Players() {
     handleAction(t('actions.killPlayer'),
       async () => {
         await panelBridgeApi.killPlayer(player)
-      })
+      }, undefined, player)
   }
 
   // Get selected player's current powers
@@ -1904,7 +1925,16 @@ export default function Players() {
                               variant="outline"
                               size="sm"
                               className="shrink-0"
-                              onClick={() => handleAction(t('actions.removeFromWhitelist'), () => playersApi.removeFromWhitelist(account.username), () => { void fetchWhitelist() })}
+                              onClick={async () => {
+                                const confirmed = await confirm({
+                                  title: t('roster.removeFromWhitelistConfirmTitle'),
+                                  description: t('roster.removeFromWhitelistConfirmDesc', { player: account.username }),
+                                  confirmLabel: t('roster.removeFromWhitelistConfirmButton'),
+                                  destructive: true,
+                                })
+                                if (!confirmed) return
+                                void handleAction(t('actions.removeFromWhitelist'), () => playersApi.removeFromWhitelist(account.username), () => { void fetchWhitelist() }, account.username)
+                              }}
                               disabled={loading || !canModerate}
                               // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Remove {username} from whitelist"); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                               title={t('roster.removeTitle', { username: account.username })}
@@ -1950,7 +1980,16 @@ export default function Players() {
                         variant="ghost"
                         size="sm"
                         className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
-                        onClick={() => handleAction(t('actions.removeAllowedSteamId'), () => playersApi.removeAllowedSteamId(steamId), () => { void fetchWhitelist() })}
+                        onClick={async () => {
+                          const confirmed = await confirm({
+                            title: t('roster.removeAllowedSteamIdConfirmTitle'),
+                            description: t('roster.removeAllowedSteamIdConfirmDesc', { steamId }),
+                            confirmLabel: t('roster.removeAllowedSteamIdConfirmButton'),
+                            destructive: true,
+                          })
+                          if (!confirmed) return
+                          void handleAction(t('actions.removeAllowedSteamId'), () => playersApi.removeAllowedSteamId(steamId), () => { void fetchWhitelist() }, steamId)
+                        }}
                         disabled={loading || !canModerate}
                         // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Remove allowed Steam ID {steamId}"); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                         title={t('roster.removeAllowedTitle', { steamId })}
@@ -2148,6 +2187,7 @@ export default function Players() {
                                   if (!canModerate) return
                                   setAddUserUsername(selectedPlayer)
                                   setAddUserPassword('')
+                                  setAddUserDialogMode('addToWhitelist')
                                   setAddUserDialogOpen(true)
                                 }}
                                 disabled={loading || !canModerate}
@@ -2173,7 +2213,17 @@ export default function Players() {
                                 }
                               >
                               <DropdownMenuItem
-                                onClick={() => { if (!canModerate) return; handleAction(t('actions.removeFromWhitelist'), () => playersApi.removeFromWhitelist(selectedPlayer), () => { void fetchWhitelist() }) }}
+                                onClick={async () => {
+                                  if (!canModerate) return
+                                  const confirmed = await confirm({
+                                    title: t('roster.removeFromWhitelistConfirmTitle'),
+                                    description: t('roster.removeFromWhitelistConfirmDesc', { player: selectedPlayer }),
+                                    confirmLabel: t('roster.removeFromWhitelistConfirmButton'),
+                                    destructive: true,
+                                  })
+                                  if (!confirmed) return
+                                  void handleAction(t('actions.removeFromWhitelist'), () => playersApi.removeFromWhitelist(selectedPlayer), () => { void fetchWhitelist() }, selectedPlayer)
+                                }}
                                 disabled={loading || !canModerate || selectedPlayerConfirmedNotWhitelisted}
                               >
                                 <UserMinus className="w-4 h-4 me-2" />
@@ -2701,7 +2751,7 @@ export default function Players() {
                               () => playersApi.voiceBan(target, voiceBanEnabled), () => {
                                 setVoiceBanDialogOpen(false)
                                 setVoiceBanUsername('')
-                              })
+                              }, target)
                           }}
                           disabled={loading || (!voiceBanUsername && !selectedPlayer)}
                         >
@@ -2776,15 +2826,17 @@ export default function Players() {
                   <Dialog open={addUserDialogOpen} onOpenChange={setAddUserDialogOpen}>
                     <DialogTrigger asChild>
                       {/* eslint-disable-next-line local/no-dead-disabled-title -- pure hint (explains what adding a user does); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27. */}
-                      <button type="button" disabled={!canModerate} title={t('actionTiles.addUserTooltip')} className="block h-auto w-full p-0 text-start">
+                      <button type="button" disabled={!canModerate} title={t('actionTiles.addUserTooltip')} className="block h-auto w-full p-0 text-start" onClick={() => setAddUserDialogMode('createAccount')}>
                         <ActionTile icon={<UserPlus className="w-4 h-4" />} label={t('actionTiles.addUserLabel')} compact />
                       </button>
                     </DialogTrigger>
                     <DialogContent>
                       <DialogHeader>
-                        <DialogTitle>{t('addUserDialog.title')}</DialogTitle>
+                        <DialogTitle>{addUserDialogMode === 'addToWhitelist' ? t('addUserDialog.titleWhitelist') : t('addUserDialog.title')}</DialogTitle>
                         <DialogDescription>
-                          {t('addUserDialog.description')}
+                          {addUserDialogMode === 'addToWhitelist'
+                            ? t('addUserDialog.descriptionWhitelist', { player: addUserUsername })
+                            : t('addUserDialog.description')}
                         </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4">
@@ -2817,7 +2869,7 @@ export default function Players() {
                           disabled={loading || !addUserUsername.trim() || (addUserPassword.length > 0 && addUserPassword.length < 4)}
                         >
                           {loading ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : null}
-                          {t('addUserDialog.submit')}
+                          {addUserDialogMode === 'addToWhitelist' ? t('addUserDialog.submitWhitelist') : t('addUserDialog.submit')}
                         </Button>
                       </DialogFooter>
                     </DialogContent>

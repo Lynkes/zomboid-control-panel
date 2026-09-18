@@ -4380,7 +4380,20 @@ export default function ServerConfig() {
               variant="ghost"
               size="sm"
               onClick={activeTab === 'ini' ? discardIniChanges : discardSandboxChanges}
-              disabled={saving || serverMayBeRunning}
+              // bug-hunt-2026-09-18 (round 21, UX follow-up per commit
+              // 14fed308's own original question): discardIniChanges()/
+              // discardSandboxChanges() only reassign LOCAL React state back
+              // to originalIniSettings/originalSandboxData -- neither calls
+              // the server at all. serverMayBeRunning gates the Save button
+              // correctly (a real write, unsafe while the server might be
+              // running the same files), but disabling Discard on the same
+              // condition made "undo my own unsaved edit" impossible for the
+              // exact operators who need it most: the ones who opened this
+              // tab, made a change, and now want to back out BECAUSE the
+              // server turned out to be running -- the one path where they
+              // could no longer even see their edit is reverted before
+              // navigating away.
+              disabled={saving}
               className="h-8 gap-1.5 text-xs font-medium text-muted-foreground hover:text-destructive"
             >
               <Undo2 className="h-3 w-3" /> {t('stickySaveBar.discard')}

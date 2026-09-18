@@ -100,11 +100,17 @@
     "whitelistLastConnection": "آخر اتصال {{date}}",
     "removeButton": "إزالة",
     "removeTitle": "إزالة {{username}} من القائمة البيضاء",
+    "removeFromWhitelistConfirmTitle": "إزالة من القائمة البيضاء؟",
+    "removeFromWhitelistConfirmDesc": "ستتم إزالة {{player}} من قاعدة بيانات حسابات القائمة البيضاء.",
+    "removeFromWhitelistConfirmButton": "إزالة",
     "allowedSteamIdsLabel": "معرّفات Steam المسموح بها",
     "allowedSteamIdAria": "معرّف Steam مسموح به",
     "addButton": "إضافة",
     "removeAllowedButton": "إزالة",
     "removeAllowedTitle": "إزالة معرّف Steam المسموح به {{steamId}}",
+    "removeAllowedSteamIdConfirmTitle": "إزالة معرّف Steam المسموح به؟",
+    "removeAllowedSteamIdConfirmDesc": "لن يُسمح لـ {{steamId}} بالانضمام إلى خادم بالقائمة البيضاء بعد الآن.",
+    "removeAllowedSteamIdConfirmButton": "إزالة",
     "manualTargetLabel": "› هدف يدوي",
     "manualTargetLabelText": "هدف يدوي",
     "manualTargetPlaceholder": "أدخل اسم المستخدم…",
@@ -272,12 +278,15 @@
   "addUserDialog": {
     "title": "إضافة مستخدم",
     "description": "إنشاء حساب مستخدم جديد لخوادم القائمة البيضاء. يسمح Build 42 بكلمة مرور فارغة.",
+    "titleWhitelist": "إضافة إلى القائمة البيضاء",
+    "descriptionWhitelist": "إضافة {{player}} إلى قاعدة بيانات حسابات القائمة البيضاء. يسمح Build 42 بكلمة مرور فارغة.",
     "usernameLabel": "اسم المستخدم",
     "usernamePlaceholder": "أدخل اسم المستخدم...",
     "passwordLabel": "كلمة المرور (اختياري)",
     "passwordPlaceholder": "كلمة مرور اختيارية (4 أحرف على الأقل)...",
     "cancel": "إلغاء",
-    "submit": "إضافة مستخدم"
+    "submit": "إضافة مستخدم",
+    "submitWhitelist": "إضافة إلى القائمة البيضاء"
   },
   "unbanDialog": {
     "title": "إلغاء حظر اللاعب",
@@ -437,6 +446,7 @@
   "toasts": {
     "successTitle": "نجاح",
     "successDesc": "اكتمل {{action}}",
+    "successDescForPlayer": "اكتمل {{action}} لـ {{player}}",
     "bridgeUnverifiedDesc": "تم إرسال {{action}}، لكن التعديل لم يستطع تأكيد أنه نفذ فعليًا.",
     "bridgeOldBridgeDesc": "قد يكون {{action}} قد نجح، لكن إصدار تعديل PanelBridge هذا لا يُبلّغ عمّا إذا كان قد نجح. حدّث التعديل لتأكيد النتائج.",
     "errorTitle": "خطأ",

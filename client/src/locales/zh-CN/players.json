@@ -82,11 +82,17 @@
     "whitelistLastConnection": "最后连接 {{date}}",
     "removeButton": "移除",
     "removeTitle": "将 {{username}} 从白名单移除",
+    "removeFromWhitelistConfirmTitle": "从白名单移除？",
+    "removeFromWhitelistConfirmDesc": "将把 {{player}} 从白名单账户数据库中移除。",
+    "removeFromWhitelistConfirmButton": "移除",
     "allowedSteamIdsLabel": "允许的 Steam ID",
     "allowedSteamIdAria": "允许的 Steam ID",
     "addButton": "添加",
     "removeAllowedButton": "移除",
     "removeAllowedTitle": "移除允许的 Steam ID {{steamId}}",
+    "removeAllowedSteamIdConfirmTitle": "移除允许的 Steam ID？",
+    "removeAllowedSteamIdConfirmDesc": "{{steamId}} 将无法再加入白名单服务器。",
+    "removeAllowedSteamIdConfirmButton": "移除",
     "manualTargetLabel": "› 手动目标",
     "manualTargetLabelText": "手动目标",
     "manualTargetPlaceholder": "输入用户名…"
@@ -246,12 +252,15 @@
   "addUserDialog": {
     "title": "添加用户",
     "description": "为白名单服务器创建新用户账户。Build 42 允许密码留空。",
+    "titleWhitelist": "加入白名单",
+    "descriptionWhitelist": "将 {{player}} 加入白名单账户数据库。Build 42 允许密码留空。",
     "usernameLabel": "用户名",
     "usernamePlaceholder": "输入用户名…",
     "passwordLabel": "密码（可选）",
     "passwordPlaceholder": "可选密码（至少 4 个字符）…",
     "cancel": "取消",
-    "submit": "添加用户"
+    "submit": "添加用户",
+    "submitWhitelist": "加入白名单"
   },
   "unbanDialog": {
     "title": "解封玩家",
@@ -411,6 +420,7 @@
   "toasts": {
     "successTitle": "成功",
     "successDesc": "{{action}}已完成",
+    "successDescForPlayer": "{{action}}：{{player}}",
     "bridgeUnverifiedDesc": "{{action}} 已发送，但模组无法确认是否生效。",
     "bridgeOldBridgeDesc": "{{action}} 可能已生效，但此版本的 PanelBridge 模组不会回报结果。请更新模组以确认结果。",
     "errorTitle": "错误",

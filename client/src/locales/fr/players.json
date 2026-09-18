@@ -83,11 +83,17 @@
     "whitelistLastConnection": "dernière le {{date}}",
     "removeButton": "Retirer",
     "removeTitle": "Retirer {{username}} de la liste blanche",
+    "removeFromWhitelistConfirmTitle": "Retirer de la liste blanche ?",
+    "removeFromWhitelistConfirmDesc": "{{player}} sera retiré de la base de comptes de la liste blanche.",
+    "removeFromWhitelistConfirmButton": "Retirer",
     "allowedSteamIdsLabel": "Steam ID autorisés",
     "allowedSteamIdAria": "Steam ID autorisé",
     "addButton": "Ajouter",
     "removeAllowedButton": "Retirer",
     "removeAllowedTitle": "Retirer le Steam ID autorisé {{steamId}}",
+    "removeAllowedSteamIdConfirmTitle": "Retirer le Steam ID autorisé ?",
+    "removeAllowedSteamIdConfirmDesc": "{{steamId}} ne pourra plus rejoindre un serveur à liste blanche.",
+    "removeAllowedSteamIdConfirmButton": "Retirer",
     "manualTargetLabel": "› Cible manuelle",
     "manualTargetLabelText": "Cible manuelle",
     "manualTargetPlaceholder": "Entrer un nom d'utilisateur…",
@@ -249,12 +255,15 @@
   "addUserDialog": {
     "title": "Ajouter un utilisateur",
     "description": "Créer un nouveau compte utilisateur pour les serveurs à liste blanche. Le Build 42 autorise un mot de passe vide.",
+    "titleWhitelist": "Ajouter à la liste blanche",
+    "descriptionWhitelist": "Ajouter {{player}} à la base de comptes de la liste blanche. Le Build 42 autorise un mot de passe vide.",
     "usernameLabel": "Nom d'utilisateur",
     "usernamePlaceholder": "Entrer un nom d'utilisateur...",
     "passwordLabel": "Mot de passe (optionnel)",
     "passwordPlaceholder": "Mot de passe optionnel (4 caractères min.)...",
     "cancel": "Annuler",
-    "submit": "Ajouter l'utilisateur"
+    "submit": "Ajouter l'utilisateur",
+    "submitWhitelist": "Ajouter à la liste blanche"
   },
   "unbanDialog": {
     "title": "Débannir le joueur",
@@ -414,6 +423,7 @@
   "toasts": {
     "successTitle": "Succès",
     "successDesc": "{{action}} effectué",
+    "successDescForPlayer": "{{action}} pour {{player}}",
     "bridgeUnverifiedDesc": "{{action}} a été envoyé, mais le mod n'a pas pu confirmer que cela a fonctionné.",
     "bridgeOldBridgeDesc": "{{action}} a peut-être fonctionné, mais cette version du mod PanelBridge ne signale pas si c'est le cas. Mettez à jour le mod pour confirmer les résultats.",
     "errorTitle": "Erreur",

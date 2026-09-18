@@ -82,11 +82,17 @@
     "whitelistLastConnection": "last {{date}}",
     "removeButton": "Remove",
     "removeTitle": "Remove {{username}} from whitelist",
+    "removeFromWhitelistConfirmTitle": "Remove from whitelist?",
+    "removeFromWhitelistConfirmDesc": "{{player}} will be removed from the whitelist account database.",
+    "removeFromWhitelistConfirmButton": "Remove",
     "allowedSteamIdsLabel": "Allowed Steam IDs",
     "allowedSteamIdAria": "Allowed Steam ID",
     "addButton": "Add",
     "removeAllowedButton": "Remove",
     "removeAllowedTitle": "Remove allowed Steam ID {{steamId}}",
+    "removeAllowedSteamIdConfirmTitle": "Remove allowed Steam ID?",
+    "removeAllowedSteamIdConfirmDesc": "{{steamId}} will no longer be allowed to join a whitelisted server.",
+    "removeAllowedSteamIdConfirmButton": "Remove",
     "manualTargetLabel": "› Manual target",
     "manualTargetLabelText": "Manual target",
     "manualTargetPlaceholder": "Enter username…"
@@ -246,12 +252,15 @@
   "addUserDialog": {
     "title": "Add User",
     "description": "Create a new user account for whitelist servers. Build 42 allows an empty password.",
+    "titleWhitelist": "Add to Whitelist",
+    "descriptionWhitelist": "Add {{player}} to the whitelist account database. Build 42 allows an empty password.",
     "usernameLabel": "Username",
     "usernamePlaceholder": "Enter username...",
     "passwordLabel": "Password (optional)",
     "passwordPlaceholder": "Optional password (min 4 characters)...",
     "cancel": "Cancel",
-    "submit": "Add User"
+    "submit": "Add User",
+    "submitWhitelist": "Add to Whitelist"
   },
   "unbanDialog": {
     "title": "Unban Player",
@@ -411,6 +420,7 @@
   "toasts": {
     "successTitle": "Success",
     "successDesc": "{{action}} completed",
+    "successDescForPlayer": "{{action}} for {{player}}",
     "bridgeUnverifiedDesc": "{{action}} was sent, but the mod could not confirm it took effect.",
     "bridgeOldBridgeDesc": "{{action}} may have worked, but this PanelBridge mod version doesn't report back whether it did. Update the mod to confirm results.",
     "errorTitle": "Error",

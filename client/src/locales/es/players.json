@@ -83,11 +83,17 @@
     "whitelistLastConnection": "última {{date}}",
     "removeButton": "Quitar",
     "removeTitle": "Quitar a {{username}} de la lista blanca",
+    "removeFromWhitelistConfirmTitle": "¿Quitar de la lista blanca?",
+    "removeFromWhitelistConfirmDesc": "Se quitará a {{player}} de la base de datos de cuentas de la lista blanca.",
+    "removeFromWhitelistConfirmButton": "Quitar",
     "allowedSteamIdsLabel": "Steam ID permitidos",
     "allowedSteamIdAria": "Steam ID permitido",
     "addButton": "Añadir",
     "removeAllowedButton": "Quitar",
     "removeAllowedTitle": "Quitar el Steam ID permitido {{steamId}}",
+    "removeAllowedSteamIdConfirmTitle": "¿Quitar el Steam ID permitido?",
+    "removeAllowedSteamIdConfirmDesc": "{{steamId}} ya no podrá unirse a un servidor con lista blanca.",
+    "removeAllowedSteamIdConfirmButton": "Quitar",
     "manualTargetLabel": "› Objetivo manual",
     "manualTargetLabelText": "Objetivo manual",
     "manualTargetPlaceholder": "Escribir nombre de usuario…",
@@ -249,12 +255,15 @@
   "addUserDialog": {
     "title": "Añadir usuario",
     "description": "Crear una nueva cuenta de usuario para servidores con lista blanca. Build 42 permite una contraseña vacía.",
+    "titleWhitelist": "Añadir a la lista blanca",
+    "descriptionWhitelist": "Añadir a {{player}} a la base de datos de cuentas de la lista blanca. Build 42 permite una contraseña vacía.",
     "usernameLabel": "Nombre de usuario",
     "usernamePlaceholder": "Escribir nombre de usuario...",
     "passwordLabel": "Contraseña (opcional)",
     "passwordPlaceholder": "Contraseña opcional (mín. 4 caracteres)...",
     "cancel": "Cancelar",
-    "submit": "Añadir usuario"
+    "submit": "Añadir usuario",
+    "submitWhitelist": "Añadir a la lista blanca"
   },
   "unbanDialog": {
     "title": "Desbanear jugador",
@@ -414,6 +423,7 @@
   "toasts": {
     "successTitle": "Éxito",
     "successDesc": "Se completó: {{action}}",
+    "successDescForPlayer": "{{action}} para {{player}}",
     "bridgeUnverifiedDesc": "{{action}} se envió, pero el mod no pudo confirmar que surtiera efecto.",
     "bridgeOldBridgeDesc": "{{action}} puede haber funcionado, pero esta versión del mod PanelBridge no informa si fue así. Actualiza el mod para confirmar los resultados.",
     "errorTitle": "Error",

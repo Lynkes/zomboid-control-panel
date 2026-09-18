@@ -82,11 +82,17 @@
     "whitelistLastConnection": "zuletzt {{date}}",
     "removeButton": "Entfernen",
     "removeTitle": "{{username}} von der Whitelist entfernen",
+    "removeFromWhitelistConfirmTitle": "Von der Whitelist entfernen?",
+    "removeFromWhitelistConfirmDesc": "{{player}} wird aus der Whitelist-Kontodatenbank entfernt.",
+    "removeFromWhitelistConfirmButton": "Entfernen",
     "allowedSteamIdsLabel": "Erlaubte Steam-IDs",
     "allowedSteamIdAria": "Erlaubte Steam-ID",
     "addButton": "Hinzufügen",
     "removeAllowedButton": "Entfernen",
     "removeAllowedTitle": "Erlaubte Steam-ID {{steamId}} entfernen",
+    "removeAllowedSteamIdConfirmTitle": "Erlaubte Steam-ID entfernen?",
+    "removeAllowedSteamIdConfirmDesc": "{{steamId}} darf einem Whitelist-Server dann nicht mehr beitreten.",
+    "removeAllowedSteamIdConfirmButton": "Entfernen",
     "manualTargetLabel": "› Manuelles Ziel",
     "manualTargetLabelText": "Manuelles Ziel",
     "manualTargetPlaceholder": "Benutzername eingeben…"
@@ -246,12 +252,15 @@
   "addUserDialog": {
     "title": "Benutzer hinzufügen",
     "description": "Erstelle ein neues Benutzerkonto für Whitelist-Server. Build 42 erlaubt ein leeres Passwort.",
+    "titleWhitelist": "Zur Whitelist hinzufügen",
+    "descriptionWhitelist": "{{player}} zur Whitelist-Kontodatenbank hinzufügen. Build 42 erlaubt ein leeres Passwort.",
     "usernameLabel": "Benutzername",
     "usernamePlaceholder": "Benutzernamen eingeben …",
     "passwordLabel": "Passwort (optional)",
     "passwordPlaceholder": "Optionales Passwort (mind. 4 Zeichen) …",
     "cancel": "Abbrechen",
-    "submit": "Benutzer hinzufügen"
+    "submit": "Benutzer hinzufügen",
+    "submitWhitelist": "Zur Whitelist hinzufügen"
   },
   "unbanDialog": {
     "title": "Spieler entbannen",
@@ -411,6 +420,7 @@
   "toasts": {
     "successTitle": "Erfolg",
     "successDesc": "{{action}} abgeschlossen",
+    "successDescForPlayer": "{{action}} für {{player}}",
     "bridgeUnverifiedDesc": "{{action}} wurde gesendet, aber das Mod konnte nicht bestätigen, dass es wirksam wurde.",
     "bridgeOldBridgeDesc": "{{action}} hat möglicherweise funktioniert, aber diese Version des PanelBridge-Mods meldet nicht zurück, ob es so war. Aktualisiere das Mod, um Ergebnisse zu bestätigen.",
     "errorTitle": "Fehler",

@@ -92,11 +92,17 @@
     "whitelistLastConnection": "останнє {{date}}",
     "removeButton": "Видалити",
     "removeTitle": "Видалити {{username}} з білого списку",
+    "removeFromWhitelistConfirmTitle": "Видалити з білого списку?",
+    "removeFromWhitelistConfirmDesc": "{{player}} буде видалено з бази акаунтів білого списку.",
+    "removeFromWhitelistConfirmButton": "Видалити",
     "allowedSteamIdsLabel": "Дозволені Steam ID",
     "allowedSteamIdAria": "Дозволений Steam ID",
     "addButton": "Додати",
     "removeAllowedButton": "Видалити",
     "removeAllowedTitle": "Видалити дозволений Steam ID {{steamId}}",
+    "removeAllowedSteamIdConfirmTitle": "Видалити дозволений Steam ID?",
+    "removeAllowedSteamIdConfirmDesc": "{{steamId}} більше не зможе приєднатися до сервера з білим списком.",
+    "removeAllowedSteamIdConfirmButton": "Видалити",
     "manualTargetLabel": "› Ручна ціль",
     "manualTargetLabelText": "Ручна ціль",
     "manualTargetPlaceholder": "Введіть ім'я користувача…",
@@ -260,12 +266,15 @@
   "addUserDialog": {
     "title": "Додати користувача",
     "description": "Створити новий обліковий запис для серверів з білим списком. Build 42 дозволяє порожній пароль.",
+    "titleWhitelist": "Додати до білого списку",
+    "descriptionWhitelist": "Додати {{player}} до бази акаунтів білого списку. Build 42 дозволяє порожній пароль.",
     "usernameLabel": "Ім'я користувача",
     "usernamePlaceholder": "Введіть ім'я користувача...",
     "passwordLabel": "Пароль (необов'язково)",
     "passwordPlaceholder": "Необов'язковий пароль (мін. 4 символи)...",
     "cancel": "Скасувати",
-    "submit": "Додати користувача"
+    "submit": "Додати користувача",
+    "submitWhitelist": "Додати до білого списку"
   },
   "unbanDialog": {
     "title": "Розбанити гравця",
@@ -425,6 +434,7 @@
   "toasts": {
     "successTitle": "Успіх",
     "successDesc": "{{action}} — виконано",
+    "successDescForPlayer": "{{action}} для {{player}}",
     "bridgeUnverifiedDesc": "{{action}} — надіслано, але мод не зміг підтвердити, що дія набула чинності.",
     "bridgeOldBridgeDesc": "{{action}} — можливо, спрацювало, але ця версія мода PanelBridge не повідомляє про результат. Оновіть мод, щоб бачити підтвердження.",
     "errorTitle": "Помилка",

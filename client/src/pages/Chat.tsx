@@ -53,6 +53,27 @@ interface Player {
 
 type ChatChannel = 'server' | 'admin' | 'general'
 
+// bug-hunt-2026-09-18 (round 21, UX follow-up): PZ's general chat has no
+// concept of "the panel" as a poster -- sendToGeneralChat's second argument
+// IS the author name that actually appears in-game, verbatim, in every
+// locale (there is no way to translate what a player sees there; PZ just
+// stores and echoes the literal string it was given). sendMessage() below
+// used to send this exact literal but then label its own local echo with
+// t('labels.admin') -- a translated word -- so a non-English operator saw
+// their own post attributed to a name real players never actually see.
+// Worse than cosmetic: the socket echo dedup a few effects down
+// (isOptimisticEcho) matches the local echo against the real server-log
+// echo by comparing author strings case-insensitively -- a translated
+// local author never matches the literal one PZ echoes back, so the same
+// message appeared TWICE in the chat for any non-English locale. One
+// constant, used at both the send call and the local echo (and the
+// HelpTip explaining this channel below), so the three can never drift
+// apart again silently. Distinct from 'admin' chat's own `t('labels.admin')`
+// local-echo label just below -- chat/admin takes no author argument at
+// all (server/routes/panelBridge.js), so that label is a purely internal,
+// correctly-translated panel concept, not a name PZ shows anyone.
+const GENERAL_CHAT_AUTHOR = 'Admin'
+
 export default function Chat() {
   const { t, i18n } = useTranslation('chat')
   const defaultPresets = t('presets.default', { returnObjects: true }) as string[]
@@ -265,9 +286,9 @@ export default function Chat() {
         localType = 'admin'
         localAuthor = t('labels.admin')
       } else if (channel === 'general') {
-        await panelBridgeApi.sendToGeneralChat(message, 'Admin')
+        await panelBridgeApi.sendToGeneralChat(message, GENERAL_CHAT_AUTHOR)
         localType = 'general'
-        localAuthor = t('labels.admin')
+        localAuthor = GENERAL_CHAT_AUTHOR
       } else {
         await panelBridgeApi.sendToServerChat(message, false)
       }
@@ -529,7 +550,7 @@ export default function Chat() {
                         </SelectItem>
                       </SelectContent>
                     </Select>
-                    <HelpTip label={t('channel.aria')}>{t('channel.tip', { adminLabel: t('labels.admin') })}</HelpTip>
+                    <HelpTip label={t('channel.aria')}>{t('channel.tip', { adminLabel: GENERAL_CHAT_AUTHOR })}</HelpTip>
                   </div>
                   <Input
                     ref={messageInputRef}

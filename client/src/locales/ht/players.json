@@ -82,11 +82,17 @@
     "whitelistLastConnection": "dènye {{date}}",
     "removeButton": "Retire",
     "removeTitle": "Retire {{username}} nan lis blan a",
+    "removeFromWhitelistConfirmTitle": "Retire nan lis blan an?",
+    "removeFromWhitelistConfirmDesc": "{{player}} ap retire nan baz done kont lis blan an.",
+    "removeFromWhitelistConfirmButton": "Retire",
     "allowedSteamIdsLabel": "Steam ID Otorize",
     "allowedSteamIdAria": "Steam ID otorize",
     "addButton": "Ajoute",
     "removeAllowedButton": "Retire",
     "removeAllowedTitle": "Retire Steam ID otorize {{steamId}}",
+    "removeAllowedSteamIdConfirmTitle": "Retire Steam ID otorize a?",
+    "removeAllowedSteamIdConfirmDesc": "{{steamId}} p ap kapab antre nan yon sèvè lis-blan ankò.",
+    "removeAllowedSteamIdConfirmButton": "Retire",
     "manualTargetLabel": "› Sib manyèl",
     "manualTargetLabelText": "Sib manyèl",
     "manualTargetPlaceholder": "Antre non itilizatè…"
@@ -246,12 +252,15 @@
   "addUserDialog": {
     "title": "Ajoute Itilizatè",
     "description": "Kreye yon nouvo kont itilizatè pou sèvè lis-blan. Build 42 aksepte yon modpas vid.",
+    "titleWhitelist": "Ajoute nan Lis Blan",
+    "descriptionWhitelist": "Ajoute {{player}} nan baz done kont lis blan an. Build 42 aksepte yon modpas vid.",
     "usernameLabel": "Non itilizatè",
     "usernamePlaceholder": "Antre non itilizatè...",
     "passwordLabel": "Modpas (opsyonèl)",
     "passwordPlaceholder": "Modpas opsyonèl (minimòm 4 karaktè)...",
     "cancel": "Anile",
-    "submit": "Ajoute Itilizatè"
+    "submit": "Ajoute Itilizatè",
+    "submitWhitelist": "Ajoute nan Lis Blan"
   },
   "unbanDialog": {
     "title": "Retire Baniman Jwè",
@@ -411,6 +420,7 @@
   "toasts": {
     "successTitle": "Siksè",
     "successDesc": "{{action}} fini",
+    "successDescForPlayer": "{{action}} pou {{player}}",
     "bridgeUnverifiedDesc": "{{action}} te voye, men mod la pa t kapab konfime li te fè efè.",
     "bridgeOldBridgeDesc": "{{action}} ka te fonksyone, men vèsyon mod PanelBridge sa a pa rapòte si li te fè sa. Mete mod la ajou pou konfime rezilta yo.",
     "errorTitle": "Erè",
