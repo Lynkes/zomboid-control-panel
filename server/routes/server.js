@@ -5969,6 +5969,97 @@ router.get("/console-log/error-count", requirePermission("server.world_events"),
   }
 });
 
+// continuous-bug-hunt round 13 (log tail truth): a poll's byte range can
+// end mid-line -- PZ hasn't finished writing that line yet -- and without
+// holding the fragment back, it used to be emitted as if it were a
+// complete line THIS poll, then the rest of the SAME line reappeared as
+// its own garbled fragment-of-a-line on the NEXT poll once the write
+// finished: exactly "partial lines split across reads". services/
+// logTailer.js's own _splitLines()/remainder fields already solve this
+// identical problem for the OTHER console-log reader this app has (a
+// single, sequential, stateful tailer) -- same fix here, adapted for this
+// endpoint's stateless, client-supplied-offset shape.
+//
+// Keyed by the exact (path, byte offset) the remainder was captured at --
+// `resumeAtSize` is the `currentSize` this same response cycle hands back
+// to the client, i.e. the offset its OWN next poll's `lastSize` will carry
+// -- so a stored fragment only ever gets reattached to whichever poll
+// resumes from exactly that point.
+//
+// round 13b (god-caught follow-up): a single shared slot is worse than no
+// buffering at all with two concurrent pollers. Viewer A's poll withholds
+// fragment F and stores it at (path, S1); viewer B then polls at a
+// DIFFERENT offset and the single slot's assignment overwrites F outright.
+// A's next poll (still resuming from S1) finds no match -- F is gone, not
+// merely re-split, so the start of that line never reaches A at all. A
+// bounded map keyed by (path, resumeAtSize) lets each poller's fragment
+// wait for ITS OWN matching next poll independently, however many pollers
+// are interleaved, without one clobbering another's slot. Consumed
+// (deleted) on a successful match, same as a real tail cursor -- once
+// reattached, that exact fragment can't be reattached again to a
+// different poller that happens to share the same (path, resumeAtSize)
+// (which would only occur if TWO pollers were somehow at the identical
+// offset, an ambiguous case no key scheme can tell apart anyway; deleting
+// it is the same "first past the post wins" tradeoff the old slot already
+// made implicitly). Capped at CONSOLE_STREAM_REMAINDER_MAX_ENTRIES,
+// oldest-inserted evicted first, so an abandoned poller (a closed tab that
+// never sends its matching follow-up) can't grow this without bound.
+const CONSOLE_STREAM_REMAINDER_MAX_ENTRIES = 16;
+const CONSOLE_STREAM_REMAINDER_CAP_BYTES = 64 * 1024;
+const consoleStreamRemainders = new Map(); // `${path} ${resumeAtSize}` -> text
+
+function consoleStreamRemainderKey(consoleLogPath, resumeAtSize) {
+  return `${consoleLogPath} ${resumeAtSize}`;
+}
+
+// A rotation/shrink means every fragment on file for this path was
+// captured against byte offsets in a file that no longer exists in that
+// shape -- reattaching any of them to whatever comes next (a fresh
+// full-file read) would glue unrelated content together.
+function clearConsoleStreamRemaindersForPath(consoleLogPath) {
+  const prefix = `${consoleLogPath} `;
+  for (const key of consoleStreamRemainders.keys()) {
+    if (key.startsWith(prefix)) consoleStreamRemainders.delete(key);
+  }
+}
+
+function storeConsoleStreamRemainder(consoleLogPath, resumeAtSize, text) {
+  if (!text) return; // nothing to hold back; no entry needed for a clean line boundary
+  const key = consoleStreamRemainderKey(consoleLogPath, resumeAtSize);
+  consoleStreamRemainders.delete(key); // re-inserting moves it to the newest end below
+  consoleStreamRemainders.set(key, text);
+  while (consoleStreamRemainders.size > CONSOLE_STREAM_REMAINDER_MAX_ENTRIES) {
+    const oldestKey = consoleStreamRemainders.keys().next().value;
+    consoleStreamRemainders.delete(oldestKey);
+  }
+}
+
+// Splits `content` into complete lines, holding back a trailing partial
+// line for the caller to store via storeConsoleStreamRemainder(). Consumes
+// (deletes) any matching held-back fragment on use. `resumeFromSize`
+// identifies which prior remainder (if any) belongs immediately before
+// this content -- pass -1 when there is no meaningful "resumed from"
+// position (a full-file re-read after a rotation), since -1 can never
+// equal a real byte offset and so never wrongly glues a stale fragment
+// onto unrelated content.
+function splitConsoleStreamLines(consoleLogPath, resumeFromSize, content) {
+  let combined = content;
+  if (resumeFromSize >= 0) {
+    const key = consoleStreamRemainderKey(consoleLogPath, resumeFromSize);
+    const stored = consoleStreamRemainders.get(key);
+    if (stored !== undefined) {
+      combined = stored + combined;
+      consoleStreamRemainders.delete(key);
+    }
+  }
+  const parts = combined.split("\n");
+  let remainder = parts.pop() ?? "";
+  // Same cap as LogTailer's own _splitLines(): stops a newline-free file
+  // from growing the held-back buffer without limit.
+  if (remainder.length > CONSOLE_STREAM_REMAINDER_CAP_BYTES) remainder = "";
+  return { completeLines: parts, remainder };
+}
+
 // Stream server console log (long-polling for new content)
 router.get("/console-log/stream", requirePermission("server.world_events"), async (req, res) => {
   try {
@@ -6004,8 +6095,15 @@ router.get("/console-log/stream", requirePermission("server.world_events"), asyn
 
     // If file is smaller than last known size, it was likely rotated/cleared
     if (stats.size < lastSize) {
+      clearConsoleStreamRemaindersForPath(consoleLogPath);
       const content = fs.readFileSync(consoleLogPath, "utf-8");
-      const allLines = content.split("\n").filter((l) => l.trim());
+      const { completeLines, remainder } = splitConsoleStreamLines(
+        consoleLogPath,
+        -1,
+        content,
+      );
+      storeConsoleStreamRemainder(consoleLogPath, stats.size, remainder);
+      const allLines = completeLines.filter((l) => l.trim());
       const lines = filterConsoleLogLines(allLines, filterLevel);
       return res.json({
         success: true,
@@ -6043,7 +6141,13 @@ router.get("/console-log/stream", requirePermission("server.world_events"), asyn
     }
 
     const newContent = buffer.toString("utf-8");
-    const allNewLines = newContent.split("\n").filter((l) => l.trim());
+    const { completeLines, remainder } = splitConsoleStreamLines(
+      consoleLogPath,
+      lastSize,
+      newContent,
+    );
+    storeConsoleStreamRemainder(consoleLogPath, stats.size, remainder);
+    const allNewLines = completeLines.filter((l) => l.trim());
     const newLines = filterConsoleLogLines(allNewLines, filterLevel);
 
     res.json({
