@@ -621,8 +621,28 @@ function makeError(code, message, status = 400, params) {
 // serializes the write while the check still reads stale state fixes
 // nothing (the exact "check-then-claim-across-an-await" shape this sweep
 // is about, just wearing a lock).
+//
+// continuous-bug-hunt, 2026-09-18 (panel-user/role-truth round): that same
+// 2026-09-10 comment stopped one step short -- it closed role-vs-role and
+// (in auth.js) user-vs-user, but never noticed role-vs-USER is the exact
+// same shape again, through a THIRD, uncoordinated mutex. Concrete: role X
+// and role Y are the only two roles granting users.manage; UserA holds X,
+// UserB holds Y. A concurrent PATCH /users/:id/role moving UserA off X
+// (auth.js's changeUserRoleById, guarded only by AuthService._withMutex)
+// and a DELETE /roles/:id removing Y with reassignTo pointing at a role
+// with no users.manage (permissions.js's deleteRole, guarded only by this
+// module's own roleMutex) each read the SAME pre-change state: the user
+// change sees UserB (via Y) still holds it, the role delete sees UserA
+// (via X) still holds it, both pass their own checkLockoutRulesForCapability-
+// Change/assertNoRecoveryLockout, and both write -- zero users end up able
+// to manage users at all, the exact lockout RECOVERY_CAPABILITIES exists to
+// make impossible. Exported so auth.js's changeUserRoleById/deleteUser can
+// nest inside it too (alongside their own AuthService._withMutex, which
+// keeps serializing user-vs-user changes as before): one shared critical
+// section for every operation that can move the roles.manage/users.manage
+// headcount, not three separate ones that only coordinate with themselves.
 let roleMutex = Promise.resolve();
-function withRoleMutex(fn) {
+export function withRoleMutex(fn) {
   const run = roleMutex.then(fn, fn);
   roleMutex = run.then(
     () => {},
