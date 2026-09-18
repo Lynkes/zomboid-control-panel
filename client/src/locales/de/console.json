@@ -42,7 +42,7 @@
     "refreshAria": "Protokoll aktualisieren",
     "clear": "leeren",
     "clearTooltip": "Löscht die Server-Konsolenprotokolldatei — kann nicht rückgängig gemacht werden",
-    "clearConfirmTitle": "Server-Konsolenprotokoll löschen?",
+    "clearConfirmTitle": "Konsolenprotokoll für {{server}} löschen?",
     "clearConfirmDesc": "Dies löscht server-console.txt dauerhaft von der Festplatte, nicht nur diese Anzeige. Es gibt kein Rückgängigmachen.",
     "clearConfirmButton": "Protokolldatei löschen",
     "streamUnavailable": "Protokoll-Stream nicht verfügbar — Server ist möglicherweise offline",
@@ -90,6 +90,7 @@
     "noCommandsTitle": "Noch keine Befehle",
     "noCommandsDesc": "Führe einen RCON-Befehl aus, um die Antwort hier zu sehen.",
     "quickLabel": "schnell",
+    "quickTip": "Füllt das Befehlsfeld unten mit diesem Befehl -- er wird erst ausgeführt, wenn du auf \"ausführen\" klickst (oder Enter drückst).",
     "commandLabel": "befehl",
     "commandTip": "Befehle werden hier sofort auf dem laufenden Server ausgeführt, ohne Bestätigungsschritt — selbst bei etwas, das den Server stoppt oder einen Spieler entfernt. Wenn Sie nicht sicher sind, was ein Befehl bewirkt, prüfen Sie ihn, bevor Sie ihn ausführen; die meisten lassen sich nicht rückgängig machen.",
     "promptPrefix": "rcon $",
@@ -178,7 +179,10 @@
     "searchPlaceholder": "Befehlsverlauf durchsuchen…",
     "searchAria": "Befehlsverlauf durchsuchen",
     "emptyTitle": "Kein Befehlsverlauf",
-    "emptyDesc": "Ausgeführte Befehle werden hier protokolliert."
+    "emptyDesc": "Ausgeführte Befehle werden hier protokolliert.",
+    "noMatchesTitle": "Keine passenden Befehle",
+    "noMatchesDesc": "Kein Verlaufseintrag stimmt mit \"{{query}}\" überein.",
+    "clearSearch": "Suche löschen"
   },
   "toasts": {
     "historyUnavailableTitle": "Verlauf nicht verfügbar",

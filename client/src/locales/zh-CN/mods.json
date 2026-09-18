@@ -249,6 +249,7 @@
     "unchecked": "未检查",
     "openWorkshopPageHint": "打开创意工坊页面",
     "modFallback": "模组 {{id}}",
+    "selectAria": "选择 {{name}}",
     "removeModAria": "移除模组 {{name}}",
     "removeFromServer": "从服务器移除"
   },
@@ -513,7 +514,7 @@
     "deleteTooltip": "从跟踪中删除"
   },
   "removeModDialog": {
-    "title": "从服务器中移除此模组？",
+    "title": "从服务器中移除 {{name}}？",
     "description": "这会将该模组从服务器 INI 配置中移除，使其停止加载。创意工坊文件仍保留在磁盘上（因此之后重新添加会立即完成）。",
     "cancel": "取消",
     "remove": "移除"
@@ -722,10 +723,17 @@
     "conflictDismissedTitle": "冲突已忽略",
     "conflictDismissedDesc": "{{a}} ↔ {{b}} 已标记为误报。",
     "failedToDismissConflictTitle": "忽略冲突失败",
+    "failedToDismissConflictFallback": "无法保存忽略操作，请重试。",
     "failedToToggleModTitle": "切换模组状态失败",
+    "failedToToggleModFallback": "无法更新该模组的启用状态，请重试。",
     "failedToToggleGroupTitle": "切换分组状态失败",
+    "failedToToggleGroupFallback": "无法更新该分组的启用状态，请重试。",
     "failedToRemoveWorkshopItemTitle": "移除创意工坊项目失败",
+    "failedToRemoveWorkshopItemFallback": "无法从服务器配置中移除该创意工坊项目，请重试。",
     "failedToRemoveOrphanedModTitle": "移除孤立模组失败",
+    "failedToRemoveOrphanedModFallback": "无法移除该孤立的 Mod ID，请重试。",
+    "failedToRestoreConflictTitle": "恢复冲突失败",
+    "failedToRestoreConflictFallback": "无法恢复该已忽略的冲突，请重试。",
     "dependencyAddedTitle": "依赖项已添加",
     "dependencyAddedDesc": "{{name}} 已添加到服务器配置。",
     "addFailedTitle": "添加失败",

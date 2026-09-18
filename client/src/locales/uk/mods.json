@@ -343,6 +343,7 @@
     "unchecked": "Не перевірено",
     "openWorkshopPageHint": "Відкрити сторінку Workshop",
     "modFallback": "Мод {{id}}",
+    "selectAria": "Вибрати {{name}}",
     "removeModAria": "Вилучити мод {{name}}",
     "removeFromServer": "Вилучити із сервера"
   },
@@ -639,7 +640,7 @@
     "genericNameNotice_many": "<1>{{count}}</1> модів мають загальні назви. Натисни <3>Оновити назви</3>, щоб їх знайти (спершу перевіряється диск, потім API Steam Workshop)."
   },
   "removeModDialog": {
-    "title": "Вилучити цей мод із сервера?",
+    "title": "Вилучити {{name}} із сервера?",
     "description": "Це вилучає мод з INI-конфігурації сервера, тож він припиняє завантажуватися. Файли Workshop залишаються на диску (тож повторне додавання буде миттєвим).",
     "cancel": "Скасувати",
     "remove": "Вилучити"
@@ -852,10 +853,17 @@
     "conflictDismissedTitle": "Конфлікт відхилено",
     "conflictDismissedDesc": "{{a}} ↔ {{b}} позначено як хибне спрацювання.",
     "failedToDismissConflictTitle": "Не вдалося відхилити конфлікт",
+    "failedToDismissConflictFallback": "Не вдалося зберегти відхилення. Спробуй ще раз.",
     "failedToToggleModTitle": "Не вдалося перемкнути мод",
+    "failedToToggleModFallback": "Не вдалося оновити стан активності мода. Спробуй ще раз.",
     "failedToToggleGroupTitle": "Не вдалося перемкнути групу",
+    "failedToToggleGroupFallback": "Не вдалося оновити стан активності групи. Спробуй ще раз.",
     "failedToRemoveWorkshopItemTitle": "Не вдалося вилучити об'єкт Workshop",
+    "failedToRemoveWorkshopItemFallback": "Не вдалося вилучити об'єкт Workshop із конфігурації сервера. Спробуй ще раз.",
     "failedToRemoveOrphanedModTitle": "Не вдалося вилучити осиротілий мод",
+    "failedToRemoveOrphanedModFallback": "Не вдалося вилучити осиротілий ID мода. Спробуй ще раз.",
+    "failedToRestoreConflictTitle": "Не вдалося відновити конфлікт",
+    "failedToRestoreConflictFallback": "Не вдалося відновити відхилений конфлікт. Спробуй ще раз.",
     "dependencyAddedTitle": "Залежність додано",
     "dependencyAddedDesc": "{{name}} додано до конфігурації сервера.",
     "addFailedTitle": "Не вдалося додати",

@@ -10,7 +10,9 @@
   "headerActions": {
     "bundling": "正在打包……",
     "supportBundleZip": "支援包（.zip）",
-    "fullLogTxt": "完整日誌（.txt）"
+    "supportBundleTooltip": "面板日誌 · Zomboid 伺服器日誌 · 當機傾印 · 診斷資訊，全部打包在一個 .zip 檔案中。",
+    "fullLogTxt": "完整日誌（.txt）",
+    "fullLogTooltip": "僅此面板自身的應用程式日誌——不含 Zomboid 伺服器日誌或當機傾印。如需這些內容，請使用支援包。"
   },
   "tabs": {
     "diagnostics": "診斷",

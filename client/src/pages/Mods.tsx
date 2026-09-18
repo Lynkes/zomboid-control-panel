@@ -352,7 +352,11 @@ export default function Mods() {
   // Expand/collapse states
   const [repairingMaps, setRepairingMaps] = useState(false)
   const [mapRepairResult, setMapRepairResult] = useState<{ removed: string[]; added?: string[]; remaining: string[]; message: string } | null>(null)
-  const [confirmRemoveMod, setConfirmRemoveMod] = useState<string | null>(null) // workshopId to confirm single remove
+  // workshopId + a display label to confirm single remove. The dialog used to
+  // say only "Remove this mod from the server?" with no way to tell which of
+  // several selected/hovered mods it meant -- naming the target here so the
+  // confirm dialog can show it instead of a generic "this mod".
+  const [confirmRemoveMod, setConfirmRemoveMod] = useState<{ wsId: string; label: string } | null>(null)
   const [confirmBulkRemove, setConfirmBulkRemove] = useState(false)
   const [ignoredMods, setIgnoredMods] = useState<Array<{ workshop_id: string; name: string | null; ignored_at: string }>>([])
   const [ignoredModsOpen, setIgnoredModsOpen] = useState(false)
@@ -2334,7 +2338,7 @@ export default function Mods() {
               <Checkbox
                 checked={isSelected}
                 onCheckedChange={() => toggleModSelect(mod.workshop_id)}
-                aria-label={`Select ${label}`}
+                aria-label={t('installedTab.selectAria', { name: label })}
               />
             </div>
             {/* Leading tile carries the per-mod state colour (update / unchecked / up-to-date). */}
@@ -2399,7 +2403,7 @@ export default function Mods() {
                   variant="ghost"
                   size="iconDense"
                   className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                  onClick={() => setConfirmRemoveMod(mod.workshop_id)}
+                  onClick={() => setConfirmRemoveMod({ wsId: mod.workshop_id, label })}
                   disabled={loading}
                   aria-label={t('installedTab.removeModAria', { name: label })}
                 >
@@ -2835,34 +2839,47 @@ export default function Mods() {
           )}
 
           <div className="ms-auto flex items-center gap-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="sm" className="min-h-[44px] sm:min-h-0" onClick={handleSyncFromServer} disabled={loading || !canManageMods}>
-                  <Download className="w-3.5 h-3.5 me-1.5" />
-                  {t('statusBar.sync')}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t('statusBar.syncTooltip')}</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="sm" className="min-h-[44px] sm:min-h-0" onClick={handleCheckUpdates} disabled={checking || !canManageMods}>
-                  <RefreshCw className={`w-3.5 h-3.5 me-1.5 ${checking ? 'animate-spin' : ''}`} />
-                  {t('statusBar.checkUpdates')}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                {status?.lastCheck ? (() => {
-                  const secs = Math.round((Date.now() - new Date(status.lastCheck).getTime()) / 1000)
-                  let when: string
-                  if (secs < 60) when = t('statusBar.lastCheckedAgo', { when: t('statusBar.secondsAgo', { count: secs }) })
-                  else if (secs < 3600) when = t('statusBar.lastCheckedAgo', { when: t('statusBar.minutesAgo', { count: Math.floor(secs / 60) }) })
-                  else if (secs < 86400) when = t('statusBar.lastCheckedAgo', { when: t('statusBar.hoursAgo', { count: Math.floor(secs / 3600) }) })
-                  else when = new Date(status.lastCheck).toLocaleDateString(i18n.language)
-                  return <span>{t('statusBar.lastCheckedOn', { when })}</span>
-                })() : <span>{t('statusBar.neverChecked')}</span>}
-              </TooltipContent>
-            </Tooltip>
+            {/* A disabled Button carries `disabled:pointer-events-none` (see
+                Button's own class list), so it never fires the pointer/focus
+                events a directly-attached Tooltip needs to open -- hovering
+                a permission-grayed Sync/Check Updates button showed nothing
+                at all, leaving the operator with no idea why it's inert.
+                DisabledReason's outer focusable span catches that case and
+                shows the actual reason; when the button is enabled it's a
+                no-op passthrough, so the existing hint Tooltip below still
+                works exactly as before. */}
+            <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="min-h-[44px] sm:min-h-0" onClick={handleSyncFromServer} disabled={loading || !canManageMods}>
+                    <Download className="w-3.5 h-3.5 me-1.5" />
+                    {t('statusBar.sync')}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{t('statusBar.syncTooltip')}</TooltipContent>
+              </Tooltip>
+            </DisabledReason>
+            <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="min-h-[44px] sm:min-h-0" onClick={handleCheckUpdates} disabled={checking || !canManageMods}>
+                    <RefreshCw className={`w-3.5 h-3.5 me-1.5 ${checking ? 'animate-spin' : ''}`} />
+                    {t('statusBar.checkUpdates')}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {status?.lastCheck ? (() => {
+                    const secs = Math.round((Date.now() - new Date(status.lastCheck).getTime()) / 1000)
+                    let when: string
+                    if (secs < 60) when = t('statusBar.lastCheckedAgo', { when: t('statusBar.secondsAgo', { count: secs }) })
+                    else if (secs < 3600) when = t('statusBar.lastCheckedAgo', { when: t('statusBar.minutesAgo', { count: Math.floor(secs / 60) }) })
+                    else if (secs < 86400) when = t('statusBar.lastCheckedAgo', { when: t('statusBar.hoursAgo', { count: Math.floor(secs / 3600) }) })
+                    else when = new Date(status.lastCheck).toLocaleDateString(i18n.language)
+                    return <span>{t('statusBar.lastCheckedOn', { when })}</span>
+                  })() : <span>{t('statusBar.neverChecked')}</span>}
+                </TooltipContent>
+              </Tooltip>
+            </DisabledReason>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label={t('statusBar.moreActionsAria')}>
@@ -2981,7 +2998,7 @@ export default function Mods() {
                       <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
                         <button
                           type="button"
-                          onClick={() => setConfirmRemoveMod(m.workshopId)}
+                          onClick={() => setConfirmRemoveMod({ wsId: m.workshopId, label: m.name || m.workshopId })}
                           disabled={loading || !canManageMods}
                           aria-label={t('removedFromWorkshop.removeAria', { name: m.name || m.workshopId })}
                           className="rounded p-0.5 text-muted-foreground/70 transition-colors hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 disabled:pointer-events-none disabled:opacity-50"
@@ -3880,11 +3897,18 @@ export default function Mods() {
 
                         {/* 3 paths to populate the list */}
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-5">
+                          {/* First-time operators land here with an empty list, and
+                              this Sync tile is marked "Recommended" -- exactly the
+                              button they'll try first. Same missing-tooltip-on-disable
+                              issue as the header Sync button above; wrap it the same
+                              way so a mods.manage-less role sees why, instead of a
+                              silently grayed-out "recommended" action. */}
+                          <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null} className="w-full">
                           <button
                             type="button"
                             onClick={handleSyncFromServer}
                             disabled={loading || !canManageMods}
-                            className="group text-start rounded-lg border border-border/50 hover:border-primary/40 hover:bg-primary/[0.04] bg-muted/15 px-3 py-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                            className="group w-full text-start rounded-lg border border-border/50 hover:border-primary/40 hover:bg-primary/[0.04] bg-muted/15 px-3 py-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                           >
                             <div className="flex items-center gap-2 mb-1.5">
                               <RefreshCw className="w-3.5 h-3.5 text-primary" aria-hidden="true" />
@@ -3896,6 +3920,7 @@ export default function Mods() {
                             </p>
                             <p className="mt-1.5 text-[10px] uppercase tracking-wider text-primary/70">{t('installedTab.recommended')}</p>
                           </button>
+                          </DisabledReason>
 
                           <button
                             type="button"
@@ -4313,7 +4338,7 @@ export default function Mods() {
                       setLastSavedMod(mod.id)
                       if (savedTimeoutRef.current) clearTimeout(savedTimeoutRef.current)
                       savedTimeoutRef.current = setTimeout(() => setLastSavedMod(null), 2000)
-                    } catch (e) { reportClientError('Failed to toggle mod', e); toast({ variant: 'destructive', title: 'Failed to toggle mod' }) } finally { busyRef.current = false }
+                    } catch (e) { reportClientError('Failed to toggle mod', e); toast({ variant: 'destructive', title: t('toasts.failedToToggleModTitle'), description: getUserErrorMessage(e, t('toasts.failedToToggleModFallback')) }) } finally { busyRef.current = false }
                   }
 
                   // Mark a sibling-conflict pair as a false positive. Used when the
@@ -4329,10 +4354,10 @@ export default function Mods() {
                         if (prev.some(p => p.mod_a === x && p.mod_b === y)) return prev
                         return [...prev, { mod_a: x, mod_b: y, ignored_at: new Date().toISOString() } as any]
                       })
-                      toast({ title: 'Conflict dismissed', description: `${a} ↔ ${b} marked as a false positive.` })
+                      toast({ title: t('toasts.conflictDismissedTitle'), description: t('toasts.conflictDismissedDesc', { a, b }) })
                     } catch (e) {
                       reportClientError('Failed to dismiss conflict', e)
-                      toast({ variant: 'destructive', title: 'Failed to dismiss conflict' })
+                      toast({ variant: 'destructive', title: t('toasts.failedToDismissConflictTitle'), description: getUserErrorMessage(e, t('toasts.failedToDismissConflictFallback')) })
                     }
                   }
                   const restorePair = async (a: string, b: string) => {
@@ -4345,7 +4370,7 @@ export default function Mods() {
                       }))
                     } catch (e) {
                       reportClientError('Failed to restore conflict', e)
-                      toast({ variant: 'destructive', title: 'Failed to restore conflict' })
+                      toast({ variant: 'destructive', title: t('toasts.failedToRestoreConflictTitle'), description: getUserErrorMessage(e, t('toasts.failedToRestoreConflictFallback')) })
                     }
                   }
 
@@ -4384,7 +4409,7 @@ export default function Mods() {
                         }
                         return next
                       })
-                    } catch (e) { reportClientError('Failed to toggle group', e); toast({ variant: 'destructive', title: 'Failed to toggle group' }) } finally { busyRef.current = false }
+                    } catch (e) { reportClientError('Failed to toggle group', e); toast({ variant: 'destructive', title: t('toasts.failedToToggleGroupTitle'), description: getUserErrorMessage(e, t('toasts.failedToToggleGroupFallback')) }) } finally { busyRef.current = false }
                   }
 
                   const removeWorkshop = async (wsId: string, knownModIds?: string[]) => {
@@ -4397,7 +4422,7 @@ export default function Mods() {
                       setLastSavedMod(`removed-${wsId}`)
                       if (savedTimeoutRef.current) clearTimeout(savedTimeoutRef.current)
                       savedTimeoutRef.current = setTimeout(() => setLastSavedMod(null), 2000)
-                    } catch (e) { reportClientError('Failed to remove workshop item', e); toast({ variant: 'destructive', title: 'Failed to remove workshop item' }) }
+                    } catch (e) { reportClientError('Failed to remove workshop item', e); toast({ variant: 'destructive', title: t('toasts.failedToRemoveWorkshopItemTitle'), description: getUserErrorMessage(e, t('toasts.failedToRemoveWorkshopItemFallback')) }) }
                   }
 
                   // Handle confirmed workshop removal from AlertDialog
@@ -4707,7 +4732,7 @@ export default function Mods() {
                                           className="text-destructive focus:text-destructive"
                                           // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (mods.manage) now lives in the DisabledReason wrapper above; this title carries only the always-relevant "what removing does" hint, correctly absent (via DisabledReason's own tooltip taking over) rather than dead when actually disabled.
                                           title={t('activeMods.removeFromServerHint')}
-                                          onClick={() => { if (!canManageMods) return; setConfirmRemoveMod(g.wsId) }}
+                                          onClick={() => { if (!canManageMods) return; setConfirmRemoveMod({ wsId: g.wsId, label }) }}
                                           disabled={!canManageMods}
                                         >
                                           <Trash2 className="me-2 h-4 w-4" />
@@ -5030,7 +5055,7 @@ export default function Mods() {
                                         const updated = await modsApi.getCurrentConfig()
                                         setIniConfig(updated)
                                         if (updated?.modIds) setOrderedModIds(updated.modIds)
-                                      } catch (e) { reportClientError('Failed to remove orphaned mod', e); toast({ variant: 'destructive', title: 'Failed to remove orphaned mod' }) } finally { busyRef.current = false }
+                                      } catch (e) { reportClientError('Failed to remove orphaned mod', e); toast({ variant: 'destructive', title: t('toasts.failedToRemoveOrphanedModTitle'), description: getUserErrorMessage(e, t('toasts.failedToRemoveOrphanedModFallback')) }) } finally { busyRef.current = false }
                                     }}
                                     disabled={!canManageMods}
                                     className="text-destructive/80 hover:text-destructive hover:bg-destructive/15 rounded p-1.5 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive/50 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -6083,7 +6108,7 @@ export default function Mods() {
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     copyText(mod.workshop_id).then(() => {
-                                      toast({ title: 'Copied', description: `Workshop ID ${mod.workshop_id}` })
+                                      toast({ title: t('installedTab.copiedTitle'), description: t('installedTab.copiedWorkshopId', { id: mod.workshop_id }) })
                                     }).catch(() => { /* no-op */ })
                                   }}
                                   className="inline-flex items-center gap-1 rounded border border-border/40 bg-muted/40 px-1 py-0.5 font-mono text-[10px] leading-none text-muted-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary transition-colors"
@@ -6139,7 +6164,7 @@ export default function Mods() {
                                     variant="ghost"
                                     size="iconDense"
                                     className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                    onClick={() => setConfirmRemoveMod(mod.workshop_id)}
+                                    onClick={() => setConfirmRemoveMod({ wsId: mod.workshop_id, label: mod.name || mod.workshop_id })}
                                     disabled={loading || !canManageMods}
                                     aria-label={t('deactivatedTab.deleteAria', { name: mod.name || mod.workshop_id })}
                                   >
@@ -6187,7 +6212,14 @@ export default function Mods() {
       <AlertDialog open={!!confirmRemoveMod} onOpenChange={(open) => { if (!open) setConfirmRemoveMod(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t('removeModDialog.title')}</AlertDialogTitle>
+            {/* Four different rows across this page (Installed tab, "removed
+                from Workshop" banner, Active-config kebab menu, Deactivated
+                tab) all open this same dialog. It used to say only "Remove
+                this mod from the server?" with no way to tell WHICH mod --
+                a real problem once more than one row is in play (e.g. a
+                second click before the first refetch lands). Name the
+                actual target instead. */}
+            <AlertDialogTitle>{t('removeModDialog.title', { name: confirmRemoveMod?.label || confirmRemoveMod?.wsId || '' })}</AlertDialogTitle>
             <AlertDialogDescription>
               {t('removeModDialog.description')}
             </AlertDialogDescription>
@@ -6196,7 +6228,7 @@ export default function Mods() {
             <AlertDialogCancel>{t('removeModDialog.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => { if (confirmRemoveMod) handleRemoveMod(confirmRemoveMod); setConfirmRemoveMod(null) }}
+              onClick={() => { if (confirmRemoveMod) handleRemoveMod(confirmRemoveMod.wsId); setConfirmRemoveMod(null) }}
               disabled={!canManageMods}
             >
               {t('removeModDialog.remove')}

@@ -336,6 +336,7 @@
     "sandboxScope": "sandbox lua",
     "hint": "ctrl+s للحفظ · يُطبَّق عند إعادة التحميل",
     "discard": "تجاهل",
+    "save": "حفظ",
     "saveAndReload": "حفظ وإعادة تحميل",
     "unsavedChange_zero": "تغييرات غير محفوظة: {{count}}",
     "unsavedChange_two": "تغييرات غير محفوظة: {{count}}",

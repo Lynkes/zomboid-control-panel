@@ -2156,7 +2156,22 @@ export default function Players() {
                                 {t('dossier.addToWhitelist')}
                               </DropdownMenuItem>
                               </DisabledReason>
-                              <DisabledReason className="w-full" reason={!canModerate ? t('permissions.noModerate') : null}>
+                              {/* selectedPlayerConfirmedNotWhitelisted disables this item once the
+                                  whitelist fetch has confirmed there's nothing to remove -- but that
+                                  disable had no explanation of its own (only the noModerate reason
+                                  was wired up), so hovering a greyed-out item next to an enabled
+                                  "Add to Whitelist" gave no clue why. Players-UX-sense-check
+                                  2026-09-18. */}
+                              <DisabledReason
+                                className="w-full"
+                                reason={
+                                  !canModerate
+                                    ? t('permissions.noModerate')
+                                    : selectedPlayerConfirmedNotWhitelisted
+                                      ? t('dossier.notOnWhitelistReason', { player: selectedPlayer })
+                                      : null
+                                }
+                              >
                               <DropdownMenuItem
                                 onClick={() => { if (!canModerate) return; handleAction(t('actions.removeFromWhitelist'), () => playersApi.removeFromWhitelist(selectedPlayer), () => { void fetchWhitelist() }) }}
                                 disabled={loading || !canModerate || selectedPlayerConfirmedNotWhitelisted}
@@ -3037,6 +3052,15 @@ export default function Players() {
                           ? <Trans i18nKey="spawn.giveXpDescWithPlayer" t={t} values={{ player: selectedPlayer }} components={{ 1: <span className="text-foreground font-medium" /> }} />
                           : t('spawn.giveXpDescNoPlayer')}
                       </p>
+                      {/* giveXpDescNoPlayer used to read "Grant experience to the
+                          selected player" -- accurate as a feature summary but,
+                          shown specifically while NO player is selected, it reads
+                          like one already is (contradicting its own premise) and
+                          never tells the operator what to do next. The sibling
+                          Give Items card just above already says "Pick a player
+                          first..." for the same no-selection state; Give XP now
+                          matches that pattern instead of describing the feature
+                          in the abstract. Players-UX-sense-check 2026-09-18. */}
                     </div>
                   </div>
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-2">

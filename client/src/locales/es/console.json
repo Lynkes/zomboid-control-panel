@@ -42,7 +42,7 @@
     "refreshAria": "Actualizar registro",
     "clear": "limpiar",
     "clearTooltip": "Elimina el archivo de registro de la consola del servidor — no se puede deshacer",
-    "clearConfirmTitle": "¿Eliminar el registro de la consola del servidor?",
+    "clearConfirmTitle": "¿Eliminar el registro de la consola de {{server}}?",
     "clearConfirmDesc": "Esto elimina permanentemente server-console.txt del disco, no solo esta vista. No hay forma de deshacerlo.",
     "clearConfirmButton": "Eliminar archivo de registro",
     "streamUnavailable": "Flujo de registro no disponible — el servidor podría estar sin conexión",
@@ -92,6 +92,7 @@
     "noCommandsTitle": "Aún no hay comandos",
     "noCommandsDesc": "Ejecutar un comando RCON para ver aquí la respuesta.",
     "quickLabel": "rápido",
+    "quickTip": "Rellena el cuadro de comando de abajo con este comando — no se ejecuta hasta que hagas clic en «ejecutar» (o pulses Intro).",
     "commandLabel": "comando",
     "commandTip": "Los comandos aquí se ejecutan de inmediato contra el servidor en vivo, sin paso de confirmación — incluso para algo que detiene el servidor o expulsa a un jugador. Si no estás seguro de lo que hace un comando, compruébalo antes de ejecutarlo; la mayoría no se puede deshacer.",
     "promptPrefix": "rcon $",
@@ -182,7 +183,10 @@
     "searchAria": "Buscar en el historial de comandos",
     "emptyTitle": "Sin historial de comandos",
     "emptyDesc": "Los comandos ejecutados se registrarán aquí.",
-    "entries_many": "{{count}} entradas"
+    "entries_many": "{{count}} entradas",
+    "noMatchesTitle": "Sin comandos coincidentes",
+    "noMatchesDesc": "Ninguna entrada del historial coincide con \"{{query}}\".",
+    "clearSearch": "Borrar búsqueda"
   },
   "toasts": {
     "historyUnavailableTitle": "Historial no disponible",

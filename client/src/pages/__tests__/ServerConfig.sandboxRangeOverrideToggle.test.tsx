@@ -98,7 +98,7 @@ describe('ServerConfig.tsx: sandboxRangeOverride toggle (client/src/pages/Settin
 
     await waitFor(() => expect(getSandbox).toHaveBeenCalled())
     expect(screen.getByText(/fix invalid values before saving/i)).toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: /save & reload/i })[0]).toBeDisabled()
+    expect(screen.getAllByRole('button', { name: /^save$/i })[0]).toBeDisabled()
     // The warn-only banner is toggle-gated and must not appear while off.
     expect(screen.queryByText(/will still be saved/i)).not.toBeInTheDocument()
   })
@@ -122,7 +122,7 @@ describe('ServerConfig.tsx: sandboxRangeOverride toggle (client/src/pages/Settin
 
     await waitFor(() => expect(getSandbox).toHaveBeenCalled())
     expect(screen.getByText(/fix invalid values before saving/i)).toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: /save & reload/i })[0]).toBeDisabled()
+    expect(screen.getAllByRole('button', { name: /^save$/i })[0]).toBeDisabled()
   })
 
   it('turning it back OFF does not strand the out-of-range field: it stays editable and Save re-enables once fixed', async () => {
@@ -131,7 +131,7 @@ describe('ServerConfig.tsx: sandboxRangeOverride toggle (client/src/pages/Settin
     renderServerConfigSearchingZombieDeleteCount()
 
     await waitFor(() => expect(getSandbox).toHaveBeenCalled())
-    expect(screen.getAllByRole('button', { name: /save & reload/i })[0]).toBeDisabled()
+    expect(screen.getAllByRole('button', { name: /^save$/i })[0]).toBeDisabled()
 
     // The field itself must remain a live, editable input (not disabled) --
     // fix it back within the fallback schema range.
@@ -142,7 +142,7 @@ describe('ServerConfig.tsx: sandboxRangeOverride toggle (client/src/pages/Settin
     await waitFor(() => {
       expect(screen.queryByText(/fix invalid values before saving/i)).not.toBeInTheDocument()
     })
-    const saveButtonsFixed = screen.getAllByRole('button', { name: /save & reload/i })
+    const saveButtonsFixed = screen.getAllByRole('button', { name: /^save$/i })
     for (const button of saveButtonsFixed) {
       expect(button).not.toBeDisabled()
     }

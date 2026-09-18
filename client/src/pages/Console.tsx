@@ -450,6 +450,20 @@ export default function Console() {
     return serverLogLines.filter(line => !noisePatterns.some(pattern => pattern.test(line)))
   }, [serverLogLines, serverLogFiltered, noisePatterns])
 
+  // Command history filtered by the search box below -- pulled into its own
+  // memo (rather than inlined in the JSX .filter().map()) so the "history
+  // has entries but none match this search" case can be told apart from
+  // "history is genuinely empty" and get its own empty-state copy instead of
+  // silently rendering a blank scroll area with no explanation.
+  const filteredHistory = useMemo(() => {
+    if (!historySearch) return history
+    const q = historySearch.toLowerCase()
+    return history.filter(entry =>
+      entry.command.toLowerCase().includes(q) ||
+      entry.response?.toLowerCase().includes(q)
+    )
+  }, [history, historySearch])
+
   const fetchHistory = useCallback(async () => {
     if (!hasActiveServer) {
       setHistory([])
@@ -562,7 +576,12 @@ export default function Console() {
 
   const clearServerLog = async () => {
     const confirmed = await confirm({
-      title: t('serverLog.clearConfirmTitle'),
+      // Names the server the same way every other destructive confirm in
+      // this app does (Mods.tsx, ServerConfig.tsx, Servers.tsx, Users.tsx) --
+      // a bare "Erase the server console log?" gives no way to tell, from
+      // the dialog alone, which server's log is about to be erased if the
+      // operator has switched servers recently or has multiple tabs open.
+      title: t('serverLog.clearConfirmTitle', { server: activeServer?.name || '' }),
       description: t('serverLog.clearConfirmDesc'),
       confirmLabel: t('serverLog.clearConfirmButton'),
     })
@@ -1305,7 +1324,13 @@ export default function Console() {
 
           {/* Quick Commands */}
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="font-mono text-[9px] uppercase tracking-[0.24em] text-primary/60 me-1">{t('rcon.quickLabel')}</span>
+            <span className="font-mono text-[9px] uppercase tracking-[0.24em] text-primary/60">{t('rcon.quickLabel')}</span>
+            {/* These buttons read like "Save" runs Save immediately -- they
+                actually just fill the command box below, same as clicking a
+                history entry, and still require Run/Enter to send. Without
+                this, a first-time operator has no way to tell that apart
+                from an execute-on-click button. */}
+            <HelpTip label={t('rcon.quickLabel')} className="me-1">{t('rcon.quickTip')}</HelpTip>
             {quickCommands.map((qc) => (
               <Button
                 key={qc.command}
@@ -1500,15 +1525,21 @@ export default function Console() {
                     />
                   ) : history.length === 0 ? (
                     <EmptyState compact type="noData" title={t('history.emptyTitle')} description={t('history.emptyDesc')} />
+                  ) : filteredHistory.length === 0 ? (
+                    // history has entries, but none match the current search --
+                    // distinct from the genuinely-empty case above, which would
+                    // otherwise be indistinguishable from a blank scroll area
+                    // with nothing explaining why nothing's showing.
+                    <EmptyState
+                      compact
+                      type="noResults"
+                      title={t('history.noMatchesTitle')}
+                      description={t('history.noMatchesDesc', { query: historySearch })}
+                      action={{ label: t('history.clearSearch'), onClick: () => setHistorySearch('') }}
+                    />
                   ) : (
                     <div className="space-y-1 p-2">
-                      {history
-                        .filter(entry =>
-                          !historySearch ||
-                          entry.command.toLowerCase().includes(historySearch.toLowerCase()) ||
-                          entry.response?.toLowerCase().includes(historySearch.toLowerCase())
-                        )
-                        .map((entry) => (
+                      {filteredHistory.map((entry) => (
                         <button
                           key={entry.id}
                           type="button"

@@ -120,6 +120,7 @@
     "disableNoclip": "關閉穿牆",
     "addToWhitelist": "加入白名單",
     "removeFromWhitelist": "從白名單移除",
+    "notOnWhitelistReason": "{{player}} 不在白名單中，無需移除。",
     "importExportCharacter": "匯入/匯出角色",
     "noTargetTitle": "未選擇目標",
     "noTargetDesc": "從名冊中選擇一名玩家以檢視其檔案，或在<1>› 手動目標</1>下輸入使用者名稱。"
@@ -279,7 +280,7 @@
     "spawnVehiclesDescNoPlayer": "將在呼叫者所在位置生成 — 選擇一名玩家可改為在其附近生成載具。",
     "giveXpTitle": "給予經驗值",
     "giveXpDescWithPlayer": "為 <1>{{player}}</1> 授予經驗值",
-    "giveXpDescNoPlayer": "為所選玩家授予經驗值",
+    "giveXpDescNoPlayer": "先選擇一名玩家，然後為其授予所選技能的經驗值。",
     "perkPlaceholder": "選擇技能…",
     "amountLabel": "數量",
     "giveXpButton": "給予經驗值",

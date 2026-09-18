@@ -3274,7 +3274,13 @@ export default function ServerConfig() {
                     ) : (
                       <Save className="h-3 w-3" />
                     )}
-                    {t('editorToolbar.saveAndReload')}
+                    {/* Unlike the INI tab, a sandbox save has no RCON
+                        live-reload path (see handleSaveSandbox's own comment
+                        just below) -- it always needs a server restart to
+                        take effect, whether the server is stopped right now
+                        or running. "Save & reload" here would promise a
+                        reload that literally never happens for this file. */}
+                    {t('editorToolbar.save')}
                   </Button>
                 </div>
               }
@@ -4387,7 +4393,10 @@ export default function ServerConfig() {
               className="h-8 gap-1.5 text-xs font-medium"
             >
               {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-              {t('stickySaveBar.saveAndReload')}
+              {/* Sandbox saves never live-reload (see handleSaveSandbox's own
+                  comment) -- only the INI tab's save genuinely attempts an
+                  RCON reload, so this bar must not promise one for Sandbox. */}
+              {activeTab === 'ini' ? t('stickySaveBar.saveAndReload') : t('stickySaveBar.save')}
             </Button>
           </div>
         </div>

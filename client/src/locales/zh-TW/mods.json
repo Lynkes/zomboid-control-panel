@@ -249,6 +249,7 @@
     "unchecked": "未檢查",
     "openWorkshopPageHint": "開啟創意工坊頁面",
     "modFallback": "模組 {{id}}",
+    "selectAria": "選取 {{name}}",
     "removeModAria": "移除模組 {{name}}",
     "removeFromServer": "從伺服器移除"
   },
@@ -513,7 +514,7 @@
     "deleteTooltip": "從追蹤中刪除"
   },
   "removeModDialog": {
-    "title": "從伺服器中移除此模組？",
+    "title": "從伺服器中移除 {{name}}？",
     "description": "這會將該模組從伺服器 INI 設定中移除，使其停止載入。創意工坊檔案仍保留在磁碟上（因此之後重新新增會立即完成）。",
     "cancel": "取消",
     "remove": "移除"
@@ -722,10 +723,17 @@
     "conflictDismissedTitle": "衝突已忽略",
     "conflictDismissedDesc": "{{a}} ↔ {{b}} 已標記為誤報。",
     "failedToDismissConflictTitle": "忽略衝突失敗",
+    "failedToDismissConflictFallback": "無法儲存忽略操作，請重試。",
     "failedToToggleModTitle": "切換模組狀態失敗",
+    "failedToToggleModFallback": "無法更新該模組的啟用狀態，請重試。",
     "failedToToggleGroupTitle": "切換分組狀態失敗",
+    "failedToToggleGroupFallback": "無法更新該分組的啟用狀態，請重試。",
     "failedToRemoveWorkshopItemTitle": "移除創意工坊專案失敗",
+    "failedToRemoveWorkshopItemFallback": "無法從伺服器設定中移除該創意工坊專案，請重試。",
     "failedToRemoveOrphanedModTitle": "移除孤立模組失敗",
+    "failedToRemoveOrphanedModFallback": "無法移除該孤立的 Mod ID，請重試。",
+    "failedToRestoreConflictTitle": "還原衝突失敗",
+    "failedToRestoreConflictFallback": "無法還原該已忽略的衝突，請重試。",
     "dependencyAddedTitle": "依賴項已新增",
     "dependencyAddedDesc": "{{name}} 已新增到伺服器設定。",
     "addFailedTitle": "新增失敗",

@@ -242,6 +242,7 @@
     "sandboxScope": "sandbox lua",
     "hint": "ctrl+s pou sove · aplike lè rechaje",
     "discard": "jete",
+    "save": "sove",
     "saveAndReload": "sove & rechaje"
   },
   "backupsDialog": {

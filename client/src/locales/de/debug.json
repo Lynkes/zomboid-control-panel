@@ -10,7 +10,9 @@
   "headerActions": {
     "bundling": "Bündeln…",
     "supportBundleZip": "Support-Paket (.zip)",
-    "fullLogTxt": "Vollständiges Protokoll (.txt)"
+    "supportBundleTooltip": "Panel-Protokolle · Zomboid-Server-Protokolle · Absturzberichte · Diagnose, alles in einer einzigen .zip-Datei.",
+    "fullLogTxt": "Vollständiges Protokoll (.txt)",
+    "fullLogTooltip": "Nur das eigene Anwendungsprotokoll dieses Panels — keine Zomboid-Server-Protokolle oder Absturzberichte. Dafür das Support-Paket verwenden."
   },
   "tabs": {
     "diagnostics": "Diagnose",

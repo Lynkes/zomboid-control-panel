@@ -435,6 +435,7 @@
     "unchecked": "لم يُتحقَّق منه",
     "openWorkshopPageHint": "فتح صفحة الورشة",
     "modFallback": "مود {{id}}",
+    "selectAria": "تحديد {{name}}",
     "removeModAria": "إزالة المود {{name}}",
     "removeFromServer": "إزالة من الخادم"
   },
@@ -763,7 +764,7 @@
     "genericNameNotice_many": "<1>{{count}}</1> من المودات تعرض أسماء عامة. انقر <3>تحديث الأسماء</3> للبحث عنها (يتحقّق من القرص أولًا، ثم من واجهة ورشة Steam)."
   },
   "removeModDialog": {
-    "title": "إزالة هذا المود من الخادم؟",
+    "title": "إزالة {{name}} من الخادم؟",
     "description": "يزيل هذا المود من ملف إعدادات INI للخادم فيتوقّف تحميله. وتبقى ملفات الورشة على القرص (لذا فإن إعادة إضافته لاحقًا فورية).",
     "cancel": "إلغاء",
     "remove": "إزالة"
@@ -980,10 +981,17 @@
     "conflictDismissedTitle": "تم استبعاد التعارض",
     "conflictDismissedDesc": "تم وسم {{a}} ↔ {{b}} كإنذار كاذب.",
     "failedToDismissConflictTitle": "تعذّر استبعاد التعارض",
+    "failedToDismissConflictFallback": "تعذّر حفظ الاستبعاد. حاول مرة أخرى.",
     "failedToToggleModTitle": "تعذّر تبديل حالة المود",
+    "failedToToggleModFallback": "تعذّر تحديث حالة تفعيل المود. حاول مرة أخرى.",
     "failedToToggleGroupTitle": "تعذّر تبديل حالة المجموعة",
+    "failedToToggleGroupFallback": "تعذّر تحديث حالة تفعيل المجموعة. حاول مرة أخرى.",
     "failedToRemoveWorkshopItemTitle": "تعذّرت إزالة عنصر الورشة",
+    "failedToRemoveWorkshopItemFallback": "تعذّرت إزالة عنصر الورشة من إعدادات الخادم. حاول مرة أخرى.",
     "failedToRemoveOrphanedModTitle": "تعذّرت إزالة المود المعزول",
+    "failedToRemoveOrphanedModFallback": "تعذّرت إزالة معرّف المود المعزول. حاول مرة أخرى.",
+    "failedToRestoreConflictTitle": "تعذّرت استعادة التعارض",
+    "failedToRestoreConflictFallback": "تعذّرت استعادة التعارض المستبعد. حاول مرة أخرى.",
     "dependencyAddedTitle": "تمت إضافة الاعتمادية",
     "dependencyAddedDesc": "تمت إضافة {{name}} إلى إعدادات الخادم.",
     "addFailedTitle": "فشلت الإضافة",

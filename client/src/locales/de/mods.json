@@ -249,6 +249,7 @@
     "unchecked": "Nicht geprüft",
     "openWorkshopPageHint": "Workshop-Seite öffnen",
     "modFallback": "Mod {{id}}",
+    "selectAria": "{{name}} auswählen",
     "removeModAria": "Mod entfernen: {{name}}",
     "removeFromServer": "Vom Server entfernen"
   },
@@ -404,7 +405,7 @@
     "deleteTooltip": "Aus der Erfassung löschen"
   },
   "removeModDialog": {
-    "title": "Diese Mod vom Server entfernen?",
+    "title": "{{name}} vom Server entfernen?",
     "description": "Dies entfernt die Mod aus der Server-INI-Konfiguration, sodass sie nicht mehr geladen wird. Die Workshop-Dateien bleiben auf der Festplatte (ein späteres erneutes Hinzufügen ist dadurch sofort möglich).",
     "cancel": "Abbrechen",
     "remove": "Entfernen"
@@ -722,10 +723,17 @@
     "conflictDismissedTitle": "Konflikt verworfen",
     "conflictDismissedDesc": "{{a}} ↔ {{b}} als Fehlalarm markiert.",
     "failedToDismissConflictTitle": "Konflikt konnte nicht verworfen werden",
+    "failedToDismissConflictFallback": "Das Verwerfen konnte nicht gespeichert werden. Versuche es erneut.",
     "failedToToggleModTitle": "Mod konnte nicht umgeschaltet werden",
+    "failedToToggleModFallback": "Der Aktivierungsstatus des Mods konnte nicht aktualisiert werden. Versuche es erneut.",
     "failedToToggleGroupTitle": "Gruppe konnte nicht umgeschaltet werden",
+    "failedToToggleGroupFallback": "Der Aktivierungsstatus der Gruppe konnte nicht aktualisiert werden. Versuche es erneut.",
     "failedToRemoveWorkshopItemTitle": "Workshop-Element konnte nicht entfernt werden",
+    "failedToRemoveWorkshopItemFallback": "Das Workshop-Element konnte nicht aus der Serverkonfiguration entfernt werden. Versuche es erneut.",
     "failedToRemoveOrphanedModTitle": "Verwaiste Mod konnte nicht entfernt werden",
+    "failedToRemoveOrphanedModFallback": "Die verwaiste Mod-ID konnte nicht entfernt werden. Versuche es erneut.",
+    "failedToRestoreConflictTitle": "Konflikt konnte nicht wiederhergestellt werden",
+    "failedToRestoreConflictFallback": "Der verworfene Konflikt konnte nicht wiederhergestellt werden. Versuche es erneut.",
     "dependencyAddedTitle": "Abhängigkeit hinzugefügt",
     "dependencyAddedDesc": "{{name}} zur Serverkonfiguration hinzugefügt.",
     "addFailedTitle": "Hinzufügen fehlgeschlagen",

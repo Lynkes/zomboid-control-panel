@@ -42,7 +42,7 @@
     "refreshAria": "刷新日志",
     "clear": "清除",
     "clearTooltip": "删除服务器控制台日志文件——此操作无法撤销",
-    "clearConfirmTitle": "删除服务器控制台日志？",
+    "clearConfirmTitle": "删除服务器 {{server}} 的控制台日志？",
     "clearConfirmDesc": "此操作将永久删除磁盘上的 server-console.txt 文件，而不仅仅是当前显示内容，且无法撤销。",
     "clearConfirmButton": "删除日志文件",
     "streamUnavailable": "日志流不可用——服务器可能已离线",
@@ -90,6 +90,7 @@
     "noCommandsTitle": "尚无命令",
     "noCommandsDesc": "运行 RCON 命令后，响应将显示于此。",
     "quickLabel": "快捷",
+    "quickTip": "点击后会把该命令填入下方命令框——需要点击\"运行\"（或按 Enter）才会真正执行。",
     "commandLabel": "命令",
     "commandTip": "这里的命令会立即在正在运行的服务器上执行，没有确认步骤——即使是会停止服务器或移除玩家的命令也是如此。如果不确定某条命令的作用，请先查清楚再执行；大多数命令无法撤销。",
     "promptPrefix": "rcon $",
@@ -178,7 +179,10 @@
     "searchPlaceholder": "搜索命令历史…",
     "searchAria": "搜索命令历史",
     "emptyTitle": "无命令历史",
-    "emptyDesc": "运行的命令将记录于此。"
+    "emptyDesc": "运行的命令将记录于此。",
+    "noMatchesTitle": "没有匹配的命令",
+    "noMatchesDesc": "没有历史记录与\"{{query}}\"匹配。",
+    "clearSearch": "清除搜索"
   },
   "toasts": {
     "historyUnavailableTitle": "历史记录不可用",

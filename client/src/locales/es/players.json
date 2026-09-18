@@ -123,6 +123,7 @@
     "disableNoclip": "Desactivar Noclip",
     "addToWhitelist": "Añadir a la lista blanca",
     "removeFromWhitelist": "Quitar de la lista blanca",
+    "notOnWhitelistReason": "{{player}} no está en la lista blanca — no hay nada que quitar.",
     "importExportCharacter": "Importar/exportar personaje",
     "noTargetTitle": "ningún objetivo seleccionado",
     "noTargetDesc": "Elegir un jugador de la lista para ver su expediente, o escribir un nombre de usuario en <1>› Objetivo manual</1>."
@@ -282,7 +283,7 @@
     "spawnVehiclesDescNoPlayer": "Se genera en la posición de quien ejecuta la acción. Seleccionar un jugador para generar los vehículos cerca de esa persona.",
     "giveXpTitle": "Dar XP",
     "giveXpDescWithPlayer": "Otorgar experiencia a <1>{{player}}</1>",
-    "giveXpDescNoPlayer": "Otorgar experiencia al jugador seleccionado",
+    "giveXpDescNoPlayer": "Elegir primero un jugador y luego otorgarle experiencia en una habilidad elegida.",
     "perkPlaceholder": "Seleccionar perk...",
     "amountLabel": "Cantidad",
     "giveXpButton": "Dar XP",

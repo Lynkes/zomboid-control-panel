@@ -249,6 +249,7 @@
     "unchecked": "Pa Tcheke",
     "openWorkshopPageHint": "Ouvri Paj Workshop",
     "modFallback": "Mod {{id}}",
+    "selectAria": "Chwazi {{name}}",
     "removeModAria": "Retire mod {{name}}",
     "removeFromServer": "Retire nan sèvè a"
   },
@@ -513,7 +514,7 @@
     "deleteTooltip": "Efase nan swiv"
   },
   "removeModDialog": {
-    "title": "Retire mod sa a nan sèvè a?",
+    "title": "Retire {{name}} nan sèvè a?",
     "description": "Sa a retire mod la nan konfig INI sèvè a pou l sispann chaje. Fichye Workshop yo rete sou disk (kidonk re-ajoute pita ap enstantane).",
     "cancel": "Anile",
     "remove": "Retire"
@@ -722,10 +723,17 @@
     "conflictDismissedTitle": "Konfli make",
     "conflictDismissedDesc": "{{a}} ↔ {{b}} make kòm yon fo pozitif.",
     "failedToDismissConflictTitle": "Make konfli a echwe",
+    "failedToDismissConflictFallback": "Pa t kapab sove make a. Eseye ankò.",
     "failedToToggleModTitle": "Bakile mod la echwe",
+    "failedToToggleModFallback": "Pa t kapab mete ajou eta aktivasyon mod la. Eseye ankò.",
     "failedToToggleGroupTitle": "Bakile gwoup la echwe",
+    "failedToToggleGroupFallback": "Pa t kapab mete ajou eta aktivasyon gwoup la. Eseye ankò.",
     "failedToRemoveWorkshopItemTitle": "Retire atik workshop la echwe",
+    "failedToRemoveWorkshopItemFallback": "Pa t kapab retire atik workshop la nan konfigirasyon sèvè a. Eseye ankò.",
     "failedToRemoveOrphanedModTitle": "Retire mod san paran an echwe",
+    "failedToRemoveOrphanedModFallback": "Pa t kapab retire ID mod san paran an. Eseye ankò.",
+    "failedToRestoreConflictTitle": "Restore konfli a echwe",
+    "failedToRestoreConflictFallback": "Pa t kapab restore konfli ki te make a. Eseye ankò.",
     "dependencyAddedTitle": "Depandans ajoute",
     "dependencyAddedDesc": "{{name}} ajoute nan konfig sèvè a.",
     "addFailedTitle": "Ajoute echwe",

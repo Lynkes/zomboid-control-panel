@@ -647,7 +647,7 @@ export default function Chat() {
                         className="h-9 flex-1 text-sm"
                       />
                       <DisabledReason reason={!canManagePresets ? t('quickBroadcasts.noPermission') : null}>
-                        <Button variant="ghost" size="icon" className="h-9 w-9" onClick={handleSaveEdit} disabled={!canManagePresets} aria-label={t('quickBroadcasts.saveAria')}>
+                        <Button variant="ghost" size="icon" className="h-9 w-9" onClick={handleSaveEdit} disabled={!canManagePresets || !editingDraft.trim()} aria-label={t('quickBroadcasts.saveAria')}>
                           <Check className="w-4 h-4" />
                         </Button>
                       </DisabledReason>

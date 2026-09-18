@@ -136,7 +136,11 @@ describe('ServerConfig.tsx: Sandbox tab prefers a live PanelBridge range over th
     // should read the live 10-10000, not the stale schema's 0-5000.
     await waitFor(() => expect(screen.getByText('10 – 10000')).toBeInTheDocument())
 
-    const saveButton = await screen.findByRole('button', { name: /save & reload/i })
+    // Sandbox tab's own Save button reads plain "Save" (not "Save & reload"):
+    // unlike the INI tab, a sandbox write has no RCON live-reload path and
+    // always needs a server restart -- see ServerConfig.tsx's
+    // handleSaveSandbox comment.
+    const saveButton = await screen.findByRole('button', { name: /^save$/i })
     // No local edit was made (hasSandboxChanges is false), so this alone
     // doesn't prove the range fix -- the companion "still blocks with a
     // stale/unavailable range" test below is the contrast case.
@@ -159,7 +163,7 @@ describe('ServerConfig.tsx: Sandbox tab prefers a live PanelBridge range over th
     await waitFor(() => expect(screen.getByText(/showing built-in ranges/i)).toBeInTheDocument())
     expect(screen.getByText(/fix invalid values before saving/i)).toBeInTheDocument()
 
-    const saveButton = screen.getAllByRole('button', { name: /save & reload/i })[0]
+    const saveButton = screen.getAllByRole('button', { name: /^save$/i })[0]
     expect(saveButton).toBeDisabled()
   })
 })

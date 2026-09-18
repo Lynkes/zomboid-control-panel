@@ -123,6 +123,7 @@
     "disableNoclip": "Désactiver la traversée",
     "addToWhitelist": "Ajouter à la liste blanche",
     "removeFromWhitelist": "Retirer de la liste blanche",
+    "notOnWhitelistReason": "{{player}} n'est pas sur la liste blanche — rien à retirer.",
     "importExportCharacter": "Importer/Exporter le personnage",
     "noTargetTitle": "aucune cible sélectionnée",
     "noTargetDesc": "Choisissez un joueur dans l'effectif pour voir son dossier, ou saisissez un nom d'utilisateur sous <1>› Cible manuelle</1>."
@@ -282,7 +283,7 @@
     "spawnVehiclesDescNoPlayer": "Génère à la position de l'appelant — sélectionnez un joueur pour générer les véhicules près de lui à la place.",
     "giveXpTitle": "Donner de l'XP",
     "giveXpDescWithPlayer": "Accorder de l'expérience à <1>{{player}}</1>",
-    "giveXpDescNoPlayer": "Accorder de l'expérience au joueur sélectionné",
+    "giveXpDescNoPlayer": "Choisissez d'abord un joueur, puis accordez-lui de l'expérience dans une compétence choisie.",
     "perkPlaceholder": "Sélectionner une compétence...",
     "amountLabel": "Quantité",
     "giveXpButton": "Donner de l'XP",

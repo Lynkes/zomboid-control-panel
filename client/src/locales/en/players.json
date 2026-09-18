@@ -120,6 +120,7 @@
     "disableNoclip": "Disable Noclip",
     "addToWhitelist": "Add to Whitelist",
     "removeFromWhitelist": "Remove from Whitelist",
+    "notOnWhitelistReason": "{{player}} isn't on the whitelist — nothing to remove.",
     "importExportCharacter": "Import/Export Character",
     "noTargetTitle": "no target selected",
     "noTargetDesc": "Pick a player from the roster to view their dossier, or type a username under <1>› Manual target</1>."
@@ -279,7 +280,7 @@
     "spawnVehiclesDescNoPlayer": "Spawns at the caller's position — select a player to spawn vehicles near them instead.",
     "giveXpTitle": "Give XP",
     "giveXpDescWithPlayer": "Grant experience to <1>{{player}}</1>",
-    "giveXpDescNoPlayer": "Grant experience to the selected player",
+    "giveXpDescNoPlayer": "Pick a player first, then grant them experience in a chosen skill.",
     "perkPlaceholder": "Select perk...",
     "amountLabel": "Amount",
     "giveXpButton": "Give XP",

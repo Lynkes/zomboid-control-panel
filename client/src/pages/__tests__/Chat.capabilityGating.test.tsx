@@ -280,21 +280,21 @@ describe('Chat.tsx: quick-broadcast preset management gates on panel.settings', 
     renderChat()
 
     await screen.findByText('Test preset')
-    fireEvent.click(screen.getByRole('button', { name: 'Edit presets' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit quick broadcasts' }))
 
     // bug-hunt-2026-08-27 (Angela's fixture-masking finding): Add's
     // disabled expression is `!newPresetDraft.trim() ||
     // !canManagePresets` -- with the draft still empty,
     // `!newPresetDraft.trim()` alone already disables it regardless of
     // the capability check. Type first, then assert.
-    const addInput = screen.getByPlaceholderText('add a new quick message…')
+    const addInput = screen.getByPlaceholderText('add a new quick broadcast…')
     fireEvent.change(addInput, { target: { value: 'A new preset' } })
-    expect(screen.getByLabelText('Add preset')).toBeDisabled()
-    fireEvent.click(screen.getByLabelText('Add preset'))
+    expect(screen.getByLabelText('Add quick broadcast')).toBeDisabled()
+    fireEvent.click(screen.getByLabelText('Add quick broadcast'))
     fireEvent.keyDown(addInput, { key: 'Enter' })
 
-    expect(screen.getByLabelText('Delete preset 1')).toBeDisabled()
-    fireEvent.click(screen.getByLabelText('Delete preset 1'))
+    expect(screen.getByLabelText('Delete quick broadcast 1')).toBeDisabled()
+    fireEvent.click(screen.getByLabelText('Delete quick broadcast 1'))
 
     expect(updateAppSettings).not.toHaveBeenCalled()
   })
@@ -307,17 +307,17 @@ describe('Chat.tsx: quick-broadcast preset management gates on panel.settings', 
     renderChat()
 
     await screen.findByText('Test preset')
-    fireEvent.click(screen.getByRole('button', { name: 'Edit presets' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit quick broadcasts' }))
 
-    expect(screen.getByLabelText('Delete preset 1')).not.toBeDisabled()
+    expect(screen.getByLabelText('Delete quick broadcast 1')).not.toBeDisabled()
 
-    // "Add preset" is also legitimately disabled on an empty draft --
-    // unrelated to capability -- so only assert its non-disabled state
+    // "Add quick broadcast" is also legitimately disabled on an empty draft
+    // -- unrelated to capability -- so only assert its non-disabled state
     // once there is something to add.
-    const addInput = screen.getByPlaceholderText('add a new quick message…')
+    const addInput = screen.getByPlaceholderText('add a new quick broadcast…')
     fireEvent.change(addInput, { target: { value: 'A new preset' } })
-    expect(screen.getByLabelText('Add preset')).not.toBeDisabled()
-    fireEvent.click(screen.getByLabelText('Add preset'))
+    expect(screen.getByLabelText('Add quick broadcast')).not.toBeDisabled()
+    fireEvent.click(screen.getByLabelText('Add quick broadcast'))
 
     await waitFor(() => expect(updateAppSettings).toHaveBeenCalledWith({ chatPresets: ['Test preset', 'A new preset'] }))
   })
@@ -337,14 +337,14 @@ describe('Chat.tsx: quick-broadcast preset management gates on panel.settings', 
     renderChat()
 
     await screen.findByText('Test preset')
-    fireEvent.click(screen.getByRole('button', { name: 'Edit presets' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit quick broadcasts' }))
 
-    const deleteButton = screen.getByLabelText('Delete preset 1')
+    const deleteButton = screen.getByLabelText('Delete quick broadcast 1')
     expect(deleteButton).not.toBeDisabled()
     fireEvent.click(deleteButton)
 
     const dialog = await screen.findByRole('alertdialog')
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete Preset' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete Quick Broadcast' }))
 
     await waitFor(() => expect(updateAppSettings).toHaveBeenCalledWith({ chatPresets: [] }))
   })

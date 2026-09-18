@@ -42,7 +42,7 @@
     "refreshAria": "Actualiser le journal",
     "clear": "effacer",
     "clearTooltip": "Supprime le fichier journal de la console du serveur — action irréversible",
-    "clearConfirmTitle": "Supprimer le journal de la console du serveur ?",
+    "clearConfirmTitle": "Supprimer le journal de la console de {{server}} ?",
     "clearConfirmDesc": "Cette action supprime définitivement server-console.txt du disque, pas seulement cet affichage. Il n'y a pas d'annulation possible.",
     "clearConfirmButton": "Supprimer le fichier journal",
     "streamUnavailable": "Flux du journal indisponible — le serveur est peut-être hors ligne",
@@ -92,6 +92,7 @@
     "noCommandsTitle": "Aucune commande pour l'instant",
     "noCommandsDesc": "Exécutez une commande RCON pour voir la réponse ici.",
     "quickLabel": "rapide",
+    "quickTip": "Remplit le champ de commande ci-dessous avec cette commande -- elle ne s'exécute qu'après avoir cliqué sur « exécuter » (ou appuyé sur Entrée).",
     "commandLabel": "commande",
     "commandTip": "Les commandes ici s'exécutent immédiatement sur le serveur en direct, sans étape de confirmation — même pour quelque chose qui arrête le serveur ou expulse un joueur. Si vous n'êtes pas sûr de ce que fait une commande, vérifiez-la avant de l'exécuter ; la plupart sont irréversibles.",
     "promptPrefix": "rcon $",
@@ -182,7 +183,10 @@
     "searchAria": "Rechercher dans l'historique des commandes",
     "emptyTitle": "Aucun historique de commandes",
     "emptyDesc": "Les commandes que vous exécutez seront enregistrées ici.",
-    "entries_many": "{{count}} entrées"
+    "entries_many": "{{count}} entrées",
+    "noMatchesTitle": "Aucune commande correspondante",
+    "noMatchesDesc": "Aucune entrée de l'historique ne correspond à « {{query}} ».",
+    "clearSearch": "Effacer la recherche"
   },
   "toasts": {
     "historyUnavailableTitle": "Historique indisponible",

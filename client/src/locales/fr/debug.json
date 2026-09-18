@@ -10,7 +10,9 @@
   "headerActions": {
     "bundling": "Compression…",
     "supportBundleZip": "Pack de support (.zip)",
-    "fullLogTxt": "Journal complet (.txt)"
+    "supportBundleTooltip": "Journaux du panneau · journaux du serveur Zomboid · dumps de plantage · diagnostics, le tout dans un seul .zip.",
+    "fullLogTxt": "Journal complet (.txt)",
+    "fullLogTooltip": "Uniquement le journal applicatif de ce panneau — pas les journaux du serveur Zomboid ni les dumps de plantage. Utilisez le pack de support pour cela."
   },
   "tabs": {
     "diagnostics": "Diagnostics",

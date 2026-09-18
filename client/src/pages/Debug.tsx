@@ -3014,31 +3014,41 @@ export default function Debug() {
         icon={<Bug className="w-5 h-5 text-primary" />}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="command"
-              size="lg"
-              onClick={downloadLogArchive}
-              disabled={downloadingLogArchive}
-              className="gap-2"
-            >
-              {downloadingLogArchive ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Archive className="w-4 h-4" />
-              )}
-              {downloadingLogArchive
-                ? t("headerActions.bundling")
-                : t("headerActions.supportBundleZip")}
-            </Button>
-            <Button
-              variant="outline"
-              size="lg"
-              onClick={() => downloadLogs("txt", false)}
-              className="gap-2"
-            >
-              <FileDown className="w-4 h-4" />
-              {t("headerActions.fullLogTxt")}
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="command"
+                  size="lg"
+                  onClick={downloadLogArchive}
+                  disabled={downloadingLogArchive}
+                  className="gap-2"
+                >
+                  {downloadingLogArchive ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Archive className="w-4 h-4" />
+                  )}
+                  {downloadingLogArchive
+                    ? t("headerActions.bundling")
+                    : t("headerActions.supportBundleZip")}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("headerActions.supportBundleTooltip")}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="lg"
+                  onClick={() => downloadLogs("txt", false)}
+                  className="gap-2"
+                >
+                  <FileDown className="w-4 h-4" />
+                  {t("headerActions.fullLogTxt")}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("headerActions.fullLogTooltip")}</TooltipContent>
+            </Tooltip>
           </div>
         }
       />

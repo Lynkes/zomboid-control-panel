@@ -222,6 +222,7 @@
     "unchecked": "Unchecked",
     "openWorkshopPageHint": "Open Workshop Page",
     "modFallback": "Mod {{id}}",
+    "selectAria": "Select {{name}}",
     "removeModAria": "Remove mod {{name}}",
     "removeFromServer": "Remove from server"
   },
@@ -486,7 +487,7 @@
     "deleteTooltip": "Delete from tracking"
   },
   "removeModDialog": {
-    "title": "Remove this mod from the server?",
+    "title": "Remove {{name}} from the server?",
     "description": "This removes the mod from the server INI config so it stops loading. The Workshop files stay on disk (so re-adding later is instant).",
     "cancel": "Cancel",
     "remove": "Remove"
@@ -695,10 +696,17 @@
     "conflictDismissedTitle": "Conflict dismissed",
     "conflictDismissedDesc": "{{a}} ↔ {{b}} marked as a false positive.",
     "failedToDismissConflictTitle": "Failed to dismiss conflict",
+    "failedToDismissConflictFallback": "Could not save the dismissal. Try again.",
     "failedToToggleModTitle": "Failed to toggle mod",
+    "failedToToggleModFallback": "Could not update the mod's enabled state. Try again.",
     "failedToToggleGroupTitle": "Failed to toggle group",
+    "failedToToggleGroupFallback": "Could not update the group's enabled state. Try again.",
     "failedToRemoveWorkshopItemTitle": "Failed to remove workshop item",
+    "failedToRemoveWorkshopItemFallback": "Could not remove the workshop item from the server config. Try again.",
     "failedToRemoveOrphanedModTitle": "Failed to remove orphaned mod",
+    "failedToRemoveOrphanedModFallback": "Could not remove the orphaned mod ID. Try again.",
+    "failedToRestoreConflictTitle": "Failed to restore conflict",
+    "failedToRestoreConflictFallback": "Could not restore the dismissed conflict. Try again.",
     "dependencyAddedTitle": "Dependency added",
     "dependencyAddedDesc": "{{name}} added to the server config.",
     "addFailedTitle": "Add failed",

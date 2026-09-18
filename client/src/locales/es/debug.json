@@ -10,7 +10,9 @@
   "headerActions": {
     "bundling": "Generando paquete…",
     "supportBundleZip": "Paquete de soporte (.zip)",
-    "fullLogTxt": "Registro completo (.txt)"
+    "supportBundleTooltip": "Registros del panel · registros del servidor de Zomboid · volcados de fallos · diagnóstico, todo en un único .zip.",
+    "fullLogTxt": "Registro completo (.txt)",
+    "fullLogTooltip": "Solo el registro de la aplicación de este panel — no incluye los registros del servidor de Zomboid ni los volcados de fallos. Usa el paquete de soporte para eso."
   },
   "tabs": {
     "diagnostics": "Diagnóstico",

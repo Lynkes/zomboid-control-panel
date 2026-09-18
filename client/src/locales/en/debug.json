@@ -10,7 +10,9 @@
   "headerActions": {
     "bundling": "Bundling…",
     "supportBundleZip": "Support Bundle (.zip)",
-    "fullLogTxt": "Full Log (.txt)"
+    "supportBundleTooltip": "Panel logs · Zomboid server logs · crash dumps · diagnostics, all in a single .zip.",
+    "fullLogTxt": "Full Log (.txt)",
+    "fullLogTooltip": "This panel's own application log only — not Zomboid server logs or crash dumps. Use the support bundle for those."
   },
   "tabs": {
     "diagnostics": "Diagnostics",

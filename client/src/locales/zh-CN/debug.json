@@ -10,7 +10,9 @@
   "headerActions": {
     "bundling": "正在打包……",
     "supportBundleZip": "支持包（.zip）",
-    "fullLogTxt": "完整日志（.txt）"
+    "supportBundleTooltip": "面板日志 · Zomboid 服务器日志 · 崩溃转储 · 诊断信息，全部打包在一个 .zip 文件中。",
+    "fullLogTxt": "完整日志（.txt）",
+    "fullLogTooltip": "仅此面板自身的应用日志——不含 Zomboid 服务器日志或崩溃转储。如需这些内容，请使用支持包。"
   },
   "tabs": {
     "diagnostics": "诊断",

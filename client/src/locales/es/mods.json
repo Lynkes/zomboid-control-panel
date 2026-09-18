@@ -255,6 +255,7 @@
     "unchecked": "Sin comprobar",
     "openWorkshopPageHint": "Abrir página de Workshop",
     "modFallback": "Mod {{id}}",
+    "selectAria": "Seleccionar {{name}}",
     "removeModAria": "Quitar mod {{name}}",
     "removeFromServer": "Quitar del servidor"
   },
@@ -535,7 +536,7 @@
     "genericNameNotice_many": "<1>{{count}}</1> mods muestran un nombre genérico. Hacer clic en <3>Actualizar nombres</3> para buscarlos (se revisa primero el disco, luego la API de Steam Workshop)."
   },
   "removeModDialog": {
-    "title": "¿Quitar este mod del servidor?",
+    "title": "¿Quitar {{name}} del servidor?",
     "description": "Esto quita el mod de la configuración INI del servidor para que deje de cargarse. Los archivos de Workshop permanecen en el disco (por lo que volver a añadirlo después es instantáneo).",
     "cancel": "Cancelar",
     "remove": "Quitar"
@@ -746,10 +747,17 @@
     "conflictDismissedTitle": "Conflicto descartado",
     "conflictDismissedDesc": "{{a}} ↔ {{b}} marcado como falso positivo.",
     "failedToDismissConflictTitle": "No se pudo descartar el conflicto",
+    "failedToDismissConflictFallback": "No se pudo guardar el descarte. Inténtalo de nuevo.",
     "failedToToggleModTitle": "No se pudo alternar el mod",
+    "failedToToggleModFallback": "No se pudo actualizar el estado del mod. Inténtalo de nuevo.",
     "failedToToggleGroupTitle": "No se pudo alternar el grupo",
+    "failedToToggleGroupFallback": "No se pudo actualizar el estado del grupo. Inténtalo de nuevo.",
     "failedToRemoveWorkshopItemTitle": "No se pudo quitar el elemento de Workshop",
+    "failedToRemoveWorkshopItemFallback": "No se pudo quitar el elemento de Workshop de la configuración del servidor. Inténtalo de nuevo.",
     "failedToRemoveOrphanedModTitle": "No se pudo quitar el mod huérfano",
+    "failedToRemoveOrphanedModFallback": "No se pudo quitar el ID de mod huérfano. Inténtalo de nuevo.",
+    "failedToRestoreConflictTitle": "No se pudo restaurar el conflicto",
+    "failedToRestoreConflictFallback": "No se pudo restaurar el conflicto descartado. Inténtalo de nuevo.",
     "dependencyAddedTitle": "Dependencia añadida",
     "dependencyAddedDesc": "{{name}} añadido a la configuración del servidor.",
     "addFailedTitle": "Error al añadir",

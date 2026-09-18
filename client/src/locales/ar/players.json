@@ -146,6 +146,7 @@
     "disableNoclip": "تعطيل Noclip",
     "addToWhitelist": "إضافة إلى القائمة البيضاء",
     "removeFromWhitelist": "إزالة من القائمة البيضاء",
+    "notOnWhitelistReason": "{{player}} ليس في القائمة البيضاء — لا يوجد ما يُزال.",
     "importExportCharacter": "استيراد/تصدير الشخصية",
     "noTargetTitle": "لم يتم اختيار هدف",
     "noTargetDesc": "اختر لاعبًا من القائمة لعرض ملفه، أو اكتب اسم مستخدم ضمن <1>› هدف يدوي</1>."
@@ -305,7 +306,7 @@
     "spawnVehiclesDescNoPlayer": "تُولَّد عند موقع المستدعي — اختر لاعبًا لتوليد المركبات بالقرب منه بدلاً من ذلك.",
     "giveXpTitle": "منح نقاط خبرة",
     "giveXpDescWithPlayer": "منح خبرة لـ <1>{{player}}</1>",
-    "giveXpDescNoPlayer": "منح خبرة للاعب المحدد",
+    "giveXpDescNoPlayer": "اختر لاعبًا أولاً، ثم امنحه خبرة في مهارة مختارة.",
     "perkPlaceholder": "اختر مهارة...",
     "amountLabel": "الكمية",
     "giveXpButton": "منح نقاط الخبرة",

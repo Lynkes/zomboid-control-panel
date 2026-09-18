@@ -120,6 +120,7 @@
     "disableNoclip": "Dezaktive Noclip",
     "addToWhitelist": "Ajoute nan Lis Blan",
     "removeFromWhitelist": "Retire nan Lis Blan",
+    "notOnWhitelistReason": "{{player}} pa sou lis blan an — pa gen anyen pou retire.",
     "importExportCharacter": "Enpòte/Ekspòte Pèsonaj",
     "noTargetTitle": "pa gen sib chwazi",
     "noTargetDesc": "Chwazi yon jwè nan lis la pou wè dosye yo, oswa tape yon non itilizatè anba <1>› Sib manyèl</1>."
@@ -279,7 +280,7 @@
     "spawnVehiclesDescNoPlayer": "Parèt kote moun ki rele a — chwazi yon jwè pou fè machin yo parèt tou pre yo pito.",
     "giveXpTitle": "Bay XP",
     "giveXpDescWithPlayer": "Bay eksperyans a <1>{{player}}</1>",
-    "giveXpDescNoPlayer": "Bay eksperyans a jwè chwazi a",
+    "giveXpDescNoPlayer": "Chwazi yon jwè dabò, epi bay li eksperyans nan yon konpetans ou chwazi.",
     "perkPlaceholder": "Chwazi yon konpetans...",
     "amountLabel": "Kantite",
     "giveXpButton": "Bay XP",

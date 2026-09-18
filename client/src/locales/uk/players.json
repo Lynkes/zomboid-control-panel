@@ -134,6 +134,7 @@
     "disableNoclip": "Вимкнути noclip",
     "addToWhitelist": "Додати до білого списку",
     "removeFromWhitelist": "Видалити з білого списку",
+    "notOnWhitelistReason": "{{player}} немає в білому списку — видаляти нічого.",
     "importExportCharacter": "Імпорт/експорт персонажа",
     "noTargetTitle": "ціль не вибрано",
     "noTargetDesc": "Виберіть гравця з реєстру, щоб побачити його досьє, або введіть ім'я користувача під <1>› Ручна ціль</1>."
@@ -293,7 +294,7 @@
     "spawnVehiclesDescNoPlayer": "Створюється на позиції того, хто викликав — виберіть гравця, щоб натомість створювати транспорт поруч із ним.",
     "giveXpTitle": "Видати XP",
     "giveXpDescWithPlayer": "Надати досвід гравцю <1>{{player}}</1>",
-    "giveXpDescNoPlayer": "Надати досвід вибраному гравцю",
+    "giveXpDescNoPlayer": "Спочатку виберіть гравця, потім надайте йому досвід у вибраній навичці.",
     "perkPlaceholder": "Виберіть навичку...",
     "amountLabel": "Кількість",
     "giveXpButton": "Видати XP",

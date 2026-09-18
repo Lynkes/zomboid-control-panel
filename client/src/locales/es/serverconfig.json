@@ -252,6 +252,7 @@
     "sandboxScope": "sandbox lua",
     "hint": "ctrl+s para guardar · se aplica al recargar",
     "discard": "descartar",
+    "save": "guardar",
     "saveAndReload": "guardar y recargar",
     "unsavedChange_many": "{{count}} cambios sin guardar"
   },

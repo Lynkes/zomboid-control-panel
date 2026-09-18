@@ -252,6 +252,7 @@
     "sandboxScope": "sandbox lua",
     "hint": "ctrl+s pour enregistrer · s'applique au rechargement",
     "discard": "ignorer",
+    "save": "enregistrer",
     "saveAndReload": "enregistrer et recharger",
     "unsavedChange_many": "{{count}} modifications non enregistrées"
   },

@@ -125,7 +125,7 @@ describe('Console.tsx: clearServerLog refuses a stale confirm after the active s
 
     // Open the confirm dialog.
     fireEvent.click(screen.getByRole('button', { name: 'clear' }))
-    await screen.findByText('Erase the server console log?')
+    await screen.findByText('Erase the console log for Ashenwood?')
 
     // The active server switches elsewhere WHILE the dialog is still open.
     // Its own reload is still in flight (held open above).
@@ -156,7 +156,7 @@ describe('Console.tsx: clearServerLog refuses a stale confirm after the active s
     await screen.findByText('boot ok')
 
     fireEvent.click(screen.getByRole('button', { name: 'clear' }))
-    await screen.findByText('Erase the server console log?')
+    await screen.findByText('Erase the console log for Ashenwood?')
     fireEvent.click(screen.getByRole('button', { name: 'Erase log file' }))
 
     await waitFor(() => expect(clearConsoleLog).toHaveBeenCalledTimes(1))

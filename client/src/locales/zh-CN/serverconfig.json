@@ -242,6 +242,7 @@
     "sandboxScope": "沙盒 Lua",
     "hint": "ctrl+s 保存 · 重新加载后生效",
     "discard": "放弃",
+    "save": "保存",
     "saveAndReload": "保存并重新加载"
   },
   "backupsDialog": {

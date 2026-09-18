@@ -290,6 +290,7 @@
     "sandboxScope": "sandbox lua",
     "hint": "ctrl+s — зберегти · застосується після перезавантаження",
     "discard": "відхилити",
+    "save": "зберегти",
     "saveAndReload": "зберегти й перезавантажити",
     "unsavedChange_few": "Незбережених змін: {{count}}",
     "unsavedChange_many": "Незбережених змін: {{count}}"

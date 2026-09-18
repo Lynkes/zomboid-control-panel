@@ -10,7 +10,9 @@
   "headerActions": {
     "bundling": "Ap gwoupe…",
     "supportBundleZip": "Pakè Sipò (.zip)",
-    "fullLogTxt": "Jounal Konplè (.txt)"
+    "supportBundleTooltip": "Jounal panèl · jounal sèvè Zomboid · dump kraze · dyagnostik, tout nan yon sèl .zip.",
+    "fullLogTxt": "Jounal Konplè (.txt)",
+    "fullLogTooltip": "Se jounal aplikasyon pwòp panèl la sèlman — pa gen jounal sèvè Zomboid ni dump kraze. Itilize pakè sipò a pou sa yo."
   },
   "tabs": {
     "diagnostics": "Dyagnostik",

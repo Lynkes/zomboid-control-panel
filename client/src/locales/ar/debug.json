@@ -96,7 +96,9 @@
   "headerActions": {
     "bundling": "جارٍ التجميع…",
     "supportBundleZip": "حزمة الدعم (.zip)",
-    "fullLogTxt": "السجل الكامل (.txt)"
+    "supportBundleTooltip": "سجلات اللوحة · سجلات خادم Zomboid · تفريغات الأعطال · التشخيصات، كلها في ملف .zip واحد.",
+    "fullLogTxt": "السجل الكامل (.txt)",
+    "fullLogTooltip": "سجل تطبيق هذه اللوحة نفسه فقط — لا يتضمن سجلات خادم Zomboid أو تفريغات الأعطال. استخدم حزمة الدعم للحصول على ذلك."
   },
   "tabs": {
     "diagnostics": "التشخيصات",

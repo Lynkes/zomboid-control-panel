@@ -42,7 +42,7 @@
     "refreshAria": "Rafrechi jounal la",
     "clear": "efase",
     "clearTooltip": "Efase dosye jounal konsòl sèvè a — aksyon sa a pa ka anile",
-    "clearConfirmTitle": "Efase jounal konsòl sèvè a?",
+    "clearConfirmTitle": "Efase jounal konsòl {{server}} a?",
     "clearConfirmDesc": "Aksyon sa a efase server-console.txt nèt sou disk la, se pa jis afichaj sa a. Pa gen fason pou anile.",
     "clearConfirmButton": "Efase dosye jounal la",
     "streamUnavailable": "Flux jounal pa disponib — sèvè a ka òfliy",
@@ -90,6 +90,7 @@
     "noCommandsTitle": "Poko gen kòmand",
     "noCommandsDesc": "Fè kouri yon kòmand RCON pou wè repons lan isit la.",
     "quickLabel": "rapid",
+    "quickTip": "Ranpli bwat kòmand anba a ak kòmand sa a -- li pa kouri jiskaske w klike \"kouri\" (oswa peze Antre).",
     "commandLabel": "kòmand",
     "commandTip": "Kòmand isit yo egzekite imedyatman sou sèvè k ap fonksyone a, san okenn etap konfimasyon — menm pou yon bagay ki rete sèvè a oswa ki retire yon jwè. Si ou pa sèten sa yon kòmand fè, verifye l anvan ou egzekite l; pifò pa gen fason pou defèt yo.",
     "promptPrefix": "rcon $",
@@ -145,7 +146,10 @@
     "searchPlaceholder": "Chèche istwa kòmand yo...",
     "searchAria": "Chèche istwa kòmand",
     "emptyTitle": "Pa gen istwa kòmand",
-    "emptyDesc": "Kòmand ou fè kouri yo ap anrejistre isit la."
+    "emptyDesc": "Kòmand ou fè kouri yo ap anrejistre isit la.",
+    "noMatchesTitle": "Pa gen kòmand ki matche",
+    "noMatchesDesc": "Pa gen antre istwa ki matche \"{{query}}\".",
+    "clearSearch": "Efase rechèch la"
   },
   "toasts": {
     "historyUnavailableTitle": "Istwa Pa Disponib",

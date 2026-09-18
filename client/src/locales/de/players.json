@@ -120,6 +120,7 @@
     "disableNoclip": "Noclip-Modus deaktivieren",
     "addToWhitelist": "Zur Whitelist hinzufügen",
     "removeFromWhitelist": "Von der Whitelist entfernen",
+    "notOnWhitelistReason": "{{player}} steht nicht auf der Whitelist — nichts zu entfernen.",
     "importExportCharacter": "Charakter importieren/exportieren",
     "noTargetTitle": "kein Ziel ausgewählt",
     "noTargetDesc": "Wähle einen Spieler aus der Liste, um sein Dossier anzuzeigen, oder gib einen Benutzernamen unter <1>› Manuelles Ziel</1> ein."
@@ -279,7 +280,7 @@
     "spawnVehiclesDescNoPlayer": "Spawnt an der Position des Aufrufenden — wähle stattdessen einen Spieler, um Fahrzeuge in seiner Nähe zu spawnen.",
     "giveXpTitle": "XP geben",
     "giveXpDescWithPlayer": "Erfahrung an <1>{{player}}</1> vergeben",
-    "giveXpDescNoPlayer": "Erfahrung an den ausgewählten Spieler vergeben",
+    "giveXpDescNoPlayer": "Wähle zuerst einen Spieler, dann vergib ihm Erfahrung in einer gewählten Fertigkeit.",
     "perkPlaceholder": "Perk auswählen …",
     "amountLabel": "Menge",
     "giveXpButton": "XP geben",
