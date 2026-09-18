@@ -1364,6 +1364,87 @@ describe("Discord /stop", () => {
   });
 });
 
+// god-dispatched continuous-bug-hunt, round 5: handleKick hand-rolled
+// `kickuser "<name>"` with no `-r` flag at all, on the (wrong -- see
+// rcon.test.js's own `kickPlayer()` coverage) belief that PZ's kickuser has
+// no reason flag. Every reason a moderator typed into the /kick command was
+// silently discarded before it ever reached RCON, even though this same
+// command's own reply and channel notification claimed it was sent
+// ("Kicked X: <reason>"). rconService.kickPlayer() is the ALREADY-CORRECT,
+// already-tested (rcon.test.js) helper the HTTP route (players.js POST
+// /kick) uses for exactly this -- the fix routes the Discord command
+// through the same helper instead of a second, stale hand-rolled command
+// string.
+describe("Discord /kick", () => {
+  const makeBot = (executeResult = { success: true }) => {
+    const bot = Object.create(DiscordBot.prototype);
+    const executed = [];
+    bot.rconService = {
+      connected: true,
+      sanitize: (s) => s,
+      sanitizeQuotedArg: (s) => s,
+      sanitizeForBanReason: (s) =>
+        s ? String(s).replace(/[^a-zA-Z0-9\s.,!?'-]/g, "").substring(0, 100) : "",
+      execute: async (cmd) => {
+        executed.push(cmd);
+        return executeResult;
+      },
+      kickPlayer(username, reason = "") {
+        const safeUser = this.sanitizeQuotedArg(username);
+        const safeReason = this.sanitizeForBanReason(reason);
+        let cmd = `kickuser "${safeUser}"`;
+        if (safeReason) cmd += ` -r "${safeReason}"`;
+        return this.execute(cmd);
+      },
+    };
+    bot.sendNotification = async () => true;
+    return { bot, executed };
+  };
+
+  const makeInteraction = (player, reason) => {
+    const replies = [];
+    return {
+      replies,
+      deferReply: async () => {},
+      editReply: async (m) => replies.push(m),
+      options: {
+        getString: (name) => (name === "player" ? player : reason ?? null),
+      },
+      user: { tag: "mod#0001" },
+    };
+  };
+
+  it("sends the moderator's reason to RCON via the -r flag, not just in the Discord reply", async () => {
+    const { bot, executed } = makeBot();
+    const interaction = makeInteraction("Griefer", "Building in the spawn zone");
+
+    await bot.handleKick(interaction);
+
+    expect(executed).toEqual([
+      'kickuser "Griefer" -r "Building in the spawn zone"',
+    ]);
+    expect(interaction.replies[0]).toMatch(/Kicked Griefer/);
+  });
+
+  it("still kicks with no -r flag when no reason was given, same as kickPlayer()'s own contract", async () => {
+    const { bot, executed } = makeBot();
+    const interaction = makeInteraction("Griefer", null);
+
+    await bot.handleKick(interaction);
+
+    expect(executed).toEqual(['kickuser "Griefer"']);
+  });
+
+  it("reports failure, not success, when RCON refuses the kick", async () => {
+    const { bot } = makeBot({ success: false, error: "Not enough rights" });
+    const interaction = makeInteraction("Griefer", "spam");
+
+    await bot.handleKick(interaction);
+
+    expect(interaction.replies[0]).toMatch(/Kick failed/);
+  });
+});
+
 describe("Discord chat relay escaping", () => {
   const makeBot = async () => {
     const bot = Object.create(DiscordBot.prototype);

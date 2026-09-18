@@ -1373,7 +1373,13 @@ export class DiscordBot {
 
   async handleKick(interaction) {
     const player = interaction.options.getString("player");
-    const reason = interaction.options.getString("reason") || "No reason given";
+    // Raw, possibly null -- fed to kickPlayer() as-is (its own `-r` flag is
+    // conditional on a non-empty reason, same as the HTTP route). Only the
+    // DISPLAY text below defaults to "No reason given"; forcing that
+    // default into the actual RCON call would send a reason the moderator
+    // never typed.
+    const rawReason = interaction.options.getString("reason");
+    const displayReason = rawReason || "No reason given";
 
     await interaction.deferReply();
 
@@ -1382,19 +1388,27 @@ export class DiscordBot {
       return;
     }
 
-    // Sanitize inputs to prevent command injection
-    const safePlayer = this.rconService.sanitize(player);
-    if (!safePlayer) {
-      await interaction.editReply("❌ Invalid player name.");
+    // round-5 bug-hunt: this used to hand-roll `kickuser "<name>"` with no
+    // `-r` flag at all, on the mistaken belief PZ's kickuser has no reason
+    // flag -- it does (rconService.kickPlayer(), already used by the HTTP
+    // route players.js POST /kick and covered by rcon.test.js). Every
+    // reason a moderator typed was silently discarded before reaching RCON,
+    // even though this command's own reply/notification below claimed it
+    // was sent. kickPlayer() sanitizes both username and reason internally
+    // (sanitizeQuotedArg/sanitizeForBanReason) and throws on an invalid
+    // username instead of returning an empty string.
+    let result;
+    try {
+      result = await this.rconService.kickPlayer(player, rawReason);
+    } catch (error) {
+      await interaction.editReply(`❌ ${sanitizeError(error.message)}`);
       return;
     }
-    // Project Zomboid RCON only supports 'kickuser' and no reason flag
-    const result = await this.rconService.execute(`kickuser "${safePlayer}"`);
 
     if (result.success) {
       const safeName = escapeMarkdown(String(player));
       const safeTag = escapeMarkdown(String(interaction.user.tag));
-      const safeReason = escapeMarkdown(String(reason));
+      const safeReason = escapeMarkdown(String(displayReason));
       await interaction.editReply(`👢 Kicked ${safeName}: ${safeReason}`);
       await this.sendNotification(
         `👢 **${safeName}** was kicked by ${safeTag}\nReason: ${safeReason}`,
