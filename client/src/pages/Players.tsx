@@ -880,25 +880,39 @@ export default function Players() {
     }
   }, [])
 
+  // bug-hunt-2026-09-18 (round: whitelist/access-level/admin accounts):
+  // same shape as fetchPlayers' own playersGuard above -- fetchWhitelist
+  // runs both on mount and on activeServerChanged (see that handler below),
+  // with nothing stopping a slow mount-time load (or a manual Refresh click
+  // for the server that was active a moment ago) from resolving AFTER the
+  // activeServerChanged-triggered call for the NEW server and silently
+  // reverting the roster back to the OLD server's whitelist. A separate
+  // guard instance from playersGuard, per useRequestGuard's own contract --
+  // this is an independent fetch stream and must not share staleness state.
+  //
   // 2026-09-08 (retry-stacking sweep): `manual` distinguishes the page
   // header's Refresh button (the only human-initiated caller of this
   // function) from mount, server-change, and post-action refreshes -- see
   // Servers.tsx's fetchServers() for the full reasoning.
+  const whitelistGuard = useRequestGuard()
   const fetchWhitelist = useCallback(async (opts?: { manual?: boolean }) => {
+    const requestId = whitelistGuard.next()
     setWhitelistLoading(true)
     try {
       const result = await playersApi.getWhitelist(opts?.manual ? { retries: 0 } : undefined)
+      if (whitelistGuard.isStale(requestId)) return
       setWhitelistAccounts(result.accounts || [])
       setAllowedSteamIds(result.allowedSteamIds || [])
       setWhitelistAvailable(result.available !== false)
       setWhitelistError(result.available === false ? result.reason || t('loadErrors.whitelistUnavailableFallback') : null)
     } catch (error) {
+      if (whitelistGuard.isStale(requestId)) return
       reportClientError('Failed to fetch whitelist accounts.', error)
       setWhitelistError(getErrorMessage(error, t('loadErrors.whitelist')))
     } finally {
-      setWhitelistLoading(false)
+      if (!whitelistGuard.isStale(requestId)) setWhitelistLoading(false)
     }
-  }, [t])
+  }, [t, whitelistGuard])
 
   const fetchAccessLevels = useCallback(async () => {
     try {

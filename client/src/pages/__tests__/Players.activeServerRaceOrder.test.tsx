@@ -172,3 +172,54 @@ describe('Players.tsx: an older, slower roster response must not overwrite a new
     expect(onlineSummaryCount()).toHaveTextContent('1')
   })
 })
+
+// bug-hunt-2026-09-18 (round: whitelist/access-level/admin accounts): same
+// race shape as fetchPlayers above, but fetchWhitelist had NO guard at all
+// (playersGuard only ever covered fetchPlayers) -- "stale list after
+// switching the active server" was reachable for the whitelist tab exactly
+// the way it already wasn't for the online roster. Fixed via a second,
+// independent useRequestGuard() instance (whitelistGuard).
+describe('Players.tsx: an older, slower whitelist response must not overwrite a newer one', () => {
+  it('keeps the newer server whitelist when an earlier in-flight fetch resolves AFTER the activeServerChanged fetch', async () => {
+    setUpCommon()
+
+    // Call #1 (mount): resolves normally and fast, with the OLD server's account.
+    getWhitelist.mockResolvedValueOnce({ success: true, available: true, accounts: [{ id: 1, username: 'OldUser', role: 'user' }], allowedSteamIds: [] })
+    renderPlayers()
+    await waitFor(() => expect(getWhitelist).toHaveBeenCalledTimes(1))
+
+    // Switch to the whitelist tab -- itself triggers a second fetch (the
+    // tab button's own onClick calls fetchWhitelist()); resolve it with the
+    // same OLD-server data so the list is visibly populated before the race.
+    getWhitelist.mockResolvedValueOnce({ success: true, available: true, accounts: [{ id: 1, username: 'OldUser', role: 'user' }], allowedSteamIds: [] })
+    await act(async () => { fireEvent.click(screen.getByText('Whitelist')) })
+    await waitFor(() => expect(screen.getByText('OldUser')).toBeInTheDocument())
+    expect(getWhitelist).toHaveBeenCalledTimes(2)
+
+    // Call #3 (a later manual Refresh, simulating a slow response for
+    // whichever server was active when it was issued): held open.
+    let resolveStaleWhitelist: (value: Awaited<ReturnType<typeof playersApi.getWhitelist>>) => void = () => {}
+    const staleWhitelist = new Promise<Awaited<ReturnType<typeof playersApi.getWhitelist>>>((resolve) => { resolveStaleWhitelist = resolve })
+    getWhitelist.mockImplementationOnce(() => staleWhitelist)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /refresh/i })) })
+    expect(getWhitelist).toHaveBeenCalledTimes(3)
+
+    // Call #4 (activeServerChanged): resolves immediately with the NEW
+    // server's whitelist.
+    getWhitelist.mockImplementationOnce(() => Promise.resolve({ success: true, available: true, accounts: [{ id: 2, username: 'NewUser', role: 'admin' }], allowedSteamIds: [] }))
+    await act(async () => { emitActiveServerChanged() })
+    expect(getWhitelist).toHaveBeenCalledTimes(4)
+    await waitFor(() => expect(screen.getByText('NewUser')).toBeInTheDocument())
+
+    // The stale call #3 finally lands, arriving strictly after call #4's
+    // already-applied, newer response.
+    await act(async () => { resolveStaleWhitelist({ success: true, available: true, accounts: [{ id: 1, username: 'OldUser', role: 'user' }], allowedSteamIds: [] }) })
+
+    // The bug: unfixed code has nothing gating this late apply, so it
+    // silently reverts the list back to the OLD server's account even
+    // though the newer response already confirmed the new one.
+    await act(async () => { await Promise.resolve() })
+    expect(screen.getByText('NewUser')).toBeInTheDocument()
+    expect(screen.queryByText('OldUser')).not.toBeInTheDocument()
+  })
+})

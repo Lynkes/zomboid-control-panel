@@ -146,6 +146,40 @@ describe("POST /players/access-level: validation gate matches what GET /access-l
     expect(response.status).not.toHaveBeenCalledWith(400);
   });
 
+  // bug-hunt-2026-09-18 (round: whitelist/access-level/admin accounts):
+  // a custom role's real name can carry uppercase letters (PZ's own
+  // in-game role editor doesn't force lowercase) -- confirmed via javap
+  // against the real B42 jar that zombie.characters.Roles.getRole(String)
+  // resolves by String.equals, case-sensitive, so "VIP" and "vip" are
+  // different roles as far as the game server is concerned. This route
+  // used to compare level.toLowerCase() against validLevels (which holds
+  // roles in their REAL case, unmodified, straight from listServerRoleNames
+  // -- the exact same data GET /access-levels' dropdown offers) -- so
+  // submitting the EXACT value the dropdown just gave the operator
+  // ("VIP") was wrongly rejected as "Invalid access level" purely because
+  // of case-folding on only one side of the comparison.
+  it("accepts a custom role's EXACT real-case name -- the same value GET /access-levels just offered -- without folding case", async () => {
+    getActiveServer.mockResolvedValue({
+      id: "server-1",
+      serverName: "DoomerZ",
+      zomboidDataPath: "/zomboid",
+      isRemote: false,
+    });
+    listServerRoleNames.mockResolvedValue({ available: true, roleNames: ["user", "admin", "VIP"] });
+    const setAccessLevel = vi.fn().mockResolvedValue({ success: true });
+    const response = createResponse();
+
+    await getHandler("/access-level", "post")(
+      createRequest({ username: "Alice", level: "VIP" }, { setAccessLevel }),
+      response,
+    );
+
+    // Not just "not a 400" -- RCON must receive the SAME case PZ's own
+    // case-sensitive role lookup requires, not a silently lowercased guess.
+    expect(setAccessLevel).toHaveBeenCalledWith("Alice", "VIP");
+    expect(response.status).not.toHaveBeenCalledWith(400);
+  });
+
   it("still rejects a level that is neither in the live table nor the static fallback", async () => {
     getActiveServer.mockResolvedValue({
       id: "server-1",

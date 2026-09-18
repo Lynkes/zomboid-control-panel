@@ -322,7 +322,24 @@ router.post('/access-level', requirePermission("players.moderate"), async (req, 
       }
     }
 
-    if (!validLevels.includes(level.toLowerCase())) {
+    // bug-hunt-2026-09-18 (round: whitelist/access-level/admin accounts):
+    // this used to compare level.toLowerCase() against validLevels, but
+    // validLevels' custom-role entries (from listServerRoleNames() above)
+    // carry whatever case the operator gave the role in PZ's own role
+    // editor, unmodified -- and GET /access-levels (the dropdown's own data
+    // source, a few lines below) returns those same names unmodified too.
+    // zombie.characters.Roles.getRole(String) resolves a role by
+    // String.equals (case-sensitive, confirmed via javap against
+    // SetAccessLevelCommand->GameServer.changeRole->Roles.getRole in the
+    // real B42 jar) -- PZ itself never folds case either. So for a custom
+    // role with any uppercase letter (e.g. "VIP"), submitting the EXACT
+    // value the dropdown just offered failed this check (level.toLowerCase()
+    // === "vip", not in validLevels which still holds "VIP"), and a
+    // lowercase guess that DID pass this check would then fail against RCON
+    // anyway, since PZ wouldn't recognize it either. Exact match is the only
+    // value that ever actually works end to end for a case-sensitive role
+    // name -- so match validLevels exactly, not case-folded.
+    if (!validLevels.includes(level)) {
       return res.status(400).json({
         error: `Invalid access level. Valid: ${validLevels.join(', ')}`,
         code: ErrorCode.PLAYERS_INVALID_ACCESS_LEVEL,
