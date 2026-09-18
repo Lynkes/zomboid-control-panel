@@ -114,6 +114,46 @@ describe("RconService.loadConfig", () => {
     await service.loadConfig("srv-2");
     expect(service.config.host).toBe("10.20.30.41");
     expect(service.config.port).toBe(27100);
+    // continuous-bug-hunt round 22: this.serverId is the one thing
+    // execute() reads to tag command_history with the REAL target, not
+    // whatever getActiveServer() answers at log time.
+    expect(service.serverId).toBe("srv-2");
+  });
+
+  // continuous-bug-hunt round 22 (closing round 21's own named limitation):
+  // this.serverId must reflect the RESOLVED target, distinct from whatever
+  // else happens to be active -- proven by pinning them to two DIFFERENT
+  // servers in the same test, the exact shape scheduler.js's
+  // _resolveServicesForTask() creates a throwaway instance for.
+  it("tracks the pinned server's id even while a DIFFERENT server is the active one", async () => {
+    getActiveServer.mockResolvedValue({
+      id: "srv-1",
+      rconHost: "10.20.30.40",
+      rconPort: 27099,
+      rconPassword: "active-pw",
+    });
+    getServer.mockResolvedValue({
+      id: "srv-2",
+      rconHost: "10.20.30.41",
+      rconPort: 27100,
+      rconPassword: "target-pw",
+    });
+    const service = freshService();
+    await service.loadConfig("srv-2");
+    expect(service.serverId).toBe("srv-2");
+    expect(service.config.password).toBe("target-pw");
+  });
+
+  it("tracks the active server's own id when no serverId is given (the shared singleton's normal case)", async () => {
+    getActiveServer.mockResolvedValue({
+      id: "srv-1",
+      rconHost: "10.20.30.40",
+      rconPort: 27099,
+      rconPassword: "correct-horse",
+    });
+    const service = freshService();
+    await service.loadConfig();
+    expect(service.serverId).toBe("srv-1");
   });
 
   it("still falls back to legacy global settings when there is no server row at all", async () => {
@@ -227,5 +267,73 @@ describe("RconService auto-reconnect gate (connect/_doConnect)", () => {
     // fresh every attempt, so it's picked up immediately.
     expect(await service.connect()).toBe(false); // port still reported closed
     expect(checkPortOpen).toHaveBeenCalledWith("10.20.30.40", 27099);
+  });
+});
+
+// continuous-bug-hunt round 22 (scheduled tasks tag logs with the wrong
+// server): a scheduled task targeting a server OTHER than the active one
+// runs through a THROWAWAY RconService instance (scheduler.js's
+// _resolveServicesForTask()), pinned via loadConfig(task.server_id) -- but
+// execute() used to call database/init.js's logCommand() with no server
+// identity at all, so command_history tagged every entry with
+// getActiveServerId() (whatever's active AT LOG TIME), not the task's real
+// target. execute() now passes this.serverId (set for real by
+// loadConfig(), see that method's own comment) explicitly. These tests
+// call the REAL execute() (not a stub), with only the lowest-level
+// this.client.execute() faked, so the actual command -> logCommand wiring
+// this round fixed is genuinely exercised end to end.
+describe("RconService.execute() tags command_history with the REAL target server, not whatever is active", () => {
+  it("passes the pinned server's id, not the currently-active one, to logCommand", async () => {
+    getActiveServer.mockResolvedValue({
+      id: "srv-1",
+      rconHost: "10.20.30.40",
+      rconPort: 27099,
+      rconPassword: "active-pw",
+    });
+    getServer.mockResolvedValue({
+      id: "srv-2",
+      rconHost: "10.20.30.41",
+      rconPort: 27100,
+      rconPassword: "target-pw",
+    });
+    const service = freshService();
+    await service.loadConfig("srv-2"); // the task's real target, not the active server
+    service.connected = true;
+    service.client = {
+      connected: true,
+      execute: vi.fn().mockResolvedValue("2 players connected"),
+    };
+
+    logCommand.mockClear();
+    const result = await service.execute("players");
+
+    expect(result.success).toBe(true);
+    expect(logCommand).toHaveBeenCalledWith(
+      "players",
+      "2 players connected",
+      true,
+      "srv-2",
+    );
+  });
+
+  it("passes the active server's own id for the shared singleton's ordinary case (no explicit target)", async () => {
+    getActiveServer.mockResolvedValue({
+      id: "srv-1",
+      rconHost: "10.20.30.40",
+      rconPort: 27099,
+      rconPassword: "correct-horse",
+    });
+    const service = freshService();
+    await service.loadConfig();
+    service.connected = true;
+    service.client = {
+      connected: true,
+      execute: vi.fn().mockResolvedValue("saved"),
+    };
+
+    logCommand.mockClear();
+    await service.execute("save");
+
+    expect(logCommand).toHaveBeenCalledWith("save", "saved", true, "srv-1");
   });
 });

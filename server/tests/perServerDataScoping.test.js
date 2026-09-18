@@ -60,6 +60,24 @@ describe("Command history: RCON commands scoped to the server that was active wh
     // Unfiltered (existing callers, e.g. the support-bundle export) still see both.
     expect((await getCommandHistory(100)).length).toBe(2);
   });
+
+  // continuous-bug-hunt round 22 (closing round 21's own named limitation):
+  // a scheduled task's throwaway RconService instance (targeting a server
+  // OTHER than the active one) now passes its own resolved this.serverId
+  // explicitly -- proving THAT argument, not just the getActiveServerId()
+  // default, actually wins.
+  it("an explicit serverId argument (a scheduled task's real target) wins over whatever server is active", async () => {
+    const { a, b } = await makeTwoServers();
+    // Active server is A, but the command explicitly targets B -- the
+    // exact shape of a scheduled task pinned to a non-active server.
+    await logCommand("players", "1 player", true, b.id);
+
+    const historyA = await getCommandHistory(100, a.id);
+    expect(historyA).toEqual([]);
+
+    const historyB = await getCommandHistory(100, b.id);
+    expect(historyB.map((e) => e.command)).toEqual(["players"]);
+  });
 });
 
 describe("Player action logs: moderation history scoped per server", () => {
@@ -123,6 +141,19 @@ describe("Bridge (PanelBridge) logs: scoped per server", () => {
 
     const logsB = await getBridgeLogs(100, b.id);
     expect(logsB.map((e) => e.action)).toEqual(["teleport"]);
+  });
+
+  // continuous-bug-hunt round 22: same optional-override contract as
+  // logCommand() above, added for symmetry -- no reachable caller passes
+  // this today (PanelBridge has no per-server instancing, see this
+  // function's own comment in database/init.js), but the function itself
+  // must honor an explicit override correctly regardless.
+  it("an explicit serverId argument wins over whatever server is active", async () => {
+    const { a, b } = await makeTwoServers();
+    await logBridgeCommand("getStatus", {}, { ok: true }, true, 5, b.id);
+
+    expect((await getBridgeLogs(100, a.id))).toEqual([]);
+    expect((await getBridgeLogs(100, b.id)).map((e) => e.action)).toEqual(["getStatus"]);
   });
 });
 

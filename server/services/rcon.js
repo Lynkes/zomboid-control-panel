@@ -534,6 +534,10 @@ export class RconService extends EventEmitter {
     this.lastConnectionErrorLog = 0;
     this.connectionErrorLogCooldown = 5 * 60 * 1000; // Only log once per 5 minutes
     this.configLoaded = false;
+    // continuous-bug-hunt round 22: set for real by loadConfig() -- see its
+    // own comment. null here just means "not loaded yet", same meaning as
+    // getActiveServerId() returning null when no servers exist.
+    this.serverId = null;
     this.serverManager = null; // Reference to ServerManager for server status checks
 
     // Periodic auto-reconnect when server is running but RCON disconnected
@@ -755,6 +759,17 @@ export class RconService extends EventEmitter {
       const targetServer = serverId
         ? await getServer(serverId)
         : await getActiveServer();
+      // continuous-bug-hunt round 22 (scheduled tasks tag logs with the
+      // wrong server): the ONLY reliable record of which server THIS
+      // instance actually talks to -- an explicit serverId resolves to
+      // that exact server's own id; the no-arg "active server" case
+      // resolves to whatever's active right now. execute() below reads
+      // this to tag command_history entries with the real target instead
+      // of whatever getActiveServerId() (database/init.js) says is active
+      // AT LOG TIME, which is wrong for a throwaway instance created by
+      // scheduler.js's _resolveServicesForTask() for a task targeting a
+      // server other than the active one.
+      this.serverId = targetServer ? String(targetServer.id) : null;
       if (targetServer) {
         // A configured server's host and port are the right target
         // regardless of whether it has an RCON password set yet — a freshly
@@ -1419,7 +1434,7 @@ export class RconService extends EventEmitter {
 
       // Log to database (unless skipLog is set for automatic commands)
       if (!skipLog) {
-        logCommand(command, rejection ? rejection.error : response, !rejection);
+        logCommand(command, rejection ? rejection.error : response, !rejection, this.serverId);
       }
 
       if (rejection) {
@@ -1484,7 +1499,7 @@ export class RconService extends EventEmitter {
         // Don't try to reconnect during server startup - the startup sequence handles it
         if (this.serverStarting) {
           if (!skipLog) {
-            logCommand(command, "Server is starting...", false);
+            logCommand(command, "Server is starting...", false, this.serverId);
           }
           return {
             success: false,
@@ -1495,7 +1510,7 @@ export class RconService extends EventEmitter {
         if (!retryOnConnectionError) {
           const friendlyError = this.getUserFriendlyError(errorMsg);
           if (!skipLog) {
-            logCommand(command, friendlyError, false);
+            logCommand(command, friendlyError, false, this.serverId);
           }
           return {
             success: false,
@@ -1536,7 +1551,7 @@ export class RconService extends EventEmitter {
               if (retryWasCurrentClient) this.connected = false;
               const retryMsg = this.getUserFriendlyError(retryError.message);
               if (!skipLog) {
-                logCommand(command, retryMsg, false);
+                logCommand(command, retryMsg, false, this.serverId);
               }
               return {
                 success: false,
@@ -1559,7 +1574,7 @@ export class RconService extends EventEmitter {
             // report success just because the connection came back up.
             const rejection = this.classifyRconResponse(response);
             if (!skipLog) {
-              logCommand(command, rejection ? rejection.error : response, !rejection);
+              logCommand(command, rejection ? rejection.error : response, !rejection, this.serverId);
             }
             if (rejection) {
               log.warn(`Server rejected command on retry: ${redactRconCommandSecrets(command)} (${rejection.response})`);
@@ -1581,7 +1596,7 @@ export class RconService extends EventEmitter {
             // "connection dropped" banner silently never appears for the
             // most ordinary case it exists to cover.
             if (!skipLog) {
-              logCommand(command, "Connection failed", false);
+              logCommand(command, "Connection failed", false, this.serverId);
             }
             return {
               success: false,
@@ -1596,7 +1611,7 @@ export class RconService extends EventEmitter {
             reconnectError.message,
           );
           if (!skipLog) {
-            logCommand(command, reconnectMsg, false);
+            logCommand(command, reconnectMsg, false, this.serverId);
           }
           return {
             success: false,
@@ -1610,7 +1625,7 @@ export class RconService extends EventEmitter {
 
       const friendlyError = this.getUserFriendlyError(errorMsg);
       if (!skipLog) {
-        logCommand(command, friendlyError, false);
+        logCommand(command, friendlyError, false, this.serverId);
       }
       return {
         success: false,

@@ -1310,7 +1310,16 @@ function generateNumericId(collection) {
 // Command History
 // ============================================
 
-export async function logCommand(command, response, success = true) {
+// continuous-bug-hunt round 22 (closing round 21's own named limitation):
+// `serverId` is optional and defaults to getActiveServerId() -- the shared
+// RconService singleton (acting on whichever server is active) never
+// passes it and keeps working exactly as before. RconService.execute()
+// now passes its OWN this.serverId explicitly (set for real by
+// loadConfig(), see that method's comment), which is the task's true
+// target for a throwaway instance scheduler.js's _resolveServicesForTask()
+// creates for a task targeting a server OTHER than the active one -- that
+// was the "known, accepted limitation" round 21 named and left open.
+export async function logCommand(command, response, success = true, serverId = undefined) {
   const db = await getDb();
   // Redact BEFORE persisting, not on read -- see rconCommandRedaction.js
   // for what this catches and why. Applied to both fields: `command` is
@@ -1326,19 +1335,7 @@ export async function logCommand(command, response, success = true) {
 
   const entry = {
     id: generateId(),
-    // continuous-bug-hunt round 21 (other per-server data kept in one
-    // global store): RconService never tracked which server a command
-    // targeted (see the round's own memory note) -- getActiveServerId()
-    // is the same "whichever server is active right now" proxy
-    // tracked_mods/ignored_mods already use for the same reason, and the
-    // overwhelmingly common case (the shared RconService singleton acting
-    // on the active server). Known, accepted limitation shared with those
-    // two: a scheduled task's own THROWAWAY RconService instance targeting
-    // a server OTHER than the active one still gets tagged with whichever
-    // server happens to be active when the command runs, not its real
-    // target -- narrower than the untagged-forever status quo, not a new
-    // risk class.
-    server_id: await getActiveServerId(),
+    server_id: serverId !== undefined ? serverId : await getActiveServerId(),
     command: redactedCommand,
     response: truncatedResponse,
     success: success ? 1 : 0,
@@ -1370,12 +1367,23 @@ export async function getCommandHistory(limit = 100, serverId = undefined) {
 // Bridge Logs (PanelBridge command history)
 // ============================================
 
+// continuous-bug-hunt round 21 (other per-server data kept in one global
+// store): PanelBridge is a single module-level singleton tied to whatever
+// server is currently active (it has no per-server instancing, unlike
+// RconService's throwaway-instance escape hatch -- see scheduler.js's own
+// "bridge: actions only support the currently active server" comment), so
+// getActiveServerId() is an exact match for every REACHABLE caller today,
+// not just a proxy. round 22: `serverId` is optional and defaults to
+// getActiveServerId() anyway, for symmetry with logCommand()'s identical
+// contract and in case a future caller (a per-server PanelBridge instance,
+// should that ever exist) needs to override it.
 export async function logBridgeCommand(
   action,
   args,
   result,
   success = true,
   durationMs = 0,
+  serverId = undefined,
 ) {
   const db = await getDb();
   if (!db.data.bridge_logs) db.data.bridge_logs = [];
@@ -1393,15 +1401,7 @@ export async function logBridgeCommand(
 
   const entry = {
     id: generateId(),
-    // continuous-bug-hunt round 21 (other per-server data kept in one
-    // global store): PanelBridge is a single module-level singleton tied
-    // to whatever server is currently active (it has no per-server
-    // instancing, unlike RconService's throwaway-instance escape hatch --
-    // see scheduler.js's own "bridge: actions only support the currently
-    // active server" comment), so getActiveServerId() is an exact match
-    // here, not just a proxy: every logBridgeCommand() call genuinely IS
-    // about whichever server is active at the moment it fires.
-    server_id: await getActiveServerId(),
+    server_id: serverId !== undefined ? serverId : await getActiveServerId(),
     action,
     args: args || {},
     result: truncatedResult,
