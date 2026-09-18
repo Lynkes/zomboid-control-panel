@@ -6689,7 +6689,12 @@ function WorkshopCollectionSyncCard({
   ) => void;
   persistCookies: (cookies: Pick<AppSettings, "steamSessionId" | "steamLoginSecure">) => Promise<void>;
 }) {
-  const { t, i18n } = useTranslation("settings");
+  // pz-pam-r26: also need the 'mods' namespace loaded here, to reuse its
+  // existing permissions.noModsManage string for handleAutoExtract below
+  // (POST /mods/collection/extract-cookies is gated mods.manage, not
+  // panel.settings like the rest of this card) rather than duplicating
+  // the same English sentence into settings.json's own permissions section.
+  const { t, i18n } = useTranslation(["settings", "mods"]);
   const { toast } = useToast();
   // pz-pam-r23 (remaining client-side capability gates): persistCookies
   // (below) is a thin wrapper around configApi.updateAppSettings(), same
@@ -6700,6 +6705,12 @@ function WorkshopCollectionSyncCard({
   // needs its own useAuth() call.
   const { can } = useAuth();
   const canPersistCookies = can("panel.settings");
+  // pz-pam-r26: handleAutoExtract below (local-browser cookie extraction,
+  // POST /mods/collection/extract-cookies) is a DIFFERENT route than the
+  // rest of this card -- server/routes/mods.js gates its whole router
+  // behind requirePermission("mods.manage") (confirmed by reading the
+  // router.use() middleware directly, not inferred), not panel.settings.
+  const canManageMods = can("mods.manage");
   const [diff, setDiff] = useState<Awaited<
     ReturnType<typeof modsApi.collectionDiff>
   > | null>(null);
@@ -6966,7 +6977,7 @@ function WorkshopCollectionSyncCard({
   }, []);
 
   const handleAutoExtract = async (browserId: string, label: string) => {
-    if (extractingFrom) return;
+    if (extractingFrom || !canManageMods) return;
     setExtractingFrom(browserId);
     try {
       const r = await modsApi.collectionExtractCookies(browserId);
@@ -7310,21 +7321,22 @@ function WorkshopCollectionSyncCard({
                   {browsers.browsers
                     .filter((b) => b.detected)
                     .map((b) => (
-                      <Button
-                        key={b.id}
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={!!extractingFrom}
-                        onClick={() => handleAutoExtract(b.id, b.label)}
-                      >
-                        {extractingFrom === b.id ? (
-                          <RefreshCw className="w-3.5 h-3.5 me-1.5 animate-spin" />
-                        ) : (
-                          <Check className="w-3.5 h-3.5 me-1.5" />
-                        )}
-                        {b.label}
-                      </Button>
+                      <DisabledReason key={b.id} reason={!canManageMods ? t("mods:permissions.noModsManage") : null}>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={!!extractingFrom || !canManageMods}
+                          onClick={() => handleAutoExtract(b.id, b.label)}
+                        >
+                          {extractingFrom === b.id ? (
+                            <RefreshCw className="w-3.5 h-3.5 me-1.5 animate-spin" />
+                          ) : (
+                            <Check className="w-3.5 h-3.5 me-1.5" />
+                          )}
+                          {b.label}
+                        </Button>
+                      </DisabledReason>
                     ))}
                 </div>
                 <p className="text-[11px] text-muted-foreground">

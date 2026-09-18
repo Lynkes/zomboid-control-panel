@@ -41,7 +41,7 @@ vi.mock('@/lib/api', async () => {
     serverApi: { ...actual.serverApi, getNetworkInterfaces: vi.fn() },
     panelUpdateApi: { ...actual.panelUpdateApi, getStatus: vi.fn(), preflight: vi.fn() },
     serversApi: { ...actual.serversApi, getAll: vi.fn() },
-    modsApi: { ...actual.modsApi, collectionBrowsers: vi.fn(), collectionDiff: vi.fn() },
+    modsApi: { ...actual.modsApi, collectionBrowsers: vi.fn(), collectionDiff: vi.fn(), collectionExtractCookies: vi.fn() },
   }
 })
 
@@ -54,6 +54,7 @@ const preflight = vi.mocked(panelUpdateApi.preflight)
 const getAllServers = vi.mocked(serversApi.getAll)
 const collectionBrowsers = vi.mocked(modsApi.collectionBrowsers)
 const collectionDiff = vi.mocked(modsApi.collectionDiff)
+const collectionExtractCookies = vi.mocked(modsApi.collectionExtractCookies)
 
 function primeCommonMocks() {
   getAppSettings.mockResolvedValue({
@@ -149,5 +150,49 @@ describe('Settings.tsx: Workshop cookie paste is gated on panel.settings', () =>
       steamSessionId: 'abc123',
       steamLoginSecure: '76500000000000000||tokenValue',
     }))
+  })
+})
+
+// pz-pam-r26: handleAutoExtract (local-browser cookie extraction) is a
+// SEPARATE route (POST /mods/collection/extract-cookies) from the rest of
+// this card's persistCookies-based flows -- server/routes/mods.js gates
+// its whole router behind requirePermission("mods.manage"), not
+// panel.settings. Reuses mods.json's existing permissions.noModsManage
+// string (cross-namespace t('mods:...')) rather than a new locale key.
+describe('Settings.tsx: Workshop auto-detect-from-browser is gated on mods.manage', () => {
+  it('disables the detected-browser button and never calls collectionExtractCookies when the role lacks mods.manage', async () => {
+    mockCan = (cap) => cap !== 'mods.manage'
+    primeCommonMocks()
+    collectionBrowsers.mockResolvedValue({
+      supported: true,
+      browsers: [{ id: 'firefox', label: 'Firefox', detected: true }],
+    } as never)
+
+    renderSettings()
+
+    const firefoxButton = await screen.findByRole('button', { name: /firefox/i })
+    expect(firefoxButton).toBeDisabled()
+
+    fireEvent.click(firefoxButton)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(collectionExtractCookies).not.toHaveBeenCalled()
+  })
+
+  it('calls the real API when the role has mods.manage', async () => {
+    mockCan = () => true
+    primeCommonMocks()
+    collectionBrowsers.mockResolvedValue({
+      supported: true,
+      browsers: [{ id: 'firefox', label: 'Firefox', detected: true }],
+    } as never)
+    collectionExtractCookies.mockResolvedValue({ ok: true, saved: true } as never)
+
+    renderSettings()
+
+    const firefoxButton = await screen.findByRole('button', { name: /firefox/i })
+    expect(firefoxButton).not.toBeDisabled()
+    fireEvent.click(firefoxButton)
+
+    await waitFor(() => expect(collectionExtractCookies).toHaveBeenCalledWith('firefox'))
   })
 })
