@@ -477,6 +477,20 @@ export default function Servers() {
   // dialog without fabricating a success/failure result.
   const [steamStalled, setSteamStalled] = useState(false)
   const steamLastActivityRef = useRef<number>(0)
+  // steam-update-events-cross-server-contamination, 2026-09-18: steam:start/
+  // steam:log/steam:complete are broadcast to every connected client with no
+  // per-server identifier, because the backend's own concurrency guard is
+  // scoped per install path, not global -- an update on server A and a
+  // verify on server B (two different admins, or one admin who started A's
+  // update then opened B's dialog) can genuinely run at once. Without this,
+  // whichever dialog happens to be open receives BOTH operations' log lines
+  // interleaved, and a stray steam:complete for a DIFFERENT server's
+  // operation can close this dialog out as that server's own success/
+  // failure. Set to the exact installPath string this client just sent to
+  // POST /steam-update right before firing it (see handleStartSteamOperation)
+  // and compared as an exact string against what the server echoes back --
+  // no normalization needed on either side since it's the same string.
+  const steamOperationInstallPathRef = useRef<string | null>(null)
   const [clearingInstall, setClearingInstall] = useState(false)
   const [confirmClearInstall, setConfirmClearInstall] = useState(false)
   const [steamcmdPath, setSteamcmdPath] = useState('')
@@ -972,20 +986,28 @@ export default function Servers() {
   useEffect(() => {
     if (!socket) return
 
-    const handleSteamStart = (data: { type: string; message: string; progressCode?: string; params?: Record<string, string | number> }) => {
+    const handleSteamStart = (data: { type: string; message: string; progressCode?: string; params?: Record<string, string | number>; installPath?: string }) => {
+      // Cross-server contamination guard: an update/verify running against a
+      // DIFFERENT server's installPath than the one this client itself
+      // started must never touch this dialog's state. See
+      // steamOperationInstallPathRef's own comment above.
+      if (data.installPath !== steamOperationInstallPathRef.current) return
       steamLastActivityRef.current = Date.now()
       setSteamRunning(true)
       setSteamStalled(false)
       setSteamLogs([getInstallProgressMessage(data, data.message)])
     }
 
-    const handleSteamLog = (data: { type: string; text: string; progressCode?: string; params?: Record<string, string | number> }) => {
+    const handleSteamLog = (data: { type: string; text: string; progressCode?: string; params?: Record<string, string | number>; installPath?: string }) => {
+      if (data.installPath !== steamOperationInstallPathRef.current) return
       steamLastActivityRef.current = Date.now()
       setSteamStalled(false)
       setSteamLogs(prev => [...prev.slice(-200), getInstallProgressMessage(data, data.text)]) // Keep last 200 lines
     }
 
-    const handleSteamComplete = (data: { success: boolean; message: string; progressCode?: string; params?: Record<string, string | number> }) => {
+    const handleSteamComplete = (data: { success: boolean; message: string; progressCode?: string; params?: Record<string, string | number>; installPath?: string }) => {
+      if (data.installPath !== steamOperationInstallPathRef.current) return
+      steamOperationInstallPathRef.current = null
       const displayMessage = getInstallProgressMessage(data, data.message)
       setSteamRunning(false)
       setSteamStalled(false)
@@ -1594,6 +1616,10 @@ export default function Servers() {
     setSteamStalled(false)
     steamLastActivityRef.current = Date.now()
     setSteamCompleted(null)
+    // Set before the request fires (not after it resolves) so a fast
+    // steam:start broadcast racing the awaited response below is never
+    // filtered out as "unrecognized" -- see the ref's own comment.
+    steamOperationInstallPathRef.current = installFolder
 
     try {
       if (steamOperation.type === 'verify') {
@@ -1602,6 +1628,7 @@ export default function Servers() {
         await serversApi.steamUpdate(steamcmdPath, installFolder, steamOperation.branch)
       }
     } catch (error) {
+      steamOperationInstallPathRef.current = null
       setSteamRunning(false)
       setSteamStalled(false)
       toast({
@@ -1667,6 +1694,7 @@ export default function Servers() {
     setSteamRunning(false)
     setSteamStalled(false)
     setSteamCompleted(null)
+    steamOperationInstallPathRef.current = null
 
     // Load steamcmd path from settings if not already set
     if (!steamcmdPath) {

@@ -178,8 +178,8 @@ async function saveAndResolveSteamCmdExe(candidatePath) {
 // even trying to maintain the rule -- see ProgressCode's file header. Going
 // through this helper (or not) is what makes "raw" and "authored" mutually
 // exclusive now, not a comment.
-function emitRawSteamCmdLine(io, event, type, text) {
-  io?.emit(event, { type, text });
+function emitRawSteamCmdLine(io, event, type, text, extra) {
+  io?.emit(event, { type, text, ...(extra || {}) });
 }
 
 // GH #147: a real user's SteamCMD install kept failing with "Missing file
@@ -4621,6 +4621,22 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
 
     const io = req.app.get("io");
 
+    // steam-update-events-cross-server-contamination, 2026-09-18: the
+    // concurrency guard above is scoped per installPath, so two operators
+    // (or one operator with two servers registered) CAN legitimately run an
+    // update/verify on two different servers at the same time. steam:start/
+    // steam:log/steam:complete used to carry no identifier at all -- every
+    // connected client received every event regardless of which server's
+    // dialog it had open, so a second server's log lines interleaved into
+    // the first dialog's log panel, and worse, its steam:complete could
+    // close out the WRONG dialog as success/failure. installPath (the exact
+    // string this request received, not the normalized/lowercased form used
+    // for the concurrency map -- the client echoes back the identical
+    // string it sent, so an exact-string comparison on the client needs no
+    // normalization of its own) lets the client filter events down to only
+    // the operation its own open dialog started.
+    const steamEventScope = { installPath };
+
     // Emit start event
     io.emit("steam:start", {
       type: validateFiles ? "verify" : "update",
@@ -4628,6 +4644,7 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
       progressCode: validateFiles
         ? ProgressCode.STEAM_START_VERIFY
         : ProgressCode.STEAM_START_UPDATE,
+      ...steamEventScope,
     });
 
     const updateSpawnOpts = { cwd: steamcmdPath };
@@ -4663,7 +4680,7 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
 
       for (const line of lines) {
         if (line.trim()) {
-          emitRawSteamCmdLine(io, "steam:log", "stdout", line);
+          emitRawSteamCmdLine(io, "steam:log", "stdout", line, steamEventScope);
           log.info(`SteamCMD: ${line}`);
         }
       }
@@ -4682,7 +4699,7 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
 
       for (const line of lines) {
         if (line.trim()) {
-          emitRawSteamCmdLine(io, "steam:log", "stderr", line);
+          emitRawSteamCmdLine(io, "steam:log", "stderr", line, steamEventScope);
           log.warn(`SteamCMD stderr: ${line}`);
         }
       }
@@ -4691,10 +4708,10 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
     steamcmd.on("close", (code) => {
       // Flush remaining buffers
       if (stdoutBuffer.trim()) {
-        emitRawSteamCmdLine(io, "steam:log", "stdout", stdoutBuffer.trim());
+        emitRawSteamCmdLine(io, "steam:log", "stdout", stdoutBuffer.trim(), steamEventScope);
       }
       if (stderrBuffer.trim()) {
-        emitRawSteamCmdLine(io, "steam:log", "stderr", stderrBuffer.trim());
+        emitRawSteamCmdLine(io, "steam:log", "stderr", stderrBuffer.trim(), steamEventScope);
       }
 
       // Clear active operation
@@ -4754,6 +4771,7 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
           : failureMessage,
         progressCode: completeProgressCode,
         ...(completeParams ? { params: completeParams } : {}),
+        ...steamEventScope,
       });
 
       // After successful update, re-check update status so banner clears
@@ -4785,6 +4803,7 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
         message: `Failed to run SteamCMD: ${sanitizeError(error.message)}`,
         progressCode: ProgressCode.STEAMCMD_RUN_FAILED,
         params: { reason: sanitizeError(error.message) },
+        ...steamEventScope,
       });
       log.error(`SteamCMD error: ${error.message}`);
     });
