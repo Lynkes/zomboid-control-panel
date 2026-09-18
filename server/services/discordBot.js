@@ -197,6 +197,16 @@ export class DiscordBot {
     // Claimed synchronously at the top of start(), released in a finally --
     // see start()'s own comment for the double-start race this closes.
     this._starting = false;
+    // Claimed synchronously at the top of stop(), released once it's done --
+    // see the 'shardDisconnect' handler's own comment (round 19) for the
+    // race this closes: an intentional stop() calls client.destroy(), which
+    // itself closes the gateway and can fire 'shardDisconnect' before
+    // stop() reaches its own `this.isRunning = false`. Without this flag
+    // that in-flight event would be indistinguishable from a genuine
+    // unrecoverable disconnect (revoked token, disallowed intents, ...) and
+    // stamp a misleading "Invalid token" lastStartError over what was
+    // actually a clean, deliberate stop.
+    this._stopping = false;
     // Last start() failure, surfaced through routes/discord.js so a bad
     // token, disallowed privileged intents, and a network timeout stop
     // wearing the same "check configuration" message. Same pattern as
@@ -1713,6 +1723,65 @@ export class DiscordBot {
     }
   }
 
+  // continuous-bug-hunt round 19 (token revoked while running): called only
+  // from the 'shardDisconnect' listener, which by construction only ever
+  // fires for an UNRECOVERABLE close code (see that listener's own comment)
+  // -- the gateway is confirmed dead and discord.js will not retry on its
+  // own. Puts the bot into the same terminal state stop() would, so a
+  // subsequent start() (after the operator fixes the token/intents and
+  // saves) can actually create a fresh client instead of being refused by
+  // start()'s own "already running" guard (`this.isRunning || this.client`)
+  // against a client that looks alive but never will be again.
+  _handleUnrecoverableShardDisconnect(code) {
+    // this._stopping: an intentional stop() destroys the client itself,
+    // which can fire this same event before stop() reaches its own
+    // isRunning=false a few lines down -- that is a clean, deliberate
+    // shutdown, not an unrecoverable failure, and must not be stamped with
+    // a misleading "Invalid token" lastStartError.
+    // !this.isRunning: already handled (e.g. two 'shardDisconnect' events
+    // in a row, or start() itself already failed and cleaned up).
+    if (this._stopping || !this.isRunning) return;
+
+    this.isRunning = false;
+    this._stopPresenceUpdates();
+
+    // AuthenticationFailed (4004) is exactly what Discord sends for a
+    // reset/revoked bot token -- reuse describeStartFailure()'s existing
+    // "TokenInvalid" copy ("Invalid token. Check the token below and save
+    // again.") so this reads the same whether the bad token was caught at
+    // start() or discovered later, mid-session. InvalidIntents (4013) /
+    // DisallowedIntents (4014) similarly reuse the existing intents
+    // message. The remaining unrecoverable codes (InvalidShard,
+    // ShardingRequired, InvalidAPIVersion) have no dedicated copy --
+    // describeStartFailure()'s own generic `lastStartError.message`
+    // fallback covers them.
+    const kind = code === 4004 ? "TokenInvalid" : code === 4013 || code === 4014 ? "DisallowedIntents" : null;
+    this.lastStartError = {
+      kind,
+      message: `Discord closed the connection permanently (code ${code}) and will not reconnect on its own.`,
+    };
+
+    if (this.logTailer && this._onGameChat) {
+      try {
+        this.logTailer.off("chatMessage", this._onGameChat);
+      } catch {
+        /* noop */
+      }
+      this._onGameChat = null;
+    }
+
+    // The client object itself is a dead shell at this point -- null it out
+    // (matching stop()'s own cleanup) so start()'s "already running" guard
+    // doesn't refuse a fresh attempt once the operator fixes the config.
+    const deadClient = this.client;
+    this.client = null;
+    if (deadClient) {
+      deadClient
+        .destroy()
+        .catch((e) => log.debug(`Cleanup of dead Discord client failed: ${e.message}`));
+    }
+  }
+
   async start() {
     // Guard against double-start — calling start() twice would attach a
     // second messageCreate listener and double-relay every Discord message
@@ -1917,6 +1986,23 @@ export class DiscordBot {
       log.error(
         `Discord gateway shard disconnected and will not reconnect on its own (code ${event?.code}).`,
       );
+      // continuous-bug-hunt round 19 (token revoked while running): djs's
+      // own WebSocketManager only ever emits 'shardDisconnect' for its
+      // UNRECOVERABLE_CLOSE_CODES set (AuthenticationFailed=4004 --
+      // exactly what Discord sends when the bot's token has been reset or
+      // revoked -- plus InvalidShard/ShardingRequired/InvalidAPIVersion/
+      // InvalidIntents/DisallowedIntents), confirmed by reading
+      // node_modules/discord.js/src/client/websocket/WebSocketManager.js
+      // directly: this event, by construction, ONLY ever fires when the
+      // shard is confirmed dead and will not reconnect on its own -- never
+      // for an ordinary blip (those go through shardReconnecting instead).
+      // Before this fix, `this.isRunning` stayed true forever after this
+      // fired: getStatus() kept reporting a "healthy" running:true bot,
+      // and the only visible signal was the generic gatewayIssue banner
+      // ("...may be delayed until it recovers") -- actively misleading for
+      // a revoked token, since this connection will NEVER recover without
+      // the operator entering a new token and restarting the bot.
+      this._handleUnrecoverableShardDisconnect(event?.code);
     });
     this.client.on("shardResume", () => {
       this._gatewayDegradedSince = null;
@@ -1983,38 +2069,49 @@ export class DiscordBot {
     }
   }
   async stop() {
-    this._stopPresenceUpdates();
-    // Detach the chatMessage listener so a swapped LogTailer (e.g. a
-    // restart of the panel-managed game-server changes the tailer instance)
-    // doesn't leak handlers across bot lifecycles. Done outside the client
-    // check because a failed start() leaves the listener attached with no
-    // client to go with it.
-    if (this.logTailer && this._onGameChat) {
-      try {
-        this.logTailer.off("chatMessage", this._onGameChat);
-      } catch {
-        /* noop */
+    // See the constructor's own comment on this flag: client.destroy()
+    // below closes the gateway itself, which can fire 'shardDisconnect'
+    // before this function reaches its own isRunning=false a few lines
+    // down -- without this flag that in-flight event would be treated as
+    // an unrecoverable disconnect (revoked token, ...) instead of the
+    // deliberate stop it actually is.
+    this._stopping = true;
+    try {
+      this._stopPresenceUpdates();
+      // Detach the chatMessage listener so a swapped LogTailer (e.g. a
+      // restart of the panel-managed game-server changes the tailer instance)
+      // doesn't leak handlers across bot lifecycles. Done outside the client
+      // check because a failed start() leaves the listener attached with no
+      // client to go with it.
+      if (this.logTailer && this._onGameChat) {
+        try {
+          this.logTailer.off("chatMessage", this._onGameChat);
+        } catch {
+          /* noop */
+        }
+        this._onGameChat = null;
       }
-      this._onGameChat = null;
-    }
-    if (this.client) {
-      await this.client.destroy();
-      this.client = null;
-      this.isRunning = false;
-      // Reset lifecycle dedupe so the next bot session can fire a fresh
-      // serverStart/serverStop without being suppressed by the previous run.
-      this._lastLifecycleState = null;
-      this._lastLifecycleAt = 0;
-      // Reset breaker state too — stale failure counts shouldn't carry over.
-      this._channelBreakers.clear();
-      this._gatewayDegradedSince = null;
-      this._chatRelayChain = Promise.resolve();
-      this._chatRelayPending = 0;
-      this._chatRelayDropped = 0;
-      // Drop registration tracking; a fresh start() should re-register.
-      this._registerInFlight = null;
-      this._registeredGuildId = null;
-      log.info("bot stopped");
+      if (this.client) {
+        await this.client.destroy();
+        this.client = null;
+        this.isRunning = false;
+        // Reset lifecycle dedupe so the next bot session can fire a fresh
+        // serverStart/serverStop without being suppressed by the previous run.
+        this._lastLifecycleState = null;
+        this._lastLifecycleAt = 0;
+        // Reset breaker state too — stale failure counts shouldn't carry over.
+        this._channelBreakers.clear();
+        this._gatewayDegradedSince = null;
+        this._chatRelayChain = Promise.resolve();
+        this._chatRelayPending = 0;
+        this._chatRelayDropped = 0;
+        // Drop registration tracking; a fresh start() should re-register.
+        this._registerInFlight = null;
+        this._registeredGuildId = null;
+        log.info("bot stopped");
+      }
+    } finally {
+      this._stopping = false;
     }
   }
 

@@ -1076,6 +1076,85 @@ describe("Discord _sendToChannel truncates an over-2000-char payload before send
   });
 });
 
+// continuous-bug-hunt round 19 (token revoked while running): djs's own
+// WebSocketManager only emits 'shardDisconnect' for its
+// UNRECOVERABLE_CLOSE_CODES set (confirmed by reading node_modules/
+// discord.js/src/client/websocket/WebSocketManager.js directly) --
+// AuthenticationFailed=4004 (a revoked/reset bot token) plus 5 other
+// gateway-config failures, never for an ordinary reconnect blip (those use
+// shardReconnecting instead). Before this fix, `isRunning` stayed true
+// forever once this fired: getStatus() kept reporting a healthy
+// running:true bot, and the only visible signal was the generic (actively
+// misleading, for this case) gatewayIssue banner claiming the connection
+// "may be delayed until it recovers" -- it never will, without the
+// operator fixing the token and restarting. See also
+// linuxDiscordGatewayResilience.test.js's own real-discord.js-Client
+// version of this same scenario (Linux/openssl-gated); this is the
+// lightweight stub version so the same behavior has coverage that runs
+// everywhere, including this environment.
+describe("Discord _handleUnrecoverableShardDisconnect (token revoked while running)", () => {
+  const makeRunningBot = () => {
+    const bot = Object.create(DiscordBot.prototype);
+    bot.isRunning = true;
+    bot._stopping = false;
+    bot._gatewayDegradedSince = null;
+    bot._presenceInterval = null;
+    bot.lastStartError = null;
+    bot.logTailer = null;
+    bot._onGameChat = null;
+    const destroy = vi.fn().mockResolvedValue(undefined);
+    bot.client = { destroy };
+    return { bot, destroy };
+  };
+
+  it("marks the bot as no longer running and records an actionable TokenInvalid error for a revoked token (code 4004)", async () => {
+    const { bot, destroy } = makeRunningBot();
+
+    bot._handleUnrecoverableShardDisconnect(4004);
+
+    expect(bot.isRunning).toBe(false);
+    expect(bot.lastStartError).toEqual({
+      kind: "TokenInvalid",
+      message: expect.stringContaining("will not reconnect"),
+    });
+    // The dead client is torn down so a later start() (after the operator
+    // saves a fresh token) isn't refused by start()'s own "already
+    // running" guard against a client that looks alive but never will be
+    // again.
+    expect(bot.client).toBeNull();
+    expect(destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("maps DisallowedIntents (code 4014) to the existing intents guidance, not a generic message", async () => {
+    const { bot } = makeRunningBot();
+
+    bot._handleUnrecoverableShardDisconnect(4014);
+
+    expect(bot.lastStartError.kind).toBe("DisallowedIntents");
+  });
+
+  it("does nothing when a stop() is already in flight -- a deliberate shutdown must not be stamped as a token failure", async () => {
+    const { bot, destroy } = makeRunningBot();
+    bot._stopping = true;
+
+    bot._handleUnrecoverableShardDisconnect(4004);
+
+    expect(bot.isRunning).toBe(true);
+    expect(bot.lastStartError).toBeNull();
+    expect(destroy).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when the bot was already marked not-running (no duplicate teardown)", async () => {
+    const { bot, destroy } = makeRunningBot();
+    bot.isRunning = false;
+
+    bot._handleUnrecoverableShardDisconnect(4004);
+
+    expect(bot.lastStartError).toBeNull();
+    expect(destroy).not.toHaveBeenCalled();
+  });
+});
+
 describe("LogTailer chunk boundaries", () => {
   const makeTailer = async () => {
     const { LogTailer } = await import("../services/logTailer.js");

@@ -536,14 +536,23 @@ export class Scheduler {
     } catch (error) {
       const duration = Date.now() - startTime;
       log.error(`Scheduled task failed ${task.name}: ${error.message}`);
-      await logScheduleExecution(
-        task.id,
-        task.name,
-        task.command,
-        false,
-        error.message,
-        duration,
-      );
+      // continuous-bug-hunt round 19 (duplicate Schedule History row):
+      // executeTask()'s restart branch tags the Error it throws with
+      // alreadyLoggedToScheduleHistory when performRestart() already wrote
+      // its own row for this exact failure (deep RCON/process/container
+      // failures) -- logging again here would be a second row for the same
+      // execution. Every OTHER task kind (save/servermsg/bridge/...) never
+      // sets this flag, so this still logs for them exactly as before.
+      if (!error.alreadyLoggedToScheduleHistory) {
+        await logScheduleExecution(
+          task.id,
+          task.name,
+          task.command,
+          false,
+          error.message,
+          duration,
+        );
+      }
       await logServerEvent(
         "scheduled_task_error",
         `${task.name}: ${error.message}`,
@@ -629,13 +638,26 @@ export class Scheduler {
         // string-equality check could never have matched it even by
         // accident, so that path had NO failure entry at all, only the
         // fabricated success. Throwing on any `!result.success` guarantees
-        // runTaskNow's catch logs a false entry every time -- occasionally
-        // a harmless duplicate of one performRestart() already wrote, never
-        // a contradiction of one.
+        // runTaskNow's catch logs a false entry every time.
+        //
+        // continuous-bug-hunt round 19 (duplicate Schedule History row):
+        // "occasionally a harmless duplicate of one performRestart() already
+        // wrote" (the original wording here) was the SAME tradeoff
+        // setupAutoRestart's cron callback made, and it turned out to be the
+        // common case, not the edge case -- a real deep failure inside
+        // performRestart() logs its own row AND (via this throw) makes
+        // runTaskNow's catch log a second one for the identical execution.
+        // performRestart() now marks every return where it already logged
+        // with `logged: true`; tag the thrown Error with the same flag so
+        // runTaskNow's catch (below) can skip its own logScheduleExecution
+        // call for this one already-recorded case, without touching how it
+        // handles every OTHER task kind's failure.
         if (!result.success) {
-          throw new Error(
+          const err = new Error(
             result.message || result.error || "Restart failed",
           );
+          if (result.logged) err.alreadyLoggedToScheduleHistory = true;
+          throw err;
         }
       } else if (commandKind === "save") {
         const saved = await rconService.save({ skipLog: true });
@@ -1141,13 +1163,29 @@ export class Scheduler {
           // with nothing due, the exact silent-refusal shape already fixed
           // for runTaskNow()'s self-overlap case (see its own comment
           // above) and for the scheduled backup's restart-overlap skip
-          // (setupBackupSchedule()'s cron callback above). Same
-          // "occasionally a harmless duplicate, never a contradiction"
-          // tradeoff executeTask()'s restart branch already accepts
-          // (see its own comment) rather than string-matching performRestart's
-          // refusal shapes to avoid an already-logged deep failure being
-          // recorded twice.
-          await logScheduleExecution(null, "Auto Restart", "restart", false, message, 0);
+          // (setupBackupSchedule()'s cron callback above).
+          //
+          // continuous-bug-hunt round 19 (duplicate Schedule History row):
+          // the ORIGINAL round-17 fix above logged unconditionally on
+          // `!result.success`, accepting "occasionally a harmless
+          // duplicate" as a tradeoff for closing the silent-refusal gap --
+          // but a REAL deep-failure return (RCON unreachable, process scan
+          // failed, container restart failed, ...) already calls
+          // logScheduleExecution() itself, several hundred lines up inside
+          // performRestart(), before returning here. Logging again
+          // unconditionally meant every genuine restart failure produced
+          // TWO Schedule History rows for the same execution, not one --
+          // not a harmless edge case, the COMMON case. performRestart() now
+          // marks every return where it already logged with `logged: true`
+          // (the two early guards above, and the mid-countdown "cancelled"
+          // returns, never set it, since neither of those paths logs
+          // anything) -- checking it here closes the round-17 gap (an early
+          // guard's refusal still gets recorded, since `logged` is falsy
+          // there) without reintroducing the duplicate for every other
+          // failure shape.
+          if (!result?.logged) {
+            await logScheduleExecution(null, "Auto Restart", "restart", false, message, 0);
+          }
         }
       } catch (err) {
         // performRestart re-throws on failure. Verified against the
@@ -1399,7 +1437,7 @@ export class Scheduler {
             restartDuration,
           );
           logServerEvent("auto_restart_error", errorMsg);
-          return { success: false, wasRunning: false, message: errorMsg };
+          return { success: false, wasRunning: false, message: errorMsg, logged: true };
         }
 
         // Server wasn't running - start it through the owning lifecycle
@@ -1472,7 +1510,7 @@ export class Scheduler {
           );
           log.error("Failed to start server");
         }
-        return { success: isNowRunning, wasRunning: false };
+        return { success: isNowRunning, wasRunning: false, logged: true };
       }
 
       // Server is running - perform full restart with warnings
@@ -1503,7 +1541,7 @@ export class Scheduler {
           restartDuration,
         );
         logServerEvent("auto_restart_error", errorMsg);
-        return { success: false, message: errorMsg };
+        return { success: false, message: errorMsg, logged: true };
       }
 
       log.info("Auto-restart: RCON verified, sending warnings...");
@@ -1636,7 +1674,7 @@ export class Scheduler {
           restartDuration,
         );
         await logServerEvent("auto_restart_error", errorMsg);
-        return { success: false, wasRunning: true, message: errorMsg };
+        return { success: false, wasRunning: true, message: errorMsg, logged: true };
       }
       await this.sleep(3000);
 
@@ -1660,7 +1698,7 @@ export class Scheduler {
           restartDuration,
         );
         logServerEvent("auto_restart_error", errorMsg);
-        return { success: false, wasRunning: true, message: errorMsg };
+        return { success: false, wasRunning: true, message: errorMsg, logged: true };
       }
 
       if (!managed.handled) {
@@ -1690,7 +1728,7 @@ export class Scheduler {
             restartDuration,
           );
           logServerEvent("auto_restart_error", errorMsg);
-          return { success: false, wasRunning: true, message: errorMsg };
+          return { success: false, wasRunning: true, message: errorMsg, logged: true };
         }
         while (processDetails.running && attempts < 60) {
           await this.sleep(1000);
@@ -1709,7 +1747,7 @@ export class Scheduler {
               restartDuration,
             );
             logServerEvent("auto_restart_error", errorMsg);
-            return { success: false, wasRunning: true, message: errorMsg };
+            return { success: false, wasRunning: true, message: errorMsg, logged: true };
           }
         }
 
@@ -1739,6 +1777,7 @@ export class Scheduler {
               success: false,
               wasRunning: true,
               message: `Could not confirm the old server stopped: ${stopError}`,
+              logged: true,
             };
           }
           await this.sleep(5000);
@@ -1841,7 +1880,7 @@ export class Scheduler {
           "Server stopped but failed to start",
         );
         log.error("Auto-restart: Server stopped but failed to start");
-        return { success: false, wasRunning: true };
+        return { success: false, wasRunning: true, logged: true };
       }
 
       // The new instance is now confirmed up -- either Docker's own restart
@@ -2011,7 +2050,7 @@ export class Scheduler {
         log.error("Auto-restart: Server stopped but failed to start");
       }
 
-      return { success: serverStarted, wasRunning: true };
+      return { success: serverStarted, wasRunning: true, logged: true };
     } catch (error) {
       const restartDuration = Date.now() - restartStartTime;
       log.error(`Auto-restart failed: ${error.message}`);

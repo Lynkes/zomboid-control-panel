@@ -86,6 +86,12 @@ describe("Scheduler: the auto-restart cron tick's own refusal is recorded, not s
       "Restart already in progress",
       0,
     );
+    // continuous-bug-hunt round 19 (duplicate Schedule History row):
+    // performRestart()'s restartInProgress guard fires BEFORE it ever calls
+    // logScheduleExecution itself, so this cron-callback call is the ONLY
+    // one -- exactly one row, not zero (the original silent-refusal bug
+    // this test file exists for) and not two.
+    expect(logScheduleExecution).toHaveBeenCalledTimes(1);
   });
 
   it("logs a false Schedule History entry when the tick is refused by a busy lifecycle lock held by an unrelated operation", async () => {
@@ -107,6 +113,10 @@ describe("Scheduler: the auto-restart cron tick's own refusal is recorded, not s
         expect.stringContaining("already in progress"),
         0,
       );
+      // Same "exactly one row" reasoning as the restartInProgress case above
+      // -- the lifecycle-lock guard also fires before performRestart() ever
+      // logs anything itself.
+      expect(logScheduleExecution).toHaveBeenCalledTimes(1);
     } finally {
       heldLock.release();
     }
@@ -128,6 +138,33 @@ describe("Scheduler: the auto-restart cron tick's own refusal is recorded, not s
       false,
       "Restart already in progress",
       0,
+    );
+  });
+
+  // continuous-bug-hunt round 19 (duplicate Schedule History row): bb389c83
+  // (round 17) added the cron callback's own logScheduleExecution() call
+  // unconditionally on `!result.success` -- but a genuine DEEP failure
+  // inside performRestart() (RCON unreachable, process scan failed, ...)
+  // already calls logScheduleExecution() itself before returning, several
+  // hundred lines up. Logging again here meant a real restart failure wrote
+  // TWO Schedule History rows for the one execution, not one -- the common
+  // case, not an edge case. This is the same scenario the "positive
+  // control" test above already sets up (an empty {} serverManager makes
+  // performRestart() hit its process-scan-failed branch and return
+  // {success:false, logged:true}) -- pinning the exact call COUNT here,
+  // not just which args it was/wasn't called with.
+  it("logs exactly ONE Schedule History row for a genuine deep failure inside performRestart, not two", async () => {
+    scheduler.setupAutoRestart();
+    await capturedAutoRestartCallback();
+
+    expect(logScheduleExecution).toHaveBeenCalledTimes(1);
+    expect(logScheduleExecution).toHaveBeenCalledWith(
+      null,
+      "Auto Restart",
+      "restart",
+      false,
+      expect.any(String),
+      expect.any(Number),
     );
   });
 });

@@ -423,6 +423,25 @@ describe.skipIf(isWindows || !opensslAvailable)(
         // flagged until an operator (or a fresh start()) intervenes.
         await new Promise((r) => setTimeout(r, 500));
         expect(bot._gatewayDegradedSince).toBe(setAt);
+
+        // continuous-bug-hunt round 19 (token revoked while running): before
+        // this fix, `isRunning` stayed true forever after this exact event
+        // -- getStatus() kept reporting a healthy running:true bot with no
+        // actionable signal, only the generic (and actively misleading, for
+        // this case) "may be delayed until it recovers" gatewayIssue
+        // banner. 4004 is Discord's real code for a revoked/reset bot
+        // token, so this must now behave the same as any other
+        // caught-at-start() bad-token failure.
+        expect(bot.isRunning).toBe(false);
+        expect(bot.lastStartError).toEqual({
+          kind: "TokenInvalid",
+          message: expect.stringContaining("will not reconnect"),
+        });
+        // The dead client must be torn down so a subsequent start() (after
+        // the operator saves a fresh token) isn't refused by start()'s own
+        // "already running" guard against a client that looks alive but
+        // never will be again.
+        expect(bot.client).toBeNull();
       },
       20000,
     );

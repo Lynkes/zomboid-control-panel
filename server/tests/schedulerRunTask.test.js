@@ -146,6 +146,38 @@ describe("Scheduler.runTaskNow command dispatch", () => {
     );
   });
 
+  // continuous-bug-hunt round 19 (duplicate Schedule History row): the two
+  // tests above mock performRestart() returning a failure with no `logged`
+  // flag (matching a return path that never called logScheduleExecution
+  // itself, e.g. the two earliest guards) -- runTaskNow's catch correctly
+  // logs for those. This is the OTHER shape: a DEEP failure inside
+  // performRestart() (RCON down mid-restart, process scan failed, ...)
+  // already calls logScheduleExecution() itself before returning, and now
+  // marks that on the result with `logged: true`. executeTask()'s restart
+  // branch tags the thrown Error with the same flag so runTaskNow's catch
+  // can tell it apart from the untagged cases above and skip its own
+  // logScheduleExecution call -- otherwise this exact scenario would write
+  // TWO rows for one execution.
+  it("does NOT log a second Schedule History row when performRestart already logged its own deep failure", async () => {
+    logScheduleExecution.mockClear();
+    const { scheduler } = makeScheduler();
+    scheduler.performRestart = vi.fn().mockResolvedValue({
+      success: false,
+      message: "RCON not available: connection failed",
+      logged: true,
+    });
+
+    const result = await scheduler.runTaskNow({
+      id: 22,
+      name: "Nightly restart",
+      command: "restart",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.message).toMatch(/RCON not available/);
+    expect(logScheduleExecution).not.toHaveBeenCalled();
+  });
+
   it("routes 'save' through rconService.save()", async () => {
     const { scheduler, rconService } = makeScheduler();
 
