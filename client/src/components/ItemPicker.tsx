@@ -1,5 +1,7 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react'
+import type { CSSProperties } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
+import { Portal } from '@radix-ui/react-portal'
 import {
   Search, RefreshCw, Loader2, X, ChevronDown, AlertCircle, SearchX,
   Sword, Crosshair, UtensilsCrossed, Heart, Shirt, HardHat, Wrench,
@@ -111,6 +113,44 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
   const triggerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  // Bug-hunt-2026-09-18 (WorldMap Custom Drop dialog, round 4b): this
+  // dropdown used to render as a plain `position: absolute` sibling inside
+  // whatever container held the trigger. That's fine on its own, but the
+  // moment a caller wraps ItemPicker in ANYTHING with `overflow` set (e.g.
+  // WorldMap.tsx's item-rows list, capped to stop 50 rows pushing its
+  // dialog's footer off-screen -- see that file's own comment), the
+  // ancestor's overflow clips this dropdown too, at every viewport width,
+  // not just narrow ones -- confirmed empirically with an 80-item catalog:
+  // the ~400px-tall panel was clipped in every row position tried against a
+  // 288px-tall capped ancestor. panelRef/panelStyle/portalTarget below
+  // portal the panel out of that ancestor via Radix's own Portal primitive
+  // (already a transitive dependency of react-dialog/react-select, so this
+  // adds no new package) and position it with `position: fixed` computed
+  // from the trigger's real viewport rect, which -- critically -- is
+  // reactive to scroll/resize (see the effect below), not a one-shot
+  // snapshot.
+  //
+  // Where it portals to matters as much as the mechanism: portaling all the
+  // way to document.body would escape a host Dialog's own FocusScope
+  // containment (confirmed by reading @radix-ui/react-focus-scope's source:
+  // `trapped` mode calls `container.contains(target)` on every focusin and
+  // snaps focus straight back into the dialog the instant it sees `false` --
+  // which is every keystroke into a document.body-portaled search input).
+  // Portaling instead into the NEAREST ancestor matching
+  // `[role="dialog"]`/`[role="alertdialog"]` (falling back to document.body
+  // when there isn't one, e.g. a future non-dialog consumer) keeps the
+  // panel a genuine DOM descendant of that container, so FocusScope's own
+  // `contains()` check passes and Radix Dialog's own outside-click
+  // dismissal (which does the same containment check) never fires for a
+  // click inside the panel either -- no `onInteractOutside` override needed
+  // on any consumer's Dialog. `position: fixed`'s containing block becomes
+  // that dialog element too (Radix's `translate-x/y` on DialogContent
+  // establishes one per the CSS transform spec), so the panel is bounded by
+  // the DIALOG's own (generous, ~85vh) scroll area rather than a
+  // caller-chosen narrow one -- a real improvement, not just a workaround.
+  const panelRef = useRef<HTMLDivElement>(null)
+  const [panelStyle, setPanelStyle] = useState<CSSProperties | null>(null)
+  const [portalTarget, setPortalTarget] = useState<Element | null>(null)
   const [dropUp, setDropUp] = useState(false)
   const { toast } = useToast()
 
@@ -132,11 +172,18 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
     return () => ctrl.abort()
   }, [])
 
-  // Close on outside click
+  // Close on outside click. The portaled panel (panelRef) lives outside
+  // containerRef's own DOM subtree now, so it needs its own contains()
+  // check -- without it, the very mousedown that opens an item's button
+  // would also read as "outside" and close the dropdown before the click
+  // could register.
   useEffect(() => {
     if (!open) return
     const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false)
+      const target = e.target as Node
+      if (containerRef.current?.contains(target)) return
+      if (panelRef.current?.contains(target)) return
+      setOpen(false)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -144,10 +191,75 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
 
   useEffect(() => { setHighlightIndex(-1) }, [search, activeCategory])
 
-  useEffect(() => {
+  // Positions the portaled panel from the trigger's live viewport rect and
+  // picks which Dialog/AlertDialog (if any) to portal it into -- see this
+  // component's own field comments above for why both matter. Recomputes on
+  // scroll (capture: true, since a scroll on ANY ancestor -- the rows list,
+  // the dialog's own overflow, the page -- moves the trigger without firing
+  // a bubbling event window would otherwise see) and on resize, for as long
+  // as the dropdown stays open; a one-shot snapshot would leave the panel
+  // visually detached from its trigger the moment either scrolls.
+  useLayoutEffect(() => {
     if (!open || !containerRef.current) return
-    const rect = containerRef.current.getBoundingClientRect()
-    setDropUp(window.innerHeight - rect.bottom < 420)
+    const container = containerRef.current
+    // Read synchronously into a local rather than relying on the
+    // `portalTarget` state var below -- setPortalTarget's own update isn't
+    // visible in THIS closure until next render, but reposition() runs
+    // immediately, in this same effect pass, and needs the real target now.
+    const target = container.closest('[role="dialog"], [role="alertdialog"]')
+    setPortalTarget(target)
+
+    const reposition = () => {
+      const rect = container.getBoundingClientRect()
+      // A Dialog/AlertDialogContent is centered with a CSS `translate`,
+      // which the spec makes the containing block for any `position: fixed`
+      // descendant -- so once portalTarget is that element (not
+      // document.body), our "fixed" coordinates are resolved against ITS
+      // box, not the viewport, even though getBoundingClientRect() always
+      // reports viewport-relative numbers. `origin` converts between the
+      // two: subtracting it turns a viewport-relative target position into
+      // the container-relative one `top`/`left`/`bottom` actually need.
+      // Confirmed empirically -- without this, the panel rendered offset by
+      // exactly the dialog's own screen position (e.g. requesting a
+      // viewport x of 241px landed at x=241px INSIDE the dialog instead).
+      const origin = target
+        ? (target as HTMLElement).getBoundingClientRect()
+        : { top: 0, left: 0, right: window.innerWidth, bottom: window.innerHeight }
+      // Available space is bounded by BOTH the viewport and (when portaled
+      // inside a Dialog) that dialog's own clipped box -- whichever is
+      // smaller is what actually limits how tall the panel can render
+      // without being clipped, so pick a side and a height budget using the
+      // tighter of the two, not the viewport alone.
+      const viewportBottom = Math.min(window.innerHeight, origin.bottom)
+      const viewportTop = Math.max(0, origin.top)
+      const spaceBelow = viewportBottom - rect.bottom
+      const spaceAbove = rect.top - viewportTop
+      const up = spaceBelow < 280 && spaceAbove > spaceBelow
+      setDropUp(up)
+      const maxHeight = Math.max(200, (up ? spaceAbove : spaceBelow) - 8)
+      const width = Math.max(rect.width, Math.min(window.innerWidth * 0.9, 760))
+      const left = Math.min(Math.max(rect.left, 8), window.innerWidth - width - 8) - origin.left
+      // minHeight: 0 -- portaled straight into DialogContent (a CSS grid
+      // container), this panel is a grid item, and grid items get an
+      // implicit content-based automatic minimum size unless overridden,
+      // the same class of "max-height fights an auto minimum" issue this
+      // repo's own ui-shot-tour.mjs already documents one layer up (its
+      // #main-content/flex case). Included defensively alongside the
+      // measured, screenshot-verified fix (see this file's own header
+      // comment) rather than assumed sufficient on its own.
+      setPanelStyle(
+        up
+          ? { position: 'fixed', left, width, maxHeight, minHeight: 0, overflow: 'auto', bottom: origin.bottom - rect.top + 4 }
+          : { position: 'fixed', left, width, maxHeight, minHeight: 0, overflow: 'auto', top: rect.bottom - origin.top + 4 },
+      )
+    }
+    reposition()
+    window.addEventListener('scroll', reposition, true)
+    window.addEventListener('resize', reposition)
+    return () => {
+      window.removeEventListener('scroll', reposition, true)
+      window.removeEventListener('resize', reposition)
+    }
   }, [open])
 
   const handleScan = useCallback(async () => {
@@ -390,15 +502,18 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
         />
       </div>
 
-      {/* Dropdown with category sidebar */}
-      {open && (
+      {/* Dropdown with category sidebar -- portaled (see panelStyle/portalTarget's
+          own comments above) so an ancestor's overflow can never clip it. */}
+      {open && panelStyle && (
+        <Portal container={portalTarget ?? undefined}>
         <div
+          ref={panelRef}
           className={cn(
-            'absolute z-50 rounded-lg border border-border bg-popover shadow-xl shadow-black/30',
+            'z-50 rounded-lg border border-border bg-popover shadow-xl shadow-black/30',
             'motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-[0.98] motion-safe:duration-150',
-            dropUp ? 'bottom-full mb-1 motion-safe:slide-in-from-bottom-1' : 'top-full mt-1 motion-safe:slide-in-from-top-1'
+            dropUp ? 'motion-safe:slide-in-from-bottom-1' : 'motion-safe:slide-in-from-top-1'
           )}
-          style={{ width: 'min(90vw, 760px)', minWidth: '100%' }}
+          style={panelStyle}
         >
           {/* Search bar */}
           <div className="flex items-center gap-3 border-b border-border px-4 py-3">
@@ -582,6 +697,7 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
             )}
           </div>
         </div>
+        </Portal>
       )}
     </div>
   )

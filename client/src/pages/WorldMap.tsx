@@ -3800,7 +3800,7 @@ export default function WorldMap() {
 
       {/* Custom Drop Dialog — drops one or more items at the right-clicked coords */}
       <Dialog open={!!dropDialog} onOpenChange={(open) => { if (!open) setDropDialog(null) }}>
-        <DialogContent className="sm:max-w-xl">
+        <DialogContent className="sm:max-w-xl max-h-[85vh] overflow-y-auto sm:max-h-[80vh]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Package className="w-5 h-5 text-warning" />
@@ -3884,8 +3884,19 @@ export default function WorldMap() {
               )}
             </div>
 
-            {/* Items list — NO overflow-y-auto here so the ItemPicker dropdown isn't clipped */}
-            <div className="rounded-md border border-border/50 bg-muted/10 divide-y divide-border/30">
+            {/* Items list -- bounded so up to 50 rows (dropItems.length >= 50
+                below) can't push the dialog past a short viewport with no
+                way back to the footer buttons. ItemPicker's own dropdown is
+                NOT a portal (client/src/components/ItemPicker.tsx renders it
+                as a plain `position: absolute` sibling inside this same
+                container), so it IS still clipped by this scroll box for a
+                row near its edge -- a real, accepted trade-off: the
+                dialog-can't-scroll-to-its-own-footer bug this closes is
+                worse than an autocomplete popup occasionally needing a
+                scroll-into-view first, and fixing the clipping properly
+                means making ItemPicker itself portal/float-position its
+                dropdown, out of scope here. */}
+            <div className="max-h-72 overflow-y-auto rounded-md border border-border/50 bg-muted/10 divide-y divide-border/30">
               {dropItems.length === 0 && (
                 <div className="px-3 py-4 text-center text-xs text-muted-foreground/60 italic">
                   {t('dropDialog.noItemsRow')}
