@@ -481,6 +481,20 @@ export class DiscordBot {
     //   - replacement order doesn't matter (no risk of {player} clobbering
     //     the start of {playerCount})
     //   - undefined/null/object values render as empty string
+    //
+    // bug-hunt-2026-09-18 (round: Discord bot commands and relay): variables
+    // like {player} carry a raw in-game display name -- Steam names can
+    // contain backticks, asterisks, underscores, etc. -- and used to be
+    // substituted verbatim, unlike handleGameChat()'s own live chat relay a
+    // few hundred lines up, which already runs both the author and the
+    // message text through escapeMarkdown() for exactly this reason. A
+    // player named e.g. "**Trusted**" or "`) big code block") could distort
+    // or break the notification's formatting (bold/italic/code-block
+    // breakout) for every playerJoin/playerDeath/playerKick/etc. event.
+    // Escaping only the SUBSTITUTED VALUE here -- never the template
+    // string itself -- preserves an operator's own intentional markdown in
+    // their template (e.g. "**{player}** has joined the server!") while
+    // neutralizing markdown smuggled in through the value.
     let message = event.template;
     const keys = Object.keys(variables || {});
     if (keys.length > 0) {
@@ -489,7 +503,9 @@ export class DiscordBot {
       message = message.replace(re, (_, k) => {
         const v = variables[k];
         if (v === undefined || v === null) return "";
-        return typeof v === "string" ? v : String(v);
+        return escapeMarkdown(typeof v === "string" ? v : String(v), {
+          maskedLink: true,
+        });
       });
     }
 
@@ -1499,7 +1515,26 @@ export class DiscordBot {
       if (!channel?.isTextBased?.() || typeof channel.send !== "function") {
         throw new Error("Configured channel is not a sendable text channel");
       }
-      const sendPromise = channel.send(message);
+      // bug-hunt-2026-09-18 (round: Discord bot commands and relay): a
+      // caller-side length cap applied BEFORE escapeMarkdown() (e.g.
+      // handleGameChat()'s own message.slice(0, 1850)/author.slice(0, 80))
+      // is not a real cap on the final Discord API payload -- escaping
+      // wraps every markdown-special character in a backslash, which can
+      // nearly double a string's length, and handleGameChat() then
+      // concatenates the escaped author+message with no cap of its own
+      // afterward. A chat line that's heavy on `*`/`_`/`` ` ``/`~` (a
+      // player's own ASCII-art message, not necessarily malicious) could
+      // come out over Discord's real 2000-char hard limit post-escaping
+      // and get rejected outright, silently dropping that one relay
+      // message. This is the one place every string send (chat relay,
+      // notifications, replies) funnels through, so it's the one place
+      // that needs to know the TRUE final length, after every upstream
+      // transform has already run.
+      const safeMessage =
+        typeof message === "string" && message.length > 2000
+          ? `${message.slice(0, 1997)}...`
+          : message;
+      const sendPromise = channel.send(safeMessage);
       // If the timeout wins the race, the original send is still pending
       // somewhere inside discord.js's retry loop — swallow whatever it
       // eventually does so it can't surface as an unhandled rejection long

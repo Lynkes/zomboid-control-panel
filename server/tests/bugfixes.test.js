@@ -1030,6 +1030,52 @@ describe("Discord circuit breaker is per channel", () => {
   });
 });
 
+// bug-hunt-2026-09-18 (round: Discord bot commands and relay): handleGameChat()
+// slices the raw message/author BEFORE escapeMarkdown() runs (message.slice(0,
+// 1850), author.slice(0, 80)) -- escaping can nearly double a string's length
+// (every markdown-special char gets a backslash inserted before it), and the
+// composed "**<author>** message" string has no cap of its own after that.
+// A chat line heavy on `*`/`_`/backtick/`~` characters (ASCII art, not
+// necessarily malicious) could come out over Discord's real 2000-char hard
+// limit post-escaping and get rejected by the API, silently dropping that
+// one relay message. Fixed in _sendToChannel() -- the one shared choke point
+// every string send (chat relay, notifications, replies) already funnels
+// through -- since only there is the TRUE final length, after every upstream
+// transform has run, actually known.
+describe("Discord _sendToChannel truncates an over-2000-char payload before sending", () => {
+  const makeBot = async () => {
+    const bot = Object.create(DiscordBot.prototype);
+    bot._channelBreakers = new Map();
+    const sent = [];
+    bot.client = {
+      channels: {
+        fetch: async (id) => ({
+          isTextBased: () => true,
+          send: async (msg) => {
+            sent.push(msg);
+          },
+        }),
+      },
+    };
+    return { bot, sent };
+  };
+
+  it("truncates a string payload over Discord's 2000-char limit before calling channel.send", async () => {
+    const { bot, sent } = await makeBot();
+    const oversized = "*".repeat(2500);
+    expect(await bot._sendToChannel("111", oversized)).toBe(true);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].length).toBeLessThanOrEqual(2000);
+    expect(sent[0].endsWith("...")).toBe(true);
+  });
+
+  it("leaves a payload already within the limit completely untouched", async () => {
+    const { bot, sent } = await makeBot();
+    await bot._sendToChannel("111", "**<Bob>** hi there");
+    expect(sent).toEqual(["**<Bob>** hi there"]);
+  });
+});
+
 describe("LogTailer chunk boundaries", () => {
   const makeTailer = async () => {
     const { LogTailer } = await import("../services/logTailer.js");
@@ -1239,6 +1285,34 @@ describe("Discord event notifications", () => {
     await bot.sendEventNotification("serverStop");
     expect(sent).toEqual(["Server stopped", "Server stopped"]);
   }, 15000);
+
+  // bug-hunt-2026-09-18 (round: Discord bot commands and relay): {player}
+  // (and every other substituted variable) carries a raw in-game display
+  // name -- Steam names can contain backticks, asterisks, underscores, etc.
+  // -- and used to be substituted into the template verbatim, unlike
+  // handleGameChat()'s own live chat relay, which already runs both the
+  // author and the message text through escapeMarkdown(). A player named
+  // e.g. "**Trusted**" could distort a playerJoin/playerDeath/playerKick
+  // notification's formatting for everyone reading the channel.
+  it("escapes markdown smuggled in through a substituted variable's value", async () => {
+    const { bot, sent } = await makeBot({
+      playerJoin: { enabled: true, template: "{player} has joined the server!" },
+    });
+    await bot.sendEventNotification("playerJoin", { player: "**Trusted**" });
+    expect(sent[0]).toBe("\\*\\*Trusted\\*\\* has joined the server!");
+  });
+
+  // The escaping above must apply ONLY to the substituted value, never to
+  // the operator's own template -- an operator who deliberately wrote
+  // "**{player}**" in their template is asking for bold formatting AROUND
+  // the name, and that literal "**" must survive untouched.
+  it("does not escape the template's own markdown, only the substituted value", async () => {
+    const { bot, sent } = await makeBot({
+      playerJoin: { enabled: true, template: "**{player}** has joined!" },
+    });
+    await bot.sendEventNotification("playerJoin", { player: "Bob" });
+    expect(sent[0]).toBe("**Bob** has joined!");
+  });
 });
 
 describe("Discord player presence", () => {
