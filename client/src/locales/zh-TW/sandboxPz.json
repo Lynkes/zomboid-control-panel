@@ -1849,7 +1849,7 @@
           "label": "非常頻繁"
         },
         "7": {
-          "label": "Always Tries"
+          "label": "總是嘗試"
         }
       }
     },
@@ -1875,7 +1875,7 @@
           "label": "非常頻繁"
         },
         "7": {
-          "label": "Always Tries"
+          "label": "總是嘗試"
         }
       }
     }

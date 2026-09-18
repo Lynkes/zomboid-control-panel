@@ -36,7 +36,7 @@
       "debugLogs": "Debug-Protokolle",
       "panelUsers": "Panelbenutzer",
       "rolesPermissions": "Rollen und Berechtigungen",
-      "singleSignOn": "Single Sign-On"
+      "singleSignOn": "Einmalanmeldung"
     },
     "notAvailableRemote": "Nicht verfügbar für Remote-Server (nur RCON)",
     "localBadge": "Lokal",

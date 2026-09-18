@@ -3271,7 +3271,7 @@
             "label": "非常频繁"
           },
           "7": {
-            "label": "Always Tries"
+            "label": "总是尝试"
           }
         }
       },
@@ -3298,7 +3298,7 @@
             "label": "非常频繁"
           },
           "7": {
-            "label": "Always Tries"
+            "label": "总是尝试"
           }
         }
       }
