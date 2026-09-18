@@ -3628,7 +3628,7 @@ export default function Settings() {
                                   <p className="font-medium text-foreground">
                                     {t("updates.confirmBeforeContinuing")}
                                   </p>
-                                  <ul className="mt-1 list-disc space-y-1 ps-5">
+                                  <ul className="mt-1 max-h-48 list-disc space-y-1 overflow-y-auto ps-5">
                                     {translatePanelUpdateMessages(
                                       panelUpdatePreflight.warnings,
                                       panelUpdatePreflight.warningDetails,
