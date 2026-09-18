@@ -173,6 +173,32 @@ describe('Layout.tsx: nav restructured by object (SERVER/WORLD/USERS/PANEL)', ()
     }
   })
 
+  it('r22: Browse Public Servers moved from PANEL into SERVER, right after Server Setup, route/gating unchanged', async () => {
+    getAll.mockResolvedValue({ servers: [NATIVE_ACTIVE_SERVER] } as never)
+    getStatus.mockResolvedValue({ running: true } as never)
+    mockCommonFetches()
+
+    renderLayout()
+
+    await screen.findByText('the-only-server')
+
+    // Still the same route, still ungated (no capability/requiresServer).
+    expect(screen.getByRole('link', { name: 'Browse Public Servers' })).toHaveAttribute('href', '/server-finder')
+
+    // Section order is SERVER/WORLD/USERS/PANEL and each section's own items
+    // render in array order, so the full link list's document order is a
+    // structure-agnostic way to prove *which* section an item landed in --
+    // it must now sit directly after Server Setup (SERVER's last item),
+    // not after Debug Logs (PANEL's last item, where it used to be).
+    const linkNames = screen.getAllByRole('link').map((el) => el.textContent?.trim())
+    const setupIdx = linkNames.indexOf('Server Setup')
+    expect(setupIdx).toBeGreaterThan(-1)
+    expect(linkNames[setupIdx + 1]).toBe('Browse Public Servers')
+
+    const debugIdx = linkNames.indexOf('Debug Logs')
+    expect(linkNames[debugIdx + 1]).not.toBe('Browse Public Servers')
+  })
+
   it('hides Panel Users, Roles & Permissions and Single Sign-On when the role lacks their capability, shows them (linking into the matching Settings tab) when it has it', async () => {
     getAll.mockResolvedValue({ servers: [NATIVE_ACTIVE_SERVER] } as never)
     getStatus.mockResolvedValue({ running: true } as never)

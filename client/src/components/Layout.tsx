@@ -119,6 +119,7 @@ const navSections: NavSection[] = [
       { to: '/mods', icon: Package, label: 'Mod Manager', labelKey: 'nav.items.modManager', requiresServer: true, requiresLocal: true },
       { to: '/scheduler', icon: Clock, label: 'Scheduled Tasks', labelKey: 'nav.items.scheduledTasks', requiresServer: true },
       { to: '/server-setup', icon: Download, label: 'Server Setup', labelKey: 'nav.items.serverSetup' },
+      { to: '/server-finder', icon: Search, label: 'Browse Public Servers', labelKey: 'nav.items.browsePublic' },
     ]
   },
   {
@@ -164,7 +165,6 @@ const navSections: NavSection[] = [
       { to: '/settings', icon: Settings, label: 'Panel Settings', labelKey: 'nav.items.panelSettings' },
       { to: '/discord', icon: MessageSquare, label: 'Discord', labelKey: 'nav.items.discord' },
       { to: '/debug', icon: Bug, label: 'Debug Logs', labelKey: 'nav.items.debugLogs' },
-      { to: '/server-finder', icon: Search, label: 'Browse Public Servers', labelKey: 'nav.items.browsePublic' },
     ]
   },
 ]
