@@ -2322,6 +2322,27 @@ export default function Debug() {
   useEffect(() => {
     if (!socket) return;
     const handleActiveServerChanged = () => {
+      // pz-bughunt round 18 (the narrower server-switch races flagged in
+      // round 17): diagnostics.checks -- specifically the
+      // "mods.numericInMods"/"mods.orphanWorkshop" checks' own metadata
+      // (numericInMods/orphanWorkshop id lists) -- was scanned against
+      // whichever server was active when this diagnostics run finished.
+      // handleDiagnosticsFix reads those ids straight off the rendered
+      // check and writes them via modsApi.batchToggleModIds/
+      // resolveOrphanWorkshop, which resolve "the active server"
+      // server-side with no id sent -- same shape as the round-17 sweep,
+      // just one step removed (the check's OWN metadata is the stale
+      // payload, not a list row's id). fetchDiagnostics() below already
+      // refetches unconditionally (read-only data, no unsaved-edit risk --
+      // see this effect's own comment above), but that refetch takes a
+      // moment, and a Fix click during that window would still write the
+      // OLD server's ids into the NEW one. Same fix as Mods.tsx's
+      // race-window class this same round: clear the stale checks outright
+      // rather than guard the write -- nothing stale survives to be
+      // clicked, and the existing `{!diagnostics && refreshingDiagnostics}`
+      // loading state (below, in the render) already covers the gap
+      // cleanly.
+      setDiagnostics(null);
       fetchSystemInfo();
       fetchHealthStatus();
       fetchLogFiles();

@@ -2148,6 +2148,34 @@ export default function Mods() {
       setDisabledMods([])
       setIgnoredMods([])
 
+      // pz-bughunt round 18: depSearchOpen/depSearchData/depAdding/
+      // depAddResults are the SAME lifted state used by both this page's
+      // own "Active on server" inspector (handleInspectorAddDep, a few
+      // hundred lines below) and ConflictsPanel.tsx's handleAddDep (passed
+      // down as props) -- both call modsApi.addMissingDep(hit.workshopId,
+      // ...) with search hits looked up in the context of a SPECIFIC mod
+      // inside a SPECIFIC server's own conflict/dependency data. Clearing
+      // here closes the identical race-window shape for both surfaces at
+      // once, the same reasoning as the mods/disabledMods/ignoredMods
+      // clear just above.
+      setDepSearchOpen(new Set())
+      setDepSearchData({})
+      setDepAdding([])
+      setDepAddResults({})
+
+      // pz-bughunt round 18: the restart-settings dialog's editable fields
+      // (restartWarningMinutes/delayIfPlayersOnline/maxDelayMinutes) are
+      // populated from THIS server's status at fetch time (see fetchData's
+      // own setRestartWarningMinutes/etc. calls) and handleSaveRestartSettings
+      // writes them via modsApi.setRestartOptions(), which resolves "the
+      // active server" server-side with no id sent. If the dialog stays
+      // open across a switch, saving would write the OLD server's edited
+      // values into the NEW one. Same fix as Backups.tsx's own
+      // activeServerChanged handler closing its restore/delete/delete-older
+      // dialogs on this same event -- close it outright rather than add a
+      // fourth bespoke guard flag+toast for one small settings dialog.
+      setRestartSettingsOpen(false)
+
       // See pendingAddServerChanged's own comment above -- independent of
       // the reorder guard below, doesn't block fetchData() (neither dialog's
       // state is derived from iniConfig/mods, so a refetch can't discard it).

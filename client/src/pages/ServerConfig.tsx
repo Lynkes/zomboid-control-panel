@@ -2147,6 +2147,23 @@ export default function ServerConfig() {
       return
     }
 
+    // pz-bughunt round 18: saveAsTemplate() sends no ini/sandbox VALUES --
+    // the server reads whatever's currently on disk for "the active
+    // server" at save time, with no id sent. If the active server changed
+    // while this Save-as-Template dialog was open, the resulting template
+    // (named/described while looking at server A) would actually capture
+    // server B's live config -- a correctness/confusion surprise, same
+    // shape as (if lower severity than) handleSaveIni/handleSaveSandbox's
+    // own guard just above. Same flag, same toast.
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.error'),
+        description: t('toasts.serverChangedSinceLoad'),
+        variant: 'destructive',
+      })
+      return
+    }
+
     setTemplateLoading(true)
     try {
       const result = await serverFilesApi.saveAsTemplate({
@@ -4689,7 +4706,7 @@ export default function ServerConfig() {
             </Button>
             <Button
               onClick={handleSaveTemplate}
-              disabled={templateLoading || !newTemplateName.trim() || (!saveTemplateIni && !saveTemplateSandbox)}
+              disabled={templateLoading || !newTemplateName.trim() || (!saveTemplateIni && !saveTemplateSandbox) || serverChangedSinceLoad}
             >
               {templateLoading ? (
                 <Loader2 className="w-4 h-4 me-2 animate-spin" />
