@@ -306,8 +306,7 @@
     "startupCardTitle": "Demaraj Sèvè",
     "startupCardDesc": "Si panèl la lanse sèvè jwèt la pou ou.",
     "autoStartLabel": "Demare sèvè jwèt la lè panèl la demare",
-    "autoStartDesc": "Sote otomatikman lè pò RCON la deja an itilizasyon, kidonk yon sèvè ki deja ap fonksyone pa janm double. Bezwen yon chemen enstalasyon lokal; sèvè ki lame pa yon founisè demare pa founisè a.",
-    "autoStartSaveHint": "Sove ansanm ak lòt paramèt Onglè Jeneral la — sonje klike sou Anrejistre la pou aplike l. (Kaz ekivalan an sou Dashboard la sove imedyatman lè w chanje l.)"
+    "autoStartDesc": "Sote otomatikman lè pò RCON la deja an itilizasyon, kidonk yon sèvè ki deja ap fonksyone pa janm double. Bezwen yon chemen enstalasyon lokal; sèvè ki lame pa yon founisè demare pa founisè a."
   },
 
   "bridge": {
@@ -328,6 +327,9 @@
     },
     "cardTitle": "Panel Bridge",
     "cardDesc": "Konekte panèl sa a nan jwèt la an dirèk pou tan, zouti, chat pi rich, ak lòt aksyon nan mond lan",
+    "sectionStatusSetup": "Estati ak enstalasyon",
+    "sectionRemoteConfigLogs": "Konfigirasyon ak jounal a distans",
+    "sectionInstallUpdates": "Enstalasyon ak mizajou",
     "howItWorksButton": "Kijan li fonksyone",
     "dialogTitle": "Panel Bridge",
     "dialogDesc": "Yon mod Lua ki fonksyone anndan Project Zomboid, ki bay panèl sa a aksè dirèk nan mond jwèt la an dirèk.",
@@ -793,6 +795,9 @@
     "invalidHttpsPort": { "title": "Pò HTTPS Envalid", "description": "Pò HTTPS la dwe yon nonm antye ant 1 ak 65535." },
     "settingsSaved": { "title": "Paramèt Sove", "description": "Paramèt panèl ou yo sove." },
     "settingsSaveFailed": { "title": "Pa t Kapab Sove Paramèt", "fallback": "Panèl la pa t kapab sove paramèt ou yo. Eseye ankò." },
+    "autoStartEnabled": { "title": "Demaraj otomatik aktive", "description": "Sèvè a ap demare otomatikman lè panèl la lanse" },
+    "autoStartDisabled": { "title": "Demaraj otomatik dezaktive", "description": "Sèvè a pap demare otomatikman" },
+    "autoStartSaveFailed": { "title": "Sove paramèt demaraj otomatik la echwe", "fallback": "Panèl la pa t kapab sove paramèt demaraj otomatik la. Eseye ankò." },
     "corsReloaded": { "title": "Règ CORS Rechaje", "description": "Backend la rechaje paramèt CORS nan baz done a." },
     "corsReloadFailed": { "title": "Pa t Kapab Rechaje Règ CORS", "fallback": "Echwe pou rechaje règ CORS." },
     "corsLogCleared": { "title": "Jounal Orijin Bloke Efase", "description": "Orijin CORS bloke resamman yo retire nan dyagnostik yo." },

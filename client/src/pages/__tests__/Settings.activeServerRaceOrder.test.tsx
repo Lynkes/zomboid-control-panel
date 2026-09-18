@@ -169,6 +169,19 @@ function renderSettings() {
   )
 }
 
+// pz-bughunt round 21 (UX sense check, part 1): the Bridge tab's RCON
+// card (shows the active server's name/host:port -- what this whole file
+// races on) and its install-server picker now live inside collapsible
+// sections that default CLOSED ("Status & setup" is the only one open by
+// default). Radix unmounts a closed section's content entirely, so both
+// need an explicit open before this file's pre-existing assertions can
+// find them -- same DOM either way once opened, this just adds the click
+// a real operator would make first.
+async function openRconAndInstallSections() {
+  fireEvent.click(await screen.findByRole('button', { name: /remote connection/i }))
+  fireEvent.click(await screen.findByRole('button', { name: /install & updates/i }))
+}
+
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
@@ -187,6 +200,7 @@ describe('Settings.tsx: an older, slower server-list response must not overwrite
     // race), so this test isolates the race on `servers` state alone.
     getAll.mockResolvedValueOnce({ servers: [makeServer({ id: 1, name: 'Ashenwood', rconHost: '10.0.0.5', rconPort: 27015 })] })
     renderSettings()
+    await openRconAndInstallSections()
     await screen.findByText('Ashenwood')
     expect(screen.getByText('10.0.0.5:27015')).toBeInTheDocument()
 
@@ -241,6 +255,7 @@ describe('Settings.tsx: an older, slower server-list response must not overwrite
       ],
     })
     renderSettings()
+    await openRconAndInstallSections()
     await screen.findByText(/Ashenwood/)
     const select = await screen.findByRole('combobox', { name: 'install-server' })
     expect((select as HTMLSelectElement).value).toBe('')

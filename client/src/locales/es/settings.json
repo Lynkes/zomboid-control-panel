@@ -359,8 +359,7 @@
     "startupCardTitle": "Inicio del servidor",
     "startupCardDesc": "Si el panel inicia el servidor del juego por ti.",
     "autoStartLabel": "Iniciar el servidor del juego cuando se inicia el panel",
-    "autoStartDesc": "Se omite automáticamente cuando el puerto RCON ya está en uso, de modo que un servidor que ya se está ejecutando nunca se duplica. Necesita una ruta de instalación local; los servidores alojados por un proveedor los inicia el proveedor.",
-    "autoStartSaveHint": "Se guarda junto con el resto de los ajustes de la pestaña General; haz clic en Guardar allí para aplicarlo. (La casilla equivalente del panel principal se guarda de inmediato al activarla.)"
+    "autoStartDesc": "Se omite automáticamente cuando el puerto RCON ya está en uso, de modo que un servidor que ya se está ejecutando nunca se duplica. Necesita una ruta de instalación local; los servidores alojados por un proveedor los inicia el proveedor."
   },
   "bridge": {
     "checksLabels": {
@@ -380,6 +379,9 @@
     },
     "cardTitle": "Panel Bridge",
     "cardDesc": "Conecta este panel con el juego en vivo para el clima, utilidades, chat enriquecido y otras acciones dentro del mundo",
+    "sectionStatusSetup": "Estado y configuración",
+    "sectionRemoteConfigLogs": "Configuración y registros remotos",
+    "sectionInstallUpdates": "Instalación y actualizaciones",
     "howItWorksButton": "Cómo funciona",
     "dialogTitle": "Panel Bridge",
     "dialogDesc": "Un mod de Lua que se ejecuta dentro de Project Zomboid y da a este panel acceso directo al mundo del juego en vivo.",
@@ -904,6 +906,9 @@
       "title": "No se pudieron guardar los ajustes",
       "fallback": "El panel no pudo guardar tus ajustes. Inténtalo de nuevo."
     },
+    "autoStartEnabled": { "title": "Inicio automático activado", "description": "El servidor se iniciará automáticamente cuando se inicie el panel" },
+    "autoStartDisabled": { "title": "Inicio automático desactivado", "description": "El servidor no se iniciará automáticamente" },
+    "autoStartSaveFailed": { "title": "No se pudo guardar el ajuste de inicio automático", "fallback": "El panel no pudo guardar el ajuste de inicio automático. Inténtalo de nuevo." },
     "corsReloaded": {
       "title": "Reglas de CORS recargadas",
       "description": "El backend recargó los ajustes de CORS desde la base de datos."

@@ -46,6 +46,7 @@ import {
   Bookmark,
   BookmarkPlus,
   ChevronRight,
+  ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { reportClientError } from "@/lib/client-errors";
@@ -73,6 +74,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -2420,6 +2422,47 @@ export default function Settings() {
     setSettings((prev) => ({ ...prev, [key]: value }));
   };
 
+  // pz-bughunt round 21 (UX sense check, part 2): this used to update local
+  // state only, requiring the General tab's own Save button to persist it
+  // -- a split-persistence trap next to Dashboard.tsx's matching checkbox,
+  // which saves immediately (see its own handleAutoStartChange). Made this
+  // one behave the same way: optimistic update, a scoped PUT (not the
+  // whole settings object), revert both settings AND originalSettings on
+  // failure so isDirty doesn't go stale, revert on error.
+  const handleAutoStartToggle = async (checked: boolean) => {
+    if (!canSavePanelSettings) return;
+    const previous = settings.autoStartServer;
+    setSettings((prev) => ({ ...prev, autoStartServer: checked }));
+    setOriginalSettings((prev) =>
+      prev ? { ...prev, autoStartServer: checked } : prev,
+    );
+    try {
+      await configApi.updateAppSettings({ autoStartServer: checked });
+      toast({
+        title: checked
+          ? t("toasts.autoStartEnabled.title")
+          : t("toasts.autoStartDisabled.title"),
+        description: checked
+          ? t("toasts.autoStartEnabled.description")
+          : t("toasts.autoStartDisabled.description"),
+        variant: "success" as const,
+      });
+    } catch (error) {
+      setSettings((prev) => ({ ...prev, autoStartServer: previous }));
+      setOriginalSettings((prev) =>
+        prev ? { ...prev, autoStartServer: previous } : prev,
+      );
+      toast({
+        title: t("toasts.autoStartSaveFailed.title"),
+        description: getUserErrorMessage(
+          error,
+          t("toasts.autoStartSaveFailed.fallback"),
+        ),
+        variant: "destructive",
+      });
+    }
+  };
+
   // Lock-out guard: if the user disables "Allow Private/LAN Origins" while
   // "Allow All" is also off and the explicit allow-list is empty, the panel
   // will reject every browser request after the next CORS reload — including
@@ -4267,18 +4310,16 @@ export default function Settings() {
                     <p className="text-xs text-muted-foreground">
                       {t("connection.autoStartDesc")}
                     </p>
-                    <p className="text-xs text-primary/80">
-                      {t("connection.autoStartSaveHint")}
-                    </p>
                   </div>
-                  <Switch
-                    id="auto-start-server"
-                    checked={settings.autoStartServer}
-                    onCheckedChange={(value) =>
-                      updateSetting("autoStartServer", value)
-                    }
-                    aria-label={t("ariaLabels.startServerOnPanelStart")}
-                  />
+                  <DisabledReason reason={!canSavePanelSettings ? t("permissions.noPanelSettings") : null}>
+                    <Switch
+                      id="auto-start-server"
+                      checked={settings.autoStartServer}
+                      disabled={!canSavePanelSettings}
+                      onCheckedChange={(value) => handleAutoStartToggle(value)}
+                      aria-label={t("ariaLabels.startServerOnPanelStart")}
+                    />
+                  </DisabledReason>
                 </div>
               </CardContent>
             </Card>
@@ -4450,7 +4491,25 @@ export default function Settings() {
                   )}
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-3">
+                {/* pz-bughunt round 21 (UX sense check, part 1): this tab
+                    used to be one flat ~860-line space-y-4 stack in a single
+                    Card -- the operator's named worst scroll offender.
+                    Split into 4 collapsible sections (status+setup open by
+                    default; remote RCON+SFTP; remote config+logs; install
+                    and updates), same Collapsible idiom Scheduler.tsx's own
+                    Cron Help section already uses. */}
+                <Collapsible defaultOpen>
+                  <div className="rounded-xl border border-border/40 bg-card/40">
+                    <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-foreground hover:text-primary transition-colors">
+                      <span className="flex items-center gap-2">
+                        <Zap className="w-4 h-4 text-primary" />
+                        {t("bridge.sectionStatusSetup")}
+                      </span>
+                      <ChevronDown className="w-4 h-4 shrink-0 transition-transform duration-200 [[data-state=open]>&]:rotate-180" />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="space-y-4 px-4 pb-4 pt-0">
                 {/* Status Display - when connected */}
                 {bridgeStatus?.modConnected && bridgeStatus.modStatus && (
                   <Alert
@@ -4851,14 +4910,25 @@ export default function Settings() {
                     </Button>
                   </div>
                 )}
-
-                <div className="border-t border-border/60 pt-5 space-y-4">
-                  <div>
-                    <p className="text-sm font-medium">{t("bridge.remoteConnectionTitle")}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {t("bridge.remoteConnectionDesc")}
-                    </p>
+                      </div>
+                    </CollapsibleContent>
                   </div>
+                </Collapsible>
+
+                <Collapsible>
+                  <div className="rounded-xl border border-border/40 bg-card/40">
+                    <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-foreground hover:text-primary transition-colors">
+                      <span className="flex items-center gap-2">
+                        <Link className="w-4 h-4 text-primary" />
+                        {t("bridge.remoteConnectionTitle")}
+                      </span>
+                      <ChevronDown className="w-4 h-4 shrink-0 transition-transform duration-200 [[data-state=open]>&]:rotate-180" />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="space-y-4 px-4 pb-4 pt-0">
+                  <p className="text-xs text-muted-foreground">
+                    {t("bridge.remoteConnectionDesc")}
+                  </p>
 
                   {/* impeccable-2026-08-31: lg:items-start left the RCON card
                       (much shorter content -- name, host:port, one link) at
@@ -4930,6 +5000,22 @@ export default function Settings() {
                       {bridgeStatus?.transport?.type === "sftp" && <div className="space-y-1 text-xs text-muted-foreground"><p>SFTP {bridgeStatus.transport.running ? t("bridge.sftpRunning") : t("bridge.sftpStopped")}{bridgeStatus.transport.lastLatencyMs != null ? t("bridge.lastSyncSuffix", { ms: bridgeStatus.transport.lastLatencyMs }) : ""}</p>{bridgeStatus.transport.lastError && <p className="text-warning">{getSftpStatusMessage(bridgeStatus.transport)}</p>}</div>}
                     </div>
                   </div>
+                      </div>
+                    </CollapsibleContent>
+                  </div>
+                </Collapsible>
+
+                <Collapsible>
+                  <div className="rounded-xl border border-border/40 bg-card/40">
+                    <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-foreground hover:text-primary transition-colors">
+                      <span className="flex items-center gap-2">
+                        <FolderOpen className="w-4 h-4 text-primary" />
+                        {t("bridge.sectionRemoteConfigLogs")}
+                      </span>
+                      <ChevronDown className="w-4 h-4 shrink-0 transition-transform duration-200 [[data-state=open]>&]:rotate-180" />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="space-y-4 px-4 pb-4 pt-0">
 
                   <p className="text-xs text-muted-foreground">
                     <Trans t={t} i18nKey="bridge.serverLogsNote" components={{ b: <strong className="text-foreground" /> }} />
@@ -5073,7 +5159,22 @@ export default function Settings() {
                       </div>
                     )}
                   </div>
-                </div>
+                      </div>
+                    </CollapsibleContent>
+                  </div>
+                </Collapsible>
+
+                <Collapsible>
+                  <div className="rounded-xl border border-border/40 bg-card/40">
+                    <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-foreground hover:text-primary transition-colors">
+                      <span className="flex items-center gap-2">
+                        <Download className="w-4 h-4 text-primary" />
+                        {t("bridge.sectionInstallUpdates")}
+                      </span>
+                      <ChevronDown className="w-4 h-4 shrink-0 transition-transform duration-200 [[data-state=open]>&]:rotate-180" />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="space-y-4 px-4 pb-4 pt-0">
 
                 {/* Auto-update toggle */}
                 <div className="flex items-center justify-between rounded-xl border border-border/60 bg-muted/25 p-4">
@@ -5154,6 +5255,10 @@ export default function Settings() {
                     </p>
                   )}
                 </div>
+                      </div>
+                    </CollapsibleContent>
+                  </div>
+                </Collapsible>
               </CardContent>
             </Card>
           </TabsContent>

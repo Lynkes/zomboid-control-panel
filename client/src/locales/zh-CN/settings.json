@@ -359,8 +359,7 @@
     "startupCardTitle": "服务器启动",
     "startupCardDesc": "面板是否为您启动游戏服务器。",
     "autoStartLabel": "面板启动时同时启动游戏服务器",
-    "autoStartDesc": "当 RCON 端口已被占用时会自动跳过，因此已在运行的服务器不会被重复启动。需要本地安装路径；由托管服务商托管的服务器由服务商负责启动。",
-    "autoStartSaveHint": "与「常规」标签页的其余设置一起保存——需在该处点击「保存」才会生效。（仪表盘上对应的复选框在切换时会立即保存。）"
+    "autoStartDesc": "当 RCON 端口已被占用时会自动跳过，因此已在运行的服务器不会被重复启动。需要本地安装路径；由托管服务商托管的服务器由服务商负责启动。"
   },
   "bridge": {
     "checksLabels": {
@@ -380,6 +379,9 @@
     },
     "cardTitle": "PanelBridge",
     "cardDesc": "将本面板连接至游戏实时状态，用于天气、水电、丰富聊天及其他游戏内操作",
+    "sectionStatusSetup": "状态与设置",
+    "sectionRemoteConfigLogs": "远程配置与日志",
+    "sectionInstallUpdates": "安装与更新",
     "howItWorksButton": "工作原理",
     "dialogTitle": "PanelBridge",
     "dialogDesc": "一个运行于 Project Zomboid 内部的 Lua 模组，让本面板可直接访问实时游戏世界。",
@@ -902,6 +904,9 @@
       "title": "无法保存设置",
       "fallback": "面板无法保存设置，请重试。"
     },
+    "autoStartEnabled": { "title": "已启用自动启动", "description": "面板启动时服务器将自动启动" },
+    "autoStartDisabled": { "title": "已禁用自动启动", "description": "服务器将不会自动启动" },
+    "autoStartSaveFailed": { "title": "保存自动启动设置失败", "fallback": "面板无法保存自动启动设置，请重试。" },
     "corsReloaded": {
       "title": "CORS 规则已重新加载",
       "description": "后端已从数据库重新加载 CORS 设置。"

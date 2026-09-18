@@ -306,8 +306,7 @@
     "startupCardTitle": "Server Startup",
     "startupCardDesc": "Whether the panel launches the game server for you.",
     "autoStartLabel": "Start the game server when the panel starts",
-    "autoStartDesc": "Skipped automatically when the RCON port is already in use, so a server that is already running is never duplicated. Needs a local install path; servers hosted by a provider are started by the provider.",
-    "autoStartSaveHint": "Saved together with the rest of the General tab's settings -- remember to click Save there. (The matching checkbox on the Dashboard saves immediately when toggled.)"
+    "autoStartDesc": "Skipped automatically when the RCON port is already in use, so a server that is already running is never duplicated. Needs a local install path; servers hosted by a provider are started by the provider."
   },
 
   "bridge": {
@@ -328,6 +327,9 @@
     },
     "cardTitle": "Panel Bridge",
     "cardDesc": "Connects this panel to the live game for weather, utilities, richer chat, and other in-world actions",
+    "sectionStatusSetup": "Status & setup",
+    "sectionRemoteConfigLogs": "Remote config & logs",
+    "sectionInstallUpdates": "Install & updates",
     "howItWorksButton": "How it works",
     "dialogTitle": "Panel Bridge",
     "dialogDesc": "A Lua mod that runs inside Project Zomboid, giving this panel direct access to the live game world.",
@@ -793,6 +795,9 @@
     "invalidHttpsPort": { "title": "Invalid HTTPS Port", "description": "HTTPS port must be a whole number between 1 and 65535." },
     "settingsSaved": { "title": "Settings Saved", "description": "Your panel settings were saved." },
     "settingsSaveFailed": { "title": "Could Not Save Settings", "fallback": "The panel could not save your settings. Try again." },
+    "autoStartEnabled": { "title": "Auto-start enabled", "description": "Server will start automatically when the panel launches" },
+    "autoStartDisabled": { "title": "Auto-start disabled", "description": "Server will not start automatically" },
+    "autoStartSaveFailed": { "title": "Failed to save auto-start setting", "fallback": "The panel could not save the auto-start setting. Try again." },
     "corsReloaded": { "title": "CORS Rules Reloaded", "description": "The backend reloaded CORS settings from the database." },
     "corsReloadFailed": { "title": "Could Not Reload CORS Rules", "fallback": "Failed to reload CORS rules." },
     "corsLogCleared": { "title": "Blocked Origin Log Cleared", "description": "Recent blocked CORS origins were removed from diagnostics." },

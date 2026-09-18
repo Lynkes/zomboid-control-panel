@@ -359,8 +359,7 @@
     "startupCardTitle": "Serverstart",
     "startupCardDesc": "Ob das Panel den Spielserver für dich startet.",
     "autoStartLabel": "Spielserver starten, wenn das Panel startet",
-    "autoStartDesc": "Wird automatisch übersprungen, wenn der RCON-Port bereits belegt ist, damit ein bereits laufender Server nie doppelt gestartet wird. Erfordert einen lokalen Installationspfad; von einem Anbieter gehostete Server werden vom Anbieter gestartet.",
-    "autoStartSaveHint": "Wird zusammen mit den übrigen Einstellungen des Tabs „Allgemein“ gespeichert – dort auf Speichern klicken, um es zu übernehmen. (Das entsprechende Kontrollkästchen im Dashboard speichert sofort beim Umschalten.)"
+    "autoStartDesc": "Wird automatisch übersprungen, wenn der RCON-Port bereits belegt ist, damit ein bereits laufender Server nie doppelt gestartet wird. Erfordert einen lokalen Installationspfad; von einem Anbieter gehostete Server werden vom Anbieter gestartet."
   },
   "bridge": {
     "checksLabels": {
@@ -380,6 +379,9 @@
     },
     "cardTitle": "PanelBridge",
     "cardDesc": "Verbindet dieses Panel mit dem laufenden Spiel für Wetter, Versorgung, erweiterten Chat und weitere Aktionen in der Spielwelt",
+    "sectionStatusSetup": "Status & Einrichtung",
+    "sectionRemoteConfigLogs": "Remote-Konfiguration & Protokolle",
+    "sectionInstallUpdates": "Installation & Updates",
     "howItWorksButton": "Funktionsweise",
     "dialogTitle": "PanelBridge",
     "dialogDesc": "Eine Lua-Mod, die innerhalb von Project Zomboid läuft und diesem Panel direkten Zugriff auf die laufende Spielwelt gibt.",
@@ -902,6 +904,9 @@
       "title": "Einstellungen konnten nicht gespeichert werden",
       "fallback": "Das Panel konnte deine Einstellungen nicht speichern. Versuche es erneut."
     },
+    "autoStartEnabled": { "title": "Autostart aktiviert", "description": "Server startet automatisch, wenn das Panel gestartet wird" },
+    "autoStartDisabled": { "title": "Autostart deaktiviert", "description": "Server startet nicht automatisch" },
+    "autoStartSaveFailed": { "title": "Autostart-Einstellung konnte nicht gespeichert werden", "fallback": "Das Panel konnte die Autostart-Einstellung nicht speichern. Versuche es erneut." },
     "corsReloaded": {
       "title": "CORS-Regeln neu geladen",
       "description": "Das Backend hat die CORS-Einstellungen aus der Datenbank neu geladen."

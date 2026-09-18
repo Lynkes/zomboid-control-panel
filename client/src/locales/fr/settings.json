@@ -359,8 +359,7 @@
     "startupCardTitle": "Démarrage du serveur",
     "startupCardDesc": "Si le panneau lance le serveur de jeu pour vous.",
     "autoStartLabel": "Démarrer le serveur de jeu au démarrage du panneau",
-    "autoStartDesc": "Ignoré automatiquement lorsque le port RCON est déjà utilisé, pour qu'un serveur déjà en cours d'exécution ne soit jamais dupliqué. Nécessite un chemin d'installation local ; les serveurs hébergés par un fournisseur sont démarrés par le fournisseur.",
-    "autoStartSaveHint": "Enregistré avec le reste des paramètres de l'onglet Général ; cliquez sur Enregistrer là-bas pour l'appliquer. (La case à cocher équivalente du tableau de bord s'enregistre immédiatement lors du basculement.)"
+    "autoStartDesc": "Ignoré automatiquement lorsque le port RCON est déjà utilisé, pour qu'un serveur déjà en cours d'exécution ne soit jamais dupliqué. Nécessite un chemin d'installation local ; les serveurs hébergés par un fournisseur sont démarrés par le fournisseur."
   },
   "bridge": {
     "checksLabels": {
@@ -380,6 +379,9 @@
     },
     "cardTitle": "Panel Bridge",
     "cardDesc": "Connecte ce panneau au jeu en direct pour la météo, les utilitaires, un chat enrichi et d'autres actions in-jeu",
+    "sectionStatusSetup": "État et configuration",
+    "sectionRemoteConfigLogs": "Configuration et journaux distants",
+    "sectionInstallUpdates": "Installation et mises à jour",
     "howItWorksButton": "Comment ça marche",
     "dialogTitle": "Panel Bridge",
     "dialogDesc": "Un mod Lua qui s'exécute dans Project Zomboid, donnant à ce panneau un accès direct au monde du jeu en direct.",
@@ -904,6 +906,9 @@
       "title": "Impossible d'enregistrer les paramètres",
       "fallback": "Le panneau n'a pas pu enregistrer vos paramètres. Réessayez."
     },
+    "autoStartEnabled": { "title": "Démarrage automatique activé", "description": "Le serveur démarrera automatiquement au lancement du panneau" },
+    "autoStartDisabled": { "title": "Démarrage automatique désactivé", "description": "Le serveur ne démarrera pas automatiquement" },
+    "autoStartSaveFailed": { "title": "Échec de l'enregistrement du paramètre de démarrage automatique", "fallback": "Le panneau n'a pas pu enregistrer le paramètre de démarrage automatique. Réessayez." },
     "corsReloaded": {
       "title": "Règles CORS rechargées",
       "description": "Le backend a rechargé les paramètres CORS depuis la base de données."
