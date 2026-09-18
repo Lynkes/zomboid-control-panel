@@ -16,7 +16,9 @@
     "remoteTitle": "Registro del servidor no disponible para servidores remotos",
     "remoteDesc": "Los servidores remotos solo exponen RCON. La pestaña RCON permite ejecutar comandos en vivo.",
     "notConfiguredTitle": "Ruta del registro del servidor sin configurar",
-    "notConfiguredDesc": "Configurar primero la ruta de instalación del servidor o la ruta de datos de Zomboid en Mis servidores."
+    "notConfiguredDesc": "Configurar primero la ruta de instalación del servidor o la ruta de datos de Zomboid en Mis servidores.",
+    "noPermissionTitle": "Registro del servidor no disponible para este rol",
+    "noPermissionDesc": "Leer el registro del servidor requiere el permiso server.world_events, que este rol no tiene. Pide acceso a un administrador."
   },
   "serverLog": {
     "pathLabel": "ruta",
@@ -106,6 +108,9 @@
     "noPermission": "Tu rol no tiene permiso para ejecutar comandos RCON.",
     "disconnectedUseRecheck": "RCON no está disponible en este momento -- selecciona \"Volver a comprobar\" arriba antes de intentarlo de nuevo.",
     "recheckNoPermission": "Volver a comprobar la conexión RCON requiere el permiso server.configure, que este rol no tiene.",
+    "destructiveConfirmTitle": "¿Ejecutar «{{command}}» en {{server}}?",
+    "destructiveConfirmDesc": "Este comando sin procesar se envía directamente al servidor en marcha en cuanto lo confirmes. Puede desconectar jugadores, cambiar quién puede acceder al servidor, modificar su configuración o apagarlo, y la mayoría de estos efectos no se pueden deshacer desde esta consola.",
+    "destructiveConfirmButton": "Ejecutar comando",
     "entries_many": "{{count}} entradas"
   },
   "quickCommands": {

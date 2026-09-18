@@ -16,7 +16,9 @@
     "remoteTitle": "Jounal sèvè pa disponib pou sèvè aleka",
     "remoteDesc": "Sèvè aleka montre RCON sèlman. Itilize onglè RCON la pou kòmand an dirèk.",
     "notConfiguredTitle": "Chemen jounal sèvè pa konfigire",
-    "notConfiguredDesc": "Defini chemen enstalasyon sèvè a oswa chemen done Zomboid la nan Sèvè m yo dabò."
+    "notConfiguredDesc": "Defini chemen enstalasyon sèvè a oswa chemen done Zomboid la nan Sèvè m yo dabò.",
+    "noPermissionTitle": "Jounal sèvè a pa disponib pou wòl sa a",
+    "noPermissionDesc": "Li jounal sèvè a mande pèmisyon server.world_events, ki pa gen nan wòl sa a. Mande yon administratè pou ba w aksè."
   },
   "serverLog": {
     "pathLabel": "chemen",
@@ -103,7 +105,10 @@
     "noResponseFallback": "Pa gen repons",
     "noPermission": "Wòl ou pa gen pèmisyon pou egzekite kòmand RCON.",
     "disconnectedUseRecheck": "RCON pa aksesib kounye a -- chwazi \"Tcheke ankò\" anwo a anvan w eseye ankò.",
-    "recheckNoPermission": "Tcheke koneksyon RCON ankò mande pèmisyon server.configure, ki pa gen nan wòl sa a."
+    "recheckNoPermission": "Tcheke koneksyon RCON ankò mande pèmisyon server.configure, ki pa gen nan wòl sa a.",
+    "destructiveConfirmTitle": "Egzekite « {{command}} » sou {{server}} ?",
+    "destructiveConfirmDesc": "Kòmand brit sa a ale dirèkteman sou sèvè k ap mache a le ou konfime. Li ka dekonekte jwè yo, chanje ki moun ki gen dwa antre sou sèvè a, modifye paramèt li yo oswa fèmen li, e pifò efè sa yo pa ka anile depi konsòl sa a.",
+    "destructiveConfirmButton": "Egzekite kòmand la"
   },
   "quickCommands": {
     "players": "Jwè",

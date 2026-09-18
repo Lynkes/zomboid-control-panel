@@ -16,7 +16,9 @@
     "remoteTitle": "Journal du serveur indisponible pour les serveurs distants",
     "remoteDesc": "Les serveurs distants n'exposent que le RCON. Utilisez l'onglet RCON pour les commandes en direct.",
     "notConfiguredTitle": "Chemin du journal du serveur non configuré",
-    "notConfiguredDesc": "Définissez d'abord le chemin d'installation du serveur ou le chemin des données Zomboid dans Mes serveurs."
+    "notConfiguredDesc": "Définissez d'abord le chemin d'installation du serveur ou le chemin des données Zomboid dans Mes serveurs.",
+    "noPermissionTitle": "Journal du serveur indisponible pour ce rôle",
+    "noPermissionDesc": "Lire le journal du serveur nécessite la permission server.world_events, que ce rôle n'a pas. Demandez l'accès à un administrateur."
   },
   "serverLog": {
     "pathLabel": "chemin",
@@ -106,6 +108,9 @@
     "noPermission": "Votre rôle n'a pas la permission d'exécuter des commandes RCON.",
     "disconnectedUseRecheck": "RCON est actuellement inaccessible -- sélectionnez « Revérifier » ci-dessus avant de réessayer.",
     "recheckNoPermission": "Revérifier la connexion RCON nécessite la permission server.configure, que ce rôle n'a pas.",
+    "destructiveConfirmTitle": "Exécuter « {{command}} » sur {{server}} ?",
+    "destructiveConfirmDesc": "Cette commande brute est envoyée directement au serveur en cours d'exécution dès que vous confirmez. Elle peut déconnecter des joueurs, modifier qui peut accéder au serveur, changer ses paramètres ou l'arrêter, et la plupart de ces effets ne peuvent pas être annulés depuis cette console.",
+    "destructiveConfirmButton": "Exécuter la commande",
     "entries_many": "{{count}} entrées"
   },
   "quickCommands": {

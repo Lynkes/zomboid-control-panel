@@ -34,7 +34,9 @@
     "remoteTitle": "سجل الخادم غير متاح للخوادم البعيدة",
     "remoteDesc": "الخوادم البعيدة تتيح RCON فقط. استخدم تبويب RCON للأوامر المباشرة.",
     "notConfiguredTitle": "مسار سجل الخادم غير مُهيّأ",
-    "notConfiguredDesc": "حدّد مسار تثبيت الخادم أو مسار بيانات Zomboid في «خوادمي» أولًا."
+    "notConfiguredDesc": "حدّد مسار تثبيت الخادم أو مسار بيانات Zomboid في «خوادمي» أولًا.",
+    "noPermissionTitle": "سجل الخادم غير متاح لهذا الدور",
+    "noPermissionDesc": "تتطلب قراءة سجل الخادم صلاحية server.world_events، وهذا الدور لا يملكها. اطلب الوصول من أحد المسؤولين."
   },
   "serverLog": {
     "pathLabel": "المسار",
@@ -130,6 +132,9 @@
     "noPermission": "دورك لا يملك صلاحية تنفيذ أوامر RCON.",
     "disconnectedUseRecheck": "تعذّر الوصول إلى RCON حاليًا — اختر «إعادة فحص» أعلاه قبل المحاولة مجددًا.",
     "recheckNoPermission": "تتطلب إعادة فحص اتصال RCON صلاحية server.configure، وهذا الدور لا يملكها.",
+    "destructiveConfirmTitle": "هل تريد تنفيذ «{{command}}» على {{server}}؟",
+    "destructiveConfirmDesc": "يُرسل هذا الأمر الخام مباشرةً إلى الخادم الحي بمجرد التأكيد. قد يفصل اللاعبين، أو يغيّر من يحق له دخول الخادم، أو يعدّل إعداداته، أو يوقفه، ولا يمكن التراجع عن معظم هذه التأثيرات من وحدة التحكم هذه.",
+    "destructiveConfirmButton": "تنفيذ الأمر",
     "entries_zero": "الإدخالات: {{count}}",
     "entries_two": "الإدخالات: {{count}}",
     "entries_few": "الإدخالات: {{count}}",

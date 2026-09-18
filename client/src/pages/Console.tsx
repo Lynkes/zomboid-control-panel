@@ -51,6 +51,10 @@ interface RconResponse {
   command: string
   response: string
   success: boolean
+  // The server the command ran against (server/routes/rcon.js). The
+  // "rcon-live" room is global, so this is what tells one server's output
+  // apart from another's.
+  serverId?: string | number | null
   timestamp: string
 }
 
@@ -215,6 +219,40 @@ const quickCommandDefs = [
   { key: 'help', command: 'help' },
 ] as const
 
+// Raw RCON commands that disconnect players, change who can access the server,
+// rewrite its settings, delete world data or stop it -- most cannot be undone
+// from this console. Names checked with javap against projectzomboid.jar
+// (zombie.commands.serverCommands.*, @CommandName/@CommandNames aliases
+// included: `kick` and `kickuser` are the same command). Typing one of these
+// asks for a confirmation that names the command and the target server first.
+const DESTRUCTIVE_RCON_COMMANDS: ReadonlySet<string> = new Set([
+  'quit',
+  'kick',
+  'kickuser',
+  'banuser',
+  'banid',
+  'banip',
+  'removeuserfromwhitelist',
+  'removesteamid',
+  'changeoption',
+  'setaccesslevel',
+  'grantadmin',
+  'removeadmin',
+  'setpassword',
+  'remove',
+  'removezombies',
+  'removeitem',
+  'removemapsymbolsforuser',
+  'releasesafehouse',
+  'kickfromsafehouse',
+])
+
+// The command word PZ dispatches on: first whitespace-delimited token, an
+// optional leading `/` (in-game chat style) dropped, case-insensitive.
+function getRconCommandName(commandLine: string): string {
+  return (commandLine.trim().replace(/^\/+/, '').split(/\s+/)[0] ?? '').toLowerCase()
+}
+
 function getQuickCommands(t: TFunction<'console'>) {
   return quickCommandDefs.map(({ key, command }) => ({ label: t(`quickCommands.${key}`), command }))
 }
@@ -363,6 +401,12 @@ export default function Console() {
   // permission check at all, so a role holding rcon.execute but not
   // server.configure saw it fully enabled and only found out with a 403.
   const canConfigureServer = can('server.configure')
+  // GET /server/console-log and /console-log/stream (server/routes/server.js)
+  // require server.world_events. A role without it used to poll them every 2s
+  // anyway, collecting a 403 each time and, after three, a "stream
+  // unavailable" banner that blamed the stream instead of the missing
+  // permission.
+  const canViewServerLog = can('server.world_events')
 
   // Server Console Log state
   const [serverLogLines, setServerLogLines] = useState<string[]>([])
@@ -391,6 +435,12 @@ export default function Console() {
   // lines, command history, RCON status and log offset on screen (and the
   // stream polling the new server's file from the old server's byte offset).
   const activeServerId = activeServer?.id ?? null
+  // Read by the socket listener below, which is registered once per socket and
+  // would otherwise close over the server that was active when it was created.
+  const activeServerIdRef = useRef<string | number | null>(activeServerId)
+  useEffect(() => {
+    activeServerIdRef.current = activeServerId
+  }, [activeServerId])
   // One guard per fetch flow (see useRequestGuard): a response that lands after
   // a newer call for the same flow started -- typically one issued for the
   // server that was active a moment ago -- is dropped instead of applied.
@@ -401,8 +451,16 @@ export default function Console() {
   // response requested before that moment is ignored.
   const serverLogGenerationRef = useRef(0)
   const hasServerLogSource = !!activeServer && !activeServer.isRemote && Boolean(activeServer.zomboidDataPath || activeServer.installPath)
+  // A readable log needs a source AND the capability to read it; everything
+  // that fetches or polls keys on this, not on the source alone.
+  const canPollServerLog = hasServerLogSource && canViewServerLog
   const hasRconConfig = !!activeServer && Boolean(activeServer.rconHost && activeServer.rconPort && activeServer.rconPassword)
-  const serverLogUnavailable = !hasServerLogSource
+  const serverLogUnavailable = !canViewServerLog
+    ? {
+        title: t('unavailable.noPermissionTitle'),
+        description: t('unavailable.noPermissionDesc'),
+      }
+    : !hasServerLogSource
     ? activeServer?.isRemote
       ? {
           title: t('unavailable.remoteTitle'),
@@ -578,7 +636,7 @@ export default function Console() {
   // Server Console Log functions
   const fetchServerLog = useCallback(async (initial = false) => {
     const generation = serverLogGenerationRef.current
-    if (!hasServerLogSource) {
+    if (!canPollServerLog) {
       if (initial) {
         setServerLogLines([])
         setServerLogSize(0)
@@ -634,7 +692,7 @@ export default function Console() {
     } finally {
       if (generation === serverLogGenerationRef.current) setServerLogLoading(false)
     }
-  }, [hasServerLogSource, t])
+  }, [canPollServerLog, t])
 
   const clearServerLog = async () => {
     // POST /server/console-log/clear is gated server-side on server.configure
@@ -671,6 +729,15 @@ export default function Console() {
       await serverApi.clearConsoleLog()
       setServerLogLines([])
       setServerLogSize(0)
+      // The file is empty again, so the stream offset restarts at 0. Left at
+      // the pre-clear size, the next poll asked for bytes past the end of the
+      // shrunk file and only recovered through the server's "rotated"
+      // fallback, which replaces the whole view. Bumping the generation drops
+      // any poll already in flight for the old offset (it would otherwise put
+      // the stale size back).
+      serverLogSizeRef.current = 0
+      serverLogGenerationRef.current += 1
+      setServerLogLoading(false)
       toast({
         title: t('toasts.logClearedTitle'),
         description: t('toasts.logClearedDesc'),
@@ -725,7 +792,7 @@ export default function Console() {
     // Any response requested before this (re)start belongs to the previous
     // server / source and must not be applied -- see serverLogGenerationRef.
     serverLogGenerationRef.current += 1
-    if (!hasServerLogSource) {
+    if (!canPollServerLog) {
       if (serverLogIntervalRef.current) {
         clearInterval(serverLogIntervalRef.current)
         serverLogIntervalRef.current = null
@@ -750,7 +817,7 @@ export default function Console() {
         serverLogIntervalRef.current = null
       }
     }
-  }, [fetchServerLog, hasServerLogSource, activeServerId])
+  }, [fetchServerLog, canPollServerLog, activeServerId])
 
   // Auto-scroll server log
   useEffect(() => {
@@ -780,6 +847,9 @@ export default function Console() {
   useEffect(() => {
     if (socket) {
       const handleRconResponse = (data: RconResponse) => {
+        // "rcon-live" is one global room: an /execute against another server
+        // reaches this page too. Untagged events (no serverId) are kept.
+        if (data.serverId != null && String(data.serverId) !== String(activeServerIdRef.current)) return
         const entry = { ...data, _id: ++liveLogIdRef.current } as RconResponse & { _id: number }
         setLiveLog(prev => [...prev, entry].slice(-100))
         // This event broadcasts to the whole "rcon-live" room for EVERY
@@ -852,6 +922,23 @@ export default function Console() {
     if (!command.trim()) return
     if (!canExecuteRcon) return
     if (warnIfServerChanged()) return
+
+    // Destructive raw commands (quit, banuser, changeoption, ...) run the
+    // instant Enter is pressed, on whichever server the backend has active --
+    // ask first, naming both the command and the server. Only the command
+    // word goes in the dialog: the arguments can carry secrets (setpassword).
+    const commandName = getRconCommandName(command)
+    if (DESTRUCTIVE_RCON_COMMANDS.has(commandName)) {
+      const confirmed = await confirm({
+        title: t('rcon.destructiveConfirmTitle', { command: commandName, server: activeServer?.name || '' }),
+        description: t('rcon.destructiveConfirmDesc'),
+        confirmLabel: t('rcon.destructiveConfirmButton'),
+      })
+      if (!confirmed) return
+      // The dialog can sit open while the active server changes -- same
+      // window clearServerLog() re-checks after its own confirm().
+      if (warnIfServerChanged()) return
+    }
 
     setLoading(true)
     try {

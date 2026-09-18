@@ -16,7 +16,9 @@
     "remoteTitle": "Serverprotokoll für Remoteserver nicht verfügbar",
     "remoteDesc": "Remoteserver stellen nur RCON bereit. Verwende den RCON-Tab für Live-Befehle.",
     "notConfiguredTitle": "Serverprotokollpfad nicht konfiguriert",
-    "notConfiguredDesc": "Lege zuerst den Installationspfad des Servers oder den Zomboid-Datenpfad in Meine Server fest."
+    "notConfiguredDesc": "Lege zuerst den Installationspfad des Servers oder den Zomboid-Datenpfad in Meine Server fest.",
+    "noPermissionTitle": "Serverprotokoll für diese Rolle nicht verfügbar",
+    "noPermissionDesc": "Zum Lesen des Serverprotokolls ist die Berechtigung server.world_events erforderlich, die diese Rolle nicht hat. Bitte einen Administrator um Zugriff."
   },
   "serverLog": {
     "pathLabel": "Pfad",
@@ -103,7 +105,10 @@
     "noResponseFallback": "Keine Antwort",
     "noPermission": "Ihre Rolle hat keine Berechtigung, RCON-Befehle auszuführen.",
     "disconnectedUseRecheck": "RCON ist derzeit nicht erreichbar -- wähle oben \"Erneut prüfen\", bevor du es erneut versuchst.",
-    "recheckNoPermission": "Die RCON-Verbindung erneut zu prüfen erfordert die Berechtigung server.configure, die diese Rolle nicht hat."
+    "recheckNoPermission": "Die RCON-Verbindung erneut zu prüfen erfordert die Berechtigung server.configure, die diese Rolle nicht hat.",
+    "destructiveConfirmTitle": "„{{command}}“ auf {{server}} ausführen?",
+    "destructiveConfirmDesc": "Dieser Rohbefehl geht sofort nach der Bestätigung an den laufenden Server. Er kann Spieler trennen, den Serverzugang ändern, Einstellungen umstellen oder den Server herunterfahren – die meisten dieser Auswirkungen lassen sich von dieser Konsole aus nicht rückgängig machen.",
+    "destructiveConfirmButton": "Befehl ausführen"
   },
   "quickCommands": {
     "players": "Spieler",

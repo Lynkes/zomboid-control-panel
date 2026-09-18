@@ -16,7 +16,9 @@
     "remoteTitle": "Server log unavailable for remote servers",
     "remoteDesc": "Remote servers expose RCON only. Use the RCON tab for live commands.",
     "notConfiguredTitle": "Server log path not configured",
-    "notConfiguredDesc": "Set the server install path or Zomboid data path in My Servers first."
+    "notConfiguredDesc": "Set the server install path or Zomboid data path in My Servers first.",
+    "noPermissionTitle": "Server log not available to this role",
+    "noPermissionDesc": "Reading the server log requires the server.world_events permission, which this role doesn't have. Ask an administrator for access."
   },
   "serverLog": {
     "pathLabel": "path",
@@ -103,7 +105,10 @@
     "noResponseFallback": "No response",
     "noPermission": "Your role doesn't have permission to run RCON commands.",
     "disconnectedUseRecheck": "RCON is currently unreachable -- select Recheck above before trying again.",
-    "recheckNoPermission": "Rechecking the RCON connection requires the server.configure permission, which this role doesn't have."
+    "recheckNoPermission": "Rechecking the RCON connection requires the server.configure permission, which this role doesn't have.",
+    "destructiveConfirmTitle": "Run \"{{command}}\" on {{server}}?",
+    "destructiveConfirmDesc": "This raw command goes straight to the live server as soon as you confirm. It can disconnect players, change who may access the server, alter its settings or shut it down, and most of these effects cannot be undone from this console.",
+    "destructiveConfirmButton": "Run command"
   },
   "quickCommands": {
     "players": "Players",

@@ -16,7 +16,9 @@
     "remoteTitle": "远程服务器不支持服务器日志",
     "remoteDesc": "远程服务器仅提供 RCON，如需实时命令，使用 RCON 标签页。",
     "notConfiguredTitle": "未配置服务器日志路径",
-    "notConfiguredDesc": "先在「我的服务器」中设置服务器安装路径或 Zomboid 数据路径。"
+    "notConfiguredDesc": "先在「我的服务器」中设置服务器安装路径或 Zomboid 数据路径。",
+    "noPermissionTitle": "此角色无法查看服务器日志",
+    "noPermissionDesc": "读取服务器日志需要 server.world_events 权限，此角色没有该权限。请向管理员申请访问权限。"
   },
   "serverLog": {
     "pathLabel": "路径",
@@ -103,7 +105,10 @@
     "noResponseFallback": "无响应",
     "noPermission": "您的角色没有执行 RCON 命令的权限。",
     "disconnectedUseRecheck": "RCON 当前无法访问 -- 请先点击上方的\"重新检查\"，然后再试一次。",
-    "recheckNoPermission": "重新检查 RCON 连接需要 server.configure 权限，此角色没有该权限。"
+    "recheckNoPermission": "重新检查 RCON 连接需要 server.configure 权限，此角色没有该权限。",
+    "destructiveConfirmTitle": "要在 {{server}} 上执行“{{command}}”吗？",
+    "destructiveConfirmDesc": "确认后，此原始命令会立即发送到正在运行的服务器。它可能会断开玩家连接、更改谁可以访问服务器、修改服务器设置或将其关闭，其中大多数影响无法通过此控制台撤销。",
+    "destructiveConfirmButton": "执行命令"
   },
   "quickCommands": {
     "players": "玩家",
