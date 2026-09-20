@@ -9,8 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+_No unreleased changes._
+
+## [1.3.8] - 2026-09-20
+
+### Added
+
 - **A save-backed Leaderboard page now ranks survivors by days survived, current and all-time zombie kills, deaths, and favorite weapon.** PanelBridge collects lightweight telemetry in the world save, keeps offline survivors visible, and the page adds searchable rankings, podium highlights, live/offline presence, stale-data handling, and automatic refresh.
 - **Haitian Creole now meets the sandbox translation readiness gate.** Its 733 sandbox labels retain the full key set, with 720 translated values and only numeric/game placeholders left unchanged, so Kreyòl is offered in the language picker again.
+
+### Fixed
+
+- **Weather command units are explicit and tested.** The RCON rain path converts its 0-1 client fraction to Project Zomboid's integer 1-100 `startrain` argument exactly once, while PanelBridge climate controls keep their 0-1 contract.
 
 ## [1.3.7] - 2026-09-18
 
