@@ -33,7 +33,7 @@ export const LANGUAGES: LanguageDef[] = [
   { code: 'zh-TW', nativeName: '繁體中文' },
   { code: 'es', nativeName: 'Español' },
   { code: 'de', nativeName: 'Deutsch' },
-  { code: 'ht', nativeName: 'Kreyòl ayisyen', hidden: true },
+  { code: 'ht', nativeName: 'Kreyòl ayisyen' },
   { code: 'uk', nativeName: 'Українська' },
   { code: 'ar', nativeName: 'العربية', dir: 'rtl' },
 ]

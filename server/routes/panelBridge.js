@@ -118,6 +118,7 @@ export const VALID_ACTIONS = new Set([
   "getWorldStats",
   "getPlayerDetails",
   "getAllPlayerDetails",
+  "getLeaderboard",
   "healPlayer",
   "killPlayer",
   "teleportPlayer",
@@ -2371,6 +2372,23 @@ router.get("/players", requirePermission("players.gm_tools"), async (req, res) =
   }
 });
 
+router.get("/leaderboard", requirePermission("players.view"), async (req, res) => {
+  if (!bridge.isRunning) {
+    return res
+      .status(400)
+      .json({
+        error: "Bridge not running. Start it first.",
+        code: ErrorCode.BRIDGE_NOT_RUNNING,
+      });
+  }
+  try {
+    const result = await bridge.getLeaderboard();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
 router.get("/players/:username", requirePermission("players.gm_tools"), async (req, res) => {
   if (!bridge.isRunning) {
     return res
@@ -2700,6 +2718,11 @@ router.get("/commands", (req, res) => {
       {
         action: "getAllPlayerDetails",
         description: "Get detailed info for all online players",
+        args: {},
+      },
+      {
+        action: "getLeaderboard",
+        description: "Get persisted player leaderboard statistics",
         args: {},
       },
       {

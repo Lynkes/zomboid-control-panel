@@ -36,7 +36,8 @@
       "debugLogs": "Jounal Debogaj",
       "panelUsers": "Itilizatè Panèl",
       "rolesPermissions": "Wòl ak Otorizasyon",
-      "singleSignOn": "Yon Sèl Koneksyon"
+      "singleSignOn": "Yon Sèl Koneksyon",
+      "leaderboard": "Klasman"
     },
     "notAvailableRemote": "Pa disponib pou sèvè aleka (RCON sèlman)",
     "localBadge": "Lokal",

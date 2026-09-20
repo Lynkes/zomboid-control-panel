@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   Gauge,
   Users,
+  Trophy,
   Terminal,
   Clock,
   Package,
@@ -144,6 +145,7 @@ const navSections: NavSection[] = [
     color: 'emerald',
     items: [
       { to: '/players', icon: Users, label: 'Online Players', labelKey: 'nav.items.onlinePlayers', requiresServer: true },
+      { to: '/leaderboard', icon: Trophy, label: 'Leaderboard', labelKey: 'nav.items.leaderboard', requiresServer: true },
       { to: '/chat', icon: MessagesSquare, label: 'In-Game Chat', labelKey: 'nav.items.inGameChat', requiresServer: true },
       // Panel Users/Roles & Permissions/Single Sign-On: no dedicated route
       // (route paths must stay stable) -- these point straight at the same

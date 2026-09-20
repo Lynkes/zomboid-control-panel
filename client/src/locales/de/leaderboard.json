@@ -1,0 +1,15 @@
+{
+  "page": { "title": "Rangliste", "description": "Eine leichte Server-Rangliste fur Uberleben, Kills, Tode und Waffenbeherrschung.", "eyebrow": "// LIVE · UBERLEBENSRANGLISTE" },
+  "bridge": { "summary": "Liest die in der Welt gespeicherte PanelBridge-Rangliste." },
+  "actions": { "refresh": "Aktualisieren", "retry": "Erneut versuchen" },
+  "metrics": { "ariaLabel": "Ranglistenmetrik", "days": "Uberlebte Tage", "currentKills": "Aktuelle Kills", "allTimeKills": "Kills insgesamt", "deaths": "Tode", "weapon": "Waffenbeherrschung" },
+  "summary": { "players": "Spieler", "playersDetail": "{{online}} jetzt online", "allTimeKills": "Kills insgesamt", "allTimeKillsDetail": "Uber alle erfassten Uberlebenden", "deaths": "Tode insgesamt", "deathsDetail": "Verlorene Leben auf diesem Server", "leader": "Aktueller Spitzenreiter", "noLeader": "Kein Spieler bewertet" },
+  "podium": { "title": "Die Rangliste", "subtitle": "Sortiert nach {{metric}}" },
+  "trackingSince": "Erfasst seit {{date}}",
+  "table": { "title": "Alle Uberlebenden", "updated": "Aktualisiert {{date}}", "waitingForUpdate": "Warte auf die erste Live-Abfrage", "search": "Uberlebende suchen...", "searchAria": "Rangliste durchsuchen", "player": "Uberlebender", "days": "Beste Tage", "currentKills": "Aktuelle Kills", "allTimeKills": "Kills insgesamt", "deaths": "Tode", "weapon": "Lieblingswaffe", "online": "Online", "offline": "Offline", "currentDaysTitle": "Aktuelles Leben: {{value}} Tage", "noMatchesTitle": "Keine passenden Uberlebenden", "noMatchesDescription": "Versuche einen anderen Namen oder eine andere Waffe." },
+  "stale": { "title": "Letzte bekannte Rangliste wird angezeigt" },
+  "footer": { "refreshRate": "Aktualisierung alle 30 Sekunden", "historyNote": "Die Gesamtaufzeichnung beginnt, sobald PanelBridge sammelt." },
+  "errors": { "title": "Rangliste nicht verfugbar", "load": "Die PanelBridge-Rangliste konnte nicht gelesen werden.", "unexpected": "Die Rangliste hat eine unerwartete Antwort geliefert." },
+  "empty": { "title": "Noch keine Uberlebenden", "description": "Verbinde einen Spieler, um die Rangliste zu starten. PanelBridge speichert sie in der Welt." },
+  "loading": "Rangliste wird geladen"
+}

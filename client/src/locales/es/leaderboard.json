@@ -1,0 +1,15 @@
+{
+  "page": { "title": "Clasificacion", "description": "Una clasificacion ligera del servidor para supervivencia, bajas, muertes y dominio de armas.", "eyebrow": "// EN DIRECTO · CLASIFICACION DE SUPERVIVENCIA" },
+  "bridge": { "summary": "Lee la clasificacion de PanelBridge guardada en el mundo." },
+  "actions": { "refresh": "Actualizar", "retry": "Reintentar" },
+  "metrics": { "ariaLabel": "Metrica de clasificacion", "days": "Dias sobrevividos", "currentKills": "Bajas actuales", "allTimeKills": "Bajas totales", "deaths": "Muertes", "weapon": "Dominio de armas" },
+  "summary": { "players": "Jugadores", "playersDetail": "{{online}} conectados", "allTimeKills": "Bajas totales", "allTimeKillsDetail": "Entre los supervivientes registrados", "deaths": "Muertes totales", "deathsDetail": "Vidas perdidas en este servidor", "leader": "Lider actual", "noLeader": "Ningun jugador clasificado" },
+  "podium": { "title": "La tabla", "subtitle": "Ordenado por {{metric}}" },
+  "trackingSince": "Seguimiento desde {{date}}",
+  "table": { "title": "Todos los supervivientes", "updated": "Actualizado {{date}}", "waitingForUpdate": "Esperando la primera lectura", "search": "Buscar supervivientes...", "searchAria": "Buscar en la clasificacion", "player": "Superviviente", "days": "Mejores dias", "currentKills": "Bajas actuales", "allTimeKills": "Bajas totales", "deaths": "Muertes", "weapon": "Arma favorita", "online": "En linea", "offline": "Desconectado", "currentDaysTitle": "Vida actual: {{value}} dias", "noMatchesTitle": "No hay supervivientes", "noMatchesDescription": "Prueba con otro nombre o arma." },
+  "stale": { "title": "Mostrando la ultima tabla conocida" },
+  "footer": { "refreshRate": "Se actualiza cada 30 segundos", "historyNote": "El seguimiento total comienza cuando PanelBridge empieza a recopilar." },
+  "errors": { "title": "Clasificacion no disponible", "load": "No se pudo leer la clasificacion de PanelBridge.", "unexpected": "La clasificacion devolvio una respuesta inesperada." },
+  "empty": { "title": "Aun no hay supervivientes", "description": "Conecta a un jugador para iniciar la tabla. PanelBridge guarda el registro en el mundo." },
+  "loading": "Cargando clasificacion"
+}

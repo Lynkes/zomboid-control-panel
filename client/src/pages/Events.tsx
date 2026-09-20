@@ -71,6 +71,7 @@ import { HelpTip } from '@/components/HelpTip'
 import { cn } from '@/lib/utils'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { useRequestGuard } from '@/hooks/useRequestGuard'
+import { percentToBridgeRainIntensity, percentToRconFraction, percentToUnitInterval } from '@/lib/weatherUnits'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import { useSocket } from '@/contexts/SocketContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -1914,7 +1915,9 @@ export default function Events() {
   const hasValidTeleportCoords = teleportCoordX !== null && teleportCoordY !== null && teleportCoordZ !== null
 
   // Weather commands
-  const startRain = () => serverApi.startRain(rainIntensity / 100)
+  // Both client adapters accept a 0-1 fraction; the RCON service converts
+  // its fraction once to Project Zomboid's integer 1-100 command argument.
+  const startRain = () => serverApi.startRain(percentToRconFraction(rainIntensity))
   const stopRain = () => serverApi.stopRain()
   const startStorm = () => serverApi.startStorm(stormDuration)
   const stopWeather = () => serverApi.stopWeather()
@@ -2085,7 +2088,6 @@ export default function Events() {
       : bridgeFormError
         ? bridgeFormError
         : null
-
   const selectBridgeOperation = (nextOperation: string) => {
     setBridgeOperation(nextOperation)
     setBridgeFormError(null)
@@ -2740,7 +2742,7 @@ export default function Events() {
                       <SelectItem value="2">{t('severe.frontWarm')}</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Button variant="outline" onClick={() => handleBridgeAction('Generate Weather Front', () => panelBridgeApi.generateWeather(weatherFrontStrength / 100, Number(weatherFrontType)))} disabled={bridgeLoading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium">
+                  <Button variant="outline" onClick={() => handleBridgeAction('Generate Weather Front', () => panelBridgeApi.generateWeather(percentToUnitInterval(weatherFrontStrength), Number(weatherFrontType)))} disabled={bridgeLoading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium">
                     {bridgeLoading === 'Generate Weather Front' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Waves className="w-3.5 h-3.5" />}
                     {t('severe.triggerFront')}
                   </Button>
@@ -2886,12 +2888,12 @@ export default function Events() {
                 <Button
                   onClick={() => handleBridgeAction('Apply All Climate', async () => {
                     await Promise.all([
-                      panelBridgeApi.setClimateFloat(5, fogIntensity / 100),
-                      panelBridgeApi.setClimateFloat(6, windIntensity / 100),
+                      panelBridgeApi.setClimateFloat(5, percentToUnitInterval(fogIntensity)),
+                      panelBridgeApi.setClimateFloat(6, percentToUnitInterval(windIntensity)),
                       panelBridgeApi.setClimateFloat(4, temperature),
-                      panelBridgeApi.setClimateFloat(8, cloudIntensity / 100),
-                      panelBridgeApi.setClimateFloat(12, humidity / 100),
-                      panelBridgeApi.setClimateFloat(3, precipitationIntensity / 100),
+                      panelBridgeApi.setClimateFloat(8, percentToUnitInterval(cloudIntensity)),
+                      panelBridgeApi.setClimateFloat(12, percentToUnitInterval(humidity)),
+                      panelBridgeApi.setClimateFloat(3, percentToUnitInterval(precipitationIntensity)),
                     ])
                     // Allow the next poll to re-sync from authoritative game state.
                     climateDirtyUntilRef.current = 0
@@ -2917,7 +2919,7 @@ export default function Events() {
                   setLiveWeather((prev) => (prev ? { ...prev, isRaining: next } : prev))
                   handleBridgeAction(
                     next ? 'Start Rain' : 'Stop Rain',
-                    () => next ? panelBridgeApi.startRain(Math.max(0.05, precipitationIntensity / 100)) : panelBridgeApi.stopRain(),
+                    () => next ? panelBridgeApi.startRain(percentToBridgeRainIntensity(precipitationIntensity)) : panelBridgeApi.stopRain(),
                     async (success) => {
                       if (success) await refetchWeather()
                       else setLiveWeather(previous)
@@ -3005,11 +3007,11 @@ export default function Events() {
                 <Button
                   onClick={() => handleBridgeAction('Apply All Visual', async () => {
                     await Promise.all([
-                      panelBridgeApi.setClimateFloat(10, viewDistance / 100),
-                      panelBridgeApi.setClimateFloat(11, dayLight / 100),
-                      panelBridgeApi.setClimateFloat(2, nightStrength / 100),
-                      panelBridgeApi.setClimateFloat(0, desaturation / 100),
-                      panelBridgeApi.setClimateFloat(9, ambient / 100),
+                      panelBridgeApi.setClimateFloat(10, percentToUnitInterval(viewDistance)),
+                      panelBridgeApi.setClimateFloat(11, percentToUnitInterval(dayLight)),
+                      panelBridgeApi.setClimateFloat(2, percentToUnitInterval(nightStrength)),
+                      panelBridgeApi.setClimateFloat(0, percentToUnitInterval(desaturation)),
+                      panelBridgeApi.setClimateFloat(9, percentToUnitInterval(ambient)),
                     ])
                     // Allow the next poll to re-sync from authoritative game state.
                     climateDirtyUntilRef.current = 0

@@ -2842,6 +2842,28 @@ export const panelBridgeApi = {
         }>;
       };
     }>,
+  getLeaderboard: () =>
+    apiGet("/panel-bridge/leaderboard") as Promise<{
+      success: boolean;
+      data: {
+        players: Array<{
+          id: string;
+          username: string;
+          displayName: string;
+          online: boolean;
+          currentKills: number;
+          allTimeKills: number;
+          currentDays: number;
+          bestDays: number;
+          deaths: number;
+          favoriteWeapon?: string | null;
+          favoriteWeaponKills: number;
+          lastSeenAt?: number;
+        }>;
+        generatedAt?: number;
+        trackingStartedAt?: number;
+      };
+    }>,
   getPlayerDetails: (username: string) =>
     apiGet(`/panel-bridge/players/${encodeURIComponent(username)}`) as Promise<{
       success: boolean;

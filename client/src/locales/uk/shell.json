@@ -42,7 +42,8 @@
       "debugLogs": "Журнали налагодження",
       "panelUsers": "Користувачі панелі",
       "rolesPermissions": "Ролі та дозволи",
-      "singleSignOn": "Єдиний вхід"
+      "singleSignOn": "Єдиний вхід",
+      "leaderboard": "Таблиця лідерів"
     },
     "notAvailableRemote": "Недоступно для віддалених серверів (лише RCON)",
     "localBadge": "Локальний",

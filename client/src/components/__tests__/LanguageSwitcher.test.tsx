@@ -24,11 +24,11 @@ describe('LanguageSwitcher', () => {
     expect(screen.getByText('Français')).toBeInTheDocument()
   })
 
-  it('does not offer the hidden Haitian Creole (ht) entry', () => {
+  it('offers the translated Haitian Creole (ht) entry', () => {
     render(<LanguageSwitcher />)
     fireEvent.pointerDown(screen.getByRole('button'), { button: 0, ctrlKey: false })
     expect(screen.getByText('Français')).toBeInTheDocument()
-    expect(screen.queryByText('Kreyòl ayisyen')).not.toBeInTheDocument()
+    expect(screen.getByText('Kreyòl ayisyen')).toBeInTheDocument()
   })
 
   it('picking a language actually switches i18n and persists the choice', () => {

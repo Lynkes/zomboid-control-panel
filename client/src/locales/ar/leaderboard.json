@@ -1,0 +1,15 @@
+{
+  "page": { "title": "لوحة المتصدرين", "description": "لوحة خفيفة للخادم لعرض البقاء والقتل والوفيات وإتقان الأسلحة.", "eyebrow": "// مباشر · ترتيب البقاء" },
+  "bridge": { "summary": "تقرأ لوحة PanelBridge المحفوظة في العالم." },
+  "actions": { "refresh": "تحديث", "retry": "إعادة المحاولة" },
+  "metrics": { "ariaLabel": "مقياس لوحة المتصدرين", "days": "أيام البقاء", "currentKills": "القتل الحالي", "allTimeKills": "إجمالي القتل", "deaths": "الوفيات", "weapon": "إتقان السلاح" },
+  "summary": { "players": "اللاعبون", "playersDetail": "{{online}} متصلون الآن", "allTimeKills": "إجمالي القتل", "allTimeKillsDetail": "بين الناجين المتابعين", "deaths": "إجمالي الوفيات", "deathsDetail": "الأرواح المفقودة على هذا الخادم", "leader": "المتصدر الحالي", "noLeader": "لا يوجد لاعب مصنف" },
+  "podium": { "title": "اللوحة", "subtitle": "الترتيب حسب {{metric}}" },
+  "trackingSince": "التتبع منذ {{date}}",
+  "table": { "title": "كل الناجين", "updated": "تم التحديث {{date}}", "waitingForUpdate": "بانتظار أول قراءة مباشرة", "search": "البحث عن ناجين...", "searchAria": "البحث في لوحة المتصدرين", "player": "الناجي", "days": "أفضل الأيام", "currentKills": "القتل الحالي", "allTimeKills": "إجمالي القتل", "deaths": "الوفيات", "weapon": "السلاح المفضل", "online": "متصل", "offline": "غير متصل", "currentDaysTitle": "الحياة الحالية: {{value}} يوما", "noMatchesTitle": "لا يوجد ناجون مطابقون", "noMatchesDescription": "جرب اسما أو سلاحا آخر." },
+  "stale": { "title": "يتم عرض آخر لوحة معروفة" },
+  "footer": { "refreshRate": "تتحدث كل 30 ثانية", "historyNote": "يبدأ التتبع الكامل عند بدء PanelBridge بجمع البيانات." },
+  "errors": { "title": "لوحة المتصدرين غير متاحة", "load": "تعذر قراءة لوحة PanelBridge.", "unexpected": "أعادت اللوحة استجابة غير متوقعة." },
+  "empty": { "title": "لا يوجد ناجون مصنفون بعد", "description": "صل لاعبا لبدء اللوحة. يحفظ PanelBridge السجل في حفظ العالم." },
+  "loading": "جار تحميل لوحة المتصدرين"
+}

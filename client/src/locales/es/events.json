@@ -286,6 +286,7 @@
     "spawnBehind": "generar detrás de {{target}}",
     "random": "aleatorio",
     "targetFallback": "objetivo",
+    "permissionRequired": "Requiere el permiso «Poner en peligro o suplantar a un jugador»",
     "clearLoadedZombies": "eliminar zombis cargados",
     "removeAllConfirmTitle": "¿Eliminar todos los zombis cargados?",
     "removeAllConfirmDescription": "Esto elimina al instante todos los zombis en las celdas cargadas, en todo el servidor -- incluidos los que un jugador está combatiendo ahora mismo. Los zombis reaparecen con el tiempo, pero esto termina ese combate de inmediato para quien estuviera en él.",

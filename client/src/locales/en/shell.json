@@ -36,7 +36,8 @@
       "debugLogs": "Debug Logs",
       "panelUsers": "Panel Users",
       "rolesPermissions": "Roles & Permissions",
-      "singleSignOn": "Single Sign-On"
+      "singleSignOn": "Single Sign-On",
+      "leaderboard": "Leaderboard"
     },
     "notAvailableRemote": "Not available for remote (RCON-only) servers",
     "localBadge": "Local",

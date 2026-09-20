@@ -286,6 +286,7 @@
     "spawnBehind": "apparaître derrière {{target}}",
     "random": "aléatoire",
     "targetFallback": "cible",
+    "permissionRequired": "Nécessite la permission « Mettre en danger ou usurper l'identité d'un joueur »",
     "clearLoadedZombies": "supprimer les zombies chargés",
     "removeAllConfirmTitle": "Supprimer tous les zombies chargés ?",
     "removeAllConfirmDescription": "Cela supprime instantanément tous les zombies dans les cellules chargées, sur tout le serveur -- y compris ceux qu'un joueur est en train de combattre. Les zombies réapparaissent avec le temps, mais cela met fin à ce combat immédiatement pour la personne concernée.",

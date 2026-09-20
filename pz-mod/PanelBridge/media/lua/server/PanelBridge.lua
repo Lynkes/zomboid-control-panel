@@ -6,6 +6,11 @@
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
 
+                v1.7.70 Changes:
+                - Add: lightweight save-backed player leaderboard telemetry
+                    for current-life kills/days, all-time kills, deaths, and
+                    favorite weapon.
+
                 v1.7.67 Changes:
                 - Packaging: align the bundled bridge version with the
                     Zomboid Control Panel v1.3.5 release.
@@ -1442,6 +1447,143 @@ local function playerLookupError(username)
     return PanelBridge.lastPlayerLookupError or "Player not found: " .. tostring(username)
 end
 
+local LEADERBOARD_MODDATA_KEY = "PanelBridgeLeaderboard"
+local leaderboardFallback = { version = 1, players = {}, trackingStartedAt = nil }
+
+local function leaderboardNow()
+    if getTimestampMs then
+        return tonumber(getTimestampMs()) or 0
+    end
+    return os.time() * 1000
+end
+
+local function getLeaderboardStore()
+    if PanelBridge.leaderboardStore then
+        return PanelBridge.leaderboardStore
+    end
+
+    local store
+    local ok, result = pcall(function()
+        return ModData.getOrCreate(LEADERBOARD_MODDATA_KEY)
+    end)
+    if ok and type(result) == "table" then
+        store = result
+    else
+        store = leaderboardFallback
+    end
+
+    store.version = 1
+    if type(store.players) ~= "table" then store.players = {} end
+    if not store.trackingStartedAt then store.trackingStartedAt = leaderboardNow() end
+    PanelBridge.leaderboardStore = store
+    return store
+end
+
+local function leaderboardIdentity(player)
+    if not player then return nil, nil end
+    local username = PanelBridge.tryGet(player, "getUsername")
+    if not username then return nil, nil end
+
+    local steamId = PanelBridge.tryGet(player, "getSteamID")
+    if steamId and tostring(steamId) ~= "" and tostring(steamId) ~= "0" then
+        return "steam:" .. tostring(steamId), tostring(username)
+    end
+    return "name:" .. string.lower(tostring(username)), tostring(username)
+end
+
+local function ensureLeaderboardRecord(store, player)
+    local key, username = leaderboardIdentity(player)
+    if not key then return nil, nil end
+
+    local record = store.players[key]
+    if type(record) ~= "table" then
+        record = {
+            username = username,
+            displayName = username,
+            currentKills = 0,
+            allTimeKills = 0,
+            currentDays = 0,
+            bestDays = 0,
+            deaths = 0,
+            favoriteWeapon = nil,
+            favoriteWeaponKills = 0,
+            weaponKills = {},
+        }
+        store.players[key] = record
+    end
+
+    record.username = username
+    record.displayName = PanelBridge.tryGet(player, "getDisplayName") or record.displayName or username
+    record.currentKills = tonumber(record.currentKills) or 0
+    record.allTimeKills = tonumber(record.allTimeKills) or 0
+    record.currentDays = tonumber(record.currentDays) or 0
+    record.bestDays = tonumber(record.bestDays) or 0
+    record.deaths = tonumber(record.deaths) or 0
+    record.favoriteWeaponKills = tonumber(record.favoriteWeaponKills) or 0
+    if type(record.weaponKills) ~= "table" then record.weaponKills = {} end
+    record.lastSeenAt = leaderboardNow()
+    return record, key
+end
+
+local function syncLeaderboardMetrics(record, player)
+    local currentKills = tonumber(PanelBridge.tryGet(player, "getZombieKills"))
+    if currentKills then
+        local lastObserved = tonumber(record.lastObservedKills)
+        if not lastObserved then
+            record.allTimeKills = math.max(record.allTimeKills, currentKills)
+        elseif currentKills >= lastObserved then
+            record.allTimeKills = record.allTimeKills + (currentKills - lastObserved)
+        end
+        record.currentKills = currentKills
+        -- A new character starts its vanilla kill counter at zero. The
+        -- decrease means "new life", not lost all-time kills; reset the
+        -- observation point so future kills on that life are counted.
+        record.lastObservedKills = currentKills
+    end
+
+    local hoursSurvived = tonumber(PanelBridge.tryGet(player, "getHoursSurvived"))
+    if hoursSurvived then
+        local currentDays = math.max(0, hoursSurvived / 24)
+        record.currentDays = currentDays
+        if currentDays > record.bestDays then record.bestDays = currentDays end
+    end
+end
+
+local function weaponLabel(weapon)
+    if not weapon then return nil end
+    local label = PanelBridge.tryGet(weapon, "getDisplayName")
+        or PanelBridge.tryGet(weapon, "getFullType")
+        or PanelBridge.tryGet(weapon, "getType")
+    if not label or tostring(label) == "" then return nil end
+    return tostring(label)
+end
+
+local function recordFavoriteWeapon(player, weapon)
+    local store = getLeaderboardStore()
+    local record, key = ensureLeaderboardRecord(store, player)
+    local label = weaponLabel(weapon)
+    if not record or not key or not label then return end
+
+    record.weaponKills[label] = (tonumber(record.weaponKills[label]) or 0) + 1
+    if record.weaponKills[label] > record.favoriteWeaponKills then
+        record.favoriteWeapon = label
+        record.favoriteWeaponKills = record.weaponKills[label]
+    end
+end
+
+local function recordPlayerDeath(player)
+    local store = getLeaderboardStore()
+    local record = ensureLeaderboardRecord(store, player)
+    if record then record.deaths = record.deaths + 1 end
+end
+
+local function onLeaderboardZombieDead(zombie)
+    local attacker = PanelBridge.tryGet(zombie, "getAttackedBy")
+    local weapon = PanelBridge.tryGet(attacker, "getPrimaryHandItem")
+        or PanelBridge.tryGet(attacker, "getSecondaryHandItem")
+    recordFavoriteWeapon(attacker, weapon)
+end
+
 PanelBridge.teleportRequestSeq = PanelBridge.teleportRequestSeq or 0
 PanelBridge.teleportAcks = PanelBridge.teleportAcks or {}
 PanelBridge.teleportAckOrder = PanelBridge.teleportAckOrder or {}
@@ -1907,6 +2049,7 @@ local CACHEABLE_ACTIONS = {
     getVehiclesDetailed  = { ttl = 5000,   live = true },  -- live vehicle state (panel polls every 15s)
     getSafehouses        = { ttl = 5000,   live = true },  -- live safehouse state (panel polls every 15s)
     getAllPlayerDetails  = { ttl = 5000,   live = true },  -- live player stats (panel polls every 15s)
+    getLeaderboard       = { ttl = 10000,  live = true },  -- save-backed player rankings
 }
 local readOnlyCache = {}
 
@@ -1976,7 +2119,7 @@ local function processSingleCommand(cmd)
     -- Frequent polling commands log at DEBUG to avoid spam
     -- These commands are polled by the panel on a fixed schedule (every few seconds) so we
     -- log them at DEBUG only. INFO is reserved for one-shot admin actions.
-    local quietCommands = { getServerInfo=true, ping=true, getWeather=true, getGameTime=true, getWorldStats=true, getUtilitiesStatus=true, getClimateFloats=true, getAllPlayerDetails=true, getVehiclesDetailed=true, getSafehouses=true, getZombieCount=true, getSandboxOptions=true }
+    local quietCommands = { getServerInfo=true, ping=true, getWeather=true, getGameTime=true, getWorldStats=true, getUtilitiesStatus=true, getClimateFloats=true, getAllPlayerDetails=true, getLeaderboard=true, getVehiclesDetailed=true, getSafehouses=true, getZombieCount=true, getSandboxOptions=true }
     if quietCommands[cmd.action] then
         PanelBridge.debug("Processing command: " .. tostring(cmd.action), { id = cmd.id })
     else
@@ -4140,6 +4283,55 @@ handlers.getAllPlayerDetails = function(args)
     end
 
     return true, { players = players }
+end
+
+handlers.getLeaderboard = function(args)
+    local store = getLeaderboardStore()
+    local onlinePlayers = getOnlinePlayers()
+    local playerList, collectErr = collectJavaCollection(onlinePlayers, "Online player list")
+    if not playerList then
+        return false, nil, "Online player list unavailable: " .. tostring(collectErr)
+    end
+
+    for _, record in pairs(store.players) do
+        if type(record) == "table" then record.online = false end
+    end
+
+    for _, player in ipairs(playerList) do
+        if player then
+            local record = ensureLeaderboardRecord(store, player)
+            if record then
+                syncLeaderboardMetrics(record, player)
+                record.online = true
+            end
+        end
+    end
+
+    local players = {}
+    for key, record in pairs(store.players) do
+        if type(record) == "table" and record.username then
+            table.insert(players, {
+                id = key,
+                username = record.username,
+                displayName = record.displayName or record.username,
+                online = record.online == true,
+                currentKills = record.currentKills,
+                allTimeKills = record.allTimeKills,
+                currentDays = record.currentDays,
+                bestDays = record.bestDays,
+                deaths = record.deaths,
+                favoriteWeapon = record.favoriteWeapon,
+                favoriteWeaponKills = record.favoriteWeaponKills,
+                lastSeenAt = record.lastSeenAt,
+            })
+        end
+    end
+
+    return true, {
+        players = players,
+        generatedAt = leaderboardNow(),
+        trackingStartedAt = store.trackingStartedAt,
+    }
 end
 
 -- ============================================
@@ -9441,6 +9633,12 @@ end
 Events.OnServerStarted.Add(PanelBridge.onServerStarted)
 -- Use OnTickEvenPaused so the bridge works even when no players are connected
 Events.OnTickEvenPaused.Add(PanelBridge.onTick)
+if Events.OnPlayerDeath and Events.OnPlayerDeath.Add then
+    Events.OnPlayerDeath.Add(recordPlayerDeath)
+end
+if Events.OnZombieDead and Events.OnZombieDead.Add then
+    Events.OnZombieDead.Add(onLeaderboardZombieDead)
+end
 if Events.OnClientCommand and Events.OnClientCommand.Add then
     Events.OnClientCommand.Add(PanelBridge.onClientCommand)
 end

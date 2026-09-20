@@ -36,7 +36,8 @@
       "debugLogs": "Registros de depuración",
       "panelUsers": "Usuarios del panel",
       "rolesPermissions": "Roles y permisos",
-      "singleSignOn": "Inicio de sesión único"
+      "singleSignOn": "Inicio de sesión único",
+      "leaderboard": "Clasificación"
     },
     "notAvailableRemote": "No disponible para servidores remotos (solo RCON)",
     "localBadge": "Local",

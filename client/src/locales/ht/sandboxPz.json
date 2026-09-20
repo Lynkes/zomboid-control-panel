@@ -1,653 +1,653 @@
 {
   "time": {
     "DayLength": {
-      "label": "Day Length",
+      "label": "Longè jounen",
       "options": {
         "1": {
-          "label": "15 Minutes"
+          "label": "15 minit"
         },
         "2": {
-          "label": "30 Minutes"
+          "label": "30 minit"
         },
         "3": {
-          "label": "1 Hour"
+          "label": "1 èdtan"
         },
         "4": {
-          "label": "1 Hour, 30 Minutes"
+          "label": "1 èdtan, 30 minit"
         },
         "5": {
-          "label": "2 Hours"
+          "label": "2 èdtan"
         },
         "6": {
-          "label": "3 Hours"
+          "label": "3 èdtan"
         },
         "7": {
-          "label": "4 Hours"
+          "label": "4 èdtan"
         },
         "8": {
-          "label": "5 Hours"
+          "label": "5 èdtan"
         },
         "9": {
-          "label": "6 Hours"
+          "label": "6 èdtan"
         },
         "10": {
-          "label": "7 Hours"
+          "label": "7 èdtan"
         },
         "11": {
-          "label": "8 Hours"
+          "label": "8 èdtan"
         },
         "12": {
-          "label": "9 Hours"
+          "label": "9 èdtan"
         },
         "13": {
-          "label": "10 Hours"
+          "label": "10 èdtan"
         },
         "14": {
-          "label": "11 Hours"
+          "label": "11 èdtan"
         },
         "15": {
-          "label": "12 Hours"
+          "label": "12 èdtan"
         },
         "16": {
-          "label": "13 Hours"
+          "label": "13 èdtan"
         },
         "17": {
-          "label": "14 Hours"
+          "label": "14 èdtan"
         },
         "18": {
-          "label": "15 Hours"
+          "label": "15 èdtan"
         },
         "19": {
-          "label": "16 Hours"
+          "label": "16 èdtan"
         },
         "20": {
-          "label": "17 Hours"
+          "label": "17 èdtan"
         },
         "21": {
-          "label": "18 Hours"
+          "label": "18 èdtan"
         },
         "22": {
-          "label": "19 Hours"
+          "label": "19 èdtan"
         },
         "23": {
-          "label": "20 Hours"
+          "label": "20 èdtan"
         },
         "24": {
-          "label": "21 Hours"
+          "label": "21 èdtan"
         },
         "25": {
-          "label": "22 Hours"
+          "label": "22 èdtan"
         },
         "26": {
-          "label": "23 Hours"
+          "label": "23 èdtan"
         },
         "27": {
-          "label": "Real-time"
+          "label": "Tan reyèl"
         }
       }
     },
     "StartYear": {
-      "label": "Start Year"
+      "label": "Ane kòmansman"
     },
     "StartMonth": {
-      "label": "Start Month",
+      "label": "Mwa kòmansman",
       "options": {
         "1": {
-          "label": "January"
+          "label": "Janvye"
         },
         "2": {
-          "label": "February"
+          "label": "Fevriye"
         },
         "3": {
-          "label": "March"
+          "label": "Mas"
         },
         "4": {
-          "label": "April"
+          "label": "Avril"
         },
         "5": {
-          "label": "May"
+          "label": "Me"
         },
         "6": {
-          "label": "June"
+          "label": "Jen"
         },
         "7": {
-          "label": "July"
+          "label": "Jiyè"
         },
         "8": {
-          "label": "August"
+          "label": "Out"
         },
         "9": {
-          "label": "September"
+          "label": "Septanm"
         },
         "10": {
-          "label": "October"
+          "label": "Oktòb"
         },
         "11": {
-          "label": "November"
+          "label": "Novanm"
         },
         "12": {
-          "label": "December"
+          "label": "Desanm"
         }
       }
     },
     "StartDay": {
-      "label": "Start Day"
+      "label": "Jou kòmansman"
     },
     "StartTime": {
-      "label": "Start Time",
+      "label": "Lè kòmansman",
       "options": {
         "1": {
-          "label": "7 AM"
+          "label": "7 nan maten"
         },
         "2": {
-          "label": "9 AM"
+          "label": "9 nan maten"
         },
         "3": {
-          "label": "12 PM"
+          "label": "Midi"
         },
         "4": {
-          "label": "2 PM"
+          "label": "2 nan apremidi"
         },
         "5": {
-          "label": "5 PM"
+          "label": "5 nan apremidi"
         },
         "6": {
-          "label": "9 PM"
+          "label": "9 nan aswè"
         },
         "7": {
-          "label": "12 AM"
+          "label": "Minwi"
         },
         "8": {
-          "label": "2 AM"
+          "label": "2 nan maten"
         },
         "9": {
-          "label": "5 AM"
+          "label": "5 nan maten"
         }
       }
     }
   },
   "population": {
     "Zombies": {
-      "label": "Zombie Count",
+      "label": "Kantite zonbi",
       "options": {
         "1": {
-          "label": "Insane"
+          "label": "Fou"
         },
         "2": {
-          "label": "Very High"
+          "label": "Trè wo"
         },
         "3": {
-          "label": "High"
+          "label": "Wo"
         },
         "4": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "5": {
-          "label": "Low"
+          "label": "Ba"
         },
         "6": {
-          "label": "None"
+          "label": "Okenn"
         }
       }
     },
     "Distribution": {
-      "label": "Distribution",
+      "label": "Distribisyon",
       "options": {
         "1": {
-          "label": "Urban Focused"
+          "label": "Konsantre nan vil"
         },
         "2": {
-          "label": "Uniform"
+          "label": "Inifòm"
         }
       }
     },
     "ZombieVoronoiNoise": {
-      "label": "Randomize Distribution"
+      "label": "Distribisyon o aza"
     },
     "ZombieRespawn": {
-      "label": "Zombie Respawn",
+      "label": "Reparisyon zonbi",
       "options": {
         "1": {
-          "label": "High"
+          "label": "Wo"
         },
         "2": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "3": {
-          "label": "Low"
+          "label": "Ba"
         },
         "4": {
-          "label": "None"
+          "label": "Okenn"
         }
       }
     },
     "ZombieMigrate": {
-      "label": "Zombie Migration"
+      "label": "Migrasyon zonbi"
     }
   },
   "loot": {
     "LootItemRemovalList": {
-      "label": "Loot Item Removal List"
+      "label": "Lis atik piyay pou retire"
     },
     "FoodLootNew": {
-      "label": "Food Loot"
+      "label": "Piyay manje"
     },
     "CannedFoodLootNew": {
-      "label": "Canned Food Loot"
+      "label": "Piyay manje nan bwat"
     },
     "LiteratureLootNew": {
-      "label": "Literature Loot"
+      "label": "Piyay literati"
     },
     "SkillBookLoot": {
-      "label": "Skill Book Loot"
+      "label": "Piyay liv konpetans"
     },
     "RecipeResourceLoot": {
-      "label": "Recipe Loot"
+      "label": "Piyay resèt"
     },
     "MedicalLootNew": {
-      "label": "Medical Loot"
+      "label": "Piyay medikal"
     },
     "SurvivalGearsLootNew": {
-      "label": "Survival Gear Loot"
+      "label": "Piyay ekipman siviv"
     },
     "WeaponLootNew": {
-      "label": "Melee Weapon Loot"
+      "label": "Piyay zam kò-a-kò"
     },
     "RangedWeaponLootNew": {
-      "label": "Ranged Weapon Loot"
+      "label": "Piyay zam distans"
     },
     "AmmoLootNew": {
-      "label": "Ammo Loot"
+      "label": "Piyay minisyon"
     },
     "MechanicsLootNew": {
-      "label": "Mechanics Loot"
+      "label": "Piyay mekanik"
     },
     "ClothingLootNew": {
-      "label": "Clothing Loot"
+      "label": "Piyay rad"
     },
     "ContainerLootNew": {
-      "label": "Container Loot"
+      "label": "Piyay resipyan"
     },
     "KeyLootNew": {
-      "label": "Key Loot"
+      "label": "Piyay kle"
     },
     "MediaLootNew": {
-      "label": "Media Loot"
+      "label": "Piyay medya"
     },
     "MementoLootNew": {
-      "label": "Memento Loot"
+      "label": "Piyay souvni"
     },
     "CookwareLootNew": {
-      "label": "Cookware Loot"
+      "label": "Piyay vesèl kwizin"
     },
     "MaterialLootNew": {
-      "label": "Material Loot"
+      "label": "Piyay materyèl"
     },
     "FarmingLootNew": {
-      "label": "Farming Loot"
+      "label": "Piyay agrikilti"
     },
     "ToolLootNew": {
-      "label": "Tool Loot"
+      "label": "Piyay zouti"
     },
     "OtherLootNew": {
-      "label": "Other Loot"
+      "label": "Lòt piyay"
     },
     "RollsMultiplier": {
-      "label": "Rolls Multiplier"
+      "label": "Miltiplikatè lanse"
     },
     "RemoveStoryLoot": {
-      "label": "Remove Story Loot"
+      "label": "Retire piyay istwa"
     },
     "RemoveZombieLoot": {
-      "label": "Remove Zombie Loot"
+      "label": "Retire piyay zonbi"
     },
     "ZombiePopLootEffect": {
-      "label": "Zombie Pop Loot Effect"
+      "label": "Efè popilasyon zonbi sou piyay"
     },
     "HoursForLootRespawn": {
-      "label": "Loot Respawn Hours"
+      "label": "Èdtan anvan piyay reparèt"
     },
     "MaxItemsForLootRespawn": {
-      "label": "Max Items for Respawn"
+      "label": "Maksimòm atik pou reparèt"
     },
     "ConstructionPreventsLootRespawn": {
-      "label": "Construction Blocks Respawn"
+      "label": "Reparisyon blòk konstriksyon"
     },
     "SeenHoursPreventLootRespawn": {
-      "label": "Seen Hours Prevent Respawn"
+      "label": "Èdtan apre wè ki anpeche reparisyon"
     }
   },
   "lootRarity": {
     "InsaneLootFactor": {
-      "label": "Insane Rarity Factor"
+      "label": "Faktè rar fou"
     },
     "ExtremeLootFactor": {
-      "label": "Extreme Rarity Factor"
+      "label": "Faktè rar ekstrèm"
     },
     "RareLootFactor": {
-      "label": "Rare Rarity Factor"
+      "label": "Faktè rar"
     },
     "NormalLootFactor": {
-      "label": "Normal Rarity Factor"
+      "label": "Faktè rar nòmal"
     },
     "CommonLootFactor": {
-      "label": "Common Rarity Factor"
+      "label": "Faktè rar komen"
     },
     "AbundantLootFactor": {
-      "label": "Abundant Rarity Factor"
+      "label": "Faktè rar abondan"
     },
     "MaximumLooted": {
-      "label": "Max Looted Building Chance"
+      "label": "Chans maksimòm pou piye bilding"
     },
     "DaysUntilMaximumLooted": {
-      "label": "Days Until Max Looted"
+      "label": "Jou anvan piyay maksimòm"
     },
     "RuralLooted": {
-      "label": "Rural Looted Chance"
+      "label": "Chans piyay riral"
     },
     "MaximumDiminishedLoot": {
-      "label": "Max Diminished Loot %"
+      "label": "Pousantaj maksimòm diminisyon piyay"
     },
     "DaysUntilMaximumDiminishedLoot": {
-      "label": "Days Until Max Diminished"
+      "label": "Jou anvan diminisyon maksimòm"
     },
     "MaximumLootedBuildingRooms": {
-      "label": "Max Looted Building Rooms"
+      "label": "Kantite chanm maksimòm nan bilding piye"
     }
   },
   "environment": {
     "DayNightCycle": {
-      "label": "Day/Night Cycle",
+      "label": "Sik lajounen/lannwit",
       "options": {
         "1": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "2": {
-          "label": "Endless Day"
+          "label": "Lajounen san fen"
         },
         "3": {
-          "label": "Endless Night"
+          "label": "Lannwit san fen"
         }
       }
     },
     "ClimateCycle": {
-      "label": "Weather Cycle",
+      "label": "Sik move tan",
       "options": {
         "1": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "2": {
-          "label": "No Weather"
+          "label": "Pa gen move tan"
         },
         "3": {
-          "label": "Endless Rain"
+          "label": "Lapli san fen"
         },
         "4": {
-          "label": "Endless Storm"
+          "label": "Tanpèt san fen"
         },
         "5": {
-          "label": "Endless Snow"
+          "label": "Nèj san fen"
         },
         "6": {
-          "label": "Endless Blizzard"
+          "label": "Blizar san fen"
         }
       }
     },
     "FogCycle": {
-      "label": "Fog Cycle",
+      "label": "Sik bouya",
       "options": {
         "1": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "2": {
-          "label": "No Fog"
+          "label": "Pa gen bouya"
         },
         "3": {
-          "label": "Endless Fog"
+          "label": "Bouya san fen"
         }
       }
     },
     "WaterShut": {
-      "label": "Water Shutoff",
+      "label": "Koupe dlo",
       "options": {
         "1": {
-          "label": "Instant"
+          "label": "Menm kote a"
         },
         "2": {
-          "label": "0 - 30 Days"
+          "label": "0 - 30 jou"
         },
         "3": {
-          "label": "0 - 2 Months"
+          "label": "0 - 2 mwa"
         },
         "4": {
-          "label": "0 - 6 Months"
+          "label": "0 - 6 mwa"
         },
         "5": {
-          "label": "0 - 1 Year"
+          "label": "0 - 1 ane"
         },
         "6": {
-          "label": "0 - 5 Years"
+          "label": "0 - 5 ane"
         },
         "7": {
-          "label": "2 - 6 Months"
+          "label": "2 - 6 mwa"
         },
         "8": {
-          "label": "6 - 12 Months"
+          "label": "6 - 12 mwa"
         },
         "9": {
-          "label": "Disabled"
+          "label": "Dezaktive"
         }
       }
     },
     "ElecShut": {
-      "label": "Electricity Shutoff",
+      "label": "Koupe elektrisite",
       "options": {
         "1": {
-          "label": "Instant"
+          "label": "Menm kote a"
         },
         "2": {
-          "label": "14 - 30 Days"
+          "label": "14 - 30 jou"
         },
         "3": {
-          "label": "14 Days - 2 Months"
+          "label": "14 jou - 2 mwa"
         },
         "4": {
-          "label": "14 Days - 6 Months"
+          "label": "14 jou - 6 mwa"
         },
         "5": {
-          "label": "14 Days - 1 Year"
+          "label": "14 jou - 1 ane"
         },
         "6": {
-          "label": "14 Days - 5 Years"
+          "label": "14 jou - 5 ane"
         },
         "7": {
-          "label": "2 - 6 Months"
+          "label": "2 - 6 mwa"
         },
         "8": {
-          "label": "6 - 12 Months"
+          "label": "6 - 12 mwa"
         },
         "9": {
-          "label": "Disabled"
+          "label": "Dezaktive"
         }
       }
     },
     "AlarmDecay": {
-      "label": "Alarm Battery Decay",
+      "label": "Degradasyon batri alam",
       "options": {
         "1": {
-          "label": "Instant"
+          "label": "Menm kote a"
         },
         "2": {
-          "label": "0 - 30 Days"
+          "label": "0 - 30 jou"
         },
         "3": {
-          "label": "0 - 2 Months"
+          "label": "0 - 2 mwa"
         },
         "4": {
-          "label": "0 - 6 Months"
+          "label": "0 - 6 mwa"
         },
         "5": {
-          "label": "0 - 1 Year"
+          "label": "0 - 1 ane"
         },
         "6": {
-          "label": "0 - 5 Years"
+          "label": "0 - 5 ane"
         },
         "7": {
-          "label": "2 - 6 Months"
+          "label": "2 - 6 mwa"
         },
         "8": {
-          "label": "6 - 12 Months"
+          "label": "6 - 12 mwa"
         },
         "9": {
-          "label": "Disabled"
+          "label": "Dezaktive"
         }
       }
     },
     "WaterShutModifier": {
-      "label": "Water Shutoff Modifier"
+      "label": "Modifikatè koupe dlo"
     },
     "ElecShutModifier": {
-      "label": "Electricity Shutoff Modifier"
+      "label": "Modifikatè koupe elektrisite"
     },
     "AlarmDecayModifier": {
-      "label": "Alarm Decay Modifier"
+      "label": "Modifikatè degradasyon alam"
     },
     "Temperature": {
-      "label": "Temperature",
+      "label": "Tanperati",
       "options": {
         "1": {
-          "label": "Very Cold"
+          "label": "Trè frèt"
         },
         "2": {
-          "label": "Cold"
+          "label": "Frèt"
         },
         "3": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "4": {
-          "label": "Hot"
+          "label": "Cho"
         },
         "5": {
-          "label": "Very Hot"
+          "label": "Trè cho"
         }
       }
     },
     "Rain": {
-      "label": "Rainfall",
+      "label": "Lapli",
       "options": {
         "1": {
-          "label": "Very Dry"
+          "label": "Trè sèk"
         },
         "2": {
-          "label": "Dry"
+          "label": "Sèk"
         },
         "3": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "4": {
-          "label": "Rainy"
+          "label": "Lapli"
         },
         "5": {
-          "label": "Very Rainy"
+          "label": "Anpil lapli"
         }
       }
     },
     "ErosionSpeed": {
-      "label": "Erosion Speed",
+      "label": "Vitès ewozyon",
       "options": {
         "1": {
-          "label": "Very Fast (20 Days)"
+          "label": "Trè rapid (20 jou)"
         },
         "2": {
-          "label": "Fast (50 Days)"
+          "label": "Rapid (50 jou)"
         },
         "3": {
-          "label": "Normal (100 Days)"
+          "label": "Nòmal (100 jou)"
         },
         "4": {
-          "label": "Slow (200 Days)"
+          "label": "Ralanti (200 jou)"
         },
         "5": {
-          "label": "Very Slow (500 Days)"
+          "label": "Trè ralanti (500 jou)"
         }
       }
     },
     "ErosionDays": {
-      "label": "Custom Erosion Days"
+      "label": "Jou ewozyon pèsonalize"
     },
     "MaxFogIntensity": {
-      "label": "Max Fog Intensity",
+      "label": "Entansite maksimòm bouya",
       "options": {
         "1": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "2": {
-          "label": "Moderate"
+          "label": "Modere"
         },
         "3": {
-          "label": "Low"
+          "label": "Ba"
         },
         "4": {
-          "label": "None"
+          "label": "Okenn"
         }
       }
     },
     "MaxRainFxIntensity": {
-      "label": "Max Rain FX Intensity",
+      "label": "Entansite maksimòm efè lapli",
       "options": {
         "1": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "2": {
-          "label": "Moderate"
+          "label": "Modere"
         },
         "3": {
-          "label": "Low"
+          "label": "Ba"
         }
       }
     },
     "EnableSnowOnGround": {
-      "label": "Snow on Ground"
+      "label": "Nèj atè"
     },
     "NightDarkness": {
-      "label": "Night Darkness",
+      "label": "Fènwa lannwit",
       "options": {
         "1": {
-          "label": "Pitch Black"
+          "label": "Nwa nèt"
         },
         "2": {
-          "label": "Dark"
+          "label": "Fènwa"
         },
         "3": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "4": {
-          "label": "Bright"
+          "label": "Klere"
         }
       }
     },
     "NightLength": {
-      "label": "Night Length",
+      "label": "Longè lannwit",
       "options": {
         "1": {
-          "label": "Always Night"
+          "label": "Toujou lannwit"
         },
         "2": {
-          "label": "Long"
+          "label": "Pi long"
         },
         "3": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "4": {
-          "label": "Short"
+          "label": "Kout"
         },
         "5": {
-          "label": "Always Day"
+          "label": "Toujou lajounen"
         }
       }
     },
     "TimeSinceApo": {
-      "label": "Time Since Apocalypse",
+      "label": "Tan depi Apokalips la",
       "options": {
         "1": {
           "label": "0"
@@ -691,1711 +691,1711 @@
       }
     },
     "FireSpread": {
-      "label": "Fire Spread"
+      "label": "Pwopagasyon dife"
     }
   },
   "survival": {
     "StatsDecrease": {
-      "label": "Stats Decrease",
+      "label": "Diminisyon estatistik",
       "options": {
         "1": {
-          "label": "Very Fast"
+          "label": "Trè rapid"
         },
         "2": {
-          "label": "Fast"
+          "label": "Rapid"
         },
         "3": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "4": {
-          "label": "Slow"
+          "label": "Ralanti"
         },
         "5": {
-          "label": "Very Slow"
+          "label": "Trè ralanti"
         }
       }
     },
     "Nutrition": {
-      "label": "Nutrition"
+      "label": "Nitrisyon"
     },
     "FoodRotSpeed": {
-      "label": "Food Rot Speed",
+      "label": "Vitès manje pouri",
       "options": {
         "1": {
-          "label": "Very Fast"
+          "label": "Trè rapid"
         },
         "2": {
-          "label": "Fast"
+          "label": "Rapid"
         },
         "3": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "4": {
-          "label": "Slow"
+          "label": "Ralanti"
         },
         "5": {
-          "label": "Very Slow"
+          "label": "Trè ralanti"
         }
       }
     },
     "FridgeFactor": {
-      "label": "Fridge Effectiveness",
+      "label": "Efikasite frijidè",
       "options": {
         "1": {
-          "label": "Very Low"
+          "label": "Trè ba"
         },
         "2": {
-          "label": "Low"
+          "label": "Ba"
         },
         "3": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "4": {
-          "label": "High"
+          "label": "Wo"
         },
         "5": {
-          "label": "Very High"
+          "label": "Trè wo"
         },
         "6": {
-          "label": "No decay"
+          "label": "Pa gen degradasyon"
         }
       }
     },
     "StarterKit": {
-      "label": "Starter Kit"
+      "label": "Twous kòmansman"
     },
     "CharacterFreePoints": {
-      "label": "Free Character Points"
+      "label": "Pwen karaktè gratis"
     },
     "BoneFracture": {
-      "label": "Bone Fractures"
+      "label": "Zo kase"
     },
     "InjurySeverity": {
-      "label": "Injury Severity",
+      "label": "Gravite blesi",
       "options": {
         "1": {
-          "label": "Low"
+          "label": "Ba"
         },
         "2": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "3": {
-          "label": "High"
+          "label": "Wo"
         }
       }
     },
     "EndRegen": {
-      "label": "Endurance Recovery",
+      "label": "Rekipere andirans",
       "options": {
         "1": {
-          "label": "Very Fast"
+          "label": "Trè rapid"
         },
         "2": {
-          "label": "Fast"
+          "label": "Rapid"
         },
         "3": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "4": {
-          "label": "Slow"
+          "label": "Ralanti"
         },
         "5": {
-          "label": "Very Slow"
+          "label": "Trè ralanti"
         }
       }
     },
     "HoursForCorpseRemoval": {
-      "label": "Corpse Removal Hours"
+      "label": "Èdtan anvan kadav retire"
     },
     "DecayingCorpseHealthImpact": {
-      "label": "Corpse Health Impact",
+      "label": "Enpak kadav sou sante",
       "options": {
         "1": {
-          "label": "None"
+          "label": "Okenn"
         },
         "2": {
-          "label": "Low"
+          "label": "Ba"
         },
         "3": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "4": {
-          "label": "High"
+          "label": "Wo"
         },
         "5": {
-          "label": "Insane"
+          "label": "Fou"
         }
       }
     },
     "ZombieHealthImpact": {
-      "label": "Zombie Health Impact"
+      "label": "Enpak sante zonbi"
     },
     "BloodLevel": {
-      "label": "Blood Level",
+      "label": "Nivo san",
       "options": {
         "1": {
-          "label": "None"
+          "label": "Okenn"
         },
         "2": {
-          "label": "Low"
+          "label": "Ba"
         },
         "3": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "4": {
-          "label": "High"
+          "label": "Wo"
         },
         "5": {
-          "label": "Ultra Gore"
+          "label": "Gore ekstrèm"
         }
       }
     },
     "ClothingDegradation": {
-      "label": "Clothing Degradation",
+      "label": "Degradasyon rad",
       "options": {
         "1": {
-          "label": "Disabled"
+          "label": "Dezaktive"
         },
         "2": {
-          "label": "Slow"
+          "label": "Ralanti"
         },
         "3": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "4": {
-          "label": "Fast"
+          "label": "Rapid"
         }
       }
     },
     "DaysForRottenFoodRemoval": {
-      "label": "Rotten Food Removal Days"
+      "label": "Jou anvan manje pouri retire"
     },
     "AllClothesUnlocked": {
-      "label": "All Clothes Unlocked"
+      "label": "Tout rad debloke"
     },
     "EnableTaintedWaterText": {
-      "label": "Tainted Water Warning"
+      "label": "Avètisman dlo kontamine"
     },
     "EnablePoisoning": {
-      "label": "Enable Poisoning",
+      "label": "Aktive anpwazònman",
       "options": {
         "1": {
-          "label": "True"
+          "label": "Vrè"
         },
         "2": {
-          "label": "False"
+          "label": "Fo"
         },
         "3": {
-          "label": "Only bleach poisoning is disabled"
+          "label": "Se sèlman anpwazònman klowòks ki dezaktive"
         }
       }
     },
     "MaggotSpawn": {
-      "label": "Maggot Spawn",
+      "label": "Aparisyon vè",
       "options": {
         "1": {
-          "label": "In and Around Bodies"
+          "label": "Nan kò yo ak toutotou yo"
         },
         "2": {
-          "label": "In Bodies Only"
+          "label": "Nan kò yo sèlman"
         },
         "3": {
-          "label": "Never"
+          "label": "Jamè"
         }
       }
     },
     "MuscleStrainFactor": {
-      "label": "Muscle Strain Factor"
+      "label": "Faktè fatig misk"
     },
     "DiscomfortFactor": {
-      "label": "Discomfort Factor"
+      "label": "Faktè malèz"
     },
     "WoundInfectionFactor": {
-      "label": "Wound Infection Factor"
+      "label": "Faktè enfeksyon blesi"
     },
     "NoBlackClothes": {
-      "label": "No Black Clothes"
+      "label": "Pa gen rad nwa"
     },
     "EasyClimbing": {
-      "label": "Easy Climbing"
+      "label": "Grenpe fasil"
     },
     "NegativeTraitsPenalty": {
-      "label": "Negative Traits Penalty",
+      "label": "Pènalite karakteristik negatif",
       "options": {
         "1": {
-          "label": "None"
+          "label": "Okenn"
         },
         "2": {
-          "label": "1 point penalty for every 3 negative traits selected"
+          "label": "Pènalite 1 pwen pou chak 3 karakteristik negatif chwazi"
         },
         "3": {
-          "label": "1 point penalty for every 2 negative traits selected"
+          "label": "Pènalite 1 pwen pou chak 2 karakteristik negatif chwazi"
         },
         "4": {
-          "label": "1 point penalty for every negative trait selected after the first"
+          "label": "Pènalite 1 pwen pou chak karakteristik negatif chwazi apre premye a"
         }
       }
     },
     "MinutesPerPage": {
-      "label": "Minutes Per Page"
+      "label": "Minit pou chak paj"
     },
     "LiteratureCooldown": {
-      "label": "Literature Cooldown"
+      "label": "Tan datant literati"
     },
     "LevelForMediaXPCutoff": {
-      "label": "Media XP Cutoff Level"
+      "label": "Nivo limit XP medya"
     },
     "LevelForDismantleXPCutoff": {
-      "label": "Dismantle XP Cutoff Level"
+      "label": "Nivo limit XP demantèlman"
     },
     "BloodSplatLifespanDays": {
-      "label": "Blood Splat Lifespan"
+      "label": "Dire tach san"
     },
     "MetaKnowledge": {
-      "label": "Meta Knowledge",
+      "label": "Konesans meta",
       "options": {
         "1": {
-          "label": "Fully revealed"
+          "label": "Revele nèt"
         },
         "2": {
-          "label": "Shown as ???"
+          "label": "Montre kòm ???"
         },
         "3": {
-          "label": "Completely hidden"
+          "label": "Kache nèt"
         }
       }
     },
     "SeeNotLearntRecipe": {
-      "label": "See Unlearned Recipes"
+      "label": "Wè resèt ki poko aprann"
     },
     "LightBulbLifespan": {
-      "label": "Light Bulb Lifespan"
+      "label": "Dire anpoul"
     },
     "MaximumFireFuelHours": {
-      "label": "Max Fire Fuel Hours"
+      "label": "Èdtan maksimòm gaz dife"
     },
     "Alarm": {
-      "label": "House Alarms",
+      "label": "Alam kay",
       "options": {
         "1": {
-          "label": "Never"
+          "label": "Jamè"
         },
         "2": {
-          "label": "Extremely Rare"
+          "label": "Ekstrèmman ra"
         },
         "3": {
-          "label": "Rare"
+          "label": "Ra"
         },
         "4": {
-          "label": "Sometimes"
+          "label": "Pafwa"
         },
         "5": {
-          "label": "Often"
+          "label": "Souvan"
         },
         "6": {
-          "label": "Very Often"
+          "label": "Trè souvan"
         }
       }
     },
     "LockedHouses": {
-      "label": "Locked Houses",
+      "label": "Kay fèmen",
       "options": {
         "1": {
-          "label": "Never"
+          "label": "Jamè"
         },
         "2": {
-          "label": "Extremely Rare"
+          "label": "Ekstrèmman ra"
         },
         "3": {
-          "label": "Rare"
+          "label": "Ra"
         },
         "4": {
-          "label": "Sometimes"
+          "label": "Pafwa"
         },
         "5": {
-          "label": "Often"
+          "label": "Souvan"
         },
         "6": {
-          "label": "Very Often"
+          "label": "Trè souvan"
         }
       }
     },
     "Helicopter": {
-      "label": "Helicopter Events",
+      "label": "Evènman elikoptè",
       "options": {
         "1": {
-          "label": "Never"
+          "label": "Jamè"
         },
         "2": {
-          "label": "Once"
+          "label": "Yon fwa"
         },
         "3": {
-          "label": "Sometimes"
+          "label": "Pafwa"
         },
         "4": {
-          "label": "Often"
+          "label": "Souvan"
         }
       }
     },
     "MetaEvent": {
-      "label": "Meta Events",
+      "label": "Evènman meta",
       "options": {
         "1": {
-          "label": "Never"
+          "label": "Jamè"
         },
         "2": {
-          "label": "Sometimes"
+          "label": "Pafwa"
         },
         "3": {
-          "label": "Often"
+          "label": "Souvan"
         }
       }
     },
     "SleepingEvent": {
-      "label": "Sleeping Events",
+      "label": "Evènman dòmi",
       "options": {
         "1": {
-          "label": "Never"
+          "label": "Jamè"
         },
         "2": {
-          "label": "Sometimes"
+          "label": "Pafwa"
         },
         "3": {
-          "label": "Often"
+          "label": "Souvan"
         }
       }
     },
     "NatureAbundance": {
-      "label": "Nature Abundance",
+      "label": "Abondans lanati",
       "options": {
         "1": {
-          "label": "Very Poor"
+          "label": "Trè pòv"
         },
         "2": {
-          "label": "Poor"
+          "label": "Pòv"
         },
         "3": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "4": {
-          "label": "Abundant"
+          "label": "Abondan"
         },
         "5": {
-          "label": "Very Abundant"
+          "label": "Trè abondan"
         }
       }
     },
     "FishAbundance": {
-      "label": "Fish Abundance",
+      "label": "Abondans pwason",
       "options": {
         "1": {
-          "label": "Very Poor"
+          "label": "Trè pòv"
         },
         "2": {
-          "label": "Poor"
+          "label": "Pòv"
         },
         "3": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "4": {
-          "label": "Abundant"
+          "label": "Abondan"
         },
         "5": {
-          "label": "Very Abundant"
+          "label": "Trè abondan"
         }
       }
     },
     "AnnotatedMapChance": {
-      "label": "Annotated Map Chance",
+      "label": "Chans kat anote",
       "options": {
         "1": {
-          "label": "Never"
+          "label": "Jamè"
         },
         "2": {
-          "label": "Extremely Rare"
+          "label": "Ekstrèmman ra"
         },
         "3": {
-          "label": "Rare"
+          "label": "Ra"
         },
         "4": {
-          "label": "Sometimes"
+          "label": "Pafwa"
         },
         "5": {
-          "label": "Often"
+          "label": "Souvan"
         },
         "6": {
-          "label": "Very Often"
+          "label": "Trè souvan"
         }
       }
     },
     "ConstructionBonusPoints": {
-      "label": "Construction Bonus Points"
+      "label": "Pwen bonis konstriksyon"
     },
     "GeneratorSpawning": {
-      "label": "Generator Spawning",
+      "label": "Aparisyon jeneratè",
       "options": {
         "1": {
-          "label": "None (not recommended)"
+          "label": "Okenn (pa rekòmande)"
         },
         "2": {
-          "label": "Insanely Rare"
+          "label": "Fou ra"
         },
         "3": {
-          "label": "Extremely Rare"
+          "label": "Ekstrèmman ra"
         },
         "4": {
-          "label": "Rare"
+          "label": "Ra"
         },
         "5": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "6": {
-          "label": "Common"
+          "label": "Komen"
         },
         "7": {
-          "label": "Abundant"
+          "label": "Abondan"
         }
       }
     },
     "GeneratorFuelConsumption": {
-      "label": "Generator Fuel Consumption"
+      "label": "Konsomasyon gaz jeneratè"
     },
     "AllowExteriorGenerator": {
-      "label": "Allow Exterior Generator"
+      "label": "Pèmèt jeneratè deyò"
     },
     "GeneratorTileRange": {
-      "label": "Generator Tile Range"
+      "label": "Distans kare jeneratè"
     },
     "GeneratorVerticalPowerRange": {
-      "label": "Generator Vertical Range"
+      "label": "Distans vètikal jeneratè"
     },
     "CompostTime": {
-      "label": "Compost Time",
+      "label": "Tan konpòs",
       "options": {
         "1": {
-          "label": "1 Week"
+          "label": "1 semèn"
         },
         "2": {
-          "label": "2 Weeks"
+          "label": "2 semèn"
         },
         "3": {
-          "label": "3 Weeks"
+          "label": "3 semèn"
         },
         "4": {
-          "label": "4 Weeks"
+          "label": "4 semèn"
         },
         "5": {
-          "label": "6 Weeks"
+          "label": "6 semèn"
         },
         "6": {
-          "label": "8 Weeks"
+          "label": "8 semèn"
         },
         "7": {
-          "label": "10 Weeks"
+          "label": "10 semèn"
         },
         "8": {
-          "label": "12 Weeks"
+          "label": "12 semèn"
         }
       }
     },
     "AttackBlockMovements": {
-      "label": "Attack Block Movements"
+      "label": "Bloke mouvman atak"
     },
     "WorldItemRemovalList": {
-      "label": "World Item Removal List"
+      "label": "Lis atik mond lan pou retire"
     },
     "HoursForWorldItemRemoval": {
-      "label": "World Item Removal Hours"
+      "label": "Èdtan anvan atik mond lan retire"
     },
     "ItemRemovalListBlacklistToggle": {
-      "label": "Item Removal Blacklist Toggle"
+      "label": "Aktive lis nwa retire atik"
     }
   },
   "combat": {
     "MultiHitZombies": {
-      "label": "Multi-Hit Zombies"
+      "label": "Frape plizyè zonbi"
     },
     "RearVulnerability": {
-      "label": "Rear Vulnerability",
+      "label": "Vilnerabilite dèyè",
       "options": {
         "1": {
-          "label": "Low"
+          "label": "Ba"
         },
         "2": {
-          "label": "Medium"
+          "label": "Mwayen"
         },
         "3": {
-          "label": "High"
+          "label": "Wo"
         }
       }
     },
     "FirearmUseDamageChance": {
-      "label": "Firearm Use Damage Chance"
+      "label": "Chans domaj lè sèvi ak zam afe"
     },
     "FirearmNoiseMultiplier": {
-      "label": "Firearm Noise Multiplier"
+      "label": "Miltiplikatè bri zam afe"
     },
     "FirearmJamMultiplier": {
-      "label": "Firearm Jam Multiplier"
+      "label": "Miltiplikatè blokaj zam afe"
     },
     "FirearmMoodleMultiplier": {
-      "label": "Firearm Moodle Multiplier"
+      "label": "Miltiplikatè moodle zam afe"
     },
     "FirearmWeatherMultiplier": {
-      "label": "Firearm Weather Multiplier"
+      "label": "Miltiplikatè move tan pou zam afe"
     },
     "FirearmHeadGearEffect": {
-      "label": "Firearm Head Gear Effect"
+      "label": "Efè ekipman tèt sou zam afe"
     }
   },
   "vehicles": {
     "EnableVehicles": {
-      "label": "Enable Vehicles"
+      "label": "Aktive machin"
     },
     "CarSpawnRate": {
-      "label": "Car Spawn Rate",
+      "label": "Frekans aparisyon machin",
       "options": {
         "1": {
-          "label": "None"
+          "label": "Okenn"
         },
         "2": {
-          "label": "Very Low"
+          "label": "Trè ba"
         },
         "3": {
-          "label": "Low"
+          "label": "Ba"
         },
         "4": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "5": {
-          "label": "High"
+          "label": "Wo"
         }
       }
     },
     "VehicleEasyUse": {
-      "label": "Vehicle Easy Use"
+      "label": "Itilizasyon machin fasil"
     },
     "InitialGas": {
-      "label": "Initial Vehicle Gas",
+      "label": "Gaz inisyal machin",
       "options": {
         "1": {
-          "label": "Very Low"
+          "label": "Trè ba"
         },
         "2": {
-          "label": "Low"
+          "label": "Ba"
         },
         "3": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "4": {
-          "label": "High"
+          "label": "Wo"
         },
         "5": {
-          "label": "Very High"
+          "label": "Trè wo"
         },
         "6": {
-          "label": "Full"
+          "label": "Plen"
         }
       }
     },
     "FuelStationGasInfinite": {
-      "label": "Infinite Fuel Station Gas"
+      "label": "Gaz estasyon san limit"
     },
     "FuelStationGasMin": {
-      "label": "Fuel Station Gas Min"
+      "label": "Gaz minimòm estasyon"
     },
     "FuelStationGasMax": {
-      "label": "Fuel Station Gas Max"
+      "label": "Gaz maksimòm estasyon"
     },
     "FuelStationGasEmptyChance": {
-      "label": "Fuel Station Empty Chance"
+      "label": "Chans estasyon vid"
     },
     "LockedCar": {
-      "label": "Locked Car Chance",
+      "label": "Chans machin fèmen",
       "options": {
         "1": {
-          "label": "Never"
+          "label": "Jamè"
         },
         "2": {
-          "label": "Extremely Rare"
+          "label": "Ekstrèmman ra"
         },
         "3": {
-          "label": "Rare"
+          "label": "Ra"
         },
         "4": {
-          "label": "Sometimes"
+          "label": "Pafwa"
         },
         "5": {
-          "label": "Often"
+          "label": "Souvan"
         },
         "6": {
-          "label": "Very Often"
+          "label": "Trè souvan"
         }
       }
     },
     "CarGasConsumption": {
-      "label": "Gas Consumption"
+      "label": "Konsomasyon gaz"
     },
     "CarGeneralCondition": {
-      "label": "Car General Condition",
+      "label": "Kondisyon jeneral machin",
       "options": {
         "1": {
-          "label": "Very Low"
+          "label": "Trè ba"
         },
         "2": {
-          "label": "Low"
+          "label": "Ba"
         },
         "3": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "4": {
-          "label": "High"
+          "label": "Wo"
         },
         "5": {
-          "label": "Very High"
+          "label": "Trè wo"
         }
       }
     },
     "CarDamageOnImpact": {
-      "label": "Car Damage on Impact",
+      "label": "Domaj machin lè li frape",
       "options": {
         "1": {
-          "label": "Very Low"
+          "label": "Trè ba"
         },
         "2": {
-          "label": "Low"
+          "label": "Ba"
         },
         "3": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "4": {
-          "label": "High"
+          "label": "Wo"
         },
         "5": {
-          "label": "Very High"
+          "label": "Trè wo"
         }
       }
     },
     "DamageToPlayerFromHitByACar": {
-      "label": "Car Damage to Player",
+      "label": "Domaj machin fè jwè",
       "options": {
         "1": {
-          "label": "None"
+          "label": "Okenn"
         },
         "2": {
-          "label": "Low"
+          "label": "Ba"
         },
         "3": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "4": {
-          "label": "High"
+          "label": "Wo"
         },
         "5": {
-          "label": "Very High"
+          "label": "Trè wo"
         }
       }
     },
     "TrafficJam": {
-      "label": "Traffic Jams"
+      "label": "Anbouteyaj"
     },
     "CarAlarm": {
-      "label": "Car Alarms",
+      "label": "Alam machin",
       "options": {
         "1": {
-          "label": "Never"
+          "label": "Jamè"
         },
         "2": {
-          "label": "Extremely Rare"
+          "label": "Ekstrèmman ra"
         },
         "3": {
-          "label": "Rare"
+          "label": "Ra"
         },
         "4": {
-          "label": "Sometimes"
+          "label": "Pafwa"
         },
         "5": {
-          "label": "Often"
+          "label": "Souvan"
         },
         "6": {
-          "label": "Very Often"
+          "label": "Trè souvan"
         }
       }
     },
     "PlayerDamageFromCrash": {
-      "label": "Crash Damage to Player"
+      "label": "Domaj kolizyon sou jwè"
     },
     "SirenShutoffHours": {
-      "label": "Siren Shutoff Hours"
+      "label": "Èdtan anvan sirèn koupe"
     },
     "ChanceHasGas": {
-      "label": "Chance Has Gas",
+      "label": "Chans li gen gaz",
       "options": {
         "1": {
-          "label": "Low"
+          "label": "Ba"
         },
         "2": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "3": {
-          "label": "High"
+          "label": "Wo"
         }
       }
     },
     "RecentlySurvivorVehicles": {
-      "label": "Recently Survivor Vehicles",
+      "label": "Machin sivivan resan yo",
       "options": {
         "1": {
-          "label": "None"
+          "label": "Okenn"
         },
         "2": {
-          "label": "Low"
+          "label": "Ba"
         },
         "3": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "4": {
-          "label": "High"
+          "label": "Wo"
         }
       }
     },
     "ZombieAttractionMultiplier": {
-      "label": "Vehicle Zombie Attraction"
+      "label": "Atraksyon zonbi machin"
     },
     "SirenEffectsZombies": {
-      "label": "Siren Effects Zombies"
+      "label": "Efè sirèn sou zonbi"
     }
   },
   "animals": {
     "AnimalStatsModifier": {
-      "label": "Animal Stats Speed",
+      "label": "Vitès estatistik bèt",
       "options": {
         "1": {
-          "label": "Ultra Fast"
+          "label": "Ekstrèmman rapid"
         },
         "2": {
-          "label": "Very Fast"
+          "label": "Trè rapid"
         },
         "3": {
-          "label": "Fast"
+          "label": "Rapid"
         },
         "4": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "5": {
-          "label": "Slow"
+          "label": "Ralanti"
         },
         "6": {
-          "label": "Very Slow"
+          "label": "Trè ralanti"
         }
       }
     },
     "AnimalMetaStatsModifier": {
-      "label": "Animal Meta Stats Speed",
+      "label": "Vitès estatistik meta bèt",
       "options": {
         "1": {
-          "label": "Ultra Fast"
+          "label": "Ekstrèmman rapid"
         },
         "2": {
-          "label": "Very Fast"
+          "label": "Trè rapid"
         },
         "3": {
-          "label": "Fast"
+          "label": "Rapid"
         },
         "4": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "5": {
-          "label": "Slow"
+          "label": "Ralanti"
         },
         "6": {
-          "label": "Very Slow"
+          "label": "Trè ralanti"
         }
       }
     },
     "AnimalPregnancyTime": {
-      "label": "Animal Pregnancy Time",
+      "label": "Tan gwosès bèt",
       "options": {
         "1": {
-          "label": "Ultra Fast"
+          "label": "Ekstrèmman rapid"
         },
         "2": {
-          "label": "Very Fast"
+          "label": "Trè rapid"
         },
         "3": {
-          "label": "Fast"
+          "label": "Rapid"
         },
         "4": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "5": {
-          "label": "Slow"
+          "label": "Ralanti"
         },
         "6": {
-          "label": "Very Slow"
+          "label": "Trè ralanti"
         }
       }
     },
     "AnimalAgeModifier": {
-      "label": "Animal Aging Speed",
+      "label": "Vitès aje bèt",
       "options": {
         "1": {
-          "label": "Ultra Fast"
+          "label": "Ekstrèmman rapid"
         },
         "2": {
-          "label": "Very Fast"
+          "label": "Trè rapid"
         },
         "3": {
-          "label": "Fast"
+          "label": "Rapid"
         },
         "4": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "5": {
-          "label": "Slow"
+          "label": "Ralanti"
         },
         "6": {
-          "label": "Very Slow"
+          "label": "Trè ralanti"
         }
       }
     },
     "AnimalMilkIncModifier": {
-      "label": "Milk Production Speed",
+      "label": "Vitès pwodiksyon lèt",
       "options": {
         "1": {
-          "label": "Ultra Fast"
+          "label": "Ekstrèmman rapid"
         },
         "2": {
-          "label": "Very Fast"
+          "label": "Trè rapid"
         },
         "3": {
-          "label": "Fast"
+          "label": "Rapid"
         },
         "4": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "5": {
-          "label": "Slow"
+          "label": "Ralanti"
         },
         "6": {
-          "label": "Very Slow"
+          "label": "Trè ralanti"
         }
       }
     },
     "AnimalWoolIncModifier": {
-      "label": "Wool Production Speed",
+      "label": "Vitès pwodiksyon lenn",
       "options": {
         "1": {
-          "label": "Ultra Fast"
+          "label": "Ekstrèmman rapid"
         },
         "2": {
-          "label": "Very Fast"
+          "label": "Trè rapid"
         },
         "3": {
-          "label": "Fast"
+          "label": "Rapid"
         },
         "4": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "5": {
-          "label": "Slow"
+          "label": "Ralanti"
         },
         "6": {
-          "label": "Very Slow"
+          "label": "Trè ralanti"
         }
       }
     },
     "AnimalRanchChance": {
-      "label": "Animal Ranch Chance",
+      "label": "Chans elvaj bèt",
       "options": {
         "1": {
-          "label": "Never"
+          "label": "Jamè"
         },
         "2": {
-          "label": "Extremely Rare"
+          "label": "Ekstrèmman ra"
         },
         "3": {
-          "label": "Rare"
+          "label": "Ra"
         },
         "4": {
-          "label": "Sometimes"
+          "label": "Pafwa"
         },
         "5": {
-          "label": "Often"
+          "label": "Souvan"
         },
         "6": {
-          "label": "Very Often"
+          "label": "Trè souvan"
         },
         "7": {
-          "label": "Always"
+          "label": "Toujou"
         }
       }
     },
     "AnimalGrassRegrowTime": {
-      "label": "Grass Regrow Time"
+      "label": "Tan zèb repouse"
     },
     "AnimalMetaPredator": {
-      "label": "Meta Predator"
+      "label": "Predatè meta"
     },
     "AnimalMatingSeason": {
-      "label": "Mating Season"
+      "label": "Sezon kwazman"
     },
     "AnimalEggHatch": {
-      "label": "Egg Hatch Time",
+      "label": "Tan ze kale",
       "options": {
         "1": {
-          "label": "Ultra Fast"
+          "label": "Ekstrèmman rapid"
         },
         "2": {
-          "label": "Very Fast"
+          "label": "Trè rapid"
         },
         "3": {
-          "label": "Fast"
+          "label": "Rapid"
         },
         "4": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "5": {
-          "label": "Slow"
+          "label": "Ralanti"
         },
         "6": {
-          "label": "Very Slow"
+          "label": "Trè ralanti"
         }
       }
     },
     "AnimalSoundAttractZombies": {
-      "label": "Animal Sound Attracts Zombies"
+      "label": "Son bèt atire zonbi"
     },
     "AnimalTrackChance": {
-      "label": "Animal Track Chance",
+      "label": "Chans tras bèt",
       "options": {
         "1": {
-          "label": "Never"
+          "label": "Jamè"
         },
         "2": {
-          "label": "Extremely Rare"
+          "label": "Ekstrèmman ra"
         },
         "3": {
-          "label": "Rare"
+          "label": "Ra"
         },
         "4": {
-          "label": "Sometimes"
+          "label": "Pafwa"
         },
         "5": {
-          "label": "Often"
+          "label": "Souvan"
         },
         "6": {
-          "label": "Very Often"
+          "label": "Trè souvan"
         }
       }
     },
     "AnimalPathChance": {
-      "label": "Animal Path Chance",
+      "label": "Chans chemen bèt",
       "options": {
         "1": {
-          "label": "Never"
+          "label": "Jamè"
         },
         "2": {
-          "label": "Extremely Rare"
+          "label": "Ekstrèmman ra"
         },
         "3": {
-          "label": "Rare"
+          "label": "Ra"
         },
         "4": {
-          "label": "Sometimes"
+          "label": "Pafwa"
         },
         "5": {
-          "label": "Often"
+          "label": "Souvan"
         },
         "6": {
-          "label": "Very Often"
+          "label": "Trè souvan"
         }
       }
     },
     "MaximumRatIndex": {
-      "label": "Maximum Rat Index"
+      "label": "Endèks rat maksimòm"
     },
     "DaysUntilMaximumRatIndex": {
-      "label": "Days Until Max Rat Index"
+      "label": "Jou anvan endèks rat maksimòm"
     },
     "Farming": {
-      "label": "Agriculture Multiplier",
+      "label": "Miltiplikatè agrikilti",
       "options": {
         "1": {
-          "label": "Very Low"
+          "label": "Trè ba"
         },
         "2": {
-          "label": "Low"
+          "label": "Ba"
         },
         "3": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "4": {
-          "label": "High"
+          "label": "Wo"
         },
         "5": {
-          "label": "Very High"
+          "label": "Trè wo"
         }
       }
     },
     "PlantResilience": {
-      "label": "Plant Resilience",
+      "label": "Rezistans plant",
       "options": {
         "1": {
-          "label": "Very High"
+          "label": "Trè wo"
         },
         "2": {
-          "label": "High"
+          "label": "Wo"
         },
         "3": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "4": {
-          "label": "Low"
+          "label": "Ba"
         },
         "5": {
-          "label": "Very Low"
+          "label": "Trè ba"
         }
       }
     },
     "PlantAbundance": {
-      "label": "Plant Abundance",
+      "label": "Abondans plant",
       "options": {
         "1": {
-          "label": "Very Poor"
+          "label": "Trè pòv"
         },
         "2": {
-          "label": "Poor"
+          "label": "Pòv"
         },
         "3": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "4": {
-          "label": "Abundant"
+          "label": "Abondan"
         },
         "5": {
-          "label": "Very Abundant"
+          "label": "Trè abondan"
         }
       }
     },
     "KillInsideCrops": {
-      "label": "Kill Indoor Crops"
+      "label": "Touye rekòt andedan"
     },
     "PlantGrowingSeasons": {
-      "label": "Plant Growing Seasons"
+      "label": "Sezon kwasans plant"
     },
     "PlaceDirtAboveground": {
-      "label": "Place Dirt Aboveground"
+      "label": "Mete tè anlè tè a"
     },
     "FarmingSpeedNew": {
-      "label": "Farming Speed"
+      "label": "Vitès agrikilti"
     },
     "FarmingAmountNew": {
-      "label": "Farming Amount"
+      "label": "Kantite agrikilti"
     },
     "ClayLakeChance": {
-      "label": "Clay Lake Chance"
+      "label": "Chans ajil nan lak"
     },
     "ClayRiverChance": {
-      "label": "Clay River Chance"
+      "label": "Chans ajil nan rivyè"
     }
   },
   "world": {
     "SurvivorHouseChance": {
-      "label": "Survivor House Chance",
+      "label": "Chans kay sivivan",
       "options": {
         "1": {
-          "label": "Never"
+          "label": "Jamè"
         },
         "2": {
-          "label": "Extremely Rare"
+          "label": "Ekstrèmman ra"
         },
         "3": {
-          "label": "Rare"
+          "label": "Ra"
         },
         "4": {
-          "label": "Sometimes"
+          "label": "Pafwa"
         },
         "5": {
-          "label": "Often"
+          "label": "Souvan"
         },
         "6": {
-          "label": "Very Often"
+          "label": "Trè souvan"
         },
         "7": {
-          "label": "Always Tries"
+          "label": "Toujou eseye"
         }
       }
     },
     "VehicleStoryChance": {
-      "label": "Vehicle Story Chance",
+      "label": "Chans istwa machin",
       "options": {
         "1": {
-          "label": "Never"
+          "label": "Jamè"
         },
         "2": {
-          "label": "Extremely Rare"
+          "label": "Ekstrèmman ra"
         },
         "3": {
-          "label": "Rare"
+          "label": "Ra"
         },
         "4": {
-          "label": "Sometimes"
+          "label": "Pafwa"
         },
         "5": {
-          "label": "Often"
+          "label": "Souvan"
         },
         "6": {
-          "label": "Very Often"
+          "label": "Trè souvan"
         },
         "7": {
-          "label": "Always Tries"
+          "label": "Toujou eseye"
         }
       }
     },
     "ZoneStoryChance": {
-      "label": "Zone Story Chance",
+      "label": "Chans istwa zòn",
       "options": {
         "1": {
-          "label": "Never"
+          "label": "Jamè"
         },
         "2": {
-          "label": "Extremely Rare"
+          "label": "Ekstrèmman ra"
         },
         "3": {
-          "label": "Rare"
+          "label": "Ra"
         },
         "4": {
-          "label": "Sometimes"
+          "label": "Pafwa"
         },
         "5": {
-          "label": "Often"
+          "label": "Souvan"
         },
         "6": {
-          "label": "Very Often"
+          "label": "Trè souvan"
         },
         "7": {
-          "label": "Always Tries"
+          "label": "Toujou eseye"
         }
       }
     }
   },
   "zombieLore": {
     "Speed": {
-      "label": "Zombie Speed",
+      "label": "Vitès zonbi",
       "options": {
         "1": {
-          "label": "Sprinters"
+          "label": "Kourè"
         },
         "2": {
-          "label": "Fast Shamblers"
+          "label": "Mache rapid"
         },
         "3": {
-          "label": "Shamblers"
+          "label": "Mache"
         },
         "4": {
-          "label": "Random"
+          "label": "O aza"
         }
       }
     },
     "Strength": {
-      "label": "Strength",
+      "label": "Fòs",
       "options": {
         "1": {
-          "label": "Superhuman"
+          "label": "Sipè-imen"
         },
         "2": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "3": {
-          "label": "Weak"
+          "label": "Fèb"
         },
         "4": {
-          "label": "Random"
+          "label": "O aza"
         }
       }
     },
     "Toughness": {
-      "label": "Toughness",
+      "label": "Rezistans",
       "options": {
         "1": {
-          "label": "Tough"
+          "label": "Djanm"
         },
         "2": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "3": {
-          "label": "Fragile"
+          "label": "Fràjil"
         },
         "4": {
-          "label": "Random"
+          "label": "O aza"
         }
       }
     },
     "Transmission": {
-      "label": "Transmission",
+      "label": "Transmisyon",
       "options": {
         "1": {
-          "label": "Blood and Saliva"
+          "label": "San ak krache"
         },
         "2": {
-          "label": "Saliva Only"
+          "label": "Krache sèlman"
         },
         "3": {
-          "label": "Everyone's Infected"
+          "label": "Tout moun enfekte"
         },
         "4": {
-          "label": "None"
+          "label": "Okenn"
         }
       }
     },
     "Mortality": {
-      "label": "Infection Mortality",
+      "label": "Mòtalite enfeksyon",
       "options": {
         "1": {
-          "label": "Instant"
+          "label": "Menm kote a"
         },
         "2": {
-          "label": "0-30 Seconds"
+          "label": "0-30 segonn"
         },
         "3": {
-          "label": "0-1 Minutes"
+          "label": "0-1 minit"
         },
         "4": {
-          "label": "0-12 Hours"
+          "label": "0-12 èdtan"
         },
         "5": {
-          "label": "2-3 Days"
+          "label": "2-3 jou"
         },
         "6": {
-          "label": "1-2 Weeks"
+          "label": "1-2 semèn"
         },
         "7": {
-          "label": "Never"
+          "label": "Jamè"
         }
       }
     },
     "Cognition": {
-      "label": "Cognition",
+      "label": "Koyisyon",
       "options": {
         "1": {
-          "label": "Navigate and Use Doors"
+          "label": "Navige epi sèvi ak pòt"
         },
         "2": {
-          "label": "Navigate"
+          "label": "Navige"
         },
         "3": {
-          "label": "Basic Navigation"
+          "label": "Navigasyon debaz"
         },
         "4": {
-          "label": "Random"
+          "label": "O aza"
         }
       }
     },
     "Memory": {
-      "label": "Memory",
+      "label": "Memwa",
       "options": {
         "1": {
-          "label": "Long"
+          "label": "Pi long"
         },
         "2": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "3": {
-          "label": "Short"
+          "label": "Kout"
         },
         "4": {
-          "label": "None"
+          "label": "Okenn"
         },
         "5": {
-          "label": "Random"
+          "label": "O aza"
         },
         "6": {
-          "label": "Random between Normal and None"
+          "label": "O aza ant nòmal ak okenn"
         }
       }
     },
     "Sight": {
-      "label": "Sight",
+      "label": "Vizyon",
       "options": {
         "1": {
-          "label": "Eagle"
+          "label": "Èg"
         },
         "2": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "3": {
-          "label": "Poor"
+          "label": "Pòv"
         },
         "4": {
-          "label": "Random"
+          "label": "O aza"
         },
         "5": {
-          "label": "Random between Normal and Poor"
+          "label": "O aza ant nòmal ak pòv"
         }
       }
     },
     "Hearing": {
-      "label": "Hearing",
+      "label": "Odisyon",
       "options": {
         "1": {
-          "label": "Pinpoint"
+          "label": "Presi"
         },
         "2": {
-          "label": "Normal"
+          "label": "Nòmal"
         },
         "3": {
-          "label": "Poor"
+          "label": "Pòv"
         },
         "4": {
-          "label": "Random"
+          "label": "O aza"
         },
         "5": {
-          "label": "Random between Normal and Poor"
+          "label": "O aza ant nòmal ak pòv"
         }
       }
     },
     "SpottedLogic": {
-      "label": "New Stealth System"
+      "label": "Nouvo sistèm diskresyon"
     },
     "ThumpNoChasing": {
-      "label": "Environmental Attacks"
+      "label": "Atak anviwònman"
     },
     "ThumpOnConstruction": {
-      "label": "Damage Construction"
+      "label": "Domaj konstriksyon"
     },
     "ActiveOnly": {
-      "label": "Day/Night Zombie Speed Effect",
+      "label": "Efè lajounen/lannwit sou vitès zonbi",
       "options": {
         "1": {
-          "label": "Both"
+          "label": "Toude"
         },
         "2": {
-          "label": "Night"
+          "label": "Lannwit"
         },
         "3": {
-          "label": "Day"
+          "label": "Lajounen"
         }
       }
     },
     "TriggerHouseAlarm": {
-      "label": "Zombie House Alarm Triggering"
+      "label": "Deklanşman alam kay pa zonbi"
     },
     "ZombiesDragDown": {
-      "label": "Zombies Drag Down"
+      "label": "Zonbi rale jwè atè"
     },
     "ZombiesCrawlersDragDown": {
-      "label": "Crawlers Drag Down"
+      "label": "Zonbi k ap trennen rale jwè atè"
     },
     "ZombiesFenceLunge": {
-      "label": "Fence Lunge"
+      "label": "Sote sou kloti"
     },
     "ZombiesArmorFactor": {
-      "label": "Zombies Armor Factor"
+      "label": "Faktè blende zonbi"
     },
     "ZombiesMaxDefense": {
-      "label": "Maximum Zombie Armor Defense"
+      "label": "Defans blende zonbi maksimòm"
     },
     "ChanceOfAttachedWeapon": {
-      "label": "Chance Of Attached Weapon"
+      "label": "Chans zam tache"
     },
     "ZombiesFallDamage": {
-      "label": "Zombie Fall Damage Multiplier"
+      "label": "Miltiplikatè domaj tonbe zonbi"
     },
     "DisableFakeDead": {
-      "label": "Fake Dead Zombie Reanimation",
+      "label": "Reanimasyon fo zonbi mouri",
       "options": {
         "1": {
-          "label": "World Zombies"
+          "label": "Zonbi mond lan"
         },
         "2": {
-          "label": "World and Combat Zombies"
+          "label": "Zonbi mond lan ak konba"
         },
         "3": {
-          "label": "Never"
+          "label": "Jamè"
         }
       }
     },
     "PlayerSpawnZombieRemoval": {
-      "label": "Spawn Zone Clear",
+      "label": "Netwaye zòn aparisyon",
       "options": {
         "1": {
-          "label": "None"
+          "label": "Okenn"
         },
         "2": {
-          "label": "Small"
+          "label": "Piti"
         },
         "3": {
-          "label": "Medium"
+          "label": "Mwayen"
         },
         "4": {
-          "label": "Large"
+          "label": "Gwo"
         },
         "5": {
-          "label": "Very Large"
+          "label": "Trè gwo"
         }
       }
     },
     "FenceThumpersRequired": {
-      "label": "Zombies To Damage Fences"
+      "label": "Zonbi pou domaje kloti"
     },
     "FenceDamageMultiplier": {
-      "label": "Fence Damage Multiplier"
+      "label": "Miltiplikatè domaj kloti"
     },
     "DoorOpeningPercentage": {
-      "label": "Random Door Opening Amount"
+      "label": "Kantite pòt louvri o aza"
     },
     "CrawlUnderVehicle": {
-      "label": "Crawl Under Vehicle",
+      "label": "Rale anba machin",
       "options": {
         "1": {
-          "label": "Crawlers Only"
+          "label": "Zonbi k ap trennen sèlman"
         },
         "2": {
-          "label": "Extremely Rare"
+          "label": "Ekstrèmman ra"
         },
         "3": {
-          "label": "Rare"
+          "label": "Ra"
         },
         "4": {
-          "label": "Sometimes"
+          "label": "Pafwa"
         },
         "5": {
-          "label": "Often"
+          "label": "Souvan"
         },
         "6": {
-          "label": "Very Often"
+          "label": "Trè souvan"
         },
         "7": {
-          "label": "Always"
+          "label": "Toujou"
         }
       }
     },
     "SprinterPercentage": {
-      "label": "Random Sprinter Amount"
+      "label": "Kantite kourè o aza"
     },
     "Reanimate": {
-      "label": "Reanimate Time",
+      "label": "Tan reanimasyon",
       "options": {
         "1": {
-          "label": "Instant"
+          "label": "Menm kote a"
         },
         "2": {
-          "label": "0-30 Seconds"
+          "label": "0-30 segonn"
         },
         "3": {
-          "label": "0-1 Minutes"
+          "label": "0-1 minit"
         },
         "4": {
-          "label": "0-12 Hours"
+          "label": "0-12 èdtan"
         },
         "5": {
-          "label": "2-3 Days"
+          "label": "2-3 jou"
         },
         "6": {
-          "label": "1-2 Weeks"
+          "label": "1-2 semèn"
         }
       }
     }
   },
   "zombiePopulation": {
     "PopulationMultiplier": {
-      "label": "Population Multiplier"
+      "label": "Miltiplikatè popilasyon"
     },
     "PopulationStartMultiplier": {
-      "label": "Start Multiplier"
+      "label": "Miltiplikatè kòmansman"
     },
     "PopulationPeakMultiplier": {
-      "label": "Peak Multiplier"
+      "label": "Miltiplikatè pik"
     },
     "PopulationPeakDay": {
-      "label": "Peak Day"
+      "label": "Jou pik"
     },
     "RespawnHours": {
-      "label": "Respawn Hours"
+      "label": "Èdtan reparisyon"
     },
     "RespawnUnseenHours": {
-      "label": "Unseen Hours"
+      "label": "Èdtan san wè"
     },
     "RespawnMultiplier": {
-      "label": "Respawn Multiplier"
+      "label": "Miltiplikatè reparisyon"
     },
     "RedistributeHours": {
-      "label": "Redistribute Hours"
+      "label": "Èdtan redistribisyon"
     },
     "FollowSoundDistance": {
-      "label": "Follow Sound Distance"
+      "label": "Distans swiv son"
     },
     "RallyGroupSize": {
-      "label": "Rally Group Size"
+      "label": "Gwosè gwoup rasanbleman"
     },
     "RallyGroupSizeVariance": {
-      "label": "Rally Group Size Variance"
+      "label": "Varyasyon gwosè gwoup rasanbleman"
     },
     "RallyTravelDistance": {
-      "label": "Rally Travel Distance"
+      "label": "Distans vwayaj rasanbleman"
     },
     "RallyGroupSeparation": {
-      "label": "Rally Group Separation"
+      "label": "Separasyon gwoup rasanbleman"
     },
     "RallyGroupRadius": {
-      "label": "Rally Group Radius"
+      "label": "Reyon gwoup rasanbleman"
     },
     "ZombiesCountBeforeDelete": {
-      "label": "Zombies Count Before Delete"
+      "label": "Kantite zonbi anvan efasman"
     }
   },
   "xpMultipliers": {
     "Global": {
-      "label": "Global XP Multiplier"
+      "label": "Miltiplikatè XP global"
     },
     "GlobalToggle": {
-      "label": "Use Global Multiplier For All Skills"
+      "label": "Sèvi ak miltiplikatè global pou tout konpetans"
     },
     "Sprinting": {
-      "label": "Sprinting XP"
+      "label": "XP kouri"
     },
     "Lightfoot": {
-      "label": "Lightfoot XP"
+      "label": "XP pa lejè"
     },
     "Nimble": {
-      "label": "Nimble XP"
+      "label": "XP ladrès"
     },
     "Sneak": {
-      "label": "Sneaking XP"
+      "label": "XP diskresyon"
     },
     "Axe": {
-      "label": "Axe XP"
+      "label": "XP rach"
     },
     "Blunt": {
-      "label": "Blunt XP"
+      "label": "XP zam lou"
     },
     "SmallBlade": {
-      "label": "Small Blade XP"
+      "label": "XP ti lam"
     },
     "LongBlade": {
-      "label": "Long Blade XP"
+      "label": "XP lam long"
     },
     "SmallBlunt": {
-      "label": "Small Blunt XP"
+      "label": "XP ti zam lou"
     },
     "Aiming": {
-      "label": "Aiming XP"
+      "label": "XP vize"
     },
     "Reloading": {
-      "label": "Reloading XP"
+      "label": "XP rechaje"
     },
     "Fishing": {
-      "label": "Fishing XP"
+      "label": "XP lapèch"
     },
     "Trapping": {
-      "label": "Trapping XP"
+      "label": "XP pyèj"
     },
     "Woodwork": {
-      "label": "Carpentry XP"
+      "label": "XP chapant"
     },
     "Cooking": {
-      "label": "Cooking XP"
+      "label": "XP kwizin"
     },
     "Farming": {
-      "label": "Farming XP"
+      "label": "XP agrikilti"
     },
     "Doctor": {
-      "label": "First Aid XP"
+      "label": "XP premye swen"
     },
     "Electricity": {
-      "label": "Electricity XP"
+      "label": "XP elektrisite"
     },
     "MetalWelding": {
-      "label": "Metalworking XP"
+      "label": "XP travay metal"
     },
     "Mechanics": {
-      "label": "Mechanics XP"
+      "label": "XP mekanik"
     },
     "Tailoring": {
-      "label": "Tailoring XP"
+      "label": "XP koud"
     },
     "Maintenance": {
-      "label": "Maintenance XP"
+      "label": "XP antretyen"
     },
     "PlantScavenging": {
-      "label": "Foraging XP"
+      "label": "XP ranmasaj"
     },
     "Fitness": {
-      "label": "Fitness XP"
+      "label": "XP kondisyon fizik"
     },
     "Strength": {
-      "label": "Strength XP"
+      "label": "XP fòs"
     },
     "FlintKnapping": {
-      "label": "Knapping XP"
+      "label": "XP tayaj wòch"
     },
     "Carving": {
-      "label": "Carving XP"
+      "label": "XP eskilti"
     },
     "Tracking": {
-      "label": "Tracking XP"
+      "label": "XP swiv tras"
     },
     "Butchering": {
-      "label": "Butchering XP"
+      "label": "XP bouche"
     },
     "Glassmaking": {
-      "label": "Glassmaking XP"
+      "label": "XP fè vè"
     },
     "Husbandry": {
-      "label": "Animal Husbandry XP"
+      "label": "XP elvaj bèt"
     },
     "Spear": {
-      "label": "Spear XP"
+      "label": "XP frenn"
     },
     "Masonry": {
-      "label": "Masonry XP"
+      "label": "XP masonri"
     },
     "Pottery": {
-      "label": "Pottery XP"
+      "label": "XP potri"
     },
     "Blacksmith": {
-      "label": "Blacksmith XP"
+      "label": "XP fòj"
     }
   },
   "map": {
     "AllowMiniMap": {
-      "label": "Allow Mini Map"
+      "label": "Pèmèt mini kat"
     },
     "AllowWorldMap": {
-      "label": "Allow World Map"
+      "label": "Pèmèt kat mond lan"
     },
     "MapAllKnown": {
-      "label": "Map All Known"
+      "label": "Montre tout kote yo konnen"
     },
     "MapNeedsLight": {
-      "label": "Map Needs Light"
+      "label": "Kat la bezwen limyè"
     }
   },
   "basement": {
     "SpawnFrequency": {
-      "label": "Basement Spawn Frequency",
+      "label": "Frekans aparisyon sousòl",
       "options": {
         "1": {
-          "label": "None"
+          "label": "Okenn"
         },
         "2": {
-          "label": "Very Rare"
+          "label": "Trè ra"
         },
         "3": {
-          "label": "Rare"
+          "label": "Ra"
         },
         "4": {
-          "label": "Sometimes"
+          "label": "Pafwa"
         },
         "5": {
-          "label": "Often"
+          "label": "Souvan"
         },
         "6": {
-          "label": "Very Often"
+          "label": "Trè souvan"
         },
         "7": {
-          "label": "Always"
+          "label": "Toujou"
         }
       }
     }

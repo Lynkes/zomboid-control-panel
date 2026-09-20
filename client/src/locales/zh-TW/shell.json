@@ -36,7 +36,8 @@
       "debugLogs": "除錯日誌",
       "panelUsers": "面板使用者",
       "rolesPermissions": "角色與權限",
-      "singleSignOn": "單一登入"
+      "singleSignOn": "單一登入",
+      "leaderboard": "排行榜"
     },
     "notAvailableRemote": "遠端（僅 RCON）伺服器不支援此功能",
     "localBadge": "本地",

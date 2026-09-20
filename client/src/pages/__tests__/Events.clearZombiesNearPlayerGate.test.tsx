@@ -24,6 +24,8 @@ class StubResizeObserver {
 }
 ;(globalThis as unknown as { ResizeObserver: typeof StubResizeObserver }).ResizeObserver = StubResizeObserver
 
+const mockCan = vi.hoisted(() => vi.fn(() => true))
+
 // bug-hunt-2026-09-18 (round 19): Events.tsx now calls useAuth() to gate
 // its players.endanger_or_impersonate-only controls (lightning/thunder/
 // horde/targeted sounds) -- default every existing test in this file to a
@@ -37,7 +39,7 @@ vi.mock('@/contexts/AuthContext', () => ({
     needsSetup: false,
     logout: vi.fn(),
     getToken: () => 'fake-token',
-    can: () => true,
+    can: mockCan,
   }),
 }))
 
@@ -54,6 +56,8 @@ vi.mock('@/lib/api', async () => {
       getUtilitiesStatus: vi.fn(),
       getWeather: vi.fn(),
       clearZombiesNearPlayer: vi.fn(),
+      spawnHordeNear: vi.fn(),
+      spawnHordeBehind: vi.fn(),
     },
   }
 })
@@ -100,6 +104,7 @@ beforeEach(() => {
   getUtilitiesStatus.mockReset().mockResolvedValue({ success: false } as never)
   getWeather.mockReset().mockResolvedValue({ success: false } as never)
   clearZombiesNearPlayer.mockReset().mockResolvedValue({ success: true } as never)
+  mockCan.mockReturnValue(true)
 })
 
 describe('Events -- clearZombiesNearPlayer is gated behind a confirm dialog, matching clearAllZombies\' tier', () => {
@@ -132,5 +137,16 @@ describe('Events -- clearZombiesNearPlayer is gated behind a confirm dialog, mat
     within(dialog).getByRole('button', { name: 'clear near random' }).click()
 
     await waitFor(() => expect(clearZombiesNearPlayer).toHaveBeenCalledWith('Kate', 50))
+  })
+})
+
+describe('Events -- targeted horde controls require the endanger-or-impersonate capability', () => {
+  it('disables both spawn controls instead of dispatching a request when the capability is absent', async () => {
+    mockCan.mockReturnValue(false)
+    renderEvents()
+    await openHordeSection()
+
+    expect(screen.getByRole('button', { name: 'spawn near random' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'spawn behind random' })).toBeDisabled()
   })
 })

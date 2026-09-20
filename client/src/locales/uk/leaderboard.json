@@ -1,0 +1,15 @@
+{
+  "page": { "title": "Таблиця лідерів", "description": "Легка таблиця сервера для виживання, вбивств, смертей і майстерності зброї.", "eyebrow": "// LIVE · РЕЙТИНГ ВИЖИВАННЯ" },
+  "bridge": { "summary": "Читає таблицю PanelBridge, збережену у світі." },
+  "actions": { "refresh": "Оновити", "retry": "Повторити" },
+  "metrics": { "ariaLabel": "Метрика рейтингу", "days": "Днів вижито", "currentKills": "Поточні вбивства", "allTimeKills": "Вбивства за весь час", "deaths": "Смерті", "weapon": "Майстерність зброї" },
+  "summary": { "players": "Гравці", "playersDetail": "{{online}} онлайн", "allTimeKills": "Всього вбивств", "allTimeKillsDetail": "Серед усіх відстежених виживших", "deaths": "Всього смертей", "deathsDetail": "Втрачені життя на цьому сервері", "leader": "Поточний лідер", "noLeader": "Немає рейтингу" },
+  "podium": { "title": "Таблиця", "subtitle": "Рейтинг за параметром: {{metric}}" },
+  "trackingSince": "Відстеження з {{date}}",
+  "table": { "title": "Усі виживші", "updated": "Оновлено {{date}}", "waitingForUpdate": "Очікування першого читання", "search": "Пошук виживших...", "searchAria": "Пошук у таблиці", "player": "Виживший", "days": "Найкращі дні", "currentKills": "Поточні вбивства", "allTimeKills": "Вбивства за весь час", "deaths": "Смерті", "weapon": "Улюблена зброя", "online": "Онлайн", "offline": "Офлайн", "currentDaysTitle": "Поточне життя: {{value}} днів", "noMatchesTitle": "Виживших не знайдено", "noMatchesDescription": "Спробуйте інше ім'я або зброю." },
+  "stale": { "title": "Показано останню відому таблицю" },
+  "footer": { "refreshRate": "Оновлення кожні 30 секунд", "historyNote": "Відлік за весь час починається, коли PanelBridge починає збір." },
+  "errors": { "title": "Таблиця недоступна", "load": "Не вдалося прочитати таблицю PanelBridge.", "unexpected": "Таблиця повернула неочікувану відповідь." },
+  "empty": { "title": "Ще немає рейтингу", "description": "Підключіть гравця, щоб почати таблицю. PanelBridge зберігає запис у світі." },
+  "loading": "Завантаження таблиці"
+}

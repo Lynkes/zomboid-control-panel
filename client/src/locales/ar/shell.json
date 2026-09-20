@@ -46,7 +46,8 @@
       "debugLogs": "سجلات التصحيح",
       "panelUsers": "مستخدمو اللوحة",
       "rolesPermissions": "الأدوار والصلاحيات",
-      "singleSignOn": "تسجيل الدخول الموحد"
+      "singleSignOn": "تسجيل الدخول الموحد",
+      "leaderboard": "لوحة المتصدرين"
     },
     "notAvailableRemote": "غير متاح للخوادم البعيدة (RCON فقط)",
     "localBadge": "محلي",

@@ -36,7 +36,8 @@
       "debugLogs": "调试日志",
       "panelUsers": "面板用户",
       "rolesPermissions": "角色与权限",
-      "singleSignOn": "单点登录"
+      "singleSignOn": "单点登录",
+      "leaderboard": "排行榜"
     },
     "notAvailableRemote": "远程（仅 RCON）服务器不支持此功能",
     "localBadge": "本地",

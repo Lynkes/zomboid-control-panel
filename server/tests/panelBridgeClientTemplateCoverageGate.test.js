@@ -85,6 +85,7 @@ const PINNED_UNTEMPLATED_ACTIONS = [
   "exportPlayerData",
   "generateWeather",
   "getAllPlayerDetails",
+  "getLeaderboard",
   "getAllSandboxOptions",
   "getAvailableHandlers",
   "getChatInfo",
