@@ -1,4 +1,11 @@
 {
+  "permissions": {
+    "noPanelSettings": "L'enregistrement de ces paramètres nécessite la permission panel.settings, que ce rôle n'a pas.",
+    "noDiagnosticsManage": "Cette action nécessite la permission diagnostics.manage, que ce rôle n'a pas.",
+    "noServerConfigure": "Tester la connexion RCON nécessite la permission server.configure, que ce rôle n'a pas.",
+    "noBridgeSetup": "Cette action nécessite la permission bridge.setup, que ce rôle n'a pas.",
+    "adminOnly": "Cette action est réservée au rôle administrateur."
+  },
   "ariaLabels": {
     "allowPrivateLan": "Autoriser les origines privées et LAN",
     "enablePublicIp": "Activer la recherche d'IP publique",
@@ -341,6 +348,8 @@
     "cardTitle": "Connexion RCON",
     "cardDesc": "Testez la connexion et définissez le comportement de reconnexion. L'hôte, le port et le mot de passe sont configurés par serveur sur la page Serveurs.",
     "testButton": "Tester la connexion",
+    "testResultOk": "Connecté",
+    "testResultFailed": "Échec",
     "autoReconnectLabel": "Reconnexion automatique en cas de déconnexion",
     "reconnectIntervalLabel": "Intervalle de reconnexion (secondes)",
     "perServerNote": "RCON est configuré par serveur :",
@@ -353,8 +362,26 @@
     "autoStartDesc": "Ignoré automatiquement lorsque le port RCON est déjà utilisé, pour qu'un serveur déjà en cours d'exécution ne soit jamais dupliqué. Nécessite un chemin d'installation local ; les serveurs hébergés par un fournisseur sont démarrés par le fournisseur."
   },
   "bridge": {
+    "checksLabels": {
+      "bridgePathConfigured": "Chemin du pont configuré",
+      "bridgePathExists": "Le répertoire du pont existe",
+      "bridgePathReadable": "Répertoire du pont lisible",
+      "bridgePathWritable": "Répertoire du pont accessible en écriture",
+      "inboxDirPresent": "Dossier de réception présent",
+      "outboxDirPresent": "Dossier d'envoi présent",
+      "commandsFilePresent": "Fichier de commandes présent",
+      "commandsFileReadable": "Fichier de commandes lisible",
+      "resultsFilePresent": "Fichier de résultats présent",
+      "resultsFileReadable": "Fichier de résultats lisible",
+      "statusFilePresent": "Fichier d'état présent",
+      "statusFileReadable": "Fichier d'état lisible",
+      "statusFresh": "L'état est à jour"
+    },
     "cardTitle": "Panel Bridge",
     "cardDesc": "Connecte ce panneau au jeu en direct pour la météo, les utilitaires, un chat enrichi et d'autres actions in-jeu",
+    "sectionStatusSetup": "État et configuration",
+    "sectionRemoteConfigLogs": "Configuration et journaux distants",
+    "sectionInstallUpdates": "Installation et mises à jour",
     "howItWorksButton": "Comment ça marche",
     "dialogTitle": "Panel Bridge",
     "dialogDesc": "Un mod Lua qui s'exécute dans Project Zomboid, donnant à ce panneau un accès direct au monde du jeu en direct.",
@@ -550,6 +577,8 @@
     "emptyDescription": "Cliquez sur « Sauvegarder maintenant » pour en créer une.",
     "emptyDescriptionSavesNotFound": "« Sauvegarder maintenant » est désactivé car le dossier de sauvegardes est introuvable. Vérifiez le chemin des données Zomboid du serveur actif sur la page Serveurs, puis rouvrez cet onglet.",
     "restoreTitle": "Restaurer cette sauvegarde (le serveur doit être arrêté)",
+    "downloadTitle": "Télécharger cette sauvegarde",
+    "deleteTitle": "Supprimer cette sauvegarde",
     "restoreDialogTitle": "Restaurer la sauvegarde",
     "restoreDialogIntro": "Ceci va restaurer <b>{{name}}</b> et <b>ÉCRASER</b> les données actuelles du monde.",
     "restoreMustBeStopped": "Le serveur doit être <b>ARRÊTÉ</b>",
@@ -849,6 +878,7 @@
     "inSync_many": "Synchronisé — {{count}} éléments"
   },
   "toasts": {
+    "backupPanelServerChanged": { "title": "Le serveur actif a changé", "description": "Le serveur actif a changé. Ce panneau est en cours d'actualisation pour le serveur actuellement actif — réessayez une fois l'opération terminée." },
     "recoveryCodesGenerated": {
       "title": "Codes de récupération générés",
       "description": "Enregistrez-les maintenant — ils ne peuvent plus être affichés ensuite."
@@ -876,6 +906,9 @@
       "title": "Impossible d'enregistrer les paramètres",
       "fallback": "Le panneau n'a pas pu enregistrer vos paramètres. Réessayez."
     },
+    "autoStartEnabled": { "title": "Démarrage automatique activé", "description": "Le serveur démarrera automatiquement au lancement du panneau" },
+    "autoStartDisabled": { "title": "Démarrage automatique désactivé", "description": "Le serveur ne démarrera pas automatiquement" },
+    "autoStartSaveFailed": { "title": "Échec de l'enregistrement du paramètre de démarrage automatique", "fallback": "Le panneau n'a pas pu enregistrer le paramètre de démarrage automatique. Réessayez." },
     "corsReloaded": {
       "title": "Règles CORS rechargées",
       "description": "Le backend a rechargé les paramètres CORS depuis la base de données."

@@ -82,11 +82,17 @@
     "whitelistLastConnection": "zuletzt {{date}}",
     "removeButton": "Entfernen",
     "removeTitle": "{{username}} von der Whitelist entfernen",
+    "removeFromWhitelistConfirmTitle": "Von der Whitelist entfernen?",
+    "removeFromWhitelistConfirmDesc": "{{player}} wird aus der Whitelist-Kontodatenbank entfernt.",
+    "removeFromWhitelistConfirmButton": "Entfernen",
     "allowedSteamIdsLabel": "Erlaubte Steam-IDs",
     "allowedSteamIdAria": "Erlaubte Steam-ID",
     "addButton": "Hinzufügen",
     "removeAllowedButton": "Entfernen",
     "removeAllowedTitle": "Erlaubte Steam-ID {{steamId}} entfernen",
+    "removeAllowedSteamIdConfirmTitle": "Erlaubte Steam-ID entfernen?",
+    "removeAllowedSteamIdConfirmDesc": "{{steamId}} darf einem Whitelist-Server dann nicht mehr beitreten.",
+    "removeAllowedSteamIdConfirmButton": "Entfernen",
     "manualTargetLabel": "› Manuelles Ziel",
     "manualTargetLabelText": "Manuelles Ziel",
     "manualTargetPlaceholder": "Benutzername eingeben…"
@@ -120,6 +126,7 @@
     "disableNoclip": "Noclip-Modus deaktivieren",
     "addToWhitelist": "Zur Whitelist hinzufügen",
     "removeFromWhitelist": "Von der Whitelist entfernen",
+    "notOnWhitelistReason": "{{player}} steht nicht auf der Whitelist — nichts zu entfernen.",
     "importExportCharacter": "Charakter importieren/exportieren",
     "noTargetTitle": "kein Ziel ausgewählt",
     "noTargetDesc": "Wähle einen Spieler aus der Liste, um sein Dossier anzuzeigen, oder gib einen Benutzernamen unter <1>› Manuelles Ziel</1> ein."
@@ -179,6 +186,8 @@
     "description": "{{player}} vom Server kicken",
     "reasonLabel": "Grund (optional)",
     "reasonPlaceholder": "Grund eingeben …",
+    "reasonAlteredNote": "Der Server sendet nur: „{{preview}}“",
+    "reasonAlteredToEmpty": "Keines dieser Zeichen kann an den Server gesendet werden — dieser Spieler sieht überhaupt keinen Grund.",
     "submit": "Spieler kicken"
   },
   "banDialog": {
@@ -186,6 +195,8 @@
     "description": "{{player}} vom Server bannen",
     "reasonLabel": "Grund (optional)",
     "reasonPlaceholder": "Grund eingeben …",
+    "reasonAlteredNote": "Der Server sendet nur: „{{preview}}“",
+    "reasonAlteredToEmpty": "Keines dieser Zeichen kann an den Server gesendet werden — dieser Spieler sieht überhaupt keinen Grund.",
     "banIpLabel": "IP-Adresse ebenfalls bannen",
     "banIpTip": "Blockiert zusätzlich die IP, nicht nur das Konto — kann andere im selben Netzwerk betreffen, und dieses Panel bietet keine eigene Möglichkeit, IP-Sperren später zu überprüfen oder aufzuheben.",
     "cancel": "Abbrechen",
@@ -205,6 +216,12 @@
     "label": "Zugriffsebene",
     "placeholder": "Ebene auswählen …",
     "submit": "Ebene festlegen"
+  },
+  "confirmLastAdmin": {
+    "title": "Letzten Admin entfernen?",
+    "description": "{{player}} ist das einzige Konto mit der Zugriffsebene admin. Wird sie entfernt, hat niemand mehr vollständige Admin-Befehle im Spiel, bis sie hier erneut vergeben wird.",
+    "confirm": "Admin-Zugriff entfernen",
+    "cancel": "Abbrechen"
   },
   "teleportDialog": {
     "title": "Spieler teleportieren",
@@ -241,12 +258,15 @@
   "addUserDialog": {
     "title": "Benutzer hinzufügen",
     "description": "Erstelle ein neues Benutzerkonto für Whitelist-Server. Build 42 erlaubt ein leeres Passwort.",
+    "titleWhitelist": "Zur Whitelist hinzufügen",
+    "descriptionWhitelist": "{{player}} zur Whitelist-Kontodatenbank hinzufügen. Build 42 erlaubt ein leeres Passwort.",
     "usernameLabel": "Benutzername",
     "usernamePlaceholder": "Benutzernamen eingeben …",
     "passwordLabel": "Passwort (optional)",
     "passwordPlaceholder": "Optionales Passwort (mind. 4 Zeichen) …",
     "cancel": "Abbrechen",
-    "submit": "Benutzer hinzufügen"
+    "submit": "Benutzer hinzufügen",
+    "submitWhitelist": "Zur Whitelist hinzufügen"
   },
   "unbanDialog": {
     "title": "Spieler entbannen",
@@ -275,7 +295,7 @@
     "spawnVehiclesDescNoPlayer": "Spawnt an der Position des Aufrufenden — wähle stattdessen einen Spieler, um Fahrzeuge in seiner Nähe zu spawnen.",
     "giveXpTitle": "XP geben",
     "giveXpDescWithPlayer": "Erfahrung an <1>{{player}}</1> vergeben",
-    "giveXpDescNoPlayer": "Erfahrung an den ausgewählten Spieler vergeben",
+    "giveXpDescNoPlayer": "Wähle zuerst einen Spieler, dann vergib ihm Erfahrung in einer gewählten Fertigkeit.",
     "perkPlaceholder": "Perk auswählen …",
     "amountLabel": "Menge",
     "giveXpButton": "XP geben",
@@ -406,6 +426,7 @@
   "toasts": {
     "successTitle": "Erfolg",
     "successDesc": "{{action}} abgeschlossen",
+    "successDescForPlayer": "{{action}} für {{player}}",
     "bridgeUnverifiedDesc": "{{action}} wurde gesendet, aber das Mod konnte nicht bestätigen, dass es wirksam wurde.",
     "bridgeOldBridgeDesc": "{{action}} hat möglicherweise funktioniert, aber diese Version des PanelBridge-Mods meldet nicht zurück, ob es so war. Aktualisiere das Mod, um Ergebnisse zu bestätigen.",
     "errorTitle": "Fehler",

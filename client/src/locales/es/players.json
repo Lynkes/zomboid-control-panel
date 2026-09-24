@@ -83,11 +83,17 @@
     "whitelistLastConnection": "última {{date}}",
     "removeButton": "Quitar",
     "removeTitle": "Quitar a {{username}} de la lista blanca",
+    "removeFromWhitelistConfirmTitle": "¿Quitar de la lista blanca?",
+    "removeFromWhitelistConfirmDesc": "Se quitará a {{player}} de la base de datos de cuentas de la lista blanca.",
+    "removeFromWhitelistConfirmButton": "Quitar",
     "allowedSteamIdsLabel": "Steam ID permitidos",
     "allowedSteamIdAria": "Steam ID permitido",
     "addButton": "Añadir",
     "removeAllowedButton": "Quitar",
     "removeAllowedTitle": "Quitar el Steam ID permitido {{steamId}}",
+    "removeAllowedSteamIdConfirmTitle": "¿Quitar el Steam ID permitido?",
+    "removeAllowedSteamIdConfirmDesc": "{{steamId}} ya no podrá unirse a un servidor con lista blanca.",
+    "removeAllowedSteamIdConfirmButton": "Quitar",
     "manualTargetLabel": "› Objetivo manual",
     "manualTargetLabelText": "Objetivo manual",
     "manualTargetPlaceholder": "Escribir nombre de usuario…",
@@ -123,6 +129,7 @@
     "disableNoclip": "Desactivar Noclip",
     "addToWhitelist": "Añadir a la lista blanca",
     "removeFromWhitelist": "Quitar de la lista blanca",
+    "notOnWhitelistReason": "{{player}} no está en la lista blanca — no hay nada que quitar.",
     "importExportCharacter": "Importar/exportar personaje",
     "noTargetTitle": "ningún objetivo seleccionado",
     "noTargetDesc": "Elegir un jugador de la lista para ver su expediente, o escribir un nombre de usuario en <1>› Objetivo manual</1>."
@@ -182,6 +189,8 @@
     "description": "Expulsar a {{player}} del servidor",
     "reasonLabel": "Motivo (opcional)",
     "reasonPlaceholder": "Escribir motivo...",
+    "reasonAlteredNote": "El servidor solo enviará: «{{preview}}»",
+    "reasonAlteredToEmpty": "Ninguno de estos caracteres se puede enviar al servidor — este jugador no verá ningún motivo.",
     "submit": "Expulsar jugador"
   },
   "banDialog": {
@@ -189,6 +198,8 @@
     "description": "Banear a {{player}} del servidor",
     "reasonLabel": "Motivo (opcional)",
     "reasonPlaceholder": "Escribir motivo...",
+    "reasonAlteredNote": "El servidor solo enviará: «{{preview}}»",
+    "reasonAlteredToEmpty": "Ninguno de estos caracteres se puede enviar al servidor — este jugador no verá ningún motivo.",
     "banIpLabel": "También banear la dirección IP",
     "banIpTip": "También bloquea la IP, no solo la cuenta — puede afectar a otras personas en la misma red, y este panel no permite revisar ni levantar baneos de IP por separado.",
     "cancel": "Cancelar",
@@ -208,6 +219,12 @@
     "label": "Nivel de acceso",
     "placeholder": "Seleccionar nivel...",
     "submit": "Establecer nivel"
+  },
+  "confirmLastAdmin": {
+    "title": "¿Quitar el último administrador?",
+    "description": "{{player}} es la única cuenta con el nivel de acceso admin. Quitarlo dejará a nadie con comandos de administrador completos en el juego hasta que se conceda de nuevo desde aquí.",
+    "confirm": "Quitar acceso de administrador",
+    "cancel": "Cancelar"
   },
   "teleportDialog": {
     "title": "Teletransportar jugador",
@@ -244,12 +261,15 @@
   "addUserDialog": {
     "title": "Añadir usuario",
     "description": "Crear una nueva cuenta de usuario para servidores con lista blanca. Build 42 permite una contraseña vacía.",
+    "titleWhitelist": "Añadir a la lista blanca",
+    "descriptionWhitelist": "Añadir a {{player}} a la base de datos de cuentas de la lista blanca. Build 42 permite una contraseña vacía.",
     "usernameLabel": "Nombre de usuario",
     "usernamePlaceholder": "Escribir nombre de usuario...",
     "passwordLabel": "Contraseña (opcional)",
     "passwordPlaceholder": "Contraseña opcional (mín. 4 caracteres)...",
     "cancel": "Cancelar",
-    "submit": "Añadir usuario"
+    "submit": "Añadir usuario",
+    "submitWhitelist": "Añadir a la lista blanca"
   },
   "unbanDialog": {
     "title": "Desbanear jugador",
@@ -278,7 +298,7 @@
     "spawnVehiclesDescNoPlayer": "Se genera en la posición de quien ejecuta la acción. Seleccionar un jugador para generar los vehículos cerca de esa persona.",
     "giveXpTitle": "Dar XP",
     "giveXpDescWithPlayer": "Otorgar experiencia a <1>{{player}}</1>",
-    "giveXpDescNoPlayer": "Otorgar experiencia al jugador seleccionado",
+    "giveXpDescNoPlayer": "Elegir primero un jugador y luego otorgarle experiencia en una habilidad elegida.",
     "perkPlaceholder": "Seleccionar perk...",
     "amountLabel": "Cantidad",
     "giveXpButton": "Dar XP",
@@ -409,6 +429,7 @@
   "toasts": {
     "successTitle": "Éxito",
     "successDesc": "Se completó: {{action}}",
+    "successDescForPlayer": "{{action}} para {{player}}",
     "bridgeUnverifiedDesc": "{{action}} se envió, pero el mod no pudo confirmar que surtiera efecto.",
     "bridgeOldBridgeDesc": "{{action}} puede haber funcionado, pero esta versión del mod PanelBridge no informa si fue así. Actualiza el mod para confirmar los resultados.",
     "errorTitle": "Error",

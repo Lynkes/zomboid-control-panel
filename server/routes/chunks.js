@@ -1735,13 +1735,41 @@ router.post("/delete-chunks", requirePermission("chunks.manage"), async (req, re
     // must not report chunks we just deleted.
     invalidateMapFolderScan(path.join(savePath, "map"));
 
+    // god-dispatched round 3, 2026-09-18: `success: true` used to be
+    // unconditional here -- honest for a PARTIAL failure (deleted > 0: real
+    // work happened, the `errors` array and the client's own dedicated
+    // "partially deleted" toast already surface the rest), but a LIE for a
+    // TOTAL one (every targeted chunk failed to delete, chunks.length > 0
+    // guarantees there was something to attempt). The client's shared
+    // handleResponse() (api.ts) already treats any `success: false` body as
+    // a thrown ApiError regardless of HTTP status, so flipping this is
+    // enough on its own to route a total failure into ChunkCleaner.tsx's
+    // existing generic failure toast instead of its misleading
+    // "N deleted, M failed" partial-success one -- no client change needed.
+    //
+    // round 4 follow-up: the `error` string used to be built here directly,
+    // English-only, in a panel that's otherwise localized. Registered as
+    // DELETE_CHUNKS_ALL_FAILED (errorCodes.js) instead -- `error` stays as
+    // the untranslated fallback getUserErrorMessage() falls back to when no
+    // locale entry resolves, `code` is what actually drives translation,
+    // and the first raw filesystem error rides along as `params.reason`
+    // (interpolated into the template, never baked into the message
+    // itself) -- same shape as WIPE_PARTIAL_FAILURE's `params: {reason}`.
+    const allFailed = deleted === 0 && errors.length > 0;
     res.json({
-      success: true,
+      success: !allFailed,
       deleted,
       vehiclesDeleted: vehiclesResult.deleted || 0,
       cellFilesRemoved: cellCleanup.removed.length,
       errors: errors.length > 0 ? errors : undefined,
       backupCreated: createBackup,
+      ...(allFailed
+        ? {
+            error: `Every selected chunk failed to delete (${errors.length} error${errors.length === 1 ? "" : "s"}): ${errors[0]}`,
+            code: ErrorCode.DELETE_CHUNKS_ALL_FAILED,
+            params: sanitizeErrorParams({ reason: errors[0] }),
+          }
+        : {}),
     });
   } catch (error) {
     log.error(`Failed to delete chunks: ${error.message}`);
@@ -2262,6 +2290,15 @@ router.post("/delete-region", requirePermission("chunks.manage"), async (req, re
         );
       } catch (e) {
         log.warn(`vehicles.db region cleanup failed: ${e.message}`);
+        // god-dispatched round 4, 2026-09-18: this used to only log.warn,
+        // unlike /delete-chunks' identical vehicles.db catch a few hundred
+        // lines up (which already pushes into `errors`) -- a vehicles.db
+        // failure here was invisible to both the operator (no entry in the
+        // response's `errors` array) and the `allFailed` check above (a
+        // request that deletes chunk files fine but whose vehicles.db
+        // cleanup fails stays a silent, undetectable partial failure).
+        // Matches /delete-chunks' shape exactly.
+        errors.push(`vehicles.db: ${e.message}`);
       }
     }
 
@@ -2274,14 +2311,30 @@ router.post("/delete-region", requirePermission("chunks.manage"), async (req, re
     // must not report chunks we just deleted.
     invalidateMapFolderScan(mapPath);
 
+    // Same fix and reasoning as /delete-chunks above: `success` must
+    // reflect a TOTAL failure (deleted:0 with real errors, guaranteed
+    // something was attempted -- the `chunksToDelete.length === 0` case
+    // above already returned early). A partial failure (deleted > 0) stays
+    // `success: true`, same as /delete-chunks -- real work happened and the
+    // `errors` array already carries the rest. Same round-4 ErrorCode fix
+    // too -- see /delete-chunks' matching comment for the full rationale;
+    // shared code (DELETE_CHUNKS_ALL_FAILED covers both sites).
+    const allFailed = deleted === 0 && errors.length > 0;
     res.json({
-      success: true,
+      success: !allFailed,
       deleted,
       vehiclesDeleted: vehiclesResult.deleted || 0,
       cellFilesRemoved: cellCleanup.removed.length,
       errors: errors.length > 0 ? errors : undefined,
       region: { minX, maxX, minY, maxY },
       inverted: invert,
+      ...(allFailed
+        ? {
+            error: `Every selected chunk failed to delete (${errors.length} error${errors.length === 1 ? "" : "s"}): ${errors[0]}`,
+            code: ErrorCode.DELETE_CHUNKS_ALL_FAILED,
+            params: sanitizeErrorParams({ reason: errors[0] }),
+          }
+        : {}),
     });
   } catch (error) {
     log.error(`Failed to delete region: ${error.message}`);

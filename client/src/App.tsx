@@ -46,6 +46,13 @@ const ROUTE_LOADERS: Record<string, RouteLoaderMeta> = {
     variant: 'list',
     metrics: ['roster', 'actions', 'notes'],
   },
+  '/leaderboard': {
+    title: 'Leaderboard',
+    description: 'Loading survival rankings, kill totals, deaths, and weapon mastery.',
+    eyebrow: '// LIVE · SURVIVAL RANKINGS',
+    variant: 'list',
+    metrics: ['rankings', 'kills', 'survivors'],
+  },
   '/console': {
     title: 'Server Console',
     description: 'Opening command history, RCON state, and live output stream.',
@@ -171,6 +178,7 @@ const AUTH_BOOT_STEPS = [
 // Lazy load larger pages for code splitting
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Players = lazy(() => import('./pages/Players'))
+const Leaderboard = lazy(() => import('./pages/Leaderboard'))
 const Console = lazy(() => import('./pages/Console'))
 const Scheduler = lazy(() => import('./pages/Scheduler'))
 const Mods = lazy(() => import('./pages/Mods'))
@@ -586,6 +594,7 @@ function AppContent() {
               <Route path="/" element={<FeatureErrorBoundary featureName={t('nav.dashboard')}><Dashboard /></FeatureErrorBoundary>} />
               <Route path="/dashboard" element={<Navigate to="/" replace />} />
               <Route path="/players" element={<FeatureErrorBoundary featureName={t('nav.items.onlinePlayers')}><Players /></FeatureErrorBoundary>} />
+              <Route path="/leaderboard" element={<FeatureErrorBoundary featureName={t('nav.items.leaderboard')}><Leaderboard /></FeatureErrorBoundary>} />
               <Route path="/console" element={<FeatureErrorBoundary featureName={t('nav.items.serverConsole')}><Console /></FeatureErrorBoundary>} />
               <Route path="/scheduler" element={<FeatureErrorBoundary featureName={t('nav.items.scheduledTasks')}><Scheduler /></FeatureErrorBoundary>} />
               <Route path="/mods" element={<FeatureErrorBoundary featureName={t('nav.items.modManager')}><Mods /></FeatureErrorBoundary>} />

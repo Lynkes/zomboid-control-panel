@@ -315,6 +315,37 @@ describe("saveTemplate / deleteTemplate for user templates", () => {
     const result = await templateService.deleteTemplate("does-not-exist");
     expect(result.success).toBe(false);
   });
+
+  // continuous-bug-hunt round 24: re-saving a full previously-exported
+  // template object (schemaVersion + meta.id present -- exactly the shape
+  // templatesApi.create's own doc comment describes as its second use,
+  // "a full exported template object re-saved as a new user template")
+  // must create an INDEPENDENT second template, never silently overwrite
+  // whichever existing template happens to already own that id.
+  it("re-saving a full exported user template creates a second, independent template rather than overwriting the original", async () => {
+    const original = await templateService.saveTemplate({
+      name: "Original Ruleset",
+      sandboxVars: { settings: { Zombies: 3 } },
+    });
+    expect(original.success).toBe(true);
+
+    const reSaved = await templateService.saveTemplate({
+      schemaVersion: TEMPLATE_SCHEMA_VERSION,
+      meta: { id: original.template.meta.id, name: "Original Ruleset (re-saved)" },
+      serverIni: {},
+      sandboxVars: { settings: { Zombies: 3 } },
+      iniExclusions: original.template.iniExclusions,
+      mods: [],
+      map: { mapId: "Muldraugh, KY" },
+      difficulty: {},
+    });
+
+    expect(reSaved.success).toBe(true);
+    expect(reSaved.template.meta.id).not.toBe(original.template.meta.id);
+    expect(userTemplates).toHaveLength(2);
+    const untouchedOriginal = userTemplates.find((t) => t.meta.id === original.template.meta.id);
+    expect(untouchedOriginal.meta.name).toBe("Original Ruleset");
+  });
 });
 
 // ─── Import / export round-trip ─────────────────────────────────────────────

@@ -602,9 +602,16 @@ export default function ChunkCleaner() {
         const payload = (apiErr?.data ?? null) as {
           debug?: NonNullable<typeof debugInfo>;
         } | null;
-        const message =
-          (error instanceof Error && error.message) ||
-          t("toasts.loadSavesFailedFallback");
+        // getUserErrorMessage(), not a raw error.message fallback -- this
+        // was the one catch block in this file that skipped it, silently
+        // dropping any registered code->translation lookup (and the generic
+        // 5xx i18n wrapper) in favor of the server's raw English string.
+        // Every other catch here already goes through it (loadChunks,
+        // handleDelete, persistCurrentPath below after this same fix).
+        const message = getUserErrorMessage(
+          error,
+          t("toasts.loadSavesFailedFallback"),
+        );
         setLoadError(message);
         if (payload?.debug) setDebugInfo(payload.debug);
         toast({
@@ -733,9 +740,16 @@ export default function ChunkCleaner() {
         setCustomPathInput("");
         await fetchSaves("");
       } catch (error) {
-        const message =
-          (error instanceof Error && error.message) ||
-          t("toasts.pathSaveFailedFallback");
+        // getUserErrorMessage(), not a raw error.message fallback -- this
+        // route (POST /chunks/save-path) returns a real `code` on several
+        // failure paths (CHUNKS_SAVE_PATH_MISSING/_EMPTY/
+        // _CAPABILITY_REQUIRED, all registered + translated in every
+        // locale's errors.json), and the raw fallback silently showed the
+        // server's untranslated English string in every locale instead.
+        const message = getUserErrorMessage(
+          error,
+          t("toasts.pathSaveFailedFallback"),
+        );
         toast({
           title: t("toasts.pathSaveFailedTitle"),
           description: message,

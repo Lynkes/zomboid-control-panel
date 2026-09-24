@@ -242,6 +242,7 @@
     "sandboxScope": "sandbox lua",
     "hint": "ctrl+s to save · applies on reload",
     "discard": "discard",
+    "save": "save",
     "saveAndReload": "save & reload"
   },
   "backupsDialog": {
@@ -3268,6 +3269,9 @@
           },
           "6": {
             "label": "Very Often"
+          },
+          "7": {
+            "label": "Always Tries"
           }
         }
       },
@@ -3292,6 +3296,9 @@
           },
           "6": {
             "label": "Very Often"
+          },
+          "7": {
+            "label": "Always Tries"
           }
         }
       }

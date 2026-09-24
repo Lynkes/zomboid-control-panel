@@ -304,6 +304,18 @@ export default function ServerSetup() {
   const [installStalled, setInstallStalled] = useState(false);
   const [installViaSteamCmd, setInstallViaSteamCmd] = useState(false);
   const installLastActivityRef = useRef<number>(0);
+  // install-events-cross-install-contamination, 2026-09-18: POST /install's
+  // concurrency guard is scoped per installPath, so two operators (or one
+  // operator running two setup wizards in two tabs) CAN legitimately run two
+  // installs at once -- install:log/install:complete now carry the exact
+  // installPath string this wizard sent (see server/routes/server.js's
+  // installEventScope), mirroring Servers.tsx's steamOperationInstallPathRef
+  // fix for the identical steam:*/steam-update contamination. Set to the
+  // exact installPath this client just sent right before firing POST
+  // /install (before the await, so a fast broadcast racing the awaited
+  // response is never filtered out as unrecognized) and compared as an exact
+  // string against what the server echoes back.
+  const installOperationPathRef = useRef<string | null>(null);
   const [logs, setLogs] = useState<InstallLog[]>([]);
   const [installComplete, setInstallComplete] = useState(false);
   // A leftover marker from a PREVIOUS page load (see readInstallInFlightMarker
@@ -546,7 +558,12 @@ export default function ServerSetup() {
       text: string;
       progressCode?: string;
       params?: Record<string, string | number>;
+      installPath?: string;
     }) => {
+      // Cross-install contamination guard: a DIFFERENT install's log line
+      // must never land in this wizard's log panel. See
+      // installOperationPathRef's own comment above.
+      if (data.installPath !== installOperationPathRef.current) return;
       installLastActivityRef.current = Date.now();
       setInstallStalled(false);
       const text = data.text.trim();
@@ -616,6 +633,12 @@ export default function ServerSetup() {
       params?: Record<string, string | number>;
       warnings?: Array<{ progressCode?: string; message: string; params?: Record<string, string | number> }>;
     }) => {
+      // Cross-install contamination guard: a DIFFERENT install's outcome
+      // must never resolve THIS wizard's install (registering/activating the
+      // wrong server, or reporting a still-running install as failed). See
+      // installOperationPathRef's own comment above.
+      if (data.installPath !== installOperationPathRef.current) return;
+      installOperationPathRef.current = null;
       // The socket connection (and this handler) is the ONLY place that ever
       // learns the true outcome -- clear the in-flight marker on both success
       // and failure, not just success, so a reload after this point has
@@ -916,11 +939,21 @@ export default function ServerSetup() {
     initial?: string;
   } | null>(null);
 
+  // bug-hunt-2026-09-18 (round 19, client-vs-server permission gate sweep):
+  // whatever dialog this opens ultimately drives POST /list-directory and
+  // POST /browse-folder (server/routes/server.js), both gated on
+  // server.install -- the SAME capability every other mutating action on
+  // this page already guards with `if (!canInstall) return` before this
+  // fix. All 6 call sites below had no client-side check of any kind, so a
+  // user lacking server.install could open the folder browser and only
+  // find out via a 403 mid-navigation, on a control that looked identical
+  // to every properly-gated one beside it.
   const handleBrowseFolder = (
     setter: (path: string) => void,
     description: string,
     currentPath?: string,
   ) => {
+    if (!canInstall) return;
     setBrowseSetter({ fn: setter, title: description, initial: currentPath });
     setBrowseOpen(true);
   };
@@ -997,6 +1030,11 @@ export default function ServerSetup() {
     setLogs([]);
     setInstallProgress(null);
     addLog("info", t("toasts.startingInstallLog"));
+    // Set before the request fires (not after it resolves) so a fast
+    // install:log/install:complete broadcast racing the awaited response
+    // below is never filtered out as "unrecognized" -- see the ref's own
+    // comment.
+    installOperationPathRef.current = installPath;
 
     try {
       await serverApi.install({
@@ -1021,6 +1059,7 @@ export default function ServerSetup() {
       // still tell the user something was attempted, instead of forgetting.
       writeInstallInFlightMarker({ installPath, serverName, startedAt: Date.now() });
     } catch (error) {
+      installOperationPathRef.current = null;
       const rawMessage = rawErrorMessageIntentional(error, t("common.unknownError"));
       const displayMessage = getUserErrorMessage(error, t("common.unknownError"));
       const msg = installationErrorGuidance(rawMessage, displayMessage, t, serverPlatform);
@@ -1532,13 +1571,24 @@ export default function ServerSetup() {
                                 steamCmdPath,
                               )
                             }
-                            disabled={downloadingSteamCmd}
+                            disabled={downloadingSteamCmd || !canInstall}
                             aria-label={t("common.browseFolderAriaSteamCmd")}
                           >
                             <FolderOpen className="w-4 h-4" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>{t("common.browseFolder")}</TooltipContent>
+                        {/* bug-hunt-2026-09-18 (round 19): swaps to the
+                            no-permission explanation instead of the generic
+                            "Browse folder" hint when server.install is
+                            missing -- this button already has a Tooltip for
+                            its normal purpose, so DisabledReason's OWN
+                            tooltip (which nests a second, independent Radix
+                            Tooltip/TooltipTrigger asChild around its child)
+                            cannot also wrap it without breaking ref
+                            forwarding on the shared trigger. */}
+                        <TooltipContent>
+                          {!canInstall ? t("common.noPermissionInstall") : t("common.browseFolder")}
+                        </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
                   </div>
@@ -1615,20 +1665,23 @@ export default function ServerSetup() {
                       className="font-mono flex-1"
                       maxLength={260}
                     />
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() =>
-                        handleBrowseFolder(
-                          setSteamCmdPath,
-                          t("common.selectSteamCmdFolderTitle"),
-                          steamCmdPath,
-                        )
-                      }
-                      aria-label={t("common.browseFolderAriaSteamCmd")}
-                    >
-                      <FolderOpen className="w-4 h-4" />
-                    </Button>
+                    <DisabledReason reason={!canInstall ? t("common.noPermissionInstall") : null}>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() =>
+                          handleBrowseFolder(
+                            setSteamCmdPath,
+                            t("common.selectSteamCmdFolderTitle"),
+                            steamCmdPath,
+                          )
+                        }
+                        disabled={!canInstall}
+                        aria-label={t("common.browseFolderAriaSteamCmd")}
+                      >
+                        <FolderOpen className="w-4 h-4" />
+                      </Button>
+                    </DisabledReason>
                     <DisabledReason reason={!canSaveSteamCmdPath ? t("common.noPermissionSettings") : null}>
                       <Button onClick={handleSaveSteamCmdPath} disabled={!canSaveSteamCmdPath}>
                         {t("full.step1.savePathButton")}
@@ -1713,12 +1766,18 @@ export default function ServerSetup() {
                         installPath,
                       )
                     }
+                    disabled={!canInstall}
                     aria-label={t("common.browseFolderAriaInstall")}
                   >
                     <FolderOpen className="w-4 h-4" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>{t("common.browseFolder")}</TooltipContent>
+                {/* Same nested-Tooltip constraint as the SteamCMD browse
+                    button above -- swap this Tooltip's own text instead of
+                    wrapping in DisabledReason. */}
+                <TooltipContent>
+                  {!canInstall ? t("common.noPermissionInstall") : t("common.browseFolder")}
+                </TooltipContent>
               </Tooltip>
             </TooltipProvider>
           </div>
@@ -1844,20 +1903,23 @@ export default function ServerSetup() {
                         className="font-mono flex-1"
                         maxLength={260}
                       />
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={() =>
-                          handleBrowseFolder(
-                            setZomboidDataPath,
-                            t("common.selectConfigFolderTitle"),
-                            zomboidDataPath,
-                          )
-                        }
-                        aria-label={t("common.browseFolderAriaConfig")}
-                      >
-                        <FolderOpen className="w-4 h-4" />
-                      </Button>
+                      <DisabledReason reason={!canInstall ? t("common.noPermissionInstall") : null}>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() =>
+                            handleBrowseFolder(
+                              setZomboidDataPath,
+                              t("common.selectConfigFolderTitle"),
+                              zomboidDataPath,
+                            )
+                          }
+                          disabled={!canInstall}
+                          aria-label={t("common.browseFolderAriaConfig")}
+                        >
+                          <FolderOpen className="w-4 h-4" />
+                        </Button>
+                      </DisabledReason>
                     </div>
                     <p className="text-xs text-muted-foreground">
                       {t("common.customConfigLocationHelp")}
@@ -2451,12 +2513,18 @@ export default function ServerSetup() {
                       installPath,
                     )
                   }
+                  disabled={!canInstall}
                   aria-label={t("common.browseFolderAriaServerFiles")}
                 >
                   <FolderOpen className="w-4 h-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>{t("common.browseFolder")}</TooltipContent>
+              {/* Same nested-Tooltip constraint as the other browse buttons
+                  above -- swap this Tooltip's own text instead of wrapping
+                  in DisabledReason. */}
+              <TooltipContent>
+                {!canInstall ? t("common.noPermissionInstall") : t("common.browseFolder")}
+              </TooltipContent>
             </Tooltip>
           </TooltipProvider>
         </div>
@@ -2760,20 +2828,23 @@ export default function ServerSetup() {
                       className="font-mono flex-1"
                       maxLength={260}
                     />
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() =>
-                        handleBrowseFolder(
-                          setZomboidDataPath,
-                          t("common.selectConfigFolderTitle"),
-                          zomboidDataPath,
-                        )
-                      }
-                      aria-label={t("common.browseFolderAriaConfig")}
-                    >
-                      <FolderOpen className="w-4 h-4" />
-                    </Button>
+                    <DisabledReason reason={!canInstall ? t("common.noPermissionInstall") : null}>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() =>
+                          handleBrowseFolder(
+                            setZomboidDataPath,
+                            t("common.selectConfigFolderTitle"),
+                            zomboidDataPath,
+                          )
+                        }
+                        disabled={!canInstall}
+                        aria-label={t("common.browseFolderAriaConfig")}
+                      >
+                        <FolderOpen className="w-4 h-4" />
+                      </Button>
+                    </DisabledReason>
                   </div>
                   <p className="text-xs text-muted-foreground">
                     {t("common.customConfigLocationHelp")}

@@ -33,6 +33,22 @@ describe('ServerManager Windows scan: empty match set vs a genuine exec failure'
   });
 
   it.runIf(process.platform === 'win32')(
+    'fails closed when non-empty stdout has no valid CSV rows',
+    async () => {
+      execFileMock.mockImplementation((_file, _args, _opts, callback) => {
+        callback(null, 'WARNING: Some diagnostic banner text\r\n', '');
+      });
+
+      const manager = new ServerManager();
+      const result = await manager._scanDedicatedServerProcesses();
+
+      expect(result.scanFailed).toBe(true);
+      expect(result.running).toBe(false);
+      expect(result.matched).toEqual([]);
+    },
+  );
+
+  it.runIf(process.platform === 'win32')(
     'reports a confirmed stop (scanFailed: false), not scanFailed, when PowerShell runs successfully and finds nothing',
     async () => {
       execFileMock.mockImplementation((_file, _args, _opts, callback) => {

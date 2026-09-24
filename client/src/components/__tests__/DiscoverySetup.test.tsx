@@ -21,6 +21,16 @@ vi.mock('@/lib/api', async () => {
   }
 })
 
+// bug-hunt-2026-09-18 (round 18b): DiscoverySetup now reads useAuth().can()
+// to gate its own Create button (servers.manage) -- default every existing
+// test in this file to a permitted user so their pre-existing behavior is
+// unchanged; the permission-gated case gets its own describe block below
+// with a per-test override.
+const canMock = vi.hoisted(() => vi.fn(() => true))
+vi.mock('@/contexts/AuthContext', () => ({
+  useAuth: () => ({ can: canMock }),
+}))
+
 const createFromDiscovery = vi.mocked(serversApi.createFromDiscovery)
 const activate = vi.mocked(serversApi.activate)
 
@@ -36,6 +46,7 @@ const mount: DiscoveredMount = {
 beforeEach(() => {
   createFromDiscovery.mockReset()
   activate.mockReset()
+  canMock.mockReset().mockReturnValue(true)
 })
 
 describe('DiscoverySetup', () => {
@@ -102,5 +113,28 @@ describe('DiscoverySetup', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(onOpenChange).toHaveBeenCalledWith(false)
     expect(createFromDiscovery).not.toHaveBeenCalled()
+  })
+
+  // bug-hunt-2026-09-18 (round 18b): POST /create-from-discovery now
+  // requires servers.manage (round 18) -- this dialog's own Create button
+  // had no matching client-side check at all, so a servers.discover-only
+  // user could fill the form out completely and only discover the refusal
+  // as a 403 at the very last step. This is the SECOND, independent layer
+  // (Servers.tsx's own Connect button is fixed separately) -- it must hold
+  // even if this dialog is ever reached some other way.
+  describe('without servers.manage', () => {
+    beforeEach(() => {
+      canMock.mockImplementation((capability: string) => capability !== 'servers.manage')
+    })
+
+    it('disables the Create button and never calls createFromDiscovery when clicked', () => {
+      renderDiscoverySetup({ open: true, onOpenChange: vi.fn(), mount })
+
+      const addButton = screen.getByRole('button', { name: 'Add server' })
+      expect(addButton).toBeDisabled()
+
+      fireEvent.click(addButton)
+      expect(createFromDiscovery).not.toHaveBeenCalled()
+    })
   })
 })

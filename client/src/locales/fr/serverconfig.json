@@ -252,6 +252,7 @@
     "sandboxScope": "sandbox lua",
     "hint": "ctrl+s pour enregistrer · s'applique au rechargement",
     "discard": "ignorer",
+    "save": "enregistrer",
     "saveAndReload": "enregistrer et recharger",
     "unsavedChange_many": "{{count}} modifications non enregistrées"
   },
@@ -3281,6 +3282,9 @@
           },
           "6": {
             "label": "Très souvent"
+          },
+          "7": {
+            "label": "Le plus possible"
           }
         }
       },
@@ -3305,6 +3309,9 @@
           },
           "6": {
             "label": "Très souvent"
+          },
+          "7": {
+            "label": "Le plus possible"
           }
         }
       }

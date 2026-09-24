@@ -34,7 +34,9 @@
     "remoteTitle": "سجل الخادم غير متاح للخوادم البعيدة",
     "remoteDesc": "الخوادم البعيدة تتيح RCON فقط. استخدم تبويب RCON للأوامر المباشرة.",
     "notConfiguredTitle": "مسار سجل الخادم غير مُهيّأ",
-    "notConfiguredDesc": "حدّد مسار تثبيت الخادم أو مسار بيانات Zomboid في «خوادمي» أولًا."
+    "notConfiguredDesc": "حدّد مسار تثبيت الخادم أو مسار بيانات Zomboid في «خوادمي» أولًا.",
+    "noPermissionTitle": "سجل الخادم غير متاح لهذا الدور",
+    "noPermissionDesc": "تتطلب قراءة سجل الخادم صلاحية server.world_events، وهذا الدور لا يملكها. اطلب الوصول من أحد المسؤولين."
   },
   "serverLog": {
     "pathLabel": "المسار",
@@ -60,9 +62,10 @@
     "refreshAria": "تحديث السجل",
     "clear": "مسح",
     "clearTooltip": "محو ملف سجل وحدة تحكم الخادم — لا يمكن التراجع عن هذا",
-    "clearConfirmTitle": "محو سجل وحدة تحكم الخادم؟",
+    "clearConfirmTitle": "محو سجل وحدة تحكم الخادم {{server}}؟",
     "clearConfirmDesc": "سيؤدي هذا إلى محو الملف server-console.txt نهائيًا من القرص، وليس هذا العرض فقط. لا يمكن التراجع.",
     "clearConfirmButton": "محو ملف السجل",
+    "clearNoPermission": "يتطلب محو سجل وحدة التحكم صلاحية server.configure، وهذا الدور لا يملكها.",
     "streamUnavailable": "بث السجل غير متاح — قد يكون الخادم متوقفًا",
     "retry": "إعادة المحاولة",
     "notFoundTitle": "لم يُعثر على سجل وحدة تحكم الخادم",
@@ -116,6 +119,7 @@
     "noCommandsTitle": "لا توجد أوامر بعد",
     "noCommandsDesc": "نفّذ أمر RCON لترى الرد هنا.",
     "quickLabel": "سريع",
+    "quickTip": "يملأ مربع الأمر أدناه بهذا الأمر — لا يُنفَّذ حتى تنقر «تنفيذ» (أو تضغط Enter).",
     "commandLabel": "الأمر",
     "commandTip": "تُنفَّذ الأوامر هنا فورًا على الخادم المباشر، دون أي خطوة تأكيد — حتى الأوامر التي توقف الخادم أو تطرد لاعبًا. إذا لم تكن متأكدًا مما يفعله أمر ما، فتحقّق منه قبل تنفيذه؛ فمعظم الأوامر لا يمكن التراجع عنها.",
     "promptPrefix": "rcon $",
@@ -127,6 +131,10 @@
     "noResponseFallback": "لا يوجد رد",
     "noPermission": "دورك لا يملك صلاحية تنفيذ أوامر RCON.",
     "disconnectedUseRecheck": "تعذّر الوصول إلى RCON حاليًا — اختر «إعادة فحص» أعلاه قبل المحاولة مجددًا.",
+    "recheckNoPermission": "تتطلب إعادة فحص اتصال RCON صلاحية server.configure، وهذا الدور لا يملكها.",
+    "destructiveConfirmTitle": "هل تريد تنفيذ «{{command}}» على {{server}}؟",
+    "destructiveConfirmDesc": "يُرسل هذا الأمر الخام مباشرةً إلى الخادم الحي بمجرد التأكيد. قد يفصل اللاعبين، أو يغيّر من يحق له دخول الخادم، أو يعدّل إعداداته، أو يوقفه، ولا يمكن التراجع عن معظم هذه التأثيرات من وحدة التحكم هذه.",
+    "destructiveConfirmButton": "تنفيذ الأمر",
     "entries_zero": "الإدخالات: {{count}}",
     "entries_two": "الإدخالات: {{count}}",
     "entries_few": "الإدخالات: {{count}}",
@@ -137,9 +145,7 @@
     "save": "حفظ",
     "showOptions": "عرض الخيارات",
     "checkMods": "فحص المودات",
-    "help": "مساعدة",
-    "serverInfo": "معلومات الخادم",
-    "getMemory": "قراءة الذاكرة"
+    "help": "مساعدة"
   },
   "broadcast": {
     "toggleLabel": "بث",
@@ -208,6 +214,9 @@
     "searchAria": "البحث في سجل الأوامر",
     "emptyTitle": "لا يوجد سجل أوامر",
     "emptyDesc": "ستُسجَّل هنا الأوامر التي تنفّذها.",
+    "noMatchesTitle": "لا توجد أوامر مطابقة",
+    "noMatchesDesc": "لا توجد إدخالات في السجل تطابق \"{{query}}\".",
+    "clearSearch": "مسح البحث",
     "entries_zero": "الإدخالات: {{count}}",
     "entries_two": "الإدخالات: {{count}}",
     "entries_few": "الإدخالات: {{count}}",
@@ -224,6 +233,8 @@
     "broadcastSentTitle": "تم إرسال البث",
     "broadcastSentAll": "تم بث رسالتك إلى كل اللاعبين",
     "broadcastSentTagged": "أُرسلت بالوسم [{{tag}}]",
-    "broadcastFailedFallback": "فشل إرسال البث"
+    "broadcastFailedFallback": "فشل إرسال البث",
+    "serverChangedSinceLoadTitle": "تغيّر الخادم النشط",
+    "serverChangedSinceLoadDesc": "تغيّر الخادم النشط للتو. جارٍ التحديث — أعد المحاولة بعد إعادة تحميل وحدة التحكم حتى يستهدف هذا الإجراء الخادم الصحيح."
   }
 }

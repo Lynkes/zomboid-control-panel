@@ -21,12 +21,10 @@
     "sidebarAriaLabel": "الشريط الجانبي",
     "dashboard": "لوحة المعلومات",
     "sections": {
-      "live": "مباشر",
+      "server": "الخادم",
       "world": "العالم",
-      "config": "التهيئة",
-      "maintain": "الصيانة",
-      "servers": "الخوادم",
-      "settingsAndTools": "الإعدادات والأدوات"
+      "users": "المستخدمون",
+      "panel": "اللوحة"
     },
     "items": {
       "serverConsole": "وحدة تحكم الخادم",
@@ -45,7 +43,11 @@
       "browsePublic": "تصفح الخوادم العامة",
       "discord": "Discord",
       "panelSettings": "إعدادات اللوحة",
-      "debugLogs": "سجلات التصحيح"
+      "debugLogs": "سجلات التصحيح",
+      "panelUsers": "مستخدمو اللوحة",
+      "rolesPermissions": "الأدوار والصلاحيات",
+      "singleSignOn": "تسجيل الدخول الموحد",
+      "leaderboard": "لوحة المتصدرين"
     },
     "notAvailableRemote": "غير متاح للخوادم البعيدة (RCON فقط)",
     "localBadge": "محلي",

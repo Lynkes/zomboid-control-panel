@@ -192,16 +192,22 @@ describe('WorldMap.tsx: a rejected active-server check must not permanently kill
     socket.emit('activeServerChanged')
 
     // handleActiveServerChanged clears players unconditionally up front
-    // (existing, intentional behavior, unrelated to this fix) -- confirm
-    // that happened, so the recovery we check next is genuinely from the
-    // NEXT poll tick, not a marker that was simply never removed.
-    await waitFor(() => expect(screen.queryByRole('button', { name: /pan to kate/i })).toBeNull())
+    // (existing, intentional behavior, unrelated to this fix). Since round
+    // 26 (PanelBridge command queue and response matching), it ALSO
+    // eagerly re-fetches immediately on the same event -- see
+    // fetchPlayerPositionsRef's own comment in WorldMap.tsx -- so with
+    // getServerInfo mocked to always resolve the same Kate fixture, the
+    // "cleared" state can be gone again within the same tick, too brief a
+    // window for waitFor's own polling interval to reliably observe. No
+    // longer asserted as its own step; the recovery checks below already
+    // prove hasActiveServer didn't get stuck, which is this test's own
+    // actual subject.
 
     // The real fix under test: hasActiveServer must have stayed true
-    // despite the rejected check, so the 3s poll interval is still running
-    // and recovers the marker + badge on its own, with no further socket
-    // event and no page reload. Real timers -- this is the actual interval
-    // firing, not a simulated one.
+    // despite the rejected check, so live tracking recovers on its own --
+    // now near-immediately via the eager re-fetch above, with the 3s poll
+    // interval as a second-chance path either way -- with no further
+    // socket event and no page reload. Real timers throughout.
     await waitFor(
       () => expect(screen.getByRole('link', { name: /bridge connected/i })).toBeInTheDocument(),
       { timeout: 6000 },

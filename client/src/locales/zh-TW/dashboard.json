@@ -104,7 +104,10 @@
     "connectRconNeedsHostRunning": "請先啟動伺服器",
     "noPermissionControl": "您的角色沒有控制伺服器的權限。",
     "noPermissionWipe": "您的角色沒有清除世界的權限。",
-    "wipeMustStopFirst": "請先停止伺服器再清除。"
+    "noPermissionAutoStart": "您的角色沒有變更自動啟動設定的權限。",
+    "noPermissionCreateBackup": "您的角色沒有建立備份的權限。",
+    "wipeMustStopFirst": "請先停止伺服器再清除。",
+    "saveNeedsRcon": "連線 RCON 才能儲存世界。"
   },
   "confirm": {
     "cancel": "取消",
@@ -143,6 +146,10 @@
     "stopServerRequested": {
       "title": "已請求關閉",
       "description": "伺服器正在儲存並正常關閉——大型存檔可能需要一些時間。狀態徽標會在確認已停止後更新。"
+    },
+    "forceStopRequested": {
+      "title": "已請求強制停止",
+      "description": "已傳送停止信號——請在儀表板上檢視確認。"
     },
     "forceStopServer": {
       "title": "伺服器已強制停止",
@@ -202,12 +209,15 @@
     "modUpdatesWaiting_one": "{{count}} 個模組更新待處理",
     "modUpdatesWaiting_other": "{{count}} 個模組更新待處理",
     "reviewMods": "檢視模組",
-    "noBackups": "暫無備份"
+    "noBackups": "暫無備份",
+    "backupAttemptFailing": "排程備份失敗",
+    "reviewBackups": "檢視備份"
   },
   "panelUpdateBanner": {
     "applyFailed": "套用失敗",
     "updateStaged": "更新已就緒",
     "panelUpdate": "面板更新",
+    "checkedAgo": "上次檢查{{age}}",
     "lastApplyFailedDesc": "上次套用嘗試失敗——請檢視設定以取得診斷資訊。",
     "stagedDesc": "已下載並準備就緒。重新啟動面板即可套用。",
     "newVersionDesc": "有新的面板版本可用。",
@@ -325,6 +335,7 @@
     "backupsStored_other": "已儲存 {{count}} 個",
     "backupsStoredLast_one": "已儲存 {{count}} 個，最近 {{age}}",
     "backupsStoredLast_other": "已儲存 {{count}} 個，最近 {{age}}",
+    "backupsAttemptFailed": "嘗試失敗，{{age}}",
     "scheduleNoneActive": "無生效任務",
     "scheduleActive_one": "{{count}} 個生效中",
     "scheduleActive_other": "{{count}} 個生效中"
@@ -357,6 +368,7 @@
   },
   "wipeDialog": {
     "title": "清除伺服器",
+    "serverChangedSinceOpen": "此對話方塊開啟期間，使用中的伺服器已變更。請取消並重新開啟「清除伺服器」，以便對目前使用中的伺服器進行操作。",
     "description": "選擇要從 <b>{{serverName}}</b> 中刪除的資料。伺服器必須處於停止狀態。",
     "defaultServerName": "當前活動的伺服器",
     "targets": {

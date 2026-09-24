@@ -188,4 +188,37 @@ describe("ensureRconConfigured() -- INI path resolution", () => {
     expect(content).toContain("RCONPassword=secret123");
     expect(content.match(/^RCONPassword=/gm)).toHaveLength(1);
   });
+
+  // bug-hunt-2026-09-18 (round: ini save round-trip): a real PZ-written
+  // server .ini is CRLF (confirmed against a live B42 dedicated-server
+  // install). ensureRconConfigured() used to unconditionally
+  // `.replace(/\r\n/g, "\n")` the file on read and never restore CRLF
+  // before writing it back -- so the very FIRST auto-configure on server
+  // start silently converted the operator's whole file to LF, even though
+  // only the two RCON lines were meant to change. Fixed via
+  // server/utils/iniKeyWrite.js's withOriginalLineEnding()/
+  // restoreLineEnding(), matching serverFiles.js's toIni() (573f63fd).
+  it("preserves CRLF line endings across the whole file when patching RCON settings", async () => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-rcon-"));
+    const zomboidDataPath = path.join(root, "Zomboid");
+    const serverDir = path.join(zomboidDataPath, "Server");
+    fs.mkdirSync(serverDir, { recursive: true });
+    const iniPath = path.join(serverDir, "servertest.ini");
+    fs.writeFileSync(
+      iniPath,
+      "PVP=false\r\nPauseEmpty=true\r\nRCONPassword=old\r\nRCONPort=27015\r\n",
+      "utf-8",
+    );
+
+    getActiveServer.mockResolvedValue(baseServer({ zomboidDataPath }));
+
+    const result = await ensureRconConfigured();
+    expect(result).toBe(true);
+
+    const content = fs.readFileSync(iniPath, "utf-8");
+    const lfCount = (content.match(/\n/g) || []).length;
+    const crlfCount = (content.match(/\r\n/g) || []).length;
+    expect(crlfCount).toBe(lfCount);
+    expect(content).toContain("RCONPassword=secret123\r\n");
+  });
 });

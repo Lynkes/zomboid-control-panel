@@ -11,13 +11,104 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No unreleased changes._
 
+## [1.3.8] - 2026-09-20
+
+### Added
+
+- **A save-backed Leaderboard page now ranks survivors by days survived, current and all-time zombie kills, deaths, and favorite weapon.** PanelBridge collects lightweight telemetry in the world save, keeps offline survivors visible, and the page adds searchable rankings, podium highlights, live/offline presence, stale-data handling, and automatic refresh.
+- **Haitian Creole now meets the sandbox translation readiness gate.** Its 733 sandbox labels retain the full key set, with 720 translated values and only numeric/game placeholders left unchanged, so Kreyòl is offered in the language picker again.
+
+### Fixed
+
+- **Weather command units are explicit and tested.** The RCON rain path converts its 0-1 client fraction to Project Zomboid's integer 1-100 `startrain` argument exactly once, while PanelBridge climate controls keep their 0-1 contract.
+
+## [1.3.7] - 2026-09-18
+
+### Added
+
+- **The panel now tells a crash from a deliberate stop.** The server card and the Dashboard show why the server process ended: a stop or restart from the panel, an RCON `quit`, or a crash with its exit code or signal.
+- **Scheduled Tasks show each task's next run time**, and the Scheduler shows scheduled-backup health: the last scheduled backup's result (with its reason on failure) and the next run.
+- **Demoting a local server's last in-game admin now asks for confirmation**, naming the account, so nobody is left without full admin commands by accident.
+- **Destructive commands typed in the Console ask first.** 19 commands verified against the game (`quit`, `banuser`, `banid`, `kickuser`, `setaccesslevel`, `changeoption`, `removezombies` and others) open a confirm dialog naming the command and the server; arguments are not echoed, so a typed password is never shown.
+- **Workshop items that provide several mods now report the extra mod ids** when added or synced, instead of silently enabling only the first.
+- **Playtime statistics are kept per server**; player notes stay shared across servers.
+
+### Changed
+
+- **The sidebar is regrouped by object: Dashboard, then SERVER, WORLD, USERS and PANEL.** Panel Users, Roles & Permissions and Single Sign-On now have menu entries, and Browse Public Servers sits under SERVER.
+- **Settings pages say where you are.** The page title follows the active tab, and the header Save button is hidden on Users, Roles and SSO, which save on their own.
+- **Settings > Bridge is split into collapsible sections** (Status & setup, Remote connection, Remote config & logs, Install & updates).
+- **Auto-start now saves immediately from Settings**, the same as from the Dashboard.
+- **Debug tabs are renamed** Checks & Fixes and Live Status, each with a one-line explanation.
+- **SteamCMD self-heal runs in the background.** Install and Steam update respond at once and report progress and the outcome over the live connection, instead of timing out in the browser after 15 seconds and showing "Installation failed" while the work continued.
+- **The Dashboard shows the age of the last update check**, and an unconfirmed force-stop reads as requested, not done.
+- **Haitian Creole is hidden from the language picker** until its sandbox labels are translated (87% were still English). The translation files are kept.
+- **Confirm dialogs and toasts name their target**: whitelist removals, player actions and server confirms say which player or server they act on.
+- Disabled controls across Settings, Dashboard, Console, Events, Server Setup, Discord, Mods and Roles now show why they are disabled and match the permission the server actually checks.
+
+### Removed
+
+- The Console **Server Info** and **Get Memory** quick buttons: `serverinfo` and `getmemory` are not Project Zomboid commands.
+
+### Fixed
+
+**Game commands**
+
+- **Start Rain intensity was 100x too weak**: the value was divided by 100 twice, so a 100% slider produced 1% rain.
+- Lightning, Thunder, Alarm and Create Horde refusals from the game were reported as success; they are now shown as failures.
+- Console broadcasts containing quotes or line breaks broke the game's parser while the panel said "Broadcast Sent"; messages are sanitized and a refusal keeps the draft.
+- Kick/ban reasons are previewed exactly as the server will send them; RCON rejection replies for `banid`, `unbanid`, `addsteamid` and `removesteamid` are recognized; player rows are parsed exactly as the game emits them.
+- `quit` is no longer reported as sent when the socket write failed; the Discord `/kick` reason reaches the game.
+
+**Multiple servers**
+
+- **Switching the active server no longer lets one server's data reach another.** Pages drop late responses from the previous server; writes built from the old server's data are refused (backups, mods, templates, console, events, players, settings, debug fixes).
+- The Console refetches log, history and RCON status when switching between two configured servers, and RCON output is tagged per server.
+- Per-server logs, Steam ban lists, player rosters, performance history, install and Steam update progress, and scheduled-task command logs are scoped to their own server.
+- Backups are attributed to their owning server when profiles share a backups folder, and another server's backup can no longer be snapshotted or downloaded.
+- Editing the active server's paths reloads the log tailer, so chat and death detection follow the new path.
+- Save Current Config (Templates) closes if the active server changes while it is open.
+
+**Scheduler, backups and lifecycle**
+
+- One Schedule History row per restart outcome; refused auto-restarts, "already running" skips and failed restart-warning broadcasts are recorded; schedules in a daylight-saving spring-forward gap are flagged.
+- A revoked Discord bot token stops the bot and says so.
+- Backups are refused while a server restart is in progress; restarts of a stopped server use the managed start.
+- systemd `deactivating` is no longer treated as stopped; provider activation is refused while the service is deactivating; unparseable Windows process scans fail closed; Windows uptime is recovered after a panel restart.
+- A Docker panel self-update confirms the game server stopped first.
+
+**Files and configuration**
+
+- Server `.ini` rewrites keep the file's CRLF line endings (RCON, UPnP, network settings, mod saves, raw editor).
+- Applying a template keeps a sandbox value's decimal format and matches nested keys only at an identifier boundary; re-saving a full template creates a new one instead of overwriting.
+- 20 sandbox options and the rat-index bounds match Build 42 `SandboxOptions`, with a drift gate against the game jar.
+- World Map tile floors are limited to the published Build 42 layers (-1..7) and Floor Up stops at the top floor; right-click coordinates match the game's square.
+- Deleting mods from disk strips their map folders from `Map=`; chunk deletion reports failure when every deletion failed.
+- The installed Steam branch is read from the manifest's MountedConfig; SteamCMD `ERROR!` output on exit code 0 now fails an install or update.
+
+**Interface**
+
+- Chat no longer hangs when no quick-message presets are saved, labels whisper/faction/safehouse/radio/shout lines, and sends general chat as the game's literal `Admin` (this also stops duplicated messages in non-English languages).
+- In the raw config editor, Discard clears the Unsaved changes badge, and Discard stays usable while the server runs.
+- A running server's status dot is green instead of the same grey as unknown.
+- Coded errors are translated on Console, Debug, Mods, Map Cleanup, Backups and Roles instead of showing raw English.
+- Dialogs that overflowed a phone-sized screen are capped so their buttons stay reachable; keyboard shortcuts are suppressed while a dialog is open.
+- Missing translations filled for the story-chance "Always Tries" option and German Single Sign-On.
+
+### Security
+
+- OIDC sign-in now honours the account lockout that password sign-in enforces.
+- Creating a server from discovery requires `servers.manage`, not the scan-only `servers.discover`.
+- Symlinks are resolved before root-containment checks.
+- User role changes are serialized with role edits to prevent an admin-lockout race.
+- Export filename headers strip quotes; Discord notification values are markdown-escaped and capped at 2000 characters.
+
 ## [1.3.6] - 2026-09-17
 
 ### Fixed
 
 - **Build 42 teleport actions now use the current `teleportplayer` and `teleportto` RCON commands**, and the Events target-player action no longer depends on the unrelated global target toggle.
 - **PanelBridge no longer loses fast command results as orphaned responses** while the inbox write is completing; lifecycle status also refreshes immediately while final start/stop confirmation continues in the background.
-- **Existing seeded admin roles now receive the player-endanger capability during database migration**, so horde controls remain usable after the permission split introduced in schema v3.
 
 ## [1.3.5] - 2026-09-14
 

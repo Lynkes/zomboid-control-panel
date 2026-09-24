@@ -1325,7 +1325,16 @@ function generateNumericId(collection) {
 // Command History
 // ============================================
 
-export async function logCommand(command, response, success = true) {
+// continuous-bug-hunt round 22 (closing round 21's own named limitation):
+// `serverId` is optional and defaults to getActiveServerId() -- the shared
+// RconService singleton (acting on whichever server is active) never
+// passes it and keeps working exactly as before. RconService.execute()
+// now passes its OWN this.serverId explicitly (set for real by
+// loadConfig(), see that method's comment), which is the task's true
+// target for a throwaway instance scheduler.js's _resolveServicesForTask()
+// creates for a task targeting a server OTHER than the active one -- that
+// was the "known, accepted limitation" round 21 named and left open.
+export async function logCommand(command, response, success = true, serverId = undefined) {
   const db = await getDb();
   // Redact BEFORE persisting, not on read -- see rconCommandRedaction.js
   // for what this catches and why. Applied to both fields: `command` is
@@ -1341,6 +1350,7 @@ export async function logCommand(command, response, success = true) {
 
   const entry = {
     id: generateId(),
+    server_id: serverId !== undefined ? serverId : await getActiveServerId(),
     command: redactedCommand,
     response: truncatedResponse,
     success: success ? 1 : 0,
@@ -1352,22 +1362,43 @@ export async function logCommand(command, response, success = true) {
   return entry;
 }
 
-export async function getCommandHistory(limit = 100) {
+// serverId optional and undefined by default so every existing caller
+// (Console.tsx's own history view is the only one today, but this mirrors
+// getPerformanceHistory()'s own round-20 contract for any future one)
+// keeps its current behavior unless it explicitly opts in.
+export async function getCommandHistory(limit = 100, serverId = undefined) {
   const db = await getDb();
   const safeLimit = parseClampedInteger(limit, 100, 1, RETENTION.command_history);
-  return db.data.command_history.slice(0, safeLimit);
+  const source =
+    serverId === undefined
+      ? db.data.command_history
+      : db.data.command_history.filter(
+          (entry) => entry.server_id == null || entry.server_id === serverId,
+        );
+  return source.slice(0, safeLimit);
 }
 
 // ============================================
 // Bridge Logs (PanelBridge command history)
 // ============================================
 
+// continuous-bug-hunt round 21 (other per-server data kept in one global
+// store): PanelBridge is a single module-level singleton tied to whatever
+// server is currently active (it has no per-server instancing, unlike
+// RconService's throwaway-instance escape hatch -- see scheduler.js's own
+// "bridge: actions only support the currently active server" comment), so
+// getActiveServerId() is an exact match for every REACHABLE caller today,
+// not just a proxy. round 22: `serverId` is optional and defaults to
+// getActiveServerId() anyway, for symmetry with logCommand()'s identical
+// contract and in case a future caller (a per-server PanelBridge instance,
+// should that ever exist) needs to override it.
 export async function logBridgeCommand(
   action,
   args,
   result,
   success = true,
   durationMs = 0,
+  serverId = undefined,
 ) {
   const db = await getDb();
   if (!db.data.bridge_logs) db.data.bridge_logs = [];
@@ -1385,6 +1416,7 @@ export async function logBridgeCommand(
 
   const entry = {
     id: generateId(),
+    server_id: serverId !== undefined ? serverId : await getActiveServerId(),
     action,
     args: args || {},
     result: truncatedResult,
@@ -1398,11 +1430,15 @@ export async function logBridgeCommand(
   return entry;
 }
 
-export async function getBridgeLogs(limit = 100) {
+export async function getBridgeLogs(limit = 100, serverId = undefined) {
   const db = await getDb();
   if (!db.data.bridge_logs) return [];
+  let logs = db.data.bridge_logs;
+  if (serverId !== undefined) {
+    logs = logs.filter((e) => e.server_id == null || e.server_id === serverId);
+  }
   const safeLimit = parseClampedInteger(limit, 100, 1, RETENTION.bridge_logs);
-  return db.data.bridge_logs.slice(0, safeLimit);
+  return logs.slice(0, safeLimit);
 }
 
 // ============================================
@@ -1524,6 +1560,18 @@ const SYSTEM_TASK_NAME_KEYS = {
   "Auto Restart": "autoRestart",
 };
 
+// continuous-bug-hunt round 21 (other per-server data kept in one global
+// store): schedule_history had no server identity at all. A NAMED task
+// (taskId given) already has its own true server_id on the scheduled_tasks
+// row itself (round 17-adjacent server_id field) -- reusing THAT is more
+// accurate than a proxy, since a task can legitimately target a server
+// other than the one currently active (its own throwaway RconService/
+// ServerManager instance, see executeTask()'s _resolveServicesForTask()).
+// taskId===null entries (AUTO_RESTART_CRON, the scheduled backup job) have
+// no task row to read from, but both of those always run against whichever
+// server is currently active (setupAutoRestart()/setupBackupSchedule()'s
+// cron callbacks never pass an override), so getActiveServerId() is the
+// correct answer for exactly those two, not just a fallback proxy.
 export async function logScheduleExecution(
   taskId,
   taskName,
@@ -1535,8 +1583,18 @@ export async function logScheduleExecution(
   const db = await getDb();
   if (!db.data.schedule_history) db.data.schedule_history = [];
 
+  let serverId = null;
+  if (taskId != null) {
+    const task = db.data.scheduled_tasks?.find((t) => t.id === taskId);
+    serverId = task?.server_id ?? null;
+  }
+  if (serverId == null) {
+    serverId = await getActiveServerId();
+  }
+
   const entry = {
     id: generateId(),
+    server_id: serverId,
     task_id: taskId,
     task_name: taskName,
     task_name_key: SYSTEM_TASK_NAME_KEYS[taskName] ?? null,
@@ -1552,13 +1610,16 @@ export async function logScheduleExecution(
   return entry;
 }
 
-export async function getScheduleHistory(limit = 100, taskId = null) {
+export async function getScheduleHistory(limit = 100, taskId = null, serverId = undefined) {
   const db = await getDb();
   if (!db.data.schedule_history) return [];
 
   let history = db.data.schedule_history;
   if (taskId !== null) {
     history = history.filter((h) => h.task_id === taskId);
+  }
+  if (serverId !== undefined) {
+    history = history.filter((h) => h.server_id == null || h.server_id === serverId);
   }
   const safeLimit = parseClampedInteger(limit, 100, 1, RETENTION.schedule_history);
   return history.slice(0, safeLimit);
@@ -1590,10 +1651,19 @@ export async function getLatestScheduleExecutionByCommand(command) {
 // Player Logs
 // ============================================
 
+// continuous-bug-hunt round 21 (other per-server data kept in one global
+// store): every kick/ban/access-level/whitelist action a moderator takes
+// used to land in one global player_logs array with no server identity at
+// all -- switching the active server never scoped this audit trail, so
+// GET /activity mixed moderation history from every managed server
+// together. Tagged with getActiveServerId() (same proxy tracked_mods/
+// ignored_mods already use) at write time; filtered at read time, tolerant
+// of pre-fix untagged rows.
 export async function logPlayerAction(playerName, action, details = null) {
   const db = await getDb();
   const entry = {
     id: generateId(),
+    server_id: await getActiveServerId(),
     player_name: playerName,
     action,
     details,
@@ -1605,11 +1675,14 @@ export async function logPlayerAction(playerName, action, details = null) {
   return entry;
 }
 
-export async function getPlayerLogs(playerName = null, limit = 100) {
+export async function getPlayerLogs(playerName = null, limit = 100, serverId = undefined) {
   const db = await getDb();
   let logs = db.data.player_logs;
   if (playerName) {
     logs = logs.filter((l) => l.player_name === playerName);
+  }
+  if (serverId !== undefined) {
+    logs = logs.filter((l) => l.server_id == null || l.server_id === serverId);
   }
   const safeLimit = parseClampedInteger(limit, 100, 1, RETENTION.player_logs);
   return logs.slice(0, safeLimit);
@@ -1626,6 +1699,12 @@ export async function logServerEvent(eventType, message = null) {
     const db = await getDb();
     const entry = {
       id: generateId(),
+      // continuous-bug-hunt round 21 (other per-server data kept in one
+      // global store): same fix as command_history/player_logs -- tagged
+      // with getActiveServerId() at write time so GET /debug/activity can
+      // scope this feed to the currently active server instead of showing
+      // every managed server's events mixed together.
+      server_id: await getActiveServerId(),
       event_type: eventType,
       message,
       created_at: new Date().toISOString(),
@@ -1638,6 +1717,20 @@ export async function logServerEvent(eventType, message = null) {
     log.warn(`Could not record server event ${eventType}: ${error.message}`);
     return null;
   }
+}
+
+// serverId optional and undefined by default, same contract as
+// getCommandHistory()/getPlayerLogs() -- existing direct db.data.server_events
+// readers (the support-bundle collector) are unaffected until they opt in.
+export async function getServerEvents(limit = 100, serverId = undefined) {
+  const db = await getDb();
+  if (!db.data.server_events) return [];
+  let events = db.data.server_events;
+  if (serverId !== undefined) {
+    events = events.filter((e) => e.server_id == null || e.server_id === serverId);
+  }
+  const safeLimit = parseClampedInteger(limit, 100, 1, RETENTION.server_events);
+  return events.slice(0, safeLimit);
 }
 
 // ============================================
@@ -2346,19 +2439,44 @@ export async function deletePlayerNote(playerName) {
 // Player Stats (playtime tracking)
 // ============================================
 
-export async function getPlayerStats() {
+// worker-pz-playtime-per-server, 2026-09-18 (operator decision: notes stay
+// shared across servers, playtime does not): `serverId` is optional and
+// undefined by default, same opt-in contract as getCommandHistory()/
+// getPlayerLogs() -- an existing caller that doesn't pass it keeps seeing
+// every row, unfiltered. When a caller opts in, a pre-fix row with no
+// `server_id` (recordPlayerSession() only started tagging this round) is
+// treated as that player's ONLY known figures until they reconnect and earn
+// a row tagged for a specific server -- it is never rewritten or merged, so
+// it keeps reading correctly for every server until then, and a tagged row
+// for the requested server (once one exists) always wins over it.
+export async function getPlayerStats(serverId = undefined) {
   const db = await getDb();
   if (!db.data.player_stats) db.data.player_stats = [];
-  return db.data.player_stats;
+  if (serverId === undefined) return db.data.player_stats;
+
+  const byName = new Map();
+  for (const stat of db.data.player_stats) {
+    if (stat.server_id != null && stat.server_id !== serverId) continue;
+    const key = stat.player_name.toLowerCase();
+    const existing = byName.get(key);
+    if (!existing || (existing.server_id == null && stat.server_id === serverId)) {
+      byName.set(key, stat);
+    }
+  }
+  return Array.from(byName.values());
 }
 
-export async function getPlayerStat(playerName) {
+export async function getPlayerStat(playerName, serverId = undefined) {
   const db = await getDb();
   if (!db.data.player_stats) db.data.player_stats = [];
+  const matches = db.data.player_stats.filter(
+    (p) => p.player_name.toLowerCase() === playerName.toLowerCase(),
+  );
+  if (serverId === undefined) return matches[0] || null;
   return (
-    db.data.player_stats.find(
-      (p) => p.player_name.toLowerCase() === playerName.toLowerCase(),
-    ) || null
+    matches.find((p) => p.server_id === serverId) ||
+    matches.find((p) => p.server_id == null) ||
+    null
   );
 }
 
@@ -2375,12 +2493,29 @@ export async function getPlayerStat(playerName) {
 // `sessionEnd - sessionStart` arithmetic naturally excludes the suspended
 // time once the player eventually disconnects. The session row stays one
 // contiguous session; only its computed duration is corrected.
-export async function recordPlayerSession(playerName, action) {
+// worker-pz-playtime-per-server, 2026-09-18 (operator decision: player
+// NOTES stay shared across servers, PLAYTIME does not): `serverId` is
+// optional and defaults to getActiveServerId() -- PanelBridge is the same
+// single active-server-tied singleton logPlayerAction()/logBridgeCommand()
+// already tag this way, so the default is an exact match for every
+// reachable caller today, not just a proxy. Matched strictly by
+// (player_name, server_id): a pre-fix row with no server_id is NEVER
+// reused or rewritten for a tagged session -- doing so would silently
+// reassign that player's whole prior playtime history to whichever server
+// happens to be active on their next connect. Instead a fresh row is
+// started for each (player, server) pair going forward; the untagged row
+// stays exactly as it was, still readable via getPlayerStat()/
+// getPlayerStats() as that player's figures until a tagged row exists.
+export async function recordPlayerSession(playerName, action, serverId = undefined) {
   const db = await getDb();
   if (!db.data.player_stats) db.data.player_stats = [];
 
+  const targetServerId = serverId !== undefined ? serverId : await getActiveServerId();
+
   let playerStat = db.data.player_stats.find(
-    (p) => p.player_name.toLowerCase() === playerName.toLowerCase(),
+    (p) =>
+      p.player_name.toLowerCase() === playerName.toLowerCase() &&
+      (p.server_id ?? null) === targetServerId,
   );
 
   const now = new Date().toISOString();
@@ -2389,6 +2524,7 @@ export async function recordPlayerSession(playerName, action) {
     playerStat = {
       id: generateId(),
       player_name: playerName,
+      server_id: targetServerId,
       total_playtime_seconds: 0,
       session_count: 0,
       first_seen: now,
@@ -2496,7 +2632,19 @@ export async function recordPerformanceSnapshot(snapshot) {
   return entry;
 }
 
-export async function getPerformanceHistory(limit = 60) {
+// continuous-bug-hunt round 20 (charts mixing samples from two servers
+// after a switch): `serverId` is optional and undefined by default so
+// every EXISTING caller (the support-bundle export in particular, which
+// legitimately wants the full unfiltered history for offline diagnosis)
+// keeps its current behavior unchanged. When a caller passes it (the
+// operator-facing GET /debug/performance-history route does, scoped to
+// whichever server is active at request time), rows are filtered to that
+// server's own tagged snapshots -- a pre-fix legacy row with no `serverId`
+// field at all (recordPerformanceSnapshot() only started setting it this
+// round) is treated as "unknown, don't exclude" rather than vanishing the
+// instant this fix ships, since there is no way to retroactively know
+// which server an old untagged sample belonged to.
+export async function getPerformanceHistory(limit = 60, serverId = undefined) {
   const db = await getDb();
   if (!db.data.performance_history) return [];
   const safeLimit = parseClampedInteger(
@@ -2505,7 +2653,13 @@ export async function getPerformanceHistory(limit = 60) {
     1,
     RETENTION.performance_history,
   );
-  return db.data.performance_history.slice(-safeLimit);
+  const source =
+    serverId === undefined
+      ? db.data.performance_history
+      : db.data.performance_history.filter(
+          (entry) => entry.serverId == null || entry.serverId === serverId,
+        );
+  return source.slice(-safeLimit);
 }
 
 /**
@@ -2633,21 +2787,48 @@ export async function deleteUserTemplate(id) {
 // SteamID Ban Tracking
 // ============================================
 
+// continuous-bug-hunt round 21 (other per-server data kept in one global
+// store): this was a single flat list keyed on steamId ALONE, shared
+// across every managed server -- not just a display-mixing issue like the
+// log collections above, a real FUNCTIONAL one: banning the same Steam
+// account on a second managed server silently did nothing to this record,
+// because addSteamIdBan()'s own duplicate check (`.some(b => b.steamId ===
+// steamId)`) fired globally, and the panel's own GET /steamid-bans list
+// (players.js) is this table's only reader -- an operator running two
+// distinct servers (say a PVE box and a PVP box) who bans a griefer's
+// SteamID on each would see only ONE entry either way, indistinguishable
+// from "banned everywhere" when it might only be banned on one. Same
+// server_id + legacy-migrate-on-touch pattern as getTrackedMods()/
+// addTrackedMod() above.
 export async function getSteamIdBans() {
   const db = await getDb();
   if (!db.data.steamid_bans) db.data.steamid_bans = [];
-  return db.data.steamid_bans;
+  const serverId = await getActiveServerId();
+  if (!serverId) return db.data.steamid_bans; // no servers yet -> return all (legacy)
+  return db.data.steamid_bans.filter(
+    (b) => b.server_id === serverId || !b.server_id,
+  );
 }
 
 export async function addSteamIdBan(steamId, reason = null) {
   const db = await getDb();
   if (!db.data.steamid_bans) db.data.steamid_bans = [];
+  const serverId = await getActiveServerId();
 
-  // Don't add duplicates
-  if (db.data.steamid_bans.some((b) => b.steamId === steamId)) return;
+  // Don't add a duplicate for THIS server -- the same steamId can
+  // legitimately be banned on one managed server and not another.
+  const existing = db.data.steamid_bans.find(
+    (b) => b.steamId === steamId && (b.server_id === serverId || !b.server_id),
+  );
+  if (existing) {
+    if (!existing.server_id && serverId) existing.server_id = serverId; // migrate legacy
+    scheduleWrite();
+    return;
+  }
 
   db.data.steamid_bans.push({
     steamId,
+    server_id: serverId,
     reason: reason || null,
     banned_at: new Date().toISOString(),
   });
@@ -2657,8 +2838,11 @@ export async function addSteamIdBan(steamId, reason = null) {
 export async function removeSteamIdBan(steamId) {
   const db = await getDb();
   if (!db.data.steamid_bans) return false;
+  const serverId = await getActiveServerId();
 
-  const index = db.data.steamid_bans.findIndex((b) => b.steamId === steamId);
+  const index = db.data.steamid_bans.findIndex(
+    (b) => b.steamId === steamId && (b.server_id === serverId || !b.server_id),
+  );
   if (index === -1) return false;
 
   db.data.steamid_bans.splice(index, 1);

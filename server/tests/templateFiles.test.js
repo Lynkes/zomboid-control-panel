@@ -121,6 +121,70 @@ describe("sandbox lua helpers", () => {
     expect(applied).toBe(false);
   });
 
+  // continuous-bug-hunt round 16 (template apply/import/export truth): same
+  // defect class as routes/serverFiles.js's modifySandboxValue (fixed
+  // earlier the same day, see that fix's own comment for the full repro) --
+  // a SEPARATE, independent implementation of the same "nested-block key
+  // rewrite" operation, used specifically by template apply
+  // (templateService.js's prepareSandboxChange), was never given the same
+  // fix. The nested-block regex's lazy `[^\n]*?` prefix has no boundary
+  // check on the left side of the key, so applying a template that sets
+  // "Speed" in a block that also has a longer key ENDING in "Speed" earlier
+  // in the same block (e.g. "WalkSpeed") matched the key as a bare
+  // substring of that longer identifier and silently rewrote WalkSpeed's
+  // value instead -- while reporting "Speed" as successfully applied
+  // (mergeSandboxSections' `applied` list), even though it never changed.
+  it("applySandboxValue updates the exact requested key and leaves a longer key ending in the same substring untouched (does not silently clobber the wrong key)", () => {
+    const collisionContent = [
+      "SandboxVars = {",
+      "    VERSION = 4,",
+      "    ZombieLore = {",
+      "        WalkSpeed = 1,",
+      "        Speed = 2,",
+      "    },",
+      "}",
+      "",
+    ].join("\n");
+
+    const { content, applied } = applySandboxValue(
+      collisionContent,
+      "ZombieLore",
+      "Speed",
+      9,
+    );
+
+    expect(applied).toBe(true);
+    expect(readSandboxValue(content, "ZombieLore", "Speed")).toBe(9);
+    expect(readSandboxValue(content, "ZombieLore", "WalkSpeed")).toBe(1);
+  });
+
+  // Same collision through the actual template-apply path (mergeSandboxSections,
+  // called by templateService.js's prepareSandboxChange) -- proves the fix
+  // holds through the real caller, not just the lower-level function in
+  // isolation, and that "applied" (what an operator sees reported back after
+  // an apply) reflects the key that was truly requested.
+  it("mergeSandboxSections protects a template apply from the same collision", () => {
+    const collisionContent = [
+      "SandboxVars = {",
+      "    VERSION = 4,",
+      "    ZombieLore = {",
+      "        WalkSpeed = 1,",
+      "        Speed = 2,",
+      "    },",
+      "}",
+      "",
+    ].join("\n");
+
+    const { content, applied, skipped } = mergeSandboxSections(collisionContent, {
+      ZombieLore: { Speed: 9 },
+    });
+
+    expect(skipped).toEqual([]);
+    expect(applied).toEqual([{ section: "ZombieLore", key: "Speed" }]);
+    expect(readSandboxValue(content, "ZombieLore", "Speed")).toBe(9);
+    expect(readSandboxValue(content, "ZombieLore", "WalkSpeed")).toBe(1);
+  });
+
   it("mergeSandboxSections applies every key across sections and reports skips", () => {
     const { content, applied, skipped } = mergeSandboxSections(luaContent, {
       settings: { Zombies: 5 },
@@ -149,6 +213,63 @@ describe("sandbox lua helpers", () => {
     expect(readSandboxValue(content, "settings", "WorldItemRemovalList")).toBe(
       'Base.Hat, Base."Weird"',
     );
+  });
+
+  // continuous-bug-hunt round 30 (card: consolidate-nested-sandbox-writer):
+  // diffing this writer against its sibling routes/serverFiles.js's
+  // modifySandboxValue against a real save (D:/pz-verify) found exactly one
+  // behavioral disagreement across nested tables, missing keys, quoting,
+  // CRLF and comments: that sibling preserves a field's existing decimal
+  // format (writing an integer over a field that was "0.05" produces "3.0",
+  // not "3") via formatLuaNumber; this file's formatLuaValue always emitted
+  // String(value), silently dropping it. Both parse identically in Lua, but
+  // an operator diffing the file (or a tool doing its own string-based
+  // scan) sees the field's apparent type change on every template apply
+  // that touches it. Fixed to match.
+  it("preserves a top-level field's existing decimal format when the new value is a whole number", () => {
+    const withFloat = luaContent.replace("Zombies = 4,", "ClayRiverChance = 0.05,\n    Zombies = 4,");
+    const { content, applied } = applySandboxValue(withFloat, "settings", "ClayRiverChance", 3);
+    expect(applied).toBe(true);
+    expect(content).toContain("ClayRiverChance = 3.0,");
+  });
+
+  it("preserves a nested block field's existing decimal format the same way", () => {
+    const { content, applied } = applySandboxValue(luaContent, "MultiplierConfig", "Global", 2);
+    expect(applied).toBe(true);
+    expect(content).toContain("Global = 2.0,");
+  });
+
+  it("does not add a decimal point when the original field was already a whole number", () => {
+    const { content } = applySandboxValue(luaContent, "settings", "Zombies", 7);
+    expect(content).toContain("Zombies = 7,");
+    expect(content).not.toContain("Zombies = 7.0,");
+  });
+
+  // getKnownSectionRanges used to list only 5 of routes/serverFiles.js's 7
+  // known nested-block names (missing Music/Debug) -- a same-named key
+  // under either block would not have been excluded from a top-level
+  // "settings" rewrite here, unlike its sibling. No real save checked
+  // defines either block, so this pins the exclusion directly rather than
+  // via a real-file fixture.
+  it("excludes Music and Debug nested-block contents from a top-level settings rewrite, matching serverFiles.js", () => {
+    const withMusicAndDebug = [
+      "SandboxVars = {",
+      "    Zombies = 4,",
+      "    Music = {",
+      "        Zombies = 999,",
+      "    },",
+      "    Debug = {",
+      "        Zombies = 888,",
+      "    },",
+      "}",
+      "",
+    ].join("\n");
+
+    const { content, applied } = applySandboxValue(withMusicAndDebug, "settings", "Zombies", 5);
+    expect(applied).toBe(true);
+    expect(readSandboxValue(content, "settings", "Zombies")).toBe(5);
+    expect(content).toContain("Zombies = 999,");
+    expect(content).toContain("Zombies = 888,");
   });
 });
 

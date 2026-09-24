@@ -46,6 +46,7 @@ import {
   Bookmark,
   BookmarkPlus,
   ChevronRight,
+  ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { reportClientError } from "@/lib/client-errors";
@@ -73,6 +74,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -121,6 +123,7 @@ import { useSocket } from "@/contexts/SocketContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme, type ThemeName } from "@/contexts/ThemeContext";
 import { platformTranslationKey, useRuntimeInfo } from "@/hooks/useRuntimeInfo";
+import { useRequestGuard } from "@/hooks/useRequestGuard";
 import { BridgeStatusBadge } from "@/components/BridgeStatusBadge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -390,6 +393,11 @@ export default function Settings() {
   const [corsLoading, setCorsLoading] = useState(false);
   const [corsUpdating, setCorsUpdating] = useState(false);
   const [testingRcon, setTestingRcon] = useState(false);
+  // pz-bughunt round 20 (UX sense check): the RCON test's result was only
+  // ever shown as a transient toast -- once it faded, there was no way to
+  // tell whether the last test passed without clicking it again. Keep the
+  // last outcome visible next to the button.
+  const [rconTestResult, setRconTestResult] = useState<{ ok: boolean; at: number } | null>(null);
   const [restarting, setRestarting] = useState(false);
   const restartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restartPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -419,6 +427,21 @@ export default function Settings() {
   const [applyRiskConfirmed, setApplyRiskConfirmed] = useState(false);
   const { toast } = useToast();
   const { user, authEnabled, logout, can } = useAuth();
+  // pz-bughunt round 19 (client-vs-server permission gate sweep): this
+  // whole page had almost no client-side capability check at all -- every
+  // one of these controls' server routes were already gated (confirmed by
+  // reading each route's own requirePermission()/requireRole() call), but
+  // the client showed every control fully enabled to any authenticated
+  // user regardless of role, so a role missing the capability only found
+  // out via a 403 after clicking. Same fix idiom as Console.tsx's Recheck
+  // button this same round: const declared once, checked in the handler
+  // (the real gate) AND passed to DisabledReason + disabled= (the
+  // affordance). Grouped here since several controls below share a
+  // capability.
+  const canSavePanelSettings = can("panel.settings"); // General Save, and WorkshopCollectionSyncCard's cookie persistCookies (same route, PUT /config/app-settings)
+  const canManageDiagnostics = can("diagnostics.manage"); // Access tab: Reload CORS Rules, Clear Blocked Log
+  const canConfigureServerSettings = can("server.configure"); // Connection tab: Test (RCON recheck)
+  const canSetupBridge = can("bridge.setup"); // Bridge tab: every write action on it
 
   // Change password state
   const [currentPassword, setCurrentPassword] = useState("");
@@ -573,6 +596,34 @@ export default function Settings() {
   >(null);
   const [backupSchedule, setBackupSchedule] = useState("0 */6 * * *");
   const [backupMaxCount, setBackupMaxCount] = useState(10);
+  // pz-bughunt round 17 (every write that trusts the server-side active
+  // server): backupApi.createBackup/deleteBackup/restoreBackup/updateSettings
+  // all resolve "the active server" server-side with no server id sent, the
+  // same shape as Mods.tsx's saveModOrder/Backups.tsx's own equivalent write
+  // paths (see Backups.tsx's serverChangedSinceLoad). This mini-panel is a
+  // second, independent island of the same backup UI embedded in Settings,
+  // and its own activeServerChanged handler used to only refetch the
+  // servers list and app-wide settings -- backups/backupStatus/backupSchedule/
+  // backupMaxCount were never refreshed AND nothing blocked a write from
+  // firing against the now-different active server using values loaded for
+  // the previous one. Mirrors Backups.tsx's own serverChangedSinceLoad shape
+  // exactly: true unconditionally on every activeServerChanged (this panel's
+  // data is ALWAYS "for some server", there is no clean/dirty distinction
+  // the way app settings has isDirty), cleared once a fresh refetch lands.
+  const [backupPanelServerChanged, setBackupPanelServerChanged] = useState(false);
+  // pz-bughunt round 18: the active server's own id, captured whenever this
+  // panel (re)loads its backup data (see fetchBackupActiveServerId below,
+  // called alongside fetchBackupStatus/fetchBackups in both the mount
+  // effect and the activeServerChanged handler). Sent as expectedServerId
+  // on the write calls below as defense in depth alongside
+  // backupPanelServerChanged -- see server/routes/backup.js's POST
+  // /settings for the server-side check this enables (409
+  // BACKUP_ACTIVE_SERVER_CHANGED on a real mismatch). null means "no
+  // active server was resolved at that load", a real, checkable value, not
+  // "unknown" -- matches getActiveServer()'s own `?.id ?? null` shape.
+  const [backupActiveServerId, setBackupActiveServerId] = useState<
+    string | number | null
+  >(null);
 
   // Track if there are unsaved changes
   const isDirty =
@@ -1032,6 +1083,7 @@ export default function Settings() {
   };
 
   const handleSave = async () => {
+    if (!canSavePanelSettings) return;
     if (!isValidPort(Number(settings.panelPort))) {
       toast({
         title: t("toasts.invalidPanelPort.title"),
@@ -1100,6 +1152,7 @@ export default function Settings() {
   );
 
   const handleReloadCorsRules = async () => {
+    if (!canManageDiagnostics) return;
     setCorsUpdating(true);
     try {
       const data = await configApi.reloadCorsDiagnostics();
@@ -1122,6 +1175,7 @@ export default function Settings() {
   };
 
   const handleClearCorsBlocked = async () => {
+    if (!canManageDiagnostics) return;
     setCorsUpdating(true);
     try {
       const data = await configApi.clearCorsBlockedOrigins();
@@ -1207,6 +1261,12 @@ export default function Settings() {
 
   const restartPanelWithReconnect = useCallback(
     async (description: string, expectedVersion?: string | null) => {
+      // pz-bughunt round 19: POST /api/panel/restart is requireRole("admin")
+      // server-side -- guarded once here since this function has 3 call
+      // sites (General tab's own restart button, and both Updates-tab
+      // apply-update flows), catching all of them (and any future one)
+      // instead of relying on each call site to remember its own check.
+      if (user?.role !== "admin") return;
       setRestarting(true);
       setRestartWaitFailed(false);
       try {
@@ -1240,7 +1300,7 @@ export default function Settings() {
         });
       }
     },
-    [toast, t, pollForPanelReconnect],
+    [toast, t, pollForPanelReconnect, user],
   );
 
   // "Check again" on the hasn't-come-back message: does NOT re-POST
@@ -1305,6 +1365,13 @@ export default function Settings() {
   };
 
   const handleDownloadPanelUpdate = async () => {
+    // pz-bughunt round 19: POST /api/panel/update-download is gated
+    // requireRole("admin") server-side, not a named capability -- no
+    // can('...') equivalent exists for a role check, so this follows the
+    // same role === "admin" convention this file already uses for its
+    // Security tab's own admin-only card (regenerateJwt), rather than
+    // inventing a new mechanism.
+    if (user?.role !== "admin") return;
     if (!panelUpdateStatus?.updateAvailable) {
       toast({
         title: t("toasts.noUpdateAvailable.title"),
@@ -1497,15 +1564,18 @@ export default function Settings() {
   }, [socket, toast, fetchPanelUpdateStatus, t]);
 
   const handleTestRcon = async () => {
+    if (!canConfigureServerSettings) return;
     setTestingRcon(true);
     try {
       await configApi.testRcon();
+      setRconTestResult({ ok: true, at: Date.now() });
       toast({
         title: t("toasts.rconConnected.title"),
         description: t("toasts.rconConnected.description"),
         variant: "success" as const,
       });
     } catch (error) {
+      setRconTestResult({ ok: false, at: Date.now() });
       toast({
         title: t("toasts.rconFailed.title"),
         description:
@@ -1543,21 +1613,42 @@ export default function Settings() {
   }, [t, canViewBridgeStatus]);
 
   // Fetch servers list for install dropdown
+  // bug-hunt-2026-09-18 (round 9, activeServerChanged race sweep): called
+  // both on mount and on every activeServerChanged event, with no guard
+  // against the two (or two activeServerChanged calls back to back)
+  // overlapping -- an older call resolving after a newer one would
+  // overwrite the current server list with a stale isActive snapshot.
+  // serversGuard drops a response once a newer call has already started.
+  const serversGuard = useRequestGuard();
   const fetchServers = useCallback(async () => {
+    const requestId = serversGuard.next();
     try {
       const data = await serversApi.getAll();
+      if (serversGuard.isStale(requestId)) return;
       setServers(data.servers || []);
       setServersLoadError(false);
-      // Auto-select active server
+      // Auto-select active server, first load only. bug-hunt-2026-09-18
+      // (round 10): this used to read `selectedInstallServerId` from this
+      // async function's OWN closure instead of current state -- the guard
+      // above only orders overlapping fetchServers CALLS against each
+      // other, it says nothing about a manual selection the user made
+      // while THIS (not-superseded, not "stale" by that guard) call was
+      // still in flight. A call issued while nothing was selected yet, then
+      // left in flight across a manual pick, would still see its own
+      // captured `!selectedInstallServerId === true` on resolution and
+      // silently overwrite the user's pick. The functional setState
+      // updater always reads live state at apply time instead, so a
+      // manual selection made at any point before this resolves wins.
       const activeServer = data.servers?.find((s) => s.isActive);
-      if (activeServer && !selectedInstallServerId) {
-        setSelectedInstallServerId(String(activeServer.id));
+      if (activeServer) {
+        setSelectedInstallServerId((prev) => prev || String(activeServer.id));
       }
     } catch (error) {
+      if (serversGuard.isStale(requestId)) return;
       reportClientError("Failed to fetch servers.", error);
       setServersLoadError(true);
     }
-  }, [selectedInstallServerId]);
+  }, [serversGuard]);
 
   // bug-hunt-2026-09-04: this listener used to reload the wrong state and
   // never reload the right one. configApi.getAppSettings()/PUT app-settings
@@ -1586,6 +1677,7 @@ export default function Settings() {
 
   // Install PanelBridge mod to selected server
   const handleInstallMod = async () => {
+    if (!canSetupBridge) return;
     if (!selectedInstallServerId) {
       toast({
         title: t("toasts.selectServer.title"),
@@ -1695,12 +1787,70 @@ export default function Settings() {
     }
   }, []);
 
+  // pz-bughunt round 18: see backupActiveServerId's own comment above.
+  // Failure here just leaves the previous captured id in place -- the
+  // expectedServerId it feeds is defense in depth on top of
+  // backupPanelServerChanged, not the only thing standing between a click
+  // and a wrong-server write, so there's nothing to surface to the user
+  // over a failed refresh of it specifically.
+  const fetchBackupActiveServerId = useCallback(async () => {
+    try {
+      const { server } = await serversApi.getResolvedActive();
+      setBackupActiveServerId(server?.id ?? null);
+    } catch {
+      // Leave the previously captured value in place.
+    }
+  }, []);
+
   useEffect(() => {
     fetchBackupStatus();
     fetchBackups();
-  }, [fetchBackupStatus, fetchBackups]);
+    fetchBackupActiveServerId();
+  }, [fetchBackupStatus, fetchBackups, fetchBackupActiveServerId]);
+
+  // See backupPanelServerChanged's own comment above. A second, independent
+  // 'activeServerChanged' listener (socket.on supports multiple handlers for
+  // one event) rather than folding into the fetchServers/fetchSettings
+  // effect above -- that effect is declared before fetchBackupStatus/
+  // fetchBackups exist yet, and this keeps the backup-panel guard's own
+  // diff scoped and easy to reason about independently of the pre-existing
+  // servers/app-settings reload logic.
+  useEffect(() => {
+    if (!socket) return;
+    const handleBackupPanelServerChanged = () => {
+      setBackupPanelServerChanged(true);
+      // The confirm dialog's own captured backup name shouldn't resolve
+      // against whichever server the backend now considers active --
+      // same reasoning as Backups.tsx closing its own restore/delete
+      // dialogs on this same event.
+      setRestoreConfirmBackup(null);
+      Promise.all([
+        fetchBackupStatus(),
+        fetchBackups(),
+        fetchBackupActiveServerId(),
+      ]).finally(() => setBackupPanelServerChanged(false));
+    };
+    socket.on("activeServerChanged", handleBackupPanelServerChanged);
+    return () => {
+      socket.off("activeServerChanged", handleBackupPanelServerChanged);
+    };
+  }, [socket, fetchBackupStatus, fetchBackups, fetchBackupActiveServerId]);
 
   const handleCreateBackup = async () => {
+    if (backupPanelServerChanged) {
+      toast({
+        title: settingsFallback(
+          "toasts.backupPanelServerChanged.title",
+          "Active server changed",
+        ),
+        description: settingsFallback(
+          "toasts.backupPanelServerChanged.description",
+          "The active server changed. This panel is refreshing for the server that is active now -- try again once it's done.",
+        ),
+        variant: "destructive",
+      });
+      return;
+    }
     setCreatingBackup(true);
     try {
       const result = await backupApi.createBackup();
@@ -1728,6 +1878,20 @@ export default function Settings() {
   };
 
   const handleDeleteBackup = async (name: string) => {
+    if (backupPanelServerChanged) {
+      toast({
+        title: settingsFallback(
+          "toasts.backupPanelServerChanged.title",
+          "Active server changed",
+        ),
+        description: settingsFallback(
+          "toasts.backupPanelServerChanged.description",
+          "The active server changed. This panel is refreshing for the server that is active now -- try again once it's done.",
+        ),
+        variant: "destructive",
+      });
+      return;
+    }
     try {
       // DELETE /backup/:name always responds non-2xx on failure, so
       // handleResponse() throws into the catch below -- this never sees
@@ -1750,6 +1914,20 @@ export default function Settings() {
   };
 
   const handleRestoreBackup = async (name: string) => {
+    if (backupPanelServerChanged) {
+      toast({
+        title: settingsFallback(
+          "toasts.backupPanelServerChanged.title",
+          "Active server changed",
+        ),
+        description: settingsFallback(
+          "toasts.backupPanelServerChanged.description",
+          "The active server changed. This panel is refreshing for the server that is active now -- try again once it's done.",
+        ),
+        variant: "destructive",
+      });
+      return;
+    }
     setRestoringBackup(name);
     try {
       // POST /backup/restore/:name always responds non-2xx on failure, so
@@ -1804,13 +1982,32 @@ export default function Settings() {
       return;
     }
 
+    if (backupPanelServerChanged) {
+      toast({
+        title: settingsFallback(
+          "toasts.backupPanelServerChanged.title",
+          "Active server changed",
+        ),
+        description: settingsFallback(
+          "toasts.backupPanelServerChanged.description",
+          "The active server changed. This panel is refreshing for the server that is active now -- try again once it's done.",
+        ),
+        variant: "destructive",
+      });
+      return;
+    }
     setBackupLoading(true);
     try {
-      await backupApi.updateSettings({
-        enabled: backupStatus?.enabled || false,
-        schedule: backupSchedule,
-        maxBackups: backupMaxCount,
-      });
+      // pz-bughunt round 18: expectedServerId is defense in depth alongside
+      // backupPanelServerChanged above.
+      await backupApi.updateSettings(
+        {
+          enabled: backupStatus?.enabled || false,
+          schedule: backupSchedule,
+          maxBackups: backupMaxCount,
+        },
+        backupActiveServerId,
+      );
       await fetchBackupStatus();
       toast({
         title: t("toasts.backupSettingsSaved.title"),
@@ -1830,9 +2027,25 @@ export default function Settings() {
   };
 
   const toggleBackupEnabled = async (enabled: boolean) => {
+    if (backupPanelServerChanged) {
+      toast({
+        title: settingsFallback(
+          "toasts.backupPanelServerChanged.title",
+          "Active server changed",
+        ),
+        description: settingsFallback(
+          "toasts.backupPanelServerChanged.description",
+          "The active server changed. This panel is refreshing for the server that is active now -- try again once it's done.",
+        ),
+        variant: "destructive",
+      });
+      return;
+    }
     setBackupLoading(true);
     try {
-      await backupApi.updateSettings({ enabled });
+      // pz-bughunt round 18: same defense-in-depth expectedServerId as
+      // handleSaveBackupSettings above.
+      await backupApi.updateSettings({ enabled }, backupActiveServerId);
       await fetchBackupStatus();
       toast({
         title: enabled
@@ -1941,6 +2154,7 @@ export default function Settings() {
 
   // Auto-configure from active server settings (one-click setup)
   const handleAutoConfigure = async () => {
+    if (!canSetupBridge) return;
     setBridgeLoading(true);
     setBridgeError(null);
     try {
@@ -1965,6 +2179,7 @@ export default function Settings() {
   };
 
   const handleStopBridge = async () => {
+    if (!canSetupBridge) return;
     setBridgeLoading(true);
     try {
       await panelBridgeApi.stop();
@@ -1987,6 +2202,7 @@ export default function Settings() {
   };
 
   const handleManualConfigure = async () => {
+    if (!canSetupBridge) return;
     const trimmed = manualBridgePath.trim();
     if (!trimmed) return;
     setBridgeLoading(true);
@@ -2022,6 +2238,7 @@ export default function Settings() {
   });
 
   const handleListRemoteLogs = async () => {
+    if (!canSetupBridge) return;
     setLoadingRemoteLogs(true);
     setRemoteLogError(null);
     try {
@@ -2044,6 +2261,7 @@ export default function Settings() {
   };
 
   const handleCheckRemoteConfig = async () => {
+    if (!canSetupBridge) return;
     setLoadingRemoteConfig(true);
     setRemoteConfigError(null);
     try {
@@ -2066,6 +2284,7 @@ export default function Settings() {
   };
 
   const handleTailRemoteLog = async (name: string) => {
+    if (!canSetupBridge) return;
     setLoadingRemoteLogs(true);
     setRemoteLogError(null);
     try {
@@ -2091,6 +2310,7 @@ export default function Settings() {
   };
 
   const handleTestSftp = async () => {
+    if (!canSetupBridge) return;
     setTestingSftp(true);
     try {
       const result = await panelBridgeApi.testSftp(sftpConfig());
@@ -2107,6 +2327,7 @@ export default function Settings() {
   };
 
   const handleConfigureSftp = async () => {
+    if (!canSetupBridge) return;
     setBridgeLoading(true);
     setBridgeError(null);
     try {
@@ -2199,6 +2420,47 @@ export default function Settings() {
       }
     }
     setSettings((prev) => ({ ...prev, [key]: value }));
+  };
+
+  // pz-bughunt round 21 (UX sense check, part 2): this used to update local
+  // state only, requiring the General tab's own Save button to persist it
+  // -- a split-persistence trap next to Dashboard.tsx's matching checkbox,
+  // which saves immediately (see its own handleAutoStartChange). Made this
+  // one behave the same way: optimistic update, a scoped PUT (not the
+  // whole settings object), revert both settings AND originalSettings on
+  // failure so isDirty doesn't go stale, revert on error.
+  const handleAutoStartToggle = async (checked: boolean) => {
+    if (!canSavePanelSettings) return;
+    const previous = settings.autoStartServer;
+    setSettings((prev) => ({ ...prev, autoStartServer: checked }));
+    setOriginalSettings((prev) =>
+      prev ? { ...prev, autoStartServer: checked } : prev,
+    );
+    try {
+      await configApi.updateAppSettings({ autoStartServer: checked });
+      toast({
+        title: checked
+          ? t("toasts.autoStartEnabled.title")
+          : t("toasts.autoStartDisabled.title"),
+        description: checked
+          ? t("toasts.autoStartEnabled.description")
+          : t("toasts.autoStartDisabled.description"),
+        variant: "success" as const,
+      });
+    } catch (error) {
+      setSettings((prev) => ({ ...prev, autoStartServer: previous }));
+      setOriginalSettings((prev) =>
+        prev ? { ...prev, autoStartServer: previous } : prev,
+      );
+      toast({
+        title: t("toasts.autoStartSaveFailed.title"),
+        description: getUserErrorMessage(
+          error,
+          t("toasts.autoStartSaveFailed.fallback"),
+        ),
+        variant: "destructive",
+      });
+    }
   };
 
   // Lock-out guard: if the user disables "Allow Private/LAN Origins" while
@@ -2513,20 +2775,22 @@ export default function Settings() {
                 </p>
               </div>
             </div>
-            <Button
-              onClick={handleSave}
-              disabled={saving || Boolean(corsOriginValidationError)}
-              size="sm"
-              variant="warning"
-              className="self-start gap-2 sm:self-auto"
-            >
-              {saving ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Save className="h-4 w-4" />
-              )}
-              {t("unsavedBanner.saveButton")}
-            </Button>
+            <DisabledReason reason={!canSavePanelSettings ? t("permissions.noPanelSettings") : null}>
+              <Button
+                onClick={handleSave}
+                disabled={saving || Boolean(corsOriginValidationError) || !canSavePanelSettings}
+                size="sm"
+                variant="warning"
+                className="self-start gap-2 sm:self-auto"
+              >
+                {saving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                {t("unsavedBanner.saveButton")}
+              </Button>
+            </DisabledReason>
           </div>
         </div>
       )}
@@ -2562,7 +2826,15 @@ export default function Settings() {
       )}
 
       <PageHeader
-        title={t("pageHeader.title")}
+        title={
+          // pz-pam-r28: was hardcoded to the generic "Settings" on every
+          // tab -- landing on ?tab=roles from the USERS sidebar section's
+          // "Roles & Permissions" link never showed that label anywhere in
+          // the page chrome. Falls back to the generic title for the
+          // General tab and any unknown/legacy tab id.
+          settingsSections.find((s) => s.id === activeSection)?.label ??
+          t("pageHeader.title")
+        }
         description={
           settingsSections.find((s) => s.id === activeSection)?.description ??
           t("pageHeader.defaultDescription")
@@ -2571,24 +2843,36 @@ export default function Settings() {
         tone="config"
         icon={<Settings2 className="w-5 h-5" />}
         actions={
-          <Button
-            variant="command"
-            onClick={handleSave}
-            disabled={saving || !isDirty || Boolean(corsOriginValidationError)}
-            size="lg"
-            className="w-full sm:w-auto gap-2"
-          >
-            {saving ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : (
-              <Save className="w-5 h-5" />
-            )}
-            {saving
-              ? t("saveButton.saving")
-              : isDirty
-                ? t("saveButton.save")
-                : t("saveButton.noChanges")}
-          </Button>
+          // pz-pam-r28: Users/Roles/SSO are embedded standalone components
+          // (RolesPermissions.tsx's own comment: "rendered inside a
+          // Settings tab panel instead of as its own route") with their
+          // own per-row save mechanics -- this button only ever saves the
+          // general app-settings object, so it stayed visible but
+          // semantically inert (always "No Changes") on those 3 tabs.
+          activeSection === "users" || activeSection === "roles" || activeSection === "sso"
+            ? undefined
+            : (
+              <DisabledReason reason={!canSavePanelSettings ? t("permissions.noPanelSettings") : null}>
+              <Button
+                variant="command"
+                onClick={handleSave}
+                disabled={saving || !isDirty || Boolean(corsOriginValidationError) || !canSavePanelSettings}
+                size="lg"
+                className="w-full sm:w-auto gap-2"
+              >
+                {saving ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Save className="w-5 h-5" />
+                )}
+                {saving
+                  ? t("saveButton.saving")
+                  : isDirty
+                    ? t("saveButton.save")
+                    : t("saveButton.noChanges")}
+              </Button>
+              </DisabledReason>
+            )
         }
       />
 
@@ -2699,7 +2983,12 @@ export default function Settings() {
                     <AlertDialogTrigger asChild>
                       <Button
                         variant="outline"
-                        disabled={restarting || isDirty}
+                        disabled={restarting || isDirty || user?.role !== "admin"}
+                        // pz-bughunt round 19: same requireRole("admin")
+                        // route as the Updates tab's own restart action --
+                        // not wrapped in DisabledReason for the same
+                        // AlertDialogTrigger-asChild ref-forwarding reason.
+                        title={user?.role !== "admin" ? t("permissions.adminOnly") : undefined}
                         className="gap-2"
                       >
                         {restarting ? (
@@ -2972,25 +3261,28 @@ export default function Settings() {
                   )}
 
                   <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleReloadCorsRules}
-                      disabled={
-                        corsUpdating ||
-                        saving ||
-                        Boolean(corsOriginValidationError)
-                      }
-                      className="gap-2"
-                    >
-                      {corsUpdating ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <RefreshCw className="w-4 h-4" />
-                      )}
-                      {t("access.reloadRulesButton")}
-                    </Button>
+                    <DisabledReason reason={!canManageDiagnostics ? t("permissions.noDiagnosticsManage") : null}>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleReloadCorsRules}
+                        disabled={
+                          corsUpdating ||
+                          saving ||
+                          Boolean(corsOriginValidationError) ||
+                          !canManageDiagnostics
+                        }
+                        className="gap-2"
+                      >
+                        {corsUpdating ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="w-4 h-4" />
+                        )}
+                        {t("access.reloadRulesButton")}
+                      </Button>
+                    </DisabledReason>
                     <Button
                       type="button"
                       variant="ghost"
@@ -3004,17 +3296,19 @@ export default function Settings() {
                       />
                       {t("access.refreshDiagnosticsButton")}
                     </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleClearCorsBlocked}
-                      disabled={corsUpdating || !corsDiagnostics?.blockedCount}
-                      className="gap-2 text-muted-foreground"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      {t("access.clearBlockedLogButton")}
-                    </Button>
+                    <DisabledReason reason={!canManageDiagnostics ? t("permissions.noDiagnosticsManage") : null}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleClearCorsBlocked}
+                        disabled={corsUpdating || !corsDiagnostics?.blockedCount || !canManageDiagnostics}
+                        className="gap-2 text-muted-foreground"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        {t("access.clearBlockedLogButton")}
+                      </Button>
+                    </DisabledReason>
                   </div>
 
                   <div className="grid gap-3 text-xs sm:grid-cols-3">
@@ -3522,8 +3816,18 @@ export default function Settings() {
                               checkingPanelUpdate ||
                               downloadingPanelUpdate ||
                               restarting ||
-                              panelUpdatePreflight?.ok === false
+                              panelUpdatePreflight?.ok === false ||
+                              user?.role !== "admin"
                             }
+                            // Not wrapped in DisabledReason here -- it renders a
+                            // Tooltip, and nesting that between
+                            // AlertDialogTrigger's own asChild and this Button
+                            // breaks the ref Radix needs to forward (same
+                            // conflict the round-19 Console.tsx/Events.tsx fix
+                            // already worked around for a shared Tooltip
+                            // trigger). A plain title carries the reason
+                            // instead.
+                            title={user?.role !== "admin" ? t("permissions.adminOnly") : undefined}
                             className="gap-2"
                           >
                             {downloadingPanelUpdate ? (
@@ -3559,24 +3863,27 @@ export default function Settings() {
                         </AlertDialogContent>
                       </AlertDialog>
                     ) : (
-                      <Button
-                        onClick={handleDownloadPanelUpdate}
-                        disabled={
-                          !panelUpdateStatus?.updateAvailable ||
-                          checkingPanelUpdate ||
-                          downloadingPanelUpdate ||
-                          restarting ||
-                          panelUpdatePreflight?.ok === false
-                        }
-                        className="gap-2"
-                      >
-                        {downloadingPanelUpdate ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Download className="w-4 h-4" />
-                        )}
-                        {downloadingPanelUpdate ? t("updates.downloadingButton") : t("updates.downloadUpdateButton")}
-                      </Button>
+                      <DisabledReason reason={user?.role !== "admin" ? t("permissions.adminOnly") : null}>
+                        <Button
+                          onClick={handleDownloadPanelUpdate}
+                          disabled={
+                            !panelUpdateStatus?.updateAvailable ||
+                            checkingPanelUpdate ||
+                            downloadingPanelUpdate ||
+                            restarting ||
+                            panelUpdatePreflight?.ok === false ||
+                            user?.role !== "admin"
+                          }
+                          className="gap-2"
+                        >
+                          {downloadingPanelUpdate ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Download className="w-4 h-4" />
+                          )}
+                          {downloadingPanelUpdate ? t("updates.downloadingButton") : t("updates.downloadUpdateButton")}
+                        </Button>
+                      </DisabledReason>
                     )}
 
                     {!isDockerPanelUpdate && <AlertDialog
@@ -3595,8 +3902,15 @@ export default function Settings() {
                             isDirty ||
                             downloadingPanelUpdate ||
                             Boolean(panelUpdateStatus?.isDownloading) ||
-                            panelUpdatePreflight?.ok === false
+                            panelUpdatePreflight?.ok === false ||
+                            user?.role !== "admin"
                           }
+                          // pz-bughunt round 19: POST /api/panel/restart is
+                          // also requireRole("admin") server-side -- not
+                          // wrapped in DisabledReason for the same
+                          // AlertDialogTrigger-asChild ref-forwarding reason
+                          // as the Download/Apply button above.
+                          title={user?.role !== "admin" ? t("permissions.adminOnly") : undefined}
                           className="gap-2"
                         >
                           {restarting ? (
@@ -3628,7 +3942,7 @@ export default function Settings() {
                                   <p className="font-medium text-foreground">
                                     {t("updates.confirmBeforeContinuing")}
                                   </p>
-                                  <ul className="mt-1 list-disc space-y-1 ps-5">
+                                  <ul className="mt-1 max-h-48 list-disc space-y-1 overflow-y-auto ps-5">
                                     {translatePanelUpdateMessages(
                                       panelUpdatePreflight.warnings,
                                       panelUpdatePreflight.warningDetails,
@@ -3672,13 +3986,14 @@ export default function Settings() {
                         <AlertDialogFooter>
                           <AlertDialogCancel>{t("updates.cancel")}</AlertDialogCancel>
                           <AlertDialogAction
-                            disabled={updateRestartIsRisky && !applyRiskConfirmed}
-                            onClick={() =>
+                            disabled={(updateRestartIsRisky && !applyRiskConfirmed) || user?.role !== "admin"}
+                            onClick={() => {
+                              if (user?.role !== "admin") return;
                               restartPanelWithReconnect(
                                 t("updates.applyingDownloadedToast"),
                                 panelUpdateStatus?.stagedUpdate?.version,
-                              )
-                            }
+                              );
+                            }}
                           >
                             {t("updates.restartAndApply")}
                           </AlertDialogAction>
@@ -3913,17 +4228,37 @@ export default function Settings() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                  <Button
-                    variant="outline"
-                    onClick={handleTestRcon}
-                    disabled={testingRcon}
-                    className="w-full sm:w-auto"
-                  >
-                    {testingRcon ? (
-                      <Loader2 className="w-4 h-4 me-2 animate-spin" />
-                    ) : null}
-                    {t("connection.testButton")}
-                  </Button>
+                  <DisabledReason reason={!canConfigureServerSettings ? t("permissions.noServerConfigure") : null}>
+                    <Button
+                      variant="outline"
+                      onClick={handleTestRcon}
+                      disabled={testingRcon || !canConfigureServerSettings}
+                      className="w-full sm:w-auto"
+                    >
+                      {testingRcon ? (
+                        <Loader2 className="w-4 h-4 me-2 animate-spin" />
+                      ) : null}
+                      {t("connection.testButton")}
+                    </Button>
+                  </DisabledReason>
+                  {!testingRcon && rconTestResult && (
+                    <span
+                      className={cn(
+                        "flex items-center gap-1.5 text-xs",
+                        rconTestResult.ok ? "text-success" : "text-destructive",
+                      )}
+                    >
+                      {rconTestResult.ok ? (
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                      ) : (
+                        <XCircle className="w-3.5 h-3.5" />
+                      )}
+                      {rconTestResult.ok
+                        ? t("connection.testResultOk")
+                        : t("connection.testResultFailed")}{" "}
+                      {new Date(rconTestResult.at).toLocaleTimeString(i18n.language)}
+                    </span>
+                  )}
                   <div className="flex items-center gap-2">
                     <Switch
                       checked={settings.autoReconnect}
@@ -3994,14 +4329,15 @@ export default function Settings() {
                       {t("connection.autoStartDesc")}
                     </p>
                   </div>
-                  <Switch
-                    id="auto-start-server"
-                    checked={settings.autoStartServer}
-                    onCheckedChange={(value) =>
-                      updateSetting("autoStartServer", value)
-                    }
-                    aria-label={t("ariaLabels.startServerOnPanelStart")}
-                  />
+                  <DisabledReason reason={!canSavePanelSettings ? t("permissions.noPanelSettings") : null}>
+                    <Switch
+                      id="auto-start-server"
+                      checked={settings.autoStartServer}
+                      disabled={!canSavePanelSettings}
+                      onCheckedChange={(value) => handleAutoStartToggle(value)}
+                      aria-label={t("ariaLabels.startServerOnPanelStart")}
+                    />
+                  </DisabledReason>
                 </div>
               </CardContent>
             </Card>
@@ -4173,7 +4509,25 @@ export default function Settings() {
                   )}
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-3">
+                {/* pz-bughunt round 21 (UX sense check, part 1): this tab
+                    used to be one flat ~860-line space-y-4 stack in a single
+                    Card -- the operator's named worst scroll offender.
+                    Split into 4 collapsible sections (status+setup open by
+                    default; remote RCON+SFTP; remote config+logs; install
+                    and updates), same Collapsible idiom Scheduler.tsx's own
+                    Cron Help section already uses. */}
+                <Collapsible defaultOpen>
+                  <div className="rounded-xl border border-border/40 bg-card/40">
+                    <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-foreground hover:text-primary transition-colors">
+                      <span className="flex items-center gap-2">
+                        <Zap className="w-4 h-4 text-primary" />
+                        {t("bridge.sectionStatusSetup")}
+                      </span>
+                      <ChevronDown className="w-4 h-4 shrink-0 transition-transform duration-200 [[data-state=open]>&]:rotate-180" />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="space-y-4 px-4 pb-4 pt-0">
                 {/* Status Display - when connected */}
                 {bridgeStatus?.modConnected && bridgeStatus.modStatus && (
                   <Alert
@@ -4236,20 +4590,22 @@ export default function Settings() {
                       <AlertDescription className="space-y-3">
                         <p>{getBridgeStalenessBody(staleness)}</p>
                         {actionLabel && (
-                          <Button
-                            onClick={() => handleAutoConfigure()}
-                            disabled={bridgeLoading}
-                            size="sm"
-                            variant="outline"
-                            className="gap-2"
-                          >
-                            {bridgeLoading ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                              <RefreshCw className="w-3.5 h-3.5" />
-                            )}
-                            {actionLabel}
-                          </Button>
+                          <DisabledReason reason={!canSetupBridge ? t("permissions.noBridgeSetup") : null}>
+                            <Button
+                              onClick={() => handleAutoConfigure()}
+                              disabled={bridgeLoading || !canSetupBridge}
+                              size="sm"
+                              variant="outline"
+                              className="gap-2"
+                            >
+                              {bridgeLoading ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <RefreshCw className="w-3.5 h-3.5" />
+                              )}
+                              {actionLabel}
+                            </Button>
+                          </DisabledReason>
                         )}
                       </AlertDescription>
                     </Alert>
@@ -4285,14 +4641,16 @@ export default function Settings() {
                           <li><Trans t={t} i18nKey="bridge.localStep3" components={{ b: <strong className="text-foreground" /> }} /></li>
                           <li>{t("bridge.localStep4")}</li>
                         </ol>
-                        <Button
-                          onClick={() => handleAutoConfigure()}
-                          disabled={bridgeLoading}
-                          className="gap-2"
-                        >
-                          {bridgeLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-                          {t("bridge.autoSetupButton")}
-                        </Button>
+                        <DisabledReason reason={!canSetupBridge ? t("permissions.noBridgeSetup") : null}>
+                          <Button
+                            onClick={() => handleAutoConfigure()}
+                            disabled={bridgeLoading || !canSetupBridge}
+                            className="gap-2"
+                          >
+                            {bridgeLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                            {t("bridge.autoSetupButton")}
+                          </Button>
+                        </DisabledReason>
 
                         <div className="border-t border-border/50 pt-3 mt-1 space-y-2">
                           <p className="text-xs text-muted-foreground">
@@ -4305,16 +4663,18 @@ export default function Settings() {
                               placeholder="/home/pzuser/Zomboid/Lua/panelbridge/MyServer"
                               className="text-xs h-9"
                             />
-                            <Button
-                              onClick={handleManualConfigure}
-                              disabled={bridgeLoading || !manualBridgePath.trim()}
-                              variant="secondary"
-                              size="sm"
-                              className="shrink-0 gap-1.5"
-                            >
-                              {bridgeLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderOpen className="w-3.5 h-3.5" />}
-                              {t("bridge.connectButton")}
-                            </Button>
+                            <DisabledReason reason={!canSetupBridge ? t("permissions.noBridgeSetup") : null}>
+                              <Button
+                                onClick={handleManualConfigure}
+                                disabled={bridgeLoading || !manualBridgePath.trim() || !canSetupBridge}
+                                variant="secondary"
+                                size="sm"
+                                className="shrink-0 gap-1.5"
+                              >
+                                {bridgeLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderOpen className="w-3.5 h-3.5" />}
+                                {t("bridge.connectButton")}
+                              </Button>
+                            </DisabledReason>
                           </div>
                         </div>
                       </>
@@ -4409,10 +4769,20 @@ export default function Settings() {
                             {Object.entries(bridgeStatus.connection.checks).map(
                               ([key, val]) => {
                                 if (key === "statusAgeMs") return null;
-                                const label = key
-                                  .replace(/([A-Z])/g, " $1")
-                                  .replace(/^./, (s) => s.toUpperCase())
-                                  .trim();
+                                // pz-bughunt round 20 (UX sense check): this
+                                // used to render the raw camelCase key
+                                // (humanized via regex only) with no i18n at
+                                // all, so non-English operators saw English
+                                // fragments mid-page. t() with the old
+                                // humanized text as defaultValue keeps this
+                                // safe for any future check key the server
+                                // adds before a translation exists for it.
+                                const label = t(`bridge.checksLabels.${key}`, {
+                                  defaultValue: key
+                                    .replace(/([A-Z])/g, " $1")
+                                    .replace(/^./, (s) => s.toUpperCase())
+                                    .trim(),
+                                });
                                 const passed = val === true;
                                 return (
                                   <div
@@ -4513,20 +4883,22 @@ export default function Settings() {
                 {/* Control buttons when running */}
                 {bridgeStatus?.isRunning && (
                   <div className="flex flex-wrap gap-3">
-                    <Button
-                      onClick={handleStopBridge}
-                      disabled={bridgeLoading}
-                      variant="outline"
-                      size="sm"
-                      className="gap-2"
-                    >
-                      {bridgeLoading ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <XCircle className="w-4 h-4" />
-                      )}
-                      {t("bridge.stopBridge")}
-                    </Button>
+                    <DisabledReason reason={!canSetupBridge ? t("permissions.noBridgeSetup") : null}>
+                      <Button
+                        onClick={handleStopBridge}
+                        disabled={bridgeLoading || !canSetupBridge}
+                        variant="outline"
+                        size="sm"
+                        className="gap-2"
+                      >
+                        {bridgeLoading ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <XCircle className="w-4 h-4" />
+                        )}
+                        {t("bridge.stopBridge")}
+                      </Button>
+                    </DisabledReason>
                     <Button
                       onClick={handlePingMod}
                       variant="outline"
@@ -4556,14 +4928,25 @@ export default function Settings() {
                     </Button>
                   </div>
                 )}
-
-                <div className="border-t border-border/60 pt-5 space-y-4">
-                  <div>
-                    <p className="text-sm font-medium">{t("bridge.remoteConnectionTitle")}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {t("bridge.remoteConnectionDesc")}
-                    </p>
+                      </div>
+                    </CollapsibleContent>
                   </div>
+                </Collapsible>
+
+                <Collapsible>
+                  <div className="rounded-xl border border-border/40 bg-card/40">
+                    <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-foreground hover:text-primary transition-colors">
+                      <span className="flex items-center gap-2">
+                        <Link className="w-4 h-4 text-primary" />
+                        {t("bridge.remoteConnectionTitle")}
+                      </span>
+                      <ChevronDown className="w-4 h-4 shrink-0 transition-transform duration-200 [[data-state=open]>&]:rotate-180" />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="space-y-4 px-4 pb-4 pt-0">
+                  <p className="text-xs text-muted-foreground">
+                    {t("bridge.remoteConnectionDesc")}
+                  </p>
 
                   {/* impeccable-2026-08-31: lg:items-start left the RCON card
                       (much shorter content -- name, host:port, one link) at
@@ -4629,12 +5012,28 @@ export default function Settings() {
                       </div>
                       <div className="flex flex-wrap items-end gap-3">
                         <div className="w-36 space-y-1.5"><Label htmlFor="sftp-poll">{t("bridge.syncIntervalLabel")}</Label><Input id="sftp-poll" inputMode="numeric" value={settings.panelBridgeSftpPollIntervalSeconds} onChange={(event) => updateSetting("panelBridgeSftpPollIntervalSeconds", event.target.value)} /></div>
-                        <Button type="button" variant="outline" onClick={handleTestSftp} disabled={testingSftp || bridgeLoading}>{testingSftp ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <Link className="me-2 h-4 w-4" />}{t("bridge.verifyAndPrepare")}</Button>
-                        <Button type="button" onClick={handleConfigureSftp} disabled={bridgeLoading}>{bridgeLoading ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <Cloud className="me-2 h-4 w-4" />}{t("bridge.startSftpBridge")}</Button>
+                        <DisabledReason reason={!canSetupBridge ? t("permissions.noBridgeSetup") : null}><Button type="button" variant="outline" onClick={handleTestSftp} disabled={testingSftp || bridgeLoading || !canSetupBridge}>{testingSftp ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <Link className="me-2 h-4 w-4" />}{t("bridge.verifyAndPrepare")}</Button></DisabledReason>
+                        <DisabledReason reason={!canSetupBridge ? t("permissions.noBridgeSetup") : null}><Button type="button" onClick={handleConfigureSftp} disabled={bridgeLoading || !canSetupBridge}>{bridgeLoading ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <Cloud className="me-2 h-4 w-4" />}{t("bridge.startSftpBridge")}</Button></DisabledReason>
                       </div>
                       {bridgeStatus?.transport?.type === "sftp" && <div className="space-y-1 text-xs text-muted-foreground"><p>SFTP {bridgeStatus.transport.running ? t("bridge.sftpRunning") : t("bridge.sftpStopped")}{bridgeStatus.transport.lastLatencyMs != null ? t("bridge.lastSyncSuffix", { ms: bridgeStatus.transport.lastLatencyMs }) : ""}</p>{bridgeStatus.transport.lastError && <p className="text-warning">{getSftpStatusMessage(bridgeStatus.transport)}</p>}</div>}
                     </div>
                   </div>
+                      </div>
+                    </CollapsibleContent>
+                  </div>
+                </Collapsible>
+
+                <Collapsible>
+                  <div className="rounded-xl border border-border/40 bg-card/40">
+                    <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-foreground hover:text-primary transition-colors">
+                      <span className="flex items-center gap-2">
+                        <FolderOpen className="w-4 h-4 text-primary" />
+                        {t("bridge.sectionRemoteConfigLogs")}
+                      </span>
+                      <ChevronDown className="w-4 h-4 shrink-0 transition-transform duration-200 [[data-state=open]>&]:rotate-180" />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="space-y-4 px-4 pb-4 pt-0">
 
                   <p className="text-xs text-muted-foreground">
                     <Trans t={t} i18nKey="bridge.serverLogsNote" components={{ b: <strong className="text-foreground" /> }} />
@@ -4667,15 +5066,17 @@ export default function Settings() {
                           placeholder="/home/pz/Zomboid/Server"
                         />
                       </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={handleCheckRemoteConfig}
-                        disabled={loadingRemoteConfig || !settings.panelBridgeSftpConfigPath.trim()}
-                      >
-                        {loadingRemoteConfig ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <FolderOpen className="me-2 h-4 w-4" />}
-                        {t("bridge.checkFolder")}
-                      </Button>
+                      <DisabledReason reason={!canSetupBridge ? t("permissions.noBridgeSetup") : null}>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={handleCheckRemoteConfig}
+                          disabled={loadingRemoteConfig || !settings.panelBridgeSftpConfigPath.trim() || !canSetupBridge}
+                        >
+                          {loadingRemoteConfig ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <FolderOpen className="me-2 h-4 w-4" />}
+                          {t("bridge.checkFolder")}
+                        </Button>
+                      </DisabledReason>
                     </div>
 
                     {remoteConfigError && (
@@ -4716,15 +5117,17 @@ export default function Settings() {
                           placeholder="/home/pz/Zomboid/Logs"
                         />
                       </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={handleListRemoteLogs}
-                        disabled={loadingRemoteLogs || !settings.panelBridgeSftpLogPath.trim()}
-                      >
-                        {loadingRemoteLogs ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <FolderOpen className="me-2 h-4 w-4" />}
-                        {t("bridge.listLogs")}
-                      </Button>
+                      <DisabledReason reason={!canSetupBridge ? t("permissions.noBridgeSetup") : null}>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={handleListRemoteLogs}
+                          disabled={loadingRemoteLogs || !settings.panelBridgeSftpLogPath.trim() || !canSetupBridge}
+                        >
+                          {loadingRemoteLogs ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <FolderOpen className="me-2 h-4 w-4" />}
+                          {t("bridge.listLogs")}
+                        </Button>
+                      </DisabledReason>
                     </div>
 
                     {remoteLogError && (
@@ -4740,7 +5143,9 @@ export default function Settings() {
                                 <button
                                   type="button"
                                   onClick={() => handleTailRemoteLog(file.name)}
-                                  className="min-w-0 flex-1 truncate text-start text-xs font-mono text-primary hover:underline"
+                                  disabled={!canSetupBridge}
+                                  title={!canSetupBridge ? t("permissions.noBridgeSetup") : undefined}
+                                  className="min-w-0 flex-1 truncate text-start text-xs font-mono text-primary hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
                                 >
                                   {file.name}
                                 </button>
@@ -4772,7 +5177,22 @@ export default function Settings() {
                       </div>
                     )}
                   </div>
-                </div>
+                      </div>
+                    </CollapsibleContent>
+                  </div>
+                </Collapsible>
+
+                <Collapsible>
+                  <div className="rounded-xl border border-border/40 bg-card/40">
+                    <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-foreground hover:text-primary transition-colors">
+                      <span className="flex items-center gap-2">
+                        <Download className="w-4 h-4 text-primary" />
+                        {t("bridge.sectionInstallUpdates")}
+                      </span>
+                      <ChevronDown className="w-4 h-4 shrink-0 transition-transform duration-200 [[data-state=open]>&]:rotate-180" />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="space-y-4 px-4 pb-4 pt-0">
 
                 {/* Auto-update toggle */}
                 <div className="flex items-center justify-between rounded-xl border border-border/60 bg-muted/25 p-4">
@@ -4823,19 +5243,21 @@ export default function Settings() {
                         )}
                       </SelectContent>
                     </Select>
-                    <Button
-                      onClick={handleInstallMod}
-                      disabled={installingMod || !selectedInstallServerId || selectedInstallServer?.isRemote}
-                      className="gap-2"
-                      variant="outline"
-                    >
-                      {installingMod ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Download className="w-4 h-4" />
-                      )}
-                      {t("bridge.installButton")}
-                    </Button>
+                    <DisabledReason reason={!canSetupBridge ? t("permissions.noBridgeSetup") : null}>
+                      <Button
+                        onClick={handleInstallMod}
+                        disabled={installingMod || !selectedInstallServerId || selectedInstallServer?.isRemote || !canSetupBridge}
+                        className="gap-2"
+                        variant="outline"
+                      >
+                        {installingMod ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Download className="w-4 h-4" />
+                        )}
+                        {t("bridge.installButton")}
+                      </Button>
+                    </DisabledReason>
                   </div>
                   {selectedInstallServer?.isRemote && (
                     <p className="text-xs text-warning">
@@ -4851,6 +5273,10 @@ export default function Settings() {
                     </p>
                   )}
                 </div>
+                      </div>
+                    </CollapsibleContent>
+                  </div>
+                </Collapsible>
               </CardContent>
             </Card>
           </TabsContent>
@@ -5116,18 +5542,20 @@ export default function Settings() {
                       {t("backups.cardDesc")}
                     </CardDescription>
                   </div>
-                  <Button
-                    onClick={handleCreateBackup}
-                    disabled={creatingBackup || !backupStatus?.savesExists}
-                    className="gap-2"
-                  >
-                    {creatingBackup ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Archive className="w-4 h-4" />
-                    )}
-                    {creatingBackup ? t("backups.creatingButton") : t("backups.backupNowButton")}
-                  </Button>
+                  <DisabledReason reason={backupPanelServerChanged ? t("toasts.backupPanelServerChanged.description") : null}>
+                    <Button
+                      onClick={handleCreateBackup}
+                      disabled={creatingBackup || !backupStatus?.savesExists || backupPanelServerChanged}
+                      className="gap-2"
+                    >
+                      {creatingBackup ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Archive className="w-4 h-4" />
+                      )}
+                      {creatingBackup ? t("backups.creatingButton") : t("backups.backupNowButton")}
+                    </Button>
+                  </DisabledReason>
                 </div>
               </CardHeader>
               <CardContent className="space-y-6">
@@ -5176,12 +5604,14 @@ export default function Settings() {
                           : t("backups.scheduledDesc")}
                       </p>
                     </div>
-                    <Switch
-                      checked={backupStatus?.enabled || false}
-                      onCheckedChange={toggleBackupEnabled}
-                      disabled={backupLoading || (!backupStatus && backupStatusLoadError)}
-                      aria-label={t("ariaLabels.enableScheduledBackups")}
-                    />
+                    <DisabledReason reason={backupPanelServerChanged ? t("toasts.backupPanelServerChanged.description") : null}>
+                      <Switch
+                        checked={backupStatus?.enabled || false}
+                        onCheckedChange={toggleBackupEnabled}
+                        disabled={backupLoading || (!backupStatus && backupStatusLoadError) || backupPanelServerChanged}
+                        aria-label={t("ariaLabels.enableScheduledBackups")}
+                      />
+                    </DisabledReason>
                   </div>
 
                   {backupStatus?.enabled && (
@@ -5219,17 +5649,19 @@ export default function Settings() {
                         </p>
                       </div>
                       <div className="sm:col-span-2">
-                        <Button
-                          onClick={handleSaveBackupSettings}
-                          disabled={backupLoading}
-                          variant="outline"
-                          size="sm"
-                        >
-                          {backupLoading && (
-                            <Loader2 className="w-4 h-4 me-2 animate-spin" />
-                          )}
-                          {t("backups.saveScheduleButton")}
-                        </Button>
+                        <DisabledReason reason={backupPanelServerChanged ? t("toasts.backupPanelServerChanged.description") : null}>
+                          <Button
+                            onClick={handleSaveBackupSettings}
+                            disabled={backupLoading || backupPanelServerChanged}
+                            variant="outline"
+                            size="sm"
+                          >
+                            {backupLoading && (
+                              <Loader2 className="w-4 h-4 me-2 animate-spin" />
+                            )}
+                            {t("backups.saveScheduleButton")}
+                          </Button>
+                        </DisabledReason>
                       </div>
                     </div>
                   )}
@@ -5343,6 +5775,7 @@ export default function Settings() {
                                 onClick={() =>
                                   backupApi.downloadBackup(backup.name)
                                 }
+                                title={t("backups.downloadTitle")}
                               >
                                 <Download className="w-4 h-4" />
                               </Button>
@@ -5352,6 +5785,7 @@ export default function Settings() {
                                     variant="ghost"
                                     size="sm"
                                     className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                                    title={t("backups.deleteTitle")}
                                   >
                                     <Trash2 className="w-4 h-4" />
                                   </Button>
@@ -6273,8 +6707,28 @@ function WorkshopCollectionSyncCard({
   ) => void;
   persistCookies: (cookies: Pick<AppSettings, "steamSessionId" | "steamLoginSecure">) => Promise<void>;
 }) {
-  const { t, i18n } = useTranslation("settings");
+  // pz-pam-r26: also need the 'mods' namespace loaded here, to reuse its
+  // existing permissions.noModsManage string for handleAutoExtract below
+  // (POST /mods/collection/extract-cookies is gated mods.manage, not
+  // panel.settings like the rest of this card) rather than duplicating
+  // the same English sentence into settings.json's own permissions section.
+  const { t, i18n } = useTranslation(["settings", "mods"]);
   const { toast } = useToast();
+  // pz-pam-r23 (remaining client-side capability gates): persistCookies
+  // (below) is a thin wrapper around configApi.updateAppSettings(), same
+  // PUT /config/app-settings route as the General Save button -- gated
+  // requirePermission("panel.settings") server-side, confirmed via
+  // server/routes/config.js. This card is a separate function component
+  // (not sharing Settings.tsx's own canSavePanelSettings const), so it
+  // needs its own useAuth() call.
+  const { can } = useAuth();
+  const canPersistCookies = can("panel.settings");
+  // pz-pam-r26: handleAutoExtract below (local-browser cookie extraction,
+  // POST /mods/collection/extract-cookies) is a DIFFERENT route than the
+  // rest of this card -- server/routes/mods.js gates its whole router
+  // behind requirePermission("mods.manage") (confirmed by reading the
+  // router.use() middleware directly, not inferred), not panel.settings.
+  const canManageMods = can("mods.manage");
   const [diff, setDiff] = useState<Awaited<
     ReturnType<typeof modsApi.collectionDiff>
   > | null>(null);
@@ -6400,6 +6854,7 @@ function WorkshopCollectionSyncCard({
     sessionId: string,
     loginSecure: string,
   ) => {
+    if (!canPersistCookies) return false;
     setSavingCookies(true);
     try {
       await persistCookies({
@@ -6540,7 +6995,7 @@ function WorkshopCollectionSyncCard({
   }, []);
 
   const handleAutoExtract = async (browserId: string, label: string) => {
-    if (extractingFrom) return;
+    if (extractingFrom || !canManageMods) return;
     setExtractingFrom(browserId);
     try {
       const r = await modsApi.collectionExtractCookies(browserId);
@@ -6884,21 +7339,22 @@ function WorkshopCollectionSyncCard({
                   {browsers.browsers
                     .filter((b) => b.detected)
                     .map((b) => (
-                      <Button
-                        key={b.id}
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={!!extractingFrom}
-                        onClick={() => handleAutoExtract(b.id, b.label)}
-                      >
-                        {extractingFrom === b.id ? (
-                          <RefreshCw className="w-3.5 h-3.5 me-1.5 animate-spin" />
-                        ) : (
-                          <Check className="w-3.5 h-3.5 me-1.5" />
-                        )}
-                        {b.label}
-                      </Button>
+                      <DisabledReason key={b.id} reason={!canManageMods ? t("mods:permissions.noModsManage") : null}>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={!!extractingFrom || !canManageMods}
+                          onClick={() => handleAutoExtract(b.id, b.label)}
+                        >
+                          {extractingFrom === b.id ? (
+                            <RefreshCw className="w-3.5 h-3.5 me-1.5 animate-spin" />
+                          ) : (
+                            <Check className="w-3.5 h-3.5 me-1.5" />
+                          )}
+                          {b.label}
+                        </Button>
+                      </DisabledReason>
                     ))}
                 </div>
                 <p className="text-[11px] text-muted-foreground">
@@ -6937,16 +7393,18 @@ function WorkshopCollectionSyncCard({
             {!pasteOpen ? (
               <div className="flex flex-wrap gap-2">
                 {clipboardReadAvailable && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="default"
-                    onClick={handlePasteFromClipboard}
-                    disabled={savingCookies}
-                  >
-                    <Cloud className="w-3.5 h-3.5 me-1.5" />
-                    {t("workshopSync.pasteFromClipboard")}
-                  </Button>
+                  <DisabledReason reason={!canPersistCookies ? t("permissions.noPanelSettings") : null}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="default"
+                      onClick={handlePasteFromClipboard}
+                      disabled={savingCookies || !canPersistCookies}
+                    >
+                      <Cloud className="w-3.5 h-3.5 me-1.5" />
+                      {t("workshopSync.pasteFromClipboard")}
+                    </Button>
+                  </DisabledReason>
                 )}
                 <Button
                   type="button"
@@ -6983,19 +7441,21 @@ function WorkshopCollectionSyncCard({
                   className="font-mono text-xs"
                 />
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={handlePasteApply}
-                    disabled={!pasteText.trim() || savingCookies}
-                  >
-                    {savingCookies ? (
-                      <Loader2 className="w-3.5 h-3.5 me-1.5 animate-spin" />
-                    ) : (
-                      <Check className="w-3.5 h-3.5 me-1.5" />
-                    )}
-                    {savingCookies ? t("workshopSync.saving") : t("workshopSync.extractAndSave")}
-                  </Button>
+                  <DisabledReason reason={!canPersistCookies ? t("permissions.noPanelSettings") : null}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={handlePasteApply}
+                      disabled={!pasteText.trim() || savingCookies || !canPersistCookies}
+                    >
+                      {savingCookies ? (
+                        <Loader2 className="w-3.5 h-3.5 me-1.5 animate-spin" />
+                      ) : (
+                        <Check className="w-3.5 h-3.5 me-1.5" />
+                      )}
+                      {savingCookies ? t("workshopSync.saving") : t("workshopSync.extractAndSave")}
+                    </Button>
+                  </DisabledReason>
                   <Button
                     type="button"
                     size="sm"

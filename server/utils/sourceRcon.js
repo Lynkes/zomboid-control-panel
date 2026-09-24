@@ -264,6 +264,15 @@ export class SourceRconClient {
         if (err) {
           clearTimeout(timer);
           this._pending.delete(id);
+          // The OS refused this write outright (EPIPE, ECONNRESET, "write
+          // after end", ...) -- unlike a timeout or a later socket error
+          // while genuinely awaiting a response, this is the one point
+          // where we have a DEFINITE answer: these bytes never left the
+          // process, so the command cannot have reached the server.
+          // Callers (services/rcon.js's execute()/quit()) use this to avoid
+          // reporting a command as sent, or a quit as "server shutting
+          // down," when nothing was actually transmitted.
+          err.rconNeverSent = true;
           reject(err);
         }
       });

@@ -104,7 +104,10 @@
     "connectRconNeedsHostRunning": "Zuerst den Server starten",
     "noPermissionControl": "Ihre Rolle hat keine Berechtigung, den Server zu steuern.",
     "noPermissionWipe": "Ihre Rolle hat keine Berechtigung, die Welt zu löschen.",
-    "wipeMustStopFirst": "Stoppen Sie den Server, bevor Sie ihn löschen."
+    "noPermissionAutoStart": "Deine Rolle hat keine Berechtigung, die Autostart-Einstellung zu ändern.",
+    "noPermissionCreateBackup": "Ihre Rolle hat keine Berechtigung, Sicherungen zu erstellen.",
+    "wipeMustStopFirst": "Stoppen Sie den Server, bevor Sie ihn löschen.",
+    "saveNeedsRcon": "Verbinde RCON, um die Welt zu speichern."
   },
   "confirm": {
     "cancel": "Abbrechen",
@@ -132,6 +135,7 @@
     "startServerScriptBackup": { "title": "Server wird gestartet — Startskript gesichert", "description": "Der Panel hat Änderungen am Startskript erkannt und deine Version vor dem Neuerstellen gesichert." },
     "stopServer": { "title": "Server gestoppt", "description": "Sitzung sauber beendet." },
     "stopServerRequested": { "title": "Herunterfahren angefordert", "description": "Der Server speichert und beendet sich gerade geordnet — bei einer großen Welt kann das einen Moment dauern. Das Status-Badge wird aktualisiert, sobald der Stopp bestätigt ist." },
+    "forceStopRequested": { "title": "Erzwungenes Stoppen angefordert", "description": "Das Stoppsignal wurde gesendet — behalte das Dashboard für die Bestätigung im Blick." },
     "forceStopServer": { "title": "Server sofort gestoppt", "description": "Die Welt wurde gespeichert, dann wurde der Spielprozess gestoppt." },
     "forceStopSaveFailed": { "title": "Server sofort gestoppt – Speichern fehlgeschlagen", "description": "Die Speicherung vor dem Stopp wurde abgelehnt. Aktueller Fortschritt könnte verloren gegangen sein." },
     "forceStopSaveTimedOut": { "title": "Server sofort gestoppt – Speichern hat zu lange gedauert", "description": "Die Speicherung vor dem Stopp hat nicht innerhalb von 3 Sekunden geantwortet. Aktueller Fortschritt könnte verloren gegangen sein." },
@@ -163,12 +167,15 @@
     "modUpdatesWaiting_one": "{{count}} Mod-Update wartet",
     "modUpdatesWaiting_other": "{{count}} Mod-Updates warten",
     "reviewMods": "Mods überprüfen",
-    "noBackups": "Keine Backups"
+    "noBackups": "Keine Backups",
+    "backupAttemptFailing": "Geplantes Backup schlägt fehl",
+    "reviewBackups": "Backups überprüfen"
   },
   "panelUpdateBanner": {
     "applyFailed": "Anwenden fehlgeschlagen",
     "updateStaged": "Update bereit",
     "panelUpdate": "Panel-Update",
+    "checkedAgo": "Geprüft {{age}}",
     "lastApplyFailedDesc": "Letzter Anwendungsversuch fehlgeschlagen — Diagnose in den Einstellungen.",
     "stagedDesc": "Heruntergeladen und bereit. Starte das Panel neu, um es anzuwenden.",
     "newVersionDesc": "Eine neue Panel-Version ist verfügbar.",
@@ -286,6 +293,7 @@
     "backupsStored_other": "{{count}} gespeichert",
     "backupsStoredLast_one": "{{count}} gespeichert, zuletzt {{age}}",
     "backupsStoredLast_other": "{{count}} gespeichert, zuletzt {{age}}",
+    "backupsAttemptFailed": "Versuch fehlgeschlagen, {{age}}",
     "scheduleNoneActive": "keine aktiv",
     "scheduleActive_one": "{{count}} aktiv",
     "scheduleActive_other": "{{count}} aktiv"
@@ -318,6 +326,7 @@
   },
   "wipeDialog": {
     "title": "Server unwiderruflich löschen",
+    "serverChangedSinceOpen": "Der aktive Server hat sich geändert, während dieser Dialog geöffnet war. Brich ab und öffne „Server löschen“ erneut, um den derzeit aktiven Server zu bearbeiten.",
     "description": "Wähle aus, welche Daten von <b>{{serverName}}</b> gelöscht werden sollen. Der Server muss gestoppt sein.",
     "defaultServerName": "dem aktiven Server",
     "targets": {

@@ -1,4 +1,11 @@
 {
+  "permissions": {
+    "noPanelSettings": "儲存這些設定需要 panel.settings 權限，此角色沒有該權限。",
+    "noDiagnosticsManage": "此操作需要 diagnostics.manage 權限，此角色沒有該權限。",
+    "noServerConfigure": "測試 RCON 連線需要 server.configure 權限，此角色沒有該權限。",
+    "noBridgeSetup": "此操作需要 bridge.setup 權限，此角色沒有該權限。",
+    "adminOnly": "此操作僅限管理員角色執行。"
+  },
   "ariaLabels": {
     "allowPrivateLan": "允許私有及區域網來源",
     "enablePublicIp": "啟用公網 IP 查詢",
@@ -341,6 +348,8 @@
     "cardTitle": "RCON 連線",
     "cardDesc": "測試連線並設定重連行為。主機、埠和密碼在「伺服器」頁面按伺服器單獨設定。",
     "testButton": "測試連線",
+    "testResultOk": "已連線",
+    "testResultFailed": "失敗",
     "autoReconnectLabel": "斷開後自動重連",
     "reconnectIntervalLabel": "重連間隔（秒）",
     "perServerNote": "RCON 按伺服器單獨設定：",
@@ -353,8 +362,26 @@
     "autoStartDesc": "當 RCON 埠已被佔用時會自動跳過，因此已在執行的伺服器不會被重複啟動。需要本地安裝路徑；由託管服務商託管的伺服器由服務商負責啟動。"
   },
   "bridge": {
+    "checksLabels": {
+      "bridgePathConfigured": "已設定橋接路徑",
+      "bridgePathExists": "橋接目錄存在",
+      "bridgePathReadable": "橋接目錄可讀取",
+      "bridgePathWritable": "橋接目錄可寫入",
+      "inboxDirPresent": "收件匣資料夾存在",
+      "outboxDirPresent": "寄件匣資料夾存在",
+      "commandsFilePresent": "命令檔案存在",
+      "commandsFileReadable": "命令檔案可讀取",
+      "resultsFilePresent": "結果檔案存在",
+      "resultsFileReadable": "結果檔案可讀取",
+      "statusFilePresent": "狀態檔案存在",
+      "statusFileReadable": "狀態檔案可讀取",
+      "statusFresh": "狀態是最新的"
+    },
     "cardTitle": "PanelBridge",
     "cardDesc": "將本面板連線至遊戲即時狀態，用於天氣、水電、豐富聊天及其他遊戲內操作",
+    "sectionStatusSetup": "狀態與設定",
+    "sectionRemoteConfigLogs": "遠端設定與記錄",
+    "sectionInstallUpdates": "安裝與更新",
     "howItWorksButton": "工作原理",
     "dialogTitle": "PanelBridge",
     "dialogDesc": "一個運行於 Project Zomboid 內部的 Lua 模組，讓本面板可直接訪問即時遊戲世界。",
@@ -550,6 +577,8 @@
     "emptyDescription": "點選「立即備份」以建立備份。",
     "emptyDescriptionSavesNotFound": "由於未找到存檔資料夾，「立即備份」按鈕已停用。請在伺服器頁面檢查當前伺服器的 Zomboid 資料路徑，然後重新開啟此分頁。",
     "restoreTitle": "還原此備份（伺服器必須已停止）",
+    "downloadTitle": "下載此備份",
+    "deleteTitle": "刪除此備份",
     "restoreDialogTitle": "還原備份",
     "restoreDialogIntro": "此操作將還原 <b>{{name}}</b>，並<b>覆蓋</b>當前的世界資料。",
     "restoreMustBeStopped": "伺服器必須處於<b>停止</b>狀態",
@@ -847,6 +876,7 @@
     }
   },
   "toasts": {
+    "backupPanelServerChanged": { "title": "使用中的伺服器已變更", "description": "使用中的伺服器已變更。此面板正在為目前使用中的伺服器重新整理——完成後請再試一次。" },
     "recoveryCodesGenerated": {
       "title": "復原碼已產生",
       "description": "請立即儲存——之後將無法再次顯示。"
@@ -874,6 +904,9 @@
       "title": "無法儲存設定",
       "fallback": "面板無法儲存設定，請重試。"
     },
+    "autoStartEnabled": { "title": "已啟用自動啟動", "description": "面板啟動時伺服器將自動啟動" },
+    "autoStartDisabled": { "title": "已停用自動啟動", "description": "伺服器將不會自動啟動" },
+    "autoStartSaveFailed": { "title": "儲存自動啟動設定失敗", "fallback": "面板無法儲存自動啟動設定，請重試。" },
     "corsReloaded": {
       "title": "CORS 規則已重新載入",
       "description": "後端已從資料庫重新載入 CORS 設定。"

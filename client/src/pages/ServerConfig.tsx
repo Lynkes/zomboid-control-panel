@@ -1549,6 +1549,21 @@ export default function ServerConfig() {
   }, [activeTab])
 
   const handleOptionChange = useCallback(async (optName: string, newValue: unknown, groupName: string) => {
+    // continuous-bug-hunt round 17 (every write that trusts the server-side
+    // active server): setSandboxOption/saveSandboxOption below both resolve
+    // "the active server" server-side with no server id -- same shape as
+    // handleSaveIni/handleSaveSandbox's own serverChangedSinceLoad guard,
+    // just reached from the "Active" tab's per-option controls instead of a
+    // single Save button. Unlike those two, this fires per click with no
+    // dirty-tracking of its own, so the guard has to sit right here.
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.error'),
+        description: t('toasts.serverChangedSinceLoad'),
+        variant: 'destructive',
+      })
+      return
+    }
     // Prevent duplicate inflight requests for the same option
     setSavingOptions(prev => {
       if (prev.has(optName)) return prev
@@ -1666,7 +1681,7 @@ export default function ServerConfig() {
         return next
       })
     }
-  }, [toast, t])
+  }, [toast, t, serverChangedSinceLoad])
 
   // File browser: open the dialog for a specific INI key
   const openFileBrowser = useCallback(async (key: string, extensions?: string[]) => {
@@ -1879,6 +1894,14 @@ export default function ServerConfig() {
   }
 
   const handleSaveSpawnPoints = async () => {
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.error'),
+        description: t('toasts.serverChangedSinceLoad'),
+        variant: 'destructive',
+      })
+      return
+    }
     setSaving(true)
     try {
       const result = editorMode === 'raw'
@@ -1903,6 +1926,14 @@ export default function ServerConfig() {
   }
 
   const handleSaveSpawnRegions = async () => {
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.error'),
+        description: t('toasts.serverChangedSinceLoad'),
+        variant: 'destructive',
+      })
+      return
+    }
     setSaving(true)
     try {
       const result = editorMode === 'raw'
@@ -2062,6 +2093,14 @@ export default function ServerConfig() {
 
   // Restore backup
   const handleRestoreBackup = async (filename: string) => {
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.error'),
+        description: t('toasts.serverChangedSinceLoad'),
+        variant: 'destructive',
+      })
+      return
+    }
     const ok = await confirm({
       title: t('restoreBackupConfirm.title'),
       description: t('restoreBackupConfirm.description', { filename }),
@@ -2105,6 +2144,23 @@ export default function ServerConfig() {
   const handleSaveTemplate = async () => {
     if (!newTemplateName.trim()) {
       toast({ title: t('toasts.error'), description: t('toasts.templateNameRequired'), variant: 'destructive' })
+      return
+    }
+
+    // pz-bughunt round 18: saveAsTemplate() sends no ini/sandbox VALUES --
+    // the server reads whatever's currently on disk for "the active
+    // server" at save time, with no id sent. If the active server changed
+    // while this Save-as-Template dialog was open, the resulting template
+    // (named/described while looking at server A) would actually capture
+    // server B's live config -- a correctness/confusion surprise, same
+    // shape as (if lower severity than) handleSaveIni/handleSaveSandbox's
+    // own guard just above. Same flag, same toast.
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.error'),
+        description: t('toasts.serverChangedSinceLoad'),
+        variant: 'destructive',
+      })
       return
     }
 
@@ -2281,12 +2337,19 @@ export default function ServerConfig() {
   // Discard all unsaved INI changes (sticky save bar)
   const discardIniChanges = useCallback(() => {
     setIniSettings({ ...originalIniSettings })
-  }, [originalIniSettings])
+    // bug-hunt-2026-09-18 (round 22): hasIniChanges compares rawContent
+    // against originalRawContent while editorMode === 'raw' instead of
+    // iniSettings -- resetting only iniSettings left the raw textarea (and
+    // the "Unsaved changes" badge it drives) untouched, so Discard silently
+    // did nothing visible in raw mode.
+    if (editorMode === 'raw') setRawContent(originalRawContent)
+  }, [originalIniSettings, editorMode, originalRawContent])
 
   // Discard all unsaved Sandbox changes (sticky save bar)
   const discardSandboxChanges = useCallback(() => {
     if (originalSandboxData) setSandboxData(JSON.parse(JSON.stringify(originalSandboxData)))
-  }, [originalSandboxData])
+    if (editorMode === 'raw') setRawContent(originalRawContent)
+  }, [originalSandboxData, editorMode, originalRawContent])
 
   // Reset individual Sandbox setting to original loaded value
   const resetSandboxValue = useCallback((setting: SandboxSetting) => {
@@ -3218,7 +3281,13 @@ export default function ServerConfig() {
                     ) : (
                       <Save className="h-3 w-3" />
                     )}
-                    {t('editorToolbar.saveAndReload')}
+                    {/* Unlike the INI tab, a sandbox save has no RCON
+                        live-reload path (see handleSaveSandbox's own comment
+                        just below) -- it always needs a server restart to
+                        take effect, whether the server is stopped right now
+                        or running. "Save & reload" here would promise a
+                        reload that literally never happens for this file. */}
+                    {t('editorToolbar.save')}
                   </Button>
                 </div>
               }
@@ -3647,7 +3716,7 @@ export default function ServerConfig() {
                     <ExternalLink className="h-3 w-3" /> {t('editorToolbar.map')}
                   </a>
                   {editorMode === 'raw' && (
-                    <Button onClick={handleSaveSpawnPoints} disabled={saving} variant="command" size="sm" className="h-7 gap-1.5 text-xs font-medium">
+                    <Button onClick={handleSaveSpawnPoints} disabled={saving || serverChangedSinceLoad} variant="command" size="sm" className="h-7 gap-1.5 text-xs font-medium">
                       {saving ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
                       ) : (
@@ -3757,7 +3826,7 @@ export default function ServerConfig() {
                       <TooltipContent>{t('editorToolbar.downloadSpawnRegionsTooltip')}</TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
-                  <Button onClick={handleSaveSpawnRegions} disabled={saving} variant="command" size="sm" className="h-7 gap-1.5 text-xs font-medium">
+                  <Button onClick={handleSaveSpawnRegions} disabled={saving || serverChangedSinceLoad} variant="command" size="sm" className="h-7 gap-1.5 text-xs font-medium">
                     {saving ? (
                       <Loader2 className="h-3 w-3 animate-spin" />
                     ) : (
@@ -4318,7 +4387,20 @@ export default function ServerConfig() {
               variant="ghost"
               size="sm"
               onClick={activeTab === 'ini' ? discardIniChanges : discardSandboxChanges}
-              disabled={saving || serverMayBeRunning}
+              // bug-hunt-2026-09-18 (round 21, UX follow-up per commit
+              // 14fed308's own original question): discardIniChanges()/
+              // discardSandboxChanges() only reassign LOCAL React state back
+              // to originalIniSettings/originalSandboxData -- neither calls
+              // the server at all. serverMayBeRunning gates the Save button
+              // correctly (a real write, unsafe while the server might be
+              // running the same files), but disabling Discard on the same
+              // condition made "undo my own unsaved edit" impossible for the
+              // exact operators who need it most: the ones who opened this
+              // tab, made a change, and now want to back out BECAUSE the
+              // server turned out to be running -- the one path where they
+              // could no longer even see their edit is reverted before
+              // navigating away.
+              disabled={saving}
               className="h-8 gap-1.5 text-xs font-medium text-muted-foreground hover:text-destructive"
             >
               <Undo2 className="h-3 w-3" /> {t('stickySaveBar.discard')}
@@ -4331,13 +4413,16 @@ export default function ServerConfig() {
               className="h-8 gap-1.5 text-xs font-medium"
             >
               {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-              {t('stickySaveBar.saveAndReload')}
+              {/* Sandbox saves never live-reload (see handleSaveSandbox's own
+                  comment) -- only the INI tab's save genuinely attempts an
+                  RCON reload, so this bar must not promise one for Sandbox. */}
+              {activeTab === 'ini' ? t('stickySaveBar.saveAndReload') : t('stickySaveBar.save')}
             </Button>
           </div>
         </div>
       )}
       <Dialog open={showBackups} onOpenChange={setShowBackups}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto sm:max-h-[80vh]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <RotateCcw className="w-5 h-5" />
@@ -4419,6 +4504,7 @@ export default function ServerConfig() {
                                 <Button
                                   variant="outline"
                                   size="sm"
+                                  disabled={serverChangedSinceLoad}
                                   onClick={() => handleRestoreBackup(backup.filename)}
                                 >
                                   <Upload className="w-4 h-4 me-1" />
@@ -4649,7 +4735,7 @@ export default function ServerConfig() {
             </Button>
             <Button
               onClick={handleSaveTemplate}
-              disabled={templateLoading || !newTemplateName.trim() || (!saveTemplateIni && !saveTemplateSandbox)}
+              disabled={templateLoading || !newTemplateName.trim() || (!saveTemplateIni && !saveTemplateSandbox) || serverChangedSinceLoad}
             >
               {templateLoading ? (
                 <Loader2 className="w-4 h-4 me-2 animate-spin" />

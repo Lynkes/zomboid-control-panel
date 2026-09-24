@@ -5,6 +5,11 @@
     "eyebrow": "世界控制",
     "refreshPlayers": "重新整理玩家"
   },
+  "common": {
+    "playersUnavailable": "玩家列表無法使用",
+    "playersUnavailableTitle": "玩家列表無法使用",
+    "noPermissionEndangerOrImpersonate": "此操作需要 players.endanger_or_impersonate 權限，此角色沒有該權限。"
+  },
   "statusBar": {
     "panelBridge": "PanelBridge",
     "online": "線上",
@@ -281,6 +286,7 @@
     "spawnBehind": "在 {{target}} 身後生成",
     "random": "隨機",
     "targetFallback": "目標",
+    "permissionRequired": "需要「使玩家陷入危險或冒充玩家」權限",
     "clearLoadedZombies": "清除已載入的殭屍",
     "removeAllConfirmTitle": "清除所有已載入的殭屍？",
     "removeAllConfirmDescription": "這會立即清除已載入區域內的所有殭屍，影響整個伺服器——包括玩家正在戰鬥中的殭屍。殭屍會隨時間重新生成，但對當時正在戰鬥的玩家來說，這場戰鬥會立刻結束。",

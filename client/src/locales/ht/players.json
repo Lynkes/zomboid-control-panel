@@ -82,11 +82,17 @@
     "whitelistLastConnection": "dènye {{date}}",
     "removeButton": "Retire",
     "removeTitle": "Retire {{username}} nan lis blan a",
+    "removeFromWhitelistConfirmTitle": "Retire nan lis blan an?",
+    "removeFromWhitelistConfirmDesc": "{{player}} ap retire nan baz done kont lis blan an.",
+    "removeFromWhitelistConfirmButton": "Retire",
     "allowedSteamIdsLabel": "Steam ID Otorize",
     "allowedSteamIdAria": "Steam ID otorize",
     "addButton": "Ajoute",
     "removeAllowedButton": "Retire",
     "removeAllowedTitle": "Retire Steam ID otorize {{steamId}}",
+    "removeAllowedSteamIdConfirmTitle": "Retire Steam ID otorize a?",
+    "removeAllowedSteamIdConfirmDesc": "{{steamId}} p ap kapab antre nan yon sèvè lis-blan ankò.",
+    "removeAllowedSteamIdConfirmButton": "Retire",
     "manualTargetLabel": "› Sib manyèl",
     "manualTargetLabelText": "Sib manyèl",
     "manualTargetPlaceholder": "Antre non itilizatè…"
@@ -120,6 +126,7 @@
     "disableNoclip": "Dezaktive Noclip",
     "addToWhitelist": "Ajoute nan Lis Blan",
     "removeFromWhitelist": "Retire nan Lis Blan",
+    "notOnWhitelistReason": "{{player}} pa sou lis blan an — pa gen anyen pou retire.",
     "importExportCharacter": "Enpòte/Ekspòte Pèsonaj",
     "noTargetTitle": "pa gen sib chwazi",
     "noTargetDesc": "Chwazi yon jwè nan lis la pou wè dosye yo, oswa tape yon non itilizatè anba <1>› Sib manyèl</1>."
@@ -179,6 +186,8 @@
     "description": "Mete {{player}} deyò sèvè a",
     "reasonLabel": "Rezon (opsyonèl)",
     "reasonPlaceholder": "Antre rezon an...",
+    "reasonAlteredNote": "Sèvè a ap voye sèlman: \"{{preview}}\"",
+    "reasonAlteredToEmpty": "Okenn nan karaktè sa yo pa ka voye bay sèvè a — jwè sa a p ap wè okenn rezon.",
     "submit": "Mete Jwè a Deyò"
   },
   "banDialog": {
@@ -186,6 +195,8 @@
     "description": "Bani {{player}} sòti sèvè a",
     "reasonLabel": "Rezon (opsyonèl)",
     "reasonPlaceholder": "Antre rezon an...",
+    "reasonAlteredNote": "Sèvè a ap voye sèlman: \"{{preview}}\"",
+    "reasonAlteredToEmpty": "Okenn nan karaktè sa yo pa ka voye bay sèvè a — jwè sa a p ap wè okenn rezon.",
     "banIpLabel": "Bani adrès IP tou",
     "banIpTip": "Anplis, li bloke adrès IP a, pa sèlman kont lan — sa ka afekte lòt moun sou menm rezo a, e panel sa a pa gen fason pou revize oswa retire yon ban IP apa.",
     "cancel": "Anile",
@@ -205,6 +216,12 @@
     "label": "Nivo Aksè",
     "placeholder": "Chwazi yon nivo...",
     "submit": "Defini Nivo a"
+  },
+  "confirmLastAdmin": {
+    "title": "Retire dènye admin lan?",
+    "description": "{{player}} se sèl kont ki gen nivo aksè admin. Si w retire l, pèsonn pap gen kòmand admin konplè nan jwèt la jistan yon moun resevwa l ankò isit la.",
+    "confirm": "Retire aksè admin",
+    "cancel": "Anile"
   },
   "teleportDialog": {
     "title": "Teleporte Jwè a",
@@ -241,12 +258,15 @@
   "addUserDialog": {
     "title": "Ajoute Itilizatè",
     "description": "Kreye yon nouvo kont itilizatè pou sèvè lis-blan. Build 42 aksepte yon modpas vid.",
+    "titleWhitelist": "Ajoute nan Lis Blan",
+    "descriptionWhitelist": "Ajoute {{player}} nan baz done kont lis blan an. Build 42 aksepte yon modpas vid.",
     "usernameLabel": "Non itilizatè",
     "usernamePlaceholder": "Antre non itilizatè...",
     "passwordLabel": "Modpas (opsyonèl)",
     "passwordPlaceholder": "Modpas opsyonèl (minimòm 4 karaktè)...",
     "cancel": "Anile",
-    "submit": "Ajoute Itilizatè"
+    "submit": "Ajoute Itilizatè",
+    "submitWhitelist": "Ajoute nan Lis Blan"
   },
   "unbanDialog": {
     "title": "Retire Baniman Jwè",
@@ -275,7 +295,7 @@
     "spawnVehiclesDescNoPlayer": "Parèt kote moun ki rele a — chwazi yon jwè pou fè machin yo parèt tou pre yo pito.",
     "giveXpTitle": "Bay XP",
     "giveXpDescWithPlayer": "Bay eksperyans a <1>{{player}}</1>",
-    "giveXpDescNoPlayer": "Bay eksperyans a jwè chwazi a",
+    "giveXpDescNoPlayer": "Chwazi yon jwè dabò, epi bay li eksperyans nan yon konpetans ou chwazi.",
     "perkPlaceholder": "Chwazi yon konpetans...",
     "amountLabel": "Kantite",
     "giveXpButton": "Bay XP",
@@ -406,6 +426,7 @@
   "toasts": {
     "successTitle": "Siksè",
     "successDesc": "{{action}} fini",
+    "successDescForPlayer": "{{action}} pou {{player}}",
     "bridgeUnverifiedDesc": "{{action}} te voye, men mod la pa t kapab konfime li te fè efè.",
     "bridgeOldBridgeDesc": "{{action}} ka te fonksyone, men vèsyon mod PanelBridge sa a pa rapòte si li te fè sa. Mete mod la ajou pou konfime rezilta yo.",
     "errorTitle": "Erè",

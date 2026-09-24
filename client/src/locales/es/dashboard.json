@@ -105,7 +105,10 @@
     "connectRconNeedsHostRunning": "Inicia el servidor primero",
     "noPermissionControl": "Tu rol no tiene permiso para controlar el servidor.",
     "noPermissionWipe": "Tu rol no tiene permiso para borrar el mundo.",
-    "wipeMustStopFirst": "Detén el servidor antes de borrar."
+    "noPermissionAutoStart": "Tu rol no tiene permiso para cambiar la configuración de inicio automático.",
+    "noPermissionCreateBackup": "Tu rol no tiene permiso para crear copias de seguridad.",
+    "wipeMustStopFirst": "Detén el servidor antes de borrar.",
+    "saveNeedsRcon": "Conecta RCON para guardar el mundo."
   },
   "confirm": {
     "cancel": "Cancelar",
@@ -144,6 +147,10 @@
     "stopServerRequested": {
       "title": "Apagado solicitado",
       "description": "El servidor está guardando y cerrando de forma ordenada — puede tardar un momento en un mundo grande. La insignia de estado se actualizará una vez que se confirme la detención."
+    },
+    "forceStopRequested": {
+      "title": "Detención forzada solicitada",
+      "description": "Se envió la señal de detención — consulta el tablero para la confirmación."
     },
     "forceStopServer": {
       "title": "Servidor detenido a la fuerza",
@@ -204,12 +211,15 @@
     "modUpdatesWaiting_other": "{{count}} actualizaciones de mod pendientes",
     "reviewMods": "Revisar mods",
     "noBackups": "Sin copias de seguridad",
+    "backupAttemptFailing": "La copia de seguridad programada está fallando",
+    "reviewBackups": "Revisar copias de seguridad",
     "modUpdatesWaiting_many": "{{count}} actualizaciones de mod pendientes"
   },
   "panelUpdateBanner": {
     "applyFailed": "Error al aplicar",
     "updateStaged": "Actualización preparada",
     "panelUpdate": "Actualización del panel",
+    "checkedAgo": "Comprobado {{age}}",
     "lastApplyFailedDesc": "El último intento de aplicar falló — ver Ajustes para el diagnóstico.",
     "stagedDesc": "Descargada y lista. Reiniciar el panel para aplicarla.",
     "newVersionDesc": "Hay una nueva versión del panel disponible.",
@@ -328,6 +338,7 @@
     "backupsStored_other": "{{count}} almacenadas",
     "backupsStoredLast_one": "{{count}} almacenada, última {{age}}",
     "backupsStoredLast_other": "{{count}} almacenadas, última {{age}}",
+    "backupsAttemptFailed": "intento fallido, {{age}}",
     "scheduleNoneActive": "ninguna activa",
     "scheduleActive_one": "{{count}} activa",
     "scheduleActive_other": "{{count}} activas",
@@ -374,6 +385,7 @@
   },
   "wipeDialog": {
     "title": "Borrar servidor por completo",
+    "serverChangedSinceOpen": "El servidor activo cambió mientras este cuadro de diálogo estaba abierto. Cancela y vuelve a abrir «Borrar servidor» para actuar sobre el servidor que está activo ahora.",
     "description": "Seleccionar qué datos eliminar de <b>{{serverName}}</b>. El servidor debe estar detenido.",
     "defaultServerName": "el servidor activo",
     "targets": {

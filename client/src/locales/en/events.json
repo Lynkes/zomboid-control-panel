@@ -5,6 +5,11 @@
     "eyebrow": "world control",
     "refreshPlayers": "refresh players"
   },
+  "common": {
+    "playersUnavailable": "player list unavailable",
+    "playersUnavailableTitle": "Player list unavailable",
+    "noPermissionEndangerOrImpersonate": "This action requires the players.endanger_or_impersonate permission, which this role doesn't have."
+  },
   "statusBar": {
     "panelBridge": "PanelBridge",
     "online": "online",
@@ -281,6 +286,7 @@
     "spawnBehind": "spawn behind {{target}}",
     "random": "random",
     "targetFallback": "target",
+    "permissionRequired": "Requires the \"Endanger or impersonate a player\" permission",
     "clearLoadedZombies": "clear loaded zombies",
     "removeAllConfirmTitle": "Clear all loaded zombies?",
     "removeAllConfirmDescription": "This instantly removes every zombie in loaded cells, server-wide -- including any a player is currently fighting. Zombies respawn over time, but this ends that encounter right now for whoever was in it.",

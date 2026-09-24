@@ -1,4 +1,11 @@
 {
+  "permissions": {
+    "noPanelSettings": "Das Speichern dieser Einstellungen erfordert die Berechtigung panel.settings, die diese Rolle nicht hat.",
+    "noDiagnosticsManage": "Diese Aktion erfordert die Berechtigung diagnostics.manage, die diese Rolle nicht hat.",
+    "noServerConfigure": "Das Testen der RCON-Verbindung erfordert die Berechtigung server.configure, die diese Rolle nicht hat.",
+    "noBridgeSetup": "Diese Aktion erfordert die Berechtigung bridge.setup, die diese Rolle nicht hat.",
+    "adminOnly": "Diese Aktion ist der Rolle Administrator vorbehalten."
+  },
   "ariaLabels": {
     "allowPrivateLan": "Private und LAN-Ursprünge erlauben",
     "enablePublicIp": "Öffentliche IP-Abfrage aktivieren",
@@ -341,6 +348,8 @@
     "cardTitle": "RCON-Verbindung",
     "cardDesc": "Teste die Verbindung und lege das Verhalten für das erneute Verbinden fest. Host, Port und Passwort werden pro Server auf der Seite „Server“ konfiguriert.",
     "testButton": "Verbindung testen",
+    "testResultOk": "Verbunden",
+    "testResultFailed": "Verbindung fehlgeschlagen",
     "autoReconnectLabel": "Bei Verbindungsabbruch automatisch neu verbinden",
     "reconnectIntervalLabel": "Intervall für erneutes Verbinden (Sekunden)",
     "perServerNote": "RCON wird pro Server konfiguriert:",
@@ -353,8 +362,26 @@
     "autoStartDesc": "Wird automatisch übersprungen, wenn der RCON-Port bereits belegt ist, damit ein bereits laufender Server nie doppelt gestartet wird. Erfordert einen lokalen Installationspfad; von einem Anbieter gehostete Server werden vom Anbieter gestartet."
   },
   "bridge": {
+    "checksLabels": {
+      "bridgePathConfigured": "Bridge-Pfad konfiguriert",
+      "bridgePathExists": "Bridge-Verzeichnis vorhanden",
+      "bridgePathReadable": "Bridge-Verzeichnis lesbar",
+      "bridgePathWritable": "Bridge-Verzeichnis beschreibbar",
+      "inboxDirPresent": "Eingangsordner vorhanden",
+      "outboxDirPresent": "Ausgangsordner vorhanden",
+      "commandsFilePresent": "Befehlsdatei vorhanden",
+      "commandsFileReadable": "Befehlsdatei lesbar",
+      "resultsFilePresent": "Ergebnisdatei vorhanden",
+      "resultsFileReadable": "Ergebnisdatei lesbar",
+      "statusFilePresent": "Statusdatei vorhanden",
+      "statusFileReadable": "Statusdatei lesbar",
+      "statusFresh": "Status aktuell"
+    },
     "cardTitle": "PanelBridge",
     "cardDesc": "Verbindet dieses Panel mit dem laufenden Spiel für Wetter, Versorgung, erweiterten Chat und weitere Aktionen in der Spielwelt",
+    "sectionStatusSetup": "Status & Einrichtung",
+    "sectionRemoteConfigLogs": "Remote-Konfiguration & Protokolle",
+    "sectionInstallUpdates": "Installation & Updates",
     "howItWorksButton": "Funktionsweise",
     "dialogTitle": "PanelBridge",
     "dialogDesc": "Eine Lua-Mod, die innerhalb von Project Zomboid läuft und diesem Panel direkten Zugriff auf die laufende Spielwelt gibt.",
@@ -550,6 +577,8 @@
     "emptyDescription": "Klicke auf „Jetzt sichern“, um eines zu erstellen.",
     "emptyDescriptionSavesNotFound": "„Jetzt sichern“ ist deaktiviert, weil der Spielstandordner nicht gefunden wurde. Überprüfe den Zomboid-Datenpfad des aktiven Servers auf der Seite Server, dann öffne diesen Tab erneut.",
     "restoreTitle": "Dieses Backup wiederherstellen (Server muss gestoppt sein)",
+    "downloadTitle": "Diese Sicherung herunterladen",
+    "deleteTitle": "Diese Sicherung löschen",
     "restoreDialogTitle": "Backup wiederherstellen",
     "restoreDialogIntro": "Dadurch wird <b>{{name}}</b> wiederhergestellt und die aktuellen Weltdaten werden <b>ÜBERSCHRIEBEN</b>.",
     "restoreMustBeStopped": "Server muss <b>GESTOPPT</b> sein",
@@ -847,6 +876,7 @@
     }
   },
   "toasts": {
+    "backupPanelServerChanged": { "title": "Aktiver Server wurde geändert", "description": "Der aktive Server hat sich geändert. Dieses Panel wird für den derzeit aktiven Server aktualisiert — versuche es erneut, sobald das abgeschlossen ist." },
     "recoveryCodesGenerated": {
       "title": "Wiederherstellungscodes generiert",
       "description": "Speichere sie jetzt — sie können nicht erneut angezeigt werden."
@@ -874,6 +904,9 @@
       "title": "Einstellungen konnten nicht gespeichert werden",
       "fallback": "Das Panel konnte deine Einstellungen nicht speichern. Versuche es erneut."
     },
+    "autoStartEnabled": { "title": "Autostart aktiviert", "description": "Server startet automatisch, wenn das Panel gestartet wird" },
+    "autoStartDisabled": { "title": "Autostart deaktiviert", "description": "Server startet nicht automatisch" },
+    "autoStartSaveFailed": { "title": "Autostart-Einstellung konnte nicht gespeichert werden", "fallback": "Das Panel konnte die Autostart-Einstellung nicht speichern. Versuche es erneut." },
     "corsReloaded": {
       "title": "CORS-Regeln neu geladen",
       "description": "Das Backend hat die CORS-Einstellungen aus der Datenbank neu geladen."

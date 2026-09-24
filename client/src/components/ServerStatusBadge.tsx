@@ -42,8 +42,11 @@ function toIndicatorState(status: string): IndicatorState {
   return INDICATOR_STATE[status] ?? 'unknown'
 }
 
+// online's dot must stay visually distinct from unknown's (both would
+// otherwise render the same neutral gray dot) — this is the same
+// online/unknown split StatusIndicator.tsx uses elsewhere in the app.
 const DOT_CLASS: Record<IndicatorState, string> = {
-  online: 'bg-muted-foreground/50',
+  online: 'bg-success shadow-[0_0_4px_hsl(var(--success)/0.5)]',
   offline: 'bg-destructive',
   connecting: 'bg-warning animate-pulse',
   unknown: 'bg-muted-foreground/50',
@@ -84,16 +87,33 @@ function shortWord(status: string, t: TFn): string {
   return status === 'not-installed' ? t('shortWord.notInstalled') : t('shortWord.unknown')
 }
 
+// Renders one signal's full "label: word" line, plus its `detail` sentence
+// when the caller set one (e.g. "RCON: Unknown — Not configured",
+// "RCON: Disconnected — Authentication failed"). Servers.tsx computes a
+// specific, actionable `detail` for exactly these cases (see its inline
+// status-badge builder) -- dropping it here on the floor collapsed
+// "auth failed" and "never configured" into the same wordless dot, which is
+// the "cannot tell what state something is in" gap operators flagged.
+function signalLine(signal: StatusSignal, t: TFn): string {
+  const base = `${signal.label}: ${displayWord(signal.status, t)}`
+  return signal.detail ? `${base} — ${signal.detail}` : base
+}
+
 function CompactBadge({ signals, className, t }: { signals: StatusSignal[]; className?: string; t: TFn }) {
-  const title = signals.map((s) => `${s.label}: ${displayWord(s.status, t)}`).join(' · ')
+  const title = signals.map((s) => signalLine(s, t)).join(' · ')
   return (
     <div className={cn('flex flex-wrap items-center gap-x-2 gap-y-1', className)} title={title}>
       {signals.map((signal) => {
         const state = toIndicatorState(signal.status)
         return (
-          <span key={signal.label} className={cn('inline-flex items-center gap-1 text-xs', TEXT_CLASS[state])}>
+          <span
+            key={signal.label}
+            className={cn('inline-flex items-center gap-1 text-xs', TEXT_CLASS[state])}
+            title={signal.detail ? signalLine(signal, t) : undefined}
+          >
             <span className={cn('h-1.5 w-1.5 rounded-full', DOT_CLASS[state])} aria-hidden="true" />
             {signal.label} {shortWord(signal.status, t)}
+            {signal.detail && <span className="text-muted-foreground">({signal.detail})</span>}
           </span>
         )
       })}
@@ -127,6 +147,7 @@ export function ServerStatusBadge({ host, server, bridge, compact, className }: 
           <span key={signal.label} role="status" className={cn('inline-flex items-center gap-1.5 text-xs', TEXT_CLASS[state])}>
             <span className={cn('h-1.5 w-1.5 rounded-full', DOT_CLASS[state])} aria-hidden="true" />
             {signal.label}: {displayWord(signal.status, t)}
+            {signal.detail && <span className="text-muted-foreground"> — {signal.detail}</span>}
           </span>
         )
       })}

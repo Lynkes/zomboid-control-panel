@@ -252,6 +252,7 @@
     "sandboxScope": "sandbox lua",
     "hint": "ctrl+s para guardar · se aplica al recargar",
     "discard": "descartar",
+    "save": "guardar",
     "saveAndReload": "guardar y recargar",
     "unsavedChange_many": "{{count}} cambios sin guardar"
   },
@@ -3281,6 +3282,9 @@
           },
           "6": {
             "label": "Muy frecuentemente"
+          },
+          "7": {
+            "label": "Siempre Intenta"
           }
         }
       },
@@ -3305,6 +3309,9 @@
           },
           "6": {
             "label": "Muy frecuentemente"
+          },
+          "7": {
+            "label": "Siempre Intenta"
           }
         }
       }

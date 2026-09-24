@@ -62,7 +62,7 @@ import {
   regenerateJwtSecretFile,
 } from "../utils/jwtSecret.js";
 import { readSecret } from "../utils/secrets.js";
-import { getCapabilitiesForRole } from "./permissions.js";
+import { getCapabilitiesForRole, withRoleMutex } from "./permissions.js";
 import {
   getRoleById,
   getRoleByName,
@@ -727,7 +727,15 @@ class AuthService {
    * the self-change block above has nothing to say about.
    */
   async changeUserRoleById(userId, roleId, { actingUserId } = {}) {
-    return this._withMutex(async () => {
+    // continuous-bug-hunt, 2026-09-18: nested inside permissions.js's
+    // withRoleMutex, not just this._withMutex -- see that function's own
+    // comment for the cross-file race this closes. this._withMutex alone
+    // only ever serialized this against OTHER auth.js user mutations
+    // (another changeUserRoleById/deleteUser call); it has no way to wait
+    // out a concurrent permissions.js updateRole/deleteRole that is
+    // checking the exact same roles.manage/users.manage headcount this
+    // function's own assertNoRecoveryLockout below reads.
+    return this._withMutex(() => withRoleMutex(async () => {
       if (actingUserId && String(actingUserId) === String(userId)) {
         throw makeRoleError(
           ErrorCode.USER_SELF_ROLE_CHANGE_REFUSED,
@@ -775,7 +783,7 @@ class AuthService {
         role: user.role,
         roleId: user.roleId,
       };
-    });
+    }));
   }
 
   /**
@@ -811,7 +819,12 @@ class AuthService {
    * emitSessionRevoked below closes that gap by evicting it.
    */
   async deleteUser(userId, { actingUserId } = {}) {
-    return this._withMutex(async () => {
+    // continuous-bug-hunt, 2026-09-18: nested inside permissions.js's
+    // withRoleMutex too -- see changeUserRoleById's identical nesting and
+    // withRoleMutex's own comment for the cross-file race this closes
+    // (a concurrent updateRole/deleteRole checking the same recovery
+    // headcount this function's assertNoRecoveryLockout reads below).
+    return this._withMutex(() => withRoleMutex(async () => {
       if (actingUserId && String(actingUserId) === String(userId)) {
         throw makeRoleError(
           ErrorCode.USER_SELF_DELETE_REFUSED,
@@ -840,7 +853,7 @@ class AuthService {
       log.info(`Deleted user: ${user.username} (${user.id})`);
       emitSessionRevoked({ scope: "user", userId: user.id });
       return { id: user.id, username: user.username };
-    });
+    }));
   }
 
   /**
@@ -1160,6 +1173,20 @@ class AuthService {
 
       if (!existing) {
         return { linked: false, canBootstrapAdmin: users.length === 0 };
+      }
+
+      // Lockout must hold across BOTH sign-in paths. login() (password) checks
+      // lockedUntil before issuing a session; without the same check here, an
+      // account locked out by repeated failed password attempts could still
+      // sign in via OIDC and read straight through the lockout the password
+      // path just enforced.
+      const lockedUntil = existing.lockedUntil
+        ? Date.parse(existing.lockedUntil)
+        : 0;
+      if (lockedUntil && lockedUntil > Date.now()) {
+        throw new Error(
+          "Account is temporarily locked due to repeated failed sign-in attempts",
+        );
       }
 
       this.ensureUserAuthState(existing);

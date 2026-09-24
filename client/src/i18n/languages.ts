@@ -18,6 +18,12 @@ export interface LanguageDef {
   // non-default -- directionOf() below is what supplies the 'ltr' default
   // everywhere that isn't the registry itself.
   dir?: 'ltr' | 'rtl'
+  // Registered (locale files, parity gates, i18next resources) but NOT
+  // offered: left out of the switcher and of browser/stored-language
+  // detection, so a user whose saved or browser language is this one lands
+  // on English instead of a mostly-untranslated UI. Remove the flag once
+  // the locale is actually translated.
+  hidden?: boolean
 }
 
 export const LANGUAGES: LanguageDef[] = [
@@ -37,7 +43,11 @@ export const LANGUAGES: LanguageDef[] = [
 // language must match key-for-key.
 export const SOURCE_LANGUAGE = 'en'
 
-export const LANGUAGE_CODES = LANGUAGES.map((l) => l.code)
+// What users can actually pick or be auto-detected into. LANGUAGES (all
+// registered languages) stays the input to the locale parity gates.
+export const OFFERED_LANGUAGES = LANGUAGES.filter((l) => !l.hidden)
+
+export const LANGUAGE_CODES = OFFERED_LANGUAGES.map((l) => l.code)
 
 // A free function over a LanguageDef, not a method or a lookup-by-code, so
 // it's trivially testable against a synthetic RTL fixture without needing

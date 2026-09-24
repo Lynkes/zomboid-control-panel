@@ -2,7 +2,8 @@
   "permissions": {
     "noManage": "Pou ou jere sovgad, ou bezwen pèmisyon backups.manage, e wòl sa a pa genyen li.",
     "noRestore": "Pou ou restore yon sovgad, ou bezwen pèmisyon backups.restore, e wòl sa a pa genyen li.",
-    "noDownload": "Pou ou telechaje yon sovgad, ou bezwen pèmisyon backups.download, e wòl sa a pa genyen li."
+    "noDownload": "Pou ou telechaje yon sovgad, ou bezwen pèmisyon backups.download, e wòl sa a pa genyen li.",
+    "restoreInProgress": "Gen yon restorasyon k ap fèt deja pou sèvè sa a. Tann li fini anvan ou kòmanse yon lòt aksyon sovgad."
   },
   "pageHeader": {
     "title": "Kopi Sovgad Mond lan",
@@ -75,6 +76,7 @@
   },
   "restoreProgress": {
     "title": "Ap retabli {{name}}…",
+    "titleUnknown": "Gen yon restorasyon k ap fèt deja pou sèvè sa a…",
     "note": "Sa a ka pran kèk minit selon gwosè mond lan. Pa fèmen panèl la oswa ale nan yon lòt paj."
   },
   "mainCard": {
@@ -86,7 +88,8 @@
     "deleteSelected": "Efase ({{count}})",
     "deleteOlder": "Efase Pi Ansyen",
     "emptyTitle": "Pa gen filè sekirite",
-    "emptyDesc": "Kreye yon kopi sovgad anvan ou chanje sovgad, mod, oswa paramèt sèvè — yon sèl move mizajou ka fè ou pèdi pwogrè.",
+    "emptyDesc": "Kreye yon kopi sovgad kounye a, oswa aktive sovgad pwograme yo anwo a, anvan ou chanje sovgad, mod, oswa paramèt sèvè — yon sèl move mizajou ka fè ou pèdi pwogrè.",
+    "emptyDescScheduled": "Sovgad pwograme yo aktive — premye a ap parèt isit la depi li fin fèt. Kreye youn kounye a olye ou tann, anvan ou chanje sovgad, mod, oswa paramèt sèvè.",
     "emptyAction": "Kreye Kopi Sovgad",
     "selectAllLabel_one": "Chwazi tout · {{count}} kopi sovgad",
     "selectAllLabel_other": "Chwazi tout · {{count}} kopi sovgad",

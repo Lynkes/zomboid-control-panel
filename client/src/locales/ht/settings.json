@@ -1,4 +1,11 @@
 {
+  "permissions": {
+    "noPanelSettings": "Sovgade paramèt sa yo mande pèmisyon panel.settings, ke wòl sa a pa genyen.",
+    "noDiagnosticsManage": "Aksyon sa a mande pèmisyon diagnostics.manage, ke wòl sa a pa genyen.",
+    "noServerConfigure": "Teste koneksyon RCON mande pèmisyon server.configure, ke wòl sa a pa genyen.",
+    "noBridgeSetup": "Aksyon sa a mande pèmisyon bridge.setup, ke wòl sa a pa genyen.",
+    "adminOnly": "Aksyon sa a rezève pou wòl administratè a."
+  },
   "ariaLabels": {
     "allowPrivateLan": "Otorize orijin prive ak LAN",
     "enablePublicIp": "Aktive rechèch adrès IP piblik",
@@ -288,6 +295,8 @@
     "cardTitle": "Koneksyon RCON",
     "cardDesc": "Teste koneksyon an epi mete konpòtman rekoneksyon. Lame, pò, ak modpas konfigire pou chak sèvè sou paj Sèvè yo.",
     "testButton": "Teste Koneksyon",
+    "testResultOk": "Konekte",
+    "testResultFailed": "Echwe",
     "autoReconnectLabel": "Rekonekte otomatikman lè li dekonekte",
     "reconnectIntervalLabel": "Entèval Rekoneksyon (segonn)",
     "perServerNote": "RCON konfigire pou chak sèvè:",
@@ -301,8 +310,26 @@
   },
 
   "bridge": {
+    "checksLabels": {
+      "bridgePathConfigured": "Chemen bridge konfigire",
+      "bridgePathExists": "Dosye bridge la egziste",
+      "bridgePathReadable": "Dosye bridge la ka li",
+      "bridgePathWritable": "Dosye bridge la ka ekri",
+      "inboxDirPresent": "Dosye Inbox prezan",
+      "outboxDirPresent": "Dosye Outbox prezan",
+      "commandsFilePresent": "Fichye kòmand prezan",
+      "commandsFileReadable": "Fichye kòmand ka li",
+      "resultsFilePresent": "Fichye rezilta prezan",
+      "resultsFileReadable": "Fichye rezilta ka li",
+      "statusFilePresent": "Fichye estati prezan",
+      "statusFileReadable": "Fichye estati ka li",
+      "statusFresh": "Estati a fre"
+    },
     "cardTitle": "Panel Bridge",
     "cardDesc": "Konekte panèl sa a nan jwèt la an dirèk pou tan, zouti, chat pi rich, ak lòt aksyon nan mond lan",
+    "sectionStatusSetup": "Estati ak enstalasyon",
+    "sectionRemoteConfigLogs": "Konfigirasyon ak jounal a distans",
+    "sectionInstallUpdates": "Enstalasyon ak mizajou",
     "howItWorksButton": "Kijan li fonksyone",
     "dialogTitle": "Panel Bridge",
     "dialogDesc": "Yon mod Lua ki fonksyone anndan Project Zomboid, ki bay panèl sa a aksè dirèk nan mond jwèt la an dirèk.",
@@ -503,6 +530,8 @@
     "loadFailedDescription": "Sa a pa nesesèman yon lis vid — demann lis kopi sovgad la echwe. Louvri paj sa a ankò pou eseye ankò.",
     "statusLoadFailed": "Pa t kapab tcheke si kopi sovgad pwograme yo aktive — bouton sa a dezaktive jistan li chaje. Louvri paj sa a ankò pou eseye ankò.",
     "restoreTitle": "Retabli kopi sovgad sa a (sèvè a dwe sispann)",
+    "downloadTitle": "Telechaje kopi sovgad sa a",
+    "deleteTitle": "Efase kopi sovgad sa a",
     "restoreDialogTitle": "Retabli Kopi Sovgad",
     "restoreDialogIntro": "Sa a ap retabli <b>{{name}}</b> epi <b>EKRASE</b> done mond aktyèl yo.",
     "restoreMustBeStopped": "Sèvè a dwe <b>SISPANN</b>",
@@ -758,6 +787,7 @@
   },
 
   "toasts": {
+    "backupPanelServerChanged": { "title": "Sèvè aktif la chanje", "description": "Sèvè aktif la chanje. Panèl sa a ap rafrechi pou sèvè ki aktif kounye a — eseye ankò lè fini." },
     "recoveryCodesGenerated": { "title": "Kòd rekiperasyon jenere", "description": "Sove yo kounye a — yo pa ka montre ankò." },
     "recoveryCodesFailed": { "title": "Pa t kapab jenere kòd rekiperasyon", "fallback": "Eseye ankò." },
     "invalidCorsOrigins": { "title": "Orijin CORS Envalid" },
@@ -765,6 +795,9 @@
     "invalidHttpsPort": { "title": "Pò HTTPS Envalid", "description": "Pò HTTPS la dwe yon nonm antye ant 1 ak 65535." },
     "settingsSaved": { "title": "Paramèt Sove", "description": "Paramèt panèl ou yo sove." },
     "settingsSaveFailed": { "title": "Pa t Kapab Sove Paramèt", "fallback": "Panèl la pa t kapab sove paramèt ou yo. Eseye ankò." },
+    "autoStartEnabled": { "title": "Demaraj otomatik aktive", "description": "Sèvè a ap demare otomatikman lè panèl la lanse" },
+    "autoStartDisabled": { "title": "Demaraj otomatik dezaktive", "description": "Sèvè a pap demare otomatikman" },
+    "autoStartSaveFailed": { "title": "Sove paramèt demaraj otomatik la echwe", "fallback": "Panèl la pa t kapab sove paramèt demaraj otomatik la. Eseye ankò." },
     "corsReloaded": { "title": "Règ CORS Rechaje", "description": "Backend la rechaje paramèt CORS nan baz done a." },
     "corsReloadFailed": { "title": "Pa t Kapab Rechaje Règ CORS", "fallback": "Echwe pou rechaje règ CORS." },
     "corsLogCleared": { "title": "Jounal Orijin Bloke Efase", "description": "Orijin CORS bloke resamman yo retire nan dyagnostik yo." },

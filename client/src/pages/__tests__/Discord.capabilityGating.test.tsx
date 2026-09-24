@@ -143,6 +143,45 @@ describe('Discord.tsx: every mutating control gates on integrations.manage', () 
     expect(updatePermissions).not.toHaveBeenCalled()
   })
 
+  // bug-hunt-2026-09-18 (Discord page hunt): the Command Permissions tier
+  // buttons (Everyone/Moderator/Admin, one row per slash command) set local
+  // commandPermissions state directly on click, with no canManageIntegrations
+  // check at all -- unlike every other mutating control on this page. The
+  // "Save Permissions" button stays correctly disabled (covered by the test
+  // above), but before this fix a denied user could still click a tier
+  // button and see it visually flip to "selected", implying they changed
+  // something they have no authority to change.
+  it('disables the command-permission tier buttons too, and a denied click leaves the tier unchanged', async () => {
+    mockCan = () => false
+    await setUpConfiguredRunningBot()
+
+    renderDiscord()
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Stop Bot' })).toBeInTheDocument())
+
+    // getPermissions() resolves {} in this fixture, so every command falls
+    // back to Discord.tsx's `commandPermissions[c.cmd] || "admin"` default --
+    // /kick's "Admin" tier starts active (variant="destructive",
+    // bg-destructive) and "Everyone" starts inactive (variant="ghost",
+    // hover:bg-accent). Scoped to the /kick row so this doesn't collide with
+    // the other 8 commands' identically-labeled tier buttons.
+    const kickRow = screen.getByText('/kick').closest('.rounded-lg') as HTMLElement
+    const everyoneButton = within(kickRow).getByRole('button', { name: /Everyone/ })
+    const adminButton = within(kickRow).getByRole('button', { name: /Admin/ })
+
+    expect(everyoneButton).toBeDisabled()
+    expect(adminButton).toBeDisabled()
+    expect(everyoneButton.className).toMatch(/hover:bg-accent/)
+    expect(adminButton.className).toMatch(/bg-destructive/)
+
+    fireEvent.click(everyoneButton)
+
+    // Still "Admin" -- a denied click must never flip the local tier, even
+    // though Save (separately disabled) can't submit it either way.
+    expect(everyoneButton.className).toMatch(/hover:bg-accent/)
+    expect(adminButton.className).toMatch(/bg-destructive/)
+  })
+
   it('enables every action when the role holds integrations.manage', async () => {
     mockCan = () => true
     await setUpConfiguredRunningBot()

@@ -204,7 +204,7 @@ export const PZ_COMMANDS = {
   // Weather and Events
   startrain: {
     command: 'startrain',
-    description: 'Start rain on the server',
+    description: 'Start rain on the server (intensity 1-100)',
     parameters: [{ name: 'intensity', type: 'number', required: false }],
     category: 'weather'
   },

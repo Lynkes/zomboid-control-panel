@@ -329,6 +329,12 @@ export default function Backups() {
       // opened against.
       setRestoreDialog({ open: false, backupName: null })
       setDeleteDialog({ open: false, names: [] })
+      // pz-bughunt round 17 (every write that trusts the server-side active
+      // server): deleteOlderDialog's age threshold isn't tied to a specific
+      // backup name the way restoreDialog/deleteDialog are, but it's the
+      // same shape -- close it too rather than let a stale confirm apply to
+      // whichever server the backend now considers active.
+      setDeleteOlderDialog(false)
       refreshAll().finally(() => setServerChangedSinceLoad(false))
     }
     socket.on('activeServerChanged', handleActiveServerChanged)
@@ -573,6 +579,18 @@ export default function Backups() {
 
   const handleDeleteOlderThan = async () => {
     if (!canManageBackups) return
+    // pz-bughunt round 17 (every write that trusts the server-side active
+    // server): backupApi.deleteOlderThan() resolves "the active server"
+    // server-side with no server id, same shape as handleCreateBackup/
+    // handleRestoreBackup/handleDeleteBackups above -- this one was missed.
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.serverChangedSinceLoadTitle'),
+        description: t('toasts.serverChangedSinceLoadDesc'),
+        variant: 'destructive',
+      })
+      return
+    }
     setDeleteOlderDialog(false)
     setDeletingOlder(true)
     try {
@@ -583,7 +601,11 @@ export default function Backups() {
       // the catch below too, never in a result.success === false branch
       // here. Confirmed no other codepath in this handler returns
       // success: false with a 2xx status.
-      const result = await backupApi.deleteOlderThan(deleteOlderDays)
+      // pz-bughunt round 18: expectedServerId is defense in depth alongside
+      // the serverChangedSinceLoad guard above -- see server/routes/
+      // backup.js's POST /delete-older-than for the server-side check this
+      // enables (409 BACKUP_ACTIVE_SERVER_CHANGED on a real mismatch).
+      const result = await backupApi.deleteOlderThan(deleteOlderDays, activeServerId)
       toast({
         title: t('toasts.oldBackupsRemovedTitle'),
         description: result.message || t('toasts.oldBackupsRemovedFallback', { count: result.deleted || 0 }),
@@ -603,13 +625,27 @@ export default function Backups() {
 
   const handleSaveSettings = async () => {
     if (!canManageBackups) return
+    // pz-bughunt round 17: backupApi.updateSettings() resolves "the active
+    // server" server-side with no server id -- schedule/maxBackups shown
+    // here were loaded for whichever server was active at that time.
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.serverChangedSinceLoadTitle'),
+        description: t('toasts.serverChangedSinceLoadDesc'),
+        variant: 'destructive',
+      })
+      return
+    }
     setSavingSettings(true)
     try {
+      // pz-bughunt round 18: expectedServerId is defense in depth alongside
+      // the serverChangedSinceLoad guard above -- see server/routes/
+      // backup.js's POST /settings for the server-side check this enables.
       await backupApi.updateSettings({
         enabled: backupStatus?.enabled || false,
         schedule: backupSchedule,
         maxBackups: backupMaxCount,
-      })
+      }, activeServerId)
       await fetchBackupStatus()
       toast({
         title: t('toasts.planUpdatedTitle'),
@@ -629,8 +665,21 @@ export default function Backups() {
 
   const toggleBackupEnabled = async (enabled: boolean) => {
     if (!canManageBackups) return
+    // pz-bughunt round 17: same shape as handleSaveSettings above -- this
+    // toggle also calls backupApi.updateSettings() against "the active
+    // server" with no server id sent.
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.serverChangedSinceLoadTitle'),
+        description: t('toasts.serverChangedSinceLoadDesc'),
+        variant: 'destructive',
+      })
+      return
+    }
     try {
-      await backupApi.updateSettings({ enabled })
+      // pz-bughunt round 18: same defense-in-depth expectedServerId as
+      // handleSaveSettings above.
+      await backupApi.updateSettings({ enabled }, activeServerId)
       await fetchBackupStatus()
       toast({
         title: enabled ? t('toasts.autoArmedTitle') : t('toasts.autoStoodDownTitle'),
@@ -742,7 +791,7 @@ export default function Backups() {
         icon={<Archive className="w-5 h-5 text-primary" />}
         actions={
           <>
-            <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : activeServerRemote ? t('pageHeader.remoteDisabledTitle') : null}>
+            <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : activeServerRemote ? t('pageHeader.remoteDisabledTitle') : restoreInProgressElsewhere ? t('permissions.restoreInProgress') : null}>
               <Button
                 onClick={handleCreateBackup}
                 disabled={creatingBackup || restoringBackup !== null || restoreInProgressElsewhere || !backupStatus?.savesExists || activeServerRemote || !canManageBackups || serverChangedSinceLoad}
@@ -766,7 +815,7 @@ export default function Backups() {
                 if (file) handleUploadFile(file)
               }}
             />
-            <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : activeServerRemote ? t('pageHeader.uploadTitleRemote') : null}>
+            <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : activeServerRemote ? t('pageHeader.uploadTitleRemote') : restoreInProgressElsewhere ? t('permissions.restoreInProgress') : null}>
               <Button
                 variant="outline"
                 onClick={() => fileInputRef.current?.click()}
@@ -839,8 +888,19 @@ export default function Backups() {
         </div>
       )}
 
-      {/* Status Cards */}
-      {backups.length > 0 && (
+      {/* Status Cards -- gated on backupsLoaded (the fetch has settled, whether
+          it found zero backups or many), not on backups.length > 0. This card
+          row is the ONLY place the Auto-Backup on/off state, its schedule, and
+          a failing-scheduled-attempt warning are shown -- gating it on having
+          at least one backup meant a server whose scheduled backups have been
+          failing since before the first one ever succeeded (backups.length
+          stays 0 forever) looked IDENTICAL to "auto-backup just isn't
+          configured", and the Auto-Backup toggle itself -- the only control on
+          this page that turns scheduling on -- was unreachable until the
+          operator manually created a first backup. Both are exactly the
+          "can't tell what state it's in" / "don't know what to do next"
+          failures this page exists to avoid. */}
+      {backupsLoaded && (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 stagger-in">
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
@@ -929,7 +989,7 @@ export default function Backups() {
               <Switch
                 checked={backupStatus?.enabled || false}
                 onCheckedChange={toggleBackupEnabled}
-                disabled={!canManageBackups || statusUnknown}
+                disabled={!canManageBackups || statusUnknown || serverChangedSinceLoad}
                 aria-label={t('statusCards.toggleAria')}
               />
             </DisabledReason>
@@ -1001,7 +1061,7 @@ export default function Backups() {
                 )}
               </div>
               <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : null}>
-                <Button onClick={handleSaveSettings} disabled={savingSettings || !canManageBackups} size="sm" className="h-10 gap-2 self-start sm:self-auto">
+                <Button onClick={handleSaveSettings} disabled={savingSettings || !canManageBackups || serverChangedSinceLoad} size="sm" className="h-10 gap-2 self-start sm:self-auto">
                   {savingSettings && <Loader2 className="w-4 h-4 me-2 animate-spin" />}
                   {t('settingsPanel.saveButton')}
                 </Button>
@@ -1013,14 +1073,22 @@ export default function Backups() {
 
       {/* Restore Progress — the server emits no progress events for restore (it's a
           silent extract + pre-restore-backup sequence that can run minutes), so this
-          is a static reassurance rather than a real progress readout. */}
-      {restoringBackup && (
+          is a static reassurance rather than a real progress readout.
+          Also covers restoreInProgressElsewhere (a restore this session didn't
+          start -- another tab, or already running when this page loaded):
+          before this, that case disabled Create/Upload/Restore with no visible
+          explanation ANYWHERE on the page -- the operator just saw greyed-out
+          buttons and had to guess why. See restoreInProgressElsewhere's own
+          comment above. */}
+      {(restoringBackup || restoreInProgressElsewhere) && (
         <Card className="border-warning/15 bg-warning/5">
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <Loader2 className="w-5 h-5 animate-spin text-warning shrink-0" />
               <div className="min-w-0">
-                <p className="font-medium truncate">{t('restoreProgress.title', { name: restoringBackup })}</p>
+                <p className="font-medium truncate">
+                  {restoringBackup ? t('restoreProgress.title', { name: restoringBackup }) : t('restoreProgress.titleUnknown')}
+                </p>
                 <p className="text-xs text-muted-foreground mt-0.5">{t('restoreProgress.note')}</p>
               </div>
             </div>
@@ -1094,7 +1162,7 @@ export default function Backups() {
                   variant="destructive"
                   size="sm"
                   onClick={() => setDeleteOlderDialog(true)}
-                  disabled={deletingOlder || backups.length === 0 || !canManageBackups}
+                  disabled={deletingOlder || backups.length === 0 || !canManageBackups || serverChangedSinceLoad}
                   className="h-10 gap-2"
                 >
                   {deletingOlder ? (
@@ -1130,7 +1198,7 @@ export default function Backups() {
               <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
             </div>
           ) : backups.length === 0 ? (
-            <EmptyState type="noData" title={t('mainCard.emptyTitle')} description={t('mainCard.emptyDesc')} action={canManageBackups ? { label: t('mainCard.emptyAction'), onClick: handleCreateBackup, variant: 'default' } : undefined} />
+            <EmptyState type="noData" title={t('mainCard.emptyTitle')} description={backupStatus?.enabled ? t('mainCard.emptyDescScheduled') : t('mainCard.emptyDesc')} action={canManageBackups ? { label: t('mainCard.emptyAction'), onClick: handleCreateBackup, variant: 'default' } : undefined} />
           ) : (
             <div className="space-y-2">
               {/* Select All Header */}
@@ -1230,7 +1298,7 @@ export default function Backups() {
                               <FileText className="w-4 h-4" />
                             </Button>
                           </DisabledReason>
-                          <DisabledReason reason={!canRestoreBackups ? t('permissions.noRestore') : null}>
+                          <DisabledReason reason={!canRestoreBackups ? t('permissions.noRestore') : restoreInProgressElsewhere ? t('permissions.restoreInProgress') : null}>
                             <Button
                               variant="ghost"
                               size="sm"

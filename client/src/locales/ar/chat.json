@@ -68,18 +68,18 @@
     "label": "بثوث سريعة",
     "edit": "تحرير",
     "done": "تم",
-    "editAria": "تحرير الرسائل الجاهزة",
-    "doneAria": "إنهاء تحرير الرسائل الجاهزة",
-    "noPresets": "// لا توجد رسائل جاهزة — انقر تحرير للإضافة",
-    "addPlaceholder": "أضف رسالة سريعة جديدة…",
-    "addAria": "إضافة رسالة جاهزة",
+    "editAria": "تحرير البثوث السريعة",
+    "doneAria": "إنهاء تحرير البثوث السريعة",
+    "noPresets": "// لا توجد بثوث سريعة — انقر تحرير للإضافة",
+    "addPlaceholder": "أضف بثًا سريعًا جديدًا…",
+    "addAria": "إضافة بث سريع",
     "saveAria": "حفظ",
     "cancelAria": "إلغاء",
-    "deleteAria": "حذف الرسالة الجاهزة {{index}}",
-    "deleteConfirmTitle": "حذف هذه الرسالة الجاهزة؟",
-    "deleteConfirmDescription": "\"{{preset}}\" رسالة مشتركة -- سيفقدها أيضًا كل مسؤول يستخدم البثوث السريعة. يمكنك دائمًا إعادة إضافتها.",
-    "deleteConfirmButton": "حذف الرسالة الجاهزة",
-    "noPermission": "ليست لديك صلاحية إدارة رسائل البث السريع الجاهزة."
+    "deleteAria": "حذف البث السريع {{index}}",
+    "deleteConfirmTitle": "حذف هذا البث السريع؟",
+    "deleteConfirmDescription": "\"{{preset}}\" مشترك -- سيفقده أيضًا كل مسؤول يستخدم البثوث السريعة. يمكنك دائمًا إعادة إضافته.",
+    "deleteConfirmButton": "حذف البث السريع",
+    "noPermission": "ليست لديك صلاحية إدارة البثوث السريعة."
   },
   "toasts": {
     "adminSentTitle": "تم إرسال رسالة المسؤولين",
@@ -97,6 +97,13 @@
     "server": "الخادم",
     "admin": "مسؤول",
     "player": "لاعب"
+  },
+  "channelTags": {
+    "whisper": "[همس]",
+    "faction": "[فصيل]",
+    "safehouse": "[ملجأ آمن]",
+    "radio": "[راديو]",
+    "shout": "[صراخ]"
   },
   "presets": {
     "default": [

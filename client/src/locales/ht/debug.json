@@ -10,17 +10,19 @@
   "headerActions": {
     "bundling": "Ap gwoupe…",
     "supportBundleZip": "Pakè Sipò (.zip)",
-    "fullLogTxt": "Jounal Konplè (.txt)"
+    "supportBundleTooltip": "Jounal panèl · jounal sèvè Zomboid · dump kraze · dyagnostik, tout nan yon sèl .zip.",
+    "fullLogTxt": "Jounal Konplè (.txt)",
+    "fullLogTooltip": "Se jounal aplikasyon pwòp panèl la sèlman — pa gen jounal sèvè Zomboid ni dump kraze. Itilize pakè sipò a pou sa yo."
   },
   "tabs": {
-    "diagnostics": "Dyagnostik",
+    "diagnostics": "Verifikasyon ak Korije",
     "worldMap": "Kat Mond lan",
     "bridge": "PanelBridge",
     "performance": "Pèfòmans",
     "activity": "Aktivite",
     "logs": "Jounal",
     "crashes": "Kraze",
-    "health": "Sante",
+    "health": "Estati an Dirèk",
     "system": "Anviwònman"
   },
   "fixActions": {
@@ -241,6 +243,7 @@
     "overallPending": "Ap egzekite verifikasyon…",
     "lastChecked": "Dènye verifye {{time}} · {{duration}}ms · otoaktyalize chak 30s",
     "runningDescription": "Ap egzekite verifikasyon entelijan atravè sèvis, chemen, depo, ak mizajou…",
+    "tabSubtitle": "Verifye enstalasyon ou pou pwoblèm epi ofri korije yon sèl klik.",
     "categories": {
       "services": "Sèvis prensipal yo",
       "bridge": "IPC PanelBridge",
@@ -1459,6 +1462,7 @@
   },
   "healthTab": {
     "systemStatusTitle": "Estati Sistèm",
+    "tabSubtitle": "Estati an dirèk pwosesis panèl sa a: memwa, tan aktivite, ak sèvis konekte.",
     "healthy": "An Bon Sante",
     "checking": "N ap tcheke...",
     "issuesDetected": "Pwoblèm Detekte",

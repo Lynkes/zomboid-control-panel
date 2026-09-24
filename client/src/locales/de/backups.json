@@ -2,7 +2,8 @@
   "permissions": {
     "noManage": "Die Verwaltung von Backups erfordert die Berechtigung backups.manage, über die diese Rolle nicht verfügt.",
     "noRestore": "Das Wiederherstellen eines Backups erfordert die Berechtigung backups.restore, über die diese Rolle nicht verfügt.",
-    "noDownload": "Das Herunterladen eines Backups erfordert die Berechtigung backups.download, über die diese Rolle nicht verfügt."
+    "noDownload": "Das Herunterladen eines Backups erfordert die Berechtigung backups.download, über die diese Rolle nicht verfügt.",
+    "restoreInProgress": "Für diesen Server läuft bereits eine Wiederherstellung. Warte, bis sie abgeschlossen ist, bevor du eine weitere Backup-Aktion startest."
   },
   "pageHeader": {
     "title": "Welt-Backups",
@@ -82,7 +83,8 @@
     "deleteSelected": "Löschen ({{count}})",
     "deleteOlder": "Ältere löschen",
     "emptyTitle": "Kein Sicherheitsnetz",
-    "emptyDesc": "Erstelle ein Backup, bevor du Spielstände, Mods oder Servereinstellungen änderst — nur ein missglücktes Update trennt dich von verlorenem Fortschritt.",
+    "emptyDesc": "Erstelle jetzt ein Backup, oder aktiviere oben geplante Backups, bevor du Spielstände, Mods oder Servereinstellungen änderst — nur ein missglücktes Update trennt dich von verlorenem Fortschritt.",
+    "emptyDescScheduled": "Geplante Backups sind aktiv — das erste erscheint hier, sobald es gelaufen ist. Erstelle jetzt eines, statt zu warten, bevor du Spielstände, Mods oder Servereinstellungen änderst.",
     "emptyAction": "Backup erstellen",
     "selectAllLabel_one": "Alle auswählen · {{count}} Backup",
     "selectAllLabel_other": "Alle auswählen · {{count}} Backups",
@@ -193,6 +195,7 @@
   },
   "restoreProgress": {
     "title": "{{name}} wird wiederhergestellt…",
+    "titleUnknown": "Für diesen Server läuft bereits eine Wiederherstellung…",
     "note": "Das kann je nach Weltgröße einige Minuten dauern. Schließe das Panel nicht und wechsle nicht die Seite."
   }
 }

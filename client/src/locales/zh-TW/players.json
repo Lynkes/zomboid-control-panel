@@ -82,11 +82,17 @@
     "whitelistLastConnection": "最後連線 {{date}}",
     "removeButton": "移除",
     "removeTitle": "將 {{username}} 從白名單移除",
+    "removeFromWhitelistConfirmTitle": "從白名單移除？",
+    "removeFromWhitelistConfirmDesc": "將把 {{player}} 從白名單帳號資料庫中移除。",
+    "removeFromWhitelistConfirmButton": "移除",
     "allowedSteamIdsLabel": "允許的 Steam ID",
     "allowedSteamIdAria": "允許的 Steam ID",
     "addButton": "新增",
     "removeAllowedButton": "移除",
     "removeAllowedTitle": "移除允許的 Steam ID {{steamId}}",
+    "removeAllowedSteamIdConfirmTitle": "移除允許的 Steam ID？",
+    "removeAllowedSteamIdConfirmDesc": "{{steamId}} 將無法再加入白名單伺服器。",
+    "removeAllowedSteamIdConfirmButton": "移除",
     "manualTargetLabel": "› 手動目標",
     "manualTargetLabelText": "手動目標",
     "manualTargetPlaceholder": "輸入使用者名稱…"
@@ -120,6 +126,7 @@
     "disableNoclip": "關閉穿牆",
     "addToWhitelist": "加入白名單",
     "removeFromWhitelist": "從白名單移除",
+    "notOnWhitelistReason": "{{player}} 不在白名單中，無需移除。",
     "importExportCharacter": "匯入/匯出角色",
     "noTargetTitle": "未選擇目標",
     "noTargetDesc": "從名冊中選擇一名玩家以檢視其檔案，或在<1>› 手動目標</1>下輸入使用者名稱。"
@@ -179,6 +186,8 @@
     "description": "將 {{player}} 踢出伺服器",
     "reasonLabel": "原因（可選）",
     "reasonPlaceholder": "輸入原因…",
+    "reasonAlteredNote": "伺服器只會傳送：「{{preview}}」",
+    "reasonAlteredToEmpty": "這些字元都無法傳送到伺服器——該玩家將看不到任何原因。",
     "submit": "踢出玩家"
   },
   "banDialog": {
@@ -186,6 +195,8 @@
     "description": "將 {{player}} 從伺服器封鎖",
     "reasonLabel": "原因（可選）",
     "reasonPlaceholder": "輸入原因…",
+    "reasonAlteredNote": "伺服器只會傳送：「{{preview}}」",
+    "reasonAlteredToEmpty": "這些字元都無法傳送到伺服器——該玩家將看不到任何原因。",
     "banIpLabel": "同時封鎖 IP 地址",
     "banIpTip": "還會封鎖該 IP 地址，而不僅是帳號——可能影響同一網路下的其他人，且本面板沒有單獨檢視或解除 IP 封鎖的入口。",
     "cancel": "取消",
@@ -205,6 +216,12 @@
     "label": "權限等級",
     "placeholder": "選擇等級…",
     "submit": "設定等級"
+  },
+  "confirmLastAdmin": {
+    "title": "移除最後一位管理員？",
+    "description": "{{player}} 是唯一擁有 admin 權限等級的帳號。移除後，在此處重新授予之前將沒有人擁有完整的遊戲內管理員指令。",
+    "confirm": "移除管理員權限",
+    "cancel": "取消"
   },
   "teleportDialog": {
     "title": "傳送玩家",
@@ -241,12 +258,15 @@
   "addUserDialog": {
     "title": "新增使用者",
     "description": "為白名單伺服器建立新使用者帳號。Build 42 允許密碼留空。",
+    "titleWhitelist": "加入白名單",
+    "descriptionWhitelist": "將 {{player}} 加入白名單帳號資料庫。Build 42 允許密碼留空。",
     "usernameLabel": "使用者名稱",
     "usernamePlaceholder": "輸入使用者名稱…",
     "passwordLabel": "密碼（可選）",
     "passwordPlaceholder": "可選密碼（至少 4 個字元）…",
     "cancel": "取消",
-    "submit": "新增使用者"
+    "submit": "新增使用者",
+    "submitWhitelist": "加入白名單"
   },
   "unbanDialog": {
     "title": "解除封鎖玩家",
@@ -275,7 +295,7 @@
     "spawnVehiclesDescNoPlayer": "將在呼叫者所在位置生成 — 選擇一名玩家可改為在其附近生成載具。",
     "giveXpTitle": "給予經驗值",
     "giveXpDescWithPlayer": "為 <1>{{player}}</1> 授予經驗值",
-    "giveXpDescNoPlayer": "為所選玩家授予經驗值",
+    "giveXpDescNoPlayer": "先選擇一名玩家，然後為其授予所選技能的經驗值。",
     "perkPlaceholder": "選擇技能…",
     "amountLabel": "數量",
     "giveXpButton": "給予經驗值",
@@ -406,6 +426,7 @@
   "toasts": {
     "successTitle": "成功",
     "successDesc": "{{action}}已完成",
+    "successDescForPlayer": "{{action}}：{{player}}",
     "bridgeUnverifiedDesc": "{{action}} 已傳送，但模組無法確認是否生效。",
     "bridgeOldBridgeDesc": "{{action}} 可能已生效，但此版本的 PanelBridge 模組不會回報結果。請更新模組以確認結果。",
     "errorTitle": "錯誤",

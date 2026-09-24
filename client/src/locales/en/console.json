@@ -16,7 +16,9 @@
     "remoteTitle": "Server log unavailable for remote servers",
     "remoteDesc": "Remote servers expose RCON only. Use the RCON tab for live commands.",
     "notConfiguredTitle": "Server log path not configured",
-    "notConfiguredDesc": "Set the server install path or Zomboid data path in My Servers first."
+    "notConfiguredDesc": "Set the server install path or Zomboid data path in My Servers first.",
+    "noPermissionTitle": "Server log not available to this role",
+    "noPermissionDesc": "Reading the server log requires the server.world_events permission, which this role doesn't have. Ask an administrator for access."
   },
   "serverLog": {
     "pathLabel": "path",
@@ -42,9 +44,10 @@
     "refreshAria": "Refresh log",
     "clear": "clear",
     "clearTooltip": "Erase the server's console log file — this cannot be undone",
-    "clearConfirmTitle": "Erase the server console log?",
+    "clearConfirmTitle": "Erase the console log for {{server}}?",
     "clearConfirmDesc": "This permanently erases server-console.txt on disk, not just this display. There is no undo.",
     "clearConfirmButton": "Erase log file",
+    "clearNoPermission": "Erasing the console log requires the server.configure permission, which this role doesn't have.",
     "streamUnavailable": "Log stream unavailable — server may be offline",
     "retry": "retry",
     "notFoundTitle": "Server console log not found",
@@ -90,6 +93,7 @@
     "noCommandsTitle": "No commands yet",
     "noCommandsDesc": "Run an RCON command to see the response here.",
     "quickLabel": "quick",
+    "quickTip": "Fills the command box below with this command -- it doesn't run until you click Run (or press Enter).",
     "commandLabel": "command",
     "commandTip": "Commands here run immediately against the live server, with no confirmation step -- even for something that stops the server or removes a player. If you're not sure what a command does, check it before running it; most have no undo.",
     "promptPrefix": "rcon $",
@@ -100,16 +104,18 @@
     "keyboardHint": "// enter · run · ↑↓ history",
     "noResponseFallback": "No response",
     "noPermission": "Your role doesn't have permission to run RCON commands.",
-    "disconnectedUseRecheck": "RCON is currently unreachable -- select Recheck above before trying again."
+    "disconnectedUseRecheck": "RCON is currently unreachable -- select Recheck above before trying again.",
+    "recheckNoPermission": "Rechecking the RCON connection requires the server.configure permission, which this role doesn't have.",
+    "destructiveConfirmTitle": "Run \"{{command}}\" on {{server}}?",
+    "destructiveConfirmDesc": "This raw command goes straight to the live server as soon as you confirm. It can disconnect players, change who may access the server, alter its settings or shut it down, and most of these effects cannot be undone from this console.",
+    "destructiveConfirmButton": "Run command"
   },
   "quickCommands": {
     "players": "Players",
     "save": "Save",
     "showOptions": "Show Options",
     "checkMods": "Check Mods",
-    "help": "Help",
-    "serverInfo": "Server Info",
-    "getMemory": "Get Memory"
+    "help": "Help"
   },
   "broadcast": {
     "toggleLabel": "broadcast",
@@ -144,7 +150,10 @@
     "searchPlaceholder": "Search command history...",
     "searchAria": "Search command history",
     "emptyTitle": "No command history",
-    "emptyDesc": "Commands you run will be logged here."
+    "emptyDesc": "Commands you run will be logged here.",
+    "noMatchesTitle": "No matching commands",
+    "noMatchesDesc": "No history entries match \"{{query}}\".",
+    "clearSearch": "Clear search"
   },
   "toasts": {
     "historyUnavailableTitle": "History Unavailable",
@@ -157,6 +166,8 @@
     "broadcastSentTitle": "Broadcast Sent",
     "broadcastSentAll": "Your message was broadcast to all players",
     "broadcastSentTagged": "Sent with the [{{tag}}] tag",
-    "broadcastFailedFallback": "Failed to send broadcast"
+    "broadcastFailedFallback": "Failed to send broadcast",
+    "serverChangedSinceLoadTitle": "Active server changed",
+    "serverChangedSinceLoadDesc": "The active server just changed. Refreshing -- try again once the console reloads, so this action targets the right server."
   }
 }

@@ -17,12 +17,10 @@
     "sidebarAriaLabel": "Бічна панель",
     "dashboard": "Інформаційна панель",
     "sections": {
-      "live": "Наживо",
+      "server": "Сервер",
       "world": "Світ",
-      "config": "Конфігурація",
-      "maintain": "Обслуговування",
-      "servers": "Сервери",
-      "settingsAndTools": "Налаштування та інструменти"
+      "users": "Користувачі",
+      "panel": "Панель"
     },
     "items": {
       "serverConsole": "Консоль сервера",
@@ -38,10 +36,14 @@
       "mapCleanup": "Очищення карти",
       "myServers": "Мої сервери",
       "serverSetup": "Додати сервер",
-      "browsePublic": "Публічні сервери",
+      "browsePublic": "Переглянути публічні сервери",
       "discord": "Discord",
       "panelSettings": "Налаштування панелі",
-      "debugLogs": "Журнали налагодження"
+      "debugLogs": "Журнали налагодження",
+      "panelUsers": "Користувачі панелі",
+      "rolesPermissions": "Ролі та дозволи",
+      "singleSignOn": "Єдиний вхід",
+      "leaderboard": "Таблиця лідерів"
     },
     "notAvailableRemote": "Недоступно для віддалених серверів (лише RCON)",
     "localBadge": "Локальний",

@@ -5,6 +5,7 @@ import path from "path";
 
 const getServer = vi.fn();
 const getActiveServer = vi.fn();
+const runManagedLifecycle = vi.fn().mockResolvedValue({ handled: false });
 vi.mock("../database/init.js", () => ({
   getScheduledTasks: vi.fn().mockResolvedValue([]),
   updateTaskLastRun: vi.fn().mockResolvedValue(),
@@ -12,6 +13,9 @@ vi.mock("../database/init.js", () => ({
   logScheduleExecution: vi.fn().mockResolvedValue(),
   getActiveServer: (...args) => getActiveServer(...args),
   getServer: (...args) => getServer(...args),
+}));
+vi.mock("../services/managedContainer.js", () => ({
+  runManagedLifecycle: (...args) => runManagedLifecycle(...args),
 }));
 
 const { Scheduler } = await import("../services/scheduler.js");
@@ -46,6 +50,8 @@ describe("performRestart() refreshes the launch target before starting", () => {
     if (root) fs.rmSync(root, { recursive: true, force: true });
     getServer.mockReset();
     getActiveServer.mockReset();
+    runManagedLifecycle.mockReset();
+    runManagedLifecycle.mockResolvedValue({ handled: false });
     // Best-effort: don't let a failed assertion mid-test leak a stuck lock
     // into a later test in this file or another (real, unmocked
     // lifecycleCoordinator).
@@ -90,6 +96,23 @@ describe("performRestart() refreshes the launch target before starting", () => {
       `-cachedir="${zomboidDataPath}"`,
     );
     expect(serverManager.startServer).toHaveBeenCalled();
+  });
+
+  it("uses managed lifecycle when an already-stopped server is container-owned", async () => {
+    runManagedLifecycle.mockResolvedValue({ handled: true, success: true });
+    const serverManager = {
+      _serverId: 7,
+      getServerProcessDetails: vi.fn().mockResolvedValue({ running: false, scanFailed: false }),
+      startServer: vi.fn(),
+    };
+    getServer.mockResolvedValue({ id: 7, serverName: "Managed", dockerContainerName: "pz" });
+    getActiveServer.mockResolvedValue({ id: 7, serverName: "Managed", dockerContainerName: "pz" });
+    const rconService = { connected: false, execute: vi.fn() };
+    const scheduler = new Scheduler({}, {});
+    scheduler.sleep = async () => {};
+    await scheduler.performRestart(0, { rconService, serverManager });
+    expect(runManagedLifecycle).toHaveBeenCalledWith("start", { serverId: 7 });
+    expect(serverManager.startServer).not.toHaveBeenCalled();
   });
 
   // normalize-lifecycle-lock-server-identifier, 2026-09-08: this call used

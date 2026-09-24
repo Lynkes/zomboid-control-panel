@@ -82,11 +82,17 @@
     "whitelistLastConnection": "last {{date}}",
     "removeButton": "Remove",
     "removeTitle": "Remove {{username}} from whitelist",
+    "removeFromWhitelistConfirmTitle": "Remove from whitelist?",
+    "removeFromWhitelistConfirmDesc": "{{player}} will be removed from the whitelist account database.",
+    "removeFromWhitelistConfirmButton": "Remove",
     "allowedSteamIdsLabel": "Allowed Steam IDs",
     "allowedSteamIdAria": "Allowed Steam ID",
     "addButton": "Add",
     "removeAllowedButton": "Remove",
     "removeAllowedTitle": "Remove allowed Steam ID {{steamId}}",
+    "removeAllowedSteamIdConfirmTitle": "Remove allowed Steam ID?",
+    "removeAllowedSteamIdConfirmDesc": "{{steamId}} will no longer be allowed to join a whitelisted server.",
+    "removeAllowedSteamIdConfirmButton": "Remove",
     "manualTargetLabel": "› Manual target",
     "manualTargetLabelText": "Manual target",
     "manualTargetPlaceholder": "Enter username…"
@@ -120,6 +126,7 @@
     "disableNoclip": "Disable Noclip",
     "addToWhitelist": "Add to Whitelist",
     "removeFromWhitelist": "Remove from Whitelist",
+    "notOnWhitelistReason": "{{player}} isn't on the whitelist — nothing to remove.",
     "importExportCharacter": "Import/Export Character",
     "noTargetTitle": "no target selected",
     "noTargetDesc": "Pick a player from the roster to view their dossier, or type a username under <1>› Manual target</1>."
@@ -179,6 +186,8 @@
     "description": "Kick {{player}} from the server",
     "reasonLabel": "Reason (optional)",
     "reasonPlaceholder": "Enter reason...",
+    "reasonAlteredNote": "The server will only send: \"{{preview}}\"",
+    "reasonAlteredToEmpty": "None of these characters can be sent to the server — this player will see no reason at all.",
     "submit": "Kick Player"
   },
   "banDialog": {
@@ -186,6 +195,8 @@
     "description": "Ban {{player}} from the server",
     "reasonLabel": "Reason (optional)",
     "reasonPlaceholder": "Enter reason...",
+    "reasonAlteredNote": "The server will only send: \"{{preview}}\"",
+    "reasonAlteredToEmpty": "None of these characters can be sent to the server — this player will see no reason at all.",
     "banIpLabel": "Also ban IP address",
     "banIpTip": "Also blocks the IP, not just the account — can affect others on the same network, and this panel has no way to review or lift IP bans separately.",
     "cancel": "Cancel",
@@ -205,6 +216,12 @@
     "label": "Access Level",
     "placeholder": "Select level...",
     "submit": "Set Level"
+  },
+  "confirmLastAdmin": {
+    "title": "Remove the last admin?",
+    "description": "{{player}} is the only account with the admin access level. Removing it will leave nobody with full admin commands in-game until it is granted again from here.",
+    "confirm": "Remove admin access",
+    "cancel": "Cancel"
   },
   "teleportDialog": {
     "title": "Teleport Player",
@@ -241,12 +258,15 @@
   "addUserDialog": {
     "title": "Add User",
     "description": "Create a new user account for whitelist servers. Build 42 allows an empty password.",
+    "titleWhitelist": "Add to Whitelist",
+    "descriptionWhitelist": "Add {{player}} to the whitelist account database. Build 42 allows an empty password.",
     "usernameLabel": "Username",
     "usernamePlaceholder": "Enter username...",
     "passwordLabel": "Password (optional)",
     "passwordPlaceholder": "Optional password (min 4 characters)...",
     "cancel": "Cancel",
-    "submit": "Add User"
+    "submit": "Add User",
+    "submitWhitelist": "Add to Whitelist"
   },
   "unbanDialog": {
     "title": "Unban Player",
@@ -275,7 +295,7 @@
     "spawnVehiclesDescNoPlayer": "Spawns at the caller's position — select a player to spawn vehicles near them instead.",
     "giveXpTitle": "Give XP",
     "giveXpDescWithPlayer": "Grant experience to <1>{{player}}</1>",
-    "giveXpDescNoPlayer": "Grant experience to the selected player",
+    "giveXpDescNoPlayer": "Pick a player first, then grant them experience in a chosen skill.",
     "perkPlaceholder": "Select perk...",
     "amountLabel": "Amount",
     "giveXpButton": "Give XP",
@@ -406,6 +426,7 @@
   "toasts": {
     "successTitle": "Success",
     "successDesc": "{{action}} completed",
+    "successDescForPlayer": "{{action}} for {{player}}",
     "bridgeUnverifiedDesc": "{{action}} was sent, but the mod could not confirm it took effect.",
     "bridgeOldBridgeDesc": "{{action}} may have worked, but this PanelBridge mod version doesn't report back whether it did. Update the mod to confirm results.",
     "errorTitle": "Error",

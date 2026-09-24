@@ -13,6 +13,7 @@
   "STARTUP_SCRIPT_CREATED": "已创建自定义启动脚本：{{scriptName}}",
   "INSTALL_STARTUP_SCRIPT_FAILED": "无法生成此服务器的自定义启动脚本（{{reason}}）。服务器仍可启动——在重新生成之前将使用默认脚本，下次启动时也会自动重新生成。",
   "INSTALL_MISSING_GAME_FILES": "SteamCMD 报告成功，但在安装路径中未找到可识别的游戏文件。请检查上方的 SteamCMD 日志是否存在隐藏错误（速率限制或下载中断仍可能以退出码 0 结束），并在启动此服务器之前确认安装路径是否正确。",
+  "INSTALL_STEAMCMD_REPORTED_ERROR": "SteamCMD 正常退出（退出码 0），但在其输出中报告了错误——请查看上方的 SteamCMD 日志以确定具体行。这种情况可能发生在下载过程中磁盘空间耗尽，或 Steam 端错误中断了下载；安装未完成。请释放磁盘空间或重试，然后重新安装。",
   "PANELBRIDGE_AUTO_INSTALLED": "已自动安装 PanelBridge 模组",
   "INSTALL_COMPLETE_SUCCESS": "服务器安装成功",
   "INSTALL_FAILED_EXIT_CODE": "安装失败，退出代码为 {{code}}",
@@ -32,5 +33,6 @@
   "STEAMCMD_EXTRACTION_FAILED": "解压失败：{{reason}}",
   "STEAMCMD_32BIT_LIB_WARNING": "警告：无法校验 32 位库。如果 SteamCMD 运行失败，请安装：yum install glibc.i686 libstdc++.i686（CentOS/RHEL）或 apt install lib32gcc-s1（Debian/Ubuntu）",
   "STEAMCMD_SETUP_FAILED": "SteamCMD 设置失败，代码为 {{code}}",
-  "STEAMCMD_SELF_SETUP_UNEXPECTED_ERROR": "SteamCMD 设置意外失败：{{reason}}"
+  "STEAMCMD_SELF_SETUP_UNEXPECTED_ERROR": "SteamCMD 设置意外失败：{{reason}}",
+  "STEAMCMD_SELF_HEAL_FAILED": "SteamCMD 自动下载失败：{{reason}}"
 }

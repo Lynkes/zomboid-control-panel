@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   Gauge,
   Users,
+  Trophy,
   Terminal,
   Clock,
   Package,
@@ -31,7 +32,10 @@ import {
   Coffee,
   PanelLeftClose,
   PanelLeft,
-  LogOut
+  LogOut,
+  UserCog,
+  ShieldCheck,
+  KeyRound
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ConnectionStatus } from './ConnectionStatus'
@@ -73,6 +77,18 @@ interface NavItem {
   allowRemoteConfigMirror?: boolean
   disabled?: boolean
   badge?: string
+  // Item-level (not section-level, see below): needs a configured server to
+  // mean anything (live status, config, scheduled maintenance, ...). A
+  // section can freely mix requiresServer and non-requiresServer items now
+  // that grouping is by OBJECT (Server/World/Users/Panel) rather than by
+  // "does this need a server" -- e.g. SERVER holds both My Servers (works
+  // at zero servers, it's how you get one) and Server Console (needs one).
+  requiresServer?: boolean
+  // Hides the item entirely (not just disables it) unless can(capability)
+  // is true -- mirrors how Settings.tsx already hides its own users/roles/
+  // sso tabs for a role lacking the matching capability (can() fails OPEN
+  // while capabilities are still loading, same as there).
+  capability?: string
 }
 
 interface NavSection {
@@ -82,92 +98,74 @@ interface NavSection {
   icon: typeof LayoutDashboard
   color: string
   items: NavItem[]
-  // Every item in this section is about operating a game server that
-  // already exists (live status, config, scheduled maintenance, ...), so
-  // with zero servers configured there is nothing there to show. Sections
-  // that help you GET a server (Servers) or that are panel-level facts
-  // independent of any server (Access Control, Settings & Tools) do not
-  // set this and stay reachable at zero servers.
-  requiresServer?: boolean
 }
 
-// Navigation sections with collapsible groups
+// Navigation sections with collapsible groups. Restructured 2026-09-18 per
+// the operator's navigation contract (2026-08-19): group by OBJECT --
+// SERVER / WORLD / USERS / PANEL -- Project Zomboid vocabulary, dense by
+// default. Previously grouped by "how fresh is this" (Live/Config/Maintain)
+// which split same-object items (e.g. Server Console and Server
+// Configuration) across different sections.
 const navSections: NavSection[] = [
   {
-    id: 'active',
-    label: 'Live',
-    labelKey: 'nav.sections.live',
-    icon: Terminal,
-    color: 'emerald',
-    requiresServer: true,
+    id: 'server',
+    label: 'Server',
+    labelKey: 'nav.sections.server',
+    icon: Server,
+    color: 'cyan',
     items: [
-      { to: '/console', icon: Terminal, label: 'Server Console', labelKey: 'nav.items.serverConsole' },
-      { to: '/players', icon: Users, label: 'Online Players', labelKey: 'nav.items.onlinePlayers' },
-      { to: '/chat', icon: MessagesSquare, label: 'In-Game Chat', labelKey: 'nav.items.inGameChat' },
+      { to: '/servers', icon: Layers, label: 'My Servers', labelKey: 'nav.items.myServers' },
+      { to: '/console', icon: Terminal, label: 'Server Console', labelKey: 'nav.items.serverConsole', requiresServer: true },
+      { to: '/server-config', icon: FileCog, label: 'Server Configuration', labelKey: 'nav.items.serverConfiguration', requiresServer: true, requiresLocal: true, allowRemoteConfigMirror: true },
+      { to: '/mods', icon: Package, label: 'Mod Manager', labelKey: 'nav.items.modManager', requiresServer: true, requiresLocal: true },
+      { to: '/scheduler', icon: Clock, label: 'Scheduled Tasks', labelKey: 'nav.items.scheduledTasks', requiresServer: true },
+      { to: '/server-setup', icon: Download, label: 'Server Setup', labelKey: 'nav.items.serverSetup' },
+      { to: '/server-finder', icon: Search, label: 'Browse Public Servers', labelKey: 'nav.items.browsePublic' },
     ]
   },
   {
     id: 'world',
     label: 'World',
     labelKey: 'nav.sections.world',
-    icon: Zap,
+    icon: Map,
     color: 'amber',
-    requiresServer: true,
     items: [
-      { to: '/events', icon: Zap, label: 'Events & Weather', labelKey: 'nav.items.eventsWeather' },
-      { to: '/world-map', icon: Map, label: 'World Map', labelKey: 'nav.items.worldMap' },
+      { to: '/world-map', icon: Map, label: 'World Map', labelKey: 'nav.items.worldMap', requiresServer: true },
+      { to: '/events', icon: Zap, label: 'Events & Weather', labelKey: 'nav.items.eventsWeather', requiresServer: true },
+      { to: '/backups', icon: Archive, label: 'World Backups', labelKey: 'nav.items.worldBackups', requiresServer: true, requiresLocal: true },
+      { to: '/chunks', icon: Eraser, label: 'Map Cleanup', labelKey: 'nav.items.mapCleanup', requiresServer: true, requiresLocal: true },
+      { to: '/templates', icon: LayoutTemplate, label: 'Templates', labelKey: 'nav.items.templates', requiresServer: true, requiresLocal: true, allowRemoteConfigMirror: true },
     ]
   },
   {
-    id: 'config',
-    label: 'Config',
-    labelKey: 'nav.sections.config',
-    icon: FileCog,
-    color: 'blue',
-    requiresServer: true,
+    id: 'users',
+    label: 'Users',
+    labelKey: 'nav.sections.users',
+    icon: Users,
+    color: 'emerald',
     items: [
-      { to: '/server-config', icon: FileCog, label: 'Server Configuration', labelKey: 'nav.items.serverConfiguration', requiresLocal: true, allowRemoteConfigMirror: true },
-      { to: '/mods', icon: Package, label: 'Mod Manager', labelKey: 'nav.items.modManager', requiresLocal: true },
-      { to: '/templates', icon: LayoutTemplate, label: 'Templates', labelKey: 'nav.items.templates', requiresLocal: true, allowRemoteConfigMirror: true },
+      { to: '/players', icon: Users, label: 'Online Players', labelKey: 'nav.items.onlinePlayers', requiresServer: true },
+      { to: '/leaderboard', icon: Trophy, label: 'Leaderboard', labelKey: 'nav.items.leaderboard', requiresServer: true },
+      { to: '/chat', icon: MessagesSquare, label: 'In-Game Chat', labelKey: 'nav.items.inGameChat', requiresServer: true },
+      // Panel Users/Roles & Permissions/Single Sign-On: no dedicated route
+      // (route paths must stay stable) -- these point straight at the same
+      // Settings tabs /users, /roles and /sso already redirect to
+      // (App.tsx), and are gated on the exact capability that hides the
+      // matching Settings tab (Settings.tsx's settingsSections filter).
+      { to: '/settings?tab=users', icon: UserCog, label: 'Panel Users', labelKey: 'nav.items.panelUsers', capability: 'users.manage' },
+      { to: '/settings?tab=roles', icon: ShieldCheck, label: 'Roles & Permissions', labelKey: 'nav.items.rolesPermissions', capability: 'roles.manage' },
+      { to: '/settings?tab=sso', icon: KeyRound, label: 'Single Sign-On', labelKey: 'nav.items.singleSignOn', capability: 'panel.settings' },
     ]
   },
   {
-    id: 'maintenance',
-    label: 'Maintain',
-    labelKey: 'nav.sections.maintain',
-    icon: Clock,
-    color: 'purple',
-    requiresServer: true,
-    items: [
-      { to: '/scheduler', icon: Clock, label: 'Scheduled Tasks', labelKey: 'nav.items.scheduledTasks' },
-      { to: '/backups', icon: Archive, label: 'World Backups', labelKey: 'nav.items.worldBackups', requiresLocal: true },
-      { to: '/chunks', icon: Eraser, label: 'Map Cleanup', labelKey: 'nav.items.mapCleanup', requiresLocal: true },
-    ]
-  },
-  {
-    id: 'servers',
-    label: 'Servers',
-    labelKey: 'nav.sections.servers',
-    icon: Server,
-    color: 'cyan',
-    items: [
-      { to: '/servers', icon: Layers, label: 'My Servers', labelKey: 'nav.items.myServers' },
-      { to: '/server-setup', icon: Download, label: 'Server Setup', labelKey: 'nav.items.serverSetup' },
-      { to: '/server-finder', icon: Search, label: 'Browse Public', labelKey: 'nav.items.browsePublic' },
-    ]
-  },
-  // Access Control (Users, Roles & Permissions, Sign-in) is entirely gone
-  // from the left nav now -- all three moved into Settings as tabs. See
-  // Settings.tsx's "users"/"roles"/"sso" tab sections.
-  {
-    id: 'system',
-    label: 'Settings & Tools',
-    labelKey: 'nav.sections.settingsAndTools',
+    id: 'panel',
+    label: 'Panel',
+    labelKey: 'nav.sections.panel',
     icon: Settings,
     color: 'slate',
     items: [
-      { to: '/discord', icon: MessageSquare, label: 'Discord', labelKey: 'nav.items.discord' },
       { to: '/settings', icon: Settings, label: 'Panel Settings', labelKey: 'nav.items.panelSettings' },
+      { to: '/discord', icon: MessageSquare, label: 'Discord', labelKey: 'nav.items.discord' },
       { to: '/debug', icon: Bug, label: 'Debug Logs', labelKey: 'nav.items.debugLogs' },
     ]
   },
@@ -191,24 +189,6 @@ const sectionToneStyles = {
     childActive: 'border-warning/45 bg-warning/10',
     childDot: 'bg-warning',
     childBorder: 'border-warning/35',
-  },
-  blue: {
-    triggerActive: 'bg-info/12 border-info/35',
-    iconActive: 'border-info/45 bg-info/14 text-info',
-    iconIdle: 'text-foreground/86 group-hover:text-info',
-    labelActive: 'text-info',
-    childActive: 'border-info/45 bg-info/10',
-    childDot: 'bg-info',
-    childBorder: 'border-info/35',
-  },
-  purple: {
-    triggerActive: 'bg-accent/30 border-accent/50',
-    iconActive: 'border-accent/60 bg-accent/35 text-accent-foreground',
-    iconIdle: 'text-foreground/86 group-hover:text-accent-foreground',
-    labelActive: 'text-accent-foreground',
-    childActive: 'border-accent/60 bg-accent/25',
-    childDot: 'bg-accent-foreground',
-    childBorder: 'border-accent/50',
   },
   cyan: {
     triggerActive: 'bg-primary/14 border-primary/35',
@@ -345,7 +325,8 @@ export default function Layout({ children }: LayoutProps) {
   // yet" claim as a genuinely empty roster, on every load and permanently on failure.
   const [servers, setServers] = useState<ServerInstance[] | null>(null)
   const serversConfirmedEmpty = servers !== null && servers.length === 0
-  const isBlockedByNoServer = (section: NavSection) => !!section.requiresServer && serversConfirmedEmpty
+  const isBlockedByNoServer = (item: NavItem) => !!item.requiresServer && serversConfirmedEmpty
+  const { can } = useAuth()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   // Not a Radix primitive, so it gets none of Radix's automatic focus
   // trap/restore -- handled manually below.
@@ -422,6 +403,28 @@ export default function Layout({ children }: LayoutProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const playerCountLabel = playerCount > 99 ? '99+' : String(playerCount)
+
+  // Panel Users/Roles & Permissions/Single Sign-On (USERS section) link
+  // straight into Settings' own tabs via ?tab=, so a plain pathname-only
+  // active match (react-router's NavLink default) would light up every
+  // /settings-linked row -- including the plain Panel Settings entry --
+  // together whenever any one of them is open. Resolve the real tab from
+  // location.search and match on that for any item whose `to` carries one;
+  // the plain /settings entry is active only when the open tab isn't one of
+  // those three (otherwise it'd stay lit alongside them).
+  const settingsSubTabIds = ['users', 'roles', 'sso']
+  const currentSettingsTab = location.pathname === '/settings'
+    ? new URLSearchParams(location.search).get('tab')
+    : null
+  const isItemActive = (item: NavItem) => {
+    const [itemPath, itemQuery] = item.to.split('?')
+    if (location.pathname !== itemPath) return false
+    if (!itemQuery) {
+      return itemPath !== '/settings' || !currentSettingsTab || !settingsSubTabIds.includes(currentSettingsTab)
+    }
+    const itemTab = new URLSearchParams(itemQuery).get('tab')
+    return itemTab != null && itemTab === currentSettingsTab
+  }
 
   // Toggle sidebar collapse
   const toggleSidebar = () => {
@@ -931,17 +934,18 @@ export default function Layout({ children }: LayoutProps) {
           {navSections.map((section, sectionIdx) => {
             const tone = sectionToneStyles[section.color as keyof typeof sectionToneStyles] || sectionToneStyles.slate
             const sectionHasSignal =
-              (section.id === 'config' && modUpdatesAvailable > 0) ||
-              (section.id === 'active' && playerCount > 0) ||
-              (section.id === 'system' && !!panelUpdateAvailable)
+              (section.id === 'server' && modUpdatesAvailable > 0) ||
+              (section.id === 'users' && playerCount > 0) ||
+              (section.id === 'panel' && !!panelUpdateAvailable)
+            const visibleItems = section.items.filter((item) => !item.capability || can(item.capability))
 
             // Collapsed (icon rail) mode — separators between sections
             if (sidebarCollapsed) {
               return (
                 <div key={section.id} className={cn('space-y-0.5', sectionIdx === 0 ? 'mt-2 pt-2 border-t border-border/40' : 'mt-2 pt-2 border-t border-border/40')}>
-                  {section.items.map((item) => {
+                  {visibleItems.map((item) => {
                     const isDisabledByRemote = isBlockedByRemote(item)
-                    const isDisabledByNoServer = isBlockedByNoServer(section)
+                    const isDisabledByNoServer = isBlockedByNoServer(item)
                     const disabledReason = isDisabledByNoServer
                       ? t('nav.requiresServer')
                       : isDisabledByRemote
@@ -962,14 +966,14 @@ export default function Layout({ children }: LayoutProps) {
                       )
                     }
 
-                    const isActive = location.pathname === item.to
+                    const isActive = isItemActive(item)
                     return (
                       <Tooltip key={item.to}>
                         <TooltipTrigger asChild>
                           <NavLink
                             to={item.to}
-                            onPointerEnter={() => preloadRouteModule(item.to)}
-                            onFocus={() => preloadRouteModule(item.to)}
+                            onPointerEnter={() => preloadRouteModule(item.to.split('?')[0])}
+                            onFocus={() => preloadRouteModule(item.to.split('?')[0])}
                             onClick={() => setMobileMenuOpen(false)}
                             className={cn(
                               'group relative flex min-h-9 items-center justify-center rounded-md px-2 py-2 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60',
@@ -1005,9 +1009,9 @@ export default function Layout({ children }: LayoutProps) {
                     <span
                       className={cn(
                         'h-1.5 w-1.5 rounded-full',
-                        section.id === 'active' && 'bg-success',
-                        section.id === 'config' && 'bg-warning motion-safe:animate-pulse',
-                        section.id === 'system' && 'bg-warning motion-safe:animate-pulse'
+                        section.id === 'users' && 'bg-success',
+                        section.id === 'server' && 'bg-warning motion-safe:animate-pulse',
+                        section.id === 'panel' && 'bg-warning motion-safe:animate-pulse'
                       )}
                       aria-hidden
                     />
@@ -1015,9 +1019,9 @@ export default function Layout({ children }: LayoutProps) {
                   <span className="h-px flex-1 bg-border/30" aria-hidden />
                 </div>
                 <div className="space-y-0.5">
-                  {section.items.map((item) => {
+                  {visibleItems.map((item) => {
                     const isDisabledByRemote = isBlockedByRemote(item)
-                    const isDisabledByNoServer = isBlockedByNoServer(section)
+                    const isDisabledByNoServer = isBlockedByNoServer(item)
 
                     if (isDisabledByNoServer) {
                       return (
@@ -1066,64 +1070,59 @@ export default function Layout({ children }: LayoutProps) {
                       )
                     }
 
+                    const isActive = isItemActive(item)
                     return (
                       <NavLink
                         key={item.to}
                         to={item.to}
-                        onPointerEnter={() => preloadRouteModule(item.to)}
-                        onFocus={() => preloadRouteModule(item.to)}
+                        onPointerEnter={() => preloadRouteModule(item.to.split('?')[0])}
+                        onFocus={() => preloadRouteModule(item.to.split('?')[0])}
                         onClick={() => setMobileMenuOpen(false)}
-                        className={({ isActive }) =>
-                          cn(
-                            'group relative flex min-h-9 items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60',
-                            isActive
-                              ? cn('font-medium text-foreground', tone.childActive)
-                              : 'text-muted-foreground hover:bg-accent/30 hover:text-foreground'
-                          )
-                        }
+                        className={cn(
+                          'group relative flex min-h-9 items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60',
+                          isActive
+                            ? cn('font-medium text-foreground', tone.childActive)
+                            : 'text-muted-foreground hover:bg-accent/30 hover:text-foreground'
+                        )}
                       >
-                        {({ isActive }) => (
-                          <>
-                            {isActive && (
-                              <span className={cn('absolute start-0 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-s-full', tone.childDot)} aria-hidden />
-                            )}
-                            <item.icon className={cn('h-[15px] w-[15px] shrink-0 transition-colors', isActive ? tone.labelActive : 'text-muted-foreground/80 group-hover:text-foreground')} />
-                            <span className="truncate">{t(item.labelKey)}</span>
-                            {item.badge && (
-                              <Badge
-                                variant={isActive ? 'secondary' : 'outline'}
-                                className="ms-auto px-1.5 py-0 text-[10px] uppercase tracking-wider text-warning border-warning/40"
-                              >
-                                {item.badge}
-                              </Badge>
-                            )}
-                            {item.to === '/players' && playerCount > 0 && (
-                              <Badge
-                                variant={isActive ? 'secondary' : 'success'}
-                                className="ms-auto min-w-[24px] justify-center px-1.5 py-0 text-[10px] leading-tight"
-                              >
-                                {playerCountLabel}
-                              </Badge>
-                            )}
-                            {item.to === '/mods' && modUpdatesAvailable > 0 && (
-                              <Badge
-                                variant="warning"
-                                className="ms-auto min-w-[24px] justify-center px-1.5 py-0 text-[10px] leading-tight"
-                                title={t('modBadge.updatesAvailable', { count: modUpdatesAvailable })}
-                              >
-                                {modUpdatesAvailable > 99 ? '99+' : modUpdatesAvailable}
-                              </Badge>
-                            )}
-                            {item.to === '/settings' && panelUpdateAvailable && (
-                              <span
-                                className="ms-auto h-1.5 w-1.5 rounded-full bg-warning motion-safe:animate-pulse"
-                                title={panelUpdateAvailable.version
-                                  ? t('panelUpdateBadge.titleWithVersion', { version: panelUpdateAvailable.version })
-                                  : t('panelUpdateBadge.titleNoVersion')}
-                                aria-hidden
-                              />
-                            )}
-                          </>
+                        {isActive && (
+                          <span className={cn('absolute start-0 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-s-full', tone.childDot)} aria-hidden />
+                        )}
+                        <item.icon className={cn('h-[15px] w-[15px] shrink-0 transition-colors', isActive ? tone.labelActive : 'text-muted-foreground/80 group-hover:text-foreground')} />
+                        <span className="truncate">{t(item.labelKey)}</span>
+                        {item.badge && (
+                          <Badge
+                            variant={isActive ? 'secondary' : 'outline'}
+                            className="ms-auto px-1.5 py-0 text-[10px] uppercase tracking-wider text-warning border-warning/40"
+                          >
+                            {item.badge}
+                          </Badge>
+                        )}
+                        {item.to === '/players' && playerCount > 0 && (
+                          <Badge
+                            variant={isActive ? 'secondary' : 'success'}
+                            className="ms-auto min-w-[24px] justify-center px-1.5 py-0 text-[10px] leading-tight"
+                          >
+                            {playerCountLabel}
+                          </Badge>
+                        )}
+                        {item.to === '/mods' && modUpdatesAvailable > 0 && (
+                          <Badge
+                            variant="warning"
+                            className="ms-auto min-w-[24px] justify-center px-1.5 py-0 text-[10px] leading-tight"
+                            title={t('modBadge.updatesAvailable', { count: modUpdatesAvailable })}
+                          >
+                            {modUpdatesAvailable > 99 ? '99+' : modUpdatesAvailable}
+                          </Badge>
+                        )}
+                        {item.to === '/settings' && panelUpdateAvailable && (
+                          <span
+                            className="ms-auto h-1.5 w-1.5 rounded-full bg-warning motion-safe:animate-pulse"
+                            title={panelUpdateAvailable.version
+                              ? t('panelUpdateBadge.titleWithVersion', { version: panelUpdateAvailable.version })
+                              : t('panelUpdateBadge.titleNoVersion')}
+                            aria-hidden
+                          />
                         )}
                       </NavLink>
                     )

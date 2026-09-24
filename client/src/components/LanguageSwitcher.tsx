@@ -7,10 +7,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
-import { getCurrentLanguage, setLanguage, LANGUAGES } from '@/i18n'
+import { getCurrentLanguage, setLanguage, OFFERED_LANGUAGES } from '@/i18n'
 
 // The persisted locale switcher — its options come entirely from the
-// LANGUAGES registry (client/src/i18n/languages.ts), so adding a language
+// LANGUAGES registry (client/src/i18n/languages.ts; hidden rows are
+// skipped via OFFERED_LANGUAGES), so adding a language
 // there is the only change needed for it to show up here. Language names
 // are each language's OWN native name (Deutsch, not German), read straight
 // from the registry rather than through t() — see languages.ts for why.
@@ -18,7 +19,7 @@ import { getCurrentLanguage, setLanguage, LANGUAGES } from '@/i18n'
 export function LanguageSwitcher({ className }: { className?: string }) {
   const { t, i18n } = useTranslation('shell')
   const current = getCurrentLanguage()
-  const currentLanguage = LANGUAGES.find((l) => l.code === current) ?? LANGUAGES[0]
+  const currentLanguage = OFFERED_LANGUAGES.find((l) => l.code === current) ?? OFFERED_LANGUAGES[0]
 
   return (
     <DropdownMenu>
@@ -36,7 +37,7 @@ export function LanguageSwitcher({ className }: { className?: string }) {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        {LANGUAGES.map((lang) => (
+        {OFFERED_LANGUAGES.map((lang) => (
           <DropdownMenuItem
             key={lang.code}
             onClick={() => {

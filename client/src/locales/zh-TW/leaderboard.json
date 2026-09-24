@@ -1,0 +1,15 @@
+{
+  "page": { "title": "排行榜", "description": "輕量的伺服器生存、擊殺、死亡與武器熟練度排行榜。", "eyebrow": "// 即時 · 生存排行" },
+  "bridge": { "summary": "讀取保存在世界存檔中的 PanelBridge 排行榜。" },
+  "actions": { "refresh": "重新整理", "retry": "重試" },
+  "metrics": { "ariaLabel": "排行榜指標", "days": "生存天數", "currentKills": "目前擊殺", "allTimeKills": "總擊殺", "deaths": "死亡", "weapon": "武器熟練度" },
+  "summary": { "players": "玩家", "playersDetail": "目前在線 {{online}} 人", "allTimeKills": "總擊殺", "allTimeKillsDetail": "所有已記錄的生還者", "deaths": "總死亡", "deathsDetail": "本伺服器失去的生命", "leader": "目前領先者", "noLeader": "尚無排名" },
+  "podium": { "title": "排行榜", "subtitle": "依 {{metric}} 排名" },
+  "trackingSince": "開始記錄於 {{date}}",
+  "table": { "title": "所有生還者", "updated": "更新於 {{date}}", "waitingForUpdate": "等待第一次即時讀取", "search": "搜尋生還者...", "searchAria": "搜尋排行榜", "player": "生還者", "days": "最佳天數", "currentKills": "目前擊殺", "allTimeKills": "總擊殺", "deaths": "死亡", "weapon": "常用武器", "online": "在線", "offline": "離線", "currentDaysTitle": "目前生命：{{value}} 天", "noMatchesTitle": "沒有符合的生還者", "noMatchesDescription": "請嘗試其他名稱或武器。" },
+  "stale": { "title": "正在顯示最後已知的排行榜" },
+  "footer": { "refreshRate": "每 30 秒重新整理", "historyNote": "PanelBridge 開始收集後才會記錄總榜資料。" },
+  "errors": { "title": "排行榜無法使用", "load": "無法讀取 PanelBridge 排行榜。", "unexpected": "排行榜回傳了意外回應。" },
+  "empty": { "title": "還沒有生還者排名", "description": "連線一名玩家來開始排行榜。PanelBridge 會將記錄保存在世界存檔中。" },
+  "loading": "正在載入排行榜"
+}

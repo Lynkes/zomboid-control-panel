@@ -104,7 +104,10 @@
     "connectRconNeedsHostRunning": "Demare sèvè a dabò",
     "noPermissionControl": "Wòl ou pa gen pèmisyon pou kontwole sèvè a.",
     "noPermissionWipe": "Wòl ou pa gen pèmisyon pou efase mond lan.",
-    "wipeMustStopFirst": "Sispann sèvè a anvan ou efase l."
+    "noPermissionAutoStart": "Wòl ou pa gen pèmisyon pou chanje paramèt démarrage otomatik la.",
+    "noPermissionCreateBackup": "Wòl ou pa gen pèmisyon pou kreye sovgad.",
+    "wipeMustStopFirst": "Sispann sèvè a anvan ou efase l.",
+    "saveNeedsRcon": "Konekte RCON pou sove mond lan."
   },
   "confirm": {
     "cancel": "Anile",
@@ -132,6 +135,7 @@
     "startServerScriptBackup": { "title": "Sèvè ap demare — script demaraj sovgade", "description": "Panèl la detekte chanjman nan script demaraj ou a e li sovgade vèsyon ou anvan li rejenere l." },
     "stopServer": { "title": "Sèvè sispann", "description": "Sesyon an fèmen san pwoblèm." },
     "stopServerRequested": { "title": "Arè mande", "description": "Sèvè a ap sove epi fèmen an dousè — sa ka pran yon ti moman sou yon gwo mond. Badj estati a ap mete ajou yon fwa arè a konfime." },
+    "forceStopRequested": { "title": "Arè fòse mande", "description": "Siyal arè a te voye — veye tablo a pou konfimasyon." },
     "forceStopServer": { "title": "Sèvè fòse sispann", "description": "Mond lan te sove, epi pwosesis jwèt la te sispann." },
     "forceStopSaveFailed": { "title": "Sèvè fòse sispann — sovgad echwe", "description": "Sovgad anvan sispann lan te refize. Pwogrè resan ka pèdi." },
     "forceStopSaveTimedOut": { "title": "Sèvè fòse sispann — sovgad pran twòp tan", "description": "Sovgad anvan sispann lan pa t reponn nan 3 segond. Pwogrè resan ka pèdi." },
@@ -163,12 +167,15 @@
     "modUpdatesWaiting_one": "{{count}} mizajou mod ap tann",
     "modUpdatesWaiting_other": "{{count}} mizajou mod ap tann",
     "reviewMods": "Egzamine mods",
-    "noBackups": "Pa gen kopi sovgad"
+    "noBackups": "Pa gen kopi sovgad",
+    "backupAttemptFailing": "Kopi sovgad pwograme a echwe",
+    "reviewBackups": "Egzamine kopi sovgad"
   },
   "panelUpdateBanner": {
     "applyFailed": "Aplikasyon echwe",
     "updateStaged": "Mizajou prepare",
     "panelUpdate": "Mizajou panèl",
+    "checkedAgo": "Tcheke {{age}}",
     "lastApplyFailedDesc": "Dènye tantativ aplikasyon echwe — gade Paramèt pou dyagnostik.",
     "stagedDesc": "Telechaje epi pare. Redemare panèl la pou aplike l.",
     "newVersionDesc": "Yon nouvo vèsyon panèl disponib.",
@@ -286,6 +293,7 @@
     "backupsStored_other": "{{count}} sere",
     "backupsStoredLast_one": "{{count}} sere, dènye {{age}}",
     "backupsStoredLast_other": "{{count}} sere, dènye {{age}}",
+    "backupsAttemptFailed": "tantativ echwe, {{age}}",
     "scheduleNoneActive": "okenn aktif",
     "scheduleActive_one": "{{count}} aktif",
     "scheduleActive_other": "{{count}} aktif"
@@ -318,6 +326,7 @@
   },
   "wipeDialog": {
     "title": "Efase sèvè a",
+    "serverChangedSinceOpen": "Sèvè aktif la chanje pandan bwat dyalòg sa a te louvri. Anile epi louvri « Efase sèvè » ankò pou aji sou sèvè ki aktif kounye a.",
     "description": "Chwazi ki done pou efase nan <b>{{serverName}}</b>. Sèvè a dwe sispann.",
     "defaultServerName": "sèvè aktif la",
     "targets": {

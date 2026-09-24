@@ -17,6 +17,11 @@
     "eyebrow": "керування світом",
     "refreshPlayers": "оновити гравців"
   },
+  "common": {
+    "playersUnavailable": "список гравців недоступний",
+    "playersUnavailableTitle": "Список гравців недоступний",
+    "noPermissionEndangerOrImpersonate": "Ця дія потребує дозволу players.endanger_or_impersonate, якого немає в цієї ролі."
+  },
   "statusBar": {
     "panelBridge": "PanelBridge",
     "online": "онлайн",
@@ -293,6 +298,7 @@
     "spawnBehind": "створити позаду {{target}}",
     "random": "випадковий",
     "targetFallback": "ціль",
+    "permissionRequired": "Потрібен дозвіл «Наражати гравця на небезпеку або видавати себе за нього»",
     "clearLoadedZombies": "прибрати завантажених зомбі",
     "removeAllConfirmTitle": "Прибрати всіх завантажених зомбі?",
     "removeAllConfirmDescription": "Це миттєво прибирає всіх зомбі в завантажених комірках на всьому сервері — зокрема й тих, з якими зараз б'ється якийсь гравець. З часом зомбі з'являться знову, але цей бій для нього обірветься просто зараз.",

@@ -100,11 +100,17 @@
     "whitelistLastConnection": "آخر اتصال {{date}}",
     "removeButton": "إزالة",
     "removeTitle": "إزالة {{username}} من القائمة البيضاء",
+    "removeFromWhitelistConfirmTitle": "إزالة من القائمة البيضاء؟",
+    "removeFromWhitelistConfirmDesc": "ستتم إزالة {{player}} من قاعدة بيانات حسابات القائمة البيضاء.",
+    "removeFromWhitelistConfirmButton": "إزالة",
     "allowedSteamIdsLabel": "معرّفات Steam المسموح بها",
     "allowedSteamIdAria": "معرّف Steam مسموح به",
     "addButton": "إضافة",
     "removeAllowedButton": "إزالة",
     "removeAllowedTitle": "إزالة معرّف Steam المسموح به {{steamId}}",
+    "removeAllowedSteamIdConfirmTitle": "إزالة معرّف Steam المسموح به؟",
+    "removeAllowedSteamIdConfirmDesc": "لن يُسمح لـ {{steamId}} بالانضمام إلى خادم بالقائمة البيضاء بعد الآن.",
+    "removeAllowedSteamIdConfirmButton": "إزالة",
     "manualTargetLabel": "› هدف يدوي",
     "manualTargetLabelText": "هدف يدوي",
     "manualTargetPlaceholder": "أدخل اسم المستخدم…",
@@ -146,6 +152,7 @@
     "disableNoclip": "تعطيل Noclip",
     "addToWhitelist": "إضافة إلى القائمة البيضاء",
     "removeFromWhitelist": "إزالة من القائمة البيضاء",
+    "notOnWhitelistReason": "{{player}} ليس في القائمة البيضاء — لا يوجد ما يُزال.",
     "importExportCharacter": "استيراد/تصدير الشخصية",
     "noTargetTitle": "لم يتم اختيار هدف",
     "noTargetDesc": "اختر لاعبًا من القائمة لعرض ملفه، أو اكتب اسم مستخدم ضمن <1>› هدف يدوي</1>."
@@ -205,6 +212,8 @@
     "description": "طرد {{player}} من الخادم",
     "reasonLabel": "السبب (اختياري)",
     "reasonPlaceholder": "أدخل السبب...",
+    "reasonAlteredNote": "سيرسل الخادم فقط: \"{{preview}}\"",
+    "reasonAlteredToEmpty": "لا يمكن إرسال أي من هذه الأحرف إلى الخادم — لن يرى هذا اللاعب أي سبب على الإطلاق.",
     "submit": "طرد اللاعب"
   },
   "banDialog": {
@@ -212,6 +221,8 @@
     "description": "حظر {{player}} من الخادم",
     "reasonLabel": "السبب (اختياري)",
     "reasonPlaceholder": "أدخل السبب...",
+    "reasonAlteredNote": "سيرسل الخادم فقط: \"{{preview}}\"",
+    "reasonAlteredToEmpty": "لا يمكن إرسال أي من هذه الأحرف إلى الخادم — لن يرى هذا اللاعب أي سبب على الإطلاق.",
     "banIpLabel": "حظر عنوان IP أيضًا",
     "banIpTip": "يحظر عنوان IP أيضًا، وليس الحساب فقط — قد يؤثر على آخرين على نفس الشبكة، ولا تملك هذه اللوحة طريقة لمراجعة أو رفع حظر IP بشكل منفصل.",
     "cancel": "إلغاء",
@@ -231,6 +242,12 @@
     "label": "مستوى الصلاحية",
     "placeholder": "اختر مستوى...",
     "submit": "تعيين المستوى"
+  },
+  "confirmLastAdmin": {
+    "title": "إزالة آخر مسؤول؟",
+    "description": "{{player}} هو الحساب الوحيد الذي يملك صلاحية المسؤول (admin). إزالتها ستترك الجميع دون أي أوامر إدارية كاملة داخل اللعبة حتى تُمنح مرة أخرى من هنا.",
+    "confirm": "إزالة صلاحية المسؤول",
+    "cancel": "إلغاء"
   },
   "teleportDialog": {
     "title": "نقل اللاعب آنيًا",
@@ -267,12 +284,15 @@
   "addUserDialog": {
     "title": "إضافة مستخدم",
     "description": "إنشاء حساب مستخدم جديد لخوادم القائمة البيضاء. يسمح Build 42 بكلمة مرور فارغة.",
+    "titleWhitelist": "إضافة إلى القائمة البيضاء",
+    "descriptionWhitelist": "إضافة {{player}} إلى قاعدة بيانات حسابات القائمة البيضاء. يسمح Build 42 بكلمة مرور فارغة.",
     "usernameLabel": "اسم المستخدم",
     "usernamePlaceholder": "أدخل اسم المستخدم...",
     "passwordLabel": "كلمة المرور (اختياري)",
     "passwordPlaceholder": "كلمة مرور اختيارية (4 أحرف على الأقل)...",
     "cancel": "إلغاء",
-    "submit": "إضافة مستخدم"
+    "submit": "إضافة مستخدم",
+    "submitWhitelist": "إضافة إلى القائمة البيضاء"
   },
   "unbanDialog": {
     "title": "إلغاء حظر اللاعب",
@@ -301,7 +321,7 @@
     "spawnVehiclesDescNoPlayer": "تُولَّد عند موقع المستدعي — اختر لاعبًا لتوليد المركبات بالقرب منه بدلاً من ذلك.",
     "giveXpTitle": "منح نقاط خبرة",
     "giveXpDescWithPlayer": "منح خبرة لـ <1>{{player}}</1>",
-    "giveXpDescNoPlayer": "منح خبرة للاعب المحدد",
+    "giveXpDescNoPlayer": "اختر لاعبًا أولاً، ثم امنحه خبرة في مهارة مختارة.",
     "perkPlaceholder": "اختر مهارة...",
     "amountLabel": "الكمية",
     "giveXpButton": "منح نقاط الخبرة",
@@ -432,6 +452,7 @@
   "toasts": {
     "successTitle": "نجاح",
     "successDesc": "اكتمل {{action}}",
+    "successDescForPlayer": "اكتمل {{action}} لـ {{player}}",
     "bridgeUnverifiedDesc": "تم إرسال {{action}}، لكن التعديل لم يستطع تأكيد أنه نفذ فعليًا.",
     "bridgeOldBridgeDesc": "قد يكون {{action}} قد نجح، لكن إصدار تعديل PanelBridge هذا لا يُبلّغ عمّا إذا كان قد نجح. حدّث التعديل لتأكيد النتائج.",
     "errorTitle": "خطأ",

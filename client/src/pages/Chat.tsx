@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   MessagesSquare,
@@ -31,6 +31,7 @@ import { HelpTip } from '@/components/HelpTip'
 import { cn } from '@/lib/utils'
 import { reportClientError } from '@/lib/client-errors'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { useRequestGuard } from '@/hooks/useRequestGuard'
 
 interface ChatMessage {
   id: string
@@ -38,6 +39,12 @@ interface ChatMessage {
   author?: string
   message: string
   timestamp: Date
+  // PZ's own chat room title (e.g. "Private" for a whisper, "Faction",
+  // "Safehouse", "Radio", "Shout") -- finer-grained than `type`, which only
+  // has 3 buckets (server/admin/general) for styling. Used to flag a
+  // channel that isn't plain public chat even though it still falls into
+  // the 'general' bucket (see getChannelTag below).
+  sourceChatType?: string
 }
 
 interface Player {
@@ -46,9 +53,45 @@ interface Player {
 
 type ChatChannel = 'server' | 'admin' | 'general'
 
+// bug-hunt-2026-09-18 (round 21, UX follow-up): PZ's general chat has no
+// concept of "the panel" as a poster -- sendToGeneralChat's second argument
+// IS the author name that actually appears in-game, verbatim, in every
+// locale (there is no way to translate what a player sees there; PZ just
+// stores and echoes the literal string it was given). sendMessage() below
+// used to send this exact literal but then label its own local echo with
+// t('labels.admin') -- a translated word -- so a non-English operator saw
+// their own post attributed to a name real players never actually see.
+// Worse than cosmetic: the socket echo dedup a few effects down
+// (isOptimisticEcho) matches the local echo against the real server-log
+// echo by comparing author strings case-insensitively -- a translated
+// local author never matches the literal one PZ echoes back, so the same
+// message appeared TWICE in the chat for any non-English locale. One
+// constant, used at both the send call and the local echo (and the
+// HelpTip explaining this channel below), so the three can never drift
+// apart again silently. Distinct from 'admin' chat's own `t('labels.admin')`
+// local-echo label just below -- chat/admin takes no author argument at
+// all (server/routes/panelBridge.js), so that label is a purely internal,
+// correctly-translated panel concept, not a name PZ shows anyone.
+const GENERAL_CHAT_AUTHOR = 'Admin'
+
 export default function Chat() {
   const { t, i18n } = useTranslation('chat')
-  const defaultPresets = t('presets.default', { returnObjects: true }) as string[]
+  // bug-hunt-2026-09-18 (round 22): i18next's returnObjects always returns a
+  // freshly-copied array (never the same reference twice, even for the same
+  // key/language -- see i18next's translate(), which does
+  // `const copy = resTypeIsArray ? [] : {}`), so computing this inline on
+  // every render fed a runaway loop into the settings-load effect below:
+  // that effect depends on [defaultPresets], and whenever saved presets are
+  // empty it calls setPresets(defaultPresets) with a brand-new reference
+  // every time -- React never sees the same value twice, so it never bails
+  // out of re-rendering, which recomputes defaultPresets again, which
+  // re-fires the effect again, forever (this is also why a NON-empty saved
+  // list never hung: setPresets(saved) passes the same settings-response
+  // reference back each time, so React bails out after the first update).
+  // Memoizing on language keeps the array identity stable across unrelated
+  // re-renders, so the effect only ever legitimately re-fires on a real
+  // language change.
+  const defaultPresets = useMemo(() => t('presets.default', { returnObjects: true }) as string[], [t, i18n.language])
   const [message, setMessage] = useState('')
   const [players, setPlayers] = useState<Player[]>([])
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([])
@@ -138,16 +181,26 @@ export default function Chat() {
     }
   }, [chatHistory])
 
+  // bug-hunt-2026-09-18 (round 9, activeServerChanged race sweep): runs on a
+  // 15s poll AND on activeServerChanged, with no guard against the two
+  // overlapping -- a poll tick for the server that was active a moment ago,
+  // still in flight, could resolve AFTER the activeServerChanged-triggered
+  // call for the NEW server and overwrite it. playersGuard drops a response
+  // once a newer call has already started.
+  const playersGuard = useRequestGuard()
   const fetchPlayers = useCallback(async () => {
+    const requestId = playersGuard.next()
     try {
       const data = await playersApi.getPlayers()
+      if (playersGuard.isStale(requestId)) return
       if (data.players) {
         setPlayers(data.players)
       }
     } catch (error) {
+      if (playersGuard.isStale(requestId)) return
       reportClientError('Failed to fetch players.', error)
     }
-  }, [])
+  }, [playersGuard])
 
   useEffect(() => {
     fetchPlayers()
@@ -178,7 +231,7 @@ export default function Chat() {
   // Listen for chat messages from the server log tailer
   useEffect(() => {
     if (socket) {
-      const handleSocketMessage = (data: { id?: string; type?: string; author?: string; message?: string; timestamp?: string }) => {
+      const handleSocketMessage = (data: { id?: string; type?: string; author?: string; message?: string; timestamp?: string; sourceChatType?: string }) => {
         const msg = data.message
         if (!msg) return
         setChatHistory(prev => {
@@ -208,7 +261,8 @@ export default function Chat() {
                 type: data.type || 'general',
                 author: data.author,
                 message: msg,
-                timestamp: new Date(incomingTs)
+                timestamp: new Date(incomingTs),
+                sourceChatType: data.sourceChatType,
              }
 
              return [...prev, newMessage].slice(-200)
@@ -247,9 +301,9 @@ export default function Chat() {
         localType = 'admin'
         localAuthor = t('labels.admin')
       } else if (channel === 'general') {
-        await panelBridgeApi.sendToGeneralChat(message, 'Admin')
+        await panelBridgeApi.sendToGeneralChat(message, GENERAL_CHAT_AUTHOR)
         localType = 'general'
-        localAuthor = t('labels.admin')
+        localAuthor = GENERAL_CHAT_AUTHOR
       } else {
         await panelBridgeApi.sendToServerChat(message, false)
       }
@@ -381,10 +435,35 @@ export default function Chat() {
     return 'border-s-2 border-primary/55 bg-muted/15 ps-3 pe-3 py-2'
   }
 
+  // Ground-truthed against the PZ server jar (zombie/network/chat/ChatType,
+  // zombie/network/chat/ChatServer -- 'Got message:' is the ONE log call
+  // that logs every player-submitted chat room's message, whisper/faction/
+  // safehouse/radio included, not just public talking) and the server's own
+  // en/UI.json chat-title strings: chat=Private is a whisper between two
+  // players, chat=Faction/Safehouse/Radio are similarly member-only rooms.
+  // `type` only has 3 styling buckets (server/admin/general), so all four
+  // land in 'general' -- without this tag they were rendered byte-for-byte
+  // identical to an ordinary public chat line, with no way for an admin
+  // reading the feed to tell a private whisper from something said in
+  // public. Local/General/Say (and an unrecognized/undefined value) are
+  // deliberately untagged: that IS plain public chat, the common case.
+  const getChannelTag = (sourceChatType?: string) => {
+    switch (sourceChatType) {
+      case 'Private': return t('channelTags.whisper')
+      case 'Faction': return t('channelTags.faction')
+      case 'Safehouse': return t('channelTags.safehouse')
+      case 'Radio': return t('channelTags.radio')
+      case 'Shout': return t('channelTags.shout')
+      default: return null
+    }
+  }
+
   const getMessageMeta = (msg: ChatMessage) => {
     if (msg.type === 'server') return { icon: <Megaphone className="w-3 h-3" />, label: msg.author || t('labels.server'), labelClass: 'text-amber-400', dotClass: 'bg-amber-400/80' }
     if (msg.type === 'admin')  return { icon: <Shield className="w-3 h-3" />,    label: msg.author || t('labels.admin'),  labelClass: 'text-destructive', dotClass: 'bg-destructive/80' }
-    return { icon: <MessageSquare className="w-3 h-3" />, label: msg.author || t('labels.player'), labelClass: 'text-primary', dotClass: 'bg-primary/80' }
+    const channelTag = getChannelTag(msg.sourceChatType)
+    const baseLabel = msg.author || t('labels.player')
+    return { icon: <MessageSquare className="w-3 h-3" />, label: channelTag ? `${channelTag} ${baseLabel}` : baseLabel, labelClass: 'text-primary', dotClass: 'bg-primary/80' }
   }
 
   return (
@@ -486,7 +565,7 @@ export default function Chat() {
                         </SelectItem>
                       </SelectContent>
                     </Select>
-                    <HelpTip label={t('channel.aria')}>{t('channel.tip', { adminLabel: t('labels.admin') })}</HelpTip>
+                    <HelpTip label={t('channel.aria')}>{t('channel.tip', { adminLabel: GENERAL_CHAT_AUTHOR })}</HelpTip>
                   </div>
                   <Input
                     ref={messageInputRef}
@@ -604,7 +683,7 @@ export default function Chat() {
                         className="h-9 flex-1 text-sm"
                       />
                       <DisabledReason reason={!canManagePresets ? t('quickBroadcasts.noPermission') : null}>
-                        <Button variant="ghost" size="icon" className="h-9 w-9" onClick={handleSaveEdit} disabled={!canManagePresets} aria-label={t('quickBroadcasts.saveAria')}>
+                        <Button variant="ghost" size="icon" className="h-9 w-9" onClick={handleSaveEdit} disabled={!canManagePresets || !editingDraft.trim()} aria-label={t('quickBroadcasts.saveAria')}>
                           <Check className="w-4 h-4" />
                         </Button>
                       </DisabledReason>

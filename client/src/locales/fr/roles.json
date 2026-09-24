@@ -25,6 +25,7 @@
     "renameTooltip": "Renommer le rôle",
     "deleteTooltip": "Supprimer le rôle",
     "deleteSeededTooltip": "Les rôles intégrés ne peuvent pas être supprimés depuis cet écran.",
+    "renameSeededTooltip": "Les rôles intégrés ne peuvent pas être renommés.",
     "recoveryCapabilityHint": "Retirer le dernier détenteur de cette capacité verrouillerait les administrateurs hors du panneau — celui-ci refuse ce changement et vous explique pourquoi.",
     "savingCell": "Enregistrement…",
     "capabilityCount_one": "{{count}} capacité",

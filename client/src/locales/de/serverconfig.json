@@ -242,6 +242,7 @@
     "sandboxScope": "Sandbox-Lua",
     "hint": "Strg+S zum Speichern · wird beim Neuladen übernommen",
     "discard": "Verwerfen",
+    "save": "Speichern",
     "saveAndReload": "Speichern & neu laden"
   },
   "backupsDialog": {
@@ -3268,6 +3269,9 @@
           },
           "6": {
             "label": "Sehr oft"
+          },
+          "7": {
+            "label": "Immer versuchen"
           }
         }
       },
@@ -3292,6 +3296,9 @@
           },
           "6": {
             "label": "Sehr oft"
+          },
+          "7": {
+            "label": "Immer versuchen"
           }
         }
       }

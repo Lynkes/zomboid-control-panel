@@ -67,7 +67,19 @@ router.get("/status", requireAnyBackupCapability, async (req, res) => {
   try {
     const backupService = req.app.get("backupService");
     const status = await backupService.getStatus();
-    res.json(status);
+    // continuous-bug-hunt round 28 (ux-proposals-need-backend-data): the
+    // Scheduler page's backup-health card needs the backup schedule's own
+    // next-run time alongside lastScheduledBackupAttempt (already computed
+    // above by backupService.getStatus()) -- backupService itself has no
+    // reference to the scheduler instance, so this is composed at the route
+    // layer instead, same shape as GET /scheduler/tasks' own next_run.
+    // scheduler.getBackupNextRun() is null whenever backups are disabled
+    // (this.backupJob is null) -- no schedule, no hypothetical next run.
+    const scheduler = req.app.get("scheduler");
+    res.json({
+      ...status,
+      backupNextRun: scheduler ? scheduler.getBackupNextRun() : null,
+    });
   } catch (error) {
     log.error(`Failed to get backup status: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -141,6 +153,31 @@ router.post("/settings", requirePermission("backups.manage"), async (req, res) =
         success: false,
         error: "Request body must be an object",
       });
+    }
+
+    // continuous-bug-hunt round 23 (backup settings update has no server
+    // check): this route applies to whichever server backupService is
+    // currently scoped to (the active one), with no way for the caller to
+    // say which server it MEANT -- unlike delete/restore, which check the
+    // named backup file's own ownership. An operator who loads the Backups
+    // page, then switches the active server in another tab before saving,
+    // would silently apply their edited schedule/maxBackups/enabled toggle
+    // to the NEW server instead of the one they were looking at. Mirrors
+    // chunks.js's own expectedServerId/CHUNKS_STALE_SERVER_SCAN convention
+    // exactly: optional (undefined skips the check, so an old client that
+    // hasn't been updated to send it keeps working unchanged), refuses
+    // only on a REAL mismatch, never on absence.
+    if (req.body.expectedServerId !== undefined) {
+      const activeServer = await getActiveServer().catch(() => null);
+      const currentServerId = activeServer?.id ?? null;
+      if (req.body.expectedServerId !== currentServerId) {
+        return res.status(409).json({
+          success: false,
+          error:
+            "The active server changed since these settings were loaded. Reload backup settings before saving.",
+          code: ErrorCode.BACKUP_ACTIVE_SERVER_CHANGED,
+        });
+      }
     }
 
     // Whitelist allowed backup settings to prevent prototype pollution
@@ -302,6 +339,24 @@ router.get("/download/:name", requirePermission("backups.download"), async (req,
       return res.status(404).json({ error: "Backup not found", code: ErrorCode.BACKUP_NOT_FOUND });
     }
 
+    // round 19 (backup-read-paths-ownership): deleteBackup()/restoreBackup()
+    // already refuse a name that identifies another currently-colliding
+    // server's own backup (see backupService.js's _findForeignBackupOwner()
+    // comment) -- this download route never checked at all, so an operator
+    // of one server could download another server's full backup archive
+    // just by knowing (or guessing, from the predictable
+    // `${serverName}_${timestamp}.zip` naming already exposed by /list's
+    // pre-fix behavior) its filename. 404, not 403: matches the sibling
+    // /:name/snapshot route's existing "any failure -> 404" convention
+    // rather than confirming a foreign file's existence with a different
+    // status code.
+    const foreignOwner = await backupService._findForeignBackupOwner(safeName, backupsPath);
+    if (foreignOwner) {
+      return res.status(404).json({
+        error: `This backup belongs to another server profile ("${foreignOwner}") that shares this backups folder -- refusing to download it here.`,
+      });
+    }
+
     res.download(backupPath, safeName);
   } catch (error) {
     log.error(`Failed to download backup: ${error.message}`);
@@ -452,6 +507,23 @@ router.post("/restore/:name", requirePermission("backups.restore"), async (req, 
 // Delete backups older than X days
 router.post("/delete-older-than", requirePermission("backups.manage"), async (req, res) => {
   try {
+    // continuous-bug-hunt round 23: same gap and same fix as POST
+    // /settings above -- this bulk-deletes real backup files for
+    // whichever server is currently active, with no way for the caller to
+    // confirm that's still the server they meant. See that route's own
+    // comment for the full reasoning; same shared error code.
+    if (req.body?.expectedServerId !== undefined) {
+      const activeServer = await getActiveServer().catch(() => null);
+      const currentServerId = activeServer?.id ?? null;
+      if (req.body.expectedServerId !== currentServerId) {
+        return res.status(409).json({
+          error:
+            "The active server changed since these backups were loaded. Reload before deleting.",
+          code: ErrorCode.BACKUP_ACTIVE_SERVER_CHANGED,
+        });
+      }
+    }
+
     const days = req.body?.days;
 
     // Number.isInteger, not just finite: a fractional value used to reach

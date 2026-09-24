@@ -50,18 +50,18 @@
     "label": "quick broadcasts",
     "edit": "edit",
     "done": "done",
-    "editAria": "Edit presets",
-    "doneAria": "Done editing presets",
-    "noPresets": "// no presets — click edit to add",
-    "addPlaceholder": "add a new quick message…",
-    "addAria": "Add preset",
+    "editAria": "Edit quick broadcasts",
+    "doneAria": "Done editing quick broadcasts",
+    "noPresets": "// no quick broadcasts — click edit to add",
+    "addPlaceholder": "add a new quick broadcast…",
+    "addAria": "Add quick broadcast",
     "saveAria": "Save",
     "cancelAria": "Cancel",
-    "deleteAria": "Delete preset {{index}}",
-    "deleteConfirmTitle": "Delete this preset?",
+    "deleteAria": "Delete quick broadcast {{index}}",
+    "deleteConfirmTitle": "Delete this quick broadcast?",
     "deleteConfirmDescription": "\"{{preset}}\" is shared -- every admin who uses quick broadcasts loses it too. You can always re-add it.",
-    "deleteConfirmButton": "Delete Preset",
-    "noPermission": "You don't have permission to manage quick broadcast presets."
+    "deleteConfirmButton": "Delete Quick Broadcast",
+    "noPermission": "You don't have permission to manage quick broadcasts."
   },
   "toasts": {
     "adminSentTitle": "Admin Message Sent",
@@ -79,6 +79,13 @@
     "server": "Server",
     "admin": "Admin",
     "player": "Player"
+  },
+  "channelTags": {
+    "whisper": "[Whisper]",
+    "faction": "[Faction]",
+    "safehouse": "[Safehouse]",
+    "radio": "[Radio]",
+    "shout": "[Shout]"
   },
   "presets": {
     "default": [

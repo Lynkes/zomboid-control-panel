@@ -50,18 +50,18 @@
     "label": "Schnell-Broadcasts",
     "edit": "bearbeiten",
     "done": "fertig",
-    "editAria": "Vorlagen bearbeiten",
-    "doneAria": "Bearbeiten der Vorlagen beendet",
-    "noPresets": "// keine Vorlagen — zum Hinzufügen auf Bearbeiten klicken",
-    "addPlaceholder": "neue Schnellnachricht hinzufügen…",
-    "addAria": "Vorlage hinzufügen",
+    "editAria": "Schnell-Broadcasts bearbeiten",
+    "doneAria": "Bearbeiten der Schnell-Broadcasts beendet",
+    "noPresets": "// keine Schnell-Broadcasts — zum Hinzufügen auf Bearbeiten klicken",
+    "addPlaceholder": "neuen Schnell-Broadcast hinzufügen…",
+    "addAria": "Schnell-Broadcast hinzufügen",
     "saveAria": "Speichern",
     "cancelAria": "Abbrechen",
-    "deleteAria": "Vorlage {{index}} löschen",
-    "deleteConfirmTitle": "Diese Vorlage löschen?",
-    "deleteConfirmDescription": "\"{{preset}}\" ist gemeinsam genutzt -- jeder Admin, der Schnellansagen verwendet, verliert sie ebenfalls. Du kannst sie jederzeit wieder hinzufügen.",
-    "deleteConfirmButton": "Vorlage löschen",
-    "noPermission": "Du hast keine Berechtigung, Schnell-Broadcast-Vorlagen zu verwalten."
+    "deleteAria": "Schnell-Broadcast {{index}} löschen",
+    "deleteConfirmTitle": "Diesen Schnell-Broadcast löschen?",
+    "deleteConfirmDescription": "\"{{preset}}\" ist gemeinsam genutzt -- jeder Admin, der Schnell-Broadcasts verwendet, verliert ihn ebenfalls. Du kannst ihn jederzeit wieder hinzufügen.",
+    "deleteConfirmButton": "Schnell-Broadcast löschen",
+    "noPermission": "Du hast keine Berechtigung, Schnell-Broadcasts zu verwalten."
   },
   "toasts": {
     "adminSentTitle": "Admin-Nachricht gesendet",
@@ -79,6 +79,13 @@
     "server": "Server",
     "admin": "Admin",
     "player": "Spieler"
+  },
+  "channelTags": {
+    "whisper": "[Flüstern]",
+    "faction": "[Fraktion]",
+    "safehouse": "[Unterschlupf]",
+    "radio": "[Funk]",
+    "shout": "[Ruf]"
   },
   "presets": {
     "default": [

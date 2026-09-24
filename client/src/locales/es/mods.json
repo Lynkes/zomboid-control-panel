@@ -256,6 +256,7 @@
     "unchecked": "Sin comprobar",
     "openWorkshopPageHint": "Abrir página de Workshop",
     "modFallback": "Mod {{id}}",
+    "selectAria": "Seleccionar {{name}}",
     "removeModAria": "Quitar mod {{name}}",
     "removeFromServer": "Quitar del servidor"
   },
@@ -536,7 +537,7 @@
     "genericNameNotice_many": "<1>{{count}}</1> mods muestran un nombre genérico. Hacer clic en <3>Actualizar nombres</3> para buscarlos (se revisa primero el disco, luego la API de Steam Workshop)."
   },
   "removeModDialog": {
-    "title": "¿Quitar este mod del servidor?",
+    "title": "¿Quitar {{name}} del servidor?",
     "description": "Esto quita el mod de la configuración INI del servidor para que deje de cargarse. Los archivos de Workshop permanecen en el disco (por lo que volver a añadirlo después es instantáneo).",
     "cancel": "Cancelar",
     "remove": "Quitar"
@@ -554,6 +555,8 @@
   "toasts": {
     "serverChangedSinceLoadTitle": "Active server changed",
     "serverChangedSinceLoadDesc": "The active server changed while you had an unsaved mod order. Discard or keep editing -- saving now would write it to the wrong server.",
+    "pendingAddServerChangedTitle": "El servidor activo ha cambiado",
+    "pendingAddServerChangedDesc": "El servidor activo cambió mientras tenías mods en cola para agregar. Los ID y las carpetas de mapas mostrados se buscaron para el servidor anterior; cierra este cuadro de diálogo y empieza de nuevo para el servidor que está activo ahora.",
     "noActiveServerTitle": "Sin servidor activo",
     "noActiveServerDesc": "Seleccionar un servidor local antes de elegir una carpeta de Workshop.",
     "remoteServerTitle": "Servidor remoto",
@@ -640,6 +643,9 @@
     "removeFailedFallback": "No se pudo quitar el mod",
     "modReEnabledTitle": "Mod reactivado",
     "modReEnabledDesc": "Se volvió a añadir al INI del servidor. Reiniciar el servidor para que se cargue.",
+    "additionalModsFoundSuffix_one": " Queda 1 mod más en este elemento de Workshop sin habilitar: {{ids}}. Usar «Añadir mod» o «Sincronizar ID de mod» para añadirlo.",
+    "additionalModsFoundSuffix_many": " Quedan {{count}} mods más en este elemento de Workshop sin habilitar: {{ids}}. Usar «Añadir mod» o «Sincronizar ID de mod» para añadirlos.",
+    "additionalModsFoundSuffix_other": " Quedan {{count}} mods más en este elemento de Workshop sin habilitar: {{ids}}. Usar «Añadir mod» o «Sincronizar ID de mod» para añadirlos.",
     "enableFailedFallbackShort": "No se pudo habilitar el mod",
     "modsReEnabledTitle": "Mods reactivados",
     "partialReEnableTitle": "Reactivación parcial",
@@ -745,10 +751,17 @@
     "conflictDismissedTitle": "Conflicto descartado",
     "conflictDismissedDesc": "{{a}} ↔ {{b}} marcado como falso positivo.",
     "failedToDismissConflictTitle": "No se pudo descartar el conflicto",
+    "failedToDismissConflictFallback": "No se pudo guardar el descarte. Inténtalo de nuevo.",
     "failedToToggleModTitle": "No se pudo alternar el mod",
+    "failedToToggleModFallback": "No se pudo actualizar el estado del mod. Inténtalo de nuevo.",
     "failedToToggleGroupTitle": "No se pudo alternar el grupo",
+    "failedToToggleGroupFallback": "No se pudo actualizar el estado del grupo. Inténtalo de nuevo.",
     "failedToRemoveWorkshopItemTitle": "No se pudo quitar el elemento de Workshop",
+    "failedToRemoveWorkshopItemFallback": "No se pudo quitar el elemento de Workshop de la configuración del servidor. Inténtalo de nuevo.",
     "failedToRemoveOrphanedModTitle": "No se pudo quitar el mod huérfano",
+    "failedToRemoveOrphanedModFallback": "No se pudo quitar el ID de mod huérfano. Inténtalo de nuevo.",
+    "failedToRestoreConflictTitle": "No se pudo restaurar el conflicto",
+    "failedToRestoreConflictFallback": "No se pudo restaurar el conflicto descartado. Inténtalo de nuevo.",
     "dependencyAddedTitle": "Dependencia añadida",
     "dependencyAddedDesc": "{{name}} añadido a la configuración del servidor.",
     "addFailedTitle": "Error al añadir",

@@ -63,7 +63,11 @@ export function isSupportedFiveFieldCron(expression) {
   );
 }
 
-function expandCronField(field, max) {
+// round 28 (scheduled-task next-run data): exported so cronNextRun.js can
+// reuse the exact same 0-based field expansion this file's own DST checks
+// already rely on, instead of a second, independently-typed parser that
+// could disagree with THIS file about what a given cron field means.
+export function expandCronField(field, max) {
   const values = new Set();
 
   for (const part of field.split(",")) {
@@ -209,4 +213,140 @@ export function dstFallBackWarning(expression, timezone, label) {
     "the repeated hour will be silently skipped -- this is a limitation of " +
     "the underlying scheduler (node-cron), not a bug in the panel."
   );
+}
+
+// continuous-bug-hunt round 17 (2026-09-18, scheduler DST sweep): the
+// warning above only ever covers FALL-BACK for a sub-hourly (2+ distinct
+// minute values) schedule. A schedule with a SINGLE fixed hour:minute --
+// the far more common shape for a nightly backup or restart -- was
+// previously believed to be entirely DST-safe (the file's own prior
+// comment on dstFallBackWarning documents, correctly and empirically
+// verified against real node-cron 4.6.0, that such a schedule does NOT
+// double-fire on fall-back: node-cron's matcher walks forward using
+// STRUCTURAL local hour/minute comparisons, so it can never re-match the
+// same hour:minute twice on one calendar day, even when that local time
+// genuinely recurs). That reasoning is sound for fall-back, but it says
+// nothing about SPRING-FORWARD -- and empirically (verified live against
+// node-cron 4.6.0's TimeMatcher, "30 2 * * *" in America/New_York across
+// 2026-03-08, the real US spring-forward date that year) a schedule whose
+// fixed hour:minute falls inside the skipped local hour is silently
+// dropped for that one calendar day: node-cron's own matcher rejects the
+// nonexistent local time as not a real match and moves on to the NEXT
+// valid day, with no missed-execution event (there was never a valid slot
+// to miss) and, until now, no warning from this panel either.
+//
+// Reimplements node-cron's own guess-then-verify local-time resolution
+// (node_modules/node-cron/dist/_shared.js's
+// localTimeToTimestamp()/readsBackTo()) using only public Intl APIs rather
+// than importing node-cron's private dist path, which is not part of its
+// published package exports and could change or disappear on a version
+// bump. Scans forward day by day (not hour by hour) for cheapness -- DST
+// transitions are at most 2 per year -- and only for schedules with a
+// small number of (hour, minute) combinations, so a legitimately sub-hourly
+// schedule (already covered by dstFallBackWarning above, and far more
+// expensive to scan this way) doesn't turn this into an unbounded scan.
+const DST_TRANSITION_SCAN_DAYS = 370; // > 1 full year, so every zone's transition(s) are covered regardless of today's date
+const DST_SPRING_FORWARD_MAX_FIRE_COMBINATIONS = 8; // (hour,minute) pairs; keeps the day-by-day scan cheap
+
+// round 28: exported for cronNextRun.js -- same reasoning as
+// expandCronField's own export comment above.
+export function utcOffsetMinutes(date, zone) {
+  const value = new Intl.DateTimeFormat("en-US", {
+    timeZone: zone,
+    timeZoneName: "shortOffset",
+  })
+    .formatToParts(date)
+    .find((part) => part.type === "timeZoneName")?.value;
+  const match = /GMT([+-])(\d{1,2})(?::?(\d{2}))?/.exec(value || "");
+  if (!match) return 0;
+  const sign = match[1] === "-" ? -1 : 1;
+  return sign * (Number(match[2]) * 60 + Number(match[3] || 0));
+}
+
+// round 28: exported for cronNextRun.js -- same reasoning as
+// expandCronField's own export comment above.
+export function zonedDateParts(date, zone) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: zone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  })
+    .formatToParts(date)
+    .reduce((acc, part) => {
+      if (part.type !== "literal") acc[part.type] = Number(part.value);
+      return acc;
+    }, {});
+  return {
+    year: parts.year,
+    month: parts.month,
+    day: parts.day,
+    // Intl renders local midnight as "24", not "00", for this option set.
+    hour: parts.hour === 24 ? 0 : parts.hour,
+    minute: parts.minute,
+  };
+}
+
+// Whether the given LOCAL wall-clock moment genuinely exists in `zone` --
+// false for exactly the "spring-forward gap" case (the guess and its
+// re-derived candidate both land on a real UTC instant, but neither reads
+// back to the target local hour:minute, because that local time was
+// skipped entirely). Mirrors node-cron's own guess/verify approach; see
+// this file's header comment on dstSpringForwardWarning for why it's
+// reimplemented here rather than imported from node-cron's internals.
+function wallTimeExists(year, month, day, hour, minute, zone) {
+  const guessUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const offset1 = utcOffsetMinutes(new Date(guessUtc), zone);
+  const candidate1 = guessUtc - offset1 * 60000;
+  const offset2 = utcOffsetMinutes(new Date(candidate1), zone);
+  const candidate2 = guessUtc - offset2 * 60000;
+  const readsBack = (ts) => {
+    const parts = zonedDateParts(new Date(ts), zone);
+    return (
+      parts.year === year &&
+      parts.month === month &&
+      parts.day === day &&
+      parts.hour === hour &&
+      parts.minute === minute
+    );
+  };
+  return readsBack(candidate1) || readsBack(candidate2);
+}
+
+export function dstSpringForwardWarning(expression, timezone, label) {
+  if (hasUnsupportedCronFieldCount(expression)) return null;
+  if (!timezoneObservesDst(timezone)) return null;
+  const [minute, hour] = expression.trim().split(/\s+/);
+  const minutes = expandCronField(minute, 59);
+  const hours = expandCronField(hour, 23);
+  if (!minutes || !hours) return null;
+  if (minutes.size * hours.size > DST_SPRING_FORWARD_MAX_FIRE_COMBINATIONS) {
+    return null;
+  }
+
+  const now = new Date();
+  for (let dayOffset = 0; dayOffset <= DST_TRANSITION_SCAN_DAYS; dayOffset += 1) {
+    const probe = new Date(now.getTime() + dayOffset * 86400000);
+    const { year, month, day } = zonedDateParts(probe, timezone);
+    for (const h of hours) {
+      for (const m of minutes) {
+        if (!wallTimeExists(year, month, day, h, m, timezone)) {
+          const name = label ? `"${label}" ` : "";
+          const pad = (n) => String(n).padStart(2, "0");
+          const dateLabel = `${year}-${pad(month)}-${pad(day)}`;
+          return (
+            `Schedule ${name}is set to fire at ${pad(h)}:${pad(m)}; on ` +
+            `${dateLabel}, ${timezone} springs forward and that local time ` +
+            "does not occur -- that day's run will be silently skipped. " +
+            "This is a limitation of the underlying scheduler (node-cron), " +
+            "not a bug in the panel."
+          );
+        }
+      }
+    }
+  }
+  return null;
 }

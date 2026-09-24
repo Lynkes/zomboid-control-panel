@@ -11,6 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { HelpTip } from '@/components/HelpTip'
+import { DisabledReason } from '@/components/DisabledReason'
 import {
   Dialog,
   DialogContent,
@@ -556,20 +557,43 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
                               {t('matrix.memberCount', { count: role.memberCount })}
                             </span>
                             <div className="flex items-center gap-1">
-                              <Button
-                                ref={(el) => {
-                                  if (el) roleHeaderButtonRefs.current.set(role.id, el)
-                                  else roleHeaderButtonRefs.current.delete(role.id)
-                                }}
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6"
-                                title={t('matrix.renameTooltip')}
-                                aria-label={t('matrix.renameTooltip')}
-                                onClick={() => openRenameDialog(role)}
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </Button>
+                              {/* pz-pam-r23: a seeded (built-in) role's
+                                  rename ALWAYS fails server-side
+                                  (ROLE_SEEDED_RENAME_REFUSED -- see
+                                  permissions.js's updateRole()), but this
+                                  button used to stay fully enabled with no
+                                  hint why, letting the operator open the
+                                  dialog, type a name, and only find out on
+                                  submit. Explain it up front instead -- but
+                                  aria-disabled + DisabledReason, NOT the
+                                  disabled attribute: this is deliberately
+                                  the one button on a seeded role's column
+                                  that must stay focusable (see the
+                                  roleHeaderButtonRefs comment above --
+                                  delete is genuinely disabled for a seeded
+                                  role, so Rename is the only reliable
+                                  focus-restore target after a delete
+                                  elsewhere in the matrix). */}
+                              <DisabledReason reason={role.isSeeded ? t('matrix.renameSeededTooltip') : null}>
+                                <Button
+                                  ref={(el) => {
+                                    if (el) roleHeaderButtonRefs.current.set(role.id, el)
+                                    else roleHeaderButtonRefs.current.delete(role.id)
+                                  }}
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  title={role.isSeeded ? undefined : t('matrix.renameTooltip')}
+                                  aria-label={t('matrix.renameTooltip')}
+                                  aria-disabled={role.isSeeded || undefined}
+                                  onClick={() => {
+                                    if (role.isSeeded) return
+                                    openRenameDialog(role)
+                                  }}
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                              </DisabledReason>
                               {role.isSeeded ? (
                                 <span title={t('matrix.deleteSeededTooltip')}>
                                   <Button

@@ -33,7 +33,9 @@ import {
   isValidIanaTimezone,
   isRawOffsetTimezone,
   dstFallBackWarning,
+  dstSpringForwardWarning,
 } from "../utils/cronValidation.js";
+import { computeNextRun } from "../utils/cronNextRun.js";
 import {
   defaultRestartWarningSettings,
   formatRestartWarning,
@@ -471,11 +473,9 @@ export class Scheduler {
     // the API response (Scheduler.tsx reading that field is carded
     // separately). Non-null return is still truthy/`!== false`, so this
     // does not change either existing caller's success/failure check.
-    const dstWarning = dstFallBackWarning(
-      task.cron_expression,
-      this.effectiveTimezone,
-      task.name,
-    );
+    const dstWarning =
+      dstFallBackWarning(task.cron_expression, this.effectiveTimezone, task.name) ||
+      dstSpringForwardWarning(task.cron_expression, this.effectiveTimezone, task.name);
     if (dstWarning) log.warn(dstWarning);
     return { scheduled: true, dstWarning };
   }
@@ -496,7 +496,24 @@ export class Scheduler {
       log.debug(
         `Skipping duplicate execution of task ${task.name} (already running)`,
       );
-      return { success: false, message: "Already running" };
+      // scheduled-task-overlap-refusal-silent-in-history, continuous-bug-hunt
+      // round 10: every OTHER refusal this file can produce (a missed cron
+      // tick via onScheduleMissed, a busy lifecycle lock, RCON unreachable,
+      // a failed process scan, ...) already writes a Schedule History entry
+      // -- this was the one exception. A task whose previous run is still
+      // in flight when its next tick (or a manual "Run now" click) lands
+      // was refused with zero trace: not logged here, and node-cron itself
+      // considers this execution to have fired exactly on time (it has no
+      // idea our own callback short-circuited), so 'execution:missed' never
+      // fires for it either. The live "Run now" caller still sees the
+      // refusal via the {success:false} this already returned (routes/
+      // scheduler.js's socket emission), but Schedule History -- the
+      // durable audit trail onScheduleMissed's own comment above exists
+      // specifically to keep from going silent -- had nothing,
+      // indistinguishable from a healthy schedule with nothing due.
+      const message = "Already running";
+      await logScheduleExecution(task.id, task.name, task.command, false, message, 0);
+      return { success: false, message };
     }
 
     this.runningTasks.add(task.id);
@@ -520,14 +537,23 @@ export class Scheduler {
     } catch (error) {
       const duration = Date.now() - startTime;
       log.error(`Scheduled task failed ${task.name}: ${error.message}`);
-      await logScheduleExecution(
-        task.id,
-        task.name,
-        task.command,
-        false,
-        error.message,
-        duration,
-      );
+      // continuous-bug-hunt round 19 (duplicate Schedule History row):
+      // executeTask()'s restart branch tags the Error it throws with
+      // alreadyLoggedToScheduleHistory when performRestart() already wrote
+      // its own row for this exact failure (deep RCON/process/container
+      // failures) -- logging again here would be a second row for the same
+      // execution. Every OTHER task kind (save/servermsg/bridge/...) never
+      // sets this flag, so this still logs for them exactly as before.
+      if (!error.alreadyLoggedToScheduleHistory) {
+        await logScheduleExecution(
+          task.id,
+          task.name,
+          task.command,
+          false,
+          error.message,
+          duration,
+        );
+      }
       await logServerEvent(
         "scheduled_task_error",
         `${task.name}: ${error.message}`,
@@ -613,13 +639,26 @@ export class Scheduler {
         // string-equality check could never have matched it even by
         // accident, so that path had NO failure entry at all, only the
         // fabricated success. Throwing on any `!result.success` guarantees
-        // runTaskNow's catch logs a false entry every time -- occasionally
-        // a harmless duplicate of one performRestart() already wrote, never
-        // a contradiction of one.
+        // runTaskNow's catch logs a false entry every time.
+        //
+        // continuous-bug-hunt round 19 (duplicate Schedule History row):
+        // "occasionally a harmless duplicate of one performRestart() already
+        // wrote" (the original wording here) was the SAME tradeoff
+        // setupAutoRestart's cron callback made, and it turned out to be the
+        // common case, not the edge case -- a real deep failure inside
+        // performRestart() logs its own row AND (via this throw) makes
+        // runTaskNow's catch log a second one for the identical execution.
+        // performRestart() now marks every return where it already logged
+        // with `logged: true`; tag the thrown Error with the same flag so
+        // runTaskNow's catch (below) can skip its own logScheduleExecution
+        // call for this one already-recorded case, without touching how it
+        // handles every OTHER task kind's failure.
         if (!result.success) {
-          throw new Error(
+          const err = new Error(
             result.message || result.error || "Restart failed",
           );
+          if (result.logged) err.alreadyLoggedToScheduleHistory = true;
+          throw err;
         }
       } else if (commandKind === "save") {
         const saved = await rconService.save({ skipLog: true });
@@ -1066,11 +1105,9 @@ export class Scheduler {
       // The backup settings save route (routes/backup.js, not this fence)
       // isn't touched here -- log only, same reasoning as setupAutoRestart's
       // own warning above.
-      const dstWarning = dstFallBackWarning(
-        settings.schedule,
-        this.effectiveTimezone,
-        "backup",
-      );
+      const dstWarning =
+        dstFallBackWarning(settings.schedule, this.effectiveTimezone, "backup") ||
+        dstSpringForwardWarning(settings.schedule, this.effectiveTimezone, "backup");
       if (dstWarning) log.warn(dstWarning);
     } catch (error) {
       log.error(`Failed to setup backup schedule: ${error.message}`);
@@ -1107,9 +1144,49 @@ export class Scheduler {
         // refuses or fails, so a silent no-op is the failure mode to catch.
         const result = await this.performRestart();
         if (!result?.success) {
-          log.error(
-            `Scheduled auto-restart did not complete: ${result?.message || "unknown error"}`,
-          );
+          const message = result?.message || result?.error || "unknown error";
+          log.error(`Scheduled auto-restart did not complete: ${message}`);
+          // continuous-bug-hunt round 17 (scheduler overlap sweep): unlike
+          // every OTHER refusal this function can produce (a busy
+          // lifecycle lock further along, an execution failure deep inside
+          // performRestart -- both already call logScheduleExecution
+          // themselves before returning/throwing), performRestart()'s two
+          // EARLIEST guards -- `this.restartInProgress` already true (a
+          // manual restart, a scheduled task's own "restart" command, or a
+          // still-running previous auto-restart tick overlapping this one),
+          // and a lifecycle lock already held by an unrelated in-flight
+          // operation (Steam update, wipe, ...) -- return {success:false}
+          // WITHOUT ever recording anything, because both checks fire
+          // BEFORE this.restartInProgress is set and before this function
+          // reaches its own logging. Before this fix, the auto-restart
+          // cron's OWN "next run" firing while blocked left ZERO trace in
+          // Schedule History -- indistinguishable from a healthy schedule
+          // with nothing due, the exact silent-refusal shape already fixed
+          // for runTaskNow()'s self-overlap case (see its own comment
+          // above) and for the scheduled backup's restart-overlap skip
+          // (setupBackupSchedule()'s cron callback above).
+          //
+          // continuous-bug-hunt round 19 (duplicate Schedule History row):
+          // the ORIGINAL round-17 fix above logged unconditionally on
+          // `!result.success`, accepting "occasionally a harmless
+          // duplicate" as a tradeoff for closing the silent-refusal gap --
+          // but a REAL deep-failure return (RCON unreachable, process scan
+          // failed, container restart failed, ...) already calls
+          // logScheduleExecution() itself, several hundred lines up inside
+          // performRestart(), before returning here. Logging again
+          // unconditionally meant every genuine restart failure produced
+          // TWO Schedule History rows for the same execution, not one --
+          // not a harmless edge case, the COMMON case. performRestart() now
+          // marks every return where it already logged with `logged: true`
+          // (the two early guards above, and the mid-countdown "cancelled"
+          // returns, never set it, since neither of those paths logs
+          // anything) -- checking it here closes the round-17 gap (an early
+          // guard's refusal still gets recorded, since `logged` is falsy
+          // there) without reintroducing the duplicate for every other
+          // failure shape.
+          if (!result?.logged) {
+            await logScheduleExecution(null, "Auto Restart", "restart", false, message, 0);
+          }
         }
       } catch (err) {
         // performRestart re-throws on failure. Verified against the
@@ -1134,11 +1211,9 @@ export class Scheduler {
 
     // Boot-time / env-driven, not a create/update API call -- log only,
     // same as the reasoning on scheduleTask()'s own warning above.
-    const dstWarning = dstFallBackWarning(
-      cronExpression,
-      this.effectiveTimezone,
-      "auto restart",
-    );
+    const dstWarning =
+      dstFallBackWarning(cronExpression, this.effectiveTimezone, "auto restart") ||
+      dstSpringForwardWarning(cronExpression, this.effectiveTimezone, "auto restart");
     if (dstWarning) log.warn(dstWarning);
   }
 
@@ -1154,11 +1229,19 @@ export class Scheduler {
   // restart-now / the AUTO_RESTART_CRON job). performRestart() passes its
   // resolved target explicitly so a non-active-server restart's countdown
   // broadcasts to the RIGHT server, not whatever the admin UI is showing.
+  // Returns whether the RCON `servermsg` broadcast -- the ONE path that
+  // actually reaches every player's chat -- was actually delivered. Callers
+  // in the warning countdown use this to track whether players were really
+  // warned, not just whether the countdown loop kept running; see
+  // performRestart()'s own `failedWarningBroadcasts` comment for why this
+  // matters (round 11, notification delivery truth).
   async _broadcastRestartMessage(text, rconService = this.rconService) {
     // RCON `servermsg` — primary path, works on B41 + B42 without the mod.
+    let delivered = false;
     try {
       const r = await rconService.serverMessage(text, { skipLog: true });
-      if (!r?.success) {
+      delivered = Boolean(r?.success);
+      if (!delivered) {
         log.warn(
           `Restart broadcast (RCON) failed: ${r?.error || r?.response || "unknown"}`,
         );
@@ -1176,7 +1259,7 @@ export class Scheduler {
     // targeting a non-active server, since it has no per-server instancing
     // (same limitation as the `bridge:` scheduled-command guard) and firing
     // it here would send the message into the WRONG server's chat.
-    if (rconService !== this.rconService) return;
+    if (rconService !== this.rconService) return delivered;
     try {
       if (
         panelBridge &&
@@ -1192,6 +1275,7 @@ export class Scheduler {
     } catch (err) {
       log.debug(`Restart broadcast (bridge) threw: ${err.message}`);
     }
+    return delivered;
   }
 
   // Discord was already told the restart was coming, so it has to be told when
@@ -1280,6 +1364,17 @@ export class Scheduler {
 
     this.restartInProgress = true;
     this.restartCancelled = false; // Allow cancellation
+    // continuous-bug-hunt round 28 (ux-proposals-need-backend-data): this
+    // function does its own quit()+wait+start() sequence rather than going
+    // through ServerManager.restartServer() (which sets the identical
+    // stopIntent='restart' at its own entry, for its own separate callers)
+    // -- set here so checkServerStatusNow (server/index.js) can tell this
+    // upcoming stop apart from an unrelated deliberate stop or a genuine
+    // crash the moment it's observed. Set on the SAME serverManager instance
+    // the rest of this function already pins its stop/start target to
+    // (pinnedServerId, resolved above), not the shared singleton
+    // unconditionally.
+    serverManager.stopIntent = "restart";
     const warningMinutes =
       warningMinutesParam ??
       (parseInt(process.env.RESTART_WARNING_MINUTES, 10) || 5);
@@ -1354,10 +1449,12 @@ export class Scheduler {
             restartDuration,
           );
           logServerEvent("auto_restart_error", errorMsg);
-          return { success: false, wasRunning: false, message: errorMsg };
+          return { success: false, wasRunning: false, message: errorMsg, logged: true };
         }
 
-        // Server wasn't running - just start it. Already-stopped, so config
+        // Server wasn't running - start it through the owning lifecycle
+        // provider. A managed container must never fall through to the native
+        // JVM path: that would create a second server outside Docker.
         // files are already static -- same coverage as the main branch
         // below, see _backupConfigBeforeRestart()'s own comment. Also
         // refresh the launch target first, same as the manual /start route
@@ -1368,12 +1465,20 @@ export class Scheduler {
           "Auto-restart triggered but server was not running - starting server",
         );
         const restartTarget = await this._backupConfigBeforeRestart(pinnedServerId);
-        await refreshLaunchTargetBeforeStart(restartTarget, {
-          managedHandled: false,
-        });
-        const started = await serverManager.startServer({
+        const managedStart = await runManagedLifecycle("start", {
           serverId: pinnedServerId,
         });
+        let started;
+        if (managedStart.handled) {
+          started = managedStart;
+        } else {
+          await refreshLaunchTargetBeforeStart(restartTarget, {
+            managedHandled: false,
+          });
+          started = await serverManager.startServer({
+            serverId: pinnedServerId,
+          });
+        }
         if (!started?.success) {
           log.warn(
             `Auto-restart: start command reported failure: ${started?.error || started?.message || "unknown error"}`,
@@ -1417,7 +1522,7 @@ export class Scheduler {
           );
           log.error("Failed to start server");
         }
-        return { success: isNowRunning, wasRunning: false };
+        return { success: isNowRunning, wasRunning: false, logged: true };
       }
 
       // Server is running - perform full restart with warnings
@@ -1448,10 +1553,27 @@ export class Scheduler {
           restartDuration,
         );
         logServerEvent("auto_restart_error", errorMsg);
-        return { success: false, message: errorMsg };
+        return { success: false, message: errorMsg, logged: true };
       }
 
       log.info("Auto-restart: RCON verified, sending warnings...");
+
+      // continuous-bug-hunt round 11 (notification delivery truth):
+      // _broadcastRestartMessage() is deliberately best-effort and never
+      // throws (RCON can legitimately drop mid-countdown after the
+      // just-passed connectivity check above -- a multi-minute warning
+      // sequence has plenty of time for that), so the loops below keep
+      // running warning-to-warning regardless of whether any single one
+      // actually reached a player. Before this fix, a broadcast failure was
+      // only ever a buried log.warn(): the restart could go on to succeed
+      // completely (world saved, server back up) and get logged to
+      // Schedule History as an unqualified "Server restarted successfully"
+      // even though players were NEVER actually warned it was coming. Track
+      // failures here and fold the count into that same success message
+      // instead of only the server log -- same reasoning as every other
+      // "don't let success:true imply more than what was actually
+      // verified" fix in this file.
+      let failedWarningBroadcasts = 0;
 
       // Notify Discord at the start of the restart sequence
       if (this.discordBot) {
@@ -1481,10 +1603,11 @@ export class Scheduler {
             await this._notifyRestartCancelled();
             return { success: false, message: "Restart cancelled" };
           }
-          await this._broadcastRestartMessage(
+          const delivered = await this._broadcastRestartMessage(
             formatRestartWarning(restartWarning, i, "minute"),
             rconService,
           );
+          if (!delivered) failedWarningBroadcasts++;
 
           if (i > 1) {
             await this.sleep(60000); // Wait 1 minute
@@ -1516,25 +1639,34 @@ export class Scheduler {
             await this._notifyRestartCancelled();
             return { success: false, message: "Restart cancelled" };
           }
-          await this._broadcastRestartMessage(
+          const delivered = await this._broadcastRestartMessage(
             formatRestartWarning(restartWarning, tick.count, "second"),
             rconService,
           );
+          if (!delivered) failedWarningBroadcasts++;
         }
 
         // One last second, then go.
         await this.sleep(1000);
-        await this._broadcastRestartMessage(
-          getRestartWarningNotice(restartWarning, "restarting"),
-          rconService,
-        );
+        if (
+          !(await this._broadcastRestartMessage(
+            getRestartWarningNotice(restartWarning, "restarting"),
+            rconService,
+          ))
+        ) {
+          failedWarningBroadcasts++;
+        }
         await this.sleep(2000);
       } else {
         // Immediate restart - just a brief message
-        await this._broadcastRestartMessage(
-          getRestartWarningNotice(restartWarning, "restarting"),
-          rconService,
-        );
+        if (
+          !(await this._broadcastRestartMessage(
+            getRestartWarningNotice(restartWarning, "restarting"),
+            rconService,
+          ))
+        ) {
+          failedWarningBroadcasts++;
+        }
         await this.sleep(2000);
       }
 
@@ -1554,7 +1686,7 @@ export class Scheduler {
           restartDuration,
         );
         await logServerEvent("auto_restart_error", errorMsg);
-        return { success: false, wasRunning: true, message: errorMsg };
+        return { success: false, wasRunning: true, message: errorMsg, logged: true };
       }
       await this.sleep(3000);
 
@@ -1578,7 +1710,7 @@ export class Scheduler {
           restartDuration,
         );
         logServerEvent("auto_restart_error", errorMsg);
-        return { success: false, wasRunning: true, message: errorMsg };
+        return { success: false, wasRunning: true, message: errorMsg, logged: true };
       }
 
       if (!managed.handled) {
@@ -1608,7 +1740,7 @@ export class Scheduler {
             restartDuration,
           );
           logServerEvent("auto_restart_error", errorMsg);
-          return { success: false, wasRunning: true, message: errorMsg };
+          return { success: false, wasRunning: true, message: errorMsg, logged: true };
         }
         while (processDetails.running && attempts < 60) {
           await this.sleep(1000);
@@ -1627,7 +1759,7 @@ export class Scheduler {
               restartDuration,
             );
             logServerEvent("auto_restart_error", errorMsg);
-            return { success: false, wasRunning: true, message: errorMsg };
+            return { success: false, wasRunning: true, message: errorMsg, logged: true };
           }
         }
 
@@ -1657,6 +1789,7 @@ export class Scheduler {
               success: false,
               wasRunning: true,
               message: `Could not confirm the old server stopped: ${stopError}`,
+              logged: true,
             };
           }
           await this.sleep(5000);
@@ -1759,7 +1892,7 @@ export class Scheduler {
           "Server stopped but failed to start",
         );
         log.error("Auto-restart: Server stopped but failed to start");
-        return { success: false, wasRunning: true };
+        return { success: false, wasRunning: true, logged: true };
       }
 
       // The new instance is now confirmed up -- either Docker's own restart
@@ -1894,20 +2027,24 @@ export class Scheduler {
         const rconStatus = rconConnected
           ? " (RCON connected)"
           : " (RCON not yet connected)";
+        const warningNote =
+          failedWarningBroadcasts > 0
+            ? ` -- ${failedWarningBroadcasts} restart warning broadcast(s) failed to send; players may not have been warned before this restart`
+            : "";
         await logScheduleExecution(
           null,
           label,
           "restart",
           true,
-          "Server restarted successfully" + rconStatus,
+          "Server restarted successfully" + rconStatus + warningNote,
           restartDuration,
         );
         logServerEvent(
           "auto_restart",
-          "Server restarted successfully" + rconStatus,
+          "Server restarted successfully" + rconStatus + warningNote,
         );
         log.info(
-          `Auto-restart completed successfully (took ${Math.round(restartDuration / 1000)}s)${rconStatus}`,
+          `Auto-restart completed successfully (took ${Math.round(restartDuration / 1000)}s)${rconStatus}${warningNote}`,
         );
       } else {
         await logScheduleExecution(
@@ -1925,7 +2062,7 @@ export class Scheduler {
         log.error("Auto-restart: Server stopped but failed to start");
       }
 
-      return { success: serverStarted, wasRunning: true };
+      return { success: serverStarted, wasRunning: true, logged: true };
     } catch (error) {
       const restartDuration = Date.now() - restartStartTime;
       log.error(`Auto-restart failed: ${error.message}`);
@@ -1982,6 +2119,46 @@ export class Scheduler {
     }
   }
 
+  // continuous-bug-hunt round 28 (ux-proposals-need-backend-data): a
+  // per-task next-run time for the Scheduler task list. Prefers the LIVE
+  // node-cron job's own getNextRun() when this task is currently scheduled
+  // (this.jobs) -- that's the exact engine that will actually fire it, so
+  // there's no way for this to disagree with reality the way a second,
+  // independent computation could. Falls back to computeNextRun() (a plain
+  // cron_expression + timezone calculation, no live job required) for a
+  // disabled task, which /tasks still needs to show but which
+  // scheduleTask() never hands to cron.schedule() in the first place.
+  getTaskNextRun(task) {
+    const job = this.jobs.get(task.id);
+    if (job && typeof job.getNextRun === "function") {
+      try {
+        const at = job.getNextRun();
+        if (at instanceof Date && Number.isFinite(at.getTime())) return at.toISOString();
+      } catch {
+        // Falls through to the offline computation below.
+      }
+    }
+    if (!task.enabled) return null;
+    return computeNextRun(task.cron_expression, this.effectiveTimezone);
+  }
+
+  // Same "prefer the live job" reasoning as getTaskNextRun above, for the
+  // backup schedule specifically -- this.backupJob is null whenever backups
+  // are disabled, in which case there is no next run to report (not a
+  // hypothetical one computed from whatever schedule string settings still
+  // remembers from before it was turned off).
+  getBackupNextRun() {
+    if (this.backupJob && typeof this.backupJob.getNextRun === "function") {
+      try {
+        const at = this.backupJob.getNextRun();
+        if (at instanceof Date && Number.isFinite(at.getTime())) return at.toISOString();
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
   getStatus() {
     const tasks = [];
     for (const [id] of this.jobs) {
@@ -1992,6 +2169,11 @@ export class Scheduler {
       activeTasks: tasks.length,
       autoRestartEnabled: !!this.autoRestartJob,
       backupScheduleEnabled: !!this.backupJob,
+      // round 28: distinct from the aggregate `nextRun` below (soonest
+      // across every job) -- Scheduler.tsx's own backup-health card needs
+      // the backup schedule's OWN next run specifically, not whichever job
+      // happens to be soonest overall.
+      backupNextRun: this.getBackupNextRun(),
       modUpdateRestartPending: this.modUpdateRestartPending,
       nextRun: this.getNextRun(),
       // Timezone-picker card (2026-08-29, hunt-wave5 follow-up): `timezone`

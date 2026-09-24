@@ -310,6 +310,56 @@ describe("Linux managed-service lifecycle", () => {
     expect(result.error).toMatch(/already running/i);
   });
 
+  it("fails closed while systemd is deactivating", async () => {
+    const execFile = vi.fn(async (_command, args) => {
+      if (args.includes("show")) {
+        return {
+          code: 0,
+          stdout:
+            "LoadState=loaded\nActiveState=deactivating\nEnvironment=ZOMBOID_PANEL_SERVER_ID=alpha-1\n",
+          stderr: "",
+        };
+      }
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    const lifecycle = new LinuxServiceLifecycle(server, "systemd", {
+      execFile,
+      platform: "linux",
+      containerized: false,
+      waitForState: false,
+    });
+
+    await expect(lifecycle.status()).resolves.toMatchObject({
+      running: false,
+      scanFailed: true,
+      activeState: "deactivating",
+    });
+    const result = await lifecycle.run("stop");
+    expect(result.message).not.toBe("Server is already stopped");
+    expect(execFile).toHaveBeenCalledWith("systemctl", [
+      "--user",
+      "stop",
+      "zomboid-panel-server-alpha-1.service",
+    ]);
+  });
+
+  it("refuses activation while the previous instance is still deactivating", async () => {
+    const lifecycle = new LinuxServiceLifecycle(server, "systemd", {
+      platform: "linux",
+      containerized: false,
+      execFile: vi.fn(async () => ({
+        code: 0,
+        stdout:
+          "LoadState=loaded\nActiveState=deactivating\nEnvironment=ZOMBOID_PANEL_SERVER_ID=alpha-1\n",
+        stderr: "",
+      })),
+    });
+
+    const result = await lifecycle.preflightActivation();
+
+    expect(result.ready).toBe(false);
+  });
+
   describe("OpenRC status() scanFailed (2026-08-31 services sweep regression)", () => {
     function openrcLifecycle(execFile) {
       return new LinuxServiceLifecycle(server, "openrc", {

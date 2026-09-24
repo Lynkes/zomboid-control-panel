@@ -360,6 +360,17 @@ export const ErrorCode = Object.freeze({
    * delete button is disabled for it -- this closes that gap in the
    * service itself, not just the one screen that happened to check first. */
   ROLE_IS_SEEDED: "ROLE_IS_SEEDED",
+  /** server/services/permissions.js -- updateRole()'s seeded-name guard: a
+   * PUT on a seeded role (admin/technician/moderator) that tries to change
+   * its `name`. Hard refusal, no override -- a seeded role's name is a
+   * load-bearing string elsewhere (getRoleByName(req.user.role), USER_ROLES/
+   * DEFAULT_ROLE_CAPABILITIES keys), so renaming one would desync every
+   * member's stored role string from the roles collection in one write.
+   * Previously thrown with no code at all (a bare `makeError(null, "Built-in
+   * roles cannot be renamed.", 403)`), so the client had nothing to
+   * translate through and showed that literal English sentence to every
+   * locale -- continuous-bug-hunt 2026-09-18, panel-user/role-truth round. */
+  ROLE_SEEDED_RENAME_REFUSED: "ROLE_SEEDED_RENAME_REFUSED",
   /** server/services/auth.js -- createUser()/changeUserRoleById()'s
    * assertNoCapabilityEscalation(): the caller tried to create or reassign
    * a user into a role whose capabilities aren't a subset of their own.
@@ -497,6 +508,17 @@ export const ErrorCode = Object.freeze({
   /** server/routes/backup.js -- POST /api/backup/delete-older-than, `days`
    * isn't a whole number >= 1. */
   BACKUP_INVALID_DAYS_PARAMETER: "BACKUP_INVALID_DAYS_PARAMETER",
+  /** server/routes/backup.js -- POST /api/backup/settings and POST
+   * /api/backup/delete-older-than, mirroring chunks.js's own
+   * expectedServerId/CHUNKS_STALE_SERVER_SCAN convention (round 23,
+   * pz-bughunt): the caller's own expectedServerId (optional -- undefined
+   * skips the check, for back-compat with a client that hasn't sent it
+   * yet) names a server that is no longer the active one. Same shared code
+   * across both routes since it's the identical concept at both sites, not
+   * a meaningfully different call site each needing its own wording (same
+   * policy chunks.js's shared CHUNKS_STALE_SERVER_SCAN already follows for
+   * its own 2 delete routes). */
+  BACKUP_ACTIVE_SERVER_CHANGED: "BACKUP_ACTIVE_SERVER_CHANGED",
   /** server/routes/backup.js -- POST /api/backup/upload, active server is
    * remote. Distinct from the create/restore remote-refusal codes above --
    * own wording, own call site. */
@@ -599,10 +621,6 @@ export const ErrorCode = Object.freeze({
    * Docker-specific addendum stays English-only in the `error` fallback
    * text, a known partial-translation gap, not a bug. */
   WRITABLE_PATH_ERROR: "WRITABLE_PATH_ERROR",
-  /** server/routes/server.js (sites: /install, /steam-update) --
-   * auto-download of steamcmd (ensureSteamCmdInstalled, either platform as
-   * of windows-steamcmd-selfheal, 2026-09-10) itself failed. */
-  STEAMCMD_AUTO_DOWNLOAD_FAILED: "STEAMCMD_AUTO_DOWNLOAD_FAILED",
   /** server/routes/server.js -- POST /api/server/install, another Steam
    * operation already running for this install path. Own code from the
    * /steam-update variant below -- "for this path" vs "for this server" are
@@ -653,9 +671,14 @@ export const ErrorCode = Object.freeze({
    * second call arrives while one is already downloading/extracting; also
    * returned (as of windows-steamcmd-selfheal, 2026-09-10) by /install and
    * /steam-update's own auto-heal (ensureSteamCmdInstalled) when a manual
-   * download is already claiming the same guard, mapped to a 409 there too
-   * instead of falling into STEAMCMD_AUTO_DOWNLOAD_FAILED's 500. Both entry
-   * points check/claim the SAME module-level steamcmdDownloadInProgress
+   * download is already claiming the same guard -- mapped to this same 409
+   * synchronously, before either route responds (install-selfheal-
+   * background, 2026-09-18: self-heal itself now runs in the background
+   * after the response, so this is the one self-heal failure shape that can
+   * still reach the client as an HTTP error; every other self-heal failure
+   * surfaces as install:complete/steam:complete instead, see
+   * ProgressCode.STEAMCMD_SELF_HEAL_FAILED). Both entry points check/claim
+   * the SAME module-level steamcmdDownloadInProgress
    * flag -- deliberately its own flag rather than reusing
    * activeSteamOperations (path-keyed, used by /steam-update and /install
    * for the SteamCMD *process* itself) -- this guards the earlier
@@ -879,6 +902,17 @@ export const ErrorCode = Object.freeze({
    * delete itself uses customPath (not server-scoped). Identical
    * wording/meaning both sites, shared code. */
   CHUNKS_STALE_SERVER_SCAN: "CHUNKS_STALE_SERVER_SCAN",
+  /** server/routes/chunks.js (sites: POST /delete-chunks, POST
+   * /delete-region) -- every chunk targeted by the request failed to
+   * delete (deleted:0 with a non-empty errors[]; the two "nothing was even
+   * targeted" cases -- empty chunks[]/chunksToDelete -- already return
+   * earlier and never reach here). god-dispatched 2026-09-18, round 4: the
+   * response used to hardcode an English-only `error` string for this case
+   * -- registered so the panel's i18n can translate it. Carries the first
+   * underlying filesystem error as `params.reason`, not baked into the
+   * message, same shape as WIPE_PARTIAL_FAILURE above. Identical
+   * wording/meaning both sites, shared code. */
+  DELETE_CHUNKS_ALL_FAILED: "DELETE_CHUNKS_ALL_FAILED",
   /** server/routes/chunks.js -- POST /delete-region, `saveName` missing or
    * one of minX/maxX/minY/maxY missing. */
   DELETE_REGION_FIELDS_REQUIRED: "DELETE_REGION_FIELDS_REQUIRED",
@@ -1681,6 +1715,13 @@ export const ErrorCode = Object.freeze({
    * joined) as a param -- same shape as AUTH_INVALID_ROLE's `{{roles}}`
    * above. */
   PLAYERS_INVALID_ACCESS_LEVEL: "PLAYERS_INVALID_ACCESS_LEVEL",
+  /** server/routes/players.js -- POST /api/players/access-level, the
+   * target account is a local server's only whitelisted account with the
+   * 'admin' role and the request would demote/remove it without a
+   * `confirm: true` override. Carries `{{username}}` as a param. Warn-
+   * then-confirm, not a hard refusal -- see the route's own comment for
+   * why this differs from ROLE_LOCKOUT_LAST_MANAGER. */
+  PLAYERS_LAST_ADMIN_ACCESS_LEVEL_CONFIRM: "PLAYERS_LAST_ADMIN_ACCESS_LEVEL_CONFIRM",
   /** server/routes/players.js (sites: /whitelist/add, /adduser) --
    * optional `password` fails its alphanumeric-plus-symbols/length format
    * check. Identical wording/meaning both sites, shared code. */

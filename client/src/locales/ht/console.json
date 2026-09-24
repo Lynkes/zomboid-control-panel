@@ -16,7 +16,9 @@
     "remoteTitle": "Jounal sèvè pa disponib pou sèvè aleka",
     "remoteDesc": "Sèvè aleka montre RCON sèlman. Itilize onglè RCON la pou kòmand an dirèk.",
     "notConfiguredTitle": "Chemen jounal sèvè pa konfigire",
-    "notConfiguredDesc": "Defini chemen enstalasyon sèvè a oswa chemen done Zomboid la nan Sèvè m yo dabò."
+    "notConfiguredDesc": "Defini chemen enstalasyon sèvè a oswa chemen done Zomboid la nan Sèvè m yo dabò.",
+    "noPermissionTitle": "Jounal sèvè a pa disponib pou wòl sa a",
+    "noPermissionDesc": "Li jounal sèvè a mande pèmisyon server.world_events, ki pa gen nan wòl sa a. Mande yon administratè pou ba w aksè."
   },
   "serverLog": {
     "pathLabel": "chemen",
@@ -42,9 +44,10 @@
     "refreshAria": "Rafrechi jounal la",
     "clear": "efase",
     "clearTooltip": "Efase dosye jounal konsòl sèvè a — aksyon sa a pa ka anile",
-    "clearConfirmTitle": "Efase jounal konsòl sèvè a?",
+    "clearConfirmTitle": "Efase jounal konsòl {{server}} a?",
     "clearConfirmDesc": "Aksyon sa a efase server-console.txt nèt sou disk la, se pa jis afichaj sa a. Pa gen fason pou anile.",
     "clearConfirmButton": "Efase dosye jounal la",
+    "clearNoPermission": "Efase jounal konsòl la mande pèmisyon server.configure, ki pa gen nan wòl sa a.",
     "streamUnavailable": "Flux jounal pa disponib — sèvè a ka òfliy",
     "retry": "eseye ankò",
     "notFoundTitle": "Jounal konsòl sèvè a pa jwenn",
@@ -90,6 +93,7 @@
     "noCommandsTitle": "Poko gen kòmand",
     "noCommandsDesc": "Fè kouri yon kòmand RCON pou wè repons lan isit la.",
     "quickLabel": "rapid",
+    "quickTip": "Ranpli bwat kòmand anba a ak kòmand sa a -- li pa kouri jiskaske w klike \"kouri\" (oswa peze Antre).",
     "commandLabel": "kòmand",
     "commandTip": "Kòmand isit yo egzekite imedyatman sou sèvè k ap fonksyone a, san okenn etap konfimasyon — menm pou yon bagay ki rete sèvè a oswa ki retire yon jwè. Si ou pa sèten sa yon kòmand fè, verifye l anvan ou egzekite l; pifò pa gen fason pou defèt yo.",
     "promptPrefix": "rcon $",
@@ -100,16 +104,18 @@
     "keyboardHint": "// antre · kouri · ↑↓ istwa",
     "noResponseFallback": "Pa gen repons",
     "noPermission": "Wòl ou pa gen pèmisyon pou egzekite kòmand RCON.",
-    "disconnectedUseRecheck": "RCON pa aksesib kounye a -- chwazi \"Tcheke ankò\" anwo a anvan w eseye ankò."
+    "disconnectedUseRecheck": "RCON pa aksesib kounye a -- chwazi \"Tcheke ankò\" anwo a anvan w eseye ankò.",
+    "recheckNoPermission": "Tcheke koneksyon RCON ankò mande pèmisyon server.configure, ki pa gen nan wòl sa a.",
+    "destructiveConfirmTitle": "Egzekite « {{command}} » sou {{server}} ?",
+    "destructiveConfirmDesc": "Kòmand brit sa a ale dirèkteman sou sèvè k ap mache a le ou konfime. Li ka dekonekte jwè yo, chanje ki moun ki gen dwa antre sou sèvè a, modifye paramèt li yo oswa fèmen li, e pifò efè sa yo pa ka anile depi konsòl sa a.",
+    "destructiveConfirmButton": "Egzekite kòmand la"
   },
   "quickCommands": {
     "players": "Jwè",
     "save": "Sove",
     "showOptions": "Montre Opsyon",
     "checkMods": "Tcheke Mods",
-    "help": "Èd",
-    "serverInfo": "Enfòmasyon Sèvè",
-    "getMemory": "Jwenn Memwa"
+    "help": "Èd"
   },
   "broadcast": {
     "toggleLabel": "difizyon",
@@ -144,7 +150,10 @@
     "searchPlaceholder": "Chèche istwa kòmand yo...",
     "searchAria": "Chèche istwa kòmand",
     "emptyTitle": "Pa gen istwa kòmand",
-    "emptyDesc": "Kòmand ou fè kouri yo ap anrejistre isit la."
+    "emptyDesc": "Kòmand ou fè kouri yo ap anrejistre isit la.",
+    "noMatchesTitle": "Pa gen kòmand ki matche",
+    "noMatchesDesc": "Pa gen antre istwa ki matche \"{{query}}\".",
+    "clearSearch": "Efase rechèch la"
   },
   "toasts": {
     "historyUnavailableTitle": "Istwa Pa Disponib",
@@ -157,6 +166,8 @@
     "broadcastSentTitle": "Difizyon Voye",
     "broadcastSentAll": "Mesaj ou a voye bay tout jwè",
     "broadcastSentTagged": "Voye ak etikèt [{{tag}}] la",
-    "broadcastFailedFallback": "Voye difizyon echwe"
+    "broadcastFailedFallback": "Voye difizyon echwe",
+    "serverChangedSinceLoadTitle": "Sèvè aktif la chanje",
+    "serverChangedSinceLoadDesc": "Sèvè aktif la fèk chanje. N ap rafrechi — eseye ankò yon fwa konsòl la fin rechaje, pou aksyon sa a vize bon sèvè a."
   }
 }

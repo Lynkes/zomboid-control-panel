@@ -16,7 +16,9 @@
     "remoteTitle": "Registro del servidor no disponible para servidores remotos",
     "remoteDesc": "Los servidores remotos solo exponen RCON. La pestaña RCON permite ejecutar comandos en vivo.",
     "notConfiguredTitle": "Ruta del registro del servidor sin configurar",
-    "notConfiguredDesc": "Configurar primero la ruta de instalación del servidor o la ruta de datos de Zomboid en Mis servidores."
+    "notConfiguredDesc": "Configurar primero la ruta de instalación del servidor o la ruta de datos de Zomboid en Mis servidores.",
+    "noPermissionTitle": "Registro del servidor no disponible para este rol",
+    "noPermissionDesc": "Leer el registro del servidor requiere el permiso server.world_events, que este rol no tiene. Pide acceso a un administrador."
   },
   "serverLog": {
     "pathLabel": "ruta",
@@ -42,9 +44,10 @@
     "refreshAria": "Actualizar registro",
     "clear": "limpiar",
     "clearTooltip": "Elimina el archivo de registro de la consola del servidor — no se puede deshacer",
-    "clearConfirmTitle": "¿Eliminar el registro de la consola del servidor?",
+    "clearConfirmTitle": "¿Eliminar el registro de la consola de {{server}}?",
     "clearConfirmDesc": "Esto elimina permanentemente server-console.txt del disco, no solo esta vista. No hay forma de deshacerlo.",
     "clearConfirmButton": "Eliminar archivo de registro",
+    "clearNoPermission": "Eliminar el registro de la consola requiere el permiso server.configure, que este rol no tiene.",
     "streamUnavailable": "Flujo de registro no disponible — el servidor podría estar sin conexión",
     "retry": "reintentar",
     "notFoundTitle": "No se encontró el registro de consola del servidor",
@@ -92,6 +95,7 @@
     "noCommandsTitle": "Aún no hay comandos",
     "noCommandsDesc": "Ejecutar un comando RCON para ver aquí la respuesta.",
     "quickLabel": "rápido",
+    "quickTip": "Rellena el cuadro de comando de abajo con este comando — no se ejecuta hasta que hagas clic en «ejecutar» (o pulses Intro).",
     "commandLabel": "comando",
     "commandTip": "Los comandos aquí se ejecutan de inmediato contra el servidor en vivo, sin paso de confirmación — incluso para algo que detiene el servidor o expulsa a un jugador. Si no estás seguro de lo que hace un comando, compruébalo antes de ejecutarlo; la mayoría no se puede deshacer.",
     "promptPrefix": "rcon $",
@@ -103,6 +107,10 @@
     "noResponseFallback": "Sin respuesta",
     "noPermission": "Tu rol no tiene permiso para ejecutar comandos RCON.",
     "disconnectedUseRecheck": "RCON no está disponible en este momento -- selecciona \"Volver a comprobar\" arriba antes de intentarlo de nuevo.",
+    "recheckNoPermission": "Volver a comprobar la conexión RCON requiere el permiso server.configure, que este rol no tiene.",
+    "destructiveConfirmTitle": "¿Ejecutar «{{command}}» en {{server}}?",
+    "destructiveConfirmDesc": "Este comando sin procesar se envía directamente al servidor en marcha en cuanto lo confirmes. Puede desconectar jugadores, cambiar quién puede acceder al servidor, modificar su configuración o apagarlo, y la mayoría de estos efectos no se pueden deshacer desde esta consola.",
+    "destructiveConfirmButton": "Ejecutar comando",
     "entries_many": "{{count}} entradas"
   },
   "quickCommands": {
@@ -110,9 +118,7 @@
     "save": "Guardar",
     "showOptions": "Mostrar opciones",
     "checkMods": "Comprobar mods",
-    "help": "Ayuda",
-    "serverInfo": "Información del servidor",
-    "getMemory": "Obtener memoria"
+    "help": "Ayuda"
   },
   "broadcast": {
     "toggleLabel": "difusión",
@@ -181,7 +187,10 @@
     "searchAria": "Buscar en el historial de comandos",
     "emptyTitle": "Sin historial de comandos",
     "emptyDesc": "Los comandos ejecutados se registrarán aquí.",
-    "entries_many": "{{count}} entradas"
+    "entries_many": "{{count}} entradas",
+    "noMatchesTitle": "Sin comandos coincidentes",
+    "noMatchesDesc": "Ninguna entrada del historial coincide con \"{{query}}\".",
+    "clearSearch": "Borrar búsqueda"
   },
   "toasts": {
     "historyUnavailableTitle": "Historial no disponible",
@@ -194,6 +203,8 @@
     "broadcastSentTitle": "Difusión enviada",
     "broadcastSentAll": "El mensaje se difundió a todos los jugadores",
     "broadcastSentTagged": "Enviado con la etiqueta [{{tag}}]",
-    "broadcastFailedFallback": "No se pudo enviar la difusión"
+    "broadcastFailedFallback": "No se pudo enviar la difusión",
+    "serverChangedSinceLoadTitle": "Servidor activo cambiado",
+    "serverChangedSinceLoadDesc": "El servidor activo acaba de cambiar. Actualizando — vuelve a intentarlo cuando la consola se recargue, para que esta acción apunte al servidor correcto."
   }
 }

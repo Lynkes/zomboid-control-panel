@@ -10,17 +10,19 @@
   "headerActions": {
     "bundling": "正在打包……",
     "supportBundleZip": "支持包（.zip）",
-    "fullLogTxt": "完整日志（.txt）"
+    "supportBundleTooltip": "面板日志 · Zomboid 服务器日志 · 崩溃转储 · 诊断信息，全部打包在一个 .zip 文件中。",
+    "fullLogTxt": "完整日志（.txt）",
+    "fullLogTooltip": "仅此面板自身的应用日志——不含 Zomboid 服务器日志或崩溃转储。如需这些内容，请使用支持包。"
   },
   "tabs": {
-    "diagnostics": "诊断",
+    "diagnostics": "检查与修复",
     "worldMap": "世界地图",
     "bridge": "PanelBridge",
     "performance": "性能",
     "activity": "活动",
     "logs": "日志",
     "crashes": "崩溃记录",
-    "health": "健康状态",
+    "health": "实时状态",
     "system": "环境"
   },
   "fixActions": {
@@ -241,6 +243,7 @@
     "overallPending": "正在运行检查……",
     "lastChecked": "上次检查：{{time}} · 耗时 {{duration}} 毫秒 · 每 30 秒自动刷新",
     "runningDescription": "正在对服务、路径、存储和更新执行智能检查……",
+    "tabSubtitle": "检查您的设置是否存在问题，并提供一键修复。",
     "categories": {
       "services": "核心服务",
       "bridge": "PanelBridge IPC",
@@ -1459,6 +1462,7 @@
   },
   "healthTab": {
     "systemStatusTitle": "系统状态",
+    "tabSubtitle": "此面板进程的实时状态：内存、运行时间和已连接的服务。",
     "healthy": "健康",
     "checking": "正在检查…",
     "issuesDetected": "检测到问题",

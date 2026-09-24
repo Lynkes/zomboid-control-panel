@@ -145,4 +145,37 @@ describe("POST /api/server/browse-folder (Windows): a stuck dialog no longer han
     expect(fakeChild.kill).not.toHaveBeenCalled();
     expect(response.json).toHaveBeenCalledTimes(1);
   });
+
+  it("reports an error, not a plain cancel, when the PowerShell script itself fails", async () => {
+    // A genuine script failure (e.g. no interactive desktop session for the
+    // STA COM dialog, a missing assembly, a syntax error) exits with a real
+    // non-zero code and empty stdout -- output-wise INDISTINGUISHABLE from an
+    // ordinary Cancel click (which also exits 0 with empty stdout... wait,
+    // exits 0). The two cases only differ in `code`: a real user Cancel is
+    // `$result -eq 'OK'` being false, which still reaches `Write-Output ''`
+    // and a normal exit 0; only an actual script failure exits non-zero.
+    const fakeChild = new FakeChild();
+    spawnMock.mockReturnValue(fakeChild);
+
+    vi.useFakeTimers();
+    const handler = getBrowseFolderHandler(await freshRouter());
+    const response = createResponse();
+    const req = { body: { description: "Select a folder" } };
+
+    await handler(req, response);
+
+    fakeChild.stderr.emit(
+      "data",
+      Buffer.from("Exception calling \"ShowDialog\": no desktop session\n"),
+    );
+    fakeChild.emit("close", 1);
+
+    expect(response.status).toHaveBeenCalledWith(500);
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "BROWSE_FOLDER_OPEN_FAILED" }),
+    );
+    expect(response.json).not.toHaveBeenCalledWith(
+      expect.objectContaining({ cancelled: true }),
+    );
+  });
 });

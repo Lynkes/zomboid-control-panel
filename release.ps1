@@ -118,8 +118,12 @@ function Compare-SemVer($left, $right) {
 }
 
 function Get-LatestGitHubReleaseVersion {
-    $tag = (& gh release view --repo $GitHubRepo --json tagName --jq '.tagName' 2>$null | Select-Object -First 1).Trim()
-    if ($LASTEXITCODE -ne 0 -or $tag -notmatch '^v\d+\.\d+\.\d+$') {
+    # Capture the full output first: piping a native command into Select-Object -First
+    # stops the pipeline early, which kills gh and leaves a non-zero $LASTEXITCODE.
+    $ghOutput = @(& gh release view --repo $GitHubRepo --json tagName --jq '.tagName' 2>$null)
+    $ghExit = $LASTEXITCODE
+    $tag = ([string]($ghOutput | Select-Object -First 1)).Trim()
+    if ($ghExit -ne 0 -or $tag -notmatch '^v\d+\.\d+\.\d+$') {
         throw "Could not determine the latest numeric GitHub release tag"
     }
     return $tag.Substring(1)

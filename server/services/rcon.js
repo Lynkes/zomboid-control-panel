@@ -79,7 +79,11 @@ const RCON_ERROR_CLASSIFICATIONS = [
 // Latin-1 Supplement + Latin Extended-A (players.js's own SAFE_TEXT_REGEX
 // accepts exactly this range, À-ɏ) -- other scripts still fall
 // through to foldToRconAscii()'s final drop, same as before.
-const LATIN_TRANSLITERATION_MAP = {
+// Exported (round 16b, bug-hunt-2026-09-18) so a drift-detection test can
+// assert equality against client/src/lib/rconTextPreview.ts's own hand copy
+// of this exact table, rather than only exercising it indirectly through
+// foldToRconAscii()'s behavior over a corpus.
+export const LATIN_TRANSLITERATION_MAP = {
   à: "a", á: "a", â: "a", ã: "a", ä: "a", å: "a",
   À: "A", Á: "A", Â: "A", Ã: "A", Ä: "A", Å: "A",
   ç: "c", Ç: "C",
@@ -403,6 +407,17 @@ export const KNOWN_RCON_REJECTIONS = [
     // "worth having as a backstop pattern even if it's not expected to
     // normally fire." Bare, non-interpolated literal -- no anchoring risk
     // regardless of the backstop framing. Applies to banuser/unbanuser.
+    // 2026-09-18, round 10 (rcon-rejections-missing-for-steamid-commands):
+    // also confirmed BYTECODE-TRACED (javap -c, not just constant-pool
+    // presence) for banid -- BanSteamIDCommand.Command() returns whatever
+    // BanSystem.BanUserBySteamID() returns, and that method's very first
+    // check is the identical capability gate, `areturn`ing this exact
+    // string when the RCON connection's role lacks BanUnbanUser. NOT
+    // reachable via unbanid: UnbanSteamIDCommand.Command() calls the same
+    // BanUserBySteamID() but immediately `pop`s its return value and always
+    // returns a fixed "SteamID X is now unbanned" instead (see the
+    // dedicated no-rejection-text note below) -- confirmed by reading the
+    // actual bytecode instruction sequence, not inferred.
     pattern: /^\s*You don't have capability to ban\/unban users\.\s*$/i,
     describe: () => "You don't have capability to ban/unban users.",
   },
@@ -415,6 +430,126 @@ export const KNOWN_RCON_REJECTIONS = [
   // unrecognized after this fix -- inventing an attribution for either would
   // be worse than leaving them out (same standard Pam's original commit
   // held to for these same four commands).
+  //
+  // 2026-09-18, round 10 (card rcon-rejections-missing-for-steamid-commands,
+  // Pam's finding): banid/unbanid/addSteamID/removeSteamID had NO entries at
+  // all -- a real PZ refusal for any of the four read as a plain RCON reply,
+  // indistinguishable from success (and banId() below persists a local ban
+  // record on that false "success"). Every pattern below is bytecode-traced
+  // (javap -c -p -constants, not a flat strings/constant-pool guess) against
+  // the actual dedicated-server jar at
+  // D:/pz-verify/server/java/projectzomboid.jar (the operator's own
+  // verify/test server install) -- confirmed by reading each command class's
+  // Command() method instruction-by-instruction to see exactly which
+  // `areturn` each string reaches, not just that the string exists
+  // somewhere in the class. Command-name/RequiredCapability annotations in
+  // the same classes confirm the RCON verb each maps to: BanSteamIDCommand
+  // (name=banid), UnbanSteamIDCommand (name=unbanid), AddSteamIDCommand
+  // (name=addsteamid), RemoveSteamIDCommand (name=removesteamid).
+  {
+    // banid / unbanid -- BanSteamIDCommand.Command() / UnbanSteamIDCommand.Command():
+    // both classes gate on SteamUtils.isSteamModeEnabled() as their very
+    // first check and `areturn` this exact, bare, non-interpolated literal
+    // when it's false (a non-Steam / direct-connect-only dedicated server).
+    pattern: /^\s*Server is not in Steam mode\s*$/i,
+    describe: () =>
+      "Server is not in Steam mode. SteamID-based ban/whitelist commands require a Steam-mode dedicated server.",
+  },
+  {
+    // banid / unbanid -- BanSteamIDCommand.Command() / UnbanSteamIDCommand.Command():
+    // second check, SteamUtils.isValidSteamID(arg) false. Bounded by the
+    // literal `Expected SteamID but got "` prefix and closing `"` around the
+    // interpolated argument the admin typed -- not attacker-controlled (no
+    // player name involved), but anchored the same strict way regardless.
+    pattern: /^Expected SteamID but got ".*"\s*$/i,
+    describe: (text) => `${text}. That value isn't a valid SteamID64.`,
+  },
+  {
+    // addSteamID / removeSteamID -- AddSteamIDCommand.Command() /
+    // RemoveSteamIDCommand.Command(): both call
+    // ServerWorldDatabase.isValidUserName(arg) (PZ's own method name for
+    // this check, despite validating a steamID here) as their first gate.
+    // Bounded by the literal `Invalid steamID "` prefix and closing `"`
+    // around the interpolated argument.
+    pattern: /^Invalid steamID ".*"\s*$/i,
+    describe: (text) => `${text}. That value isn't a valid SteamID64.`,
+  },
+  {
+    // addSteamID -- AddSteamIDCommand.Command(): isSteamIDAllowed(arg)
+    // already true. The class ALSO carries a differently-worded,
+    // executor-name-interpolated variant ("<executor> tried to create user
+    // with SteamID <id> but it already exists...") that bytecode confirms is
+    // written to the admin log (ZLogger.write) and NEVER returned to the
+    // RCON caller -- only this shorter, two-placeholder-free form is the
+    // actual `areturn`ed reply. Bounded by the fixed `SteamID ` prefix and
+    // ` already exists in allowed SteamIDs` suffix around the interpolated id.
+    pattern: /^SteamID .+ already exists in allowed SteamIDs\s*$/i,
+    describe: () => "That SteamID is already on the allowed list.",
+  },
+  {
+    // removeSteamID -- RemoveSteamIDCommand.Command(): isSteamIDAllowed(arg)
+    // is false (nothing to remove). Same log-line-vs-actual-reply split as
+    // addSteamID's "already exists" above, bytecode-confirmed the same way
+    // -- this shorter form (PZ's own grammar: "doesn't exists", not fixed
+    // here) is what's actually returned. Bounded the same way.
+    pattern: /^SteamID .+ doesn't exists in allowed SteamIDs\s*$/i,
+    describe: () => "That SteamID is not on the allowed list.",
+  },
+  {
+    // addSteamID / removeSteamID -- AddSteamIDCommand.Command() /
+    // RemoveSteamIDCommand.Command(): both wrap their database call in a
+    // try/catch(SQLException) that logs the real exception server-side
+    // (ExceptionLogger.logException) and `areturn`s this bare, generic
+    // literal as the RCON reply instead of ever propagating the DB error
+    // text itself.
+    pattern: /^\s*exception occurs\s*$/i,
+    describe: () =>
+      "The server hit an internal error running that command. Check the PZ server log for details.",
+  },
+  // continuous-bug-hunt round 31 (Events & Weather page hunt): lightning /
+  // thunder / createhorde -- LightningCommand.class / ThunderCommand.class /
+  // CreateHordeCommand.class, javap-c-confirmed against D:/pz-verify's real
+  // B42 jar -- all fall back to "use the executor's own player" when no
+  // username argument is given. GameServer.handleServerCommand(cmd, null)
+  // (the exact call every RCON command goes through, connection always
+  // null) hardcodes the executor username to the literal "admin" and never
+  // reaches the connection-based override branch at all -- so this fallback
+  // can NEVER resolve to a real player over RCON, and each command's own
+  // "no connection, no args" guard areturns this bare literal instead of
+  // running. Reachable in practice for lightning/thunder if a caller omits
+  // the username (Events.tsx's own pickStrikeTarget() already prevents this
+  // from the UI, see e5b3c368 -- this is the server-side backstop for any
+  // other caller). Bare, non-interpolated literal, shared by both classes.
+  {
+    pattern: /^\s*Pass a username\s*$/i,
+    describe: () => "No target player was given, and RCON has no player of its own to default to.",
+  },
+  // CreateHordeCommand.class: distinct final-else branch, reached when a
+  // username WAS given but getCommandArgsCount() != 2 (i.e. the RCON
+  // command was sent with the count but no username arg at all) -- the
+  // "target" local never gets assigned and this bare literal is returned.
+  // Not reachable from the current UI (Events.tsx's horde buttons use
+  // PanelBridge's CreateSwarm exclusively, not this RCON path at all -- see
+  // that page's own "use PanelBridge... for proper distance control"
+  // comment), but the route (POST /server/events/horde) and this service
+  // method are still directly callable without a username.
+  {
+    pattern: /^\s*Specify a player to create the horde near to\.\s*$/i,
+    describe: () => "No target player was given for the horde.",
+  },
+  // AlarmCommand.class: sounds the alarm at the EXECUTOR'S OWN in-game
+  // position -- GameServer.getPlayerByUserName(getExecutorUsername()), and
+  // (per the "Pass a username" note above) that's always the literal
+  // "admin" over RCON, which essentially never matches a real connected
+  // player's name. Even on the rare server where it does, this bare literal
+  // is what's returned when that player has no square or isn't inside a
+  // building room. In practice this means POST /server/alarm structurally
+  // cannot succeed over RCON on a normal server -- this at least stops it
+  // from being silently reported as "Alarm sounded" when nothing happened.
+  {
+    pattern: /^\s*Not in a room\s*$/i,
+    describe: () => "Not in a room. The alarm command sounds at the RCON admin's own in-game position, which doesn't exist as a real player over RCON -- this command cannot succeed here.",
+  },
 ];
 
 export class RconService extends EventEmitter {
@@ -443,6 +578,10 @@ export class RconService extends EventEmitter {
     this.lastConnectionErrorLog = 0;
     this.connectionErrorLogCooldown = 5 * 60 * 1000; // Only log once per 5 minutes
     this.configLoaded = false;
+    // continuous-bug-hunt round 22: set for real by loadConfig() -- see its
+    // own comment. null here just means "not loaded yet", same meaning as
+    // getActiveServerId() returning null when no servers exist.
+    this.serverId = null;
     this.serverManager = null; // Reference to ServerManager for server status checks
 
     // Periodic auto-reconnect when server is running but RCON disconnected
@@ -664,6 +803,17 @@ export class RconService extends EventEmitter {
       const targetServer = serverId
         ? await getServer(serverId)
         : await getActiveServer();
+      // continuous-bug-hunt round 22 (scheduled tasks tag logs with the
+      // wrong server): the ONLY reliable record of which server THIS
+      // instance actually talks to -- an explicit serverId resolves to
+      // that exact server's own id; the no-arg "active server" case
+      // resolves to whatever's active right now. execute() below reads
+      // this to tag command_history entries with the real target instead
+      // of whatever getActiveServerId() (database/init.js) says is active
+      // AT LOG TIME, which is wrong for a throwaway instance created by
+      // scheduler.js's _resolveServicesForTask() for a task targeting a
+      // server other than the active one.
+      this.serverId = targetServer ? String(targetServer.id) : null;
       if (targetServer) {
         // A configured server's host and port are the right target
         // regardless of whether it has an RCON password set yet — a freshly
@@ -1328,7 +1478,7 @@ export class RconService extends EventEmitter {
 
       // Log to database (unless skipLog is set for automatic commands)
       if (!skipLog) {
-        logCommand(command, rejection ? rejection.error : response, !rejection);
+        logCommand(command, rejection ? rejection.error : response, !rejection, this.serverId);
       }
 
       if (rejection) {
@@ -1342,6 +1492,19 @@ export class RconService extends EventEmitter {
       };
     } catch (error) {
       const errorMsg = error.message || "Unknown error";
+      // sourceRcon.js's execute() tags this when its own socket.write()
+      // callback fired with an error -- the one point where we know FOR
+      // CERTAIN the command's bytes never left this process, as opposed to
+      // a timeout or a later socket close/error while genuinely awaiting a
+      // response (ambiguous: the server may well have received and
+      // processed it). round-8 bug hunt: every `commandSent` computed below
+      // used to only exclude the literal "RCON not connected" string,
+      // missing this case -- a write that failed outright (EPIPE,
+      // ECONNRESET on the write itself, "write after end", ...) still
+      // reported commandSent:true, which quit() then read as "the command
+      // reached the server and it's shutting down" even though it never
+      // did.
+      const writeNeverSent = Boolean(error.rconNeverSent);
 
       // Categorize errors for better handling
       const isConnectionError =
@@ -1380,7 +1543,7 @@ export class RconService extends EventEmitter {
         // Don't try to reconnect during server startup - the startup sequence handles it
         if (this.serverStarting) {
           if (!skipLog) {
-            logCommand(command, "Server is starting...", false);
+            logCommand(command, "Server is starting...", false, this.serverId);
           }
           return {
             success: false,
@@ -1391,13 +1554,15 @@ export class RconService extends EventEmitter {
         if (!retryOnConnectionError) {
           const friendlyError = this.getUserFriendlyError(errorMsg);
           if (!skipLog) {
-            logCommand(command, friendlyError, false);
+            logCommand(command, friendlyError, false, this.serverId);
           }
           return {
             success: false,
             error: friendlyError,
             commandSent:
-              commandSent && !/^RCON not connected$/i.test(errorMsg.trim()),
+              commandSent &&
+              !writeNeverSent &&
+              !/^RCON not connected$/i.test(errorMsg.trim()),
             transportError: true,
           };
         }
@@ -1430,12 +1595,13 @@ export class RconService extends EventEmitter {
               if (retryWasCurrentClient) this.connected = false;
               const retryMsg = this.getUserFriendlyError(retryError.message);
               if (!skipLog) {
-                logCommand(command, retryMsg, false);
+                logCommand(command, retryMsg, false, this.serverId);
               }
               return {
                 success: false,
                 error: retryMsg,
                 commandSent:
+                  !retryError.rconNeverSent &&
                   !/^RCON not connected$/i.test(retryError.message.trim()),
                 transportError: true,
               };
@@ -1452,7 +1618,7 @@ export class RconService extends EventEmitter {
             // report success just because the connection came back up.
             const rejection = this.classifyRconResponse(response);
             if (!skipLog) {
-              logCommand(command, rejection ? rejection.error : response, !rejection);
+              logCommand(command, rejection ? rejection.error : response, !rejection, this.serverId);
             }
             if (rejection) {
               log.warn(`Server rejected command on retry: ${redactRconCommandSecrets(command)} (${rejection.response})`);
@@ -1474,13 +1640,13 @@ export class RconService extends EventEmitter {
             // "connection dropped" banner silently never appears for the
             // most ordinary case it exists to cover.
             if (!skipLog) {
-              logCommand(command, "Connection failed", false);
+              logCommand(command, "Connection failed", false, this.serverId);
             }
             return {
               success: false,
               error: "RCON reconnection failed",
               code: ErrorCode.RCON_EXECUTE_DISCONNECTED,
-              commandSent,
+              commandSent: commandSent && !writeNeverSent,
               transportError: true,
             };
           }
@@ -1489,13 +1655,13 @@ export class RconService extends EventEmitter {
             reconnectError.message,
           );
           if (!skipLog) {
-            logCommand(command, reconnectMsg, false);
+            logCommand(command, reconnectMsg, false, this.serverId);
           }
           return {
             success: false,
             error: reconnectMsg,
             code: this.getRconDisconnectCode(reconnectError.message),
-            commandSent,
+            commandSent: commandSent && !writeNeverSent,
             transportError: true,
           };
         }
@@ -1503,7 +1669,7 @@ export class RconService extends EventEmitter {
 
       const friendlyError = this.getUserFriendlyError(errorMsg);
       if (!skipLog) {
-        logCommand(command, friendlyError, false);
+        logCommand(command, friendlyError, false, this.serverId);
       }
       return {
         success: false,
@@ -1597,6 +1763,23 @@ export class RconService extends EventEmitter {
   }
 
   async quit({ skipLog = false, retryOnConnectionError = false } = {}) {
+    // continuous-bug-hunt round 28 (ux-proposals-need-backend-data): a
+    // native crash and a deliberate stop look identical on the client today.
+    // This is the ONE place a graceful shutdown is ever actually issued --
+    // routes/server.js's /stop, Discord's stop command, and every restart
+    // path (ServerManager.restartServer, scheduler.js's performRestart) all
+    // funnel through here, whatever their own caller-specific reasoning is.
+    // Recorded unconditionally (a quit ATTEMPT, not confirmed success --
+    // this file's own comment below explains why "success" is unreliable
+    // for this exact command) so checkServerStatusNow (server/index.js) can
+    // tell "someone told it to stop gracefully a moment ago" apart from a
+    // genuine crash the instant it observes the process actually exit.
+    // Deliberately does NOT itself decide stop vs restart -- ServerManager's
+    // own stopIntent (set by restartServer()/performRestart() BEFORE they
+    // call this) already carries that more specific answer when a caller
+    // knows it; this is only the fallback signal for a plain quit() with no
+    // more specific intent recorded anywhere, i.e. an ordinary stop.
+    this.lastQuitAttemptAt = new Date().toISOString();
     // The quit command will shutdown the server and close the connection.
     // This may result in connection errors, which are expected -- but
     // execute() has its own try/catch spanning its whole body that never
@@ -1673,17 +1856,35 @@ export class RconService extends EventEmitter {
   }
 
   parsePlayers(response) {
-    // Parse the players response
-    // Format typically: "Players connected (X):\n-username\n-username2"
+    // Parse the players response. Format bytecode-confirmed 2026-09-18
+    // against zombie.commands.serverCommands.PlayersCommand.Command() (real
+    // PZ server jar, javap -p -c -constants): GameServer.rcon(cmd) always
+    // calls handleServerCommand(cmd, null) -- a null UdpConnection -- so
+    // that class's own `this.connection == null` branch is always taken,
+    // meaning the row separator is unconditionally a real "\n", never the
+    // "<LINE>" client-markup token used for in-game chat replies. Exact
+    // shape: "Players connected (X):\n-username1\n-username2\n" (trailing
+    // \n, no extra whitespace anywhere -- the "-" sits directly against the
+    // raw username on both sides).
     const players = [];
     if (!response) return players;
 
     const lines = response.split("\n");
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith("-")) {
+    for (const rawLine of lines) {
+      // Strip only a stray trailing \r (defensive; PZ itself never emits
+      // one per the format above) -- do NOT trim the line, or the name
+      // extracted from it, any further than that. This used to call
+      // `.trim()` on the whole line AND AGAIN on the substring after the
+      // "-", which silently ate any leading/trailing whitespace that was
+      // part of the player's actual username (Steam persona names can
+      // start or end with a space) -- a player named " Bob" or "Bob " came
+      // back from this parser, and therefore from the dashboard, the
+      // Players page, and kick/ban-by-name lookups, as plain "Bob" --
+      // indistinguishable from a different player of the same trimmed name.
+      const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+      if (line.startsWith("-")) {
         players.push({
-          name: trimmed.substring(1).trim(),
+          name: line.substring(1),
           online: true,
         });
       }
@@ -1822,12 +2023,26 @@ export class RconService extends EventEmitter {
   }
 
   // Weather
+  // continuous-bug-hunt round 31 (Events & Weather page hunt):
+  // StartRainCommand.class, javap-c-confirmed against D:/pz-verify's real
+  // B42 jar, parses its argument as a PERCENTAGE and divides it by 100
+  // itself (Float.parseFloat(arg) / 100.0f) before calling
+  // ClimateManager.transmitServerStartRain(float). This method's own
+  // contract (validated 0-1, matching Events.tsx's rainIntensity/100 and
+  // panelBridgeApi.startRain's identical convention) was sending that 0-1
+  // fraction straight through as the raw RCON argument -- so PZ divided it
+  // by 100 A SECOND TIME, e.g. a 50% slider (0.5 here) reached the game as
+  // 0.005, and even the slider's maximum (1.0) reached the game as 0.01 --
+  // rain 100x too weak at best, 10,000x at the low end, easily mistaken for
+  // "did nothing" with no error anywhere to explain why. Scale back up to
+  // the percentage PZ's own command expects; this function's own public
+  // contract (0-1 in, validated) is unchanged.
   async startRain(intensity = null) {
     if (intensity !== null && intensity !== undefined) {
       const n = Number(intensity);
       if (!Number.isFinite(n) || n < 0 || n > 1)
         throw new Error("intensity must be 0-1");
-      return this.execute(`startrain ${n}`);
+      return this.execute(`startrain ${n * 100}`);
     }
     return this.execute("startrain");
   }

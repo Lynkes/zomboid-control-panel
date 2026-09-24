@@ -104,7 +104,10 @@
     "connectRconNeedsHostRunning": "Start the server first",
     "noPermissionControl": "Your role doesn't have permission to control the server.",
     "noPermissionWipe": "Your role doesn't have permission to wipe the world.",
-    "wipeMustStopFirst": "Stop the server before wiping."
+    "noPermissionAutoStart": "Your role doesn't have permission to change auto-start settings.",
+    "noPermissionCreateBackup": "Your role doesn't have permission to create backups.",
+    "wipeMustStopFirst": "Stop the server before wiping.",
+    "saveNeedsRcon": "Connect RCON to save the world."
   },
   "confirm": {
     "cancel": "Cancel",
@@ -132,6 +135,7 @@
     "startServerScriptBackup": { "title": "Server starting — startup script backed up", "description": "The panel detected changes to your startup script and saved your version before regenerating it." },
     "stopServer": { "title": "Server stopped", "description": "Session closed cleanly." },
     "stopServerRequested": { "title": "Shutdown requested", "description": "The server is saving and closing gracefully — this can take a moment on a large world. The status badge will update once it's confirmed stopped." },
+    "forceStopRequested": { "title": "Force-stop requested", "description": "The stop signal was sent — watch the dashboard for confirmation." },
     "forceStopServer": { "title": "Server force stopped", "description": "The world was saved, then the game process was stopped." },
     "forceStopSaveFailed": { "title": "Server force stopped — save failed", "description": "The pre-stop save was refused. Recent progress may be lost." },
     "forceStopSaveTimedOut": { "title": "Server force stopped — save timed out", "description": "The pre-stop save didn't respond within 3 seconds. Recent progress may be lost." },
@@ -163,12 +167,15 @@
     "modUpdatesWaiting_one": "{{count}} mod update waiting",
     "modUpdatesWaiting_other": "{{count}} mod updates waiting",
     "reviewMods": "Review mods",
-    "noBackups": "No backups"
+    "noBackups": "No backups",
+    "backupAttemptFailing": "Scheduled backup failing",
+    "reviewBackups": "Review backups"
   },
   "panelUpdateBanner": {
     "applyFailed": "Apply failed",
     "updateStaged": "Update staged",
     "panelUpdate": "Panel update",
+    "checkedAgo": "Checked {{age}}",
     "lastApplyFailedDesc": "Last apply attempt failed — see Settings for diagnostics.",
     "stagedDesc": "Downloaded and ready. Restart the panel to apply.",
     "newVersionDesc": "A new panel version is available.",
@@ -286,6 +293,7 @@
     "backupsStored_other": "{{count}} stored",
     "backupsStoredLast_one": "{{count}} stored, last {{age}}",
     "backupsStoredLast_other": "{{count}} stored, last {{age}}",
+    "backupsAttemptFailed": "attempt failed, {{age}}",
     "scheduleNoneActive": "none active",
     "scheduleActive_one": "{{count}} active",
     "scheduleActive_other": "{{count}} active"
@@ -318,6 +326,7 @@
   },
   "wipeDialog": {
     "title": "Wipe server",
+    "serverChangedSinceOpen": "The active server changed while this dialog was open. Cancel and reopen Wipe Server to act on the server that is active now.",
     "description": "Select what data to delete from <b>{{serverName}}</b>. The server must be stopped.",
     "defaultServerName": "the active server",
     "targets": {

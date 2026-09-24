@@ -1018,6 +1018,10 @@ scheduler.setBackupService(backupService);
 scheduler.setDiscordBot(discordBot);
 scheduler.setIo(io);
 backupService.setDiscordBot(discordBot);
+// So createBackup() can refuse while a restart (manual or scheduled) is
+// mid-flight -- see backupService.js's own comment on this check for why a
+// backup taken during that window can silently archive a save mid-write.
+backupService.setScheduler(scheduler);
 
 // Start RCON auto-reconnect for automatic recovery
 rconService.startAutoReconnect();
@@ -1387,6 +1391,7 @@ panelBridge.on("playerDisconnect", (playerName) => {
 app.set("rconService", rconService);
 app.set("serverManager", serverManager);
 app.set("resyncPanelBridgeForActiveServer", resyncPanelBridgeForActiveServer);
+app.set("resetPlayerPollingBaseline", resetPlayerPollingBaseline);
 app.set("dockerClient", dockerClient);
 app.set("modChecker", modChecker);
 app.set("scheduler", scheduler);
@@ -2089,6 +2094,39 @@ export async function handlePanelUpdateDownload(req, res) {
               params: sanitizeErrorParams({ reason }),
             });
           }
+
+          // quit()'s success:true means the RCON "quit" command was
+          // acknowledged or its connection reset -- see rcon.js's own
+          // comment on quit(). Neither proves the JVM has actually finished
+          // exiting: PZ can spend many more seconds flushing world state to
+          // disk after the RCON listener already dropped. downloadUpdate()
+          // below recreates the all-in-one container this same process runs
+          // in, which would kill that in-flight write exactly like starting
+          // a new JVM over a still-running one elsewhere in this codebase
+          // (/wipe, /delete-files, template-apply) -- same corruption class,
+          // just triggered by a container recreation instead of a second
+          // process. Poll the same process-state check those routes rely on
+          // before letting the destructive step proceed, same bound as
+          // restartServer()'s own wait-for-death loop.
+          let stopConfirmed = false;
+          for (let attempt = 0; attempt < 30; attempt++) {
+            const recheck = await serverManager.getServerProcessDetails();
+            if (!recheck || recheck.scanFailed) break;
+            if (!recheck.running) {
+              stopConfirmed = true;
+              break;
+            }
+            await serverManager.sleep(1000);
+          }
+          if (!stopConfirmed) {
+            return res.status(503).json({
+              success: false,
+              error:
+                "The world was saved and a shutdown was sent, but the server process has not confirmed stopped yet. The Docker update was not applied -- wait for it to fully exit and try again.",
+              code: ErrorCode.SERVER_STATE_UNKNOWN,
+            });
+          }
+
           await logServerEvent(
             "server_stop",
             "Server stopped before Docker panel update",
@@ -2566,13 +2604,29 @@ let playerBaselineReady = false;
 let playerPollingInterval = null;
 let rconConnectedAt = 0; // timestamp of last RCON connect — used for grace period
 
+// continuous-bug-hunt round 21 (other per-server data kept in one global
+// store): lastPlayerList/playerBaselineReady are module-level state fed by
+// this SAME rconService singleton reloadServicesForNewActiveServer()
+// (routes/servers.js) already repoints on every active-server switch --
+// but nothing ever reset THESE two, so for up to 5s after switching
+// servers (this poll's own interval), the player count fed into perf
+// snapshots (index.js's own startPerfPolling(), round 20) and every
+// 'players:update' socket emission still showed the PREVIOUS server's
+// roster. Exposed the same reset startPlayerPolling() already does on
+// ordinary startup so reloadServicesForNewActiveServer() can call it too,
+// via the same req.app.get(...) pattern that function already uses for
+// LogTailer/PanelBridge -- registered right below, next to the function.
+function resetPlayerPollingBaseline() {
+  lastPlayerList = [];
+  playerBaselineReady = false;
+}
+
 function startPlayerPolling() {
   // Poll every 5 seconds for player changes
   if (playerPollingInterval) {
     clearInterval(playerPollingInterval);
   }
-  lastPlayerList = [];
-  playerBaselineReady = false;
+  resetPlayerPollingBaseline();
 
   playerPollingInterval = setInterval(async () => {
     try {
@@ -2829,8 +2883,24 @@ async function startPerfPolling() {
       const pzMemBytes = await getPzProcessMemory();
       const disk = await getDiskSnapshot();
       const swap = await getSwapSnapshot();
+      // continuous-bug-hunt round 20 (charts mixing samples from two
+      // servers after a switch): every recorded/broadcast snapshot used to
+      // carry no server identity at all -- performance_history was one
+      // single global array shared across every managed server. On a panel
+      // with more than one server, switching the active server never
+      // scoped this collection in any way: the next chart read (GET
+      // /debug/performance-history) returned a straight time-ordered mix
+      // of whichever server(s) happened to be active during each sample's
+      // window, with nothing distinguishing a Server A sample from a
+      // Server B one. Tagging every snapshot with the server that was
+      // active AT SAMPLE TIME is the minimal fix that needs no schema
+      // migration -- getPerformanceHistory() (below) can now filter by it,
+      // and pre-fix legacy rows (serverId undefined) are treated as
+      // "unknown, don't exclude" rather than silently disappearing.
+      const activeServerForSnapshot = await getActiveServer().catch(() => null);
 
       const snapshot = {
+        serverId: activeServerForSnapshot?.id ?? null,
         // Host machine
         hostMemTotal: hostMem,
         hostMemUsed: hostMem - hostMemFree,
@@ -2896,6 +2966,10 @@ function stopPerfPolling() {
 let statusWatchdogInterval = null;
 let lastKnownRunning = null;
 let lastKnownPhase = null;
+// Distinct from `lastKnownRunning === null` (which also means "never
+// observed anything yet"). See checkServerStatusNow()'s own comment on the
+// `running === null` branch for why a THIRD state is needed here.
+let lastObservationWasUnknown = false;
 
 // Thin, no-arg wrapper over utils/serverStatus.js's shared
 // resolveObservedServerRunning() -- see that function's own doc comment for
@@ -2938,11 +3012,107 @@ export async function getObservedServerRunning() {
 // identifying itself), so there is genuinely only one place left that reads,
 // compares, mutates and emits this decision -- the property this function's
 // own name has always implied.
+// continuous-bug-hunt round 28 (ux-proposals-need-backend-data): a native
+// crash and a deliberate stop looked identical to every client -- both just
+// showed "stopped". Called once, right when the watchdog below observes a
+// running:true -> false transition, never on every tick (see its own call
+// site) so it always reflects the specific stop that just happened, not a
+// stale earlier one.
+//
+// Precedence, most to least specific:
+// 1. serverManager.stopIntent -- set by ServerManager.restartServer() or
+//    scheduler.js's performRestart() (both set 'restart' before they do
+//    anything) or ServerManager.stopServer() (sets 'stop', but only if
+//    nothing more specific already claimed it -- see that method's own
+//    comment) BEFORE the process actually goes down. The single most
+//    reliable signal because it comes from the exact code that decided to
+//    stop the process, not an inference after the fact.
+// 2. rconService.lastQuitAttemptAt -- set unconditionally by every call to
+//    rcon.js's quit(), the one command that actually asks PZ to shut down
+//    gracefully. A quit attempt with no more specific stopIntent recorded
+//    (routes/server.js's ordinary /stop, or a Discord-triggered stop --
+//    neither goes through ServerManager.stopServer()/restartServer() for a
+//    graceful shutdown) is still a deliberate stop, just one this file
+//    can't name any more precisely than that. Time-bounded so a quit
+//    attempt from an unrelated, long-past request can't misattribute a
+//    LATER, genuinely unexpected exit.
+// 3. serverManager.lastExitInfo -- the real exit code/signal from the
+//    spawned child (best-effort, see _attachExitTracking's own comment on
+//    its Windows-wrapper caveat). A non-zero code or a signal with no
+//    deliberate-stop signal above it is the actual definition of "crashed"
+//    this feature exists to surface.
+// 4. Anything else: 'unknown' -- no confident claim, matches this codebase's
+//    existing fail-closed-to-"we don't know" convention (scanFailed,
+//    dockerContainer unresolved, etc.) rather than guessing.
+//
+// Both stopIntent and lastQuitAttemptAt are CONSUMED (cleared) here so the
+// next stop is judged fresh instead of inheriting this one's leftovers.
+const QUIT_ATTEMPT_RECENCY_MS = 60000;
+
+// Exported (and parameterized rather than reading the module-level
+// serverManager/rconService singletons directly) so this can be unit
+// tested against plain fake objects instead of needing to reach into
+// index.js's own unexported instances -- see
+// server/tests/classifyStopReason.test.js.
+export function classifyStopReason(serverManager, rconService) {
+  const intent = serverManager.stopIntent;
+  serverManager.stopIntent = null;
+  if (intent === "stop" || intent === "restart") {
+    return { reason: intent, exitCode: null, signal: null, at: new Date().toISOString() };
+  }
+
+  const quitAt = rconService.lastQuitAttemptAt;
+  rconService.lastQuitAttemptAt = null;
+  const quitRecent =
+    typeof quitAt === "string" &&
+    Date.now() - new Date(quitAt).getTime() < QUIT_ATTEMPT_RECENCY_MS;
+  if (quitRecent) {
+    return { reason: "stop", exitCode: null, signal: null, at: new Date().toISOString() };
+  }
+
+  const exitInfo = serverManager.lastExitInfo;
+  if (exitInfo && (exitInfo.exitCode !== 0 || exitInfo.signal)) {
+    return {
+      reason: "crash",
+      exitCode: exitInfo.exitCode ?? null,
+      signal: exitInfo.signal ?? null,
+      at: new Date().toISOString(),
+    };
+  }
+
+  return { reason: "unknown", exitCode: null, signal: null, at: new Date().toISOString() };
+}
+
 export async function checkServerStatusNow(detectionReason = "watchdog") {
   try {
     const running = await getObservedServerRunning();
     if (running === null) {
-      log.debug("Status watchdog: server state is unknown; skipping transition");
+      // round-6 bug hunt: this used to return here unconditionally, with no
+      // emit and no state mutation at all. Fine the FIRST time this watchdog
+      // ever runs (there is no known state yet to contradict) -- but once a
+      // REAL value has been observed and observation then stops working
+      // (scan failure, RCON drop, and bridge all down at once -- see
+      // isServerObservedRunning()'s own null branch), every client relying
+      // solely on this push for its live state -- Layout.tsx's native-
+      // provider sidebar dot has no independent REST poll, unlike
+      // Dashboard.tsx's 15s interval -- was stuck showing the stale
+      // last-known value forever, silently disagreeing with what a fresh
+      // GET /active/status would have honestly reported as scanFailed/
+      // unknown. Emit once per unknown streak so clients fall back to their
+      // own scanFailed-aware fetch (Layout.tsx's onStatus already does this
+      // for anything that isn't a plain running boolean/known phase --
+      // `running` is deliberately omitted here, not sent as `null`, so a
+      // client whose merge logic assumes a boolean is untouched rather than
+      // handed a value it never expected).
+      if (lastKnownRunning !== null && !lastObservationWasUnknown) {
+        log.info(
+          `Server state became unknown (detected by ${detectionReason})`,
+        );
+        io.emit("server:status", { phase: "unknown" });
+      } else {
+        log.debug("Status watchdog: server state is unknown; skipping transition");
+      }
+      lastObservationWasUnknown = true;
       return;
     }
     // Display-only refinement of `running` -- see resolveServerPhase()'s own
@@ -2961,15 +3131,37 @@ export async function checkServerStatusNow(detectionReason = "watchdog") {
     // would freeze on whatever phase it first saw and never update -- the
     // exact "starting forever" lie this feature exists to avoid.
     const phaseChanged = lastKnownPhase !== null && phase !== lastKnownPhase;
-    if (runningChanged || phaseChanged) {
+    // A recovery FROM unknown back to the exact same value clients were
+    // last confidently told (it was "running", went unknown for a tick, and
+    // is confirmed "running" again -- no genuine runningChanged/phaseChanged
+    // at all) must still be RE-ANNOUNCED over the socket: clients were just
+    // shown "unknown" in between and need the correction back. Kept
+    // deliberately separate from runningChanged/phaseChanged below (rather
+    // than OR'd into them) so a mere unknown-blip recovery can trigger the
+    // client-facing re-emit without ALSO firing a spurious Discord
+    // serverStart/serverStop notification for a server that never actually
+    // transitioned.
+    const reannounceAfterUnknown = lastObservationWasUnknown;
+    lastObservationWasUnknown = false;
+    if (runningChanged || phaseChanged || reannounceAfterUnknown) {
       log.info(
-        `Server state changed → ${running ? "running" : "stopped"}${runningChanged ? "" : ` (phase: ${phase})`} (detected by ${detectionReason})`,
+        runningChanged || phaseChanged
+          ? `Server state changed → ${running ? "running" : "stopped"}${runningChanged ? "" : ` (phase: ${phase})`} (detected by ${detectionReason})`
+          : `Server state confirmed ${running ? "running" : "stopped"} (phase: ${phase}) after a brief unknown period (detected by ${detectionReason})`,
       );
       io.emit("server:status", { running, phase });
       if (runningChanged && !running) {
+        const stopReason = classifyStopReason(serverManager, rconService);
+        serverManager.lastStopReason = stopReason;
         logServerEvent(
           "server_stop",
-          `Server process exited (detected by ${detectionReason})`,
+          // "(detected by X)" stays an intact, standalone parenthetical --
+          // checkServerStatusNowDetectionReason.test.js already asserts on
+          // that exact substring for the pre-existing detectionReason
+          // feature; the new stop-reason info is appended after it rather
+          // than folded inside the same parens, so this addition can't
+          // silently break that existing contract.
+          `Server process exited (detected by ${detectionReason}) — reason: ${stopReason.reason}`,
         );
         discordBot
           .sendEventNotification("serverStop", {})
@@ -3132,6 +3324,30 @@ export function resolvePanelPort(rawValue, { onInvalid } = {}) {
     onInvalid?.(rawValue);
   }
   return 3001;
+}
+
+// Shapes the socket.io "chat:message" payload sent for each logTailer
+// 'chatMessage' event. Pulled out as its own function (rather than inlined
+// in the listener below) so the mapping -- in particular, that
+// sourceChatType survives the trip -- is unit-testable without booting the
+// whole server. sourceChatType is the PZ chat room's real title (e.g.
+// "Private" for a whisper, "Faction", "Safehouse", "Radio", "Shout"), not
+// just the 3-way admin/server/general `type` bucket Chat.tsx styles by --
+// dropping it here (as this payload used to) meant the client had no way to
+// tell a private whisper between two players apart from ordinary public
+// chat, even though logTailer.js had already done the work of computing it
+// (see chatMessageKey/collectChatRoomIds) and discordBot.js's chat relay
+// already depends on this exact same field to keep private channels out of
+// Discord (PUBLIC_CHAT_TYPES in discordBot.js).
+export function buildChatSocketPayload(data, id) {
+  return {
+    id,
+    type: data.type || "general",
+    author: data.author,
+    message: data.message,
+    timestamp: data.timestamp,
+    sourceChatType: data.sourceChatType,
+  };
 }
 
 // Initialize and start server
@@ -3301,13 +3517,10 @@ async function start() {
     // and the client discards a message whose id it has already seen.
     let chatMessageSeq = 0;
     logTailer.on("chatMessage", (data) => {
-      io.emit("chat:message", {
-        id: `${Date.now()}-${chatMessageSeq++}`,
-        type: data.type || "general",
-        author: data.author,
-        message: data.message,
-        timestamp: data.timestamp,
-      });
+      io.emit(
+        "chat:message",
+        buildChatSocketPayload(data, `${Date.now()}-${chatMessageSeq++}`),
+      );
     });
 
     // Player death events parsed from B42 user.txt — forward to Discord

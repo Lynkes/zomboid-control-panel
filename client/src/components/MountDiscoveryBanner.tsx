@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Server, X, Plus, AlertTriangle, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { DisabledReason } from '@/components/DisabledReason'
 import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
 import type { DiscoveredMount, InaccessibleMountCandidate } from '@/lib/api'
 
@@ -47,6 +48,15 @@ interface MountDiscoveryBannerProps {
   // sentence if the caller has one but no candidate-shaped reason on hand.
   reason?: string
   onConnect: (mount: DiscoveredMount) => void
+  // bug-hunt-2026-09-18 (round 18b): onConnect (Servers.tsx) ultimately
+  // reaches POST /create-from-discovery, which round 18 fixed to require
+  // servers.manage rather than the scan-only servers.discover -- but this
+  // button itself had no permission awareness at all, so a discover-only
+  // user could still click through Add/Connect and only find out with a
+  // 403 at the very last step. Optional and defaults to enabled so
+  // MountDiscoveryBanner.test.tsx's existing callers (and any other, not
+  // yet updated) keep their exact current behavior.
+  disabledReason?: string | null
 }
 
 // Shown when the panel found PZ server files at a common bind-mount path
@@ -54,7 +64,7 @@ interface MountDiscoveryBannerProps {
 // typing paths and RCON settings by hand. Dismissal is remembered per
 // install path so re-scans don't keep re-surfacing a mount the user
 // already declined.
-export function MountDiscoveryBanner({ mount, confidence, reason, onConnect }: MountDiscoveryBannerProps) {
+export function MountDiscoveryBanner({ mount, confidence, reason, onConnect, disabledReason }: MountDiscoveryBannerProps) {
   const { t } = useTranslation('mountDiscoveryBanner')
   const [dismissed, setDismissed] = useState(() => isDismissed(mount.installPath))
 
@@ -93,10 +103,12 @@ export function MountDiscoveryBanner({ mount, confidence, reason, onConnect }: M
         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={dismiss} aria-label={t('dismissAria')} title={t('dismiss')}>
           <X className="h-4 w-4" />
         </Button>
-        <Button variant="outline" size="sm" onClick={() => onConnect(mount)}>
-          <Plus className="me-1.5 h-3.5 w-3.5" aria-hidden="true" />
-          {partial ? bannerFallback('reviewAndAdd', 'Review & Add') : t('add')}
-        </Button>
+        <DisabledReason reason={disabledReason ?? null}>
+          <Button variant="outline" size="sm" onClick={() => onConnect(mount)} disabled={!!disabledReason}>
+            <Plus className="me-1.5 h-3.5 w-3.5" aria-hidden="true" />
+            {partial ? bannerFallback('reviewAndAdd', 'Review & Add') : t('add')}
+          </Button>
+        </DisabledReason>
       </div>
     </div>
   )

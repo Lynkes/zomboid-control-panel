@@ -4,6 +4,8 @@ import { Trans, useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { reportClientError } from '@/lib/client-errors'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { previewBanReason, banReasonWillBeAltered } from '@/lib/rconTextPreview'
+import { useRequestGuard } from '@/hooks/useRequestGuard'
 import {
   Users,
   UserX,
@@ -92,7 +94,7 @@ import { EmptyState } from '@/components/EmptyState'
 import { HelpTip } from '@/components/HelpTip'
 import { SpawnBrowser } from '@/components/SpawnBrowser'
 import { NumberInput } from '@/components/NumberInput'
-import { playersApi, panelBridgeApi, configApi } from '@/lib/api'
+import { playersApi, panelBridgeApi, configApi, ApiError } from '@/lib/api'
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
 import { PageHeader } from '@/components/PageHeader'
 import { DisabledReason } from '@/components/DisabledReason'
@@ -384,6 +386,17 @@ export default function Players() {
   const [steamIdBanDialogOpen, setSteamIdBanDialogOpen] = useState(false)
   const [voiceBanDialogOpen, setVoiceBanDialogOpen] = useState(false)
   const [addUserDialogOpen, setAddUserDialogOpen] = useState(false)
+  // bug-hunt-2026-09-18 (round 21, UX follow-up): the dossier's own "Add to
+  // Whitelist" menu item reuses this exact dialog/state (same
+  // playersApi.addUser() call either way -- there is no separate
+  // "whitelist an existing player" endpoint) rather than opening a second
+  // one, but the dialog's title/description/submit label always said "Add
+  // User" regardless of which entry point opened it -- reading as "create a
+  // brand new account" even when the operator just picked an ALREADY-KNOWN
+  // player from the dossier to whitelist. Defaults to the standalone
+  // ActionTile's own framing; the dossier's "Add to Whitelist" click sets
+  // this to 'addToWhitelist' before opening.
+  const [addUserDialogMode, setAddUserDialogMode] = useState<'createAccount' | 'addToWhitelist'>('createAccount')
   const [itemBrowserOpen, setItemBrowserOpen] = useState(false)
   const [vehicleBrowserOpen, setVehicleBrowserOpen] = useState(false)
 
@@ -623,19 +636,29 @@ export default function Players() {
     }
   }, [players.length, peakPlayers])
 
+  // bug-hunt-2026-09-18 (round 9, activeServerChanged race sweep): fetchPlayers
+  // runs both on a 15s poll (below) and on activeServerChanged, with no guard
+  // against the two overlapping -- a poll tick for the server that was active
+  // a moment ago, still in flight, could resolve AFTER the
+  // activeServerChanged-triggered call for the NEW server and overwrite it.
+  // playersGuard drops a response once a newer call has already started.
+  const playersGuard = useRequestGuard()
   const fetchPlayers = useCallback(async () => {
+    const requestId = playersGuard.next()
     try {
       const data = await playersApi.getPlayers({ retries: 0 })
+      if (playersGuard.isStale(requestId)) return
       if (data.players) {
         setPlayers(data.players)
         setLastRefresh(new Date())
       }
       setPlayersLoadError(null)
     } catch (error) {
+      if (playersGuard.isStale(requestId)) return
       reportClientError('Failed to fetch players.', error)
       setPlayersLoadError(getErrorMessage(error, t('loadErrors.players')))
     }
-  }, [t])
+  }, [t, playersGuard])
 
   // Gated on players.gm_tools -- the same capability GET /panel-bridge/players
   // (the route getAllPlayerDetails lives behind) actually requires, not the
@@ -868,25 +891,39 @@ export default function Players() {
     }
   }, [])
 
+  // bug-hunt-2026-09-18 (round: whitelist/access-level/admin accounts):
+  // same shape as fetchPlayers' own playersGuard above -- fetchWhitelist
+  // runs both on mount and on activeServerChanged (see that handler below),
+  // with nothing stopping a slow mount-time load (or a manual Refresh click
+  // for the server that was active a moment ago) from resolving AFTER the
+  // activeServerChanged-triggered call for the NEW server and silently
+  // reverting the roster back to the OLD server's whitelist. A separate
+  // guard instance from playersGuard, per useRequestGuard's own contract --
+  // this is an independent fetch stream and must not share staleness state.
+  //
   // 2026-09-08 (retry-stacking sweep): `manual` distinguishes the page
   // header's Refresh button (the only human-initiated caller of this
   // function) from mount, server-change, and post-action refreshes -- see
   // Servers.tsx's fetchServers() for the full reasoning.
+  const whitelistGuard = useRequestGuard()
   const fetchWhitelist = useCallback(async (opts?: { manual?: boolean }) => {
+    const requestId = whitelistGuard.next()
     setWhitelistLoading(true)
     try {
       const result = await playersApi.getWhitelist(opts?.manual ? { retries: 0 } : undefined)
+      if (whitelistGuard.isStale(requestId)) return
       setWhitelistAccounts(result.accounts || [])
       setAllowedSteamIds(result.allowedSteamIds || [])
       setWhitelistAvailable(result.available !== false)
       setWhitelistError(result.available === false ? result.reason || t('loadErrors.whitelistUnavailableFallback') : null)
     } catch (error) {
+      if (whitelistGuard.isStale(requestId)) return
       reportClientError('Failed to fetch whitelist accounts.', error)
       setWhitelistError(getErrorMessage(error, t('loadErrors.whitelist')))
     } finally {
-      setWhitelistLoading(false)
+      if (!whitelistGuard.isStale(requestId)) setWhitelistLoading(false)
     }
-  }, [t])
+  }, [t, whitelistGuard])
 
   const fetchAccessLevels = useCallback(async () => {
     try {
@@ -979,10 +1016,18 @@ export default function Players() {
   // noclip/teleport bridge actions below, when the mod couldn't confirm the
   // change) resolves to `{ toastOverride }` instead -- runtime-checked here
   // rather than widening `fn`'s type, so every other caller is unaffected.
+  // bug-hunt-2026-09-18 (round 21, UX follow-up): the generic success toast
+  // used to say only "{{action}} completed" -- correct, but silent about
+  // WHICH player it happened to, on a page whose whole job is acting on
+  // one player at a time. `player` is optional (a create-a-new-account
+  // action like Add User, or the rare handleAction call with no single
+  // clear target, can omit it) and purely additive: every existing caller
+  // that doesn't pass one keeps the exact prior toast text.
   const handleAction = async (
     action: string,
     fn: () => Promise<unknown>,
     closeDialog?: () => void,
+    player?: string,
   ) => {
     setLoading(true)
     try {
@@ -994,7 +1039,9 @@ export default function Players() {
       toast(
         override ?? {
           title: t('toasts.successTitle'),
-          description: t('toasts.successDesc', { action }),
+          description: player
+            ? t('toasts.successDescForPlayer', { action, player })
+            : t('toasts.successDesc', { action }),
           variant: 'success' as const,
         },
       )
@@ -1018,7 +1065,7 @@ export default function Players() {
       setKickReason('')
       setSelectedPlayer('')
       searchInputRef.current?.focus()
-    })
+    }, selectedPlayer)
   }
 
   // Overwrites the target player's XP/perks/skills/traits/inventory/wornItems --
@@ -1067,7 +1114,7 @@ export default function Players() {
       setBanIp(false)
       setSelectedPlayer('')
       searchInputRef.current?.focus()
-    })
+    }, selectedPlayer)
   }
 
   const handleUnban = () => {
@@ -1075,7 +1122,7 @@ export default function Players() {
     handleAction(t('actions.unbanPlayer'), () => playersApi.unban(unbanUsername), () => {
       setUnbanUsername('')
       setUnbanDialogOpen(false)
-    })
+    }, unbanUsername)
   }
 
   const handleUnbanSteamId = () => {
@@ -1084,7 +1131,7 @@ export default function Players() {
       setUnbanSteamId('')
       setUnbanSteamIdDialogOpen(false)
       setBannedSteamIds(prev => prev.filter(b => b.steamId !== unbanSteamId))
-    })
+    }, unbanSteamId)
   }
 
   // Builds the { toastOverride } handleAction reads instead of its default
@@ -1142,7 +1189,7 @@ export default function Players() {
       setTeleportY('')
       setTeleportZ('0')
       setTeleportTarget('')
-    })
+    }, target)
   }
 
   const handleSteamIdBan = () => {
@@ -1154,7 +1201,7 @@ export default function Players() {
       setBanSteamId('')
       setSteamBanReason('')
       void fetchBannedSteamIds()
-    })
+    }, steamId)
   }
 
   const handleAddUser = () => {
@@ -1179,7 +1226,7 @@ export default function Players() {
       setAddUserUsername('')
       setAddUserPassword('')
       void fetchWhitelist()
-    })
+    }, addUserUsername.trim())
   }
 
   const handleAddAllowedSteamId = () => {
@@ -1195,12 +1242,49 @@ export default function Players() {
     handleAction(t('actions.addAllowedSteamId'), () => playersApi.addAllowedSteamId(steamId), () => {
       setAllowedSteamIdInput('')
       void fetchWhitelist()
-    })
+    }, steamId)
   }
 
-  const handleSetAccessLevel = () => {
+  // continuous-bug-hunt round 29 (card: guard-against-removing-last-admin):
+  // server/routes/players.js's POST /access-level refuses a demotion away
+  // from admin for a local server's only admin account UNLESS the request
+  // carries confirm: true, returning PLAYERS_LAST_ADMIN_ACCESS_LEVEL_CONFIRM
+  // so this can ask first rather than silently going through -- same
+  // confirm-then-retry shape as RolesPermissions.tsx's
+  // ROLE_SELF_CAPABILITY_LOSS_CONFIRM handling. Not routed through
+  // handleAction: a cancelled confirm must not surface as a failure toast,
+  // and handleAction has no hook for "the user said no, say nothing".
+  const handleSetAccessLevel = async (confirmOverride = false) => {
     if (!selectedPlayer || !accessLevel) return
-    handleAction(t('actions.setAccessLevel'), () => playersApi.setAccessLevel(selectedPlayer, accessLevel))
+    setLoading(true)
+    try {
+      await playersApi.setAccessLevel(selectedPlayer, accessLevel, confirmOverride)
+      toast({
+        title: t('toasts.successTitle'),
+        description: t('toasts.successDescForPlayer', { action: t('actions.setAccessLevel'), player: selectedPlayer }),
+        variant: 'success' as const,
+      })
+      fetchPlayers()
+    } catch (error) {
+      if (!confirmOverride && error instanceof ApiError && error.code === 'PLAYERS_LAST_ADMIN_ACCESS_LEVEL_CONFIRM') {
+        setLoading(false)
+        const ok = await confirm({
+          title: t('confirmLastAdmin.title'),
+          description: t('confirmLastAdmin.description', { player: selectedPlayer }),
+          confirmLabel: t('confirmLastAdmin.confirm'),
+          cancelLabel: t('confirmLastAdmin.cancel'),
+        })
+        if (ok) await handleSetAccessLevel(true)
+        return
+      }
+      toast({
+        title: t('toasts.errorTitle'),
+        description: getUserErrorMessage(error, t('toasts.actionFailedFallback')),
+        variant: 'destructive',
+      })
+    } finally {
+      setLoading(false)
+    }
   }
 
   // Direct spawn handlers used by the SpawnBrowser dialog. They intentionally
@@ -1261,7 +1345,7 @@ export default function Players() {
 
   const handleAddXp = () => {
     if (!selectedPlayer || !selectedPerk) return
-    handleAction(t('actions.addXp'), () => playersApi.addXp(selectedPlayer, selectedPerk, xpAmount))
+    handleAction(t('actions.addXp'), () => playersApi.addXp(selectedPlayer, selectedPerk, xpAmount), undefined, selectedPlayer)
   }
 
   const handleGodMode = (enabled: boolean) => {
@@ -1281,7 +1365,7 @@ export default function Players() {
         }))
       }
       return bridgeVerifyToastOverride(label, 'setGodMode', response?.data)
-    })
+    }, undefined, player)
   }
 
   const handleInvisible = (enabled: boolean) => {
@@ -1298,7 +1382,7 @@ export default function Players() {
         }))
       }
       return bridgeVerifyToastOverride(label, 'setInvisible', response?.data)
-    })
+    }, undefined, player)
   }
 
   const handleNoclip = (enabled: boolean) => {
@@ -1315,7 +1399,7 @@ export default function Players() {
         }))
       }
       return bridgeVerifyToastOverride(label, 'setNoclip', response?.data)
-    })
+    }, undefined, player)
   }
 
   const handleHealPlayer = () => {
@@ -1324,7 +1408,7 @@ export default function Players() {
     handleAction(t('actions.healPlayer'),
       async () => {
         await panelBridgeApi.sendCommand('healPlayer', { username: player })
-      })
+      }, undefined, player)
   }
 
   // Permanent character loss in a permadeath game, inflicted on someone
@@ -1361,7 +1445,7 @@ export default function Players() {
     handleAction(t('actions.killPlayer'),
       async () => {
         await panelBridgeApi.killPlayer(player)
-      })
+      }, undefined, player)
   }
 
   // Get selected player's current powers
@@ -1888,7 +1972,16 @@ export default function Players() {
                               variant="outline"
                               size="sm"
                               className="shrink-0"
-                              onClick={() => handleAction(t('actions.removeFromWhitelist'), () => playersApi.removeFromWhitelist(account.username), () => { void fetchWhitelist() })}
+                              onClick={async () => {
+                                const confirmed = await confirm({
+                                  title: t('roster.removeFromWhitelistConfirmTitle'),
+                                  description: t('roster.removeFromWhitelistConfirmDesc', { player: account.username }),
+                                  confirmLabel: t('roster.removeFromWhitelistConfirmButton'),
+                                  destructive: true,
+                                })
+                                if (!confirmed) return
+                                void handleAction(t('actions.removeFromWhitelist'), () => playersApi.removeFromWhitelist(account.username), () => { void fetchWhitelist() }, account.username)
+                              }}
                               disabled={loading || !canModerate}
                               // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Remove {username} from whitelist"); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                               title={t('roster.removeTitle', { username: account.username })}
@@ -1934,7 +2027,16 @@ export default function Players() {
                         variant="ghost"
                         size="sm"
                         className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
-                        onClick={() => handleAction(t('actions.removeAllowedSteamId'), () => playersApi.removeAllowedSteamId(steamId), () => { void fetchWhitelist() })}
+                        onClick={async () => {
+                          const confirmed = await confirm({
+                            title: t('roster.removeAllowedSteamIdConfirmTitle'),
+                            description: t('roster.removeAllowedSteamIdConfirmDesc', { steamId }),
+                            confirmLabel: t('roster.removeAllowedSteamIdConfirmButton'),
+                            destructive: true,
+                          })
+                          if (!confirmed) return
+                          void handleAction(t('actions.removeAllowedSteamId'), () => playersApi.removeAllowedSteamId(steamId), () => { void fetchWhitelist() }, steamId)
+                        }}
                         disabled={loading || !canModerate}
                         // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Remove allowed Steam ID {steamId}"); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                         title={t('roster.removeAllowedTitle', { steamId })}
@@ -2132,6 +2234,7 @@ export default function Players() {
                                   if (!canModerate) return
                                   setAddUserUsername(selectedPlayer)
                                   setAddUserPassword('')
+                                  setAddUserDialogMode('addToWhitelist')
                                   setAddUserDialogOpen(true)
                                 }}
                                 disabled={loading || !canModerate}
@@ -2140,9 +2243,34 @@ export default function Players() {
                                 {t('dossier.addToWhitelist')}
                               </DropdownMenuItem>
                               </DisabledReason>
-                              <DisabledReason className="w-full" reason={!canModerate ? t('permissions.noModerate') : null}>
+                              {/* selectedPlayerConfirmedNotWhitelisted disables this item once the
+                                  whitelist fetch has confirmed there's nothing to remove -- but that
+                                  disable had no explanation of its own (only the noModerate reason
+                                  was wired up), so hovering a greyed-out item next to an enabled
+                                  "Add to Whitelist" gave no clue why. Players-UX-sense-check
+                                  2026-09-18. */}
+                              <DisabledReason
+                                className="w-full"
+                                reason={
+                                  !canModerate
+                                    ? t('permissions.noModerate')
+                                    : selectedPlayerConfirmedNotWhitelisted
+                                      ? t('dossier.notOnWhitelistReason', { player: selectedPlayer })
+                                      : null
+                                }
+                              >
                               <DropdownMenuItem
-                                onClick={() => { if (!canModerate) return; handleAction(t('actions.removeFromWhitelist'), () => playersApi.removeFromWhitelist(selectedPlayer), () => { void fetchWhitelist() }) }}
+                                onClick={async () => {
+                                  if (!canModerate) return
+                                  const confirmed = await confirm({
+                                    title: t('roster.removeFromWhitelistConfirmTitle'),
+                                    description: t('roster.removeFromWhitelistConfirmDesc', { player: selectedPlayer }),
+                                    confirmLabel: t('roster.removeFromWhitelistConfirmButton'),
+                                    destructive: true,
+                                  })
+                                  if (!confirmed) return
+                                  void handleAction(t('actions.removeFromWhitelist'), () => playersApi.removeFromWhitelist(selectedPlayer), () => { void fetchWhitelist() }, selectedPlayer)
+                                }}
                                 disabled={loading || !canModerate || selectedPlayerConfirmedNotWhitelisted}
                               >
                                 <UserMinus className="w-4 h-4 me-2" />
@@ -2364,6 +2492,13 @@ export default function Players() {
                             onChange={(e) => setKickReason(e.target.value)}
                             placeholder={t('kickDialog.reasonPlaceholder')}
                           />
+                          {banReasonWillBeAltered(kickReason) && (
+                            <p className="mt-1 text-xs text-warning">
+                              {previewBanReason(kickReason)
+                                ? t('kickDialog.reasonAlteredNote', { preview: previewBanReason(kickReason) })
+                                : t('kickDialog.reasonAlteredToEmpty')}
+                            </p>
+                          )}
                         </div>
                       </div>
                       <DialogFooter>
@@ -2403,6 +2538,13 @@ export default function Players() {
                             onChange={(e) => setBanReason(e.target.value)}
                             placeholder={t('banDialog.reasonPlaceholder')}
                           />
+                          {banReasonWillBeAltered(banReason) && (
+                            <p className="mt-1 text-xs text-warning">
+                              {previewBanReason(banReason)
+                                ? t('banDialog.reasonAlteredNote', { preview: previewBanReason(banReason) })
+                                : t('banDialog.reasonAlteredToEmpty')}
+                            </p>
+                          )}
                         </div>
                         <div className="flex items-center gap-2">
                           <Checkbox
@@ -2485,7 +2627,7 @@ export default function Players() {
                         </Select>
                       </div>
                       <DialogFooter>
-                        <Button onClick={handleSetAccessLevel} disabled={loading || !accessLevel}>
+                        <Button onClick={() => handleSetAccessLevel()} disabled={loading || !accessLevel}>
                           {t('accessLevelDialog.submit')}
                         </Button>
                       </DialogFooter>
@@ -2656,7 +2798,7 @@ export default function Players() {
                               () => playersApi.voiceBan(target, voiceBanEnabled), () => {
                                 setVoiceBanDialogOpen(false)
                                 setVoiceBanUsername('')
-                              })
+                              }, target)
                           }}
                           disabled={loading || (!voiceBanUsername && !selectedPlayer)}
                         >
@@ -2731,15 +2873,17 @@ export default function Players() {
                   <Dialog open={addUserDialogOpen} onOpenChange={setAddUserDialogOpen}>
                     <DialogTrigger asChild>
                       {/* eslint-disable-next-line local/no-dead-disabled-title -- pure hint (explains what adding a user does); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27. */}
-                      <button type="button" disabled={!canModerate} title={t('actionTiles.addUserTooltip')} className="block h-auto w-full p-0 text-start">
+                      <button type="button" disabled={!canModerate} title={t('actionTiles.addUserTooltip')} className="block h-auto w-full p-0 text-start" onClick={() => setAddUserDialogMode('createAccount')}>
                         <ActionTile icon={<UserPlus className="w-4 h-4" />} label={t('actionTiles.addUserLabel')} compact />
                       </button>
                     </DialogTrigger>
                     <DialogContent>
                       <DialogHeader>
-                        <DialogTitle>{t('addUserDialog.title')}</DialogTitle>
+                        <DialogTitle>{addUserDialogMode === 'addToWhitelist' ? t('addUserDialog.titleWhitelist') : t('addUserDialog.title')}</DialogTitle>
                         <DialogDescription>
-                          {t('addUserDialog.description')}
+                          {addUserDialogMode === 'addToWhitelist'
+                            ? t('addUserDialog.descriptionWhitelist', { player: addUserUsername })
+                            : t('addUserDialog.description')}
                         </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4">
@@ -2772,7 +2916,7 @@ export default function Players() {
                           disabled={loading || !addUserUsername.trim() || (addUserPassword.length > 0 && addUserPassword.length < 4)}
                         >
                           {loading ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : null}
-                          {t('addUserDialog.submit')}
+                          {addUserDialogMode === 'addToWhitelist' ? t('addUserDialog.submitWhitelist') : t('addUserDialog.submit')}
                         </Button>
                       </DialogFooter>
                     </DialogContent>
@@ -3007,6 +3151,15 @@ export default function Players() {
                           ? <Trans i18nKey="spawn.giveXpDescWithPlayer" t={t} values={{ player: selectedPlayer }} components={{ 1: <span className="text-foreground font-medium" /> }} />
                           : t('spawn.giveXpDescNoPlayer')}
                       </p>
+                      {/* giveXpDescNoPlayer used to read "Grant experience to the
+                          selected player" -- accurate as a feature summary but,
+                          shown specifically while NO player is selected, it reads
+                          like one already is (contradicting its own premise) and
+                          never tells the operator what to do next. The sibling
+                          Give Items card just above already says "Pick a player
+                          first..." for the same no-selection state; Give XP now
+                          matches that pattern instead of describing the feature
+                          in the abstract. Players-UX-sense-check 2026-09-18. */}
                     </div>
                   </div>
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-2">

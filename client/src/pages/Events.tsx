@@ -70,8 +70,11 @@ import { DisabledReason } from '@/components/DisabledReason'
 import { HelpTip } from '@/components/HelpTip'
 import { cn } from '@/lib/utils'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { useRequestGuard } from '@/hooks/useRequestGuard'
+import { percentToBridgeRainIntensity, percentToRconFraction, percentToUnitInterval } from '@/lib/weatherUnits'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import { useSocket } from '@/contexts/SocketContext'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface Player {
   name: string
@@ -1093,6 +1096,19 @@ interface ActivityEntry {
 
 export default function Events() {
   const { t, i18n } = useTranslation('events')
+  const { can } = useAuth()
+  // bug-hunt-2026-09-18 (round 19, client-vs-server permission gate sweep):
+  // this page had NO capability checks at all -- server.js's lightning/
+  // thunder/horde routes and panelBridge.js's targeted sound/noise routes
+  // are gated on players.endanger_or_impersonate specifically (a role can
+  // hold the page's baseline server.world_events without it, per
+  // roles.json's own description contrasting the two), but every one of
+  // this page's controls that reach them was fully enabled regardless,
+  // surfacing the refusal only as a 403 after the click. Clearing zombies
+  // (not spawning them) and the plain world-wide chopper/gunshot/alarm
+  // triggers stay ungated here -- they're server.world_events, the page's
+  // own broadly-held baseline, not this specific mismatch.
+  const canEndangerOrImpersonate = can('players.endanger_or_impersonate')
   const vehicles = useMemo(() => getVehiclePresets(t), [t])
   const bridgeOperationTemplates = useMemo(() => getBridgeOperationTemplates(t), [t])
   const bridgeOperationForms = useMemo(() => getBridgeOperationForms(t), [t])
@@ -1143,6 +1159,21 @@ export default function Events() {
   ) as unknown as Record<EventSectionKey, EventSectionMeta>, [EVENT_SECTION_GROUPS])
   const [loading, setLoading] = useState<string | null>(null)
   const [players, setPlayers] = useState<Player[]>([])
+  // bug-hunt-2026-09-18 (round 6): fetchPlayers's catch below is a deliberate
+  // silent ignore -- the 10-15s poll will retry, no need to toast every miss
+  // -- but that left `players` at its initial [] with nothing to tell a
+  // failed/not-yet-finished fetch apart from a server that's genuinely
+  // empty. `players.length === 0` alone drove ~15 call sites' "No players
+  // online" copy, so a bridge hiccup on the very first load (or before it
+  // resolves at all) told the operator nobody was online when the real
+  // answer was "don't know yet". `playersLoaded` only flips true on a
+  // successful response, so it stays false through both "still loading" and
+  // "every attempt so far has failed" -- once true it stays true, since a
+  // LATER failure already correctly keeps showing the last known roster
+  // (setPlayers is simply never called on that path) rather than reverting
+  // to unknown.
+  const [playersLoaded, setPlayersLoaded] = useState(false)
+  const playersUnknown = !playersLoaded
   const [selectedPlayer, setSelectedPlayer] = useState<string>('')
   const [targetAll, setTargetAll] = useState(true)
 
@@ -1293,16 +1324,30 @@ export default function Events() {
     }
   }
 
+  // bug-hunt-2026-09-18 (round 9, activeServerChanged race sweep): this runs
+  // on a recurring poll AND on activeServerChanged, with no guard against
+  // the two overlapping -- a poll tick for the server that was active a
+  // moment ago, still in flight, could resolve AFTER the
+  // activeServerChanged-triggered call for the NEW server and overwrite it.
+  // playersGuard drops a response once a newer call has already started.
+  const playersGuard = useRequestGuard()
   const fetchPlayers = useCallback(async () => {
+    const requestId = playersGuard.next()
     try {
       const data = await playersApi.getPlayers()
+      if (playersGuard.isStale(requestId)) return
       if (data.players) {
         setPlayers(data.players)
+        setPlayersLoaded(true)
       }
     } catch {
-      // Silently ignore — player list will refresh on next interval
+      // Silently ignore — player list will refresh on next interval. Does
+      // NOT touch playersLoaded: a failure here must not flip an already-
+      // successful load back to "unknown" (the roster we already have is
+      // still the best information available), and must not manufacture a
+      // false "loaded" the first time either.
     }
-  }, [])
+  }, [playersGuard])
 
   const mountedRef = useRef(true)
   // Suppress climate-slider overwrites from the 10s bridge poll while the
@@ -1322,10 +1367,24 @@ export default function Events() {
     timeSpeedDirtyUntilRef.current = Date.now() + 2500
   }, [])
 
+  // continuous-bug-hunt round 26 (PanelBridge command queue and response
+  // matching): same race shape as fetchPlayers above (round 9), on the SAME
+  // page, but this one was left ungated -- Events.activeServerRaceOrder.
+  // test.tsx's own setUpCommon() even says so explicitly ("this race only
+  // concerns fetchPlayers"). checkBridgeStatus runs on a 10s poll AND on
+  // activeServerChanged; a poll tick for the server that was active a
+  // moment ago, still in flight, can resolve AFTER the
+  // activeServerChanged-triggered call for the NEW server and overwrite its
+  // weather/climate sliders/game time/utilities status with the OLD
+  // server's stale bridge data. bridgeStatusGuard drops a response once a
+  // newer call has already started -- same mechanism, separate instance
+  // (per useRequestGuard's own doc comment: one guard per fetch flow).
+  const bridgeStatusGuard = useRequestGuard()
   const checkBridgeStatus = useCallback(async () => {
+    const requestId = bridgeStatusGuard.next()
     try {
       const status = await panelBridgeApi.getStatus()
-      if (!mountedRef.current) return
+      if (!mountedRef.current || bridgeStatusGuard.isStale(requestId)) return
       setBridgeConnected(status.modConnected)
       setBridgeStatusLoading(false)
       // status.connection.summary is {key, params, text} -- resolve through
@@ -1351,7 +1410,7 @@ export default function Events() {
         // actually drive. Fired independently so it can only ever add data,
         // never hold up the rest of this poll tick.
         panelBridgeApi.getWeather().then((weatherResult) => {
-          if (!mountedRef.current) return
+          if (!mountedRef.current || bridgeStatusGuard.isStale(requestId)) return
           if (weatherResult.success && weatherResult.data) {
             const w = weatherResult.data
             setLiveWeather({
@@ -1369,7 +1428,7 @@ export default function Events() {
           panelBridgeApi.getGameTime(),
           panelBridgeApi.getUtilitiesStatus(),
         ])
-        if (!mountedRef.current) return
+        if (!mountedRef.current || bridgeStatusGuard.isStale(requestId)) return
 
         if (floatsRes.status === 'fulfilled' && floatsRes.value.success && floatsRes.value.data?.floats) {
           const floats = floatsRes.value.data.floats
@@ -1435,14 +1494,14 @@ export default function Events() {
         setUtilitiesStatus(null)
       }
     } catch (error) {
-      if (mountedRef.current) {
+      if (mountedRef.current && !bridgeStatusGuard.isStale(requestId)) {
         setBridgeConnected(false)
         setBridgeStatusLoading(false)
         setBridgeConnectionSummary(t('toasts.unableToReadBridgeStatus'))
         setUtilitiesStatus(null)
       }
     }
-  }, [])
+  }, [bridgeStatusGuard])
 
   // Same getWeather() read as checkBridgeStatus's own poll tick above, split
   // out so a toggle that just changed weather state can reconcile with the
@@ -1502,6 +1561,21 @@ export default function Events() {
     const handleActiveServerChanged = () => {
       fetchPlayers()
       checkBridgeStatus()
+      // bug-hunt-2026-09-18 (round 20): `selectedPlayer` names a specific
+      // target for spawnHordeNear/spawnHordeBehind, clearZombiesNearPlayer,
+      // and the teleport commands below -- fetchPlayers() above refreshes
+      // the ROSTER (the dropdown's options), but never touched this
+      // separately-held SELECTION itself. A player picked from the old
+      // server's roster stayed selected across a switch: if the new
+      // server's roster happens to contain a different real person by the
+      // same name, an action fired right after the switch would silently
+      // target THEM instead of nobody/a re-picked name -- the operator's
+      // own click, applied to someone they never chose. Cleared here so a
+      // stale name can never survive the switch; every action that reads
+      // `selectedPlayer` already disables itself on `!selectedPlayer` (see
+      // the horde/teleport/clear-near buttons' own `disabled` props), so
+      // this alone re-arms the same guard those buttons already rely on.
+      setSelectedPlayer('')
     }
     socket.on('activeServerChanged', handleActiveServerChanged)
     return () => {
@@ -1841,7 +1915,9 @@ export default function Events() {
   const hasValidTeleportCoords = teleportCoordX !== null && teleportCoordY !== null && teleportCoordZ !== null
 
   // Weather commands
-  const startRain = () => serverApi.startRain(rainIntensity / 100)
+  // Both client adapters accept a 0-1 fraction; the RCON service converts
+  // its fraction once to Project Zomboid's integer 1-100 command argument.
+  const startRain = () => serverApi.startRain(percentToRconFraction(rainIntensity))
   const stopRain = () => serverApi.stopRain()
   const startStorm = () => serverApi.startStorm(stormDuration)
   const stopWeather = () => serverApi.stopWeather()
@@ -2012,7 +2088,6 @@ export default function Events() {
       : bridgeFormError
         ? bridgeFormError
         : null
-
   const selectBridgeOperation = (nextOperation: string) => {
     setBridgeOperation(nextOperation)
     setBridgeFormError(null)
@@ -2365,7 +2440,9 @@ export default function Events() {
                   <SelectValue placeholder={t('statusBar.selectPlayerPlaceholder')} />
                 </SelectTrigger>
                 <SelectContent>
-                  {players.length === 0 ? (
+                  {playersUnknown ? (
+                    <div className="px-2 py-1.5 font-mono text-[11px] text-muted-foreground">{t('common.playersUnavailable')}</div>
+                  ) : players.length === 0 ? (
                     <div className="px-2 py-1.5 font-mono text-[11px] text-muted-foreground">{t('statusBar.noPlayersOnline')}</div>
                   ) : (
                     players.map((player) => (
@@ -2386,7 +2463,7 @@ export default function Events() {
                 : 'border-border/60 bg-muted/30 text-muted-foreground'
             )}>
               <Users className="w-3.5 h-3.5" />
-              <span className="text-sm font-bold tabular-nums">{players.length}</span>
+              <span className="text-sm font-bold tabular-nums">{playersUnknown ? '—' : players.length}</span>
               <span className="text-xs font-medium opacity-80">{t('statusBar.onlineCount')}</span>
             </div>
           </div>
@@ -2665,7 +2742,7 @@ export default function Events() {
                       <SelectItem value="2">{t('severe.frontWarm')}</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Button variant="outline" onClick={() => handleBridgeAction('Generate Weather Front', () => panelBridgeApi.generateWeather(weatherFrontStrength / 100, Number(weatherFrontType)))} disabled={bridgeLoading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium">
+                  <Button variant="outline" onClick={() => handleBridgeAction('Generate Weather Front', () => panelBridgeApi.generateWeather(percentToUnitInterval(weatherFrontStrength), Number(weatherFrontType)))} disabled={bridgeLoading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium">
                     {bridgeLoading === 'Generate Weather Front' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Waves className="w-3.5 h-3.5" />}
                     {t('severe.triggerFront')}
                   </Button>
@@ -2811,12 +2888,12 @@ export default function Events() {
                 <Button
                   onClick={() => handleBridgeAction('Apply All Climate', async () => {
                     await Promise.all([
-                      panelBridgeApi.setClimateFloat(5, fogIntensity / 100),
-                      panelBridgeApi.setClimateFloat(6, windIntensity / 100),
+                      panelBridgeApi.setClimateFloat(5, percentToUnitInterval(fogIntensity)),
+                      panelBridgeApi.setClimateFloat(6, percentToUnitInterval(windIntensity)),
                       panelBridgeApi.setClimateFloat(4, temperature),
-                      panelBridgeApi.setClimateFloat(8, cloudIntensity / 100),
-                      panelBridgeApi.setClimateFloat(12, humidity / 100),
-                      panelBridgeApi.setClimateFloat(3, precipitationIntensity / 100),
+                      panelBridgeApi.setClimateFloat(8, percentToUnitInterval(cloudIntensity)),
+                      panelBridgeApi.setClimateFloat(12, percentToUnitInterval(humidity)),
+                      panelBridgeApi.setClimateFloat(3, percentToUnitInterval(precipitationIntensity)),
                     ])
                     // Allow the next poll to re-sync from authoritative game state.
                     climateDirtyUntilRef.current = 0
@@ -2842,7 +2919,7 @@ export default function Events() {
                   setLiveWeather((prev) => (prev ? { ...prev, isRaining: next } : prev))
                   handleBridgeAction(
                     next ? 'Start Rain' : 'Stop Rain',
-                    () => next ? panelBridgeApi.startRain(Math.max(0.05, precipitationIntensity / 100)) : panelBridgeApi.stopRain(),
+                    () => next ? panelBridgeApi.startRain(percentToBridgeRainIntensity(precipitationIntensity)) : panelBridgeApi.stopRain(),
                     async (success) => {
                       if (success) await refetchWeather()
                       else setLiveWeather(previous)
@@ -2930,11 +3007,11 @@ export default function Events() {
                 <Button
                   onClick={() => handleBridgeAction('Apply All Visual', async () => {
                     await Promise.all([
-                      panelBridgeApi.setClimateFloat(10, viewDistance / 100),
-                      panelBridgeApi.setClimateFloat(11, dayLight / 100),
-                      panelBridgeApi.setClimateFloat(2, nightStrength / 100),
-                      panelBridgeApi.setClimateFloat(0, desaturation / 100),
-                      panelBridgeApi.setClimateFloat(9, ambient / 100),
+                      panelBridgeApi.setClimateFloat(10, percentToUnitInterval(viewDistance)),
+                      panelBridgeApi.setClimateFloat(11, percentToUnitInterval(dayLight)),
+                      panelBridgeApi.setClimateFloat(2, percentToUnitInterval(nightStrength)),
+                      panelBridgeApi.setClimateFloat(0, percentToUnitInterval(desaturation)),
+                      panelBridgeApi.setClimateFloat(9, percentToUnitInterval(ambient)),
                     ])
                     // Allow the next poll to re-sync from authoritative game state.
                     climateDirtyUntilRef.current = 0
@@ -3149,23 +3226,23 @@ export default function Events() {
                   {t('quickSounds.hint')}
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  <DisabledReason reason={players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : null}>
+                  <DisabledReason reason={playersUnknown ? t('common.playersUnavailableTitle') : players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : null}>
                     <Button variant="outline" onClick={() => handleAction('Helicopter', triggerChopper)} disabled={loading !== null || players.length === 0} className="h-9 gap-2 text-xs font-medium">
                       {loading === 'Helicopter' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Crosshair className="w-3.5 h-3.5" />}
                       {t('quickSounds.helicopter')}
                     </Button>
                   </DisabledReason>
-                  <DisabledReason reason={players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : null}>
+                  <DisabledReason reason={playersUnknown ? t('common.playersUnavailableTitle') : players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : null}>
                     <Button variant="outline" onClick={() => handleAction('Gunshot', triggerGunshot)} disabled={loading !== null || players.length === 0} className="h-9 gap-2 text-xs font-medium">
                       {loading === 'Gunshot' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Volume2 className="w-3.5 h-3.5" />}
                       {t('quickSounds.gunshot')}
                     </Button>
                   </DisabledReason>
-                  <DisabledReason reason={players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : null}>
+                  <DisabledReason reason={!canEndangerOrImpersonate ? t('common.noPermissionEndangerOrImpersonate') : playersUnknown ? t('common.playersUnavailableTitle') : players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : null}>
                     <Button
                       variant="outline"
                       onClick={() => handleAction('Lightning', () => triggerLightning(pickStrikeTarget()))}
-                      disabled={loading !== null || players.length === 0}
+                      disabled={loading !== null || players.length === 0 || !canEndangerOrImpersonate}
                       // eslint-disable-next-line local/no-dead-disabled-title -- already split (this file's own precedent, cited in the rule's docs): the disabled-reason (no players online) lives in the DisabledReason wrapper above; this title carries only the enabled-state hint. Marker added 2026-08-27.
                       title={players.length === 0 ? undefined : t('quickSounds.lightningTooltip')}
                       className="h-9 gap-2 text-xs font-medium text-amber-400/90 hover:text-amber-400 hover:border-amber-400/40"
@@ -3174,11 +3251,11 @@ export default function Events() {
                       {t('quickSounds.lightning')}
                     </Button>
                   </DisabledReason>
-                  <DisabledReason reason={players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : null}>
+                  <DisabledReason reason={!canEndangerOrImpersonate ? t('common.noPermissionEndangerOrImpersonate') : playersUnknown ? t('common.playersUnavailableTitle') : players.length === 0 ? t('quickSounds.noPlayersOnlineTitle') : null}>
                     <Button
                       variant="outline"
                       onClick={() => handleAction('Thunder', () => triggerThunder(pickStrikeTarget()))}
-                      disabled={loading !== null || players.length === 0}
+                      disabled={loading !== null || players.length === 0 || !canEndangerOrImpersonate}
                       // eslint-disable-next-line local/no-dead-disabled-title -- already split (this file's own precedent, cited in the rule's docs): the disabled-reason (no players online) lives in the DisabledReason wrapper above; this title carries only the enabled-state hint. Marker added 2026-08-27.
                       title={players.length === 0 ? undefined : t('quickSounds.thunderTooltip')}
                       className="h-9 gap-2 text-xs font-medium"
@@ -3244,18 +3321,24 @@ export default function Events() {
                     </span>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" onClick={() => handleBridgeAction('Gunshot Sound', () => panelBridgeApi.triggerGunshotBridge({ username: selectedPlayer || undefined }))} disabled={bridgeLoading !== null || !bridgeConnected || targetAll || !selectedPlayer} className="h-9 gap-2 text-xs font-medium">
-                      {bridgeLoading === 'Gunshot Sound' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Volume2 className="w-3.5 h-3.5" />}
-                      {t('targetedSounds.gunshot')}
-                    </Button>
-                    <Button variant="outline" onClick={() => handleBridgeAction('Alarm Sound', () => panelBridgeApi.triggerAlarmBridge({ username: selectedPlayer || undefined }))} disabled={bridgeLoading !== null || !bridgeConnected || targetAll || !selectedPlayer} className="h-9 gap-2 text-xs font-medium">
-                      {bridgeLoading === 'Alarm Sound' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bell className="w-3.5 h-3.5" />}
-                      {t('targetedSounds.alarm')}
-                    </Button>
-                    <Button variant="outline" onClick={() => handleBridgeAction('Custom Noise', () => panelBridgeApi.createNoise({ username: selectedPlayer, radius: soundRadius, volume: soundVolume }))} disabled={bridgeLoading !== null || !bridgeConnected || targetAll || !selectedPlayer} className="h-9 gap-2 text-xs font-medium">
-                      {bridgeLoading === 'Custom Noise' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Megaphone className="w-3.5 h-3.5" />}
-                      {t('targetedSounds.noise')}
-                    </Button>
+                    <DisabledReason reason={!canEndangerOrImpersonate ? t('common.noPermissionEndangerOrImpersonate') : null}>
+                      <Button variant="outline" onClick={() => handleBridgeAction('Gunshot Sound', () => panelBridgeApi.triggerGunshotBridge({ username: selectedPlayer || undefined }))} disabled={bridgeLoading !== null || !bridgeConnected || targetAll || !selectedPlayer || !canEndangerOrImpersonate} className="h-9 gap-2 text-xs font-medium">
+                        {bridgeLoading === 'Gunshot Sound' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Volume2 className="w-3.5 h-3.5" />}
+                        {t('targetedSounds.gunshot')}
+                      </Button>
+                    </DisabledReason>
+                    <DisabledReason reason={!canEndangerOrImpersonate ? t('common.noPermissionEndangerOrImpersonate') : null}>
+                      <Button variant="outline" onClick={() => handleBridgeAction('Alarm Sound', () => panelBridgeApi.triggerAlarmBridge({ username: selectedPlayer || undefined }))} disabled={bridgeLoading !== null || !bridgeConnected || targetAll || !selectedPlayer || !canEndangerOrImpersonate} className="h-9 gap-2 text-xs font-medium">
+                        {bridgeLoading === 'Alarm Sound' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bell className="w-3.5 h-3.5" />}
+                        {t('targetedSounds.alarm')}
+                      </Button>
+                    </DisabledReason>
+                    <DisabledReason reason={!canEndangerOrImpersonate ? t('common.noPermissionEndangerOrImpersonate') : null}>
+                      <Button variant="outline" onClick={() => handleBridgeAction('Custom Noise', () => panelBridgeApi.createNoise({ username: selectedPlayer, radius: soundRadius, volume: soundVolume }))} disabled={bridgeLoading !== null || !bridgeConnected || targetAll || !selectedPlayer || !canEndangerOrImpersonate} className="h-9 gap-2 text-xs font-medium">
+                        {bridgeLoading === 'Custom Noise' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Megaphone className="w-3.5 h-3.5" />}
+                        {t('targetedSounds.noise')}
+                      </Button>
+                    </DisabledReason>
                   </div>
                 </div>
 
@@ -3279,18 +3362,24 @@ export default function Events() {
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" onClick={() => handleBridgeAction('Gunshot at Coords', () => panelBridgeApi.triggerGunshotBridge({ x: soundCoordX as number, y: soundCoordY as number }))} disabled={bridgeLoading !== null || !bridgeConnected || !hasValidSoundCoords} className="h-9 gap-2 text-xs font-medium">
-                      {bridgeLoading === 'Gunshot at Coords' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Volume2 className="w-3.5 h-3.5" />}
-                      {t('targetedSounds.gunshot')}
-                    </Button>
-                    <Button variant="outline" onClick={() => handleBridgeAction('Alarm at Coords', () => panelBridgeApi.triggerAlarmBridge({ x: soundCoordX as number, y: soundCoordY as number }))} disabled={bridgeLoading !== null || !bridgeConnected || !hasValidSoundCoords} className="h-9 gap-2 text-xs font-medium">
-                      {bridgeLoading === 'Alarm at Coords' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bell className="w-3.5 h-3.5" />}
-                      {t('targetedSounds.alarm')}
-                    </Button>
-                    <Button variant="outline" onClick={() => handleBridgeAction('Noise at Coords', () => panelBridgeApi.createNoise({ x: soundCoordX as number, y: soundCoordY as number, radius: soundRadius, volume: soundVolume }))} disabled={bridgeLoading !== null || !bridgeConnected || !hasValidSoundCoords} className="h-9 gap-2 text-xs font-medium">
-                      {bridgeLoading === 'Noise at Coords' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Megaphone className="w-3.5 h-3.5" />}
-                      {t('targetedSounds.noise')}
-                    </Button>
+                    <DisabledReason reason={!canEndangerOrImpersonate ? t('common.noPermissionEndangerOrImpersonate') : null}>
+                      <Button variant="outline" onClick={() => handleBridgeAction('Gunshot at Coords', () => panelBridgeApi.triggerGunshotBridge({ x: soundCoordX as number, y: soundCoordY as number }))} disabled={bridgeLoading !== null || !bridgeConnected || !hasValidSoundCoords || !canEndangerOrImpersonate} className="h-9 gap-2 text-xs font-medium">
+                        {bridgeLoading === 'Gunshot at Coords' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Volume2 className="w-3.5 h-3.5" />}
+                        {t('targetedSounds.gunshot')}
+                      </Button>
+                    </DisabledReason>
+                    <DisabledReason reason={!canEndangerOrImpersonate ? t('common.noPermissionEndangerOrImpersonate') : null}>
+                      <Button variant="outline" onClick={() => handleBridgeAction('Alarm at Coords', () => panelBridgeApi.triggerAlarmBridge({ x: soundCoordX as number, y: soundCoordY as number }))} disabled={bridgeLoading !== null || !bridgeConnected || !hasValidSoundCoords || !canEndangerOrImpersonate} className="h-9 gap-2 text-xs font-medium">
+                        {bridgeLoading === 'Alarm at Coords' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bell className="w-3.5 h-3.5" />}
+                        {t('targetedSounds.alarm')}
+                      </Button>
+                    </DisabledReason>
+                    <DisabledReason reason={!canEndangerOrImpersonate ? t('common.noPermissionEndangerOrImpersonate') : null}>
+                      <Button variant="outline" onClick={() => handleBridgeAction('Noise at Coords', () => panelBridgeApi.createNoise({ x: soundCoordX as number, y: soundCoordY as number, radius: soundRadius, volume: soundVolume }))} disabled={bridgeLoading !== null || !bridgeConnected || !hasValidSoundCoords || !canEndangerOrImpersonate} className="h-9 gap-2 text-xs font-medium">
+                        {bridgeLoading === 'Noise at Coords' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Megaphone className="w-3.5 h-3.5" />}
+                        {t('targetedSounds.noise')}
+                      </Button>
+                    </DisabledReason>
                   </div>
                 </div>
               </div>
@@ -3310,14 +3399,14 @@ export default function Events() {
                   </div>
                   <Slider aria-label={t('horde.sizeAria')} value={[hordeCount]} onValueChange={([val]) => setHordeCount(val)} min={10} max={500} step={10} />
                 </div>
-                <DisabledReason reason={players.length === 0 ? t('horde.noPlayersOnlineTitle') : !bridgeConnected ? t('horde.bridgeOfflineTitle') : null}>
-                  <Button variant="outline" onClick={() => handleAction('Create horde', () => createHorde(hordeCount, pickStrikeTarget()))} disabled={loading !== null || !bridgeConnected || players.length === 0 || (!targetAll && !selectedPlayer)} className="h-9 gap-2 text-xs font-medium">
+                <DisabledReason reason={!canEndangerOrImpersonate ? t('common.noPermissionEndangerOrImpersonate') : playersUnknown ? t('common.playersUnavailableTitle') : players.length === 0 ? t('horde.noPlayersOnlineTitle') : !bridgeConnected ? t('horde.bridgeOfflineTitle') : null}>
+                  <Button variant="outline" onClick={() => handleAction('Create horde', () => createHorde(hordeCount, pickStrikeTarget()))} disabled={loading !== null || !bridgeConnected || players.length === 0 || (!targetAll && !selectedPlayer) || !canEndangerOrImpersonate} className="h-9 gap-2 text-xs font-medium">
                     {loading === 'Create horde' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Skull className="w-3.5 h-3.5" />}
                     {t('horde.spawnNear', { target: targetAll ? t('horde.random') : selectedPlayer || t('horde.targetFallback') })}
                   </Button>
                 </DisabledReason>
-                <DisabledReason reason={players.length === 0 ? t('horde.noPlayersOnlineTitle') : !bridgeConnected ? t('horde.bridgeOfflineTitle') : null}>
-                  <Button variant="outline" onClick={() => handleAction('Create horde (behind)', () => createHorde2(hordeCount, pickStrikeTarget()))} disabled={loading !== null || !bridgeConnected || players.length === 0 || (!targetAll && !selectedPlayer)} className="h-9 gap-2 text-xs font-medium">
+                <DisabledReason reason={!canEndangerOrImpersonate ? t('common.noPermissionEndangerOrImpersonate') : playersUnknown ? t('common.playersUnavailableTitle') : players.length === 0 ? t('horde.noPlayersOnlineTitle') : !bridgeConnected ? t('horde.bridgeOfflineTitle') : null}>
+                  <Button variant="outline" onClick={() => handleAction('Create horde (behind)', () => createHorde2(hordeCount, pickStrikeTarget()))} disabled={loading !== null || !bridgeConnected || players.length === 0 || (!targetAll && !selectedPlayer) || !canEndangerOrImpersonate} className="h-9 gap-2 text-xs font-medium">
                     {loading === 'Create horde (behind)' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Skull className="w-3.5 h-3.5" />}
                     {t('horde.spawnBehind', { target: targetAll ? t('horde.random') : selectedPlayer || t('horde.targetFallback') })}
                   </Button>
@@ -3330,7 +3419,7 @@ export default function Events() {
                     <span className="font-mono text-[11px] tabular-nums text-warning">{clearZombiesRadius}</span>
                   </div>
                   <Slider aria-label={t('horde.clearRadiusAria')} value={[clearZombiesRadius]} onValueChange={([val]) => setClearZombiesRadius(val)} min={10} max={500} step={10} disabled={!bridgeConnected} />
-                  <DisabledReason reason={players.length === 0 ? t('horde.noPlayersOnlineTitle') : !bridgeConnected ? t('horde.bridgeOfflineTitle') : null}>
+                  <DisabledReason reason={playersUnknown ? t('common.playersUnavailableTitle') : players.length === 0 ? t('horde.noPlayersOnlineTitle') : !bridgeConnected ? t('horde.bridgeOfflineTitle') : null}>
                     <Button variant="outline" onClick={async () => {
                       // Same reversible-but-affects-someone-else tier as
                       // "clear all" -- warning, not destructive-red -- scoped
@@ -3398,7 +3487,9 @@ export default function Events() {
                     <HelpTip label={t('vehicles.spawnFor')}>{t('vehicles.spawnForTip')}</HelpTip>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
-                    {players.length === 0 ? (
+                    {playersUnknown ? (
+                      <p className="font-mono text-[11px] text-muted-foreground/70 italic">{t('common.playersUnavailable')}</p>
+                    ) : players.length === 0 ? (
                       <p className="font-mono text-[11px] text-muted-foreground/70 italic">{t('vehicles.noPlayersOnline')}</p>
                     ) : players.map((player) => (
                       <DisabledReason key={player.name} reason={!selectedVehicle ? t('vehicles.selectVehicleFirstTitle') : null}>
@@ -3428,7 +3519,9 @@ export default function Events() {
                       <SelectValue placeholder={t('teleport.selectPlayerPlaceholder')} />
                     </SelectTrigger>
                     <SelectContent>
-                      {players.length === 0 ? (
+                      {playersUnknown ? (
+                        <div className="px-2 py-1.5 font-mono text-[11px] text-muted-foreground">{t('common.playersUnavailable')}</div>
+                      ) : players.length === 0 ? (
                         <div className="px-2 py-1.5 font-mono text-[11px] text-muted-foreground">{t('teleport.noPlayersOnline')}</div>
                       ) : players.map((player) => (
                         <SelectItem key={player.name} value={player.name}>{player.name}</SelectItem>
@@ -3444,9 +3537,11 @@ export default function Events() {
                         {player.name}
                       </Button>
                     ))}
-                    {players.length <= 1 && (
+                    {playersUnknown ? (
+                      <p className="font-mono text-[11px] text-muted-foreground/70 italic">{t('common.playersUnavailable')}</p>
+                    ) : players.length <= 1 ? (
                       <p className="font-mono text-[11px] text-muted-foreground/70 italic">{t('teleport.needTwoPlayers')}</p>
-                    )}
+                    ) : null}
                   </div>
                 </div>
               </div>

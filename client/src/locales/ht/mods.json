@@ -250,6 +250,7 @@
     "unchecked": "Pa Tcheke",
     "openWorkshopPageHint": "Ouvri Paj Workshop",
     "modFallback": "Mod {{id}}",
+    "selectAria": "Chwazi {{name}}",
     "removeModAria": "Retire mod {{name}}",
     "removeFromServer": "Retire nan sèvè a"
   },
@@ -514,7 +515,7 @@
     "deleteTooltip": "Efase nan swiv"
   },
   "removeModDialog": {
-    "title": "Retire mod sa a nan sèvè a?",
+    "title": "Retire {{name}} nan sèvè a?",
     "description": "Sa a retire mod la nan konfig INI sèvè a pou l sispann chaje. Fichye Workshop yo rete sou disk (kidonk re-ajoute pita ap enstantane).",
     "cancel": "Anile",
     "remove": "Retire"
@@ -530,6 +531,8 @@
   "toasts": {
     "serverChangedSinceLoadTitle": "Active server changed",
     "serverChangedSinceLoadDesc": "The active server changed while you had an unsaved mod order. Discard or keep editing -- saving now would write it to the wrong server.",
+    "pendingAddServerChangedTitle": "Sèvè aktif la chanje",
+    "pendingAddServerChangedDesc": "Sèvè aktif la chanje pandan ou te gen mòd nan lis datant pou ajoute. ID ak dosye kat yo montre yo te chache pou ansyen sèvè a — fèmen bwat dyalòg sa a epi rekòmanse pou sèvè ki aktif kounye a.",
     "noActiveServerTitle": "Pa gen sèvè aktif",
     "noActiveServerDesc": "Chwazi yon sèvè lokal anvan w chwazi yon dosye workshop.",
     "remoteServerTitle": "Sèvè aleka",
@@ -616,6 +619,8 @@
     "removeFailedFallback": "Retire mod la echwe",
     "modReEnabledTitle": "Mod Reaktive",
     "modReEnabledDesc": "Ajoute tounen nan INI sèvè a. Redemare sèvè a pou l chaje.",
+    "additionalModsFoundSuffix_one": " Gen 1 mod anplis nan atik workshop sa a ki pa t aktive: {{ids}}. Itilize \"Ajoute Mod\" oswa \"Senkwonize ID Mod\" pou ajoute li.",
+    "additionalModsFoundSuffix_other": " Gen {{count}} mod anplis nan atik workshop sa a ki pa t aktive: {{ids}}. Itilize \"Ajoute Mod\" oswa \"Senkwonize ID Mod\" pou ajoute yo.",
     "enableFailedFallbackShort": "Aktive mod la echwe",
     "modsReEnabledTitle": "Mods Reaktive",
     "partialReEnableTitle": "Reaktivasyon Pasyèl",
@@ -721,10 +726,17 @@
     "conflictDismissedTitle": "Konfli make",
     "conflictDismissedDesc": "{{a}} ↔ {{b}} make kòm yon fo pozitif.",
     "failedToDismissConflictTitle": "Make konfli a echwe",
+    "failedToDismissConflictFallback": "Pa t kapab sove make a. Eseye ankò.",
     "failedToToggleModTitle": "Bakile mod la echwe",
+    "failedToToggleModFallback": "Pa t kapab mete ajou eta aktivasyon mod la. Eseye ankò.",
     "failedToToggleGroupTitle": "Bakile gwoup la echwe",
+    "failedToToggleGroupFallback": "Pa t kapab mete ajou eta aktivasyon gwoup la. Eseye ankò.",
     "failedToRemoveWorkshopItemTitle": "Retire atik workshop la echwe",
+    "failedToRemoveWorkshopItemFallback": "Pa t kapab retire atik workshop la nan konfigirasyon sèvè a. Eseye ankò.",
     "failedToRemoveOrphanedModTitle": "Retire mod san paran an echwe",
+    "failedToRemoveOrphanedModFallback": "Pa t kapab retire ID mod san paran an. Eseye ankò.",
+    "failedToRestoreConflictTitle": "Restore konfli a echwe",
+    "failedToRestoreConflictFallback": "Pa t kapab restore konfli ki te make a. Eseye ankò.",
     "dependencyAddedTitle": "Depandans ajoute",
     "dependencyAddedDesc": "{{name}} ajoute nan konfig sèvè a.",
     "addFailedTitle": "Ajoute echwe",

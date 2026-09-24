@@ -1054,6 +1054,131 @@ describe("Discord circuit breaker is per channel", () => {
   });
 });
 
+// bug-hunt-2026-09-18 (round: Discord bot commands and relay): handleGameChat()
+// slices the raw message/author BEFORE escapeMarkdown() runs (message.slice(0,
+// 1850), author.slice(0, 80)) -- escaping can nearly double a string's length
+// (every markdown-special char gets a backslash inserted before it), and the
+// composed "**<author>** message" string has no cap of its own after that.
+// A chat line heavy on `*`/`_`/backtick/`~` characters (ASCII art, not
+// necessarily malicious) could come out over Discord's real 2000-char hard
+// limit post-escaping and get rejected by the API, silently dropping that
+// one relay message. Fixed in _sendToChannel() -- the one shared choke point
+// every string send (chat relay, notifications, replies) already funnels
+// through -- since only there is the TRUE final length, after every upstream
+// transform has run, actually known.
+describe("Discord _sendToChannel truncates an over-2000-char payload before sending", () => {
+  const makeBot = async () => {
+    const bot = Object.create(DiscordBot.prototype);
+    bot._channelBreakers = new Map();
+    const sent = [];
+    bot.client = {
+      channels: {
+        fetch: async (id) => ({
+          isTextBased: () => true,
+          send: async (msg) => {
+            sent.push(msg);
+          },
+        }),
+      },
+    };
+    return { bot, sent };
+  };
+
+  it("truncates a string payload over Discord's 2000-char limit before calling channel.send", async () => {
+    const { bot, sent } = await makeBot();
+    const oversized = "*".repeat(2500);
+    expect(await bot._sendToChannel("111", oversized)).toBe(true);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].length).toBeLessThanOrEqual(2000);
+    expect(sent[0].endsWith("...")).toBe(true);
+  });
+
+  it("leaves a payload already within the limit completely untouched", async () => {
+    const { bot, sent } = await makeBot();
+    await bot._sendToChannel("111", "**<Bob>** hi there");
+    expect(sent).toEqual(["**<Bob>** hi there"]);
+  });
+});
+
+// continuous-bug-hunt round 19 (token revoked while running): djs's own
+// WebSocketManager only emits 'shardDisconnect' for its
+// UNRECOVERABLE_CLOSE_CODES set (confirmed by reading node_modules/
+// discord.js/src/client/websocket/WebSocketManager.js directly) --
+// AuthenticationFailed=4004 (a revoked/reset bot token) plus 5 other
+// gateway-config failures, never for an ordinary reconnect blip (those use
+// shardReconnecting instead). Before this fix, `isRunning` stayed true
+// forever once this fired: getStatus() kept reporting a healthy
+// running:true bot, and the only visible signal was the generic (actively
+// misleading, for this case) gatewayIssue banner claiming the connection
+// "may be delayed until it recovers" -- it never will, without the
+// operator fixing the token and restarting. See also
+// linuxDiscordGatewayResilience.test.js's own real-discord.js-Client
+// version of this same scenario (Linux/openssl-gated); this is the
+// lightweight stub version so the same behavior has coverage that runs
+// everywhere, including this environment.
+describe("Discord _handleUnrecoverableShardDisconnect (token revoked while running)", () => {
+  const makeRunningBot = () => {
+    const bot = Object.create(DiscordBot.prototype);
+    bot.isRunning = true;
+    bot._stopping = false;
+    bot._gatewayDegradedSince = null;
+    bot._presenceInterval = null;
+    bot.lastStartError = null;
+    bot.logTailer = null;
+    bot._onGameChat = null;
+    const destroy = vi.fn().mockResolvedValue(undefined);
+    bot.client = { destroy };
+    return { bot, destroy };
+  };
+
+  it("marks the bot as no longer running and records an actionable TokenInvalid error for a revoked token (code 4004)", async () => {
+    const { bot, destroy } = makeRunningBot();
+
+    bot._handleUnrecoverableShardDisconnect(4004);
+
+    expect(bot.isRunning).toBe(false);
+    expect(bot.lastStartError).toEqual({
+      kind: "TokenInvalid",
+      message: expect.stringContaining("will not reconnect"),
+    });
+    // The dead client is torn down so a later start() (after the operator
+    // saves a fresh token) isn't refused by start()'s own "already
+    // running" guard against a client that looks alive but never will be
+    // again.
+    expect(bot.client).toBeNull();
+    expect(destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("maps DisallowedIntents (code 4014) to the existing intents guidance, not a generic message", async () => {
+    const { bot } = makeRunningBot();
+
+    bot._handleUnrecoverableShardDisconnect(4014);
+
+    expect(bot.lastStartError.kind).toBe("DisallowedIntents");
+  });
+
+  it("does nothing when a stop() is already in flight -- a deliberate shutdown must not be stamped as a token failure", async () => {
+    const { bot, destroy } = makeRunningBot();
+    bot._stopping = true;
+
+    bot._handleUnrecoverableShardDisconnect(4004);
+
+    expect(bot.isRunning).toBe(true);
+    expect(bot.lastStartError).toBeNull();
+    expect(destroy).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when the bot was already marked not-running (no duplicate teardown)", async () => {
+    const { bot, destroy } = makeRunningBot();
+    bot.isRunning = false;
+
+    bot._handleUnrecoverableShardDisconnect(4004);
+
+    expect(bot.lastStartError).toBeNull();
+    expect(destroy).not.toHaveBeenCalled();
+  });
+});
+
 describe("LogTailer chunk boundaries", () => {
   const makeTailer = async () => {
     const { LogTailer } = await import("../services/logTailer.js");
@@ -1266,6 +1391,34 @@ describe("Discord event notifications", () => {
     expect(sent).toEqual(["Server stopped", "Server stopped"]);
   }, 15000);
 
+  // bug-hunt-2026-09-18 (round: Discord bot commands and relay): {player}
+  // (and every other substituted variable) carries a raw in-game display
+  // name -- Steam names can contain backticks, asterisks, underscores, etc.
+  // -- and used to be substituted into the template verbatim, unlike
+  // handleGameChat()'s own live chat relay, which already runs both the
+  // author and the message text through escapeMarkdown(). A player named
+  // e.g. "**Trusted**" could distort a playerJoin/playerDeath/playerKick
+  // notification's formatting for everyone reading the channel.
+  it("escapes markdown smuggled in through a substituted variable's value", async () => {
+    const { bot, sent } = await makeBot({
+      playerJoin: { enabled: true, template: "{player} has joined the server!" },
+    });
+    await bot.sendEventNotification("playerJoin", { player: "**Trusted**" });
+    expect(sent[0]).toBe("\\*\\*Trusted\\*\\* has joined the server!");
+  });
+
+  // The escaping above must apply ONLY to the substituted value, never to
+  // the operator's own template -- an operator who deliberately wrote
+  // "**{player}**" in their template is asking for bold formatting AROUND
+  // the name, and that literal "**" must survive untouched.
+  it("does not escape the template's own markdown, only the substituted value", async () => {
+    const { bot, sent } = await makeBot({
+      playerJoin: { enabled: true, template: "**{player}** has joined!" },
+    });
+    await bot.sendEventNotification("playerJoin", { player: "Bob" });
+    expect(sent[0]).toBe("**Bob** has joined!");
+  });
+
   it("serializes concurrent lifecycle notifications so one transition sends once", async () => {
     const { bot, sent } = await makeBot({
       serverStart: { enabled: true, template: "Server started" },
@@ -1408,6 +1561,87 @@ describe("Discord /stop", () => {
     const interaction = makeInteraction();
     await bot.handleStop(interaction);
     expect(calls).toEqual(["save", "quit"]);
+  });
+});
+
+// god-dispatched continuous-bug-hunt, round 5: handleKick hand-rolled
+// `kickuser "<name>"` with no `-r` flag at all, on the (wrong -- see
+// rcon.test.js's own `kickPlayer()` coverage) belief that PZ's kickuser has
+// no reason flag. Every reason a moderator typed into the /kick command was
+// silently discarded before it ever reached RCON, even though this same
+// command's own reply and channel notification claimed it was sent
+// ("Kicked X: <reason>"). rconService.kickPlayer() is the ALREADY-CORRECT,
+// already-tested (rcon.test.js) helper the HTTP route (players.js POST
+// /kick) uses for exactly this -- the fix routes the Discord command
+// through the same helper instead of a second, stale hand-rolled command
+// string.
+describe("Discord /kick", () => {
+  const makeBot = (executeResult = { success: true }) => {
+    const bot = Object.create(DiscordBot.prototype);
+    const executed = [];
+    bot.rconService = {
+      connected: true,
+      sanitize: (s) => s,
+      sanitizeQuotedArg: (s) => s,
+      sanitizeForBanReason: (s) =>
+        s ? String(s).replace(/[^a-zA-Z0-9\s.,!?'-]/g, "").substring(0, 100) : "",
+      execute: async (cmd) => {
+        executed.push(cmd);
+        return executeResult;
+      },
+      kickPlayer(username, reason = "") {
+        const safeUser = this.sanitizeQuotedArg(username);
+        const safeReason = this.sanitizeForBanReason(reason);
+        let cmd = `kickuser "${safeUser}"`;
+        if (safeReason) cmd += ` -r "${safeReason}"`;
+        return this.execute(cmd);
+      },
+    };
+    bot.sendNotification = async () => true;
+    return { bot, executed };
+  };
+
+  const makeInteraction = (player, reason) => {
+    const replies = [];
+    return {
+      replies,
+      deferReply: async () => {},
+      editReply: async (m) => replies.push(m),
+      options: {
+        getString: (name) => (name === "player" ? player : reason ?? null),
+      },
+      user: { tag: "mod#0001" },
+    };
+  };
+
+  it("sends the moderator's reason to RCON via the -r flag, not just in the Discord reply", async () => {
+    const { bot, executed } = makeBot();
+    const interaction = makeInteraction("Griefer", "Building in the spawn zone");
+
+    await bot.handleKick(interaction);
+
+    expect(executed).toEqual([
+      'kickuser "Griefer" -r "Building in the spawn zone"',
+    ]);
+    expect(interaction.replies[0]).toMatch(/Kicked Griefer/);
+  });
+
+  it("still kicks with no -r flag when no reason was given, same as kickPlayer()'s own contract", async () => {
+    const { bot, executed } = makeBot();
+    const interaction = makeInteraction("Griefer", null);
+
+    await bot.handleKick(interaction);
+
+    expect(executed).toEqual(['kickuser "Griefer"']);
+  });
+
+  it("reports failure, not success, when RCON refuses the kick", async () => {
+    const { bot } = makeBot({ success: false, error: "Not enough rights" });
+    const interaction = makeInteraction("Griefer", "spam");
+
+    await bot.handleKick(interaction);
+
+    expect(interaction.replies[0]).toMatch(/Kick failed/);
   });
 });
 

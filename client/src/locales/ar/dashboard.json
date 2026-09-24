@@ -178,7 +178,10 @@
     "connectRconNeedsHostRunning": "شغّل الخادم أولًا",
     "noPermissionControl": "دورك لا يملك صلاحية التحكّم في الخادم.",
     "noPermissionWipe": "دورك لا يملك صلاحية مسح العالم.",
-    "wipeMustStopFirst": "أوقف الخادم قبل المسح."
+    "noPermissionAutoStart": "لا يملك دورك إذنًا لتغيير إعدادات البدء التلقائي.",
+    "noPermissionCreateBackup": "دورك لا يملك صلاحية إنشاء نسخ احتياطية.",
+    "wipeMustStopFirst": "أوقف الخادم قبل المسح.",
+    "saveNeedsRcon": "وصّل RCON لحفظ العالم."
   },
   "confirm": {
     "cancel": "إلغاء",
@@ -217,6 +220,10 @@
     "stopServerRequested": {
       "title": "تم طلب الإيقاف",
       "description": "يقوم الخادم بالحفظ والإغلاق بشكل سليم — وقد يستغرق ذلك لحظات في العوالم الكبيرة. ستتحدّث شارة الحالة بمجرد تأكيد التوقّف."
+    },
+    "forceStopRequested": {
+      "title": "تم طلب الإيقاف القسري",
+      "description": "أُرسلت إشارة الإيقاف — راقب لوحة المعلومات للتأكيد."
     },
     "forceStopServer": {
       "title": "تم إيقاف الخادم قسرًا",
@@ -277,6 +284,8 @@
     "modUpdatesWaiting_other": "تحديثات مودات بالانتظار: {{count}}",
     "reviewMods": "مراجعة المودات",
     "noBackups": "لا توجد نسخ احتياطية",
+    "backupAttemptFailing": "النسخة الاحتياطية المجدولة تفشل",
+    "reviewBackups": "مراجعة النسخ الاحتياطية",
     "modUpdatesWaiting_zero": "تحديثات مودات بالانتظار: {{count}}",
     "modUpdatesWaiting_two": "تحديثات مودات بالانتظار: {{count}}",
     "modUpdatesWaiting_few": "تحديثات مودات بالانتظار: {{count}}",
@@ -286,6 +295,7 @@
     "applyFailed": "فشل التطبيق",
     "updateStaged": "التحديث جاهز للتطبيق",
     "panelUpdate": "تحديث اللوحة",
+    "checkedAgo": "تم الفحص {{age}}",
     "lastApplyFailedDesc": "فشلت آخر محاولة تطبيق — راجع الإعدادات للاطلاع على التشخيص.",
     "stagedDesc": "تم التنزيل وهو جاهز. أعد تشغيل اللوحة لتطبيقه.",
     "newVersionDesc": "يتوفّر إصدار جديد من اللوحة.",
@@ -407,6 +417,7 @@
     "backupsStored_other": "{{count}} محفوظة",
     "backupsStoredLast_one": "{{count}} محفوظة، آخرها {{age}}",
     "backupsStoredLast_other": "{{count}} محفوظة، آخرها {{age}}",
+    "backupsAttemptFailed": "فشلت المحاولة، {{age}}",
     "scheduleNoneActive": "لا شيء نشط",
     "scheduleActive_one": "{{count}} نشطة",
     "scheduleActive_other": "{{count}} نشطة",
@@ -495,6 +506,7 @@
   },
   "wipeDialog": {
     "title": "مسح الخادم",
+    "serverChangedSinceOpen": "تغيّر الخادم النشط أثناء فتح هذا المربع الحواري. ألغِ وأعد فتح \"مسح الخادم\" للتصرّف على الخادم النشط حاليًا.",
     "description": "حدّد البيانات التي تريد حذفها من <b>{{serverName}}</b>. يجب أن يكون الخادم متوقّفًا.",
     "defaultServerName": "الخادم النشط",
     "targets": {

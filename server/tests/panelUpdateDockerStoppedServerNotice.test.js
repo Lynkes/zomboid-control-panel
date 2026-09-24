@@ -37,10 +37,13 @@ describe("Docker panel update: a stopped server is reported, not silently left o
   });
 
   it("tells the user the server was stopped and not restarted when the download/apply fails afterward", async () => {
-    vi.spyOn(ServerManager.prototype, "getServerProcessDetails").mockResolvedValue({
-      running: true,
-      scanFailed: false,
-    });
+    // First call is the pre-quit running check (true); every call after
+    // that is the post-quit confirmed-stopped poll the process-state-guard
+    // fix added, which must see the process actually gone before this test's
+    // real interest (the stopped-server notice) is even reached.
+    vi.spyOn(ServerManager.prototype, "getServerProcessDetails")
+      .mockResolvedValueOnce({ running: true, scanFailed: false })
+      .mockResolvedValue({ running: false, scanFailed: false });
     const rconService = {
       connected: true,
       save: vi.fn(async () => ({ success: true })),
@@ -90,10 +93,9 @@ describe("Docker panel update: a stopped server is reported, not silently left o
   });
 
   it("does not add the stopped-server notice when the download/apply actually succeeds", async () => {
-    vi.spyOn(ServerManager.prototype, "getServerProcessDetails").mockResolvedValue({
-      running: true,
-      scanFailed: false,
-    });
+    vi.spyOn(ServerManager.prototype, "getServerProcessDetails")
+      .mockResolvedValueOnce({ running: true, scanFailed: false })
+      .mockResolvedValue({ running: false, scanFailed: false });
     const rconService = {
       connected: true,
       save: vi.fn(async () => ({ success: true })),

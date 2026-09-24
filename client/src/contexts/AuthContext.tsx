@@ -308,3 +308,9 @@ export function useAuth() {
   }
   return context
 }
+
+// eslint-disable-next-line react-refresh/only-export-components -- hook intentionally co-located with its provider
+export function useCapability(capability: string): boolean {
+  const context = useContext(AuthContext)
+  return context?.can(capability) ?? true
+}

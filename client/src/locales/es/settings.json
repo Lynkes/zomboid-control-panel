@@ -1,4 +1,11 @@
 {
+  "permissions": {
+    "noPanelSettings": "Guardar esta configuración requiere el permiso panel.settings, que este rol no tiene.",
+    "noDiagnosticsManage": "Esta acción requiere el permiso diagnostics.manage, que este rol no tiene.",
+    "noServerConfigure": "Probar la conexión RCON requiere el permiso server.configure, que este rol no tiene.",
+    "noBridgeSetup": "Esta acción requiere el permiso bridge.setup, que este rol no tiene.",
+    "adminOnly": "Esta acción está restringida al rol de administrador."
+  },
   "ariaLabels": {
     "allowPrivateLan": "Permitir orígenes privados y de LAN",
     "enablePublicIp": "Activar la búsqueda de IP pública",
@@ -341,6 +348,8 @@
     "cardTitle": "Conexión RCON",
     "cardDesc": "Prueba la conexión y define el comportamiento de reconexión. El host, el puerto y la contraseña se configuran por servidor en la página Servidores.",
     "testButton": "Probar conexión",
+    "testResultOk": "Conectado",
+    "testResultFailed": "Fallido",
     "autoReconnectLabel": "Reconexión automática al desconectarse",
     "reconnectIntervalLabel": "Intervalo de reconexión (segundos)",
     "perServerNote": "RCON se configura por servidor:",
@@ -353,8 +362,26 @@
     "autoStartDesc": "Se omite automáticamente cuando el puerto RCON ya está en uso, de modo que un servidor que ya se está ejecutando nunca se duplica. Necesita una ruta de instalación local; los servidores alojados por un proveedor los inicia el proveedor."
   },
   "bridge": {
+    "checksLabels": {
+      "bridgePathConfigured": "Ruta del puente configurada",
+      "bridgePathExists": "El directorio del puente existe",
+      "bridgePathReadable": "Directorio del puente legible",
+      "bridgePathWritable": "Directorio del puente con permiso de escritura",
+      "inboxDirPresent": "Carpeta de entrada presente",
+      "outboxDirPresent": "Carpeta de salida presente",
+      "commandsFilePresent": "Archivo de comandos presente",
+      "commandsFileReadable": "Archivo de comandos legible",
+      "resultsFilePresent": "Archivo de resultados presente",
+      "resultsFileReadable": "Archivo de resultados legible",
+      "statusFilePresent": "Archivo de estado presente",
+      "statusFileReadable": "Archivo de estado legible",
+      "statusFresh": "El estado está actualizado"
+    },
     "cardTitle": "Panel Bridge",
     "cardDesc": "Conecta este panel con el juego en vivo para el clima, utilidades, chat enriquecido y otras acciones dentro del mundo",
+    "sectionStatusSetup": "Estado y configuración",
+    "sectionRemoteConfigLogs": "Configuración y registros remotos",
+    "sectionInstallUpdates": "Instalación y actualizaciones",
     "howItWorksButton": "Cómo funciona",
     "dialogTitle": "Panel Bridge",
     "dialogDesc": "Un mod de Lua que se ejecuta dentro de Project Zomboid y da a este panel acceso directo al mundo del juego en vivo.",
@@ -550,6 +577,8 @@
     "emptyDescription": "Haz clic en \"Copiar ahora\" para crear una.",
     "emptyDescriptionSavesNotFound": "Copiar ahora está desactivado porque no se encontró la carpeta de partidas guardadas. Revisa la ruta de datos de Zomboid del servidor activo en la página Servidores y vuelve a abrir esta pestaña.",
     "restoreTitle": "Restaurar esta copia de seguridad (el servidor debe estar detenido)",
+    "downloadTitle": "Descargar esta copia de seguridad",
+    "deleteTitle": "Eliminar esta copia de seguridad",
     "restoreDialogTitle": "Restaurar copia de seguridad",
     "restoreDialogIntro": "Esto restaurará <b>{{name}}</b> y <b>SOBRESCRIBIRÁ</b> los datos actuales del mundo.",
     "restoreMustBeStopped": "El servidor debe estar <b>DETENIDO</b>",
@@ -849,6 +878,7 @@
     "inSync_many": "Sincronizado: {{count}} elementos"
   },
   "toasts": {
+    "backupPanelServerChanged": { "title": "El servidor activo ha cambiado", "description": "El servidor activo cambió. Este panel se está actualizando para el servidor que está activo ahora; inténtalo de nuevo cuando termine." },
     "recoveryCodesGenerated": {
       "title": "Códigos de recuperación generados",
       "description": "Guárdalos ahora: no se pueden volver a mostrar."
@@ -876,6 +906,9 @@
       "title": "No se pudieron guardar los ajustes",
       "fallback": "El panel no pudo guardar tus ajustes. Inténtalo de nuevo."
     },
+    "autoStartEnabled": { "title": "Inicio automático activado", "description": "El servidor se iniciará automáticamente cuando se inicie el panel" },
+    "autoStartDisabled": { "title": "Inicio automático desactivado", "description": "El servidor no se iniciará automáticamente" },
+    "autoStartSaveFailed": { "title": "No se pudo guardar el ajuste de inicio automático", "fallback": "El panel no pudo guardar el ajuste de inicio automático. Inténtalo de nuevo." },
     "corsReloaded": {
       "title": "Reglas de CORS recargadas",
       "description": "El backend recargó los ajustes de CORS desde la base de datos."

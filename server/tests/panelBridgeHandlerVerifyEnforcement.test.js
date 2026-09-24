@@ -62,7 +62,7 @@ const LUA_PATH = path.join(
 // honestly (pcall-wrapped, missing data reported as missing).
 const GETTERS = new Set([
   'checkAPI', 'debugItemScript', 'exportPlayerData', 'getAllPlayerDetails',
-  'getAllSandboxOptions', 'getAvailableHandlers', 'getChatInfo',
+  'getLeaderboard', 'getAllSandboxOptions', 'getAvailableHandlers', 'getChatInfo',
   'getClimateFloats', 'getDebugLog', 'getFactions', 'getGameTime',
   'getInfrastructureSnapshot', 'getItemCatalog', 'getPlayerDetails',
   'getSafehouses', 'getSandboxOptions', 'getServerInfo', 'getStats',

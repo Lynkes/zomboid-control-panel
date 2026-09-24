@@ -814,8 +814,8 @@ export const playersApi = {
   ban: (username: string, banIp?: boolean, reason?: string) =>
     apiPost("/players/ban", { username, banIp, reason }),
   unban: (username: string) => apiPost("/players/unban", { username }),
-  setAccessLevel: (username: string, level: string) =>
-    apiPost("/players/access-level", { username, level }),
+  setAccessLevel: (username: string, level: string, confirm?: boolean) =>
+    apiPost("/players/access-level", { username, level, confirm }),
   addToWhitelist: (username: string, password: string) =>
     apiPost("/players/whitelist/add", { username, password }),
   removeFromWhitelist: (username: string) =>
@@ -2842,6 +2842,28 @@ export const panelBridgeApi = {
         }>;
       };
     }>,
+  getLeaderboard: () =>
+    apiGet("/panel-bridge/leaderboard") as Promise<{
+      success: boolean;
+      data: {
+        players: Array<{
+          id: string;
+          username: string;
+          displayName: string;
+          online: boolean;
+          currentKills: number;
+          allTimeKills: number;
+          currentDays: number;
+          bestDays: number;
+          deaths: number;
+          favoriteWeapon?: string | null;
+          favoriteWeaponKills: number;
+          lastSeenAt?: number;
+        }>;
+        generatedAt?: number;
+        trackingStartedAt?: number;
+      };
+    }>,
   getPlayerDetails: (username: string) =>
     apiGet(`/panel-bridge/players/${encodeURIComponent(username)}`) as Promise<{
       success: boolean;
@@ -3204,6 +3226,11 @@ export interface BackupStatus extends BackupSettings {
     message: string | null;
     executedAt: string;
   } | null;
+  // continuous-bug-hunt round 28 (ux-proposals-need-backend-data): composed
+  // at the route layer from the scheduler instance's own getBackupNextRun()
+  // (server/routes/backup.js's GET /status) -- null whenever backups are
+  // disabled (no schedule to compute a next run from).
+  backupNextRun?: string | null;
 }
 
 // backup.js/backupService.js's own shape (full .zip server backups --
@@ -3242,11 +3269,23 @@ export const backupApi = {
   getSnapshot: (name: string): Promise<{ success: boolean; snapshot?: BackupSnapshot; message?: string }> =>
     apiGet(`/backup/${encodeURIComponent(name)}/snapshot`),
 
-  // Update backup settings
+  // Update backup settings.
+  // expectedServerId: the active server's own id captured when the caller
+  // last loaded its backup settings (null if none was active then). Lets
+  // the server refuse the write with 409 BACKUP_ACTIVE_SERVER_CHANGED if
+  // the active server moved out from under it in the meantime -- optional
+  // and omitted entirely (not sent as null) when a caller doesn't pass it,
+  // so an older/unrelated caller keeps today's unchecked behavior. Mirrors
+  // chunks.js's own expectedServerId convention; see server/routes/
+  // backup.js's POST /settings for the exact match rule.
   updateSettings: (
     settings: Partial<BackupSettings>,
+    expectedServerId?: string | number | null,
   ): Promise<{ success: boolean; settings: BackupSettings }> =>
-    apiPost("/backup/settings", settings),
+    apiPost(
+      "/backup/settings",
+      expectedServerId !== undefined ? { ...settings, expectedServerId } : settings,
+    ),
 
   // Create a manual backup. POST /backup/create awaits the full archive
   // (server/routes/backup.js -> backupService.createBackup()) before
@@ -3292,16 +3331,25 @@ export const backupApi = {
       { timeout: 10 * 60 * 1000 },
     ),
 
-  // Delete backups older than X days
+  // Delete backups older than X days.
+  // expectedServerId: same contract as updateSettings above -- omitted
+  // entirely when not passed, otherwise lets the server refuse with 409
+  // BACKUP_ACTIVE_SERVER_CHANGED if the active server moved since the
+  // caller loaded the list it's pruning by age.
   deleteOlderThan: (
     days: number,
+    expectedServerId?: string | number | null,
   ): Promise<{
     success: boolean;
     deleted?: number;
     failed?: number;
     deletedNames?: string[];
     message?: string;
-  }> => apiPost("/backup/delete-older-than", { days }),
+  }> =>
+    apiPost(
+      "/backup/delete-older-than",
+      expectedServerId !== undefined ? { days, expectedServerId } : { days },
+    ),
 
   // Get download URL for a backup (use downloadBackup for authenticated downloads)
   getDownloadUrl: (name: string): string =>

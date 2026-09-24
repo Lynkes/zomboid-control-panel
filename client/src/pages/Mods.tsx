@@ -71,7 +71,7 @@ import { Switch } from '@/components/ui/switch'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { reportClientError, reportClientWarning } from '@/lib/client-errors'
-import { getUserErrorMessage } from '@/lib/errorMessage'
+import { getUserErrorMessage, getResultErrorMessage } from '@/lib/errorMessage'
 import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
 import {
   Dialog,
@@ -209,6 +209,16 @@ function getModsNav(t: (key: string) => string): Array<{
 // actually available (no server-side episode id to build a tighter key on).
 const STEAM_API_ISSUE_DISMISSED_KEY = 'pz-mods-steam-api-issue-dismissed'
 
+// pz-bughunt round 17 (every write that trusts the server-side active
+// server): new copy below ships via this fallback rather than new locale
+// JSON keys, same call as Dashboard.tsx's own dashboardFallback -- a key
+// registered in NO locale always resolves to English for everyone, so
+// localeParity.test.ts's 9-locale key-SET parity has nothing to be out of
+// parity about.
+function modsFallback(key: string, fallback: string): string {
+  return resolveRegisteredTranslation('mods', key, undefined) ?? fallback
+}
+
 export default function Mods() {
   const { t, i18n } = useTranslation('mods')
   const MODS_NAV = useMemo(() => getModsNav(t), [t])
@@ -307,16 +317,46 @@ export default function Mods() {
   // confirmed was real: reorder mods on server A, switch to server B
   // elsewhere, hit "Save Order" -- server A's list gets written into
   // server B's real INI. Scoped to the confirmed Save Load Order path for
-  // now; the page's other write actions (writeToIni, batchRemove,
-  // deleteDiskMod, toggleModId, etc.) share the same no-server-id shape and
-  // are a flagged follow-up, not covered by this flag yet.
+  // now; other actions sharing the same no-server-id shape were a flagged
+  // follow-up, picked up by pz-bughunt round 17 below (see
+  // pendingAddServerChanged) -- one of the originally-named examples,
+  // writeToIni/modsToInstall, turned out to be unreachable in the current
+  // build (modsToInstall is only ever cleared/filtered, never populated, so
+  // handleWriteToIni's early "nothing to write" return always fires) --
+  // confirmed by grepping every setModsToInstall call site before treating
+  // it as a live risk. batchRemove/deleteDiskMod/toggleModId/etc. are a
+  // narrower, race-window-only class (a rendered list row stays clickable
+  // for the few hundred ms before a plain refetch lands) rather than an
+  // open-ended dirty-edit window like this one; reported to god, not fixed
+  // this round.
   const [serverChangedSinceLoad, setServerChangedSinceLoad] = useState(false)
+  // pz-bughunt round 17: modsApi.addModAdvanced (Add-mod-by-workshop-ID
+  // dialog) and modsApi.addModAdvanced-via-handleAddCollectionMods (Import
+  // Collection dialog) share the identical no-server-id shape as
+  // saveModOrder above, AND their payload is tied to a specific server the
+  // same way: discoverWorkshopMod()/handleImportCollection() call
+  // modsApi.discoverModIds/collectionDiff, which resolve mod-id/map-folder
+  // auto-detection from the ACTIVE server's own on-disk workshop mount at
+  // discovery time (see routes/mods.js's findModIdFromWorkshop). If the
+  // active server changes while either dialog is still open (discoveredMod
+  // or a pending collectionMods review), the ids/map-folders shown were
+  // resolved against the OLD server's mount and may not even apply to the
+  // NEW one -- clicking Add would write them into the new server's real ini
+  // regardless. One shared flag for both dialogs since they're the same
+  // hazard shape reached through two entry points, exactly like
+  // serverChangedSinceLoad above already covers two entry points
+  // (handleSaveModOrder, promoteModOverOpponent) for the reorder hazard.
+  const [pendingAddServerChanged, setPendingAddServerChanged] = useState(false)
   const [autoSortPreview, setAutoSortPreview] = useState<AutoSortResult | null>(null)
   const [draggedModIndex, setDraggedModIndex] = useState<number | null>(null)
   // Expand/collapse states
   const [repairingMaps, setRepairingMaps] = useState(false)
   const [mapRepairResult, setMapRepairResult] = useState<{ removed: string[]; added?: string[]; remaining: string[]; message: string } | null>(null)
-  const [confirmRemoveMod, setConfirmRemoveMod] = useState<string | null>(null) // workshopId to confirm single remove
+  // workshopId + a display label to confirm single remove. The dialog used to
+  // say only "Remove this mod from the server?" with no way to tell which of
+  // several selected/hovered mods it meant -- naming the target here so the
+  // confirm dialog can show it instead of a generic "this mod".
+  const [confirmRemoveMod, setConfirmRemoveMod] = useState<{ wsId: string; label: string } | null>(null)
   const [confirmBulkRemove, setConfirmBulkRemove] = useState(false)
   const [ignoredMods, setIgnoredMods] = useState<Array<{ workshop_id: string; name: string | null; ignored_at: string }>>([])
   const [ignoredModsOpen, setIgnoredModsOpen] = useState(false)
@@ -1152,9 +1192,22 @@ export default function Mods() {
           variant: 'default',
         })
       } else if (result?.error) {
+        // bug-hunt-2026-09-18 (round 14, raw result.error sweep): this
+        // branch is only reached for modChecker.js's checkForUpdates()
+        // outer catch-all (`{ error: error.message }`, no code today --
+        // the ACF_NOT_FOUND case above is filtered out first) -- but
+        // nothing prevents a future code being added to that catch.
+        // getResultErrorMessage() (not getUserErrorMessage() -- `result` is
+        // a parsed response body, not a caught ApiError, so
+        // getUserErrorMessage()'s params extraction can't see it; see that
+        // function's own comment, found via this same round's Debug.tsx
+        // fix) is byte-identical to the old String(result.error) when no
+        // code resolves, so applying it here costs nothing today and stops
+        // a later server-side code addition -- including one with a
+        // {{placeholder}} -- from being shown raw or half-translated forever.
         toast({
           title: t('toasts.updateCheckFailedTitle'),
-          description: String(result.error),
+          description: getResultErrorMessage(result, String(result.error)),
           variant: 'destructive',
         })
       } else if (result?.skipped) {
@@ -1310,6 +1363,17 @@ export default function Mods() {
   // Add mod with selected mod IDs
   const handleAddModAdvanced = async () => {
     if (!discoveredMod || busyRef.current || !canManageMods) return
+    if (pendingAddServerChanged) {
+      toast({
+        title: modsFallback('toasts.pendingAddServerChangedTitle', 'Active server changed'),
+        description: modsFallback(
+          'toasts.pendingAddServerChangedDesc',
+          'The active server changed while you had mods queued to add. The IDs and map folders shown were looked up for the previous server -- close this dialog and start over for the server that is active now.',
+        ),
+        variant: 'destructive',
+      })
+      return
+    }
     busyRef.current = true
 
     setLoading(true)
@@ -1410,10 +1474,20 @@ export default function Mods() {
     busyRef.current = true
     setLoading(true)
     try {
-      await modsApi.addToIni(workshopId)
+      const result = await modsApi.addToIni(workshopId)
+      // continuous-bug-hunt round 27 (mod load order / Workshop collection
+      // import): a workshop item can declare several mod.info `id=` lines --
+      // addToIni only ever auto-enables the first one (by design, see its
+      // own comment server-side) and now reports the rest as
+      // alternativeModIds instead of silently discarding that information.
+      // Without this, an operator re-enabling a multi-mod workshop item had
+      // no way to learn the other mods existed at all.
+      const alternatives: string[] = result?.alternativeModIds || []
       toast({
         title: t('toasts.modReEnabledTitle'),
-        description: t('toasts.modReEnabledDesc'),
+        description: alternatives.length > 0
+          ? t('toasts.modReEnabledDesc') + t('toasts.additionalModsFoundSuffix', { count: alternatives.length, ids: alternatives.join(', ') })
+          : t('toasts.modReEnabledDesc'),
         variant: 'success' as const,
       })
       fetchData()
@@ -1438,10 +1512,17 @@ export default function Mods() {
     setLoading(true)
     let ok = 0
     let failed = 0
+    // continuous-bug-hunt round 27: same alternativeModIds surfacing as
+    // handleEnableMod above, aggregated across every workshop item in this
+    // batch rather than lost per-call.
+    const allAlternatives: string[] = []
     try {
       for (const id of workshopIds) {
         try {
-          await modsApi.addToIni(id)
+          const result = await modsApi.addToIni(id)
+          if (Array.isArray(result?.alternativeModIds)) {
+            allAlternatives.push(...result.alternativeModIds)
+          }
           ok++
         } catch {
           failed++
@@ -1449,7 +1530,8 @@ export default function Mods() {
       }
       toast({
         title: failed === 0 ? t('toasts.modsReEnabledTitle') : t('toasts.partialReEnableTitle'),
-        description: t('toasts.reEnabledDesc', { count: ok, failedSuffix: failed > 0 ? t('toasts.reEnableFailedSuffix', { count: failed }) : '' }),
+        description: t('toasts.reEnabledDesc', { count: ok, failedSuffix: failed > 0 ? t('toasts.reEnableFailedSuffix', { count: failed }) : '' })
+          + (allAlternatives.length > 0 ? t('toasts.additionalModsFoundSuffix', { count: allAlternatives.length, ids: allAlternatives.join(', ') }) : ''),
         variant: failed === 0 ? ('success' as const) : ('destructive' as const),
       })
       setSelectedMods(new Set())
@@ -1718,6 +1800,17 @@ export default function Mods() {
 
   const handleAddCollectionMods = async () => {
     if (!canManageMods) return
+    if (pendingAddServerChanged) {
+      toast({
+        title: modsFallback('toasts.pendingAddServerChangedTitle', 'Active server changed'),
+        description: modsFallback(
+          'toasts.pendingAddServerChangedDesc',
+          'The active server changed while you had mods queued to add. The IDs and map folders shown were looked up for the previous server -- close this dialog and start over for the server that is active now.',
+        ),
+        variant: 'destructive',
+      })
+      return
+    }
     const selectedModsList = collectionMods.filter(m => m.selected)
 
     if (selectedModsList.length === 0) {
@@ -1841,11 +1934,19 @@ export default function Mods() {
 
       const synced = result.syncedMods?.filter((m: { status?: string }) => m.status?.startsWith('added')).length || 0
       const missing = result.missingMods?.length || 0
+      // continuous-bug-hunt round 27: /sync-mod-ids already computed
+      // `alternatives` per workshop item (other mod.info `id=` entries it
+      // declared, beyond the one default it auto-enabled) -- this page
+      // never read that field at all. Aggregate and surface it the same
+      // way as handleEnableMod/handleBulkEnable above.
+      const alternatives: string[] = (result.syncedMods || [])
+        .flatMap((m: { alternatives?: string[] }) => m.alternatives || [])
 
       if (synced > 0 || missing > 0) {
         toast({
           title: t('toasts.modIdsSyncedTitle'),
-          description: t('toasts.modIdsSyncedDesc', { synced, missingSuffix: missing > 0 ? t('toasts.modIdsSyncedMissingSuffix', { count: missing }) : '' }),
+          description: t('toasts.modIdsSyncedDesc', { synced, missingSuffix: missing > 0 ? t('toasts.modIdsSyncedMissingSuffix', { count: missing }) : '' })
+            + (alternatives.length > 0 ? t('toasts.additionalModsFoundSuffix', { count: alternatives.length, ids: alternatives.join(', ') }) : ''),
         })
       } else {
         toast({
@@ -1982,8 +2083,27 @@ export default function Mods() {
   // Used by the inline "Make X win" buttons inside each conflict pair card.
   // Saves immediately and optimistically updates the conflict scan's load-order map
   // so the winner indicators flip without a full rescan.
+  //
+  // continuous-bug-hunt: this calls modsApi.saveModOrder() exactly like
+  // handleSaveModOrder above, which resolves the active server fresh
+  // server-side per request (see that function's own bug-hunt-2026-09-04/05
+  // comment) -- the identical cross-server-write hazard. handleSaveModOrder
+  // guards it with serverChangedSinceLoad, but this path didn't: switch
+  // active server while a reorder is pending (which is what sets
+  // serverChangedSinceLoad and blocks fetchData, per the effect below), then
+  // click "Make X win" on a conflict pair computed from the now-stale
+  // iniConfig/orderedModIds -- it would write server A's stale order into
+  // server B's real INI with no warning at all. Same guard, same message.
   const promoteModOverOpponent = async (winnerModId: string, winnerName: string, loserModId: string, loserName: string) => {
     if (busyRef.current || !canManageMods) return
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.serverChangedSinceLoadTitle'),
+        description: t('toasts.serverChangedSinceLoadDesc'),
+        variant: 'destructive',
+      })
+      return
+    }
     const source = (iniConfig?.modIds && iniConfig.modIds.length > 0) ? iniConfig.modIds : orderedModIds
     const next = [...source]
     const wi = next.indexOf(winnerModId)
@@ -2039,6 +2159,69 @@ export default function Mods() {
   useEffect(() => {
     if (!socket) return
     const handleActiveServerChanged = () => {
+      // pz-bughunt round 17b (approved design call, closing the "race-
+      // window" class flagged in the round-17 report): toggleModId,
+      // batchToggleModIds, deleteDiskMod, batchDeleteDiskMods, batchRemove,
+      // removeFromIni, enableDiskMod all read their target id from a row in
+      // mods/disabledMods/ignoredMods rendered from the OLD server's data.
+      // Between this switch firing and fetchData() actually resolving
+      // below, those rows stayed fully visible and clickable, so a click in
+      // that window sent the OLD server's id as a write against the NEW
+      // active server. Rather than add a serverChangedSinceLoad-style check
+      // to seven separate handlers, clear the stale lists outright the
+      // moment the switch happens -- the same shape WorldMap.tsx already
+      // uses for its own player/vehicle/safehouse selection state: nothing
+      // stale survives to be clicked, so no per-handler guard is needed.
+      // Unconditional (not gated on hasModOrderChanged/pendingAddServerChanged
+      // below) since none of these three lists is what either of those
+      // guards protects -- orderedModIds/discoveredMod/collectionMods are
+      // untouched here, so a pending reorder or add-dialog stays intact.
+      setMods([])
+      setDisabledMods([])
+      setIgnoredMods([])
+
+      // pz-bughunt round 18: depSearchOpen/depSearchData/depAdding/
+      // depAddResults are the SAME lifted state used by both this page's
+      // own "Active on server" inspector (handleInspectorAddDep, a few
+      // hundred lines below) and ConflictsPanel.tsx's handleAddDep (passed
+      // down as props) -- both call modsApi.addMissingDep(hit.workshopId,
+      // ...) with search hits looked up in the context of a SPECIFIC mod
+      // inside a SPECIFIC server's own conflict/dependency data. Clearing
+      // here closes the identical race-window shape for both surfaces at
+      // once, the same reasoning as the mods/disabledMods/ignoredMods
+      // clear just above.
+      setDepSearchOpen(new Set())
+      setDepSearchData({})
+      setDepAdding([])
+      setDepAddResults({})
+
+      // pz-bughunt round 18: the restart-settings dialog's editable fields
+      // (restartWarningMinutes/delayIfPlayersOnline/maxDelayMinutes) are
+      // populated from THIS server's status at fetch time (see fetchData's
+      // own setRestartWarningMinutes/etc. calls) and handleSaveRestartSettings
+      // writes them via modsApi.setRestartOptions(), which resolves "the
+      // active server" server-side with no id sent. If the dialog stays
+      // open across a switch, saving would write the OLD server's edited
+      // values into the NEW one. Same fix as Backups.tsx's own
+      // activeServerChanged handler closing its restore/delete/delete-older
+      // dialogs on this same event -- close it outright rather than add a
+      // fourth bespoke guard flag+toast for one small settings dialog.
+      setRestartSettingsOpen(false)
+
+      // See pendingAddServerChanged's own comment above -- independent of
+      // the reorder guard below, doesn't block fetchData() (neither dialog's
+      // state is derived from iniConfig/mods, so a refetch can't discard it).
+      if (discoveredMod !== null || collectionMods.length > 0) {
+        setPendingAddServerChanged(true)
+        toast({
+          title: modsFallback('toasts.pendingAddServerChangedTitle', 'Active server changed'),
+          description: modsFallback(
+            'toasts.pendingAddServerChangedDesc',
+            'The active server changed while you had mods queued to add. The IDs and map folders shown were looked up for the previous server -- close this dialog and start over for the server that is active now.',
+          ),
+          variant: 'destructive',
+        })
+      }
       if (hasModOrderChanged) {
         setServerChangedSinceLoad(true)
         toast({
@@ -2054,7 +2237,7 @@ export default function Mods() {
     return () => {
       socket.off('activeServerChanged', handleActiveServerChanged)
     }
-  }, [socket, fetchData, hasModOrderChanged, toast, t])
+  }, [socket, fetchData, hasModOrderChanged, discoveredMod, collectionMods.length, toast, t])
 
   // Once the user discards the stale reorder (the "Reset" button sets
   // orderedModIds back to iniConfig.modIds, making hasModOrderChanged
@@ -2067,6 +2250,16 @@ export default function Mods() {
       fetchData()
     }
   }, [serverChangedSinceLoad, hasModOrderChanged, fetchData])
+
+  // Same idea for the add-mod guard: once both dialogs are closed/cleared
+  // (Cancel, a successful Add, or the collection review being cleared), the
+  // stale-lookup risk is gone -- drop the flag so a later switch doesn't
+  // leave the NEXT open of either dialog wrongly pre-blocked.
+  useEffect(() => {
+    if (pendingAddServerChanged && discoveredMod === null && collectionMods.length === 0) {
+      setPendingAddServerChanged(false)
+    }
+  }, [pendingAddServerChanged, discoveredMod, collectionMods.length])
 
   const removeFromInstallList = (workshopId: string) => {
     setModsToInstall(prev => prev.filter(m => m.workshopId !== workshopId))
@@ -2173,7 +2366,7 @@ export default function Mods() {
               <Checkbox
                 checked={isSelected}
                 onCheckedChange={() => toggleModSelect(mod.workshop_id)}
-                aria-label={`Select ${label}`}
+                aria-label={t('installedTab.selectAria', { name: label })}
               />
             </div>
             {/* Leading tile carries the per-mod state colour (update / unchecked / up-to-date). */}
@@ -2238,7 +2431,7 @@ export default function Mods() {
                   variant="ghost"
                   size="iconDense"
                   className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                  onClick={() => setConfirmRemoveMod(mod.workshop_id)}
+                  onClick={() => setConfirmRemoveMod({ wsId: mod.workshop_id, label })}
                   disabled={loading}
                   aria-label={t('installedTab.removeModAria', { name: label })}
                 >
@@ -2674,35 +2867,48 @@ export default function Mods() {
           )}
 
           <div className="ms-auto flex items-center gap-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="sm" className="min-h-[44px] sm:min-h-0" onClick={handleSyncFromServer} disabled={loading || !canManageMods}>
-                  <Download className="w-3.5 h-3.5 me-1.5" />
-                  {t('statusBar.sync')}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t('statusBar.syncTooltip')}</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="sm" className="min-h-[44px] sm:min-h-0" onClick={handleCheckUpdates} disabled={checking || !canManageMods}>
-                  <RefreshCw className={`w-3.5 h-3.5 me-1.5 ${checking ? 'animate-spin' : ''}`} />
-                  {t('statusBar.checkUpdates')}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                <span>{t('statusBar.checkUpdatesTooltip')}</span>
-                {status?.lastCheck ? (() => {
-                  const secs = Math.round((Date.now() - new Date(status.lastCheck).getTime()) / 1000)
-                  let when: string
-                  if (secs < 60) when = t('statusBar.lastCheckedAgo', { when: t('statusBar.secondsAgo', { count: secs }) })
-                  else if (secs < 3600) when = t('statusBar.lastCheckedAgo', { when: t('statusBar.minutesAgo', { count: Math.floor(secs / 60) }) })
-                  else if (secs < 86400) when = t('statusBar.lastCheckedAgo', { when: t('statusBar.hoursAgo', { count: Math.floor(secs / 3600) }) })
-                  else when = new Date(status.lastCheck).toLocaleDateString(i18n.language)
-                  return <span>{t('statusBar.lastCheckedOn', { when })}</span>
-                })() : <span>{t('statusBar.neverChecked')}</span>}
-              </TooltipContent>
-            </Tooltip>
+            {/* A disabled Button carries `disabled:pointer-events-none` (see
+                Button's own class list), so it never fires the pointer/focus
+                events a directly-attached Tooltip needs to open -- hovering
+                a permission-grayed Sync/Check Updates button showed nothing
+                at all, leaving the operator with no idea why it's inert.
+                DisabledReason's outer focusable span catches that case and
+                shows the actual reason; when the button is enabled it's a
+                no-op passthrough, so the existing hint Tooltip below still
+                works exactly as before. */}
+            <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="min-h-[44px] sm:min-h-0" onClick={handleSyncFromServer} disabled={loading || !canManageMods}>
+                    <Download className="w-3.5 h-3.5 me-1.5" />
+                    {t('statusBar.sync')}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{t('statusBar.syncTooltip')}</TooltipContent>
+              </Tooltip>
+            </DisabledReason>
+            <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="min-h-[44px] sm:min-h-0" onClick={handleCheckUpdates} disabled={checking || !canManageMods}>
+                    <RefreshCw className={`w-3.5 h-3.5 me-1.5 ${checking ? 'animate-spin' : ''}`} />
+                    {t('statusBar.checkUpdates')}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <span>{t('statusBar.checkUpdatesTooltip')}</span>
+                  {status?.lastCheck ? (() => {
+                    const secs = Math.round((Date.now() - new Date(status.lastCheck).getTime()) / 1000)
+                    let when: string
+                    if (secs < 60) when = t('statusBar.lastCheckedAgo', { when: t('statusBar.secondsAgo', { count: secs }) })
+                    else if (secs < 3600) when = t('statusBar.lastCheckedAgo', { when: t('statusBar.minutesAgo', { count: Math.floor(secs / 60) }) })
+                    else if (secs < 86400) when = t('statusBar.lastCheckedAgo', { when: t('statusBar.hoursAgo', { count: Math.floor(secs / 3600) }) })
+                    else when = new Date(status.lastCheck).toLocaleDateString(i18n.language)
+                    return <span>{t('statusBar.lastCheckedOn', { when })}</span>
+                  })() : <span>{t('statusBar.neverChecked')}</span>}
+                </TooltipContent>
+              </Tooltip>
+            </DisabledReason>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label={t('statusBar.moreActionsAria')}>
@@ -2821,7 +3027,7 @@ export default function Mods() {
                       <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
                         <button
                           type="button"
-                          onClick={() => setConfirmRemoveMod(m.workshopId)}
+                          onClick={() => setConfirmRemoveMod({ wsId: m.workshopId, label: m.name || m.workshopId })}
                           disabled={loading || !canManageMods}
                           aria-label={t('removedFromWorkshop.removeAria', { name: m.name || m.workshopId })}
                           className="rounded p-0.5 text-muted-foreground/70 transition-colors hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 disabled:pointer-events-none disabled:opacity-50"
@@ -3164,7 +3370,7 @@ export default function Mods() {
                     <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
                     <Button
                       onClick={handleAddCollectionMods}
-                      disabled={loading || selectedCollectionCount === 0 || !canManageMods}
+                      disabled={loading || selectedCollectionCount === 0 || !canManageMods || pendingAddServerChanged}
                     >
                       {loading ? t('collectionDialog.adding') : t('collectionDialog.addToServer', { count: selectedCollectionCount })}
                     </Button>
@@ -3462,7 +3668,7 @@ export default function Mods() {
                     </Button>
                     <Button
                       onClick={handleAddModAdvanced}
-                      disabled={loading || !discoveredMod || discoveringMod || !canManageMods}
+                      disabled={loading || !discoveredMod || discoveringMod || !canManageMods || pendingAddServerChanged}
                       className="w-full sm:order-2 sm:w-auto"
                     >
                       {loading ? (
@@ -3720,11 +3926,18 @@ export default function Mods() {
 
                         {/* 3 paths to populate the list */}
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-5">
+                          {/* First-time operators land here with an empty list, and
+                              this Sync tile is marked "Recommended" -- exactly the
+                              button they'll try first. Same missing-tooltip-on-disable
+                              issue as the header Sync button above; wrap it the same
+                              way so a mods.manage-less role sees why, instead of a
+                              silently grayed-out "recommended" action. */}
+                          <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null} className="w-full">
                           <button
                             type="button"
                             onClick={handleSyncFromServer}
                             disabled={loading || !canManageMods}
-                            className="group text-start rounded-lg border border-border/50 hover:border-primary/40 hover:bg-primary/[0.04] bg-muted/15 px-3 py-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                            className="group w-full text-start rounded-lg border border-border/50 hover:border-primary/40 hover:bg-primary/[0.04] bg-muted/15 px-3 py-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                           >
                             <div className="flex items-center gap-2 mb-1.5">
                               <RefreshCw className="w-3.5 h-3.5 text-primary" aria-hidden="true" />
@@ -3736,6 +3949,7 @@ export default function Mods() {
                             </p>
                             <p className="mt-1.5 text-[10px] uppercase tracking-wider text-primary/70">{t('installedTab.recommended')}</p>
                           </button>
+                          </DisabledReason>
 
                           <button
                             type="button"
@@ -4153,7 +4367,7 @@ export default function Mods() {
                       setLastSavedMod(mod.id)
                       if (savedTimeoutRef.current) clearTimeout(savedTimeoutRef.current)
                       savedTimeoutRef.current = setTimeout(() => setLastSavedMod(null), 2000)
-                    } catch (e) { reportClientError('Failed to toggle mod', e); toast({ variant: 'destructive', title: 'Failed to toggle mod' }) } finally { busyRef.current = false }
+                    } catch (e) { reportClientError('Failed to toggle mod', e); toast({ variant: 'destructive', title: t('toasts.failedToToggleModTitle'), description: getUserErrorMessage(e, t('toasts.failedToToggleModFallback')) }) } finally { busyRef.current = false }
                   }
 
                   // Mark a sibling-conflict pair as a false positive. Used when the
@@ -4169,10 +4383,10 @@ export default function Mods() {
                         if (prev.some(p => p.mod_a === x && p.mod_b === y)) return prev
                         return [...prev, { mod_a: x, mod_b: y, ignored_at: new Date().toISOString() } as any]
                       })
-                      toast({ title: 'Conflict dismissed', description: `${a} ↔ ${b} marked as a false positive.` })
+                      toast({ title: t('toasts.conflictDismissedTitle'), description: t('toasts.conflictDismissedDesc', { a, b }) })
                     } catch (e) {
                       reportClientError('Failed to dismiss conflict', e)
-                      toast({ variant: 'destructive', title: 'Failed to dismiss conflict' })
+                      toast({ variant: 'destructive', title: t('toasts.failedToDismissConflictTitle'), description: getUserErrorMessage(e, t('toasts.failedToDismissConflictFallback')) })
                     }
                   }
                   const restorePair = async (a: string, b: string) => {
@@ -4185,7 +4399,7 @@ export default function Mods() {
                       }))
                     } catch (e) {
                       reportClientError('Failed to restore conflict', e)
-                      toast({ variant: 'destructive', title: 'Failed to restore conflict' })
+                      toast({ variant: 'destructive', title: t('toasts.failedToRestoreConflictTitle'), description: getUserErrorMessage(e, t('toasts.failedToRestoreConflictFallback')) })
                     }
                   }
 
@@ -4224,7 +4438,7 @@ export default function Mods() {
                         }
                         return next
                       })
-                    } catch (e) { reportClientError('Failed to toggle group', e); toast({ variant: 'destructive', title: 'Failed to toggle group' }) } finally { busyRef.current = false }
+                    } catch (e) { reportClientError('Failed to toggle group', e); toast({ variant: 'destructive', title: t('toasts.failedToToggleGroupTitle'), description: getUserErrorMessage(e, t('toasts.failedToToggleGroupFallback')) }) } finally { busyRef.current = false }
                   }
 
                   const removeWorkshop = async (wsId: string, knownModIds?: string[]) => {
@@ -4237,7 +4451,7 @@ export default function Mods() {
                       setLastSavedMod(`removed-${wsId}`)
                       if (savedTimeoutRef.current) clearTimeout(savedTimeoutRef.current)
                       savedTimeoutRef.current = setTimeout(() => setLastSavedMod(null), 2000)
-                    } catch (e) { reportClientError('Failed to remove workshop item', e); toast({ variant: 'destructive', title: 'Failed to remove workshop item' }) }
+                    } catch (e) { reportClientError('Failed to remove workshop item', e); toast({ variant: 'destructive', title: t('toasts.failedToRemoveWorkshopItemTitle'), description: getUserErrorMessage(e, t('toasts.failedToRemoveWorkshopItemFallback')) }) }
                   }
 
                   // Handle confirmed workshop removal from AlertDialog
@@ -4547,7 +4761,7 @@ export default function Mods() {
                                           className="text-destructive focus:text-destructive"
                                           // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (mods.manage) now lives in the DisabledReason wrapper above; this title carries only the always-relevant "what removing does" hint, correctly absent (via DisabledReason's own tooltip taking over) rather than dead when actually disabled.
                                           title={t('activeMods.removeFromServerHint')}
-                                          onClick={() => { if (!canManageMods) return; setConfirmRemoveMod(g.wsId) }}
+                                          onClick={() => { if (!canManageMods) return; setConfirmRemoveMod({ wsId: g.wsId, label }) }}
                                           disabled={!canManageMods}
                                         >
                                           <Trash2 className="me-2 h-4 w-4" />
@@ -4870,7 +5084,7 @@ export default function Mods() {
                                         const updated = await modsApi.getCurrentConfig()
                                         setIniConfig(updated)
                                         if (updated?.modIds) setOrderedModIds(updated.modIds)
-                                      } catch (e) { reportClientError('Failed to remove orphaned mod', e); toast({ variant: 'destructive', title: 'Failed to remove orphaned mod' }) } finally { busyRef.current = false }
+                                      } catch (e) { reportClientError('Failed to remove orphaned mod', e); toast({ variant: 'destructive', title: t('toasts.failedToRemoveOrphanedModTitle'), description: getUserErrorMessage(e, t('toasts.failedToRemoveOrphanedModFallback')) }) } finally { busyRef.current = false }
                                     }}
                                     disabled={!canManageMods}
                                     className="text-destructive/80 hover:text-destructive hover:bg-destructive/15 rounded p-1.5 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive/50 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -5923,7 +6137,7 @@ export default function Mods() {
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     copyText(mod.workshop_id).then(() => {
-                                      toast({ title: 'Copied', description: `Workshop ID ${mod.workshop_id}` })
+                                      toast({ title: t('installedTab.copiedTitle'), description: t('installedTab.copiedWorkshopId', { id: mod.workshop_id }) })
                                     }).catch(() => { /* no-op */ })
                                   }}
                                   className="inline-flex items-center gap-1 rounded border border-border/40 bg-muted/40 px-1 py-0.5 font-mono text-[10px] leading-none text-muted-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary transition-colors"
@@ -5979,7 +6193,7 @@ export default function Mods() {
                                     variant="ghost"
                                     size="iconDense"
                                     className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                    onClick={() => setConfirmRemoveMod(mod.workshop_id)}
+                                    onClick={() => setConfirmRemoveMod({ wsId: mod.workshop_id, label: mod.name || mod.workshop_id })}
                                     disabled={loading || !canManageMods}
                                     aria-label={t('deactivatedTab.deleteAria', { name: mod.name || mod.workshop_id })}
                                   >
@@ -6027,7 +6241,14 @@ export default function Mods() {
       <AlertDialog open={!!confirmRemoveMod} onOpenChange={(open) => { if (!open) setConfirmRemoveMod(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t('removeModDialog.title')}</AlertDialogTitle>
+            {/* Four different rows across this page (Installed tab, "removed
+                from Workshop" banner, Active-config kebab menu, Deactivated
+                tab) all open this same dialog. It used to say only "Remove
+                this mod from the server?" with no way to tell WHICH mod --
+                a real problem once more than one row is in play (e.g. a
+                second click before the first refetch lands). Name the
+                actual target instead. */}
+            <AlertDialogTitle>{t('removeModDialog.title', { name: confirmRemoveMod?.label || confirmRemoveMod?.wsId || '' })}</AlertDialogTitle>
             <AlertDialogDescription>
               {t('removeModDialog.description')}
             </AlertDialogDescription>
@@ -6036,7 +6257,7 @@ export default function Mods() {
             <AlertDialogCancel>{t('removeModDialog.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => { if (confirmRemoveMod) handleRemoveMod(confirmRemoveMod); setConfirmRemoveMod(null) }}
+              onClick={() => { if (confirmRemoveMod) handleRemoveMod(confirmRemoveMod.wsId); setConfirmRemoveMod(null) }}
               disabled={!canManageMods}
             >
               {t('removeModDialog.remove')}

@@ -2,7 +2,7 @@ import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
 import { LANGUAGE_CODES, SOURCE_LANGUAGE, isRTL } from './languages'
 
-export { LANGUAGES, SOURCE_LANGUAGE, LANGUAGE_CODES, isRTL, directionOf } from './languages'
+export { LANGUAGES, OFFERED_LANGUAGES, SOURCE_LANGUAGE, LANGUAGE_CODES, isRTL, directionOf } from './languages'
 export type { LanguageDef } from './languages'
 export type SupportedLanguage = string
 

@@ -16,7 +16,9 @@
     "remoteTitle": "Serverprotokoll für Remoteserver nicht verfügbar",
     "remoteDesc": "Remoteserver stellen nur RCON bereit. Verwende den RCON-Tab für Live-Befehle.",
     "notConfiguredTitle": "Serverprotokollpfad nicht konfiguriert",
-    "notConfiguredDesc": "Lege zuerst den Installationspfad des Servers oder den Zomboid-Datenpfad in Meine Server fest."
+    "notConfiguredDesc": "Lege zuerst den Installationspfad des Servers oder den Zomboid-Datenpfad in Meine Server fest.",
+    "noPermissionTitle": "Serverprotokoll für diese Rolle nicht verfügbar",
+    "noPermissionDesc": "Zum Lesen des Serverprotokolls ist die Berechtigung server.world_events erforderlich, die diese Rolle nicht hat. Bitte einen Administrator um Zugriff."
   },
   "serverLog": {
     "pathLabel": "Pfad",
@@ -42,9 +44,10 @@
     "refreshAria": "Protokoll aktualisieren",
     "clear": "leeren",
     "clearTooltip": "Löscht die Server-Konsolenprotokolldatei — kann nicht rückgängig gemacht werden",
-    "clearConfirmTitle": "Server-Konsolenprotokoll löschen?",
+    "clearConfirmTitle": "Konsolenprotokoll für {{server}} löschen?",
     "clearConfirmDesc": "Dies löscht server-console.txt dauerhaft von der Festplatte, nicht nur diese Anzeige. Es gibt kein Rückgängigmachen.",
     "clearConfirmButton": "Protokolldatei löschen",
+    "clearNoPermission": "Das Löschen des Konsolenprotokolls erfordert die Berechtigung server.configure, die diese Rolle nicht hat.",
     "streamUnavailable": "Protokoll-Stream nicht verfügbar — Server ist möglicherweise offline",
     "retry": "erneut versuchen",
     "notFoundTitle": "Serverkonsolenprotokoll nicht gefunden",
@@ -90,6 +93,7 @@
     "noCommandsTitle": "Noch keine Befehle",
     "noCommandsDesc": "Führe einen RCON-Befehl aus, um die Antwort hier zu sehen.",
     "quickLabel": "schnell",
+    "quickTip": "Füllt das Befehlsfeld unten mit diesem Befehl -- er wird erst ausgeführt, wenn du auf \"ausführen\" klickst (oder Enter drückst).",
     "commandLabel": "befehl",
     "commandTip": "Befehle werden hier sofort auf dem laufenden Server ausgeführt, ohne Bestätigungsschritt — selbst bei etwas, das den Server stoppt oder einen Spieler entfernt. Wenn Sie nicht sicher sind, was ein Befehl bewirkt, prüfen Sie ihn, bevor Sie ihn ausführen; die meisten lassen sich nicht rückgängig machen.",
     "promptPrefix": "rcon $",
@@ -100,16 +104,18 @@
     "keyboardHint": "// Enter · ausführen · ↑↓ Verlauf",
     "noResponseFallback": "Keine Antwort",
     "noPermission": "Ihre Rolle hat keine Berechtigung, RCON-Befehle auszuführen.",
-    "disconnectedUseRecheck": "RCON ist derzeit nicht erreichbar -- wähle oben \"Erneut prüfen\", bevor du es erneut versuchst."
+    "disconnectedUseRecheck": "RCON ist derzeit nicht erreichbar -- wähle oben \"Erneut prüfen\", bevor du es erneut versuchst.",
+    "recheckNoPermission": "Die RCON-Verbindung erneut zu prüfen erfordert die Berechtigung server.configure, die diese Rolle nicht hat.",
+    "destructiveConfirmTitle": "„{{command}}“ auf {{server}} ausführen?",
+    "destructiveConfirmDesc": "Dieser Rohbefehl geht sofort nach der Bestätigung an den laufenden Server. Er kann Spieler trennen, den Serverzugang ändern, Einstellungen umstellen oder den Server herunterfahren – die meisten dieser Auswirkungen lassen sich von dieser Konsole aus nicht rückgängig machen.",
+    "destructiveConfirmButton": "Befehl ausführen"
   },
   "quickCommands": {
     "players": "Spieler",
     "save": "Speichern",
     "showOptions": "Optionen anzeigen",
     "checkMods": "Mods überprüfen",
-    "help": "Hilfe",
-    "serverInfo": "Serverinfo",
-    "getMemory": "Speicher abrufen"
+    "help": "Hilfe"
   },
   "broadcast": {
     "toggleLabel": "Broadcast",
@@ -177,7 +183,10 @@
     "searchPlaceholder": "Befehlsverlauf durchsuchen…",
     "searchAria": "Befehlsverlauf durchsuchen",
     "emptyTitle": "Kein Befehlsverlauf",
-    "emptyDesc": "Ausgeführte Befehle werden hier protokolliert."
+    "emptyDesc": "Ausgeführte Befehle werden hier protokolliert.",
+    "noMatchesTitle": "Keine passenden Befehle",
+    "noMatchesDesc": "Kein Verlaufseintrag stimmt mit \"{{query}}\" überein.",
+    "clearSearch": "Suche löschen"
   },
   "toasts": {
     "historyUnavailableTitle": "Verlauf nicht verfügbar",
@@ -190,6 +199,8 @@
     "broadcastSentTitle": "Broadcast gesendet",
     "broadcastSentAll": "Deine Nachricht wurde an alle Spieler gesendet",
     "broadcastSentTagged": "Mit dem Tag [{{tag}}] gesendet",
-    "broadcastFailedFallback": "Broadcast konnte nicht gesendet werden"
+    "broadcastFailedFallback": "Broadcast konnte nicht gesendet werden",
+    "serverChangedSinceLoadTitle": "Aktiver Server geändert",
+    "serverChangedSinceLoadDesc": "Der aktive Server hat sich gerade geändert. Wird aktualisiert — versuche es erneut, sobald die Konsole neu geladen wurde, damit diese Aktion den richtigen Server betrifft."
   }
 }

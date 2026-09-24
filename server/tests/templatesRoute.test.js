@@ -6,6 +6,7 @@ const saveTemplate = vi.fn();
 const applyTemplate = vi.fn();
 const listHiddenBuiltinTemplates = vi.fn();
 const unhideTemplate = vi.fn();
+const exportTemplate = vi.fn();
 
 import { mockGetRoleByName } from "./helpers/mockPermissionsDb.js";
 
@@ -37,7 +38,7 @@ vi.mock("../services/templateService.js", () => ({
   saveTemplate,
   deleteTemplate: vi.fn(),
   unhideTemplate,
-  exportTemplate: vi.fn(),
+  exportTemplate,
   importTemplate: vi.fn(),
   previewTemplate: vi.fn(),
   applyTemplate,
@@ -46,8 +47,9 @@ vi.mock("../services/templateService.js", () => ({
 const { default: router } = await import("../routes/templates.js");
 
 function createResponse() {
-  const response = { status: vi.fn(), json: vi.fn() };
+  const response = { status: vi.fn(), json: vi.fn(), set: vi.fn() };
   response.status.mockReturnValue(response);
+  response.set.mockReturnValue(response);
   return response;
 }
 
@@ -75,6 +77,7 @@ describe("template mutation routes", () => {
     applyTemplate.mockReset();
     listHiddenBuiltinTemplates.mockReset();
     unhideTemplate.mockReset();
+    exportTemplate.mockReset();
     scanHostForServerProcesses.mockReset().mockResolvedValue({ matched: [] });
   });
 
@@ -363,5 +366,31 @@ describe("template mutation routes", () => {
     );
 
     expect(response.status).toHaveBeenCalledWith(400);
+  });
+
+  // continuous-bug-hunt round 24: req.params.id (an arbitrary URL path
+  // segment) was interpolated straight into the Content-Disposition header
+  // with no sanitization, unlike the identical filename-in-header site in
+  // routes/debug.js (`filename.replace(/["\r\n]/g, "")`). A `"` in the id
+  // breaks out of the filename="..." attribute and injects a second
+  // filename= directive, which some browsers honor over the first.
+  it("strips quote characters out of the exported filename before setting Content-Disposition", async () => {
+    exportTemplate.mockResolvedValue({
+      success: true,
+      template: { meta: { id: 'evil"; filename="hijacked.exe', name: "Evil" } },
+    });
+    const response = createResponse();
+
+    await runRoute(
+      "/:id/export",
+      "get",
+      { params: { id: 'evil"; filename="hijacked.exe' } },
+      response,
+    );
+
+    expect(response.set).toHaveBeenCalledWith(
+      "Content-Disposition",
+      'attachment; filename="evil; filename=hijacked.exe.json"',
+    );
   });
 });

@@ -17,9 +17,26 @@ function escapeLuaString(str) {
   });
 }
 
-function formatLuaValue(value) {
+// continuous-bug-hunt round 30 (card: consolidate-nested-sandbox-writer):
+// confirmed by direct comparison against routes/serverFiles.js's sibling
+// writer (modifySandboxValue/formatLuaNumber) against a real save's
+// SandboxVars.lua: that function preserves a field's existing decimal
+// format ("0.05" -> writing 3 produces "3.0", not "3") because SandboxVars
+// fields are ambiguous between int/float at the syntax level and a bare "3"
+// looks like a different field type on a manual diff even though Kahlua
+// parses "3" and "3.0" identically. This function used to always emit
+// String(value), silently dropping that formatting -- the ONE behavioral
+// disagreement the two writers had across every edge case checked (nested
+// blocks, missing keys, quoting/escaping, CRLF, comments all already
+// matched). `originalValueStr` is the regex's own raw matched value (before
+// its trailing comma), same shape modifySandboxValue's formatValue() reads.
+function formatLuaValue(value, originalValueStr) {
   if (typeof value === "boolean") return String(value);
-  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const trimmed = originalValueStr ? originalValueStr.trim().replace(/,\s*$/, "") : "";
+    if (Number.isInteger(value) && trimmed.includes(".")) return value.toFixed(1);
+    return String(value);
+  }
   return `"${escapeLuaString(String(value))}"`;
 }
 
@@ -143,7 +160,7 @@ export function applySandboxValue(content, section, key, value) {
     const next = content.replace(pattern, (full, indent, k, eq, oldVal, comma, offset) => {
       if (nestedRanges.some((r) => offset >= r.start && offset < r.closeAt)) return full;
       applied = true;
-      return `${indent}${k}${eq}${formatLuaValue(value)}${comma}`;
+      return `${indent}${k}${eq}${formatLuaValue(value, oldVal)}${comma}`;
     });
     return { content: next, applied };
   }
@@ -154,16 +171,47 @@ export function applySandboxValue(content, section, key, value) {
   const block = content.slice(blockRange.openAt, blockRange.closeAt);
   const after = content.slice(blockRange.closeAt);
   let applied = false;
-  const pattern = new RegExp(`(^(?!\\s*--)[^\\n]*?)(${escapeRegExp(key)})(\\s*=\\s*)${valuePattern}`, "m");
+  // continuous-bug-hunt round 16 (template apply/import/export truth): the
+  // lazy `[^\n]*?` prefix crosses arbitrary identifier characters to reach
+  // its target, and without a boundary check on the LEFT side of the key it
+  // happily matches the key as a bare SUBSTRING of an earlier, longer
+  // identifier on the same line -- e.g. a template setting "Speed" in a
+  // block that also has "WalkSpeed" above it matches "...Walk|Speed" and
+  // silently rewrites WalkSpeed's value instead, while "Speed" itself never
+  // changes and is still reported as applied. This is the identical defect
+  // routes/serverFiles.js's modifySandboxValue() was fixed for (2026-09-18,
+  // settings-truth round, see that function's own comment for the full
+  // repro) -- confirmed by inspection to be a SEPARATE, independent
+  // implementation of the same "nested-block key rewrite" operation used by
+  // template apply specifically, which the earlier fix never touched. Same
+  // fix: `(?<![A-Za-z0-9_])` rejects any match position immediately
+  // preceded by an identifier character, so the key can only match at a
+  // real identifier boundary -- exactly what the validated
+  // `^[a-zA-Z_][a-zA-Z0-9_]*$` key format above already guarantees "the
+  // whole key" looks like.
+  const pattern = new RegExp(
+    `(^(?!\\s*--)[^\\n]*?)(?<![A-Za-z0-9_])(${escapeRegExp(key)})(\\s*=\\s*)${valuePattern}`,
+    "m",
+  );
   const nextBlock = block.replace(pattern, (full, prefix, k, eq, oldVal, comma) => {
     applied = true;
-    return `${prefix}${k}${eq}${formatLuaValue(value)}${comma}`;
+    return `${prefix}${k}${eq}${formatLuaValue(value, oldVal)}${comma}`;
   });
   return { content: before + nextBlock + after, applied };
 }
 
+// continuous-bug-hunt round 30 (card: consolidate-nested-sandbox-writer):
+// routes/serverFiles.js's own nestedBlocks/knownBlocks lists (used for both
+// parsing and modifySandboxValue's top-level exclusion) also carry "Music"
+// and "Debug" alongside these five -- this list was missing them, so a
+// same-named key under either block (neither appears in a real save's
+// SandboxVars.lua checked against D:/pz-verify, but the file format doesn't
+// forbid them) would not have been excluded from a top-level "settings"
+// write here, unlike its sibling. findBlockRange() is a no-op (returns
+// null, filtered out below) for a block name absent from the file, so
+// adding these has no effect on any file that doesn't define them.
 function getKnownSectionRanges(content) {
-  return ["ZombieLore", "ZombieConfig", "MultiplierConfig", "Map", "Basement"]
+  return ["ZombieLore", "ZombieConfig", "MultiplierConfig", "Map", "Basement", "Music", "Debug"]
     .map((name) => findBlockRange(content, name))
     .filter(Boolean);
 }

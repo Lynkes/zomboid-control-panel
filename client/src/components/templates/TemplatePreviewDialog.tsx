@@ -11,6 +11,7 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { useToast } from '@/components/ui/use-toast'
 import { useConfirm } from '@/contexts/ConfirmContext'
+import { useSocket } from '@/contexts/SocketContext'
 import {
   templatesApi,
   serversApi,
@@ -36,6 +37,7 @@ export function TemplatePreviewDialog({ template, canManage, onClose, onApplied 
   const { t } = useTranslation('templatePreviewDialog')
   const { toast } = useToast()
   const confirm = useConfirm()
+  const socket = useSocket()
   const [server, setServer] = useState<ServerInstance | null>(null)
   const [serverLoading, setServerLoading] = useState(true)
   const [running, setRunning] = useState<boolean | null>(null)
@@ -109,6 +111,33 @@ export function TemplatePreviewDialog({ template, canManage, onClose, onApplied 
   useEffect(() => {
     if (template) load(template)
   }, [template, load])
+
+  // pz-bughunt round 18 (the narrower server-switch races flagged in round
+  // 17): `server` (and the diff/running snapshot computed from it) is
+  // captured once in load(), when the dialog opens for a template --
+  // there was no activeServerChanged listener here at all, so switching
+  // the active server elsewhere while this dialog stayed open left it
+  // showing a diff computed against, and a "must be stopped" verdict
+  // resolved for, a server that may no longer even be the one the operator
+  // is looking at. handleApply's own templatesApi.apply(..., server.id,
+  // ...) call sends that captured id EXPLICITLY (unlike the implicit-
+  // active-server class this round's other fixes target), so it can't
+  // silently land on the wrong server -- but continuing to act on a
+  // preview/running-status snapshot that's gone stale is still a real
+  // correctness risk (e.g. `running` never re-confirms, so a server
+  // started elsewhere after load() could still show as safe to overwrite).
+  // Simplest, safest fix, consistent with every other dialog this round:
+  // close it outright the instant the active server changes, exactly like
+  // Backups.tsx's restore/delete dialogs and Mods.tsx's restart-settings
+  // dialog already do.
+  useEffect(() => {
+    if (!socket || !template) return
+    const handleActiveServerChanged = () => onClose()
+    socket.on('activeServerChanged', handleActiveServerChanged)
+    return () => {
+      socket.off('activeServerChanged', handleActiveServerChanged)
+    }
+  }, [socket, template, onClose])
 
   const handleApply = async () => {
     if (!template || !server) return

@@ -46,6 +46,7 @@ const PINNED_VALID_ACTIONS = [
   "getWorldStats",
   "getPlayerDetails",
   "getAllPlayerDetails",
+  "getLeaderboard",
   "healPlayer",
   "killPlayer",
   "teleportPlayer",

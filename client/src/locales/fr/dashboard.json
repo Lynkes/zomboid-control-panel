@@ -105,7 +105,10 @@
     "connectRconNeedsHostRunning": "Démarrez d'abord le serveur",
     "noPermissionControl": "Votre rôle n'a pas la permission de contrôler le serveur.",
     "noPermissionWipe": "Votre rôle n'a pas la permission d'effacer le monde.",
-    "wipeMustStopFirst": "Arrêtez le serveur avant d'effacer."
+    "noPermissionAutoStart": "Votre rôle n'a pas la permission de modifier le démarrage automatique.",
+    "noPermissionCreateBackup": "Votre rôle n'a pas la permission de créer des sauvegardes.",
+    "wipeMustStopFirst": "Arrêtez le serveur avant d'effacer.",
+    "saveNeedsRcon": "Connectez RCON pour sauvegarder le monde."
   },
   "confirm": {
     "cancel": "Annuler",
@@ -144,6 +147,10 @@
     "stopServerRequested": {
       "title": "Arrêt demandé",
       "description": "Le serveur sauvegarde et s'arrête proprement — cela peut prendre un moment sur un grand monde. Le badge de statut se mettra à jour une fois l'arrêt confirmé."
+    },
+    "forceStopRequested": {
+      "title": "Arrêt forcé demandé",
+      "description": "Le signal d'arrêt a été envoyé — surveillez le tableau de bord pour la confirmation."
     },
     "forceStopServer": {
       "title": "Arrêt forcé du serveur",
@@ -204,12 +211,15 @@
     "modUpdatesWaiting_other": "{{count}} mises à jour de mods en attente",
     "reviewMods": "Vérifier les mods",
     "noBackups": "Aucune sauvegarde",
+    "backupAttemptFailing": "Sauvegarde planifiée en échec",
+    "reviewBackups": "Vérifier les sauvegardes",
     "modUpdatesWaiting_many": "{{count}} mises à jour de mods en attente"
   },
   "panelUpdateBanner": {
     "applyFailed": "Échec de l'application",
     "updateStaged": "Mise à jour prête",
     "panelUpdate": "Mise à jour du panneau",
+    "checkedAgo": "Vérifié {{age}}",
     "lastApplyFailedDesc": "La dernière tentative d'application a échoué — voir Paramètres pour le diagnostic.",
     "stagedDesc": "Téléchargée et prête. Redémarrez le panneau pour l'appliquer.",
     "newVersionDesc": "Une nouvelle version du panneau est disponible.",
@@ -328,6 +338,7 @@
     "backupsStored_other": "{{count}} stockées",
     "backupsStoredLast_one": "{{count}} stockée, dernière {{age}}",
     "backupsStoredLast_other": "{{count}} stockées, dernière {{age}}",
+    "backupsAttemptFailed": "tentative échouée, {{age}}",
     "scheduleNoneActive": "aucune active",
     "scheduleActive_one": "{{count}} active",
     "scheduleActive_other": "{{count}} actives",
@@ -374,6 +385,7 @@
   },
   "wipeDialog": {
     "title": "Effacer le serveur",
+    "serverChangedSinceOpen": "Le serveur actif a changé pendant que cette boîte de dialogue était ouverte. Annulez et rouvrez « Effacer le serveur » pour agir sur le serveur actuellement actif.",
     "description": "Sélectionnez les données à supprimer de <b>{{serverName}}</b>. Le serveur doit être arrêté.",
     "defaultServerName": "le serveur actif",
     "targets": {

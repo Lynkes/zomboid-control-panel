@@ -2675,15 +2675,41 @@ router.post("/add-to-ini", async (req, res) => {
     // Do all async detection work BEFORE taking the lock
     let detectedModId = modId;
     let detectionSource = "provided";
+    // continuous-bug-hunt round 27 (mod load order / Workshop collection
+    // import): a single workshop item's mod.info can declare several `id=`
+    // lines (getModDetailsFromWorkshop's own comment; findModIdFromWorkshop
+    // below is explicitly documented as "return the first ID found (legacy
+    // behavior)"). This route only ever enabled that one default id in
+    // Mods=, with nothing telling the operator the workshop item actually
+    // bundled more mods -- WorkshopItems= (content downloaded/tracked) and
+    // Mods= (content enabled) silently drifted out of step for every extra
+    // bundled mod, invisibly, on the MAIN "add a mod" path (Mods.tsx's
+    // addToIni, called with no explicit modId for every ordinary add). The
+    // sibling /sync-mod-ids route already solved this correctly -- same
+    // "auto-enable the default, report the rest as `alternatives`" shape,
+    // deliberately NOT auto-enabling every bundled id unasked (a workshop
+    // item's other ids can be genuinely optional sub-content, not always
+    // meant to all load) -- this just brings /add-to-ini in line with that
+    // established pattern instead of silently discarding the same
+    // information the sync route already knows how to report.
+    let alternativeModIds = [];
 
     if (!detectedModId) {
       // First, try to find from already downloaded workshop folder
       if (serverPath) {
-        detectedModId = findModIdFromWorkshop(String(workshopId), serverPath);
-        if (detectedModId) {
+        const availableModIds = findAllModIdsFromWorkshop(
+          String(workshopId),
+          serverPath,
+        );
+        if (availableModIds.length > 0) {
+          detectedModId = availableModIds[0];
+          alternativeModIds = availableModIds.slice(1);
           detectionSource = "local-files";
           log.info(
-            `Auto-detected mod ID from local files: ${detectedModId} for workshop ${workshopId}`,
+            `Auto-detected mod ID from local files: ${detectedModId} for workshop ${workshopId}` +
+              (alternativeModIds.length > 0
+                ? ` (${alternativeModIds.length} additional mod id(s) in this workshop item not auto-enabled: ${alternativeModIds.join(", ")})`
+                : ""),
           );
         }
       }
@@ -2814,6 +2840,11 @@ router.post("/add-to-ini", async (req, res) => {
       modId: detectedModId || null,
       autoDetected: !modId && !!detectedModId,
       detectionSource: detectedModId ? detectionSource : null,
+      // Same field name/shape as /sync-mod-ids' own `alternatives` entry --
+      // other mod ids this workshop item declared that were NOT auto-
+      // enabled, so a caller can tell "this workshop item only ever had
+      // one mod" apart from "it had more, and we only turned one on."
+      alternativeModIds,
       totalWorkshopItems: result.totalWorkshopItems,
       mapFoldersAdded: addedMapFolders,
       note: detectedModId
@@ -8645,12 +8676,18 @@ router.post("/batch-delete-disk-mods", async (req, res) => {
       });
     }
 
-    // Capture all mod IDs BEFORE we start deleting.
+    // Capture all mod IDs AND map folders BEFORE we start deleting -- both
+    // are read off the workshop folders this route is about to rmSync, the
+    // same ordering deleteModFromDiskAndIni() (the single-mod sibling this
+    // route duplicates instead of calling) already gets right.
     const allModIdsToStrip = new Set();
+    const allMapFoldersToStrip = new Set();
     for (const wsId of cleaned) {
       if (serverPath) {
         for (const m of findAllModIdsFromWorkshop(wsId, serverPath))
           allModIdsToStrip.add(m);
+        for (const folder of findMapFoldersFromWorkshop(wsId, serverPath))
+          allMapFoldersToStrip.add(folder);
       }
     }
 
@@ -8679,6 +8716,27 @@ router.post("/batch-delete-disk-mods", async (req, res) => {
         content = content.replace(
           /^[ \t]*Mods[ \t]*=.*/m,
           `Mods=${sanitizeModIdList(modsList)}`,
+        );
+      }
+      // continuous-bug-hunt, 2026-09-18 (mod-list-drift round): this route
+      // deletes the ENTIRE workshop folder per id below (fs.rmSync,
+      // recursive) -- including any map content it owns -- but, unlike its
+      // single-mod sibling deleteModFromDiskAndIni() (used by /delete-disk-mod
+      // and /purge), never removed the matching Map= entries. The server's
+      // Map= line kept naming a folder that no longer existed on disk after
+      // a batch delete, silently, with the response reporting success and no
+      // hint anything Map=-related happened. Same fallback as the sibling:
+      // Map= may never be empty, or PZ has nothing to boot into.
+      const mapMatch = content.match(/^[ \t]*Map[ \t]*=[ \t]*(.*)$/m);
+      if (mapMatch && allMapFoldersToStrip.size > 0) {
+        let mapList = mapMatch[1]
+          .split(";")
+          .filter(Boolean)
+          .filter((m) => !allMapFoldersToStrip.has(m));
+        if (mapList.length === 0) mapList = ["Muldraugh, KY"];
+        content = content.replace(
+          /^[ \t]*Map[ \t]*=.*/m,
+          `Map=${sanitizeIniList(mapList)}`,
         );
       }
       backupWarning = backupWarningFor(
@@ -8731,13 +8789,14 @@ router.post("/batch-delete-disk-mods", async (req, res) => {
 
     const deletedCount = results.filter((r) => r.deletedFromDisk).length;
     log.info(
-      `Batch deleted ${deletedCount}/${cleaned.length} disk mods (mod IDs stripped: ${allModIdsToStrip.size})`,
+      `Batch deleted ${deletedCount}/${cleaned.length} disk mods (mod IDs stripped: ${allModIdsToStrip.size}, map folders stripped: ${allMapFoldersToStrip.size})`,
     );
     res.json({
       success: true,
       total: cleaned.length,
       deletedFromDisk: deletedCount,
       modIdsStripped: allModIdsToStrip.size,
+      mapFoldersStripped: allMapFoldersToStrip.size,
       results,
       ...(backupWarning ? { backupWarning } : {}),
     });

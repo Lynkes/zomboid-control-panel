@@ -44,6 +44,14 @@ describe('ServerStatusBadge', () => {
     expect(screen.getByText('—')).toBeInTheDocument()
   })
 
+  it('gives the online dot a distinct color from the unknown dot, so running and unknown do not look alike', () => {
+    render(<ServerStatusBadge host={{ status: 'running', label: 'Container' }} server={{ status: 'unknown', label: 'RCON' }} />)
+    const runningDot = screen.getByText(`Container: ${en.displayWord.running}`).querySelector('span[aria-hidden="true"]')
+    const unknownDot = screen.getByText(`RCON: ${en.displayWord.unknown}`).querySelector('span[aria-hidden="true"]')
+    expect(runningDot).toHaveClass('bg-success')
+    expect(unknownDot).not.toHaveClass('bg-success')
+  })
+
   it.each([
     ['unknown', 'Host'],
     ['not-applicable', 'Host'],

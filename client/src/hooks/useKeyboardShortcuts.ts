@@ -47,6 +47,18 @@ function isInputFocused(): boolean {
   return false
 }
 
+// A Radix Dialog/AlertDialog (e.g. Dashboard's Force-Stop/Wipe-Server
+// confirmations) traps Tab-cycling inside itself but does not stop other
+// keys from bubbling up to these window-level listeners, and moves focus
+// onto a non-input element inside the dialog (its content pane or a
+// button) -- so isInputFocused() alone never sees it open. Without this,
+// pressing a digit navigates the whole app away from under an open
+// destructive-action confirmation instead of the keystroke reaching the
+// dialog.
+function isDialogOpen(): boolean {
+  return document.querySelector('[role="dialog"], [role="alertdialog"]') !== null
+}
+
 export function useKeyboardShortcuts() {
   const navigate = useNavigate()
   const { t } = useTranslation('keyboardShortcuts')
@@ -61,8 +73,9 @@ export function useKeyboardShortcuts() {
   ]
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    // Don't intercept when typing in inputs
-    if (isInputFocused()) return
+    // Don't intercept when typing in inputs, or while a modal dialog owns
+    // focus (see isDialogOpen's own comment).
+    if (isInputFocused() || isDialogOpen()) return
     // Don't intercept modified keys (except Shift for ?)
     if (e.ctrlKey || e.altKey || e.metaKey) return
 
@@ -98,6 +111,7 @@ export function useKeyboardShortcuts() {
  * Register a page-specific keyboard shortcut. Active only while the component is mounted.
  * For Ctrl/Cmd shortcuts, set ctrl: true — these work even when an input is focused.
  * For unmodified keys, they are ignored when an input is focused.
+ * Either way, both are suppressed while a modal dialog is open (see isDialogOpen).
  */
 export function usePageShortcut(
   key: string,
@@ -114,6 +128,9 @@ export function usePageShortcut(
       if (wantsCtrl && !hasCtrl) return
       if (!wantsCtrl && hasCtrl) return
       if (!wantsCtrl && isInputFocused()) return
+      // A modal dialog (e.g. Dashboard's Force-Stop/Wipe-Server confirm)
+      // owns the keyboard regardless of ctrl -- see isDialogOpen's comment.
+      if (isDialogOpen()) return
       if (e.altKey) return
       if (e.key.toLowerCase() !== key.toLowerCase()) return
 

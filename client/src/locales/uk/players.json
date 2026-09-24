@@ -92,11 +92,17 @@
     "whitelistLastConnection": "останнє {{date}}",
     "removeButton": "Видалити",
     "removeTitle": "Видалити {{username}} з білого списку",
+    "removeFromWhitelistConfirmTitle": "Видалити з білого списку?",
+    "removeFromWhitelistConfirmDesc": "{{player}} буде видалено з бази акаунтів білого списку.",
+    "removeFromWhitelistConfirmButton": "Видалити",
     "allowedSteamIdsLabel": "Дозволені Steam ID",
     "allowedSteamIdAria": "Дозволений Steam ID",
     "addButton": "Додати",
     "removeAllowedButton": "Видалити",
     "removeAllowedTitle": "Видалити дозволений Steam ID {{steamId}}",
+    "removeAllowedSteamIdConfirmTitle": "Видалити дозволений Steam ID?",
+    "removeAllowedSteamIdConfirmDesc": "{{steamId}} більше не зможе приєднатися до сервера з білим списком.",
+    "removeAllowedSteamIdConfirmButton": "Видалити",
     "manualTargetLabel": "› Ручна ціль",
     "manualTargetLabelText": "Ручна ціль",
     "manualTargetPlaceholder": "Введіть ім'я користувача…",
@@ -134,6 +140,7 @@
     "disableNoclip": "Вимкнути noclip",
     "addToWhitelist": "Додати до білого списку",
     "removeFromWhitelist": "Видалити з білого списку",
+    "notOnWhitelistReason": "{{player}} немає в білому списку — видаляти нічого.",
     "importExportCharacter": "Імпорт/експорт персонажа",
     "noTargetTitle": "ціль не вибрано",
     "noTargetDesc": "Виберіть гравця з реєстру, щоб побачити його досьє, або введіть ім'я користувача під <1>› Ручна ціль</1>."
@@ -193,6 +200,8 @@
     "description": "Вигнати {{player}} із сервера",
     "reasonLabel": "Причина (необов'язково)",
     "reasonPlaceholder": "Введіть причину...",
+    "reasonAlteredNote": "Сервер надішле лише: «{{preview}}»",
+    "reasonAlteredToEmpty": "Жоден з цих символів не можна надіслати на сервер — цей гравець не побачить жодної причини.",
     "submit": "Вигнати гравця"
   },
   "banDialog": {
@@ -200,6 +209,8 @@
     "description": "Забанити {{player}} на сервері",
     "reasonLabel": "Причина (необов'язково)",
     "reasonPlaceholder": "Введіть причину...",
+    "reasonAlteredNote": "Сервер надішле лише: «{{preview}}»",
+    "reasonAlteredToEmpty": "Жоден з цих символів не можна надіслати на сервер — цей гравець не побачить жодної причини.",
     "banIpLabel": "Також забанити IP-адресу",
     "banIpTip": "Блокує також IP, а не лише акаунт — може зачепити інших у тій самій мережі, і ця панель не має способу окремо переглядати чи знімати бани за IP.",
     "cancel": "Скасувати",
@@ -219,6 +230,12 @@
     "label": "Рівень доступу",
     "placeholder": "Виберіть рівень...",
     "submit": "Встановити рівень"
+  },
+  "confirmLastAdmin": {
+    "title": "Прибрати останнього адміністратора?",
+    "description": "{{player}} — єдиний обліковий запис із рівнем доступу admin. Якщо його прибрати, ніхто не матиме повних адміністраторських команд у грі, доки його не нададуть знову звідси.",
+    "confirm": "Прибрати доступ адміністратора",
+    "cancel": "Скасувати"
   },
   "teleportDialog": {
     "title": "Телепортувати гравця",
@@ -255,12 +272,15 @@
   "addUserDialog": {
     "title": "Додати користувача",
     "description": "Створити новий обліковий запис для серверів з білим списком. Build 42 дозволяє порожній пароль.",
+    "titleWhitelist": "Додати до білого списку",
+    "descriptionWhitelist": "Додати {{player}} до бази акаунтів білого списку. Build 42 дозволяє порожній пароль.",
     "usernameLabel": "Ім'я користувача",
     "usernamePlaceholder": "Введіть ім'я користувача...",
     "passwordLabel": "Пароль (необов'язково)",
     "passwordPlaceholder": "Необов'язковий пароль (мін. 4 символи)...",
     "cancel": "Скасувати",
-    "submit": "Додати користувача"
+    "submit": "Додати користувача",
+    "submitWhitelist": "Додати до білого списку"
   },
   "unbanDialog": {
     "title": "Розбанити гравця",
@@ -289,7 +309,7 @@
     "spawnVehiclesDescNoPlayer": "Створюється на позиції того, хто викликав — виберіть гравця, щоб натомість створювати транспорт поруч із ним.",
     "giveXpTitle": "Видати XP",
     "giveXpDescWithPlayer": "Надати досвід гравцю <1>{{player}}</1>",
-    "giveXpDescNoPlayer": "Надати досвід вибраному гравцю",
+    "giveXpDescNoPlayer": "Спочатку виберіть гравця, потім надайте йому досвід у вибраній навичці.",
     "perkPlaceholder": "Виберіть навичку...",
     "amountLabel": "Кількість",
     "giveXpButton": "Видати XP",
@@ -420,6 +440,7 @@
   "toasts": {
     "successTitle": "Успіх",
     "successDesc": "{{action}} — виконано",
+    "successDescForPlayer": "{{action}} для {{player}}",
     "bridgeUnverifiedDesc": "{{action}} — надіслано, але мод не зміг підтвердити, що дія набула чинності.",
     "bridgeOldBridgeDesc": "{{action}} — можливо, спрацювало, але ця версія мода PanelBridge не повідомляє про результат. Оновіть мод, щоб бачити підтвердження.",
     "errorTitle": "Помилка",

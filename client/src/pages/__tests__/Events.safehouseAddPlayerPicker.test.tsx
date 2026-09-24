@@ -17,6 +17,23 @@ import { playersApi, panelBridgeApi } from '@/lib/api'
 // Same jsdom-Radix-Select workaround as Events.vehicleSirenControl.test.tsx:
 // a real pointer interaction on a Radix Select throws in jsdom. Swap the
 // picker for a native <select>, which drives the exact same onValueChange.
+// bug-hunt-2026-09-18 (round 19): Events.tsx now calls useAuth() to gate
+// its players.endanger_or_impersonate-only controls (lightning/thunder/
+// horde/targeted sounds) -- default every existing test in this file to a
+// fully-permitted role so none of their prior behavior changes.
+vi.mock('@/contexts/AuthContext', () => ({
+  useAuth: () => ({
+    user: { id: 'u1', username: 'someone', role: 'admin', capabilities: [] },
+    authEnabled: true,
+    isAuthenticated: true,
+    isLoading: false,
+    needsSetup: false,
+    logout: vi.fn(),
+    getToken: () => 'fake-token',
+    can: () => true,
+  }),
+}))
+
 vi.mock('@/components/ui/select', () => {
   function findAriaLabel(children: React.ReactNode): string | undefined {
     let found: string | undefined

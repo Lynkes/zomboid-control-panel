@@ -142,7 +142,10 @@
     "connectRconNeedsHostRunning": "Спочатку запустіть сервер",
     "noPermissionControl": "Ваша роль не має дозволу керувати сервером.",
     "noPermissionWipe": "Ваша роль не має дозволу очищати світ.",
-    "wipeMustStopFirst": "Зупиніть сервер перед очищенням."
+    "noPermissionAutoStart": "Ваша роль не має дозволу змінювати налаштування автозапуску.",
+    "noPermissionCreateBackup": "Ваша роль не має дозволу створювати резервні копії.",
+    "wipeMustStopFirst": "Зупиніть сервер перед очищенням.",
+    "saveNeedsRcon": "Підключіть RCON, щоб зберегти світ."
   },
   "confirm": {
     "cancel": "Скасувати",
@@ -181,6 +184,10 @@
     "stopServerRequested": {
       "title": "Запит на зупинку надіслано",
       "description": "Сервер зберігається й коректно завершує роботу — на великому світі це може зайняти трохи часу. Значок стану оновиться, щойно зупинку буде підтверджено."
+    },
+    "forceStopRequested": {
+      "title": "Запит на примусову зупинку надіслано",
+      "description": "Сигнал зупинки надіслано — стежте за підтвердженням на головній панелі."
     },
     "forceStopServer": {
       "title": "Сервер примусово зупинено",
@@ -241,6 +248,8 @@
     "modUpdatesWaiting_other": "{{count}} оновлень модів очікують",
     "reviewMods": "Переглянути моди",
     "noBackups": "Немає резервних копій",
+    "backupAttemptFailing": "Заплановане резервне копіювання не вдається",
+    "reviewBackups": "Переглянути резервні копії",
     "modUpdatesWaiting_few": "{{count}} оновлень модів очікують",
     "modUpdatesWaiting_many": "{{count}} оновлень модів очікують"
   },
@@ -248,6 +257,7 @@
     "applyFailed": "Не вдалося застосувати",
     "updateStaged": "Оновлення підготовлено",
     "panelUpdate": "Оновлення панелі",
+    "checkedAgo": "Перевірено {{age}}",
     "lastApplyFailedDesc": "Остання спроба застосування не вдалася — діагностика в «Налаштуваннях».",
     "stagedDesc": "Завантажено й готово. Перезапустіть панель, щоб застосувати.",
     "newVersionDesc": "Доступна нова версія панелі.",
@@ -367,6 +377,7 @@
     "backupsStored_other": "{{count}} збережено",
     "backupsStoredLast_one": "{{count}} збережено, остання {{age}}",
     "backupsStoredLast_other": "{{count}} збережено, остання {{age}}",
+    "backupsAttemptFailed": "спроба невдала, {{age}}",
     "scheduleNoneActive": "немає активних",
     "scheduleActive_one": "{{count}} активне",
     "scheduleActive_other": "{{count}} активних",
@@ -427,6 +438,7 @@
   },
   "wipeDialog": {
     "title": "Очистити сервер",
+    "serverChangedSinceOpen": "Активний сервер змінився, поки це вікно було відкрите. Скасуйте та знову відкрийте «Очистити сервер», щоб діяти щодо сервера, який активний зараз.",
     "description": "Виберіть, які дані видалити з <b>{{serverName}}</b>. Сервер має бути зупинений.",
     "defaultServerName": "активного сервера",
     "targets": {

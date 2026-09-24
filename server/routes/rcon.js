@@ -1,7 +1,7 @@
 import express from 'express';
 import { createLogger } from '../utils/logger.js';
 const log = createLogger('API:RCON');
-import { getCommandHistory } from '../database/init.js';
+import { getCommandHistory, getActiveServer } from '../database/init.js';
 import { PZ_COMMANDS } from '../utils/commands.js';
 import {
   parseBoundedInteger,
@@ -106,11 +106,21 @@ router.post('/execute', requirePermission('rcon.execute'), async (req, res) => {
     // deliberately gates on rcon.execute alone, per this file's own header
     // comment above, and the live broadcast must not reopen that through a
     // different, broader capability.
+    //
+    // serverId (2026-09-18, mirrors steam:*/install events' installPath tag):
+    // "rcon-live" is ONE global room, not one per server, so every Console
+    // page open on any browser received every /execute broadcast -- with two
+    // servers registered (or two operators looking at different ones) server
+    // A's output showed up under server B's name. rconService.serverId is the
+    // server this instance actually executed against (the same value
+    // logCommand() tags command_history with); the client drops events whose
+    // serverId is not the server it is showing.
     const io = req.app.get('io');
     if (io) io.to('rcon-live').emit('rcon:response', {
       command: redactRconCommandSecrets(command),
       response: redactRconCommandSecrets(result.response || result.error),
       success: result.success,
+      serverId: rconService.serverId ?? null,
       timestamp: new Date().toISOString()
     });
     
@@ -322,7 +332,13 @@ router.post('/disconnect', requirePermission('rcon.execute'), async (req, res) =
 router.get('/history', requirePermission('rcon.execute'), async (req, res) => {
   try {
     const limit = parseClampedInteger(req.query.limit, 100, 1, 1000);
-    const history = await getCommandHistory(limit);
+    // continuous-bug-hunt round 21: scope to whichever server is active
+    // RIGHT NOW, not the unfiltered global history -- see
+    // getCommandHistory()'s own comment for why undefined (every other
+    // caller, all diagnostic/support-bundle collectors) keeps the old
+    // unfiltered behavior and only this operator-facing route opts in.
+    const activeServer = await getActiveServer().catch(() => null);
+    const history = await getCommandHistory(limit, activeServer?.id ?? null);
     res.json({ history });
   } catch (error) {
     log.error(`Failed to get command history: ${error.message}`);

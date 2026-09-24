@@ -301,6 +301,33 @@ describe('routes/oidc.js: /callback', () => {
     expect(res.cookies.find((c) => c.name === 'refreshToken')).toBeUndefined();
   });
 
+  it('redirects with session_failed and issues no cookie when the linked account is locked out', async () => {
+    provider.setNextIdToken({ claims: { nonce: 'flow-nonce' } });
+    authService.jwtSecret = 'test-oidc-route-secret';
+    vi.spyOn(dbModule, 'commitNow').mockResolvedValue(undefined);
+    vi.spyOn(dbModule, 'getDb').mockResolvedValue({
+      data: {
+        users: [
+          {
+            id: 'user-42',
+            username: 'sso.alice',
+            role: 'moderator',
+            tokenGen: 0,
+            refreshSessions: [],
+            lockedUntil: new Date(Date.now() + 60_000).toISOString(),
+            externalIdentities: [{ issuer: provider.baseUrl, subject: SUBJECT }],
+          },
+        ],
+      },
+    });
+
+    const res = makeRes();
+    await getHandler('get', '/callback')(callbackReq(), res);
+
+    expect(res.redirectedTo).toBe('/?oidcError=session_failed');
+    expect(res.cookies.find((c) => c.name === 'refreshToken')).toBeUndefined();
+  });
+
   it('links a verified identity to the selected existing account instead of issuing a login session', async () => {
     const user = {
       id: 'user-42',

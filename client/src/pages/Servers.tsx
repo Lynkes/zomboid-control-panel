@@ -212,6 +212,23 @@ export function isValidGamePort(port: number): boolean {
   return Number.isInteger(port) && port >= 1 && port <= 65534
 }
 
+// bug-hunt-2026-09-18 (round 12, client-vs-server validation sweep): client
+// mirror of server/routes/servers.js's SERVER_NAME_REGEX -- the Edit Server
+// dialog's serverName field had no character-set check at all (only
+// maxLength={64}), so a name with e.g. a leading/trailing space or a slash
+// sailed past the disabled-button gate and only failed after the round trip,
+// with the server's specific 400 message swallowed into
+// toasts.updateServerFailed's generic fallback (getUserErrorMessage falls
+// back whenever the caught error carries no server-recognized code). Kept as
+// a literal copy of the server's regex, not a shared import, matching how
+// isValidPort/isValidGamePort above already mirror their own server-side
+// range checks rather than importing across the client/server boundary.
+const SERVER_NAME_REGEX =
+  /^[a-zA-Z0-9_-][a-zA-Z0-9_\- ]*[a-zA-Z0-9_-]$|^[a-zA-Z0-9_-]$/
+export function isValidServerName(value: string): boolean {
+  return typeof value === 'string' && SERVER_NAME_REGEX.test(value)
+}
+
 // Client-side mirror of server/services/serverManager.js's resolveLaunchMode()
 // -- a serverPath/installPath ending in .bat/.sh/.exe is CUSTOM LAUNCHER mode
 // (operator ruling 2026-08-27, card
@@ -416,6 +433,15 @@ export default function Servers() {
     )
   }, [editingServer, servers])
 
+  // Same "persistent inline marker, not just a save-time toast" reasoning as
+  // editDuplicateRemoteConflict above, for the server-side character-set
+  // rule isValidServerName mirrors (server/routes/servers.js's
+  // SERVER_NAME_REGEX).
+  const editServerNameInvalid = useMemo(() => {
+    if (!editingServer) return false
+    return !isValidServerName(editingServer.serverName)
+  }, [editingServer])
+
   // Detection state
   const [detecting, setDetecting] = useState(false)
   const [detectResult, setDetectResult] = useState<DetectResult | null>(null)
@@ -451,6 +477,20 @@ export default function Servers() {
   // dialog without fabricating a success/failure result.
   const [steamStalled, setSteamStalled] = useState(false)
   const steamLastActivityRef = useRef<number>(0)
+  // steam-update-events-cross-server-contamination, 2026-09-18: steam:start/
+  // steam:log/steam:complete are broadcast to every connected client with no
+  // per-server identifier, because the backend's own concurrency guard is
+  // scoped per install path, not global -- an update on server A and a
+  // verify on server B (two different admins, or one admin who started A's
+  // update then opened B's dialog) can genuinely run at once. Without this,
+  // whichever dialog happens to be open receives BOTH operations' log lines
+  // interleaved, and a stray steam:complete for a DIFFERENT server's
+  // operation can close this dialog out as that server's own success/
+  // failure. Set to the exact installPath string this client just sent to
+  // POST /steam-update right before firing it (see handleStartSteamOperation)
+  // and compared as an exact string against what the server echoes back --
+  // no normalization needed on either side since it's the same string.
+  const steamOperationInstallPathRef = useRef<string | null>(null)
   const [clearingInstall, setClearingInstall] = useState(false)
   const [confirmClearInstall, setConfirmClearInstall] = useState(false)
   const [steamcmdPath, setSteamcmdPath] = useState('')
@@ -946,20 +986,28 @@ export default function Servers() {
   useEffect(() => {
     if (!socket) return
 
-    const handleSteamStart = (data: { type: string; message: string; progressCode?: string; params?: Record<string, string | number> }) => {
+    const handleSteamStart = (data: { type: string; message: string; progressCode?: string; params?: Record<string, string | number>; installPath?: string }) => {
+      // Cross-server contamination guard: an update/verify running against a
+      // DIFFERENT server's installPath than the one this client itself
+      // started must never touch this dialog's state. See
+      // steamOperationInstallPathRef's own comment above.
+      if (data.installPath !== steamOperationInstallPathRef.current) return
       steamLastActivityRef.current = Date.now()
       setSteamRunning(true)
       setSteamStalled(false)
       setSteamLogs([getInstallProgressMessage(data, data.message)])
     }
 
-    const handleSteamLog = (data: { type: string; text: string; progressCode?: string; params?: Record<string, string | number> }) => {
+    const handleSteamLog = (data: { type: string; text: string; progressCode?: string; params?: Record<string, string | number>; installPath?: string }) => {
+      if (data.installPath !== steamOperationInstallPathRef.current) return
       steamLastActivityRef.current = Date.now()
       setSteamStalled(false)
       setSteamLogs(prev => [...prev.slice(-200), getInstallProgressMessage(data, data.text)]) // Keep last 200 lines
     }
 
-    const handleSteamComplete = (data: { success: boolean; message: string; progressCode?: string; params?: Record<string, string | number> }) => {
+    const handleSteamComplete = (data: { success: boolean; message: string; progressCode?: string; params?: Record<string, string | number>; installPath?: string }) => {
+      if (data.installPath !== steamOperationInstallPathRef.current) return
+      steamOperationInstallPathRef.current = null
       const displayMessage = getInstallProgressMessage(data, data.message)
       setSteamRunning(false)
       setSteamStalled(false)
@@ -1267,8 +1315,8 @@ export default function Servers() {
     // to back out. Reversible (start it again anytime), so this stays a
     // plain, non-destructive-styled confirm rather than full alarm styling.
     const ok = await confirm({
-      title: t('card.stopConfirmTitle'),
-      description: t('card.stopConfirmDescription'),
+      title: t('card.stopConfirmTitle', { name: server.name || server.serverName }),
+      description: t('card.stopConfirmDescription', { name: server.name || server.serverName }),
       confirmLabel: t('card.stop'),
       destructive: false,
     })
@@ -1413,6 +1461,10 @@ export default function Servers() {
     }
     if (!Number.isFinite(editingServer.minMemory) || !Number.isFinite(editingServer.maxMemory)) {
       toast({ title: t('toasts.error'), description: t('toasts.memoryRequiredError'), variant: 'destructive' })
+      return
+    }
+    if (!isValidServerName(editingServer.serverName)) {
+      toast({ title: t('toasts.error'), description: t('editDialog.serverNameInvalid'), variant: 'destructive' })
       return
     }
 
@@ -1564,6 +1616,10 @@ export default function Servers() {
     setSteamStalled(false)
     steamLastActivityRef.current = Date.now()
     setSteamCompleted(null)
+    // Set before the request fires (not after it resolves) so a fast
+    // steam:start broadcast racing the awaited response below is never
+    // filtered out as "unrecognized" -- see the ref's own comment.
+    steamOperationInstallPathRef.current = installFolder
 
     try {
       if (steamOperation.type === 'verify') {
@@ -1572,6 +1628,7 @@ export default function Servers() {
         await serversApi.steamUpdate(steamcmdPath, installFolder, steamOperation.branch)
       }
     } catch (error) {
+      steamOperationInstallPathRef.current = null
       setSteamRunning(false)
       setSteamStalled(false)
       toast({
@@ -1637,6 +1694,7 @@ export default function Servers() {
     setSteamRunning(false)
     setSteamStalled(false)
     setSteamCompleted(null)
+    steamOperationInstallPathRef.current = null
 
     // Load steamcmd path from settings if not already set
     if (!steamcmdPath) {
@@ -1873,6 +1931,7 @@ export default function Servers() {
               mount={candidateToDiscoveredMount(candidate)}
               confidence="confirmed"
               onConnect={setDiscoverySetupMount}
+              disabledReason={!canServersManage ? t('card.noPermissionManage') : null}
             />
           ))}
           {reviewCandidates.map(candidate => (
@@ -1882,6 +1941,7 @@ export default function Servers() {
               confidence="partial"
               reason={candidate.reason}
               onConnect={() => handleReviewCandidateConnect(candidate)}
+              disabledReason={!canServersManage ? t('card.noPermissionManage') : null}
             />
           ))}
           {inaccessibleCandidates.map(candidate => (
@@ -2209,7 +2269,7 @@ export default function Servers() {
                                 // here despite the ghost/icon-only styling everywhere else
                                 // on this row.
                                 const ok = await confirm({
-                                  title: t('card.stopContainerConfirmTitle'),
+                                  title: t('card.stopContainerConfirmTitle', { name: container.name }),
                                   description: t('card.stopContainerConfirmDescription', { name: container.name }),
                                   confirmLabel: t('card.stopContainer'),
                                 })
@@ -2225,7 +2285,23 @@ export default function Servers() {
                           <DisabledReason reason={!canDockerManage ? t('card.noPermissionDocker') : null}>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <Button size="iconDense" variant="ghost" disabled={pending || !canDockerManage} onClick={() => handleDockerAction(container, 'restart')} aria-label={t('card.restartContainerAria', { name: container.name })}>
+                              <Button size="iconDense" variant="ghost" disabled={pending || !canDockerManage} onClick={async () => {
+                                // Same disruption tier as Stop above (RCON save, then
+                                // Docker SIGTERM-then-SIGKILL) -- the container comes
+                                // back up on its own afterward, so this isn't styled
+                                // destructive-red like Stop, but connected players are
+                                // still kicked mid-restart. Before this, Restart was
+                                // the one action on this row a misclick fired with zero
+                                // confirmation, unlike its Start/Stop neighbours.
+                                const ok = await confirm({
+                                  title: t('card.restartContainerConfirmTitle', { name: container.name }),
+                                  description: t('card.restartContainerConfirmDescription', { name: container.name }),
+                                  confirmLabel: t('card.restartContainer'),
+                                  destructive: false,
+                                })
+                                if (!ok) return
+                                handleDockerAction(container, 'restart')
+                              }} aria-label={t('card.restartContainerAria', { name: container.name })}>
                                 {dockerActionPending === `restart-${container.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
                               </Button>
                             </TooltipTrigger>
@@ -2912,7 +2988,7 @@ export default function Servers() {
 
       {/* Edit Dialog */}
       <Dialog open={!!editingServer} onOpenChange={() => setEditingServer(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto sm:max-h-[80vh]">
           <DialogHeader>
             <DialogTitle>{t('editDialog.title')}</DialogTitle>
             <DialogDescription>
@@ -2954,7 +3030,12 @@ export default function Servers() {
                     value={editingServer.serverName}
                     onChange={e => setEditingServer({ ...editingServer, serverName: e.target.value })}
                     maxLength={64}
+                    aria-invalid={editServerNameInvalid}
+                    className={editServerNameInvalid ? 'border-destructive/70' : ''}
                   />
+                  {editServerNameInvalid && (
+                    <p className="text-xs text-destructive">{t('editDialog.serverNameInvalid')}</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label>{t('editDialog.dockerContainerLabel')}</Label>
@@ -3383,7 +3464,7 @@ export default function Servers() {
 
       {/* Steam Update/Verify Dialog */}
       <Dialog open={!!steamOperation} onOpenChange={(open) => !open && (!steamRunning || steamStalled) && setSteamOperation(null)}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto sm:max-h-[80vh]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {steamOperation?.type === 'verify' ? (

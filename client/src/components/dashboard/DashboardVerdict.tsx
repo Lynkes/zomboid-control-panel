@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { ChevronRight, Loader2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Button, buttonVariants } from '@/components/ui/button'
+import { DisabledReason } from '@/components/DisabledReason'
 import { cn } from '@/lib/utils'
 
 /* -------------------------------------------------------------------------- */
@@ -18,6 +19,9 @@ export interface VerdictAction {
   onClick?: () => void
   disabled?: boolean
   busy?: boolean
+  /** Why the action is disabled right now -- shown via DisabledReason. Only
+   * meaningful together with `disabled: true` (e.g. a missing capability). */
+  reason?: string
 }
 
 export interface Verdict {
@@ -60,16 +64,18 @@ function VerdictActionButton({ action }: { action: VerdictAction }) {
     )
   }
   return (
-    <Button
-      variant="outline"
-      size="sm"
-      className="h-7 gap-1.5 px-2.5 text-xs"
-      onClick={action.onClick}
-      disabled={action.disabled || action.busy}
-    >
-      {action.busy && <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />}
-      {action.label}
-    </Button>
+    <DisabledReason reason={action.reason ?? null}>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 gap-1.5 px-2.5 text-xs"
+        onClick={action.onClick}
+        disabled={action.disabled || action.busy}
+      >
+        {action.busy && <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />}
+        {action.label}
+      </Button>
+    </DisabledReason>
   )
 }
 

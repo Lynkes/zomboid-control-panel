@@ -53,10 +53,12 @@ afterEach(() => {
   localStorage.clear()
 })
 
-// SANDBOX_SCHEMA says { min: 10, max: 500 }; the bridge is left unreachable
-// in this suite (rejects) so effectiveSandboxSchema falls back to that
-// exact schema range -- isolates the toggle's own effect from the live-
-// range fix covered by ServerConfig.sandboxLiveRanges.test.tsx.
+// SANDBOX_SCHEMA says { min: 0, max: 5000 } (bytecode-confirmed against the
+// real B42 jar, 2026-09-18 round 15); the bridge is left unreachable in
+// this suite (rejects) so effectiveSandboxSchema falls back to that exact
+// schema range -- isolates the toggle's own effect from the live-range fix
+// covered by ServerConfig.sandboxLiveRanges.test.tsx. 6000 is used
+// throughout as the out-of-range value (safely above the real max of 5000).
 function sandboxDataWithZombieDeleteCount(value: number | string) {
   return {
     VERSION: 1,
@@ -91,19 +93,19 @@ function mockCommonLoads(zombieDeleteCount: number | string) {
 
 describe('ServerConfig.tsx: sandboxRangeOverride toggle (client/src/pages/Settings.tsx)', () => {
   it('OFF (default): an out-of-range persisted value still blocks Save, same as before this feature existed', async () => {
-    mockCommonLoads(600)
+    mockCommonLoads(6000)
     renderServerConfigSearchingZombieDeleteCount()
 
     await waitFor(() => expect(getSandbox).toHaveBeenCalled())
     expect(screen.getByText(/fix invalid values before saving/i)).toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: /save & reload/i })[0]).toBeDisabled()
+    expect(screen.getAllByRole('button', { name: /^save$/i })[0]).toBeDisabled()
     // The warn-only banner is toggle-gated and must not appear while off.
     expect(screen.queryByText(/will still be saved/i)).not.toBeInTheDocument()
   })
 
   it('ON: the same out-of-range value no longer blocks Save, and is surfaced as a warning instead', async () => {
     localStorage.setItem(ALLOW_OUT_OF_RANGE_SANDBOX_STORAGE_KEY, 'true')
-    mockCommonLoads(600)
+    mockCommonLoads(6000)
     renderServerConfigSearchingZombieDeleteCount()
 
     await waitFor(() => expect(getSandbox).toHaveBeenCalled())
@@ -120,27 +122,27 @@ describe('ServerConfig.tsx: sandboxRangeOverride toggle (client/src/pages/Settin
 
     await waitFor(() => expect(getSandbox).toHaveBeenCalled())
     expect(screen.getByText(/fix invalid values before saving/i)).toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: /save & reload/i })[0]).toBeDisabled()
+    expect(screen.getAllByRole('button', { name: /^save$/i })[0]).toBeDisabled()
   })
 
   it('turning it back OFF does not strand the out-of-range field: it stays editable and Save re-enables once fixed', async () => {
     localStorage.setItem(ALLOW_OUT_OF_RANGE_SANDBOX_STORAGE_KEY, 'false')
-    mockCommonLoads(600)
+    mockCommonLoads(6000)
     renderServerConfigSearchingZombieDeleteCount()
 
     await waitFor(() => expect(getSandbox).toHaveBeenCalled())
-    expect(screen.getAllByRole('button', { name: /save & reload/i })[0]).toBeDisabled()
+    expect(screen.getAllByRole('button', { name: /^save$/i })[0]).toBeDisabled()
 
     // The field itself must remain a live, editable input (not disabled) --
     // fix it back within the fallback schema range.
-    const input = await screen.findByDisplayValue('600')
+    const input = await screen.findByDisplayValue('6000')
     expect(input).not.toBeDisabled()
     fireEvent.change(input, { target: { value: '300' } })
 
     await waitFor(() => {
       expect(screen.queryByText(/fix invalid values before saving/i)).not.toBeInTheDocument()
     })
-    const saveButtonsFixed = screen.getAllByRole('button', { name: /save & reload/i })
+    const saveButtonsFixed = screen.getAllByRole('button', { name: /^save$/i })
     for (const button of saveButtonsFixed) {
       expect(button).not.toBeDisabled()
     }

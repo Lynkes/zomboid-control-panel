@@ -108,7 +108,7 @@ describe('ServerConfig.tsx: an out-of-range persisted sandbox value must not loc
     // Structured mode's own toolbar Save button starts disabled: no edits
     // yet (hasSandboxChanges is false), so this alone doesn't distinguish
     // the bug -- confirmed disabled for the right (no-op) reason first.
-    const saveButton = await screen.findByRole('button', { name: /save & reload/i })
+    const saveButton = await screen.findByRole('button', { name: /^save$/i })
     expect(saveButton).toBeDisabled()
 
     // Switch to raw mode and make a genuine edit (hasSandboxChanges must
@@ -131,7 +131,7 @@ describe('ServerConfig.tsx: an out-of-range persisted sandbox value must not loc
     // textarea now says. Both the toolbar Save button AND the sticky
     // unsaved-changes bar's Save button share this exact condition
     // (ServerConfig.tsx ~3048 and ~4161) -- assert both.
-    const saveButtonsRaw = screen.getAllByRole('button', { name: /save & reload/i })
+    const saveButtonsRaw = screen.getAllByRole('button', { name: /^save$/i })
     expect(saveButtonsRaw.length).toBeGreaterThan(0)
     for (const button of saveButtonsRaw) {
       expect(button).not.toBeDisabled()

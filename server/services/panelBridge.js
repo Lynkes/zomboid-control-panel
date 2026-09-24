@@ -2025,6 +2025,13 @@ class PanelBridge extends EventEmitter {
     return this.sendCommand('getAllPlayerDetails', {});
   }
 
+  async getLeaderboard() {
+    if (!this.isRunning) {
+      throw new Error('Bridge not running');
+    }
+    return this.sendCommand('getLeaderboard', {});
+  }
+
   /**
    * Convenience method: teleport player
    */

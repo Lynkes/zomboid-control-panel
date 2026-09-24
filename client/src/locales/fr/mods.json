@@ -256,6 +256,7 @@
     "unchecked": "Non vérifié",
     "openWorkshopPageHint": "Ouvrir la page Workshop",
     "modFallback": "Mod {{id}}",
+    "selectAria": "Sélectionner {{name}}",
     "removeModAria": "Retirer le mod {{name}}",
     "removeFromServer": "Retirer du serveur"
   },
@@ -536,7 +537,7 @@
     "genericNameNotice_many": "<1>{{count}}</1> mods affichent un nom générique. Cliquez sur <3>Actualiser les noms</3> pour les rechercher (vérifie d'abord le disque, puis l'API Steam Workshop)."
   },
   "removeModDialog": {
-    "title": "Retirer ce mod du serveur ?",
+    "title": "Retirer {{name}} du serveur ?",
     "description": "Ceci retire le mod de la configuration INI du serveur pour qu'il ne se charge plus. Les fichiers Workshop restent sur le disque (le rajout ultérieur est donc instantané).",
     "cancel": "Annuler",
     "remove": "Retirer"
@@ -554,6 +555,8 @@
   "toasts": {
     "serverChangedSinceLoadTitle": "Active server changed",
     "serverChangedSinceLoadDesc": "The active server changed while you had an unsaved mod order. Discard or keep editing -- saving now would write it to the wrong server.",
+    "pendingAddServerChangedTitle": "Le serveur actif a changé",
+    "pendingAddServerChangedDesc": "Le serveur actif a changé alors que des mods étaient en file d'attente pour être ajoutés. Les ID et dossiers de carte affichés ont été recherchés pour le serveur précédent — fermez cette boîte de dialogue et recommencez pour le serveur actuellement actif.",
     "noActiveServerTitle": "Aucun serveur actif",
     "noActiveServerDesc": "Sélectionnez un serveur local avant de choisir un dossier Workshop.",
     "remoteServerTitle": "Serveur distant",
@@ -640,6 +643,9 @@
     "removeFailedFallback": "Échec du retrait du mod",
     "modReEnabledTitle": "Mod réactivé",
     "modReEnabledDesc": "Rajouté à l'INI du serveur. Redémarrez le serveur pour qu'il se charge.",
+    "additionalModsFoundSuffix_one": " 1 mod supplémentaire dans cet objet Workshop n'a pas été activé : {{ids}}. Utilisez « Ajouter un mod » ou « Synchroniser les ID de mods » pour l'ajouter.",
+    "additionalModsFoundSuffix_many": " {{count}} mods supplémentaires dans cet objet Workshop n'ont pas été activés : {{ids}}. Utilisez « Ajouter un mod » ou « Synchroniser les ID de mods » pour les ajouter.",
+    "additionalModsFoundSuffix_other": " {{count}} mods supplémentaires dans cet objet Workshop n'ont pas été activés : {{ids}}. Utilisez « Ajouter un mod » ou « Synchroniser les ID de mods » pour les ajouter.",
     "enableFailedFallbackShort": "Échec de l'activation du mod",
     "modsReEnabledTitle": "Mods réactivés",
     "partialReEnableTitle": "Réactivation partielle",
@@ -745,10 +751,17 @@
     "conflictDismissedTitle": "Conflit ignoré",
     "conflictDismissedDesc": "{{a}} ↔ {{b}} marqué comme faux positif.",
     "failedToDismissConflictTitle": "Échec de l'ignorance du conflit",
+    "failedToDismissConflictFallback": "Impossible d'enregistrer l'ignorance du conflit. Réessayez.",
     "failedToToggleModTitle": "Échec du basculement du mod",
+    "failedToToggleModFallback": "Impossible de mettre à jour l'état d'activation du mod. Réessayez.",
     "failedToToggleGroupTitle": "Échec du basculement du groupe",
+    "failedToToggleGroupFallback": "Impossible de mettre à jour l'état d'activation du groupe. Réessayez.",
     "failedToRemoveWorkshopItemTitle": "Échec du retrait de l'objet Workshop",
+    "failedToRemoveWorkshopItemFallback": "Impossible de retirer l'objet Workshop de la configuration du serveur. Réessayez.",
     "failedToRemoveOrphanedModTitle": "Échec du retrait du mod orphelin",
+    "failedToRemoveOrphanedModFallback": "Impossible de retirer l'ID de mod orphelin. Réessayez.",
+    "failedToRestoreConflictTitle": "Échec de la restauration du conflit",
+    "failedToRestoreConflictFallback": "Impossible de restaurer le conflit ignoré. Réessayez.",
     "dependencyAddedTitle": "Dépendance ajoutée",
     "dependencyAddedDesc": "{{name}} ajouté à la config serveur.",
     "addFailedTitle": "Échec de l'ajout",

@@ -151,9 +151,14 @@ async function setPlayerMode(req, bridgeAction, rconMethod, username, enabled) {
 router.get('/activity', requirePermission("players.view"), async (req, res) => {
   try {
     const { player, limit = 100 } = req.query;
+    // continuous-bug-hunt round 21: scope to whichever server is active
+    // RIGHT NOW so switching servers doesn't show a mixed moderation
+    // history from every managed server together.
+    const activeServer = await getActiveServer();
     const logs = await getPlayerLogs(
       player || null,
       normalizePlayerLogLimit(limit),
+      activeServer?.id ?? null,
     );
     res.json({ success: true, logs });
   } catch (error) {
@@ -298,7 +303,7 @@ router.post('/unban', requirePermission("players.moderate"), async (req, res) =>
 router.post('/access-level', requirePermission("players.moderate"), async (req, res) => {
   try {
     const rconService = req.app.get('rconService');
-    const { username, level } = req.body || {};
+    const { username, level, confirm } = req.body || {};
 
     if (!username || !level) {
       return res.status(400).json({ error: 'Username and level are required', code: ErrorCode.PLAYERS_ACCESS_LEVEL_FIELDS_REQUIRED });
@@ -322,12 +327,76 @@ router.post('/access-level', requirePermission("players.moderate"), async (req, 
       }
     }
 
-    if (!validLevels.includes(level.toLowerCase())) {
+    // bug-hunt-2026-09-18 (round: whitelist/access-level/admin accounts):
+    // this used to compare level.toLowerCase() against validLevels, but
+    // validLevels' custom-role entries (from listServerRoleNames() above)
+    // carry whatever case the operator gave the role in PZ's own role
+    // editor, unmodified -- and GET /access-levels (the dropdown's own data
+    // source, a few lines below) returns those same names unmodified too.
+    // zombie.characters.Roles.getRole(String) resolves a role by
+    // String.equals (case-sensitive, confirmed via javap against
+    // SetAccessLevelCommand->GameServer.changeRole->Roles.getRole in the
+    // real B42 jar) -- PZ itself never folds case either. So for a custom
+    // role with any uppercase letter (e.g. "VIP"), submitting the EXACT
+    // value the dropdown just offered failed this check (level.toLowerCase()
+    // === "vip", not in validLevels which still holds "VIP"), and a
+    // lowercase guess that DID pass this check would then fail against RCON
+    // anyway, since PZ wouldn't recognize it either. Exact match is the only
+    // value that ever actually works end to end for a case-sensitive role
+    // name -- so match validLevels exactly, not case-folded.
+    if (!validLevels.includes(level)) {
       return res.status(400).json({
         error: `Invalid access level. Valid: ${validLevels.join(', ')}`,
         code: ErrorCode.PLAYERS_INVALID_ACCESS_LEVEL,
         params: { validLevels: validLevels.join(', ') },
       });
+    }
+
+    // continuous-bug-hunt round 29 (card: guard-against-removing-last-admin):
+    // panel-users/roles already refuses outright (services/permissions.js's
+    // checkLockoutRulesForCapabilityChange / services/auth.js's
+    // assertNoRecoveryLockout) because THAT lockout has no recovery path --
+    // if the last roles.manage/users.manage user is gone, nobody can ever
+    // undo it through the panel again. This is different: PZ's own in-game
+    // "admin" access level is granted by RCON's setaccesslevel, and RCON
+    // authenticates with the server's admin password, not with any player's
+    // whitelist role -- so an operator who removes the last in-game admin
+    // can always re-grant it through this exact same panel a moment later.
+    // Recoverable, not catastrophic -- so this warns instead of refusing,
+    // matching ROLE_SELF_CAPABILITY_LOSS_CONFIRM's confirm-then-retry shape
+    // (RolesPermissions.tsx) rather than ROLE_LOCKOUT_LAST_MANAGER's hard
+    // refusal. Only checkable for a local server: the whitelist table
+    // listWhitelistAccounts() reads is a file on this machine's disk, not
+    // something RCON or a remote server exposes -- for a remote server (or
+    // if the file can't be read) this silently skips rather than guessing,
+    // since a wrong "you're removing the last admin" claim would be worse
+    // than no warning at all.
+    if (level !== 'admin' && !confirm && activeServer && !activeServer.isRemote) {
+      try {
+        const whitelistResult = await listWhitelistAccounts(
+          activeServer.zomboidDataPath,
+          activeServer.serverName,
+        );
+        if (whitelistResult.available) {
+          const targetAccount = whitelistResult.accounts.find(
+            (account) =>
+              typeof account.username === 'string' &&
+              account.username.toLowerCase() === username.toLowerCase(),
+          );
+          const adminCount = whitelistResult.accounts.filter((account) => account.role === 'admin').length;
+          if (targetAccount?.role === 'admin' && adminCount === 1) {
+            return res.status(409).json({
+              error: `${username} is the only account with the admin access level. Removing it will leave nobody with full admin commands in-game until it is granted again.`,
+              code: ErrorCode.PLAYERS_LAST_ADMIN_ACCESS_LEVEL_CONFIRM,
+              params: { username },
+            });
+          }
+        }
+      } catch (error) {
+        log.warn(`Could not check for last-admin lockout before /access-level: ${error.message}`);
+        // Fall through -- don't block the action just because the safety
+        // check itself failed to read the whitelist database.
+      }
     }
 
     const result = await rconService.setAccessLevel(username, level);
@@ -1046,9 +1115,13 @@ router.delete('/notes/:playerName', requirePermission("players.moderate"), async
 // ============================================
 
 // Get all player stats
+// worker-pz-playtime-per-server, 2026-09-18: scope to whichever server is
+// active RIGHT NOW, same as GET /activity above -- playtime is a per-server
+// figure (unlike player notes, which stay shared on purpose).
 router.get('/stats', requirePermission("players.view"), async (req, res) => {
   try {
-    const stats = await getPlayerStats();
+    const activeServer = await getActiveServer();
+    const stats = await getPlayerStats(activeServer?.id ?? null);
     res.json({ success: true, stats });
   } catch (error) {
     log.error(`Failed to get player stats: ${error.message}`);
@@ -1059,7 +1132,8 @@ router.get('/stats', requirePermission("players.view"), async (req, res) => {
 // Get stats for specific player
 router.get('/stats/:playerName', requirePermission("players.view"), async (req, res) => {
   try {
-    const stat = await getPlayerStat(req.params.playerName);
+    const activeServer = await getActiveServer();
+    const stat = await getPlayerStat(req.params.playerName, activeServer?.id ?? null);
     res.json({ success: true, stat });
   } catch (error) {
     log.error(`Failed to get player stat: ${error.message}`);

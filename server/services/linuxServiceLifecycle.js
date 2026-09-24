@@ -500,12 +500,19 @@ export class LinuxServiceLifecycle {
           "The registered service belongs to another server profile or lacks the panel ownership marker",
       };
     }
-    if (status.running) {
+    // Mirrors status()/run()'s stateUnknown gate (2026-09-17 sibling fix):
+    // inspect()'s raw `running` excludes "deactivating" (the previous
+    // instance is still shutting down, not yet confirmed dead), so without
+    // this check a service caught mid-stop read as `running: false` and
+    // this function declared it ready to adopt -- activating on top of a
+    // process that hasn't actually exited yet.
+    if (status.running || ["unknown", "deactivating"].includes(status.activeState)) {
       return {
         ready: false,
         ...status,
-        error:
-          "The managed service is already running. Stop it before activation; the panel will not silently adopt it.",
+        error: status.running
+          ? "The managed service is already running. Stop it before activation; the panel will not silently adopt it."
+          : "The managed service state could not be confirmed. Wait for it to settle and verify it is stopped before activation; the panel will not silently adopt it.",
       };
     }
     return { ready: true, conflict: false, ...status };
@@ -537,7 +544,7 @@ export class LinuxServiceLifecycle {
     }
     return {
       running: status.running,
-      scanFailed: status.activeState === "unknown",
+      scanFailed: ["unknown", "deactivating"].includes(status.activeState),
       activeState: status.activeState,
       error: status.error,
     };
@@ -572,7 +579,9 @@ export class LinuxServiceLifecycle {
     // start/stop attempt below, which genuinely execs the command and
     // reports confirmed:false honestly if that fails too -- never a free
     // pass to declare victory over an answer we never actually got.
-    const stateUnknown = current.activeState === "unknown";
+    const stateUnknown = ["unknown", "deactivating"].includes(
+      current.activeState,
+    );
     if (action === "start" && current.running && !stateUnknown) {
       return { success: true, confirmed: true, message: "Server is already running" };
     }

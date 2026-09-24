@@ -5,6 +5,11 @@
     "eyebrow": "Weltsteuerung",
     "refreshPlayers": "Spieler aktualisieren"
   },
+  "common": {
+    "playersUnavailable": "Spielerliste nicht verfügbar",
+    "playersUnavailableTitle": "Spielerliste nicht verfügbar",
+    "noPermissionEndangerOrImpersonate": "Diese Aktion erfordert die Berechtigung players.endanger_or_impersonate, die diese Rolle nicht hat."
+  },
   "statusBar": {
     "panelBridge": "PanelBridge",
     "online": "online",
@@ -281,6 +286,7 @@
     "spawnBehind": "hinter {{target}} spawnen",
     "random": "zufällig",
     "targetFallback": "Ziel",
+    "permissionRequired": "Erfordert die Berechtigung „Spieler gefährden oder ihre Identität vortäuschen“",
     "clearLoadedZombies": "geladene Zombies entfernen",
     "removeAllConfirmTitle": "Alle geladenen Zombies entfernen?",
     "removeAllConfirmDescription": "Dadurch werden sofort alle Zombies in geladenen Zellen serverweit entfernt -- auch die, gegen die ein Spieler gerade kämpft. Zombies spawnen mit der Zeit neu, aber das beendet den Kampf für den Betroffenen sofort.",

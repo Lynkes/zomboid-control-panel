@@ -27,6 +27,7 @@ import {
   getCommandHistory,
   getBridgeLogs,
   getPlayerLogs,
+  getServerEvents,
   getDb,
   getActiveServer,
   getServers,
@@ -999,11 +1000,20 @@ async function buildPzBuildInfo(activeServer) {
     const valueFor = (key) =>
       manifest.match(new RegExp(`"${key}"\\s+"([^"]+)"`))?.[1] || null;
     const lastUpdated = valueFor("LastUpdated");
+    // steamcmd-branch-truth, 2026-09-18: BetaKey can appear in both
+    // "UserConfig" (requested branch) and "MountedConfig" (actually
+    // installed branch) -- see updateChecker.js's getInstalledBuildInfo()
+    // for the full citation. This diagnostic export must report what's
+    // really on disk, not what was last requested, so it's scoped to
+    // MountedConfig the same way.
+    const mountedBetaKey = manifest.match(
+      /"MountedConfig"\s*\{[\s\S]*?"BetaKey"\s*"([^"]+)"/,
+    )?.[1];
     return {
       available: true,
       appId: valueFor("appid") || "380870",
       buildId: valueFor("buildid"),
-      branch: valueFor("BetaKey") || "public",
+      branch: mountedBetaKey || "public",
       lastUpdated: lastUpdated
         ? new Date(Number(lastUpdated) * 1000).toISOString()
         : null,
@@ -6137,7 +6147,13 @@ router.get("/worldmap", requirePermission("diagnostics.manage"), async (req, res
 router.get("/performance-history", requirePermission("diagnostics.manage"), async (req, res) => {
   try {
     const limit = parseClampedInteger(req.query.limit, 60, 1, 1440);
-    const history = await getPerformanceHistory(limit);
+    // continuous-bug-hunt round 20 (charts mixing samples from two servers
+    // after a switch): scope to whichever server is active RIGHT NOW, not
+    // the unfiltered global history -- see getPerformanceHistory()'s own
+    // comment for why undefined (every other caller) keeps the old
+    // unfiltered behavior and only this operator-facing route opts in.
+    const activeServer = await getActiveServer().catch(() => null);
+    const history = await getPerformanceHistory(limit, activeServer?.id ?? null);
     res.json({ history });
   } catch (error) {
     log.error(`Failed to get performance history: ${error.message}`);
@@ -6684,11 +6700,19 @@ router.get("/activity", requirePermission("diagnostics.manage"), async (req, res
       });
     }
 
+    // continuous-bug-hunt round 21: scope every source in this feed to
+    // whichever server is active RIGHT NOW -- this route was combining
+    // RCON/bridge/player/server history from every managed server into
+    // one mixed timeline, the same class of bug round 20 fixed for the
+    // performance chart.
+    const activeServerForFeed = await getActiveServer().catch(() => null);
+    const feedServerId = activeServerForFeed?.id ?? null;
+
     const entries = [];
 
     // RCON command history
     if (source === "all" || source === "rcon") {
-      const rconHistory = await getCommandHistory(limit);
+      const rconHistory = await getCommandHistory(limit, feedServerId);
       for (const cmd of rconHistory) {
         entries.push({
           id: cmd.id,
@@ -6703,7 +6727,7 @@ router.get("/activity", requirePermission("diagnostics.manage"), async (req, res
 
     // Bridge command history
     if (source === "all" || source === "bridge") {
-      const bridgeHistory = await getBridgeLogs(limit);
+      const bridgeHistory = await getBridgeLogs(limit, feedServerId);
       for (const cmd of bridgeHistory) {
         const detail =
           cmd.success === 1
@@ -6728,7 +6752,7 @@ router.get("/activity", requirePermission("diagnostics.manage"), async (req, res
     // without it already returned. source === "all" without it just skips
     // this block, same as if no player logs existed.
     if ((source === "all" || source === "player") && canViewPlayers) {
-      const playerLogs = await getPlayerLogs(null, limit);
+      const playerLogs = await getPlayerLogs(null, limit, feedServerId);
       for (const log of playerLogs) {
         entries.push({
           id: log.id,
@@ -6743,8 +6767,7 @@ router.get("/activity", requirePermission("diagnostics.manage"), async (req, res
 
     // Server events
     if (source === "all" || source === "server") {
-      const db = await getDb();
-      const serverEvents = (db.data.server_events || []).slice(0, limit);
+      const serverEvents = await getServerEvents(limit, feedServerId);
       for (const evt of serverEvents) {
         entries.push({
           id: evt.id,
@@ -6879,6 +6902,7 @@ export {
   buildDiscordBotStatus,
   buildDockerContainerLogsText,
   buildManagedServiceLogsText,
+  buildPzBuildInfo,
 };
 // Exported for direct unit testing of the support-bundle raw-log redaction
 // (operator ruling, support-bundle-2026-08-30 follow-up) -- see

@@ -142,6 +142,17 @@ export const ProgressCode = Object.freeze({
    * contents or sizes. Same `warnings`-array delivery as
    * INSTALL_RCON_INI_PRECREATE_FAILED above. No params. */
   INSTALL_MISSING_GAME_FILES: "INSTALL_MISSING_GAME_FILES",
+  /** POST /api/server/install -- steamcmd.on("close") with exit code 0 but
+   * an "ERROR!"-prefixed line (or "Missing configuration") in SteamCMD's own
+   * captured stdout/stderr -- the same exit-0-lies gap /steam-update's
+   * steamCmdReportedError check already closes for update/verify, applied
+   * here too (install-wizard-hunt, 2026-09-18). A disk-full write failure
+   * partway through the download is the concrete case this catches that
+   * INSTALL_MISSING_GAME_FILES above can miss: the small launcher/metadata
+   * marker files can already exist on disk before the write failure hits
+   * the large game data, so hasPzInstallMarker() alone would still call
+   * that partial install usable. No params. */
+  INSTALL_STEAMCMD_REPORTED_ERROR: "INSTALL_STEAMCMD_REPORTED_ERROR",
   /** POST /api/server/install -- PanelBridge.lua was copied into the fresh
    * install automatically. No params. */
   PANELBRIDGE_AUTO_INSTALLED: "PANELBRIDGE_AUTO_INSTALLED",
@@ -235,4 +246,16 @@ export const ProgressCode = Object.freeze({
    * or 7) but the binary still isn't at the expected path afterward.
    * Params: {reason}. */
   STEAMCMD_SELF_SETUP_UNEXPECTED_ERROR: "STEAMCMD_SELF_SETUP_UNEXPECTED_ERROR",
+  /** install-selfheal-background, 2026-09-18: POST /install and POST
+   * /steam-update both now respond immediately and run self-heal (a missing
+   * SteamCMD auto-download) in the background instead of holding the HTTP
+   * response open for it (see server.js's own comment at the point they
+   * respond). ensureSteamCmdInstalled() already emits its own detailed
+   * steamcmd:status error (STEAMCMD_DOWNLOAD_FAILED/EXTRACTION_FAILED/
+   * SETUP_FAILED/etc.) when self-heal itself fails -- this is the
+   * install:complete/steam:complete that ends THIS operation's own UI state
+   * (re-enables the button, clears the "installing"/"running" spinner)
+   * afterward, since the response can no longer carry that outcome.
+   * Params: {reason}. */
+  STEAMCMD_SELF_HEAL_FAILED: "STEAMCMD_SELF_HEAL_FAILED",
 });

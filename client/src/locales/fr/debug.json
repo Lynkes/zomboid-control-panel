@@ -10,17 +10,19 @@
   "headerActions": {
     "bundling": "Compression…",
     "supportBundleZip": "Pack de support (.zip)",
-    "fullLogTxt": "Journal complet (.txt)"
+    "supportBundleTooltip": "Journaux du panneau · journaux du serveur Zomboid · dumps de plantage · diagnostics, le tout dans un seul .zip.",
+    "fullLogTxt": "Journal complet (.txt)",
+    "fullLogTooltip": "Uniquement le journal applicatif de ce panneau — pas les journaux du serveur Zomboid ni les dumps de plantage. Utilisez le pack de support pour cela."
   },
   "tabs": {
-    "diagnostics": "Diagnostics",
+    "diagnostics": "Vérifications et corrections",
     "worldMap": "Carte du monde",
     "bridge": "PanelBridge",
     "performance": "Performance",
     "activity": "Activité",
     "logs": "Journaux",
     "crashes": "Plantages",
-    "health": "Santé",
+    "health": "État en direct",
     "system": "Environnement"
   },
   "fixActions": {
@@ -246,6 +248,7 @@
     "overallPending": "Vérifications en cours…",
     "lastChecked": "Dernière vérification {{time}} · {{duration}} ms · actualisation auto toutes les 30 s",
     "runningDescription": "Vérifications intelligentes en cours sur les services, chemins, stockage et mises à jour…",
+    "tabSubtitle": "Vérifie votre configuration à la recherche de problèmes et propose des corrections en un clic.",
     "categories": {
       "services": "Services principaux",
       "bridge": "IPC PanelBridge",
@@ -1479,6 +1482,7 @@
   },
   "healthTab": {
     "systemStatusTitle": "État du système",
+    "tabSubtitle": "État en direct de ce processus du panneau : mémoire, disponibilité et services connectés.",
     "healthy": "En bonne santé",
     "checking": "Vérification...",
     "issuesDetected": "Problèmes détectés",

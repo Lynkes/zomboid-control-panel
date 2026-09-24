@@ -1,4 +1,11 @@
 {
+  "permissions": {
+    "noPanelSettings": "Saving these settings requires the panel.settings permission, which this role doesn't have.",
+    "noDiagnosticsManage": "This action requires the diagnostics.manage permission, which this role doesn't have.",
+    "noServerConfigure": "Testing the RCON connection requires the server.configure permission, which this role doesn't have.",
+    "noBridgeSetup": "This action requires the bridge.setup permission, which this role doesn't have.",
+    "adminOnly": "This action is restricted to the admin role."
+  },
   "ariaLabels": {
     "allowPrivateLan": "Allow private and LAN origins",
     "enablePublicIp": "Enable public IP lookup",
@@ -288,6 +295,8 @@
     "cardTitle": "RCON Connection",
     "cardDesc": "Test the connection and set reconnect behavior. Host, port, and password are configured per-server on the Servers page.",
     "testButton": "Test Connection",
+    "testResultOk": "Connected",
+    "testResultFailed": "Failed",
     "autoReconnectLabel": "Auto-reconnect on disconnect",
     "reconnectIntervalLabel": "Reconnect Interval (seconds)",
     "perServerNote": "RCON is configured per-server:",
@@ -301,8 +310,26 @@
   },
 
   "bridge": {
+    "checksLabels": {
+      "bridgePathConfigured": "Bridge path configured",
+      "bridgePathExists": "Bridge directory exists",
+      "bridgePathReadable": "Bridge directory readable",
+      "bridgePathWritable": "Bridge directory writable",
+      "inboxDirPresent": "Inbox folder present",
+      "outboxDirPresent": "Outbox folder present",
+      "commandsFilePresent": "Commands file present",
+      "commandsFileReadable": "Commands file readable",
+      "resultsFilePresent": "Results file present",
+      "resultsFileReadable": "Results file readable",
+      "statusFilePresent": "Status file present",
+      "statusFileReadable": "Status file readable",
+      "statusFresh": "Status is fresh"
+    },
     "cardTitle": "Panel Bridge",
     "cardDesc": "Connects this panel to the live game for weather, utilities, richer chat, and other in-world actions",
+    "sectionStatusSetup": "Status & setup",
+    "sectionRemoteConfigLogs": "Remote config & logs",
+    "sectionInstallUpdates": "Install & updates",
     "howItWorksButton": "How it works",
     "dialogTitle": "Panel Bridge",
     "dialogDesc": "A Lua mod that runs inside Project Zomboid, giving this panel direct access to the live game world.",
@@ -503,6 +530,8 @@
     "loadFailedDescription": "This isn't necessarily an empty list — the backup list request failed. Reopen this page to try again.",
     "statusLoadFailed": "Couldn't check whether scheduled backups are on — this toggle is disabled until it loads. Reopen this page to try again.",
     "restoreTitle": "Restore this backup (server must be stopped)",
+    "downloadTitle": "Download this backup",
+    "deleteTitle": "Delete this backup",
     "restoreDialogTitle": "Restore Backup",
     "restoreDialogIntro": "This will restore <b>{{name}}</b> and <b>OVERWRITE</b> the current world data.",
     "restoreMustBeStopped": "Server must be <b>STOPPED</b>",
@@ -758,6 +787,7 @@
   },
 
   "toasts": {
+    "backupPanelServerChanged": { "title": "Active server changed", "description": "The active server changed. This panel is refreshing for the server that is active now -- try again once it's done." },
     "recoveryCodesGenerated": { "title": "Recovery codes generated", "description": "Save them now — they cannot be shown again." },
     "recoveryCodesFailed": { "title": "Could not generate recovery codes", "fallback": "Try again." },
     "invalidCorsOrigins": { "title": "Invalid CORS Origins" },
@@ -765,6 +795,9 @@
     "invalidHttpsPort": { "title": "Invalid HTTPS Port", "description": "HTTPS port must be a whole number between 1 and 65535." },
     "settingsSaved": { "title": "Settings Saved", "description": "Your panel settings were saved." },
     "settingsSaveFailed": { "title": "Could Not Save Settings", "fallback": "The panel could not save your settings. Try again." },
+    "autoStartEnabled": { "title": "Auto-start enabled", "description": "Server will start automatically when the panel launches" },
+    "autoStartDisabled": { "title": "Auto-start disabled", "description": "Server will not start automatically" },
+    "autoStartSaveFailed": { "title": "Failed to save auto-start setting", "fallback": "The panel could not save the auto-start setting. Try again." },
     "corsReloaded": { "title": "CORS Rules Reloaded", "description": "The backend reloaded CORS settings from the database." },
     "corsReloadFailed": { "title": "Could Not Reload CORS Rules", "fallback": "Failed to reload CORS rules." },
     "corsLogCleared": { "title": "Blocked Origin Log Cleared", "description": "Recent blocked CORS origins were removed from diagnostics." },

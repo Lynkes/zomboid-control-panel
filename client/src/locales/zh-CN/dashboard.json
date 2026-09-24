@@ -104,7 +104,10 @@
     "connectRconNeedsHostRunning": "请先启动服务器",
     "noPermissionControl": "您的角色没有控制服务器的权限。",
     "noPermissionWipe": "您的角色没有清除世界的权限。",
-    "wipeMustStopFirst": "请先停止服务器再清除。"
+    "noPermissionAutoStart": "您的角色没有更改自动启动设置的权限。",
+    "noPermissionCreateBackup": "您的角色没有创建备份的权限。",
+    "wipeMustStopFirst": "请先停止服务器再清除。",
+    "saveNeedsRcon": "连接 RCON 才能保存世界。"
   },
   "confirm": {
     "cancel": "取消",
@@ -132,6 +135,7 @@
     "startServerScriptBackup": { "title": "服务器正在启动——启动脚本已备份", "description": "面板检测到启动脚本有变化，已在重新生成前保存了你的版本。" },
     "stopServer": { "title": "服务器已停止", "description": "会话已正常关闭。" },
     "stopServerRequested": { "title": "已请求关闭", "description": "服务器正在保存并正常关闭——大型存档可能需要一些时间。状态徽标会在确认已停止后更新。" },
+    "forceStopRequested": { "title": "已请求强制停止", "description": "已发送停止信号——请在仪表盘上查看确认。" },
     "forceStopServer": { "title": "服务器已强制停止", "description": "世界已保存，然后游戏进程已停止。" },
     "forceStopSaveFailed": { "title": "服务器已强制停止 — 保存失败", "description": "停止前的保存被拒绝。最近的进度可能会丢失。" },
     "forceStopSaveTimedOut": { "title": "服务器已强制停止 — 保存超时", "description": "停止前的保存在 3 秒内没有响应。最近的进度可能会丢失。" },
@@ -163,12 +167,15 @@
     "modUpdatesWaiting_one": "{{count}} 个模组更新待处理",
     "modUpdatesWaiting_other": "{{count}} 个模组更新待处理",
     "reviewMods": "查看模组",
-    "noBackups": "暂无备份"
+    "noBackups": "暂无备份",
+    "backupAttemptFailing": "计划备份失败",
+    "reviewBackups": "查看备份"
   },
   "panelUpdateBanner": {
     "applyFailed": "应用失败",
     "updateStaged": "更新已就绪",
     "panelUpdate": "面板更新",
+    "checkedAgo": "上次检查{{age}}",
     "lastApplyFailedDesc": "上次应用尝试失败——请查看设置以获取诊断信息。",
     "stagedDesc": "已下载并准备就绪。重启面板即可应用。",
     "newVersionDesc": "有新的面板版本可用。",
@@ -286,6 +293,7 @@
     "backupsStored_other": "已存储 {{count}} 个",
     "backupsStoredLast_one": "已存储 {{count}} 个，最近 {{age}}",
     "backupsStoredLast_other": "已存储 {{count}} 个，最近 {{age}}",
+    "backupsAttemptFailed": "尝试失败，{{age}}",
     "scheduleNoneActive": "无生效任务",
     "scheduleActive_one": "{{count}} 个生效中",
     "scheduleActive_other": "{{count}} 个生效中"
@@ -318,6 +326,7 @@
   },
   "wipeDialog": {
     "title": "清除服务器",
+    "serverChangedSinceOpen": "此对话框打开期间活动服务器已更改。请取消并重新打开“清除服务器”，以对当前活动的服务器执行操作。",
     "description": "选择要从 <b>{{serverName}}</b> 中删除的数据。服务器必须处于停止状态。",
     "defaultServerName": "当前活动的服务器",
     "targets": {

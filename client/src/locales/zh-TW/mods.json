@@ -250,6 +250,7 @@
     "unchecked": "未檢查",
     "openWorkshopPageHint": "開啟創意工坊頁面",
     "modFallback": "模組 {{id}}",
+    "selectAria": "選取 {{name}}",
     "removeModAria": "移除模組 {{name}}",
     "removeFromServer": "從伺服器移除"
   },
@@ -514,7 +515,7 @@
     "deleteTooltip": "從追蹤中刪除"
   },
   "removeModDialog": {
-    "title": "從伺服器中移除此模組？",
+    "title": "從伺服器中移除 {{name}}？",
     "description": "這會將該模組從伺服器 INI 設定中移除，使其停止載入。創意工坊檔案仍保留在磁碟上（因此之後重新新增會立即完成）。",
     "cancel": "取消",
     "remove": "移除"
@@ -530,6 +531,8 @@
   "toasts": {
     "serverChangedSinceLoadTitle": "Active server changed",
     "serverChangedSinceLoadDesc": "The active server changed while you had an unsaved mod order. Discard or keep editing -- saving now would write it to the wrong server.",
+    "pendingAddServerChangedTitle": "使用中的伺服器已變更",
+    "pendingAddServerChangedDesc": "在有模組排隊等待新增時，使用中的伺服器已變更。畫面顯示的 ID 與地圖資料夾是針對先前的伺服器查詢的——請關閉此對話方塊，並針對目前使用中的伺服器重新開始。",
     "noActiveServerTitle": "沒有活動伺服器",
     "noActiveServerDesc": "請先選擇本地伺服器，再選擇創意工坊資料夾。",
     "remoteServerTitle": "遠端伺服器",
@@ -616,6 +619,7 @@
     "removeFailedFallback": "移除模組失敗",
     "modReEnabledTitle": "模組已重新啟用",
     "modReEnabledDesc": "已重新加入伺服器 INI。重新啟動伺服器以載入它。",
+    "additionalModsFoundSuffix_other": " 此創意工坊專案中還有 {{count}} 個模組未啟用：{{ids}}。使用「新增模組」或「同步 Mod ID」來新增它們。",
     "enableFailedFallbackShort": "啟用模組失敗",
     "modsReEnabledTitle": "模組已重新啟用",
     "partialReEnableTitle": "部分重新啟用",
@@ -721,10 +725,17 @@
     "conflictDismissedTitle": "衝突已忽略",
     "conflictDismissedDesc": "{{a}} ↔ {{b}} 已標記為誤報。",
     "failedToDismissConflictTitle": "忽略衝突失敗",
+    "failedToDismissConflictFallback": "無法儲存忽略操作，請重試。",
     "failedToToggleModTitle": "切換模組狀態失敗",
+    "failedToToggleModFallback": "無法更新該模組的啟用狀態，請重試。",
     "failedToToggleGroupTitle": "切換分組狀態失敗",
+    "failedToToggleGroupFallback": "無法更新該分組的啟用狀態，請重試。",
     "failedToRemoveWorkshopItemTitle": "移除創意工坊專案失敗",
+    "failedToRemoveWorkshopItemFallback": "無法從伺服器設定中移除該創意工坊專案，請重試。",
     "failedToRemoveOrphanedModTitle": "移除孤立模組失敗",
+    "failedToRemoveOrphanedModFallback": "無法移除該孤立的 Mod ID，請重試。",
+    "failedToRestoreConflictTitle": "還原衝突失敗",
+    "failedToRestoreConflictFallback": "無法還原該已忽略的衝突，請重試。",
     "dependencyAddedTitle": "依賴項已新增",
     "dependencyAddedDesc": "{{name}} 已新增到伺服器設定。",
     "addFailedTitle": "新增失敗",

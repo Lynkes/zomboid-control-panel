@@ -10,6 +10,7 @@ import fs from "fs";
 import path from "path";
 import { createLogger } from "./logger.js";
 import { writeFileAtomic } from "./fileWriteQueue.js";
+import { withOriginalLineEnding, restoreLineEnding } from "./iniKeyWrite.js";
 
 const log = createLogger("Utils:ConfigBackup");
 
@@ -272,10 +273,41 @@ export function backupWarningFor(backup) {
 // list on purpose), so a future ini-rewriting route physically cannot skip
 // the backup without first adding that import back, which is a visible,
 // reviewable diff rather than a silent omission.
+//
+// 2026-09-18 (round 16b): mods.js's readTextFile() (its ONLY way of reading
+// an ini before editing it) unconditionally normalizes CRLF->LF on read so
+// its ~19 anchored-regex ini-write sites have one predictable line
+// terminator to match against -- but nothing ever converted the result back
+// before it reaches here. A real PZ-written server .ini is CRLF (confirmed
+// against a live B42 dedicated-server install, 420/420 lines CRLF, zero
+// bare LF -- same evidence as server.js's own instance of this exact bug,
+// fixed earlier tonight via iniKeyWrite.js's withOriginalLineEnding()/
+// restoreLineEnding()). Every mod add/remove/load-order save through this
+// function was silently converting the operator's whole file to LF, not
+// just the one or two Mods=/WorkshopItems=/Map= lines actually changed.
+// Fixed centrally, here, rather than at each of mods.js's ~19 call sites
+// (or serverFiles.js's own PUT /raw=ini caller): read the file's OWN
+// current on-disk line ending once, and restore it on the way out. `content`
+// is normalized to LF first regardless of what the caller passed in (mods.js
+// callers are always already LF via readTextFile(); the raw-editor caller in
+// serverFiles.js submits whatever a browser <textarea> produced, which is
+// always LF-normalized by the DOM itself) so this is idempotent no matter
+// what line ending the caller's string already used.
 export async function writeIniWithBackup(iniPath, content) {
   const configPath = path.dirname(iniPath);
   const filename = path.basename(iniPath);
   const backup = await createBackup(configPath, filename);
-  writeFileAtomic(iniPath, content, "utf-8");
+
+  let contentToWrite = content;
+  try {
+    const currentOnDisk = fs.readFileSync(iniPath, "utf-8");
+    const { lineEnding } = withOriginalLineEnding(currentOnDisk);
+    contentToWrite = restoreLineEnding(content.replace(/\r\n/g, "\n"), lineEnding);
+  } catch {
+    // No file on disk yet (first-ever write) -- nothing to match, write
+    // `content` exactly as given.
+  }
+
+  writeFileAtomic(iniPath, contentToWrite, "utf-8");
   return backup;
 }

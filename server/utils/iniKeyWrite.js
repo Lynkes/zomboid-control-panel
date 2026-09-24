@@ -48,3 +48,32 @@ export function setIniKeyLine(content, key, value) {
     ? content.replace(pattern, `${key}=${value}`)
     : `${content}\n${key}=${value}`;
 }
+
+/**
+ * 2026-09-18: every one of this module's call sites in server.js
+ * (ensureRconConfigured, POST /configure-rcon, applyUpnpToIni, POST
+ * /configure-network) used to `fs.readFileSync(iniPath, "utf-8").replace(/\r\n/g,
+ * "\n")` before calling setIniKeyLine()/hasIniKeyValue() -- normalizing to LF
+ * so the `m`-flag regexes above have a single, predictable line terminator to
+ * anchor against -- and then wrote that LF-only string straight back with
+ * writeFileAtomic(), with nothing ever converting it back. A real PZ-written
+ * server .ini is CRLF (confirmed against a live B42 dedicated-server install,
+ * 420/420 lines CRLF, zero bare LF): auto-configuring RCON on first boot, or
+ * saving the RCON/UPnP/network-port panel once, silently rewrote every OTHER
+ * line's terminator in the file too -- not just the 1-2 keys actually being
+ * changed. serverFiles.js's toIni() already had this exact bug and was fixed
+ * for it (573f63fd, see toIni()'s own comment) by remembering and restoring
+ * the file's original line ending; these call sites never got the same fix
+ * because they don't go through toIni() at all. `withOriginalLineEnding()`
+ * is that same fix, factored out so all four sites (and any future one)
+ * share it instead of re-forgetting it individually.
+ */
+export function withOriginalLineEnding(rawContent) {
+  const lineEnding = rawContent.includes("\r\n") ? "\r\n" : "\n";
+  return { content: rawContent.replace(/\r\n/g, "\n"), lineEnding };
+}
+
+/** Restores `lineEnding` (as captured by withOriginalLineEnding()) across an LF-normalized string before it's written back to disk. A no-op when the original was already LF-only. */
+export function restoreLineEnding(content, lineEnding) {
+  return lineEnding === "\r\n" ? content.replace(/\n/g, "\r\n") : content;
+}

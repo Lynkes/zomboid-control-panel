@@ -25,6 +25,7 @@ import {
   MountDiscoveryCandidate,
 } from '@/lib/api'
 import { useRuntimeInfo } from '@/hooks/useRuntimeInfo'
+import { useRequestGuard } from '@/hooks/useRequestGuard'
 import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
 import { formatUptime } from '@/lib/utils'
 import { resolveClientProvider, deriveDashboardStatus, waitForServerState } from '@/lib/serverStatus'
@@ -311,9 +312,19 @@ export default function Dashboard() {
     nextRun: { label: string; at: string } | null
     errorCount: number | null
     schedulerLoaded: boolean
+    // "no backups yet" (backupCount === 0) says nothing about a scheduler
+    // that HAS been running and failing every attempt (bad cron, unreachable
+    // backupsPath, disk full) -- lastBackup only ever updates on a success,
+    // so that case looked identical to a healthy one until now. Mirrors the
+    // exact same fields Backups.tsx's own statusCards already reads off
+    // BackupStatus (see that page's lastScheduledAttemptFailed), so this
+    // page's wording can't drift from that one's.
+    backupsEnabled: boolean
+    lastScheduledBackupAttempt: { success: boolean; message: string | null; executedAt: string } | null
   }>({
     lastBackup: null, backupCount: 0, modUpdatesAvailable: 0, modsTracked: 0,
     scheduledTasksCount: 0, nextRun: null, errorCount: null, schedulerLoaded: false,
+    backupsEnabled: false, lastScheduledBackupAttempt: null,
   })
 
   const initialLoadingRef = useRef(true)
@@ -338,6 +349,20 @@ export default function Dashboard() {
     variant?: 'destructive' | 'warning'
   } | null>(null)
   const [wipeDialog, setWipeDialog] = useState(false)
+  // continuous-bug-hunt round 17 (every write that trusts the server-side
+  // active server): serverApi.wipePreview()/wipe() both resolve "the active
+  // server" server-side with no server id in the request, same shape as
+  // Mods.tsx's saveModOrder() (see that page's serverChangedSinceLoad).
+  // Preview shows file counts/paths for whichever server was active when
+  // Preview was clicked; if the active server changes while this dialog is
+  // still open (another operator/tab switches it), clicking "Wipe Now"
+  // would silently delete the NEW active server's saves using targets
+  // chosen while looking at the OLD server's preview -- worse than the mod
+  // load-order case, since this is destructive and irreversible without a
+  // backup. Set true by the activeServerChanged handler below ONLY while
+  // this dialog is open; disables Preview/Wipe Now and shows an inline
+  // warning until the user cancels and reopens for the now-active server.
+  const [wipeServerChangedSinceOpen, setWipeServerChangedSinceOpen] = useState(false)
   const [wipeTargets, setWipeTargets] = useState<Record<string, boolean>>({ map: true, players: true, world: true, accounts: false })
   const [wipePreview, setWipePreview] = useState<{
     totalFiles: number; totalSize: number
@@ -365,6 +390,17 @@ export default function Dashboard() {
   // convention as every other capability check in the app.
   const canControlServer = can('server.control')
   const canWipeServer = can('server.wipe')
+  // pz-bughunt round 19 (client-vs-server permission gate sweep): PUT
+  // /config/app-settings (handleAutoStartChange below) is gated
+  // panel.settings server-side -- this checkbox had no client-side check
+  // at all, unlike the wipe/control actions above.
+  const canChangePanelSettings = can('panel.settings')
+  // pz-pam-r23 (remaining client-side capability gates): POST
+  // /backup/create (Create backup, all 3 call sites below -- verdict
+  // action, the "..." dropdown, and the Maintenance sidebar button) is
+  // gated requirePermission("backups.manage") server-side, confirmed via
+  // server/routes/backup.js. None of the 3 had any client-side check.
+  const canManageBackups = can('backups.manage')
 
   /* ---------------------------- effects ----------------------------------- */
   useEffect(() => { initialLoadingRef.current = initialLoading }, [initialLoading])
@@ -441,27 +477,65 @@ export default function Dashboard() {
   }
 
   /* ---------------------------- fetchers ---------------------------------- */
+  // bug-hunt-2026-09-18 (round 9, activeServerChanged race sweep): fetchStatus
+  // runs both on a 15s poll (below) and on activeServerChanged (onActiveServer
+  // above) with no ordering guard between the two -- a poll tick fired for
+  // the server that was active a moment ago, still in flight, could resolve
+  // AFTER the activeServerChanged-triggered call for the NEW server and
+  // silently overwrite it. statusGuard drops a response once a newer call
+  // for this same fetcher has already started.
+  const statusGuard = useRequestGuard()
   const fetchStatus = useCallback(async () => {
-    try { const data = await serverApi.getStatus({ retries: 0 }); setStatus(data); setFetchError(null); setLastUpdated(new Date()) }
-    catch { setFetchError(t('errors.failedToConnect')) }
-  }, [t])
+    const requestId = statusGuard.next()
+    try {
+      const data = await serverApi.getStatus({ retries: 0 })
+      if (statusGuard.isStale(requestId)) return
+      setStatus(data); setFetchError(null); setLastUpdated(new Date())
+    } catch {
+      if (!statusGuard.isStale(requestId)) setFetchError(t('errors.failedToConnect'))
+    }
+  }, [t, statusGuard])
 
+  // bug-hunt-2026-09-18 (round 10, activeServerChanged race sweep continued):
+  // same shape as fetchStatus above -- runs on both the 15s poll and
+  // activeServerChanged, so a slow poll response for the old server can
+  // still land after the new server's activeServerChanged-triggered call.
+  const composedStatusGuard = useRequestGuard()
   const fetchComposedStatus = useCallback(async () => {
-    try { setComposedStatus(await serversApi.getComposedStatus({ retries: 0 })) }
-    catch { setComposedStatus(null) }
-  }, [])
+    const requestId = composedStatusGuard.next()
+    try {
+      const data = await serversApi.getComposedStatus({ retries: 0 })
+      if (composedStatusGuard.isStale(requestId)) return
+      setComposedStatus(data)
+    } catch {
+      if (!composedStatusGuard.isStale(requestId)) setComposedStatus(null)
+    }
+  }, [composedStatusGuard])
 
   usePageShortcut('r', () => { if (loading === null) { fetchStatus(); fetchComposedStatus() } })
 
+  const playersGuard = useRequestGuard()
   const fetchPlayers = useCallback(async () => {
+    const requestId = playersGuard.next()
     try {
       const d = await playersApi.getPlayers({ retries: 0 })
+      if (playersGuard.isStale(requestId)) return
       if (d.players) setPlayers(d.players)
-    } catch { setPlayers([]) }
-  }, [])
+    } catch {
+      if (!playersGuard.isStale(requestId)) setPlayers([])
+    }
+  }, [playersGuard])
+  const bridgeStatusGuard = useRequestGuard()
   const fetchBridgeStatus = useCallback(async () => {
-    try { setBridgeStatus(await panelBridgeApi.getStatus()) } catch { setBridgeStatus(null) }
-  }, [])
+    const requestId = bridgeStatusGuard.next()
+    try {
+      const data = await panelBridgeApi.getStatus()
+      if (bridgeStatusGuard.isStale(requestId)) return
+      setBridgeStatus(data)
+    } catch {
+      if (!bridgeStatusGuard.isStale(requestId)) setBridgeStatus(null)
+    }
+  }, [bridgeStatusGuard])
   // Uses two distinct getters rather than one: getZombieCount is the
   // purpose-built number for the tile below; getWorldStats' only
   // non-duplicate field is the map name, shown next to the server name in
@@ -522,9 +596,21 @@ export default function Dashboard() {
       // Ignore settings fetch failures and keep the current fallback value.
     }
   }, [])
+  // fetchActiveServer runs on mount/bootstrap and again from onActiveServer
+  // below when activeServerChanged arrives with no `server` payload -- two
+  // overlapping calls can race the same way as fetchStatus's sibling
+  // fetchers above.
+  const activeServerGuard = useRequestGuard()
   const fetchActiveServer = useCallback(async () => {
-    try { const d = await serversApi.getResolvedActive(); setActiveServer(d.server ?? null) } catch { setActiveServer(null) }
-  }, [])
+    const requestId = activeServerGuard.next()
+    try {
+      const d = await serversApi.getResolvedActive()
+      if (activeServerGuard.isStale(requestId)) return
+      setActiveServer(d.server ?? null)
+    } catch {
+      if (!activeServerGuard.isStale(requestId)) setActiveServer(null)
+    }
+  }, [activeServerGuard])
   const fetchMaintenance = useCallback(async () => {
     const [backupRes, modsRes, tasksRes, schedRes, errorRes] = await Promise.allSettled([
       backupApi.getStatus(),
@@ -536,6 +622,8 @@ export default function Dashboard() {
     setMaintenance(prev => ({
       lastBackup: backupRes.status === 'fulfilled' ? backupRes.value.lastBackup : prev.lastBackup,
       backupCount: backupRes.status === 'fulfilled' ? (backupRes.value.backupCount ?? 0) : prev.backupCount,
+      backupsEnabled: backupRes.status === 'fulfilled' ? !!backupRes.value.enabled : prev.backupsEnabled,
+      lastScheduledBackupAttempt: backupRes.status === 'fulfilled' ? (backupRes.value.lastScheduledBackupAttempt ?? null) : prev.lastScheduledBackupAttempt,
       modUpdatesAvailable: modsRes.status === 'fulfilled' ? ((modsRes.value as { updatesAvailable?: number }).updatesAvailable ?? 0) : prev.modUpdatesAvailable,
       modsTracked: modsRes.status === 'fulfilled' ? ((modsRes.value as { totalModsTracked?: number }).totalModsTracked ?? 0) : prev.modsTracked,
       scheduledTasksCount: tasksRes.status === 'fulfilled'
@@ -550,6 +638,7 @@ export default function Dashboard() {
   }, [])
 
   const handleAutoStartChange = async (checked: boolean) => {
+    if (!canChangePanelSettings) return
     setAutoStartServer(checked)
     try {
       await configApi.updateAppSettings({ autoStartServer: checked })
@@ -637,6 +726,8 @@ export default function Dashboard() {
     const onActiveServer = (d?: { server?: ServerInstance | null }) => {
       if (d?.server !== undefined) setActiveServer(d.server); else fetchActiveServer()
       fetchStatus(); fetchComposedStatus(); fetchPlayers(); fetchBridgeStatus()
+      // See wipeServerChangedSinceOpen's own comment above.
+      if (wipeDialog) setWipeServerChangedSinceOpen(true)
     }
     const onBridgeMod = (d: { alive: boolean; version?: string; serverName?: string; playerCount?: number }) => {
       setBridgeStatus(prev => ({
@@ -661,7 +752,7 @@ export default function Dashboard() {
       socket.off('activeServerChanged', onActiveServer)
       socket.off('panelBridge:modStatus', onBridgeMod)
     }
-  }, [socket, fetchStatus, fetchComposedStatus, fetchPlayers, fetchBridgeStatus, fetchActiveServer])
+  }, [socket, fetchStatus, fetchComposedStatus, fetchPlayers, fetchBridgeStatus, fetchActiveServer, wipeDialog])
 
   // Zombie count changes continuously while the server runs -- unlike
   // bridgeStatus (pushed live over the socket), nothing pushes this, so it
@@ -713,6 +804,23 @@ export default function Dashboard() {
     if (socket.connected) subscribePerf()
     socket.on('connect', subscribePerf)
     const onSnapshot = (snap: Record<string, unknown>) => {
+      // pz-bughunt round 17 (Dashboard live perf chart after a server
+      // switch): perf:snapshot now carries a serverId (server/index.js's
+      // perfPollingInterval, mirroring getPerformanceHistory()'s own
+      // filter in database/init.js -- entry.serverId == null || entry.
+      // serverId === serverId). The "perf" room is one shared broadcast
+      // room, not scoped per server, so every subscribed client gets
+      // every tick regardless of which server it's for -- without this
+      // check, switching the active server kept appending the OLD
+      // server's samples into what still looks like a live chart for the
+      // NEW one. Same acceptance rule as the server-side filter: drop a
+      // snapshot tagged for a DIFFERENT server, but accept one with no
+      // serverId at all (null/undefined -- pre-fix legacy senders, or no
+      // active server known) rather than silently going quiet.
+      const snapServerId = snap.serverId as string | number | null | undefined
+      if (snapServerId != null && (activeServer == null || String(snapServerId) !== String(activeServer.id))) {
+        return
+      }
       const point: PerformancePoint = {
         time: new Date().toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' }),
         timestamp: new Date().toISOString(),
@@ -740,7 +848,7 @@ export default function Dashboard() {
       socket.off('connect', subscribePerf)
       socket.emit('unsubscribe:perf')
     }
-  }, [socket, showPerformanceCharts, i18n.language])
+  }, [socket, showPerformanceCharts, i18n.language, activeServer])
 
   useEffect(() => {
     const onVis = () => {
@@ -840,12 +948,16 @@ export default function Dashboard() {
       // -- watch the dashboard for live status" never claimed completion --
       // just with the variant downgraded from success to the same neutral
       // 'default' Servers.tsx uses for its own unconfirmed case, instead of
-      // inventing new copy. Force-stop's copy is NOT varied here: there is
-      // no existing "force-stop requested, unconfirmed" string anywhere in
-      // this codebase to reuse (Servers.tsx has no inline force-stop at
-      // all), so its toast stays exactly as it was before this fix -- only
-      // its button re-enable timing is fixed, same as the other two. Flagged
-      // to god rather than invented.
+      // inventing new copy.
+      // bug-hunt-2026-09-18 (round 23, operator design call:
+      // force-stop-has-no-unconfirmed-copy): force-stop's copy USED TO stay
+      // unvaried here -- there was no "force-stop requested, unconfirmed"
+      // string anywhere in the codebase to reuse, and this floor doesn't
+      // invent new user-facing copy on its own. Flagged to the operator
+      // instead; they picked reusing the Stop wording's shape. New
+      // successCopy.forceStopRequested below, checked before
+      // forceStopOutcomeCopy so a known bad save outcome (a more specific,
+      // more urgent fact) still wins when both are true at once.
       if (scriptWarnings && scriptWarnings.length > 0) {
         toast({
           title: t('successCopy.startServerScriptBackup.title'),
@@ -860,6 +972,12 @@ export default function Dashboard() {
         })
       } else if (forceStopOutcomeCopy) {
         toast({ title: forceStopOutcomeCopy.title, description: forceStopOutcomeCopy.description, variant: 'warning' as const })
+      } else if (action === 'Force stop server' && confirmed === false) {
+        toast({
+          title: t('successCopy.forceStopRequested.title'),
+          description: t('successCopy.forceStopRequested.description'),
+          variant: 'default' as const,
+        })
       } else {
         const honestlyUnconfirmed = action === 'Start server' && confirmed === false
         toast({ title: copy.title, description: copy.description, variant: honestlyUnconfirmed ? 'default' as const : 'success' as const })
@@ -1023,6 +1141,18 @@ export default function Dashboard() {
       return {
         level: hostUnknown ? 'warning' : 'critical',
         headline: hostUnknown ? t('verdict.serverStatusUnknown') : t('verdict.serverStopped'),
+        // bug-hunt-2026-09-18 (round 23, dashboard-crash-vs-stop-surface):
+        // composedStatus.host.detail already carries Jim's r28
+        // describeStopReason() line (1a460da9) -- "Stopped by an operator"
+        // vs "Crashed (exit code 1)" etc -- and Servers.tsx's own server
+        // card already renders the identical field via
+        // ServerStatusBadge.tsx's signal.detail. The Dashboard verdict
+        // never rendered it at all, so a crash and a deliberate stop looked
+        // identical here even though the data distinguishing them was
+        // already being fetched. Excluded for hostUnknown: that status
+        // carries its own different detail (e.g. "Process detection
+        // failed"), already fully explained by serverStatusUnknown above.
+        detail: !hostUnknown ? (composedStatus?.host.detail ?? undefined) : undefined,
         // Omit the shortcut entirely rather than show it disabled with no
         // explanation -- VerdictAction has no reason/tooltip support, same
         // treatment isRemote/hostUnknown already get here. The header Start
@@ -1094,6 +1224,25 @@ export default function Dashboard() {
         action: { label: t('verdict.reviewMods'), to: '/mods' },
       }
     }
+    // "No backups" (below) only fires on an empty archive -- it says nothing
+    // when the scheduler HAS produced backups before but every attempt since
+    // has been failing (bad cron target, unreachable backupsPath, disk
+    // full). lastBackup only ever updates on a success, so that failure was
+    // invisible here even though Backups.tsx's own status card already
+    // catches it (see BackupStatus.lastScheduledBackupAttempt's comment in
+    // lib/api.ts). Checked ahead of the empty-archive case: a specific "why
+    // it's failing" beats a generic "you have none yet" whenever both would
+    // otherwise be true at once.
+    if (maintenance.schedulerLoaded && !activeServer?.isRemote
+      && maintenance.backupsEnabled && maintenance.lastScheduledBackupAttempt
+      && !maintenance.lastScheduledBackupAttempt.success) {
+      return {
+        level: 'warning',
+        headline: t('verdict.backupAttemptFailing'),
+        detail: maintenance.lastScheduledBackupAttempt.message || undefined,
+        action: { label: t('verdict.reviewBackups'), to: '/backups' },
+      }
+    }
     /* Game errors are reported by the Errors row, which is already coloured by
        severity. Repeating the count here would say the same thing twice. */
     if (maintenance.schedulerLoaded && maintenance.backupCount === 0 && !activeServer?.isRemote) {
@@ -1102,9 +1251,13 @@ export default function Dashboard() {
         headline: t('verdict.noBackups'),
         action: {
           label: t('actions.createBackup'),
-          onClick: () => { void handleAction('Create backup', () => backupApi.createBackup({ includeDb: true }).then(() => fetchMaintenance())) },
+          onClick: () => {
+            if (!canManageBackups) return
+            void handleAction('Create backup', () => backupApi.createBackup({ includeDb: true }).then(() => fetchMaintenance()))
+          },
           busy: loading === 'Create backup',
-          disabled: loading !== null,
+          disabled: loading !== null || !canManageBackups,
+          reason: !canManageBackups ? t('actions.noPermissionCreateBackup') : undefined,
         },
       }
     }
@@ -1112,11 +1265,19 @@ export default function Dashboard() {
   })()
 
   /* Readiness numbers live on the thing you act on, not in a read-only panel. */
-  const backupState = maintenance.lastBackup
-    ? t('workItems.backupsStoredLast', { count: maintenance.backupCount, age: formatAge(t, maintenance.lastBackup.created) })
-    : maintenance.backupCount > 0
-      ? t('workItems.backupsStored', { count: maintenance.backupCount })
-      : t('workItems.backupsNoneYet')
+  // Same condition as the verdict's own backup-attempt-failing case above --
+  // an active scheduler failure outranks even a healthy-looking stored count,
+  // since a past success doesn't mean the NEXT scheduled attempt will land.
+  const backupAttemptFailed = Boolean(
+    maintenance.backupsEnabled && maintenance.lastScheduledBackupAttempt && !maintenance.lastScheduledBackupAttempt.success,
+  )
+  const backupState = backupAttemptFailed && maintenance.lastScheduledBackupAttempt
+    ? t('workItems.backupsAttemptFailed', { age: formatAge(t, maintenance.lastScheduledBackupAttempt.executedAt) })
+    : maintenance.lastBackup
+      ? t('workItems.backupsStoredLast', { count: maintenance.backupCount, age: formatAge(t, maintenance.lastBackup.created) })
+      : maintenance.backupCount > 0
+        ? t('workItems.backupsStored', { count: maintenance.backupCount })
+        : t('workItems.backupsNoneYet')
 
   /* A count of tasks is trivia. The next time something will happen is the
      thing that decides whether you can walk away from the server. */
@@ -1170,7 +1331,7 @@ export default function Dashboard() {
       id: 'backups',
       to: '/backups', icon: Archive, label: t('workItems.backups'),
       state: backupState,
-      tone: maintenance.backupCount === 0 ? 'warning' : 'good',
+      tone: backupAttemptFailed ? 'bad' : maintenance.backupCount === 0 ? 'warning' : 'good',
     },
     { id: 'config', to: '/server-config', icon: Server, label: t('workItems.config') },
   ]
@@ -1399,7 +1560,18 @@ export default function Dashboard() {
                   <RotateCcw className="h-3.5 w-3.5" /> {t('actions.restart')}
                 </Button>
               </DisabledReason>
-              <DisabledReason reason={!canControlServer ? t('actions.noPermissionControl') : null}>
+              <DisabledReason reason={
+                !canControlServer ? t('actions.noPermissionControl')
+                // Save sends its command over RCON (serverApi.save) -- the
+                // button's disabled= already accounted for !rconConnected,
+                // but until now nothing explained it, unlike every other
+                // disabled control on this page (see DisabledReason's own
+                // contract). An operator watching the RCON connection line
+                // above go red had no way to connect that to this button
+                // going grey without already knowing the internals.
+                : !rconConnected ? t('actions.saveNeedsRcon')
+                : null
+              }>
                 <Button
                   onClick={saveWorld}
                   disabled={loading !== null || !rconConnected || !canControlServer}
@@ -1419,12 +1591,23 @@ export default function Dashboard() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={() => handleAction('Create backup', () => backupApi.createBackup({ includeDb: true }).then(() => fetchMaintenance()))}
-                disabled={!hasServer || loading !== null || activeServer?.isRemote}
+              <DisabledReason
+                className="w-full"
+                reason={!canManageBackups ? t('actions.noPermissionCreateBackup') : null}
               >
-                <Archive className="me-2 h-4 w-4" /> {t('actions.createBackup')}
-              </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    // Same Radix quirk as Restart Now/Wipe Server above:
+                    // this onClick fires before the disabled prop is
+                    // consulted, so the real gate lives here too.
+                    if (!canManageBackups) return
+                    handleAction('Create backup', () => backupApi.createBackup({ includeDb: true }).then(() => fetchMaintenance()))
+                  }}
+                  disabled={!hasServer || loading !== null || activeServer?.isRemote || !canManageBackups}
+                >
+                  <Archive className="me-2 h-4 w-4" /> {t('actions.createBackup')}
+                </DropdownMenuItem>
+              </DisabledReason>
               <DropdownMenuItem onClick={fetchStatus}>
                 <RefreshCw className="me-2 h-4 w-4" /> {t('actions.refreshStatus')}
               </DropdownMenuItem>
@@ -1500,6 +1683,7 @@ export default function Dashboard() {
                     // in the product has to live here, not in the attribute.
                     if (!canWipeServer) return
                     setWipePreview(null)
+                    setWipeServerChangedSinceOpen(false)
                     setWipeDialog(true)
                   }}
                   disabled={!hasServer || online || loading !== null || activeServer?.isRemote || !canWipeServer}
@@ -1556,6 +1740,20 @@ export default function Dashboard() {
               {latest && (
                 <span className="font-mono text-[11px] tabular-nums text-foreground/85">
                   v{panelUpdate.currentVersion} <span className="text-muted-foreground/60">→</span> v{latest}
+                </span>
+              )}
+              {panelUpdate.lastCheck && (
+                // bug-hunt-2026-09-18 (round 23, operator design call:
+                // stale-last-known-good-update-result-needs-a-qualifier):
+                // this banner is driven purely by updateAvailable, a
+                // boolean that stays true across however many later checks
+                // have failed since -- with no qualifier it reads as a
+                // fresh result even after days of a broken check. Reuses
+                // this file's own formatAge() (already used for player
+                // join times etc.) rather than inventing a second
+                // "N days ago" formatter.
+                <span className="font-mono text-[10px] tabular-nums text-muted-foreground/60">
+                  {t('panelUpdateBanner.checkedAgo', { age: formatAge(t, panelUpdate.lastCheck) })}
                 </span>
               )}
             </div>
@@ -1931,16 +2129,24 @@ export default function Dashboard() {
                     {lastUpdated ? lastUpdated.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' }) : '—'}
                   </span>
                 </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 w-full justify-start gap-2 text-xs"
-                  disabled={!hasServer || loading !== null || activeServer?.isRemote}
-                  onClick={() => handleAction('Create backup', () => backupApi.createBackup({ includeDb: true }).then(() => fetchMaintenance()))}
+                <DisabledReason
+                  className="w-full"
+                  reason={!canManageBackups ? t('actions.noPermissionCreateBackup') : null}
                 >
-                  {loading === 'Create backup' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Archive className="h-3 w-3" />}
-                  {t('maintenance.createBackup')}
-                </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 w-full justify-start gap-2 text-xs"
+                    disabled={!hasServer || loading !== null || activeServer?.isRemote || !canManageBackups}
+                    onClick={() => {
+                      if (!canManageBackups) return
+                      handleAction('Create backup', () => backupApi.createBackup({ includeDb: true }).then(() => fetchMaintenance()))
+                    }}
+                  >
+                    {loading === 'Create backup' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Archive className="h-3 w-3" />}
+                    {t('maintenance.createBackup')}
+                  </Button>
+                </DisabledReason>
                 <DisabledReason
                   className="w-full"
                   reason={
@@ -1963,6 +2169,7 @@ export default function Dashboard() {
                     onClick={() => {
                       if (!canWipeServer) return
                       setWipePreview(null)
+                      setWipeServerChangedSinceOpen(false)
                       setWipeDialog(true)
                     }}
                     title={online ? undefined : t('maintenance.wipeTooltipOffline')}
@@ -1972,11 +2179,14 @@ export default function Dashboard() {
                   </Button>
                 </DisabledReason>
                 <label className="mt-1 flex cursor-pointer items-center gap-2 border-t border-border/30 px-1 pt-2">
-                  <Checkbox
-                    id="autoStartServer"
-                    checked={autoStartServer}
-                    onCheckedChange={(checked) => handleAutoStartChange(checked === true)}
-                  />
+                  <DisabledReason reason={!canChangePanelSettings ? t('actions.noPermissionAutoStart') : null}>
+                    <Checkbox
+                      id="autoStartServer"
+                      checked={autoStartServer}
+                      disabled={!canChangePanelSettings}
+                      onCheckedChange={(checked) => handleAutoStartChange(checked === true)}
+                    />
+                  </DisabledReason>
                   <Label htmlFor="autoStartServer" className="cursor-pointer text-[11px] text-muted-foreground">
                     {t('maintenance.autoStartLabel')}
                   </Label>
@@ -2040,8 +2250,8 @@ export default function Dashboard() {
       </AlertDialog>
 
       {/* ─── Wipe dialog ─────────────────────────────────────────────────── */}
-      <AlertDialog open={wipeDialog} onOpenChange={(open) => { if (!open && !wipeLoading) { setWipeDialog(false); setWipePreview(null) } }}>
-        <AlertDialogContent className="glass border-border/50">
+      <AlertDialog open={wipeDialog} onOpenChange={(open) => { if (!open && !wipeLoading) { setWipeDialog(false); setWipePreview(null); setWipeServerChangedSinceOpen(false) } }}>
+        <AlertDialogContent className="glass border-border/50 max-h-[85vh] overflow-y-auto sm:max-h-[80vh]">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-3 text-xl">
               <Trash2 className="h-5 w-5 text-destructive" /> {t('wipeDialog.title')}
@@ -2055,6 +2265,13 @@ export default function Dashboard() {
               />
             </AlertDialogDescription>
           </AlertDialogHeader>
+
+          {wipeServerChangedSinceOpen && (
+            <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>{dashboardFallback('wipeDialog.serverChangedSinceOpen', 'The active server changed while this dialog was open. Cancel and reopen Wipe Server to act on the server that is active now.')}</span>
+            </div>
+          )}
 
           <div className="space-y-3 py-2">
             {(['map', 'players', 'world', 'accounts'] as const).map((key) => (
@@ -2125,17 +2342,20 @@ export default function Dashboard() {
           )}
 
           <AlertDialogFooter className="gap-2 sm:gap-2">
-            <AlertDialogCancel className="mt-0" disabled={wipeLoading} onClick={() => { setWipeDialog(false); setWipePreview(null) }}>{t('wipeDialog.cancel')}</AlertDialogCancel>
+            <AlertDialogCancel className="mt-0" disabled={wipeLoading} onClick={() => { setWipeDialog(false); setWipePreview(null); setWipeServerChangedSinceOpen(false) }}>{t('wipeDialog.cancel')}</AlertDialogCancel>
             {!wipePreview ? (
               <Button
                 variant="warning"
-                disabled={!Object.values(wipeTargets).some(Boolean) || wipeLoading || !canWipeServer}
+                disabled={!Object.values(wipeTargets).some(Boolean) || wipeLoading || !canWipeServer || wipeServerChangedSinceOpen}
                 onClick={async () => {
                   // POST /server/wipe/preview requires server.wipe too --
                   // guarded here as well as on the DropdownMenuItem that
                   // opens this dialog, so this stays safe even if something
                   // else ever opens wipeDialog without checking first.
-                  if (wipeLoading || !canWipeServer) return
+                  // wipeServerChangedSinceOpen: see that state's own comment --
+                  // the function guard is the real gate, disabled= is only
+                  // the affordance (same convention as Console.tsx).
+                  if (wipeLoading || !canWipeServer || wipeServerChangedSinceOpen) return
                   setWipeLoading(true)
                   try {
                     const targets = Object.entries(wipeTargets).filter(([, v]) => v).map(([k]) => k)
@@ -2152,9 +2372,9 @@ export default function Dashboard() {
             ) : (
               <Button
                 variant="destructive"
-                disabled={wipeLoading || wipePreview.totalFiles === 0 || !canWipeServer}
+                disabled={wipeLoading || wipePreview.totalFiles === 0 || !canWipeServer || wipeServerChangedSinceOpen}
                 onClick={async () => {
-                  if (wipeLoading || !canWipeServer) return
+                  if (wipeLoading || !canWipeServer || wipeServerChangedSinceOpen) return
                   setWipeLoading(true)
                   setWipeBackupProgress(wipeCreateBackup ? { phase: 'preparing', percent: 0, message: t('wipeDialog.backupStarting') } : null)
                   try {

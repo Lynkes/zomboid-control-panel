@@ -65,8 +65,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { reportClientError } from "@/lib/client-errors";
-import { getUserErrorMessage } from "@/lib/errorMessage";
+import { getUserErrorMessage, getResultErrorMessage } from "@/lib/errorMessage";
 import { translateDiagnosticCheck } from "@/lib/diagnosticsTranslation";
+import { useRequestGuard } from "@/hooks/useRequestGuard";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -1213,10 +1214,19 @@ export default function Debug() {
   };
 
   // Fetch smart diagnostics
+  // bug-hunt-2026-09-18 (round 9, activeServerChanged race sweep): runs on a
+  // 30s poll, on mount, AND on activeServerChanged, with no guard against
+  // overlapping calls -- a poll tick for the server that was active a
+  // moment ago, still in flight, could resolve AFTER the
+  // activeServerChanged-triggered call for the NEW server and overwrite it.
+  // diagnosticsGuard drops a response once a newer call has already started.
+  const diagnosticsGuard = useRequestGuard();
   const fetchDiagnostics = useCallback(async () => {
+    const requestId = diagnosticsGuard.next();
     setRefreshingDiagnostics(true);
     try {
       const res = await authFetch("/api/debug/diagnostics");
+      if (diagnosticsGuard.isStale(requestId)) return;
       if (res.status === 403) {
         setDiagnosticsPermissionDenied(true);
         return;
@@ -1224,6 +1234,7 @@ export default function Debug() {
       if (!res.ok) throw new Error(await parseDownloadError(res, `HTTP ${res.status}`));
       setDiagnosticsPermissionDenied(false);
       const data = await res.json();
+      if (diagnosticsGuard.isStale(requestId)) return;
       if (data?.checks) {
         setDiagnostics(data);
         setDiagnosticsError(null);
@@ -1246,13 +1257,14 @@ export default function Debug() {
         setDiagnosticsError(t("worldMapTab.unexpectedResponse"));
       }
     } catch (error) {
+      if (diagnosticsGuard.isStale(requestId)) return;
       const msg = getUserErrorMessage(error, t("worldMapTab.networkError"));
       setDiagnosticsError(msg);
       reportClientError("Failed to fetch diagnostics.", error);
     } finally {
-      setRefreshingDiagnostics(false);
+      if (!diagnosticsGuard.isStale(requestId)) setRefreshingDiagnostics(false);
     }
-  }, [authFetch, t]);
+  }, [authFetch, t, diagnosticsGuard]);
 
   const handleDiagnosticsFix = useCallback(
     async (check: DiagCheck) => {
@@ -2114,11 +2126,20 @@ export default function Debug() {
   }, [confirm, t, runAction, bridgeDiagFetch, probeBridgeStats]);
 
   // Fetch log files list
+  // bug-hunt-2026-09-18 (round 10, activeServerChanged race sweep continued):
+  // runs on mount and on activeServerChanged only (no separate poll), but an
+  // in-flight mount call can still resolve after a fast activeServerChanged
+  // switch, or a manual refresh click can overlap an activeServerChanged
+  // reload -- same race shape as fetchDiagnostics above, narrower window.
+  const logFilesGuard = useRequestGuard();
   const fetchLogFiles = async () => {
+    const requestId = logFilesGuard.next();
     try {
       const res = await authFetch("/api/debug/logs/files");
+      if (logFilesGuard.isStale(requestId)) return;
       if (!res.ok) return;
       const data = await res.json();
+      if (logFilesGuard.isStale(requestId)) return;
       if (data.files) {
         setLogFiles(data.files);
       }
@@ -2165,12 +2186,18 @@ export default function Debug() {
     }
   }, [authFetch, perfRange, i18n.language]);
 
+  // Same race shape as fetchLogFiles above: mount + activeServerChanged +
+  // manual refresh button click can overlap.
+  const crashLogsGuard = useRequestGuard();
   const fetchCrashLogs = async () => {
+    const requestId = crashLogsGuard.next();
     setRefreshingCrashLogs(true);
     try {
       const res = await authFetch("/api/debug/crash-logs");
+      if (crashLogsGuard.isStale(requestId)) return;
       if (!res.ok) return;
       const data = await res.json();
+      if (crashLogsGuard.isStale(requestId)) return;
       if (data.crashLogs) {
         setCrashLogs(data.crashLogs);
         setCrashLogsTotalCount(
@@ -2180,7 +2207,7 @@ export default function Debug() {
     } catch {
       // Endpoint may not exist yet
     } finally {
-      setRefreshingCrashLogs(false);
+      if (!crashLogsGuard.isStale(requestId)) setRefreshingCrashLogs(false);
     }
   };
 
@@ -2206,12 +2233,18 @@ export default function Debug() {
   };
 
   // Fetch recent logs
+  // Same race shape as fetchLogFiles above: mount + activeServerChanged +
+  // manual refresh button click can overlap.
+  const logsGuard = useRequestGuard();
   const fetchLogs = async () => {
+    const requestId = logsGuard.next();
     setRefreshingLogs(true);
     try {
       const res = await authFetch("/api/debug/logs");
+      if (logsGuard.isStale(requestId)) return;
       if (!res.ok) return;
       const data = await res.json();
+      if (logsGuard.isStale(requestId)) return;
       if (data.logs) {
         setLogs(
           data.logs.map((log: Omit<LogEntry, "id">, i: number) => ({
@@ -2222,6 +2255,7 @@ export default function Debug() {
         );
       }
     } catch (error) {
+      if (logsGuard.isStale(requestId)) return;
       reportClientError("Failed to fetch logs.", error);
       toast({
         title: t("logsTab.logsFetchFailedTitle"),
@@ -2229,7 +2263,7 @@ export default function Debug() {
         variant: "destructive",
       });
     } finally {
-      setRefreshingLogs(false);
+      if (!logsGuard.isStale(requestId)) setRefreshingLogs(false);
     }
   };
 
@@ -2288,6 +2322,27 @@ export default function Debug() {
   useEffect(() => {
     if (!socket) return;
     const handleActiveServerChanged = () => {
+      // pz-bughunt round 18 (the narrower server-switch races flagged in
+      // round 17): diagnostics.checks -- specifically the
+      // "mods.numericInMods"/"mods.orphanWorkshop" checks' own metadata
+      // (numericInMods/orphanWorkshop id lists) -- was scanned against
+      // whichever server was active when this diagnostics run finished.
+      // handleDiagnosticsFix reads those ids straight off the rendered
+      // check and writes them via modsApi.batchToggleModIds/
+      // resolveOrphanWorkshop, which resolve "the active server"
+      // server-side with no id sent -- same shape as the round-17 sweep,
+      // just one step removed (the check's OWN metadata is the stale
+      // payload, not a list row's id). fetchDiagnostics() below already
+      // refetches unconditionally (read-only data, no unsaved-edit risk --
+      // see this effect's own comment above), but that refetch takes a
+      // moment, and a Fix click during that window would still write the
+      // OLD server's ids into the NEW one. Same fix as Mods.tsx's
+      // race-window class this same round: clear the stale checks outright
+      // rather than guard the write -- nothing stale survives to be
+      // clicked, and the existing `{!diagnostics && refreshingDiagnostics}`
+      // loading state (below, in the render) already covers the gap
+      // cleanly.
+      setDiagnostics(null);
       fetchSystemInfo();
       fetchHealthStatus();
       fetchLogFiles();
@@ -2699,9 +2754,21 @@ export default function Debug() {
         setEditingPaths(false);
         fetchSystemInfo();
       } else {
+        // bug-hunt-2026-09-18 (round 14, raw result.error sweep): POST
+        // /api/debug/paths (server/routes/debug.js -> utils/paths.js's
+        // setDataPaths()) attaches no `code` today -- every failure branch
+        // is deliberate, self-contained English validation text. Routed
+        // through getResultErrorMessage() anyway (the parsed-response-body
+        // sibling of getUserErrorMessage(), see its own comment -- this
+        // shape carries a `code`+`params` in the body, not on a thrown
+        // ApiError): it falls through to data.error unchanged when no code
+        // resolves (byte-identical to the old `data.error || fallback`), so
+        // this costs nothing today and stops a future coded failure on this
+        // path from being shown raw forever, the same fix applied to
+        // Console.tsx's RCON toasts.
         toast({
           title: t("common.errorTitle"),
-          description: data.error || t("systemTab.updatePathsFailedFallback"),
+          description: getResultErrorMessage(data, t("systemTab.updatePathsFailedFallback")),
           variant: "destructive",
         });
       }
@@ -2947,31 +3014,41 @@ export default function Debug() {
         icon={<Bug className="w-5 h-5 text-primary" />}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="command"
-              size="lg"
-              onClick={downloadLogArchive}
-              disabled={downloadingLogArchive}
-              className="gap-2"
-            >
-              {downloadingLogArchive ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Archive className="w-4 h-4" />
-              )}
-              {downloadingLogArchive
-                ? t("headerActions.bundling")
-                : t("headerActions.supportBundleZip")}
-            </Button>
-            <Button
-              variant="outline"
-              size="lg"
-              onClick={() => downloadLogs("txt", false)}
-              className="gap-2"
-            >
-              <FileDown className="w-4 h-4" />
-              {t("headerActions.fullLogTxt")}
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="command"
+                  size="lg"
+                  onClick={downloadLogArchive}
+                  disabled={downloadingLogArchive}
+                  className="gap-2"
+                >
+                  {downloadingLogArchive ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Archive className="w-4 h-4" />
+                  )}
+                  {downloadingLogArchive
+                    ? t("headerActions.bundling")
+                    : t("headerActions.supportBundleZip")}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("headerActions.supportBundleTooltip")}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="lg"
+                  onClick={() => downloadLogs("txt", false)}
+                  className="gap-2"
+                >
+                  <FileDown className="w-4 h-4" />
+                  {t("headerActions.fullLogTxt")}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("headerActions.fullLogTooltip")}</TooltipContent>
+            </Tooltip>
           </div>
         }
       />
@@ -3117,6 +3194,9 @@ export default function Debug() {
 
         {/* Diagnostics Tab — Smart health checks with green/amber/red */}
         <TabsContent value="diagnostics" className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            {t("diagnostics.tabSubtitle")}
+          </p>
           {diagnosticsError && (
             <Card className="border-2 border-destructive/50 bg-destructive/5">
               <CardContent className="pt-6">
@@ -6243,6 +6323,9 @@ export default function Debug() {
 
         {/* Health Tab */}
         <TabsContent value="health" className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            {t("healthTab.tabSubtitle")}
+          </p>
           {healthError && (
             <Card className="border-2 border-destructive/50 bg-destructive/5">
               <CardContent className="pt-6">

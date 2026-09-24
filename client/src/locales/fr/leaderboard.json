@@ -1,0 +1,15 @@
+{
+  "page": { "title": "Leaderboard", "description": "Un classement leger du serveur pour la survie, les victimes, les morts et la maitrise des armes.", "eyebrow": "// EN DIRECT · CLASSEMENT SURVIE" },
+  "bridge": { "summary": "Lit le classement PanelBridge sauvegarde dans le monde." },
+  "actions": { "refresh": "Actualiser", "retry": "Reessayer" },
+  "metrics": { "ariaLabel": "Critere du classement", "days": "Jours vecus", "currentKills": "Victimes actuelles", "allTimeKills": "Victimes totales", "deaths": "Morts", "weapon": "Maitrise des armes" },
+  "summary": { "players": "Joueurs", "playersDetail": "{{online}} en ligne", "allTimeKills": "Victimes totales", "allTimeKillsDetail": "Sur les survivants suivis", "deaths": "Morts totales", "deathsDetail": "Vies perdues sur ce serveur", "leader": "Leader actuel", "noLeader": "Aucun joueur classe" },
+  "podium": { "title": "Le classement", "subtitle": "Classement par {{metric}}" },
+  "trackingSince": "Suivi depuis {{date}}",
+  "table": { "title": "Tous les survivants", "updated": "Mis a jour le {{date}}", "waitingForUpdate": "En attente de la premiere lecture", "search": "Rechercher...", "searchAria": "Rechercher dans le classement", "player": "Survivant", "days": "Meilleurs jours", "currentKills": "Victimes actuelles", "allTimeKills": "Victimes totales", "deaths": "Morts", "weapon": "Arme favorite", "online": "En ligne", "offline": "Hors ligne", "currentDaysTitle": "Vie actuelle : {{value}} jours", "noMatchesTitle": "Aucun survivant trouve", "noMatchesDescription": "Essayez un autre nom ou une autre arme." },
+  "stale": { "title": "Dernier classement connu affiche" },
+  "footer": { "refreshRate": "Actualisation toutes les 30 secondes", "historyNote": "Le suivi total commence quand PanelBridge collecte les donnees." },
+  "errors": { "title": "Classement indisponible", "load": "Le classement PanelBridge ne peut pas etre lu.", "unexpected": "Le classement a renvoye une reponse inattendue." },
+  "empty": { "title": "Aucun survivant classe", "description": "Connectez un joueur pour commencer. PanelBridge conserve le record dans la sauvegarde du monde." },
+  "loading": "Chargement du classement"
+}

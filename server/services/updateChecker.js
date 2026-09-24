@@ -177,7 +177,24 @@ export class UpdateChecker {
       const content = await fs.promises.readFile(manifestPath, "utf8");
 
       const buildIdMatch = content.match(/"buildid"\s+"(\d+)"/);
-      const betaKeyMatch = content.match(/"BetaKey"\s+"([^"]+)"/);
+      // steamcmd-branch-truth, 2026-09-18: an appmanifest can carry BetaKey
+      // in TWO separate blocks -- "UserConfig" (what branch the operator
+      // last asked for, written the instant `-beta X` runs, even before any
+      // bytes download) and "MountedConfig" (what's actually mounted/on
+      // disk right now). They diverge for as long as an update is pending,
+      // failed partway, or was reverted -- confirmed against a real
+      // appmanifest_380870.acf (UserConfig block appears first in the
+      // file). An unscoped match here grabbed UserConfig's BetaKey, i.e.
+      // the REQUESTED branch, and reported it as "installed" -- which then
+      // fed getLatestBuildInfo()'s branch argument and runAutoUpdate()'s
+      // own -beta flag (line ~707 below), so update-available/auto-update
+      // could silently query and reinstall the wrong branch. Scoped to
+      // MountedConfig only, matching routes/server.js's own
+      // recoverMismatchedSteamBranchManifest(), which already gets this
+      // right.
+      const betaKeyMatch = content.match(
+        /"MountedConfig"\s*\{[\s\S]*?"BetaKey"\s*"([^"]+)"/,
+      );
       const lastUpdatedMatch = content.match(/"LastUpdated"\s+"(\d+)"/);
 
       return {

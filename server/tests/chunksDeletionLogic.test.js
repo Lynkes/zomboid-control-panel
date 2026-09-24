@@ -396,6 +396,73 @@ describe("partial failure: does the response report what actually happened?", ()
     expect(fs.existsSync(badChunkPath), "the chunk that failed to delete must still be there").toBe(true);
   });
 
+  it("delete-chunks: every selected chunk failing to delete reports success:false, not the same success:true a partial failure gets", async () => {
+    const badChunkA = path.join(savePath, "map", "0", "0.bin");
+    const badChunkB = path.join(savePath, "map", "40", "0.bin");
+    writeDirDeep(badChunkA);
+    writeDirDeep(badChunkB);
+
+    const res = await postAs("/delete-chunks", {
+      saveName: SAVE_NAME,
+      chunks: [
+        { file: "0/0.bin", x: 0, y: 0 },
+        { file: "40/0.bin", x: 40, y: 0 },
+      ],
+    });
+
+    expect(res.getStatusCode()).toBe(200);
+    const body = res.getBody();
+    // Unlike the partial-failure test above (deleted:1, success:true), zero
+    // successes with real errors present must not claim success -- the
+    // client's shared handleResponse() (api.ts) throws on any success:false
+    // body, which is what routes this into ChunkCleaner.tsx's actual
+    // failure toast instead of its misleading "N deleted, M failed" one.
+    expect(body.success).toBe(false);
+    expect(body.deleted).toBe(0);
+    expect(body.errors).toHaveLength(2);
+    expect(typeof body.error).toBe("string");
+    expect(body.error).toMatch(/every selected chunk failed/i);
+    // round 4: `error` is the untranslated fallback string, `code` +
+    // `params.reason` are what actually drive the panel's i18n (see
+    // errorCodes.js's DELETE_CHUNKS_ALL_FAILED and every
+    // client/src/locales/*/errors.json).
+    expect(body.code).toBe("DELETE_CHUNKS_ALL_FAILED");
+    expect(body.params).toEqual(
+      expect.objectContaining({ reason: expect.any(String) }),
+    );
+    expect(fs.existsSync(badChunkA)).toBe(true);
+    expect(fs.existsSync(badChunkB)).toBe(true);
+  });
+
+  it("delete-region: every selected chunk failing to delete reports success:false, not the same success:true a partial failure gets", async () => {
+    const badChunkA = path.join(savePath, "map", "2", "2.bin");
+    const badChunkB = path.join(savePath, "map", "2", "3.bin");
+    writeDirDeep(badChunkA);
+    writeDirDeep(badChunkB);
+
+    const res = await postAs("/delete-region", {
+      saveName: SAVE_NAME,
+      minX: 0,
+      maxX: 5,
+      minY: 0,
+      maxY: 5,
+    });
+
+    expect(res.getStatusCode()).toBe(200);
+    const body = res.getBody();
+    expect(body.success).toBe(false);
+    expect(body.deleted).toBe(0);
+    expect(body.errors).toHaveLength(2);
+    expect(typeof body.error).toBe("string");
+    expect(body.code).toBe("DELETE_CHUNKS_ALL_FAILED");
+    expect(body.params).toEqual(
+      expect.objectContaining({ reason: expect.any(String) }),
+    );
+    expect(body.error).toMatch(/every selected chunk failed/i);
+    expect(fs.existsSync(badChunkA)).toBe(true);
+    expect(fs.existsSync(badChunkB)).toBe(true);
+  });
+
   it("delete-region: a clean delete with no failures omits errors entirely, not an empty array -- nothing in the client reads this response today (deleteRegion has zero callers), but the shape must still match delete-chunks' convention exactly", async () => {
     const onlyChunk = path.join(savePath, "map", "2", "2.bin");
     writeFileDeep(onlyChunk, "a");
@@ -418,6 +485,41 @@ describe("partial failure: does the response report what actually happened?", ()
     // delete. This harness hands back the pre-serialization object, so
     // `undefined` here is the correct, equivalent check.
     expect(body.errors).toBeUndefined();
+  });
+
+  it("delete-region: a vehicles.db cleanup failure is surfaced in errors, not just logged -- matches delete-chunks' shape", async () => {
+    const chunk = path.join(savePath, "map", "2", "2.bin");
+    writeFileDeep(chunk, "a");
+    // sql.js tolerates a vehicles.db that isn't a real SQLite file (it just
+    // reports "no vehicles table" and skips, no throw) -- verified while
+    // writing this test, garbage bytes do NOT reproduce a real failure. A
+    // DIRECTORY named vehicles.db does: fs.promises.readFile() throws
+    // EISDIR deterministically cross-platform, same trick this file's
+    // undeletable-chunk tests already use for a reliable non-ENOENT error.
+    writeDirDeep(path.join(savePath, "vehicles.db"));
+
+    const res = await postAs("/delete-region", {
+      saveName: SAVE_NAME,
+      minX: 0,
+      maxX: 5,
+      minY: 0,
+      maxY: 5,
+      deleteVehicles: true,
+    });
+
+    expect(res.getStatusCode()).toBe(200);
+    const body = res.getBody();
+    // The chunk file itself deleted fine -- this is a PARTIAL failure
+    // (deleted > 0), so success stays true, same convention as an
+    // undeletable chunk elsewhere in this file. What round 4 fixes is that
+    // the vehicles.db failure is no longer invisible: before, only a
+    // log.warn recorded it and the response carried no trace at all.
+    expect(body.success).toBe(true);
+    expect(body.deleted).toBe(1);
+    expect(fs.existsSync(chunk)).toBe(false);
+    expect(body.errors).toEqual(
+      expect.arrayContaining([expect.stringContaining("vehicles.db")]),
+    );
   });
 });
 

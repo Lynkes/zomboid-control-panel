@@ -108,6 +108,44 @@ describe("RconService.quit(): connection reset during shutdown reports success",
     expect(result.commandSent).toBe(false);
   });
 
+  // round-8 bug hunt: sourceRcon.js's execute() rejects for two genuinely
+  // different reasons, and until now both looked identical to this file --
+  // (a) the write() call itself failed (EPIPE/ECONNRESET on the OS socket
+  // write callback, e.g. server/utils/sourceRcon.js's own execute()) -- the
+  // command's bytes never left this process, a DEFINITE non-send; vs (b)
+  // the write succeeded but the connection dropped or timed out before a
+  // response came back -- genuinely ambiguous, the command may well have
+  // reached and been processed by the server. quit()'s own reclassification
+  // above (connection reset after quit = success) is deliberately
+  // optimistic for case (b) ("the normal case", per this file's header
+  // comment). Applied to case (a) it is simply wrong: quit was never
+  // transmitted, yet the operator would be told the server is shutting
+  // down. Fixed by having sourceRcon.js tag a write()-callback failure with
+  // `.rconNeverSent = true` (the one point where the OS gives an
+  // unambiguous "this specific write did not go out" answer) and having
+  // execute() here treat that as commandSent:false, the same way it
+  // already treats the literal "RCON not connected" string. Simulated here
+  // (rather than driving a real socket into EPIPE) by attaching the marker
+  // sourceRcon.js now sets, same as this file's other tests fake the
+  // client's execute() rejection shape rather than a real transport.
+  it("does not turn quit into a false 'shutting down' success when the write itself never left the socket (EPIPE)", async () => {
+    const service = new RconService();
+    service.connected = true;
+    const writeError = new Error("write EPIPE");
+    writeError.code = "EPIPE";
+    writeError.rconNeverSent = true;
+    service.client = {
+      connected: true,
+      execute: vi.fn().mockRejectedValue(writeError),
+      disconnect: vi.fn(),
+    };
+
+    const result = await service.quit({ skipLog: true });
+
+    expect(result.success).toBe(false);
+    expect(result.commandSent).toBe(false);
+  });
+
   it("clears the connected flag and cleans up the client either way", async () => {
     const service = makeService({ success: true, response: "ok" });
     service.connected = true;

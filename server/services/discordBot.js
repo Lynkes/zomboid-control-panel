@@ -217,6 +217,16 @@ export class DiscordBot {
     // Claimed synchronously at the top of start(), released in a finally --
     // see start()'s own comment for the double-start race this closes.
     this._starting = false;
+    // Claimed synchronously at the top of stop(), released once it's done --
+    // see the 'shardDisconnect' handler's own comment (round 19) for the
+    // race this closes: an intentional stop() calls client.destroy(), which
+    // itself closes the gateway and can fire 'shardDisconnect' before
+    // stop() reaches its own `this.isRunning = false`. Without this flag
+    // that in-flight event would be indistinguishable from a genuine
+    // unrecoverable disconnect (revoked token, disallowed intents, ...) and
+    // stamp a misleading "Invalid token" lastStartError over what was
+    // actually a clean, deliberate stop.
+    this._stopping = false;
     // Last start() failure, surfaced through routes/discord.js so a bad
     // token, disallowed privileged intents, and a network timeout stop
     // wearing the same "check configuration" message. Same pattern as
@@ -535,6 +545,20 @@ export class DiscordBot {
     //   - replacement order doesn't matter (no risk of {player} clobbering
     //     the start of {playerCount})
     //   - undefined/null/object values render as empty string
+    //
+    // bug-hunt-2026-09-18 (round: Discord bot commands and relay): variables
+    // like {player} carry a raw in-game display name -- Steam names can
+    // contain backticks, asterisks, underscores, etc. -- and used to be
+    // substituted verbatim, unlike handleGameChat()'s own live chat relay a
+    // few hundred lines up, which already runs both the author and the
+    // message text through escapeMarkdown() for exactly this reason. A
+    // player named e.g. "**Trusted**" or "`) big code block") could distort
+    // or break the notification's formatting (bold/italic/code-block
+    // breakout) for every playerJoin/playerDeath/playerKick/etc. event.
+    // Escaping only the SUBSTITUTED VALUE here -- never the template
+    // string itself -- preserves an operator's own intentional markdown in
+    // their template (e.g. "**{player}** has joined the server!") while
+    // neutralizing markdown smuggled in through the value.
     let message = event.template;
     const keys = Object.keys(variables || {});
     if (keys.length > 0) {
@@ -543,7 +567,9 @@ export class DiscordBot {
       message = message.replace(re, (_, k) => {
         const v = variables[k];
         if (v === undefined || v === null) return "";
-        return typeof v === "string" ? v : String(v);
+        return escapeMarkdown(typeof v === "string" ? v : String(v), {
+          maskedLink: true,
+        });
       });
     }
 
@@ -1437,7 +1463,13 @@ export class DiscordBot {
 
   async handleKick(interaction) {
     const player = interaction.options.getString("player");
-    const reason = interaction.options.getString("reason") || "No reason given";
+    // Raw, possibly null -- fed to kickPlayer() as-is (its own `-r` flag is
+    // conditional on a non-empty reason, same as the HTTP route). Only the
+    // DISPLAY text below defaults to "No reason given"; forcing that
+    // default into the actual RCON call would send a reason the moderator
+    // never typed.
+    const rawReason = interaction.options.getString("reason");
+    const displayReason = rawReason || "No reason given";
 
     await interaction.deferReply();
 
@@ -1446,19 +1478,27 @@ export class DiscordBot {
       return;
     }
 
-    // Sanitize inputs to prevent command injection
-    const safePlayer = this.rconService.sanitize(player);
-    if (!safePlayer) {
-      await interaction.editReply("❌ Invalid player name.");
+    // round-5 bug-hunt: this used to hand-roll `kickuser "<name>"` with no
+    // `-r` flag at all, on the mistaken belief PZ's kickuser has no reason
+    // flag -- it does (rconService.kickPlayer(), already used by the HTTP
+    // route players.js POST /kick and covered by rcon.test.js). Every
+    // reason a moderator typed was silently discarded before reaching RCON,
+    // even though this command's own reply/notification below claimed it
+    // was sent. kickPlayer() sanitizes both username and reason internally
+    // (sanitizeQuotedArg/sanitizeForBanReason) and throws on an invalid
+    // username instead of returning an empty string.
+    let result;
+    try {
+      result = await this.rconService.kickPlayer(player, rawReason);
+    } catch (error) {
+      await interaction.editReply(`❌ ${sanitizeError(error.message)}`);
       return;
     }
-    // Project Zomboid RCON only supports 'kickuser' and no reason flag
-    const result = await this.rconService.execute(`kickuser "${safePlayer}"`);
 
     if (result.success) {
       const safeName = escapeMarkdown(String(player));
       const safeTag = escapeMarkdown(String(interaction.user.tag));
-      const safeReason = escapeMarkdown(String(reason));
+      const safeReason = escapeMarkdown(String(displayReason));
       await interaction.editReply(`👢 Kicked ${safeName}: ${safeReason}`);
       await this.sendNotification(
         `👢 **${safeName}** was kicked by ${safeTag}\nReason: ${safeReason}`,
@@ -1551,7 +1591,26 @@ export class DiscordBot {
       if (!channel?.isTextBased?.() || typeof channel.send !== "function") {
         throw new Error("Configured channel is not a sendable text channel");
       }
-      await withDiscordTimeout(channel.send(message), "send");
+      // bug-hunt-2026-09-18 (round: Discord bot commands and relay): a
+      // caller-side length cap applied BEFORE escapeMarkdown() (e.g.
+      // handleGameChat()'s own message.slice(0, 1850)/author.slice(0, 80))
+      // is not a real cap on the final Discord API payload -- escaping
+      // wraps every markdown-special character in a backslash, which can
+      // nearly double a string's length, and handleGameChat() then
+      // concatenates the escaped author+message with no cap of its own
+      // afterward. A chat line that's heavy on `*`/`_`/`` ` ``/`~` (a
+      // player's own ASCII-art message, not necessarily malicious) could
+      // come out over Discord's real 2000-char hard limit post-escaping
+      // and get rejected outright, silently dropping that one relay
+      // message. This is the one place every string send (chat relay,
+      // notifications, replies) funnels through, so it's the one place
+      // that needs to know the TRUE final length, after every upstream
+      // transform has already run.
+      const safeMessage =
+        typeof message === "string" && message.length > 2000
+          ? `${message.slice(0, 1997)}...`
+          : message;
+      await withDiscordTimeout(channel.send(safeMessage), "send");
       if (breaker.failures > 0 || breaker.suppressed > 0) {
         if (breaker.suppressed > 0) {
           log.info(
@@ -1710,6 +1769,65 @@ export class DiscordBot {
     if (this._presenceInterval) {
       clearInterval(this._presenceInterval);
       this._presenceInterval = null;
+    }
+  }
+
+  // continuous-bug-hunt round 19 (token revoked while running): called only
+  // from the 'shardDisconnect' listener, which by construction only ever
+  // fires for an UNRECOVERABLE close code (see that listener's own comment)
+  // -- the gateway is confirmed dead and discord.js will not retry on its
+  // own. Puts the bot into the same terminal state stop() would, so a
+  // subsequent start() (after the operator fixes the token/intents and
+  // saves) can actually create a fresh client instead of being refused by
+  // start()'s own "already running" guard (`this.isRunning || this.client`)
+  // against a client that looks alive but never will be again.
+  _handleUnrecoverableShardDisconnect(code) {
+    // this._stopping: an intentional stop() destroys the client itself,
+    // which can fire this same event before stop() reaches its own
+    // isRunning=false a few lines down -- that is a clean, deliberate
+    // shutdown, not an unrecoverable failure, and must not be stamped with
+    // a misleading "Invalid token" lastStartError.
+    // !this.isRunning: already handled (e.g. two 'shardDisconnect' events
+    // in a row, or start() itself already failed and cleaned up).
+    if (this._stopping || !this.isRunning) return;
+
+    this.isRunning = false;
+    this._stopPresenceUpdates();
+
+    // AuthenticationFailed (4004) is exactly what Discord sends for a
+    // reset/revoked bot token -- reuse describeStartFailure()'s existing
+    // "TokenInvalid" copy ("Invalid token. Check the token below and save
+    // again.") so this reads the same whether the bad token was caught at
+    // start() or discovered later, mid-session. InvalidIntents (4013) /
+    // DisallowedIntents (4014) similarly reuse the existing intents
+    // message. The remaining unrecoverable codes (InvalidShard,
+    // ShardingRequired, InvalidAPIVersion) have no dedicated copy --
+    // describeStartFailure()'s own generic `lastStartError.message`
+    // fallback covers them.
+    const kind = code === 4004 ? "TokenInvalid" : code === 4013 || code === 4014 ? "DisallowedIntents" : null;
+    this.lastStartError = {
+      kind,
+      message: `Discord closed the connection permanently (code ${code}) and will not reconnect on its own.`,
+    };
+
+    if (this.logTailer && this._onGameChat) {
+      try {
+        this.logTailer.off("chatMessage", this._onGameChat);
+      } catch {
+        /* noop */
+      }
+      this._onGameChat = null;
+    }
+
+    // The client object itself is a dead shell at this point -- null it out
+    // (matching stop()'s own cleanup) so start()'s "already running" guard
+    // doesn't refuse a fresh attempt once the operator fixes the config.
+    const deadClient = this.client;
+    this.client = null;
+    if (deadClient) {
+      deadClient
+        .destroy()
+        .catch((e) => log.debug(`Cleanup of dead Discord client failed: ${e.message}`));
     }
   }
 
@@ -1917,6 +2035,23 @@ export class DiscordBot {
       log.error(
         `Discord gateway shard disconnected and will not reconnect on its own (code ${event?.code}).`,
       );
+      // continuous-bug-hunt round 19 (token revoked while running): djs's
+      // own WebSocketManager only ever emits 'shardDisconnect' for its
+      // UNRECOVERABLE_CLOSE_CODES set (AuthenticationFailed=4004 --
+      // exactly what Discord sends when the bot's token has been reset or
+      // revoked -- plus InvalidShard/ShardingRequired/InvalidAPIVersion/
+      // InvalidIntents/DisallowedIntents), confirmed by reading
+      // node_modules/discord.js/src/client/websocket/WebSocketManager.js
+      // directly: this event, by construction, ONLY ever fires when the
+      // shard is confirmed dead and will not reconnect on its own -- never
+      // for an ordinary blip (those go through shardReconnecting instead).
+      // Before this fix, `this.isRunning` stayed true forever after this
+      // fired: getStatus() kept reporting a "healthy" running:true bot,
+      // and the only visible signal was the generic gatewayIssue banner
+      // ("...may be delayed until it recovers") -- actively misleading for
+      // a revoked token, since this connection will NEVER recover without
+      // the operator entering a new token and restarting the bot.
+      this._handleUnrecoverableShardDisconnect(event?.code);
     });
     this.client.on("shardResume", () => {
       this._gatewayDegradedSince = null;
@@ -1983,44 +2118,55 @@ export class DiscordBot {
     }
   }
   async stop() {
-    this._stopPresenceUpdates();
-    // Invalidate work queued before this lifecycle boundary even when a
-    // failed start already destroyed the client. Otherwise a later start can
-    // relay stale game chat or commit stale lifecycle dedupe state.
-    this._chatRelayGeneration++;
-    this._chatRelayChain = Promise.resolve();
-    this._chatRelayPending = 0;
-    this._chatRelayDropped = 0;
-    this._lifecycleNotificationGeneration++;
-    this._lifecycleNotificationChain = Promise.resolve();
-    // Detach the chatMessage listener so a swapped LogTailer (e.g. a
-    // restart of the panel-managed game-server changes the tailer instance)
-    // doesn't leak handlers across bot lifecycles. Done outside the client
-    // check because a failed start() leaves the listener attached with no
-    // client to go with it.
-    if (this.logTailer && this._onGameChat) {
-      try {
-        this.logTailer.off("chatMessage", this._onGameChat);
-      } catch {
-        /* noop */
+    // See the constructor's own comment on this flag: client.destroy()
+    // below closes the gateway itself, which can fire 'shardDisconnect'
+    // before this function reaches its own isRunning=false a few lines
+    // down -- without this flag that in-flight event would be treated as
+    // an unrecoverable disconnect (revoked token, ...) instead of the
+    // deliberate stop it actually is.
+    this._stopping = true;
+    try {
+      this._stopPresenceUpdates();
+      // Invalidate work queued before this lifecycle boundary even when a
+      // failed start already destroyed the client. Otherwise a later start can
+      // relay stale game chat or commit stale lifecycle dedupe state.
+      this._chatRelayGeneration++;
+      this._chatRelayChain = Promise.resolve();
+      this._chatRelayPending = 0;
+      this._chatRelayDropped = 0;
+      this._lifecycleNotificationGeneration++;
+      this._lifecycleNotificationChain = Promise.resolve();
+      // Detach the chatMessage listener so a swapped LogTailer (e.g. a
+      // restart of the panel-managed game-server changes the tailer instance)
+      // doesn't leak handlers across bot lifecycles. Done outside the client
+      // check because a failed start() leaves the listener attached with no
+      // client to go with it.
+      if (this.logTailer && this._onGameChat) {
+        try {
+          this.logTailer.off("chatMessage", this._onGameChat);
+        } catch {
+          /* noop */
+        }
+        this._onGameChat = null;
       }
-      this._onGameChat = null;
-    }
-    if (this.client) {
-      await this.client.destroy();
-      this.client = null;
-      this.isRunning = false;
-      // Reset lifecycle dedupe so the next bot session can fire a fresh
-      // serverStart/serverStop without being suppressed by the previous run.
-      this._lastLifecycleState = null;
-      this._lastLifecycleAt = 0;
-      // Reset breaker state too — stale failure counts shouldn't carry over.
-      this._channelBreakers.clear();
-      this._gatewayDegradedSince = null;
-      // Drop registration tracking; a fresh start() should re-register.
-      this._registerInFlight = null;
-      this._registeredGuildId = null;
-      log.info("bot stopped");
+      if (this.client) {
+        await this.client.destroy();
+        this.client = null;
+        this.isRunning = false;
+        // Reset lifecycle dedupe so the next bot session can fire a fresh
+        // serverStart/serverStop without being suppressed by the previous run.
+        this._lastLifecycleState = null;
+        this._lastLifecycleAt = 0;
+        // Reset breaker state too — stale failure counts shouldn't carry over.
+        this._channelBreakers.clear();
+        this._gatewayDegradedSince = null;
+        // Drop registration tracking; a fresh start() should re-register.
+        this._registerInFlight = null;
+        this._registeredGuildId = null;
+        log.info("bot stopped");
+      }
+    } finally {
+      this._stopping = false;
     }
   }
 

@@ -27,6 +27,11 @@
     "eyebrow": "التحكم بالعالم",
     "refreshPlayers": "تحديث اللاعبين"
   },
+  "common": {
+    "playersUnavailable": "قائمة اللاعبين غير متاحة",
+    "playersUnavailableTitle": "قائمة اللاعبين غير متاحة",
+    "noPermissionEndangerOrImpersonate": "يتطلب هذا الإجراء صلاحية players.endanger_or_impersonate، وهذا الدور لا يملكها."
+  },
   "statusBar": {
     "panelBridge": "PanelBridge",
     "online": "متصل",
@@ -303,6 +308,7 @@
     "spawnBehind": "استدعاء خلف {{target}}",
     "random": "عشوائي",
     "targetFallback": "الهدف",
+    "permissionRequired": "يتطلب إذن «تعريض لاعب للخطر أو انتحال شخصيته»",
     "clearLoadedZombies": "إزالة الزومبي المحمَّلين",
     "removeAllConfirmTitle": "إزالة كل الزومبي المحمَّلين؟",
     "removeAllConfirmDescription": "يزيل هذا فورًا كل زومبي في الخلايا المحمَّلة على مستوى الخادم كله -- بما في ذلك أي زومبي يقاتله لاعب في هذه اللحظة. يعود الزومبي بمرور الوقت، لكن هذا ينهي تلك المواجهة فورًا على من كان فيها.",

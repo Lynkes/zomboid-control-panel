@@ -1,4 +1,11 @@
 {
+  "permissions": {
+    "noPanelSettings": "حفظ هذه الإعدادات يتطلب إذن panel.settings، وهذا الدور لا يملكه.",
+    "noDiagnosticsManage": "يتطلب هذا الإجراء إذن diagnostics.manage، وهذا الدور لا يملكه.",
+    "noServerConfigure": "يتطلب اختبار اتصال RCON إذن server.configure، وهذا الدور لا يملكه.",
+    "noBridgeSetup": "يتطلب هذا الإجراء إذن bridge.setup، وهذا الدور لا يملكه.",
+    "adminOnly": "هذا الإجراء مقتصر على دور المسؤول (admin)."
+  },
   "__pendingPluralForms": [
     "backups.backupsStored_few",
     "backups.backupsStored_many",
@@ -351,6 +358,8 @@
     "cardTitle": "اتصال RCON",
     "cardDesc": "اختبر الاتصال واضبط سلوك إعادة الاتصال. أما المضيف والمنفذ وكلمة المرور فتُضبط لكل خادم على حدة في صفحة الخوادم.",
     "testButton": "اختبار الاتصال",
+    "testResultOk": "متصل",
+    "testResultFailed": "فشل الاتصال",
     "autoReconnectLabel": "إعادة الاتصال تلقائيًا عند الانقطاع",
     "reconnectIntervalLabel": "فترة إعادة الاتصال (بالثواني)",
     "perServerNote": "يُضبط RCON لكل خادم على حدة:",
@@ -363,8 +372,26 @@
     "autoStartDesc": "يُتخطى هذا تلقائيًا عندما يكون منفذ RCON مستخدمًا بالفعل، فلا يتكرر خادم يعمل أصلًا. ويتطلب مسار تثبيت محلي؛ أما الخوادم المستضافة لدى مزوّد فيشغّلها المزوّد."
   },
   "bridge": {
+    "checksLabels": {
+      "bridgePathConfigured": "تم ضبط مسار الجسر",
+      "bridgePathExists": "مجلد الجسر موجود",
+      "bridgePathReadable": "مجلد الجسر قابل للقراءة",
+      "bridgePathWritable": "مجلد الجسر قابل للكتابة",
+      "inboxDirPresent": "مجلد الوارد موجود",
+      "outboxDirPresent": "مجلد الصادر موجود",
+      "commandsFilePresent": "ملف الأوامر موجود",
+      "commandsFileReadable": "ملف الأوامر قابل للقراءة",
+      "resultsFilePresent": "ملف النتائج موجود",
+      "resultsFileReadable": "ملف النتائج قابل للقراءة",
+      "statusFilePresent": "ملف الحالة موجود",
+      "statusFileReadable": "ملف الحالة قابل للقراءة",
+      "statusFresh": "الحالة حديثة"
+    },
     "cardTitle": "Panel Bridge",
     "cardDesc": "يربط هذه اللوحة باللعبة المباشرة للتحكم في الطقس والمرافق ودردشة أغنى وإجراءات أخرى داخل العالم",
+    "sectionStatusSetup": "الحالة والإعداد",
+    "sectionRemoteConfigLogs": "إعدادات وسجلات الخادم البعيد",
+    "sectionInstallUpdates": "التثبيت والتحديثات",
     "howItWorksButton": "كيف يعمل",
     "dialogTitle": "Panel Bridge",
     "dialogDesc": "مود مكتوب بلغة Lua يعمل داخل Project Zomboid، ويمنح هذه اللوحة وصولًا مباشرًا إلى عالم اللعبة الحي.",
@@ -563,6 +590,8 @@
     "loadFailedDescription": "هذه ليست بالضرورة قائمة فارغة — فقد فشل طلب قائمة النسخ الاحتياطية. أعد فتح هذه الصفحة للمحاولة من جديد.",
     "statusLoadFailed": "تعذّر التحقق مما إذا كانت النسخ الاحتياطية المجدولة مفعَّلة — وهذا المفتاح معطَّل حتى يكتمل التحميل. أعد فتح هذه الصفحة للمحاولة من جديد.",
     "restoreTitle": "استعادة هذه النسخة الاحتياطية (يجب أن يكون الخادم متوقفًا)",
+    "downloadTitle": "تنزيل هذه النسخة الاحتياطية",
+    "deleteTitle": "حذف هذه النسخة الاحتياطية",
     "restoreDialogTitle": "استعادة نسخة احتياطية",
     "restoreDialogIntro": "سيؤدي هذا إلى استعادة <b>{{name}}</b> و<b>الكتابة فوق</b> بيانات العالم الحالية.",
     "restoreMustBeStopped": "يجب أن يكون الخادم <b>متوقفًا</b>",
@@ -865,6 +894,7 @@
     "inSync_many": "متزامن — العناصر: {{count}}"
   },
   "toasts": {
+    "backupPanelServerChanged": { "title": "تم تغيير الخادم النشط", "description": "تغيّر الخادم النشط. تقوم هذه اللوحة بالتحديث للخادم النشط حاليًا — أعد المحاولة بعد انتهائها." },
     "recoveryCodesGenerated": {
       "title": "تم توليد رموز الاسترداد",
       "description": "احفظها الآن — لا يمكن عرضها مرة أخرى."
@@ -892,6 +922,9 @@
       "title": "تعذّر حفظ الإعدادات",
       "fallback": "تعذّر على اللوحة حفظ إعداداتك. حاول من جديد."
     },
+    "autoStartEnabled": { "title": "تم تفعيل التشغيل التلقائي", "description": "سيبدأ الخادم تلقائيًا عند تشغيل اللوحة" },
+    "autoStartDisabled": { "title": "تم تعطيل التشغيل التلقائي", "description": "لن يبدأ الخادم تلقائيًا" },
+    "autoStartSaveFailed": { "title": "فشل حفظ إعداد التشغيل التلقائي", "fallback": "تعذّر على اللوحة حفظ إعداد التشغيل التلقائي. حاول من جديد." },
     "corsReloaded": {
       "title": "أُعيد تحميل قواعد CORS",
       "description": "أعاد الخادم الخلفي تحميل إعدادات CORS من قاعدة البيانات."

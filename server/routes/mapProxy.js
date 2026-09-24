@@ -957,13 +957,17 @@ router.get("/tiles/:level/:tile", async (req, res) => {
   const floorRaw = Array.isArray(req.query.floor)
     ? req.query.floor[0]
     : req.query.floor;
-  const floor = parseBoundedInteger(String(floorRaw ?? "0"), null, -17, 29);
+  const floor = parseBoundedInteger(String(floorRaw ?? "0"), null, -1, 7);
 
   if (level === null) {
     return res.status(400).json({ error: "Invalid level" });
   }
-  // Client clamps floor to -17..29 (WorldMap.tsx changeFloor); keep the
-  // backend in sync so anything outside the real range is rejected early.
+  // Client clamps floor to -1..7 (WorldMap.tsx changeFloor -- "Published
+  // B42 map layers: -1 = basement, 0 = ground, 1-7 = upper floors"); keep
+  // the backend in sync so a request naming a layer that was never
+  // published (this bound had drifted to -17..29) is rejected early instead
+  // of proxying a `layerN_files` upstream path for a floor that doesn't
+  // exist.
   if (floor === null) {
     return res.status(400).json({ error: "Invalid floor" });
   }
