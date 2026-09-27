@@ -4237,7 +4237,7 @@ export default function ServerConfig() {
                                           </SelectTrigger>
                                           <SelectContent>
                                             {opt.enumValues.map((ev, ei) => (
-                                              <SelectItem key={ei} value={String(ei)} className="text-xs font-mono">
+                                              <SelectItem key={ei} value={String(ei + 1)} className="text-xs font-mono">
                                                 {ev}
                                               </SelectItem>
                                             ))}
